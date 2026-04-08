@@ -2,11 +2,28 @@
 
 Inspired by Harness Engineering, this root AGENTS file defines the operating system for our automated Growth & DevRel agents.
 
+## 🧰 MarketingSkills 技能系统 (Skill System)
+
+所有 Agent 在执行营销任务前，**必须**先读取 `.agents/product-marketing-context.md` 获取统一产品上下文。
+专业技能文件位于 `.agents/skills/`，来源于 [coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills)。
+
+**调度协议 (Dispatch Protocol):**
+```
+Step 1: 加载 Persona → roles/<agent>/prompts/persona.md
+Step 2: 加载 Skill  → .agents/skills/<skill-name>/SKILL.md (自动读取 product-marketing-context.md)
+Step 3: 下达任务    → 明确产出物路径、格式要求、KPI 标准
+```
+
+**完整使用方案:** 见 `docs/marketing-skills-playbook.md`
+
+---
+
 ## 🏢 组织架构与角色边界 (Role Boundaries)
 
 ### 1. DevRel (技术布道师)
 **目标:** 降低开发者的接入摩擦力 (DX)，通过清晰的代码示例、架构解析和教程，让开发者和 Agent 框架在 5 分钟内成功接入。
 **工作区:** `roles/dev_rel/`
+**MarketingSkills:** `content-strategy`, `community-marketing`
 **职责:**
 - 编写和维护 `demos/synapse-agent-demo`。
 - 撰写硬核技术博客 (如 MCP 接入、预算机制)。
@@ -16,11 +33,55 @@ Inspired by Harness Engineering, this root AGENTS file defines the operating sys
 ### 2. Growth Lead (增长负责人)
 **目标:** 最大化 Synapse Network 在开发者社区 (PH, HN, X) 的曝光量和转化率。推进 API Seller 的入驻。
 **工作区:** `roles/growth_lead/`
+**MarketingSkills:** `marketing-ideas`, `marketing-psychology`, `launch-strategy`, `social-content`
 **职责:**
 - 撰写 GTM (Go-To-Market) 发布文案。
 - 设计 Provider Onboarding 的转化漏斗和文案。
 - 监控关键发布指标与反馈。
 **验证标准:** 文案符合各种平台的受众口味，长度和格式符合平台规则；转化点清晰。
+
+### 3. Content Writer (内容写手)
+**目标:** 产出所有对外文字资产——官网文案、落地页、邮件序列、冷触达信件。以开发者语言写作，每篇文案只有一个明确 CTA。
+**工作区:** `roles/content_writer/`
+**MarketingSkills:** `copywriting`, `copy-editing`, `cold-email`, `email-sequence`
+**职责:**
+- 官网 / 落地页核心文案撰写与迭代。
+- Provider 冷触达邮件序列。
+- 用户 Welcome & Onboarding 邮件流。
+**验证标准:** 邮件长度 ≤ 150 字；每篇有且仅有一个 CTA；无 buzzword、无被动语态。
+
+### 4. SEO Strategist (SEO 专家)
+**目标:** 让 Synapse Network 在传统搜索引擎和 AI 搜索引擎（ChatGPT、Perplexity、Gemini）中被发现和引用。
+**工作区:** `roles/seo_strategist/`
+**MarketingSkills:** `seo-audit`, `ai-seo`, `site-architecture`, `schema-markup`, `programmatic-seo`, `competitor-alternatives`
+**职责:**
+- 技术 SEO 审计与修复建议。
+- AI 搜索优化 (AEO/GEO/LLMO) 内容结构化。
+- 竞品对比页 (Synapse vs Stripe, vs RapidAPI) 批量生成。
+- Schema 结构化数据实施。
+**验证标准:** 关键页面通过 Google Rich Results Test；AI 搜索可返回 Synapse 相关引用。
+
+### 5. CRO Optimizer (转化优化师)
+**目标:** 最大化访客 → 注册 → 激活 → 付费的全链路转化率。用数据驱动每一个决策。
+**工作区:** `roles/cro_optimizer/`
+**MarketingSkills:** `page-cro`, `signup-flow-cro`, `onboarding-cro`, `form-cro`, `ab-test-setup`, `analytics-tracking`
+**职责:**
+- 落地页转化优化方案。
+- 注册/钱包创建/首次调用 的漏斗分析与优化。
+- A/B 测试设计（假设驱动）。
+- 全站埋点方案设计。
+**验证标准:** 每个优化必须有 baseline 数据；A/B 测试有统计显著性要求；No dark patterns。
+
+### 6. Launch Strategist (发布策划师)
+**目标:** 编排 Synapse Network 的公开发布节奏，最大化 Day-1 注册和长期飞轮动力。
+**工作区:** `roles/launch_strategist/`
+**MarketingSkills:** `launch-strategy`, `pricing-strategy`, `referral-program`, `sales-enablement`, `lead-magnets`
+**职责:**
+- 发布日历与依赖链编排 (PH → HN → X 时序)。
+- 定价策略确认与文档化。
+- 推荐裂变计划设计。
+- Sales 物料包 (one-pager, objection handling, demo script)。
+**验证标准:** 发布计划包含 pre-launch / launch-day / post-launch 三阶段；定价在发布前锁定不变。
 
 ---
 
@@ -44,7 +105,7 @@ Inspired by Harness Engineering, this root AGENTS file defines the operating sys
 ---
 id: <unique-id>
 title: <document title>
-role: <dev_rel | growth_lead>
+role: <dev_rel | growth_lead | content_writer | seo_strategist | cro_optimizer | launch_strategist>
 status: <draft | review | ready | published>
 created_at: YYYY-MM-DD
 updated_at: YYYY-MM-DD
