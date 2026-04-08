@@ -1,0 +1,58 @@
+{
+  "profile_id": "python-service",
+  "variables": {
+    "python_bin": "python3",
+    "tests_dir": "tests"
+  },
+  "facts": {
+    "language.python": false,
+    "testing.pytest_configured": false,
+    "testing.layout": true
+  },
+  "detectors": [
+    {
+      "id": "python_project",
+      "kind": "path_exists",
+      "output": "language.python",
+      "matched": false,
+      "matched_paths": [],
+      "config": {
+        "any_of": [
+          "pyproject.toml",
+          "requirements.txt",
+          "setup.py"
+        ]
+      }
+    },
+    {
+      "id": "pytest_configured",
+      "kind": "file_contains",
+      "output": "testing.pytest_configured",
+      "matched": false,
+      "matched_paths": [],
+      "config": {
+        "path": "pyproject.toml",
+        "any_of": [
+          "pytest",
+          "tool.pytest",
+          "pytest.ini_options"
+        ]
+      }
+    },
+    {
+      "id": "tests_layout",
+      "kind": "path_exists",
+      "output": "testing.layout",
+      "matched": true,
+      "matched_paths": [
+        "tests/"
+      ],
+      "config": {
+        "any_of": [
+          "tests/",
+          "test/"
+        ]
+      }
+    }
+  ]
+}

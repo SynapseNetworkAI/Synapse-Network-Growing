@@ -1,3 +1,26 @@
+# AGENTS
+
+<!-- agents-memory:read-order:start -->
+## Agents-Memory Read Order
+
+Generated for the `python-service` profile. Treat the files below as the source of truth.
+
+1. `.github/instructions/agents-memory-bridge.instructions.md`
+2. `.github/instructions/agents-memory/standards/python/base.instructions.md`
+3. `.github/instructions/agents-memory/standards/python/tdd.instructions.md`
+4. `.github/instructions/agents-memory/standards/python/dry.instructions.md`
+5. `.github/instructions/agents-memory/standards/python/project-structure.instructions.md`
+6. `.github/instructions/agents-memory/standards/docs/docs-sync.instructions.md`
+7. `.github/instructions/agents-memory/standards/planning/harness-engineering.md`
+8. `.github/instructions/agents-memory/standards/planning/spec-kit.md`
+9. `.github/instructions/agents-memory/standards/planning/review-checklist.md`
+
+## Notes
+
+- Keep project-specific notes outside this managed block.
+- Re-run `amem enable . --full` or `amem standards-sync .` after profile-managed standard changes.
+<!-- agents-memory:read-order:end -->
+
 # Synapse-Growing: Agentic Operations Protocol
 
 Inspired by Harness Engineering, this root AGENTS file defines the operating system for our automated Growth & DevRel agents.

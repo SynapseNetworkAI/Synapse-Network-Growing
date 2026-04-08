@@ -208,3 +208,11 @@ __marimo__/
 
 # Cloned marketingskills source (installed skills are in .agents/skills/)
 .marketingskills/
+
+# Dashboard
+node_modules/
+dashboard/dist/
+
+# SQLite
+*.db
+.DS_Store

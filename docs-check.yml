@@ -1,0 +1,10 @@
+version: 1
+required_docs:
+  - README.md
+  - docs/README.md
+  - docs/getting-started.md
+required_tests:
+  - tests/
+required_validation:
+  - amem docs-check .
+  - python3.12 -m unittest discover -s tests -p 'test_*.py'
