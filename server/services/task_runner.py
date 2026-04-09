@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
-from server.config import PROJECT_ROOT
+from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
 from server.services.task_runtime import get_task_runtime, RuntimeEvent
 
 logger = logging.getLogger("ops-dashboard.task_runner")
@@ -37,6 +37,12 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         output_dir = PROJECT_ROOT / "roles" / role_id / "outputs" / f"task-{task_id}"
 
         _log(db, task_id, "crew_started", f"skill={skill_name}")
+        _log(
+            db,
+            task_id,
+            "runtime_submitted",
+            f"backend={ORCHESTRATION_BACKEND} agent={role_id} skill={skill_name}",
+        )
         db.commit()
 
         # Parse context_files from task (JSON list stored as text)

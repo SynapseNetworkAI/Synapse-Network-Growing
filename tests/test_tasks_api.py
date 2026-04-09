@@ -1,6 +1,7 @@
 """Tests for /api/tasks endpoints."""
 from unittest.mock import patch, MagicMock
 
+from server.config import ORCHESTRATION_BACKEND
 from server.database import AgentRow
 from server.services.task_runtime import TaskExecutionResult
 
@@ -209,7 +210,7 @@ def test_run_task_no_approval(synced_client):
     data = resp.json()
     assert data["status"] == "running"
     assert data["skill_name"] == "content-strategy"
-    assert data["runtime_backend"] == "legacy"
+    assert data["runtime_backend"] == ORCHESTRATION_BACKEND
 
 
 def test_run_task_with_approval(synced_client):
@@ -226,7 +227,7 @@ def test_run_task_with_approval(synced_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "running"
-    assert data["runtime_backend"] == "legacy"
+    assert data["runtime_backend"] == ORCHESTRATION_BACKEND
 
 
 def test_run_task_already_running(synced_client):
@@ -447,5 +448,6 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
 
     logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
     event_types = [log["event_type"] for log in logs]
+    assert "runtime_submitted" in event_types
     assert "runtime_started" in event_types
     assert "subagent_selected" in event_types

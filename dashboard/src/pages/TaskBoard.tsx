@@ -76,7 +76,13 @@ export default function TaskBoard() {
   const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const drawerLogsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const suggestionRequestRef = useRef(0)
+
+  const loadDrawerLogs = useCallback(async (taskId: number) => {
+    const logs = await api.getTaskLogs(taskId)
+    setDrawerLogs((prev) => ({ ...prev, [taskId]: logs }))
+  }, [])
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([
@@ -120,13 +126,9 @@ export default function TaskBoard() {
   }, [drawerTaskId, taskHistory])
 
   useEffect(() => {
-    if (drawerTaskId == null || drawerLogs[drawerTaskId]) return
-    api.getTaskLogs(drawerTaskId)
-      .then((logs) => {
-        setDrawerLogs((prev) => ({ ...prev, [drawerTaskId]: logs }))
-      })
-      .catch(() => {})
-  }, [drawerTaskId, drawerLogs])
+    if (drawerTaskId == null) return
+    loadDrawerLogs(drawerTaskId).catch(() => {})
+  }, [drawerTaskId, loadDrawerLogs])
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((task) => task.id === id && RETRYABLE_STATUSES.has(task.status))))
@@ -134,6 +136,25 @@ export default function TaskBoard() {
       setDrawerTaskId(null)
     }
   }, [tasks, drawerTaskId])
+
+  useEffect(() => {
+    if (drawerLogsPollRef.current) {
+      clearInterval(drawerLogsPollRef.current)
+      drawerLogsPollRef.current = null
+    }
+    if (drawerTaskId == null) return
+    const drawerTask = tasks.find((task) => task.id === drawerTaskId)
+    if (drawerTask?.status !== 'running') return
+    drawerLogsPollRef.current = setInterval(() => {
+      loadDrawerLogs(drawerTaskId).catch(() => {})
+    }, 3000)
+    return () => {
+      if (drawerLogsPollRef.current) {
+        clearInterval(drawerLogsPollRef.current)
+        drawerLogsPollRef.current = null
+      }
+    }
+  }, [drawerTaskId, tasks, loadDrawerLogs])
 
   const selectedAgent = agents.find(a => a.id === form.agent_id)
   const selectedAgentSkills: string[] = (() => {
