@@ -56,6 +56,14 @@ Systematic inspection entry point:
 agent-browser open http://127.0.0.1:9700/tasks
 ```
 
+## Key Docs
+
+1. `docs/phase2-plan.md` - Phase 2 dashboard implementation baseline
+2. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
+3. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
+4. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
+5. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
+
 Synapse-Network-Growing/
 ├── README.md                 # 30天战役总纲与里程碑跟踪（已更新）
 ├── AGENTS.md                 # 【必须】定义各路 AI Agent 的角色系统边界、权限与交互规则 
