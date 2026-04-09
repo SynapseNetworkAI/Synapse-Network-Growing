@@ -1,5 +1,6 @@
-"""Tests for skill_loader, context_loader, crew_engine, task_runner, and skills API."""
+"""Tests for skill_loader, context_loader, crew_engine, task_runner, llm_adapter, and skills API."""
 import json
+import os
 import time
 import threading
 from pathlib import Path
@@ -124,12 +125,14 @@ def test_crew_engine_build_user_message_missing_skill():
 def test_crew_engine_execute_no_api_key():
     from server.services.crew_engine import CrewEngine
     from server.config import PROJECT_ROOT
+    from server.services.llm_adapter import OpenAIProvider
     engine = CrewEngine(PROJECT_ROOT)
     persona = {"display_name": "Test", "goal": "Test", "body": ""}
-    with patch("server.services.crew_engine.LLM_API_KEY", ""):
+    # Force openai provider with no key
+    with patch("server.services.llm_adapter.get_provider", return_value=OpenAIProvider(api_key="")):
         result = engine.execute(persona, "seo-audit", "test task")
     assert result.error is not None
-    assert "OPENAI_API_KEY" in result.error
+    assert "API_KEY" in result.error
 
 
 def test_crew_engine_execute_success(tmp_path):
@@ -141,16 +144,12 @@ def test_crew_engine_execute_success(tmp_path):
     (skills_dir / "SKILL.md").write_text("# Test Skill\nDo the thing.")
 
     persona = {"display_name": "Tester", "goal": "Test", "body": "You test."}
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "choices": [{"message": {"content": "# Result\nDone!"}}],
-        "usage": {"total_tokens": 42},
-    }
+    mock_provider = MagicMock()
+    mock_provider.name = "openai"
+    mock_provider.call.return_value = ("# Result\nDone!", 42)
 
-    with patch("server.services.crew_engine.LLM_API_KEY", "sk-test"), \
-         patch("server.services.crew_engine.load_skill") as mock_load, \
-         patch("httpx.post", return_value=mock_resp):
+    with patch("server.services.crew_engine.get_provider", return_value=mock_provider), \
+         patch("server.services.crew_engine.load_skill") as mock_load:
         mock_load.return_value = "# Test Skill\nDo the thing."
         output_dir = tmp_path / "output"
         result = engine.execute(persona, "test-skill", "do the test", output_dir=output_dir)
@@ -173,12 +172,11 @@ def test_crew_engine_execute_api_error():
     from server.config import PROJECT_ROOT
     engine = CrewEngine(PROJECT_ROOT)
     persona = {"display_name": "Test", "goal": "Test", "body": ""}
-    mock_resp = MagicMock()
-    mock_resp.status_code = 429
-    mock_resp.text = "Rate limited"
+    mock_provider = MagicMock()
+    mock_provider.name = "openai"
+    mock_provider.call.side_effect = RuntimeError("LLM API error 429: Rate limited")
 
-    with patch("server.services.crew_engine.LLM_API_KEY", "sk-test"), \
-         patch("httpx.post", return_value=mock_resp):
+    with patch("server.services.crew_engine.get_provider", return_value=mock_provider):
         result = engine.execute(persona, "seo-audit", "test")
     assert result.error is not None
     assert "429" in result.error
@@ -378,3 +376,123 @@ def test_task_runner_with_approval(synced_client):
     # Approval should exist
     approvals = synced_client.get("/api/approvals?status=pending").json()
     assert any(a["task_id"] == task_id for a in approvals)
+
+
+# ── LLM adapter tests ───────────────────────────────────────
+
+
+def test_adapter_get_provider_default():
+    from server.services.llm_adapter import get_provider, OpenAIProvider
+    with patch("server.config.LLM_PROVIDER", "openai"):
+        p = get_provider()
+    assert isinstance(p, OpenAIProvider)
+
+
+def test_adapter_get_provider_claude():
+    from server.services.llm_adapter import get_provider, ClaudeProvider
+    p = get_provider("claude")
+    assert isinstance(p, ClaudeProvider)
+
+
+def test_adapter_get_provider_copilot():
+    from server.services.llm_adapter import get_provider, CopilotProvider
+    p = get_provider("copilot")
+    assert isinstance(p, CopilotProvider)
+
+
+def test_adapter_get_provider_unknown():
+    from server.services.llm_adapter import get_provider
+    with pytest.raises(ValueError, match="Unknown LLM provider"):
+        get_provider("gemini")
+
+
+def test_adapter_openai_no_key():
+    from server.services.llm_adapter import OpenAIProvider
+    provider = OpenAIProvider(api_key="")
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        provider.call("sys", "usr", "gpt-4o", 0.7, 30)
+
+
+def test_adapter_claude_no_key():
+    from server.services.llm_adapter import ClaudeProvider
+    provider = ClaudeProvider(api_key="")
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+        provider.call("sys", "usr", "claude-3-5-sonnet-20241022", 0.7, 30)
+
+
+def test_adapter_copilot_no_key():
+    from server.services.llm_adapter import CopilotProvider
+    provider = CopilotProvider(api_key="")
+    with pytest.raises(RuntimeError, match="GITHUB_TOKEN"):
+        provider.call("sys", "usr", "gpt-4o", 0.7, 30)
+
+
+def test_adapter_openai_call_success():
+    from server.services.llm_adapter import OpenAIProvider
+    provider = OpenAIProvider(api_key="sk-test", base_url="http://localhost:9999")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "Hello!"}}],
+        "usage": {"total_tokens": 10},
+    }
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        text, tokens = provider.call("sys", "usr", "gpt-4o", 0.7, 30)
+    assert text == "Hello!"
+    assert tokens == 10
+    mock_post.assert_called_once()
+    call_args = mock_post.call_args
+    assert "Bearer sk-test" in call_args.kwargs["headers"]["Authorization"]
+
+
+def test_adapter_claude_call_success():
+    from server.services.llm_adapter import ClaudeProvider
+    provider = ClaudeProvider(api_key="sk-ant-test", base_url="http://localhost:9999")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "content": [{"text": "Bonjour!"}],
+        "usage": {"input_tokens": 5, "output_tokens": 8},
+    }
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        text, tokens = provider.call("sys", "usr", "claude-3-5-sonnet-20241022", 0.7, 30)
+    assert text == "Bonjour!"
+    assert tokens == 13
+    call_args = mock_post.call_args
+    assert call_args.kwargs["headers"]["x-api-key"] == "sk-ant-test"
+    assert call_args.kwargs["headers"]["anthropic-version"] == "2023-06-01"
+
+
+def test_adapter_copilot_call_success():
+    from server.services.llm_adapter import CopilotProvider
+    provider = CopilotProvider(api_key="ghp_test", base_url="http://localhost:9999")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "Copilot says hi"}}],
+        "usage": {"total_tokens": 7},
+    }
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        text, tokens = provider.call("sys", "usr", "gpt-4o", 0.5, 30)
+    assert text == "Copilot says hi"
+    assert tokens == 7
+    call_args = mock_post.call_args
+    assert "Bearer ghp_test" in call_args.kwargs["headers"]["Authorization"]
+
+
+def test_adapter_api_error():
+    from server.services.llm_adapter import OpenAIProvider
+    provider = OpenAIProvider(api_key="sk-test")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+    mock_resp.text = "Internal Server Error"
+    with patch("httpx.post", return_value=mock_resp):
+        with pytest.raises(RuntimeError, match="LLM API error 500"):
+            provider.call("sys", "usr", "gpt-4o", 0.7, 30)
+
+
+def test_adapter_provider_from_env():
+    from server.services.llm_adapter import get_provider, ClaudeProvider
+    with patch("server.config.LLM_PROVIDER", "claude"):
+        p = get_provider()
+    assert isinstance(p, ClaudeProvider)

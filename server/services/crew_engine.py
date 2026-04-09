@@ -1,7 +1,6 @@
 """Agent execution engine — assembles Persona + Skill + Context and calls LLM.
 
-Uses direct OpenAI-compatible HTTP API via httpx (avoids crewai/openai package
-dependency issues on Python 3.14).
+Uses the LLM adapter layer to support multiple providers (OpenAI, Claude, Copilot).
 """
 import json
 import logging
@@ -10,20 +9,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
-
 from server.services.skill_loader import load_skill
 from server.services.context_loader import load_context
-from server.config import PROJECT_ROOT
+from server.services.llm_adapter import get_provider, LLMProvider
+from server.config import PROJECT_ROOT, LLM_MODEL, LLM_TEMPERATURE, LLM_TIMEOUT
 
 logger = logging.getLogger("ops-dashboard.crew_engine")
-
-# ── Configuration ─────────────────────────────────────────────
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")
-LLM_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
-LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "300"))  # 5 min
 
 
 @dataclass
@@ -139,38 +130,8 @@ class CrewEngine:
         return "\n\n---\n\n".join(parts)
 
     def _call_llm(self, system: str, user: str, model: str) -> tuple[str, int]:
-        """Make an OpenAI-compatible chat completion HTTP call."""
-        if not LLM_API_KEY:
-            raise RuntimeError(
-                "OPENAI_API_KEY not set. Configure the environment variable to enable LLM execution."
-            )
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "temperature": LLM_TEMPERATURE,
-        }
-
-        logger.info("Calling LLM: model=%s, system=%d chars, user=%d chars",
-                     model, len(system), len(user))
-
-        resp = httpx.post(
-            f"{LLM_BASE_URL}/chat/completions",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            timeout=LLM_TIMEOUT,
-        )
-
-        if resp.status_code != 200:
-            raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
-
-        data = resp.json()
-        text = data["choices"][0]["message"]["content"]
-        tokens = data.get("usage", {}).get("total_tokens", 0)
-        return text, tokens
+        """Dispatch to the configured LLM provider."""
+        provider = get_provider()
+        logger.info("Calling LLM: provider=%s, model=%s, system=%d chars, user=%d chars",
+                     provider.name, model, len(system), len(user))
+        return provider.call(system, user, model, LLM_TEMPERATURE, LLM_TIMEOUT)

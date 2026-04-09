@@ -2,7 +2,7 @@
 id: crewai-execution-integration
 title: "CrewAI 真实执行集成方案"
 version: "1.0"
-status: draft
+status: implemented
 created_at: 2026-04-11
 author: CTO
 ---
