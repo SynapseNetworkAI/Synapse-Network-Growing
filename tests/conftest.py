@@ -41,7 +41,9 @@ def setup_db():
     app.dependency_overrides[get_db] = _override_get_db
     Base.metadata.create_all(bind=TEST_ENGINE)
     # Also patch SessionLocal used by task_runner to use test DB
-    with patch("server.services.task_runner.SessionLocal", TestSession):
+    with patch("server.services.task_runner.SessionLocal", TestSession), patch(
+        "server.services.copilot_sdk_monitor.SessionLocal", TestSession
+    ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False):
         yield
     Base.metadata.drop_all(bind=TEST_ENGINE)
     app.dependency_overrides.clear()

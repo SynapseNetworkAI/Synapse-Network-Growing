@@ -5,15 +5,16 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from server.config import CORS_ORIGINS, ENV, PORT, LOG_LEVEL
+from server import config
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth
 from server.services.org_builder import build_org_tree
+from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -22,18 +23,27 @@ logger = logging.getLogger("ops-dashboard")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Ops Dashboard (env=%s, port=%s)", ENV, PORT)
+    logger.info("Starting Ops Dashboard (env=%s, port=%s)", config.ENV, config.PORT)
     init_db()
     logger.info("Database initialized")
-    yield
-    logger.info("Shutting down")
+    monitor = None
+    if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:
+        monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
+        monitor.start()
+        app.state.copilot_runtime_monitor = monitor
+    try:
+        yield
+    finally:
+        if monitor is not None:
+            monitor.stop()
+        logger.info("Shutting down")
 
 
 app = FastAPI(title="Synapse Agentic Ops Dashboard", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

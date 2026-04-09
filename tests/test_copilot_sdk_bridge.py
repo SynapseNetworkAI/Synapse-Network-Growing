@@ -54,3 +54,23 @@ def test_bridge_uses_unbounded_subprocess_timeout_when_zero(tmp_path):
         bridge.run_session({"model": "gpt-5.4", "prompt": "hi"}, timeout=0)
 
     assert mock_run.call_args.kwargs["timeout"] is None
+
+
+def test_bridge_spawns_detached_worker(tmp_path):
+    bridge = _bridge(tmp_path)
+
+    with patch("subprocess.Popen") as mock_popen:
+        process = mock_popen.return_value
+        process.pid = 4321
+        process.stdin.write.return_value = None
+        process.stdin.flush.return_value = None
+        process.stdin.close.return_value = None
+
+        pid = bridge.start_session({
+            "sessionId": "session-123",
+            "stdoutPath": str(tmp_path / "worker.stdout.log"),
+            "stderrPath": str(tmp_path / "worker.stderr.log"),
+        })
+
+    assert pid == 4321
+    assert mock_popen.call_args.kwargs["start_new_session"] is True

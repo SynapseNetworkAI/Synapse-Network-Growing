@@ -1,8 +1,10 @@
 """Tests for /api/tasks endpoints."""
 from unittest.mock import patch, MagicMock
+from typing import Any, cast
+from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
-from server.database import AgentRow
+from server.database import AgentRow, TaskRow
 from server.services.task_runtime import TaskExecutionResult
 
 
@@ -15,16 +17,19 @@ def _runtime_result(
     runtime_session_id: str | None = None,
     runtime_selected_agent: str | None = None,
     events=None,
+    deferred: bool = False,
+    files=None,
 ):
     return TaskExecutionResult(
         text=text,
-        files=[],
+        files=files or [],
         error=error,
         execution_time_ms=execution_time_ms,
         runtime_backend=runtime_backend,
         runtime_session_id=runtime_session_id,
         runtime_selected_agent=runtime_selected_agent,
         events=events or [],
+        deferred=deferred,
     )
 
 
@@ -451,3 +456,164 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
     assert "runtime_submitted" in event_types
     assert "runtime_started" in event_types
     assert "subagent_selected" in event_types
+
+
+def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_path):
+    from server.services.task_runner import _run_task_sync
+    from server.services.task_runtime import RuntimeEvent
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Detach copilot runtime",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
+    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.task_runner.get_task_runtime"
+    ) as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            execution_time_ms=7,
+            runtime_backend="copilot_sdk",
+            runtime_session_id="session-async-123",
+            events=[RuntimeEvent(event_type="runtime_started", detail="backend=copilot_sdk")],
+            deferred=True,
+            files=[predicted_output],
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "running"
+    assert task["runtime_session_id"] == "session-async-123"
+    assert task["output_path"] == str(predicted_output)
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_detached" in event_types
+
+
+def test_copilot_monitor_completes_detached_task(synced_client, db_session, tmp_path):
+    import json
+
+    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.task_runner import _run_task_sync
+    from server.services.task_runtime import RuntimeEvent
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Complete detached copilot runtime",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    predicted_output = task_output_dir(tmp_path, "content_writer", task_id) / "output.md"
+    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.task_runner.get_task_runtime"
+    ) as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            execution_time_ms=7,
+            runtime_backend="copilot_sdk",
+            runtime_session_id="session-async-456",
+            events=[RuntimeEvent(event_type="runtime_started", detail="backend=copilot_sdk")],
+            deferred=True,
+            files=[predicted_output],
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    output_dir = task_output_dir(tmp_path, "content_writer", task_id)
+    paths = copilot_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["output"].write_text("# Detached output\nFinished asynchronously", encoding="utf-8")
+    paths["state"].write_text(json.dumps({
+        "sessionId": "session-async-456",
+        "status": "completed",
+        "selectedAgent": "editor",
+        "executionTimeMs": 314,
+        "lastSeq": 2,
+        "heartbeatAt": "2026-04-09T00:00:00+00:00",
+    }), encoding="utf-8")
+    paths["events"].write_text(
+        "\n".join([
+            json.dumps({"seq": 1, "type": "session.created", "detail": "session-async-456"}),
+            json.dumps({"seq": 2, "type": "subagent.selected", "detail": "editor"}),
+        ]),
+        encoding="utf-8",
+    )
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    monitor.poll_once()
+
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "completed"
+    assert task["runtime_selected_agent"] == "editor"
+    assert task["execution_time_ms"] == 314
+    assert "Detached output" in task["output_content"]
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_session_created" in event_types
+    assert "subagent_selected" in event_types
+    assert "completed" in event_types
+
+
+def test_copilot_monitor_resumes_stale_task(synced_client, db_session, tmp_path):
+    import json
+
+    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Resume stale task",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).runtime_backend = "copilot_sdk"
+    cast(Any, row).runtime_session_id = "session-stale-789"
+    cast(Any, row).runtime_selected_agent = "editor"
+    db_session.commit()
+
+    output_dir = task_output_dir(tmp_path, "content_writer", task_id)
+    paths = copilot_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["state"].write_text(json.dumps({
+        "sessionId": "session-stale-789",
+        "status": "running",
+        "selectedAgent": "editor",
+        "lastEventType": "assistant.message",
+        "heartbeatAt": "2000-01-01T00:00:00+00:00",
+    }), encoding="utf-8")
+
+    bridge = MagicMock()
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    monitor = CopilotSDKTaskMonitor(
+        project_root=tmp_path,
+        session_factory=session_factory,
+        bridge=bridge,
+        stale_after_sec=1,
+    )
+    monitor.poll_once()
+
+    bridge.resume_session.assert_called_once()
+    resumed_payload = bridge.resume_session.call_args.args[0]
+    assert resumed_payload["action"] == "resume"
+    assert resumed_payload["sessionId"] == "session-stale-789"
+    assert resumed_payload["assumeAlreadyIdle"] is True

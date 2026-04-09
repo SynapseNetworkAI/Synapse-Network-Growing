@@ -63,6 +63,7 @@ class TaskRow(Base):
     runtime_backend = Column(Text, default="")
     runtime_session_id = Column(Text)
     runtime_selected_agent = Column(Text)
+    runtime_event_cursor = Column(Integer, default=0)
     output_path = Column(Text)
     output_content = Column(Text)
     execution_time_ms = Column(Integer)
@@ -130,6 +131,7 @@ def _migrate(engine_):
             "runtime_backend": "TEXT DEFAULT ''",
             "runtime_session_id": "TEXT",
             "runtime_selected_agent": "TEXT",
+            "runtime_event_cursor": "INTEGER DEFAULT 0",
         }
         for col, col_type in new_cols.items():
             if col not in existing:

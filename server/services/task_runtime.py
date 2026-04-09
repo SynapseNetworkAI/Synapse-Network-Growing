@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from server import config
+from server.services.copilot_sdk_state import copilot_runtime_paths
 from server.services.context_loader import load_context
 from server.services.crew_engine import CrewEngine
 from server.services.copilot_sdk_bridge import CopilotSDKBridge
@@ -34,6 +35,31 @@ class TaskExecutionResult:
     runtime_session_id: str | None = None
     runtime_selected_agent: str | None = None
     events: list[RuntimeEvent] = field(default_factory=list)
+    deferred: bool = False
+
+
+def normalize_copilot_event_type(event_type: str) -> str:
+    mapping = {
+        "subagent.selected": "subagent_selected",
+        "subagent.started": "subagent_started",
+        "subagent.completed": "subagent_completed",
+        "subagent.failed": "subagent_failed",
+        "session.created": "runtime_session_created",
+        "session.idle": "runtime_idle",
+        "assistant.message": "assistant_output",
+        "assistant.message_delta": "assistant_output_chunk",
+        "tool.execution_complete": "tool_execution_complete",
+        "tool.execution_start": "tool_execution_start",
+        "tool.user_requested": "tool_requested",
+        "permission.requested": "permission_requested",
+        "permission.completed": "permission_completed",
+        "user_input.requested": "user_input_requested",
+        "user_input.completed": "user_input_completed",
+        "elicitation.requested": "elicitation_requested",
+        "elicitation.completed": "elicitation_completed",
+        "session.resume": "runtime_session_resumed",
+    }
+    return mapping.get(event_type, event_type.replace(".", "_"))
 
 
 class BaseTaskRuntime:
@@ -94,24 +120,22 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         model = config.COPILOT_SDK_MODEL
+        session_id = f"task-{int(time.time() * 1000)}"
         prompt = self._build_parent_prompt(persona, skill_name, task_description, extra_context_files)
         preferred_agent = self._preferred_runtime_agent(skill_name, task_description)
-        payload = {
-            "model": model,
-            "sessionId": f"task-{int(time.time() * 1000)}",
-            "prompt": prompt,
-            "cwd": str(self.project_root),
-            "preferredAgent": preferred_agent,
-            "customAgents": self._build_custom_agents(),
-        }
-        if config.COPILOT_SDK_TIMEOUT > 0:
-            payload["timeoutMs"] = config.COPILOT_SDK_TIMEOUT * 1000
+        resolved_output_dir = (output_dir or (self.project_root / "runtime" / session_id)).resolve()
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+        predicted_output = copilot_runtime_paths(resolved_output_dir)["output"]
+        payload = self.build_worker_payload(
+            action="start",
+            session_id=session_id,
+            output_dir=resolved_output_dir,
+            prompt=prompt,
+            preferred_agent=preferred_agent,
+        )
 
         try:
-            bridge_result = self.bridge.run_session(
-                payload,
-                timeout=config.COPILOT_SDK_TIMEOUT if config.COPILOT_SDK_TIMEOUT > 0 else None,
-            )
+            self.bridge.start_session(payload)
         except Exception as exc:
             elapsed = int((time.monotonic() - t0) * 1000)
             logger.exception("Copilot SDK runtime failed")
@@ -125,40 +149,51 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             )
 
         elapsed = int((time.monotonic() - t0) * 1000)
-        files = self._write_artifacts(
-            output_dir=output_dir,
-            text=bridge_result.content,
-            metadata={
-                "model": model,
-                "tokens_used": bridge_result.tokens_used,
-                "execution_time_ms": elapsed,
-                "skill": skill_name,
-                "persona": persona.get("role", "unknown"),
-                "runtime_backend": "copilot_sdk",
-                "runtime_session_id": bridge_result.session_id,
-                "runtime_selected_agent": bridge_result.selected_agent,
-            },
-            events=bridge_result.events,
-        )
-
-        normalized_events = [
-            RuntimeEvent(event_type=self._normalize_event_type(event.type), detail=event.detail)
-            for event in bridge_result.events
-        ]
-        normalized_events.insert(0, RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model}"))
-        normalized_events.append(RuntimeEvent(event_type="runtime_completed", detail=bridge_result.selected_agent or ""))
-
         return TaskExecutionResult(
-            text=bridge_result.content,
-            files=files,
+            text="",
+            files=[predicted_output],
             execution_time_ms=elapsed,
             model=model,
-            tokens_used=bridge_result.tokens_used,
             runtime_backend="copilot_sdk",
-            runtime_session_id=bridge_result.session_id,
-            runtime_selected_agent=bridge_result.selected_agent,
-            events=normalized_events,
+            runtime_session_id=session_id,
+            events=[
+                RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model}"),
+                RuntimeEvent(event_type="runtime_worker_spawned", detail=f"session={session_id}"),
+            ],
+            deferred=True,
         )
+
+    def build_worker_payload(
+        self,
+        *,
+        action: str,
+        session_id: str,
+        output_dir: Path,
+        prompt: str | None = None,
+        preferred_agent: str | None = None,
+        assume_already_idle: bool = False,
+    ) -> dict:
+        paths = copilot_runtime_paths(output_dir)
+        payload = {
+            "action": action,
+            "sessionId": session_id,
+            "cwd": str(self.project_root),
+            "customAgents": self._build_custom_agents(),
+            "outputDir": str(output_dir),
+            "statePath": str(paths["state"]),
+            "eventsPath": str(paths["events"]),
+            "stdoutPath": str(paths["stdout"]),
+            "stderrPath": str(paths["stderr"]),
+            "assumeAlreadyIdle": assume_already_idle,
+        }
+        if preferred_agent:
+            payload["preferredAgent"] = preferred_agent
+        if action == "start":
+            payload["model"] = config.COPILOT_SDK_MODEL
+            payload["prompt"] = prompt or ""
+        if config.COPILOT_SDK_TIMEOUT > 0:
+            payload["timeoutMs"] = config.COPILOT_SDK_TIMEOUT * 1000
+        return payload
 
     def _build_parent_prompt(
         self,
@@ -251,25 +286,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         return files
 
     def _normalize_event_type(self, event_type: str) -> str:
-        mapping = {
-            "subagent.selected": "subagent_selected",
-            "subagent.started": "subagent_started",
-            "subagent.completed": "subagent_completed",
-            "subagent.failed": "subagent_failed",
-            "session.created": "runtime_session_created",
-            "session.idle": "runtime_idle",
-            "assistant.message": "assistant_output",
-            "assistant.message_delta": "assistant_output_chunk",
-            "tool.execution_complete": "tool_execution_complete",
-            "tool.user_requested": "tool_requested",
-            "permission.requested": "permission_requested",
-            "permission.completed": "permission_completed",
-            "user_input.requested": "user_input_requested",
-            "user_input.completed": "user_input_completed",
-            "elicitation.requested": "elicitation_requested",
-            "elicitation.completed": "elicitation_completed",
-        }
-        return mapping.get(event_type, event_type.replace(".", "_"))
+        return normalize_copilot_event_type(event_type)
 
 
 def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:

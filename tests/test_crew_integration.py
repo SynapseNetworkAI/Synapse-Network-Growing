@@ -17,6 +17,7 @@ def _runtime_result(
     error: str | None = None,
     execution_time_ms: int = 1,
     runtime_backend: str = "legacy",
+    deferred: bool = False,
 ):
     return TaskExecutionResult(
         text=text,
@@ -24,6 +25,7 @@ def _runtime_result(
         error=error,
         execution_time_ms=execution_time_ms,
         runtime_backend=runtime_backend,
+        deferred=deferred,
     )
 
 # ── skill_loader tests ───────────────────────────────────────

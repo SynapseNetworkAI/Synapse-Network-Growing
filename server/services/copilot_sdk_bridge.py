@@ -39,22 +39,8 @@ class CopilotSDKBridge:
         self.auth_service = CopilotAuthService()
 
     def run_session(self, payload: dict, timeout: int | None = None) -> CopilotSDKBridgeResult:
-        if not self.runner_path.exists():
-            raise RuntimeError(
-                f"Copilot SDK runner not found at {self.runner_path}. "
-                "Install the runner dependencies and keep ORCHESTRATION_BACKEND=legacy until ready."
-            )
-
-        env = os.environ.copy()
-        github_token = config.COPILOT_GITHUB_TOKEN or config.GH_TOKEN or config.COPILOT_OAUTH_TOKEN or config.GITHUB_TOKEN
-        if not github_token:
-            auth = self.auth_service.resolve_stored_auth()
-            github_token = auth.token if auth else ""
-        if github_token:
-            env.setdefault("COPILOT_GITHUB_TOKEN", github_token)
-            env.setdefault("GH_TOKEN", github_token)
-            env.setdefault("GITHUB_TOKEN", github_token)
-            env.setdefault("COPILOT_OAUTH_TOKEN", github_token)
+        self._ensure_runner_exists()
+        env = self._runner_env()
 
         completed = subprocess.run(
             [self.node_bin, str(self.runner_path)],
@@ -94,6 +80,16 @@ class CopilotSDKBridge:
             ],
         )
 
+    def start_session(self, payload: dict) -> int:
+        launch_payload = dict(payload)
+        launch_payload.setdefault("action", "start")
+        return self._spawn_worker(launch_payload)
+
+    def resume_session(self, payload: dict) -> int:
+        launch_payload = dict(payload)
+        launch_payload.setdefault("action", "resume")
+        return self._spawn_worker(launch_payload)
+
     def _normalize_error_message(self, message: str, payload: dict) -> str:
         model = payload.get("model")
         if not isinstance(model, str):
@@ -116,3 +112,65 @@ class CopilotSDKBridge:
         if timeout <= 0:
             return None
         return timeout
+
+    def _ensure_runner_exists(self) -> None:
+        if self.runner_path.exists():
+            return
+        raise RuntimeError(
+            f"Copilot SDK runner not found at {self.runner_path}. "
+            "Install the runner dependencies and keep ORCHESTRATION_BACKEND=legacy until ready."
+        )
+
+    def _runner_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        github_token = config.COPILOT_GITHUB_TOKEN or config.GH_TOKEN or config.COPILOT_OAUTH_TOKEN or config.GITHUB_TOKEN
+        if not github_token:
+            auth = self.auth_service.resolve_stored_auth()
+            github_token = auth.token if auth else ""
+        if github_token:
+            env.setdefault("COPILOT_GITHUB_TOKEN", github_token)
+            env.setdefault("GH_TOKEN", github_token)
+            env.setdefault("GITHUB_TOKEN", github_token)
+            env.setdefault("COPILOT_OAUTH_TOKEN", github_token)
+        return env
+
+    def _spawn_worker(self, payload: dict) -> int:
+        self._ensure_runner_exists()
+        env = self._runner_env()
+
+        stdout_path = payload.get("stdoutPath")
+        stderr_path = payload.get("stderrPath")
+
+        stdout_handle = None
+        stderr_handle = None
+        try:
+            if isinstance(stdout_path, str) and stdout_path:
+                stdout_file = Path(stdout_path)
+                stdout_file.parent.mkdir(parents=True, exist_ok=True)
+                stdout_handle = open(stdout_file, "a", encoding="utf-8")
+            if isinstance(stderr_path, str) and stderr_path:
+                stderr_file = Path(stderr_path)
+                stderr_file.parent.mkdir(parents=True, exist_ok=True)
+                stderr_handle = open(stderr_file, "a", encoding="utf-8")
+
+            process = subprocess.Popen(
+                [self.node_bin, str(self.runner_path)],
+                stdin=subprocess.PIPE,
+                stdout=stdout_handle or subprocess.DEVNULL,
+                stderr=stderr_handle or subprocess.DEVNULL,
+                text=True,
+                cwd=str(self.runner_path.parent),
+                env=env,
+                start_new_session=True,
+            )
+            if process.stdin is None:
+                raise RuntimeError("Copilot SDK worker failed to acquire stdin")
+            process.stdin.write(json.dumps(payload))
+            process.stdin.flush()
+            process.stdin.close()
+            return int(process.pid or 0)
+        finally:
+            if stdout_handle is not None:
+                stdout_handle.close()
+            if stderr_handle is not None:
+                stderr_handle.close()
