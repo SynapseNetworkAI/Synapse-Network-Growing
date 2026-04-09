@@ -139,9 +139,13 @@ class CopilotSDKTaskMonitor:
         selected_agent = state.get("selectedAgent")
         if selected_agent:
             cast(Any, task).runtime_selected_agent = str(selected_agent)
-        execution_time_ms = state.get("executionTimeMs")
-        if execution_time_ms is not None:
-            cast(Any, task).execution_time_ms = int(execution_time_ms)
+        # Only persist execution_time_ms for terminal states.
+        # While running, the frontend computes elapsed time dynamically from started_at.
+        status = str(state.get("status") or "")
+        if status in {"completed", "failed"}:
+            execution_time_ms = state.get("executionTimeMs")
+            if execution_time_ms is not None:
+                cast(Any, task).execution_time_ms = int(execution_time_ms)
         if paths["output"].exists():
             cast(Any, task).output_path = str(paths["output"])
 
@@ -161,6 +165,8 @@ class CopilotSDKTaskMonitor:
             self._log(db, _task_id(task), "output", output_text[:500])
             self._log(db, _task_id(task), "completed")
         logger.info("Copilot SDK task #%d completed via monitor", _task_id(task))
+        db.commit()
+        self._sync_workflow_step(_task_id(task))
 
     def _fail_task(self, db, task: TaskRow, state: dict, paths: dict[str, Path]) -> None:
         error_message = str(state.get("error") or "Copilot SDK session failed")
@@ -171,6 +177,8 @@ class CopilotSDKTaskMonitor:
         cast(Any, task).completed_at = utcnow()
         self._log(db, _task_id(task), "failed", error_message)
         logger.info("Copilot SDK task #%d failed via monitor: %s", _task_id(task), error_message)
+        db.commit()
+        self._sync_workflow_step(_task_id(task))
 
     def _resume_stale_task(self, db, task: TaskRow, state: dict, output_dir: Path, paths: dict[str, Path]) -> None:
         heartbeat_age = seconds_since_timestamp(state.get("heartbeatAt") or state.get("updatedAt"))
@@ -212,3 +220,12 @@ class CopilotSDKTaskMonitor:
     def _log(self, db, task_id: int, event_type: str, detail: str | None = None) -> None:
         db.add(TaskLogRow(task_id=task_id, event_type=event_type, detail=detail))
         db.flush()
+
+    @staticmethod
+    def _sync_workflow_step(task_id: int) -> None:
+        """Trigger workflow orchestrator to advance step/requirement state after task terminal."""
+        try:
+            from server.services.workflow_orchestrator import sync_workflow_for_task
+            sync_workflow_for_task(task_id)
+        except Exception:
+            logger.exception("Failed to sync workflow step for task #%d", task_id)

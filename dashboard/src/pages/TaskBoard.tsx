@@ -47,14 +47,18 @@ function parseTime(value: string | null) {
 }
 
 function getExecutionTimeMs(task: Task, nowMs: number) {
+  // For running tasks, always compute from started_at for a live ticking timer.
+  // execution_time_ms may have been set prematurely by the monitor.
+  if (task.status === 'running') {
+    const startedAt = parseTime(task.started_at)
+    if (startedAt != null) return Math.max(nowMs - startedAt, 0)
+    return null
+  }
+
   if (task.execution_time_ms != null) return task.execution_time_ms
 
   const startedAt = parseTime(task.started_at)
   if (startedAt == null) return null
-
-  if (task.status === 'running') {
-    return Math.max(nowMs - startedAt, 0)
-  }
 
   const completedAt = parseTime(task.completed_at)
   if (completedAt == null) return null
