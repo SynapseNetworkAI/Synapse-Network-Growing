@@ -1,11 +1,14 @@
 """Database connection and table setup for Agentic Ops Dashboard."""
+import logging
 from sqlalchemy import (
-    Column, Integer, Text, Boolean, DateTime, ForeignKey, create_engine, event
+    Column, Integer, Text, Boolean, DateTime, ForeignKey, create_engine, event, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, timezone
 
 from server.config import DATABASE_URL
+
+logger = logging.getLogger("ops-dashboard.db")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
@@ -89,8 +92,21 @@ class TaskLogRow(Base):
 
 # ── Init ──────────────────────────────────────────────────────
 
+def _migrate(engine_):
+    """Add missing columns to existing tables (lightweight migration)."""
+    insp = inspect(engine_)
+    if "agents" in insp.get_table_names():
+        existing = {c["name"] for c in insp.get_columns("agents")}
+        if "group" not in existing:
+            logger.info("Migrating: adding 'group' column to agents table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE agents ADD COLUMN \"group\" TEXT DEFAULT ''"))
+                conn.commit()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate(engine)
 
 
 def get_db():
