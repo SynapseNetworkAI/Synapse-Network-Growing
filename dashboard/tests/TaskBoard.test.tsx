@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import TaskBoard from '../src/pages/TaskBoard'
 
 // Mock API
@@ -103,6 +103,12 @@ const COMPLETED_TASK = {
   completed_at: '2026-04-10T00:01:12Z',
 }
 
+const COMPLETED_DUPLICATE_OUTPUT_TASK = {
+  ...COMPLETED_TASK,
+  id: 5,
+  output_content: '## Execution Summary\n\n- Site looks good\n- Keep monitoring core keywords',
+}
+
 const FAILED_TASK = {
   ...PENDING_TASK,
   id: 4,
@@ -156,9 +162,16 @@ const RUNTIME_LOGS = [
   {
     id: 102,
     task_id: 3,
-    event_type: 'subagent_selected',
-    detail: 'editor',
+    event_type: 'assistant_output',
+    detail: '## Execution Summary\n\n- Site looks good\n- Keep monitoring core keywords',
     created_at: '2026-04-10T00:01:02Z',
+  },
+  {
+    id: 103,
+    task_id: 3,
+    event_type: 'tool_execution_complete',
+    detail: 'bash finished',
+    created_at: '2026-04-10T00:01:03Z',
   },
 ]
 
@@ -208,6 +221,7 @@ const LOW_CONFIDENCE_SUGGESTION = {
 
 describe('TaskBoard', () => {
   beforeEach(() => {
+    vi.useRealTimers()
     vi.clearAllMocks()
     mockApi.getTasks.mockResolvedValue([])
     mockApi.getAgents.mockResolvedValue(AGENTS)
@@ -523,6 +537,24 @@ describe('TaskBoard', () => {
     })
   })
 
+  it('hides execution output when it duplicates copilot output', async () => {
+    mockApi.getTasks.mockResolvedValue([COMPLETED_DUPLICATE_OUTPUT_TASK])
+    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-5')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByText('#5'))
+
+    await waitFor(() => {
+      const drawer = screen.getByTestId('task-drawer')
+      expect(drawer.textContent).toContain('Copilot 输出')
+      expect(drawer.textContent).not.toContain('执行产出')
+    })
+  })
+
   it('loads and renders runtime events in expanded view', async () => {
     mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
     mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
@@ -536,9 +568,39 @@ describe('TaskBoard', () => {
 
     await waitFor(() => {
       expect(mockApi.getTaskLogs).toHaveBeenCalledWith(3)
-      expect(screen.getByTestId('runtime-events-3').textContent).toContain('runtime_started')
-      expect(screen.getByTestId('runtime-events-3').textContent).toContain('subagent_selected')
-      expect(screen.getByTestId('runtime-events-3').textContent).toContain('editor')
+      expect(screen.getByTestId('runtime-events-3').textContent).toContain('Execution Summary')
+      expect(screen.getByTestId('runtime-events-3').textContent).toContain('Site looks good')
+      expect(screen.getByTestId('runtime-events-3').textContent).not.toContain('runtime_started')
+      expect(screen.getByTestId('runtime-events-3').textContent).not.toContain('tool_execution_complete')
+    })
+  })
+
+  it('updates running execution time dynamically in the drawer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-04-10T00:01:05Z'))
+    mockApi.getTasks.mockResolvedValue([RUNNING_TASK])
+    mockApi.getTaskLogs.mockResolvedValue([])
+
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-2')).toBeDefined()
+      expect(screen.getByTestId('execution-time-2').textContent).toContain('已运行 5.0s')
+    })
+
+    fireEvent.click(screen.getByText('#2'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('drawer-execution-time-2').textContent).toContain('已运行 5.0s')
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('execution-time-2').textContent).toContain('已运行 7.0s')
+      expect(screen.getByTestId('drawer-execution-time-2').textContent).toContain('已运行 7.0s')
     })
   })
 

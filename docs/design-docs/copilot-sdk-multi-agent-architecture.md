@@ -12,69 +12,98 @@ target_repo: cliff-personal/Synapse-Network-Growing
 
 ## Goal
 
-Replace the current single-shot LLM execution path with a Copilot SDK runtime that supports:
+The repository now supports a Copilot SDK runtime that keeps the existing task API and dashboard contract, but changes execution from a blocking single-shot flow to a resumable long-task pipeline.
+
+This design covers:
 
 1. Custom agents with scoped tools
 2. Runtime agent inference and sub-agent delegation
 3. Optional MCP attachment per agent
-4. Session and sub-agent event logging
-5. Backward-compatible task creation, approvals, retries, and dashboard views
+4. Detached session execution with durable state files
+5. Backend-side event ingestion, completion, and stale-session recovery
+6. Backward-compatible task creation, approvals, retries, and dashboard views
 
-## Current state
+## Implemented state
 
-The current execution path is:
-
-1. `server/routers/tasks.py` creates and runs tasks
-2. `server/services/task_runner.py` dispatches background execution
-3. `server/services/crew_engine.py` assembles persona + skill + context into a single prompt
-4. `server/services/llm_adapter.py` sends one provider request
-
-This gives prompt-driven role simulation, but not true runtime multi-agent orchestration.
-
-## Target architecture
-
-The target system keeps the existing task API and dashboard, but swaps the runtime under the hood.
+The runtime has four layers.
 
 ### Layer 1: Task orchestration
 
-Existing components remain the entrypoint:
+Entrypoints remain:
 
-1. `server/routers/tasks.py`
-2. `server/services/execution_resolver.py`
-3. `server/services/task_runner.py`
+1. `server/routers/tasks.py` creates and runs tasks
+2. `server/services/task_runner.py` dispatches background execution
+3. `server/services/execution_resolver.py` resolves agent and skill metadata
 
 Responsibilities:
 
-1. Resolve preferred agent and skill at task creation time
+1. Resolve preferred business agent and skill
 2. Collect context files and approval requirements
-3. Persist task status and logs
-4. Start background execution
+3. Persist task status, runtime metadata, and normalized logs
+4. Keep deferred `copilot_sdk` tasks in `running` until the monitor finishes them
 
 ### Layer 2: Runtime adapter
 
-Add a runtime abstraction that supports two backends:
+The runtime abstraction still supports two backends:
 
-1. `legacy` runtime: current `CrewEngine` single-call behavior
-2. `copilot_sdk` runtime: Node-based Copilot SDK runner invoked from Python
+1. `legacy`: synchronous `CrewEngine` execution
+2. `copilot_sdk`: detached Node worker around `@github/copilot-sdk`
 
-Responsibilities:
+Current implementation lives in:
 
-1. Build runtime session config
-2. Convert repo personas and skills into Copilot SDK custom agent config
-3. Execute a session and return normalized events/results
-4. Surface errors in a provider-agnostic shape
-
-### Layer 3: Copilot SDK runner
-
-Use a small Node runner around `@github/copilot-sdk`.
+1. `server/services/task_runtime.py`
+2. `server/services/copilot_sdk_bridge.py`
+3. `server/services/copilot_sdk_state.py`
 
 Responsibilities:
 
-1. Start a `CopilotClient`
-2. Create a session with `customAgents`
-3. Subscribe to session and sub-agent events
-4. Auto-approve allowed tool requests inside the runtime
-5. Return final content, runtime metadata, and event stream as JSON
+1. Build the Copilot SDK session payload
+2. Convert repository personas and skills into Copilot custom-agent config
+3. Launch detached workers through `start_session()` or `resume_session()`
+4. Return immediate runtime metadata to Python without blocking on final completion
+
+### Layer 3: Detached Copilot SDK worker
+
+The Node runner is implemented in `copilot-sdk-runner/run_session.mjs`.
+
+It supports three modes:
+
+1. one-shot compatibility mode for the legacy synchronous bridge
+2. `start` for detached long-task execution
+3. `resume` for stale-session recovery
+
+Responsibilities:
+
+1. Start or resume a Copilot session
+2. Register `customAgents`
+3. Persist session state, heartbeat, stdout, stderr, final output, and runtime metadata into the task output directory
+4. Append raw runtime events into `copilot-session-events.jsonl`
+5. Write assistant output and final status into durable files that can survive process restarts
+
+Per-task runtime artifacts are stored under the task output directory, for example:
+
+1. `copilot-session-state.json`
+2. `copilot-session-events.jsonl`
+3. `copilot-session.stdout.log`
+4. `copilot-session.stderr.log`
+5. `output.md`
+6. `metadata.json`
+
+### Layer 4: Background monitor and recovery
+
+`server/services/copilot_sdk_monitor.py` is started from the FastAPI lifespan in `server/main.py` when:
+
+1. `ORCHESTRATION_BACKEND=copilot_sdk`
+2. `COPILOT_SDK_MONITOR_ENABLED=true`
+
+Responsibilities:
+
+1. Poll running tasks with active Copilot session ids
+2. Incrementally ingest new runtime events using `TaskRow.runtime_event_cursor`
+3. Sync `output.md`, `metadata.json`, stdout, and stderr back into the task row
+4. Mark tasks `completed`, `failed`, or `pending_approval`
+5. Detect stale heartbeats and resume sessions through `resumeSession()`
+6. Recover already-idle sessions even when the idle event was not durably persisted
 
 ## Agent model
 
@@ -204,20 +233,22 @@ Instead, the selected skill contributes:
 
 1. `POST /api/tasks/{id}/run` resolves the full business persona
 2. `task_runner` invokes the selected runtime backend
-3. The runtime creates a parent Copilot SDK session
-4. The runtime registers `researcher`, `editor`, and `db-analyst` as `customAgents`
-5. The parent prompt includes:
+3. `CopilotSDKTaskRuntime.execute()` writes the predicted output paths and launches a detached worker
+4. The detached worker creates or resumes a parent Copilot SDK session
+5. The worker registers `researcher`, `editor`, and `db-analyst` as `customAgents`
+6. The parent prompt includes:
    - selected role persona
    - selected skill text
    - task description
    - context files
-6. The runtime collects events and final content
-7. Task logs are appended as normalized lifecycle records
-8. Task output and timing are stored on the task row
+7. Python returns immediately with `deferred=True`, and the task remains `running`
+8. The monitor ingests new runtime events and syncs task metadata on each poll
+9. When the worker finishes, the monitor writes final output, timing, and status to the task row
+10. If the worker stops updating heartbeat for longer than `COPILOT_SDK_STALE_AFTER_SEC`, the monitor starts a `resume` worker for the same session id
 
 ## Event model
 
-Copilot SDK runtime events are persisted into `task_logs`.
+Copilot SDK runtime events are persisted into `task_logs` after normalization.
 
 Normalized event types:
 
@@ -231,7 +262,9 @@ Normalized event types:
 8. `runtime_completed`
 9. `runtime_failed`
 
-This avoids changing the dashboard log viewer contract while still surfacing sub-agent activity.
+`assistant_output_chunk` and other low-level tool chatter can exist in the raw worker event file, but the TaskBoard primary transcript now renders only normalized `assistant_output` entries so the UI stays human-readable.
+
+Incremental ingestion is tracked with `TaskRow.runtime_event_cursor`, which keeps monitor polling idempotent.
 
 ## Approvals model
 
@@ -255,9 +288,22 @@ New backend settings:
 2. `COPILOT_SDK_NODE_BIN`
 3. `COPILOT_SDK_RUNNER_PATH`
 4. `COPILOT_SDK_MODEL`
-5. optional DB analyst MCP environment variables
+5. `COPILOT_SDK_TIMEOUT`
+6. `COPILOT_SDK_MONITOR_ENABLED`
+7. `COPILOT_SDK_POLL_INTERVAL_SEC`
+8. `COPILOT_SDK_STALE_AFTER_SEC`
+9. optional DB analyst MCP environment variables
 
 The default remains `legacy` so the repository stays runnable without the SDK.
+
+## Dashboard contract
+
+The TaskBoard keeps the same task drawer, but the runtime-specific UX now follows two rules:
+
+1. Runtime transcript panels render human-readable `assistant_output` only
+2. Execution duration is shown as a live elapsed timer while a task is `running`, then falls back to the final stored `execution_time_ms` when complete
+
+This keeps the dashboard useful for operators without exposing raw low-level runtime noise by default.
 
 ## Testing strategy
 

@@ -527,8 +527,10 @@ test('shows copilot runtime metadata in task drawer', async ({ page }) => {
   await expect(page.getByTestId('runtime-backend-18')).toContainText('copilot_sdk')
   await expect(page.getByTestId('runtime-agent-18')).toContainText('editor')
   await expect(page.getByTestId('runtime-session-18')).toContainText('task-1775725256108')
-  await expect(page.getByTestId('runtime-events-18')).toContainText('runtime_started')
-  await expect(page.getByTestId('runtime-events-18')).toContainText('assistant_output')
+  await expect(page.getByTestId('drawer-execution-time-18')).toContainText('42.9s')
+  await expect(page.getByTestId('runtime-events-18')).toContainText('Synapse Network: Launch Teaser for AI Agent Developers')
+  await expect(page.getByTestId('runtime-events-18')).not.toContainText('runtime_started')
+  await expect(page.getByTestId('runtime-events-18')).not.toContainText('assistant_output')
 })
 
 test('approves a pending item in approvals center', async ({ page }) => {

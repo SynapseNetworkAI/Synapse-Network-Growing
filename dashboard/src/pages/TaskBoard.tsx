@@ -40,6 +40,64 @@ function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '-'
 }
 
+function parseTime(value: string | null) {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function getExecutionTimeMs(task: Task, nowMs: number) {
+  if (task.execution_time_ms != null) return task.execution_time_ms
+
+  const startedAt = parseTime(task.started_at)
+  if (startedAt == null) return null
+
+  if (task.status === 'running') {
+    return Math.max(nowMs - startedAt, 0)
+  }
+
+  const completedAt = parseTime(task.completed_at)
+  if (completedAt == null) return null
+  return Math.max(completedAt - startedAt, 0)
+}
+
+function formatDuration(ms: number | null) {
+  if (ms == null) return null
+
+  const totalSeconds = Math.max(ms / 1000, 0)
+  if (totalSeconds < 60) {
+    return `${totalSeconds.toFixed(1)}s`
+  }
+
+  const totalWholeSeconds = Math.floor(totalSeconds)
+  const hours = Math.floor(totalWholeSeconds / 3600)
+  const minutes = Math.floor((totalWholeSeconds % 3600) / 60)
+  const seconds = totalWholeSeconds % 60
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`
+  }
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+}
+
+function normalizeComparableContent(value: string | null | undefined) {
+  return (value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isDuplicateOutput(outputContent: string | null | undefined, assistantMessages: string[]) {
+  const normalizedOutput = normalizeComparableContent(outputContent)
+  if (!normalizedOutput) return false
+
+  const combinedTranscript = normalizeComparableContent(assistantMessages.join('\n\n'))
+  if (combinedTranscript && normalizedOutput === combinedTranscript) {
+    return true
+  }
+
+  return assistantMessages.some((message) => normalizeComparableContent(message) === normalizedOutput)
+}
+
 function taskCreatedAtValue(task: Task) {
   if (!task.created_at) return 0
   const parsed = Date.parse(task.created_at)
@@ -75,6 +133,7 @@ export default function TaskBoard() {
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
   const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const drawerLogsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const suggestionRequestRef = useRef(0)
@@ -115,6 +174,14 @@ export default function TaskBoard() {
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [tasks, load])
+
+  useEffect(() => {
+    if (!tasks.some((task) => task.status === 'running')) return
+    const timer = setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [tasks])
 
   useEffect(() => {
     if (drawerTaskId == null || taskHistory[drawerTaskId]) return
@@ -185,17 +252,16 @@ export default function TaskBoard() {
   const projectKeys = Array.from(new Set(tasks.map(t => t.project_id).filter(Boolean))) as string[]
   const groupKeys = Array.from(new Set(agents.map(a => a.group).filter(Boolean)))
   const drawerTask = drawerTaskId != null ? tasks.find((task) => task.id === drawerTaskId) || null : null
-  const runtimeEvents = drawerTask ? (drawerLogs[drawerTask.id] || []).filter((log) => (
-    log.event_type.startsWith('runtime_')
-      || log.event_type.startsWith('subagent_')
-      || log.event_type.startsWith('permission_')
-      || log.event_type.startsWith('user_input_')
-      || log.event_type.startsWith('elicitation_')
-      || log.event_type === 'assistant_output'
-      || log.event_type === 'assistant_output_chunk'
-      || log.event_type === 'tool_requested'
-      || log.event_type === 'tool_execution_complete'
-  )) : []
+  const assistantOutputs = drawerTask ? (drawerLogs[drawerTask.id] || [])
+    .filter((log) => log.event_type === 'assistant_output' && Boolean(log.detail?.trim()))
+    .slice()
+    .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at))) : []
+  const assistantMessages = assistantOutputs.map((log) => log.detail?.trim() || '').filter(Boolean)
+  const shouldShowOutputContent = drawerTask
+    ? Boolean(drawerTask.output_content?.trim()) && !isDuplicateOutput(drawerTask.output_content, assistantMessages)
+    : false
+  const drawerExecutionTime = drawerTask ? getExecutionTimeMs(drawerTask, nowMs) : null
+  const drawerExecutionLabel = formatDuration(drawerExecutionTime)
   const selectedRetryableTaskIds = selectedTaskIds.filter((id) => {
     const task = tasks.find((candidate) => candidate.id === id)
     return task ? RETRYABLE_STATUSES.has(task.status) : false
@@ -388,14 +454,14 @@ export default function TaskBoard() {
 
   return (
     <div data-testid="taskboard-page">
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h2 className="text-xl font-bold">任务看板</h2>
-        <div className="flex gap-2 flex-wrap items-center">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             data-testid="status-filter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-sm border rounded px-3 py-2"
+            className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部状态</option>
             <option value="pending">待执行</option>
@@ -409,7 +475,7 @@ export default function TaskBoard() {
             data-testid="project-filter"
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
-            className="text-sm border rounded px-3 py-2"
+            className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部项目</option>
             {projectKeys.map((project) => (
@@ -419,14 +485,14 @@ export default function TaskBoard() {
           <button
             data-testid="advanced-filters-toggle"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="text-sm border rounded px-3 py-2 hover:bg-gray-50"
+            className="px-3 py-2 text-sm border rounded hover:bg-gray-50"
           >
             {showAdvanced ? '收起高级筛选' : '高级筛选'}
           </button>
           <button
             data-testid="create-btn"
             onClick={() => setShowCreate(!showCreate)}
-            className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700"
           >
             + 新建任务
           </button>
@@ -434,12 +500,12 @@ export default function TaskBoard() {
       </div>
 
       {showAdvanced && (
-        <div className="bg-white border rounded-lg p-3 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3" data-testid="advanced-filters">
+        <div className="grid grid-cols-1 gap-3 p-3 mb-4 bg-white border rounded-lg md:grid-cols-4" data-testid="advanced-filters">
           <select
             data-testid="group-filter"
             value={agentGroupFilter}
             onChange={(e) => setAgentGroupFilter(e.target.value)}
-            className="text-sm border rounded px-3 py-2"
+            className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部 Agent 组</option>
             {groupKeys.map((group) => (
@@ -450,7 +516,7 @@ export default function TaskBoard() {
             data-testid="agent-filter"
             value={agentFilter}
             onChange={(e) => setAgentFilter(e.target.value)}
-            className="text-sm border rounded px-3 py-2"
+            className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部 Agent</option>
             {agents
@@ -464,9 +530,9 @@ export default function TaskBoard() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索任务 / Agent / Skill / 错误"
-            className="text-sm border rounded px-3 py-2"
+            className="px-3 py-2 text-sm border rounded"
           />
-          <label className="flex items-center gap-2 text-sm border rounded px-3 py-2">
+          <label className="flex items-center gap-2 px-3 py-2 text-sm border rounded">
             <input
               data-testid="only-anomalies"
               type="checkbox"
@@ -478,15 +544,15 @@ export default function TaskBoard() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" data-testid="task-summary-bar">
-        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'running').length}</div></div>
-        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'failed').length}</div></div>
-        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'pending_approval').length}</div></div>
-        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'completed').length}</div></div>
+      <div className="grid grid-cols-2 gap-3 mb-4 md:grid-cols-4" data-testid="task-summary-bar">
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'running').length}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'failed').length}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'pending_approval').length}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'completed').length}</div></div>
       </div>
 
       {selectedRetryableTaskIds.length > 0 && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3" data-testid="bulk-retry-bar">
+        <div className="p-3 mb-4 border border-red-200 rounded-lg bg-red-50" data-testid="bulk-retry-bar">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-sm text-red-900">已选择 {selectedRetryableTaskIds.length} 个失败/拒绝任务</div>
             <div className="flex flex-wrap gap-2">
@@ -524,8 +590,8 @@ export default function TaskBoard() {
       )}
 
       {showCreate && (
-        <div data-testid="create-form" className="bg-white border rounded-lg p-4 mb-4 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+        <div data-testid="create-form" className="p-4 mb-4 bg-white border rounded-lg shadow-sm">
+          <div className="grid grid-cols-1 gap-3 mb-3 md:grid-cols-4">
             <select
               data-testid="agent-select"
               value={form.agent_id}
@@ -533,7 +599,7 @@ export default function TaskBoard() {
                 setSuggestionMessage('')
                 setForm({ ...form, agent_id: e.target.value, skill_name: '' })
               }}
-              className="border rounded px-3 py-2 text-sm"
+              className="px-3 py-2 text-sm border rounded"
             >
               <option value="">自动选择 Agent</option>
               {agents.map((a) => (
@@ -547,7 +613,7 @@ export default function TaskBoard() {
                 setSuggestionMessage('')
                 setForm({ ...form, skill_name: e.target.value })
               }}
-              className="border rounded px-3 py-2 text-sm"
+              className="px-3 py-2 text-sm border rounded"
             >
               <option value="">自动选择 Skill</option>
               {(selectedAgentSkills.length > 0 ? selectedAgentSkills : skills).map((s) => (
@@ -558,7 +624,7 @@ export default function TaskBoard() {
               data-testid="priority-select"
               value={form.priority}
               onChange={(e) => setForm({ ...form, priority: e.target.value })}
-              className="border rounded px-3 py-2 text-sm"
+              className="px-3 py-2 text-sm border rounded"
             >
               <option value="low">低优先级</option>
               <option value="normal">普通</option>
@@ -576,7 +642,7 @@ export default function TaskBoard() {
           </div>
 
           {selectedAgent && (
-            <div className="mb-3 rounded border bg-gray-50 px-3 py-2 text-xs text-gray-600" data-testid="agent-meta-hint">
+            <div className="px-3 py-2 mb-3 text-xs text-gray-600 border rounded bg-gray-50" data-testid="agent-meta-hint">
               <span className="mr-4">项目: Synapse-Network-Growing</span>
               <span className="mr-4">组别: {selectedAgent.group || '-'}</span>
               <span>技能数: {selectedAgentSkills.length}</span>
@@ -588,22 +654,22 @@ export default function TaskBoard() {
               data-testid="auto-suggestion-card"
               className={`mb-3 rounded border px-3 py-3 text-sm ${suggestion.requires_confirmation ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}
             >
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="font-medium text-gray-900">
                     {suggestion.requires_confirmation ? '系统推荐需要人工确认' : '系统已自动匹配执行方案'}
                   </div>
-                  <div className="text-xs text-gray-600 mt-1" data-testid="auto-suggestion-summary">
+                  <div className="mt-1 text-xs text-gray-600" data-testid="auto-suggestion-summary">
                     推荐 Agent: {suggestion.agent_id || '-'} · 推荐 Skill: {suggestion.skill_name || '-'} · 置信度 {Math.round(suggestion.confidence * 100)}%
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">{suggestionMessage || suggestion.reason}</div>
+                  <div className="mt-1 text-xs text-gray-500">{suggestionMessage || suggestion.reason}</div>
                 </div>
                 {!suggestion.requires_confirmation && suggestion.agent_id && suggestion.skill_name && (
                   <button
                     data-testid="apply-suggestion"
                     type="button"
                     onClick={() => applySuggestion(suggestion.agent_id || '', suggestion.skill_name || '')}
-                    className="text-xs bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700"
+                    className="px-3 py-2 text-xs text-white rounded bg-emerald-600 hover:bg-emerald-700"
                   >
                     采用推荐
                   </button>
@@ -617,10 +683,10 @@ export default function TaskBoard() {
                       data-testid={`suggestion-candidate-${index}`}
                       type="button"
                       onClick={() => applySuggestion(candidate.agent_id, candidate.skill_name)}
-                      className="w-full rounded border bg-white px-3 py-2 text-left hover:border-amber-400"
+                      className="w-full px-3 py-2 text-left bg-white border rounded hover:border-amber-400"
                     >
                       <div className="text-sm font-medium text-gray-900">{candidate.display_name} · {candidate.skill_name}</div>
-                      <div className="text-xs text-gray-500 mt-1">{candidate.reason} · 置信度 {Math.round(candidate.confidence * 100)}%</div>
+                      <div className="mt-1 text-xs text-gray-500">{candidate.reason} · 置信度 {Math.round(candidate.confidence * 100)}%</div>
                     </button>
                   ))}
                 </div>
@@ -629,8 +695,8 @@ export default function TaskBoard() {
             </div>
           )}
 
-          <div className="flex items-center gap-1 mb-1 border-b pb-1">
-            <span className="text-xs text-gray-400 mr-2">Markdown</span>
+          <div className="flex items-center gap-1 pb-1 mb-1 border-b">
+            <span className="mr-2 text-xs text-gray-400">Markdown</span>
             {[
               { key: 'heading', icon: 'H', title: '标题' },
               { key: 'bold', icon: 'B', title: '粗体' },
@@ -645,7 +711,7 @@ export default function TaskBoard() {
                 type="button"
                 title={btn.title}
                 onClick={() => insertMarkdown(btn.key)}
-                className="text-xs px-2 py-1 rounded hover:bg-gray-100 text-gray-600 font-mono border border-transparent hover:border-gray-200"
+                className="px-2 py-1 font-mono text-xs text-gray-600 border border-transparent rounded hover:bg-gray-100 hover:border-gray-200"
               >
                 {btn.icon}
               </button>
@@ -663,7 +729,7 @@ export default function TaskBoard() {
 
           {preview ? (
             <div data-testid="md-preview" className="border rounded p-3 min-h-[200px] bg-gray-50">
-              {form.description ? <Md>{form.description}</Md> : <p className="text-gray-400 text-sm">暂无内容</p>}
+              {form.description ? <Md>{form.description}</Md> : <p className="text-sm text-gray-400">暂无内容</p>}
             </div>
           ) : (
             <textarea
@@ -683,7 +749,7 @@ export default function TaskBoard() {
               <button
                 data-testid="cancel-btn"
                 onClick={() => { setShowCreate(false); setPreview(false) }}
-                className="text-sm text-gray-500 px-4 py-2"
+                className="px-4 py-2 text-sm text-gray-500"
               >
                 取消
               </button>
@@ -691,7 +757,7 @@ export default function TaskBoard() {
                 data-testid="submit-btn"
                 onClick={handleCreate}
                 disabled={!form.description.trim()}
-                className="text-sm bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 提交任务
               </button>
@@ -701,7 +767,7 @@ export default function TaskBoard() {
       )}
 
       <div className="space-y-4">
-        {Object.keys(groupedTasks).length === 0 && <p data-testid="empty-tasks" className="text-gray-500 text-sm">暂无任务</p>}
+        {Object.keys(groupedTasks).length === 0 && <p data-testid="empty-tasks" className="text-sm text-gray-500">暂无任务</p>}
         {Object.entries(groupedTasks)
           .sort(([, leftTasks], [, rightTasks]) => {
             const leftNewest = leftTasks.reduce((max, task) => Math.max(max, taskCreatedAtValue(task)), 0)
@@ -725,14 +791,15 @@ export default function TaskBoard() {
                     const errorSummary = getTaskErrorSummary(task)
                     const isSelected = selectedTaskIds.includes(task.id)
                     const isRetryable = RETRYABLE_STATUSES.has(task.status)
+                    const executionTimeLabel = formatDuration(getExecutionTimeMs(task, nowMs))
                     return (
                       <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
                         <div
-                          className="p-4 flex items-start justify-between cursor-pointer hover:bg-gray-50"
+                          className="flex items-start justify-between p-4 cursor-pointer hover:bg-gray-50"
                           onClick={() => setDrawerTaskId(task.id)}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
                               {isRetryable && (
                                 <input
                                   data-testid={`select-task-${task.id}`}
@@ -745,7 +812,7 @@ export default function TaskBoard() {
                               <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[task.status] || 'bg-gray-100'}`}>
                                 {STATUS_LABEL[task.status] || task.status}
                               </span>
-                              <span className="text-xs text-gray-400 font-mono">#{task.id}</span>
+                              <span className="font-mono text-xs text-gray-400">#{task.id}</span>
                               {task.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{task.project_label}</span>}
                               <span className="text-xs text-gray-500">@{task.agent_id}</span>
                               {task.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{task.agent_group}</span>}
@@ -756,16 +823,21 @@ export default function TaskBoard() {
                                 </span>
                               )}
                               {task.attempt_no > 1 && <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">第 {task.attempt_no} 次</span>}
+                              {executionTimeLabel && (
+                                <span className="text-xs px-2 py-0.5 rounded bg-sky-50 text-sky-700" data-testid={`execution-time-${task.id}`}>
+                                  ⏱ {task.status === 'running' ? `已运行 ${executionTimeLabel}` : executionTimeLabel}
+                                </span>
+                              )}
                               <span className="text-xs text-gray-300">▶</span>
                             </div>
-                            <p className="text-sm truncate font-medium">{task.description.split('\n')[0]}</p>
+                            <p className="text-sm font-medium truncate">{task.description.split('\n')[0]}</p>
                             {task.status === 'failed' && errorSummary && (
-                              <p className="text-xs text-red-600 mt-1 truncate" data-testid={`error-summary-${task.id}`}>{errorSummary}</p>
+                              <p className="mt-1 text-xs text-red-600 truncate" data-testid={`error-summary-${task.id}`}>{errorSummary}</p>
                             )}
                           </div>
-                          <div className="flex gap-2 ml-4 items-center flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap items-center justify-end gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
                             {task.status === 'running' && (
-                              <span data-testid={`spinner-${task.id}`} className="text-blue-500 animate-spin text-sm">⏳</span>
+                              <span data-testid={`spinner-${task.id}`} className="text-sm text-blue-500 animate-spin">⏳</span>
                             )}
                             {task.status === 'pending' && (
                               <>
@@ -774,7 +846,7 @@ export default function TaskBoard() {
                                     data-testid={`run-skill-${task.id}`}
                                     value={runningSkill[task.id] || ''}
                                     onChange={(e) => setRunningSkill({ ...runningSkill, [task.id]: e.target.value })}
-                                    className="text-xs border rounded px-2 py-1"
+                                    className="px-2 py-1 text-xs border rounded"
                                   >
                                     <option value="">Skill...</option>
                                     {skills.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -827,15 +899,15 @@ export default function TaskBoard() {
       {drawerTask && (
         <div className="fixed inset-0 z-40 flex justify-end" data-testid="task-drawer-shell">
           <button className="absolute inset-0 bg-black/20" aria-label="关闭任务详情" onClick={() => setDrawerTaskId(null)} />
-          <aside className="relative h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl" data-testid="task-drawer">
-            <div className="sticky top-0 z-10 border-b bg-white px-6 py-4">
+          <aside className="relative w-full h-full max-w-2xl overflow-y-auto bg-white shadow-2xl" data-testid="task-drawer">
+            <div className="sticky top-0 z-10 px-6 py-4 bg-white border-b">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[drawerTask.status] || 'bg-gray-100'}`}>
                       {STATUS_LABEL[drawerTask.status] || drawerTask.status}
                     </span>
-                    <span className="text-xs text-gray-400 font-mono">#{drawerTask.id}</span>
+                    <span className="font-mono text-xs text-gray-400">#{drawerTask.id}</span>
                     {drawerTask.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{drawerTask.project_label}</span>}
                     {drawerTask.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{drawerTask.agent_group}</span>}
                     {drawerTask.skill_name && (
@@ -857,7 +929,7 @@ export default function TaskBoard() {
                   <h3 className="mt-2 text-lg font-semibold" data-testid={`task-detail-${drawerTask.id}`}>{drawerTask.description.split('\n')[0]}</h3>
                   <p className="mt-1 text-sm text-gray-500">Agent: @{drawerTask.agent_id}</p>
                   {drawerTask.runtime_session_id && (
-                    <p className="mt-1 text-xs text-gray-400 font-mono" data-testid={`runtime-session-${drawerTask.id}`}>
+                    <p className="mt-1 font-mono text-xs text-gray-400" data-testid={`runtime-session-${drawerTask.id}`}>
                       Session: {drawerTask.runtime_session_id}
                     </p>
                   )}
@@ -873,81 +945,88 @@ export default function TaskBoard() {
             </div>
 
             <div className="px-6 py-5">
-              <div className="mb-4 flex gap-3 flex-wrap items-center text-xs text-gray-500">
+              <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-500">
                 {drawerTask.retry_of_task_id != null && <span>重试来源: #{drawerTask.retry_of_task_id}</span>}
-                {drawerTask.execution_time_ms != null && <span>⏱ {(drawerTask.execution_time_ms / 1000).toFixed(1)}s</span>}
+                {drawerExecutionLabel && (
+                  <span data-testid={`drawer-execution-time-${drawerTask.id}`}>
+                    ⏱ {drawerTask.status === 'running' ? `已运行 ${drawerExecutionLabel}` : `耗时 ${drawerExecutionLabel}`}
+                  </span>
+                )}
                 <span>创建: {formatTime(drawerTask.created_at)}</span>
                 <span>开始: {formatTime(drawerTask.started_at)}</span>
                 <span>完成: {formatTime(drawerTask.completed_at)}</span>
               </div>
 
               <div className="mb-4">
-                <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
-                <div className="bg-gray-50 border rounded p-3">
+                <h4 className="mb-1 text-xs font-bold text-gray-500">任务描述</h4>
+                <div className="p-3 border rounded bg-gray-50">
                   <Md>{drawerTask.description}</Md>
                 </div>
               </div>
 
               {getTaskErrorSummary(drawerTask) && (
                 <div className="mb-4">
-                  <h4 className="text-xs font-bold text-gray-500 mb-1">失败原因</h4>
-                  <div className="bg-red-50 border border-red-100 rounded p-3 text-sm text-red-600">{getTaskErrorSummary(drawerTask)}</div>
+                  <h4 className="mb-1 text-xs font-bold text-gray-500">失败原因</h4>
+                  <div className="p-3 text-sm text-red-600 border border-red-100 rounded bg-red-50">{getTaskErrorSummary(drawerTask)}</div>
                 </div>
               )}
 
-              {drawerTask.output_content && (
+              {shouldShowOutputContent && drawerTask.output_content && (
                 <div className="mb-4">
-                  <h4 className="text-xs font-bold text-gray-500 mb-1">执行产出</h4>
-                  <div className="bg-gray-50 border rounded p-3">
+                  <h4 className="mb-1 text-xs font-bold text-gray-500">执行产出</h4>
+                  <div className="p-3 border rounded bg-gray-50">
                     <Md>{drawerTask.output_content}</Md>
                   </div>
                 </div>
               )}
 
               <div className="mb-4" data-testid={`runtime-events-${drawerTask.id}`}>
-                <h4 className="text-xs font-bold text-gray-500 mb-2">运行时事件</h4>
-                <div className="bg-gray-50 border rounded p-3">
-                  {runtimeEvents.length === 0 ? (
-                    <p className="text-sm text-gray-400">暂无运行时事件</p>
+                <h4 className="mb-2 text-xs font-bold text-gray-500">Copilot 输出</h4>
+                <div className="p-3 border rounded bg-gray-50">
+                  {assistantOutputs.length === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      {drawerTask.status === 'running' ? 'Copilot 正在执行，等待 assistant_output...' : '暂无 assistant_output'}
+                    </p>
                   ) : (
                     <div className="space-y-2">
-                      {runtimeEvents
-                        .slice()
-                        .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
-                        .map((log, index) => (
-                          <div key={log.id} className="text-xs border-l-2 border-blue-200 pl-3" data-testid={`runtime-event-${drawerTask.id}-${index}`}>
-                            <div className="flex gap-2 flex-wrap items-center">
-                              <span className="font-semibold text-gray-700">{log.event_type}</span>
-                              <span className="text-gray-400 font-mono">{log.created_at}</span>
-                            </div>
-                            {log.detail && <p className="mt-0.5 text-gray-600">{log.detail}</p>}
+                      {assistantOutputs.map((log, index) => (
+                        <div key={log.id} className="p-3 bg-white border rounded border-slate-200" data-testid={`runtime-event-${drawerTask.id}-${index}`}>
+                          <div className="flex flex-wrap items-center gap-2 mb-2 text-xs text-gray-400">
+                            <span>assistant</span>
+                            <span className="font-mono">{log.created_at}</span>
                           </div>
-                        ))}
+                          {log.detail && (
+                            <div className="text-sm text-gray-700">
+                              <Md>{log.detail}</Md>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
 
               <div className="mb-3" data-testid={`history-${drawerTask.id}`}>
-                <h4 className="text-xs font-bold text-gray-500 mb-2">重试历史时间线</h4>
-                <div className="bg-gray-50 border rounded p-3">
+                <h4 className="mb-2 text-xs font-bold text-gray-500">重试历史时间线</h4>
+                <div className="p-3 border rounded bg-gray-50">
                   {(taskHistory[drawerTask.id] || []).length === 0 ? (
                     <p className="text-sm text-gray-400">暂无重试历史</p>
                   ) : (
                     <div className="space-y-3">
                       {(taskHistory[drawerTask.id] || []).map((item) => (
-                        <div key={item.task_id} className="flex gap-3 items-start" data-testid={`history-item-${drawerTask.id}-${item.task_id}`}>
+                        <div key={item.task_id} className="flex items-start gap-3" data-testid={`history-item-${drawerTask.id}-${item.task_id}`}>
                           <div className={`mt-1 h-2.5 w-2.5 rounded-full ${STATUS_COLORS[item.status]?.split(' ')[0] || 'bg-gray-300'}`} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs font-medium text-gray-700">尝试 #{item.attempt_no}</span>
                               <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}>
                                 {STATUS_LABEL[item.status] || item.status}
                               </span>
-                              <span className="text-xs text-gray-400 font-mono">Task #{item.task_id}</span>
+                              <span className="font-mono text-xs text-gray-400">Task #{item.task_id}</span>
                               {item.retry_of_task_id != null && <span className="text-xs text-gray-400">来自 #{item.retry_of_task_id}</span>}
                             </div>
-                            <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
+                            <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
                               <span>创建: {formatTime(item.created_at)}</span>
                               <span>完成: {formatTime(item.completed_at)}</span>
                             </div>
@@ -965,9 +1044,9 @@ export default function TaskBoard() {
       )}
 
       {selectedLogs && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setSelectedLogs(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setSelectedLogs(null)}>
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[70vh] overflow-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-bold mb-3">Task #{selectedLogs.taskId} 日志</h3>
+            <h3 className="mb-3 font-bold">Task #{selectedLogs.taskId} 日志</h3>
             {selectedLogs.logs.length === 0 && <p className="text-sm text-gray-500">暂无日志</p>}
             <div className="space-y-2">
               {selectedLogs.logs

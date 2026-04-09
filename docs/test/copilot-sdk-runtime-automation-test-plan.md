@@ -12,13 +12,15 @@ target_repo: Synapse-Network-Growing
 
 ## 1. 目标
 
-本方案用于验证本次 Copilot SDK 多 Agent 运行时改造后的四类能力：
+本方案用于验证当前已落地的 Copilot SDK 长任务运行时实现，重点覆盖以下能力：
 
 1. 后端任务执行可以在 `legacy` 与 `copilot_sdk` 运行时之间切换
 2. 任务接口会返回运行时元数据：`runtime_backend`、`runtime_session_id`、`runtime_selected_agent`
-3. 运行时事件会被写入 `task_logs` 并在 TaskBoard 右侧抽屉中展示
-4. 前端页面在新增运行时信息后仍能稳定渲染、测试、打包
-5. 浏览器级验证可以稳定覆盖组织架构、任务抽屉运行时元数据、创建任务、失败后重试、单条审批与批量审批主链路
+3. Copilot SDK 任务会以 detached worker 方式执行，并通过 monitor 持续同步状态、事件和最终产出
+4. TaskBoard 右侧抽屉只展示人类可读的 `assistant_output`，而不是原始 runtime 事件噪音
+5. 执行时长会在任务运行中动态更新，并在完成后回落到最终落库的 `execution_time_ms`
+6. 前端页面在新增运行时信息后仍能稳定渲染、测试、打包
+7. 浏览器级验证可以稳定覆盖组织架构、任务抽屉运行时元数据、创建任务、失败后重试、单条审批与批量审批主链路
 
 ## 2. 覆盖范围
 
@@ -30,21 +32,25 @@ target_repo: Synapse-Network-Growing
 2. `server/services/task_runner.py`
 3. `server/services/task_runtime.py`
 4. `server/services/copilot_sdk_bridge.py`
-5. `server/database.py`
+5. `server/services/copilot_sdk_state.py`
+6. `server/services/copilot_sdk_monitor.py`
+7. `server/database.py`
+8. `server/main.py`
 
 对应测试：
 
 1. `tests/test_tasks_api.py`
-2. `tests/test_approvals_api.py`
-3. `tests/test_crew_integration.py`
-4. `tests/test_copilot_auth_api.py`
+2. `tests/test_crew_integration.py`
+3. `tests/test_copilot_sdk_bridge.py`
 
 重点验证内容：
 
 1. `run` / `retry` / `bulk-retry` 路径仍然可用
 2. `_run_task_sync()` 不再依赖旧的 `_engine` 单例，而是通过 `get_task_runtime()` 执行
-3. `copilot_sdk` 运行时结果会落库并写入 runtime/subagent 事件
-4. 审批流在新运行时抽象下保持兼容
+3. `copilot_sdk` 运行时以 `deferred=True` 返回，任务保持 `running`
+4. monitor 会增量消费 runtime 事件并写入 `task_logs`
+5. `runtime_event_cursor` 可以保证重复轮询时幂等
+6. stale heartbeat 会触发 `resumeSession()` 恢复
 
 ### 前端
 
@@ -65,9 +71,11 @@ target_repo: Synapse-Network-Growing
 1. 任务抽屉展示 `runtime_backend`
 2. 任务抽屉展示 `runtime_selected_agent`
 3. 任务抽屉展示 `runtime_session_id`
-4. 任务抽屉展示运行时事件流
-5. 新增运行时字段后既有 TaskBoard 交互不回归
-6. 浏览器级路由切换、任务详情抽屉、创建任务、失败后重试、单条审批、批量审批在真实 DOM 中可执行
+4. 任务抽屉主视图只展示 `assistant_output`
+5. 原始 `runtime_started`、`tool_execution_complete` 等机器事件不再作为主展示内容
+6. 任务卡片与详情抽屉中的执行时长会随运行中任务动态刷新
+7. 新增运行时字段后既有 TaskBoard 交互不回归
+8. 浏览器级路由切换、任务详情抽屉、创建任务、失败后重试、单条审批、批量审批在真实 DOM 中可执行
 
 ## 3. 自动化执行命令
 
@@ -113,9 +121,9 @@ node -e "import('@github/copilot-sdk').then((m) => console.log(typeof m.CopilotC
 1. 后端 pytest 全通过
 2. 前端 Vitest 全通过
 3. 前端 build 成功
-4. Node runner 可以成功导入 `@github/copilot-sdk`
-5. TaskBoard 新增运行时信息存在自动化断言覆盖
-6. 浏览器级 Playwright smoke 覆盖通过
+4. TaskBoard 对 `assistant_output` 主展示和动态执行时长存在自动化断言覆盖
+5. 浏览器级 Playwright smoke 覆盖通过
+6. Node runner 可以成功导入 `@github/copilot-sdk`
 
 ## 5. 本次验证结果
 
@@ -124,10 +132,10 @@ node -e "import('@github/copilot-sdk').then((m) => console.log(typeof m.CopilotC
 后端：
 
 ```bash
-/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests/test_tasks_api.py tests/test_approvals_api.py tests/test_crew_integration.py tests/test_copilot_auth_api.py
+/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests -q
 ```
 
-结果：`80 passed`
+结果：`108 passed`
 
 前端：
 
@@ -136,7 +144,7 @@ cd dashboard
 npx vitest run
 ```
 
-结果：`47 passed`
+结果：`48 passed`
 
 TaskBoard 定向 UI 验证：
 
@@ -145,7 +153,12 @@ cd dashboard
 npx vitest run tests/TaskBoard.test.tsx
 ```
 
-结果：`25 passed`
+结果：`26 passed`
+
+其中新增覆盖：
+
+1. 抽屉只展示 `assistant_output`
+2. 运行中任务的执行时长在列表和抽屉内动态更新
 
 浏览器级 E2E：
 
@@ -159,7 +172,7 @@ npm run test:e2e
 其中覆盖：
 
 1. 组织架构首页加载
-2. 任务抽屉运行时元数据展示
+2. 任务抽屉运行时元数据、assistant transcript 与执行时长展示
 3. 创建任务
 4. 失败任务重试
 5. 单条审批
@@ -186,7 +199,7 @@ node -e "import('@github/copilot-sdk').then((m) => console.log(typeof m.CopilotC
 真实登录态 live smoke：
 
 1. 本机会话已在 `ORCHESTRATION_BACKEND=copilot_sdk` 下成功执行任务 `#17` 与 `#18`
-2. 最终任务 `#18` 返回 `runtime_backend=copilot_sdk`，且 UI 可展示 `runtime_session_id` 与运行时事件
+2. 最终任务 `#18` 返回 `runtime_backend=copilot_sdk`，且 UI 可展示 `runtime_session_id`、`assistant_output` 与执行时长
 
 ## 6. 当前限制
 
