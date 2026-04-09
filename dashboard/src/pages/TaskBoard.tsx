@@ -36,13 +36,18 @@ function getTaskErrorSummary(task: Task) {
   return ''
 }
 
+function toUtcDate(value: string): Date {
+  // Backend sends UTC timestamps without 'Z' suffix; append it so Date parses as UTC.
+  return new Date(value.endsWith('Z') ? value : value + 'Z')
+}
+
 function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN') : '-'
+  return value ? toUtcDate(value).toLocaleString('zh-CN') : '-'
 }
 
 function parseTime(value: string | null) {
   if (!value) return null
-  const parsed = Date.parse(value)
+  const parsed = toUtcDate(value).getTime()
   return Number.isNaN(parsed) ? null : parsed
 }
 

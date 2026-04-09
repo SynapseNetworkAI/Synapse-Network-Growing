@@ -90,6 +90,8 @@ class CopilotSDKTaskMonitor:
             except Exception:
                 logger.exception("Copilot SDK monitor failed while syncing task #%d", task_id)
 
+        self._recover_orphaned_dispatches()
+
     def sync_task(self, task_id: int) -> None:
         db = self.session_factory()
         try:
@@ -122,6 +124,51 @@ class CopilotSDKTaskMonitor:
         while not self._stop_event.is_set():
             self.poll_once()
             self._stop_event.wait(self.poll_interval_sec)
+
+    # ------------------------------------------------------------------
+    # Orphaned-dispatch recovery
+    # ------------------------------------------------------------------
+    _ORPHAN_THRESHOLD_SEC = 300  # 5 minutes without a runtime session → orphaned
+
+    def _recover_orphaned_dispatches(self) -> None:
+        """Detect tasks marked 'running' but never assigned a runtime session.
+
+        This happens when dispatch() fails after the DB commit or when the
+        server restarts between commit and dispatch.  The step is reset to
+        'ready' so the next scheduling pass can retry.
+        """
+        db = self.session_factory()
+        try:
+            orphans = db.query(TaskRow).filter(
+                TaskRow.status == "running",
+                TaskRow.runtime_session_id.is_(None),
+                TaskRow.runtime_backend.in_(("", None)),
+            ).all()
+            for task in orphans:
+                started = getattr(cast(Any, task), "started_at", None)
+                if not started:
+                    continue
+                age = seconds_since_timestamp(str(started))
+                if age is None or age < self._ORPHAN_THRESHOLD_SEC:
+                    continue
+                logger.warning(
+                    "Task #%d has been running for %.0fs with no session — marking as failed (orphaned dispatch)",
+                    _task_id(task), age,
+                )
+                cast(Any, task).status = "failed"
+                cast(Any, task).last_error_message = "dispatch never completed (orphaned)"
+                cast(Any, task).completed_at = utcnow()
+                db.add(TaskLogRow(
+                    task_id=_task_id(task),
+                    event_type="failed",
+                    detail="orphaned dispatch recovery: no runtime session after %.0fs" % age,
+                ))
+                db.commit()
+                self._sync_workflow_step(_task_id(task))
+        except Exception:
+            logger.exception("Orphaned-dispatch recovery failed")
+        finally:
+            db.close()
 
     def _persist_runtime_events(self, db, task: TaskRow, events_path: Path) -> None:
         cursor = _task_int(task, "runtime_event_cursor")

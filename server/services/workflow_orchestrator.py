@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from sqlalchemy.orm import Session
@@ -474,7 +474,23 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
 
             from server.services.task_runner import dispatch
 
-            dispatch(task_id=_as_int(task.id), agent_persona=persona, skill_name=skill_name)
+            try:
+                dispatch(task_id=_as_int(task.id), agent_persona=persona, skill_name=skill_name)
+            except Exception:
+                logger.exception("dispatch() failed for task #%d, resetting step to ready", task.id)
+                db2 = SessionLocal()
+                try:
+                    s = db2.query(WorkflowStepRow).filter(WorkflowStepRow.id == step.id).first()
+                    t = db2.query(TaskRow).filter(TaskRow.id == task.id).first()
+                    if s:
+                        s.status = "ready"
+                    if t:
+                        cast(Any, t).status = "failed"
+                        cast(Any, t).last_error_message = "dispatch failed"
+                        cast(Any, t).completed_at = utcnow()
+                    db2.commit()
+                finally:
+                    db2.close()
             return
 
         _refresh_run_status(db, requirement, workflow_run)

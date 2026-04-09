@@ -37,7 +37,10 @@ function Md({ children }: Readonly<{ children: string }>) {
 }
 
 function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString('zh-CN') : '-'
+  if (!value) return '-'
+  // Backend sends UTC timestamps without 'Z' suffix; append it so Date parses as UTC.
+  const d = new Date(value.endsWith('Z') ? value : value + 'Z')
+  return d.toLocaleString('zh-CN')
 }
 
 export default function RequirementPool() {
