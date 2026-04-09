@@ -79,6 +79,16 @@ def test_list_tasks(synced_client):
     assert len(resp.json()) == 2
 
 
+def test_list_tasks_orders_newest_first(synced_client):
+    first = synced_client.post("/api/tasks", json={"description": "older", "agent_id": "dev_rel"}).json()
+    second = synced_client.post("/api/tasks", json={"description": "newer", "agent_id": "growth_lead"}).json()
+
+    resp = synced_client.get("/api/tasks")
+
+    assert resp.status_code == 200
+    assert [task["id"] for task in resp.json()] == [second["id"], first["id"]]
+
+
 def test_list_tasks_filter_by_status(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     resp = synced_client.get("/api/tasks?status=pending")

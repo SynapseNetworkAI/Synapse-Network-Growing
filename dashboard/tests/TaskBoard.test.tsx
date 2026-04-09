@@ -360,6 +360,43 @@ describe('TaskBoard', () => {
     })
   })
 
+  it('shows newest tasks and projects first by created_at', async () => {
+    const olderTask = {
+      ...RUNNING_TASK,
+      id: 2,
+      description: 'Older running task',
+      project_id: 'alpha-project',
+      project_label: 'alpha-project',
+      created_at: '2026-04-10T00:01:00Z',
+    }
+    const newerTask = {
+      ...PENDING_TASK,
+      id: 9,
+      description: 'Newest pending task',
+      project_id: 'zeta-project',
+      project_label: 'zeta-project',
+      created_at: '2026-04-10T00:05:00Z',
+    }
+    mockApi.getTasks.mockResolvedValue([olderTask, newerTask])
+    const { container } = render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('project-section-alpha-project')).toBeDefined()
+      expect(screen.getByTestId('project-section-zeta-project')).toBeDefined()
+    })
+
+    const projectSections = Array.from(container.querySelectorAll('[data-testid^="project-section-"]'))
+      .map((node) => (node as HTMLElement).dataset.testid)
+    expect(projectSections.slice(0, 2)).toEqual([
+      'project-section-zeta-project',
+      'project-section-alpha-project',
+    ])
+
+    const newestProjectTasks = Array.from(screen.getByTestId('project-section-zeta-project').querySelectorAll('[data-testid^="task-"]'))
+      .map((node) => (node as HTMLElement).dataset.testid)
+    expect(newestProjectTasks[0]).toBe('task-9')
+  })
+
   it('calls runTask with skill parameter', async () => {
     mockApi.getTasks.mockResolvedValue([PENDING_TASK])
     mockApi.runTask.mockResolvedValue(RUNNING_TASK)

@@ -177,7 +177,7 @@ def list_tasks(
         q = q.filter(TaskRow.status == status)
     if agent_id:
         q = q.filter(TaskRow.agent_id == agent_id)
-    rows = q.order_by(TaskRow.created_at.desc()).all()
+    rows = q.order_by(TaskRow.created_at.desc(), TaskRow.id.desc()).all()
 
     if only_anomalies:
         rows = [r for r in rows if r.status in {"failed", "pending_approval", "running"}]

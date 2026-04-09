@@ -22,15 +22,6 @@ const STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
-const STATUS_ORDER: Record<string, number> = {
-  running: 0,
-  failed: 1,
-  pending_approval: 2,
-  pending: 3,
-  completed: 4,
-  rejected: 5,
-}
-
 function Md({ children }: { children: string }) {
   return (
     <div className="prose prose-sm max-w-none prose-headings:text-base prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
@@ -52,6 +43,18 @@ function inferProjectFromAgent(agent: Agent | undefined) {
 
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString('zh-CN') : '-'
+}
+
+function taskCreatedAtValue(task: Task) {
+  if (!task.created_at) return 0
+  const parsed = Date.parse(task.created_at)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function compareTasksByNewestFirst(left: Task, right: Task) {
+  const createdDiff = taskCreatedAtValue(right) - taskCreatedAtValue(left)
+  if (createdDiff !== 0) return createdDiff
+  return right.id - left.id
 }
 
 export default function TaskBoard() {
@@ -663,7 +666,14 @@ export default function TaskBoard() {
       <div className="space-y-4">
         {Object.keys(groupedTasks).length === 0 && <p data-testid="empty-tasks" className="text-gray-500 text-sm">暂无任务</p>}
         {Object.entries(groupedTasks)
-          .sort(([a], [b]) => a.localeCompare(b))
+          .sort(([, leftTasks], [, rightTasks]) => {
+            const leftNewest = leftTasks.reduce((max, task) => Math.max(max, taskCreatedAtValue(task)), 0)
+            const rightNewest = rightTasks.reduce((max, task) => Math.max(max, taskCreatedAtValue(task)), 0)
+            if (rightNewest !== leftNewest) return rightNewest - leftNewest
+            const leftLabel = leftTasks[0]?.project_label || leftTasks[0]?.project_id || ''
+            const rightLabel = rightTasks[0]?.project_label || rightTasks[0]?.project_id || ''
+            return leftLabel.localeCompare(rightLabel)
+          })
           .map(([project, projectTasks]) => (
             <section key={project} data-testid={`project-section-${project}`}>
               <div className="flex items-center justify-between mb-2">
@@ -673,11 +683,7 @@ export default function TaskBoard() {
               <div className="space-y-2">
                 {projectTasks
                   .slice()
-                  .sort((a, b) => {
-                    const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)
-                    if (statusDiff !== 0) return statusDiff
-                    return b.id - a.id
-                  })
+                  .sort(compareTasksByNewestFirst)
                   .map((task) => {
                     const errorSummary = getTaskErrorSummary(task)
                     const isSelected = selectedTaskIds.includes(task.id)
