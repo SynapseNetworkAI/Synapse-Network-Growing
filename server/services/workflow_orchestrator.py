@@ -74,6 +74,11 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     _replace_dependencies(db, requirement.id, body.depends_on_requirement_ids)
     _refresh_requirement_dependency_state(db, requirement)
     db.commit()
+
+    if body.auto_start and requirement.blocked_by_count == 0:
+        detail = plan_requirement(db, _as_int(requirement.id))
+        return start_requirement(db, _as_int(requirement.id))
+
     return build_requirement_detail(db, requirement.id)
 
 

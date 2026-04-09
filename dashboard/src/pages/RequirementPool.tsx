@@ -53,6 +53,7 @@ export default function RequirementPool() {
     description_markdown: '',
     priority: 'normal',
     depends_on_requirement_ids: [] as number[],
+    auto_start: true,
   })
   const [revisionForm, setRevisionForm] = useState({
     title: '',
@@ -124,9 +125,10 @@ export default function RequirementPool() {
         description_markdown: form.description_markdown.trim(),
         priority: form.priority,
         depends_on_requirement_ids: form.depends_on_requirement_ids,
+        auto_start: form.auto_start,
       })
       setShowCreate(false)
-      setForm({ title: '', description_markdown: '', priority: 'normal', depends_on_requirement_ids: [] })
+      setForm({ title: '', description_markdown: '', priority: 'normal', depends_on_requirement_ids: [], auto_start: true })
       await loadRequirements()
       setSelectedId(created.requirement.id)
       setDetail(created)
@@ -259,13 +261,22 @@ export default function RequirementPool() {
                 ))
               )}
             </div>
+            <label className="flex items-center gap-2 py-2">
+              <input
+                data-testid="auto-start-checkbox"
+                type="checkbox"
+                checked={form.auto_start}
+                onChange={() => setForm((prev) => ({ ...prev, auto_start: !prev.auto_start }))}
+              />
+              <span className="text-sm">创建后自动生成计划并启动执行</span>
+            </label>
             <button
               data-testid="submit-requirement-btn"
               className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50"
               disabled={submitting}
               onClick={() => { handleCreate().catch(() => {}) }}
             >
-              创建并保存
+              {form.auto_start ? '创建并启动' : '创建并保存'}
             </button>
           </div>
         </div>

@@ -184,6 +184,7 @@ class RequirementCreate(BaseModel):
     source: str = "manual"
     source_ref: Optional[str] = None
     depends_on_requirement_ids: list[int] = []
+    auto_start: bool = False
 
 
 class RequirementDependencyUpdate(BaseModel):

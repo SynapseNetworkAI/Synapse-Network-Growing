@@ -303,6 +303,7 @@ export const api = {
     source?: string
     source_ref?: string | null
     depends_on_requirement_ids?: number[]
+    auto_start?: boolean
   }) =>
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),

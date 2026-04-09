@@ -233,6 +233,7 @@ describe('RequirementPool', () => {
         description_markdown: '## Goal\n\nShip it.',
         priority: 'high',
         depends_on_requirement_ids: [2],
+        auto_start: true,
       })
     })
   })
