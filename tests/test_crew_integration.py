@@ -196,16 +196,20 @@ def test_get_skills_api(client):
 # ── run_task with skill (integration) ────────────────────────
 
 
-def test_run_task_requires_skill(synced_client):
+def test_run_task_uses_auto_selected_skill(synced_client):
     create = synced_client.post("/api/tasks", json={
         "description": "test task",
         "agent_id": "dev_rel",
     })
     task_id = create.json()["id"]
-    # No skill → error
-    resp = synced_client.post(f"/api/tasks/{task_id}/run")
-    assert resp.status_code == 400
-    assert "skill" in resp.json()["detail"].lower()
+
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        resp = synced_client.post(f"/api/tasks/{task_id}/run")
+
+    assert resp.status_code == 200
+    assert resp.json()["skill_name"]
+    mock_dispatch.assert_called_once()
 
 
 def test_run_task_with_skill_returns_running(synced_client):

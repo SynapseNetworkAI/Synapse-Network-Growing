@@ -1,5 +1,9 @@
 const BASE = '/api'
 
+export interface ApiError extends Error {
+  detail?: unknown
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -7,7 +11,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail || `HTTP ${res.status}`)
+    const detail = body.detail
+    const message = typeof detail === 'string'
+      ? detail
+      : detail?.message || body.message || `HTTP ${res.status}`
+    const error = new Error(message) as ApiError
+    error.detail = detail ?? body
+    throw error
   }
   return res.json()
 }
@@ -86,6 +96,24 @@ export interface TaskBulkRetryRequest {
   mode?: 'run_now' | 'edit_first'
 }
 
+export interface TaskExecutionCandidate {
+  agent_id: string
+  display_name: string
+  agent_group: string
+  skill_name: string
+  confidence: number
+  reason: string
+}
+
+export interface TaskExecutionSuggestion {
+  agent_id: string | null
+  skill_name: string | null
+  confidence: number
+  reason: string
+  requires_confirmation: boolean
+  candidates: TaskExecutionCandidate[]
+}
+
 export interface DashboardStats {
   agent_count: number
   task_total: number
@@ -133,8 +161,10 @@ export const api = {
     const q = qs.toString()
     return request<Task[]>(`/tasks${q ? '?' + q : ''}`)
   },
-  createTask: (data: { description: string; agent_id: string; requires_approval?: boolean; priority?: string; skill_name?: string }) =>
+  createTask: (data: { description: string; agent_id?: string; requires_approval?: boolean; priority?: string; skill_name?: string; confirm_auto_selection?: boolean }) =>
     request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  suggestTaskExecution: (data: { description: string; agent_id?: string; skill_name?: string; limit?: number }) =>
+    request<TaskExecutionSuggestion>('/tasks/suggest-execution', { method: 'POST', body: JSON.stringify(data) }),
   runTask: (id: number, skill?: string) => {
     const qs = skill ? `?skill=${encodeURIComponent(skill)}` : ''
     return request<Task>(`/tasks/${id}/run${qs}`, { method: 'POST' })

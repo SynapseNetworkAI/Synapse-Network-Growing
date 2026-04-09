@@ -35,6 +35,42 @@ def test_create_task_invalid_priority(synced_client):
     assert resp.status_code == 400
 
 
+def test_suggest_execution_returns_best_agent_and_skill(synced_client):
+    resp = synced_client.post("/api/tasks/suggest-execution", json={
+        "description": "Create a detailed analytics tracking plan with UTM taxonomy, event tracking, and attribution setup",
+    })
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_id"] == "cro_optimizer"
+    assert data["skill_name"] == "analytics-tracking"
+    assert data["requires_confirmation"] is False
+
+
+def test_create_task_auto_selects_agent_and_skill(synced_client):
+    resp = synced_client.post("/api/tasks", json={
+        "description": "Create a detailed analytics tracking plan with UTM taxonomy, event tracking, and attribution setup",
+        "confirm_auto_selection": True,
+    })
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["agent_id"] == "cro_optimizer"
+    assert data["skill_name"] == "analytics-tracking"
+    assert data["status"] == "pending"
+
+
+def test_create_task_requires_confirmation_for_low_confidence_auto_selection(synced_client):
+    resp = synced_client.post("/api/tasks", json={
+        "description": "Help me with something important later",
+    })
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "suggestion" in detail
+    assert detail["suggestion"]["requires_confirmation"] is True
+
+
 def test_list_tasks(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     synced_client.post("/api/tasks", json={"description": "t2", "agent_id": "growth_lead"})

@@ -8,9 +8,18 @@ from typing import Optional
 import yaml
 
 from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, utcnow
-from server.schemas import TaskCreate, TaskOut, TaskLogOut, TaskHistoryOut, TaskBulkRetryRequest
+from server.schemas import (
+    TaskCreate,
+    TaskOut,
+    TaskLogOut,
+    TaskHistoryOut,
+    TaskBulkRetryRequest,
+    TaskExecutionSuggestionRequest,
+    TaskExecutionSuggestion,
+)
 from server.config import PROJECT_ROOT
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
+from server.services.execution_resolver import suggest_task_execution
 
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -188,24 +197,58 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     return _task_to_out(row)
 
 
+@router.post("/suggest-execution", response_model=TaskExecutionSuggestion)
+def suggest_execution(body: TaskExecutionSuggestionRequest, db: Session = Depends(get_db)):
+    return suggest_task_execution(
+        db=db,
+        description=body.description,
+        preferred_agent_id=body.agent_id,
+        preferred_skill_name=body.skill_name,
+        limit=body.limit,
+    )
+
+
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(body: TaskCreate, db: Session = Depends(get_db)):
-    # Validate agent exists
-    agent = db.query(AgentRow).filter(AgentRow.id == body.agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=400, detail=f"Agent '{body.agent_id}' not found. Sync agents first.")
-
     if body.priority not in ("low", "normal", "high"):
         raise HTTPException(status_code=400, detail="priority must be low|normal|high")
 
+    resolved_agent_id = body.agent_id
+    resolved_skill_name = body.skill_name
+
+    if not resolved_agent_id or not resolved_skill_name:
+        suggestion = suggest_task_execution(
+            db=db,
+            description=body.description,
+            preferred_agent_id=body.agent_id,
+            preferred_skill_name=body.skill_name,
+        )
+        if not resolved_agent_id and suggestion.requires_confirmation and not body.confirm_auto_selection:
+            raise HTTPException(status_code=409, detail={
+                "message": "Auto-selection confidence is low. Please confirm the suggested Agent / Skill.",
+                "suggestion": suggestion.model_dump(),
+            })
+        resolved_agent_id = resolved_agent_id or suggestion.agent_id
+        if not resolved_skill_name and suggestion.skill_name and (
+            not suggestion.requires_confirmation or suggestion.agent_id == resolved_agent_id
+        ):
+            resolved_skill_name = suggestion.skill_name
+
+    if not resolved_agent_id:
+        raise HTTPException(status_code=400, detail="Unable to resolve an agent for this task.")
+
+    agent = db.query(AgentRow).filter(AgentRow.id == resolved_agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=400, detail=f"Agent '{resolved_agent_id}' not found. Sync agents first.")
+
     row = TaskRow(
         description=body.description,
-        agent_id=body.agent_id,
+        agent_id=resolved_agent_id,
         requires_approval=body.requires_approval,
         priority=body.priority,
         project_id=task_metadata_for_agent(agent.group)[0],
         agent_group=task_metadata_for_agent(agent.group)[1],
-        skill_name=body.skill_name,
+        skill_name=resolved_skill_name,
         context_files=json.dumps(body.context_files) if body.context_files else None,
     )
     db.add(row)
@@ -233,6 +276,19 @@ def run_task(
 
     # Determine skill
     effective_skill = skill or row.skill_name
+    if not effective_skill:
+        suggestion = suggest_task_execution(
+            db=db,
+            description=row.description,
+            preferred_agent_id=row.agent_id,
+        )
+        if suggestion.requires_confirmation:
+            raise HTTPException(status_code=409, detail={
+                "message": "Skill auto-selection confidence is low. Please confirm the suggested Skill.",
+                "suggestion": suggestion.model_dump(),
+            })
+        effective_skill = suggestion.skill_name
+
     if not effective_skill:
         raise HTTPException(status_code=400, detail="No skill specified. Pass ?skill=... or set skill_name on task.")
 

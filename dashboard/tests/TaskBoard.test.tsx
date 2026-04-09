@@ -8,6 +8,7 @@ const mockApi = {
   getAgents: vi.fn(),
   getSkills: vi.fn(),
   createTask: vi.fn(),
+  suggestTaskExecution: vi.fn(),
   runTask: vi.fn(),
   retryTask: vi.fn(),
   bulkRetryTasks: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('../src/api', () => ({
     getAgents: (...args: unknown[]) => mockApi.getAgents(...args),
     getSkills: (...args: unknown[]) => mockApi.getSkills(...args),
     createTask: (...args: unknown[]) => mockApi.createTask(...args),
+    suggestTaskExecution: (...args: unknown[]) => mockApi.suggestTaskExecution(...args),
     runTask: (...args: unknown[]) => mockApi.runTask(...args),
     retryTask: (...args: unknown[]) => mockApi.retryTask(...args),
     bulkRetryTasks: (...args: unknown[]) => mockApi.bulkRetryTasks(...args),
@@ -135,12 +137,57 @@ const HISTORY_ITEMS = [
   },
 ]
 
+const AUTO_SUGGESTION = {
+  agent_id: 'cro_optimizer',
+  skill_name: 'analytics-tracking',
+  confidence: 0.88,
+  reason: 'CRO Optimizer / analytics-tracking 命中任务语义: analytics, tracking, utm',
+  requires_confirmation: false,
+  candidates: [
+    {
+      agent_id: 'cro_optimizer',
+      display_name: 'CRO Optimizer',
+      agent_group: 'optimization',
+      skill_name: 'analytics-tracking',
+      confidence: 0.88,
+      reason: 'CRO Optimizer / analytics-tracking 命中任务语义: analytics, tracking, utm',
+    },
+  ],
+}
+
+const LOW_CONFIDENCE_SUGGESTION = {
+  agent_id: 'dev_rel',
+  skill_name: 'content-strategy',
+  confidence: 0.41,
+  reason: '缺少明确语义命中，需要人工确认',
+  requires_confirmation: true,
+  candidates: [
+    {
+      agent_id: 'dev_rel',
+      display_name: 'DevRel',
+      agent_group: 'content',
+      skill_name: 'content-strategy',
+      confidence: 0.41,
+      reason: '缺少明确语义命中，需要人工确认',
+    },
+    {
+      agent_id: 'seo_strategist',
+      display_name: 'SEO Strategist',
+      agent_group: 'optimization',
+      skill_name: 'seo-audit',
+      confidence: 0.39,
+      reason: '缺少明确语义命中，需要人工确认',
+    },
+  ],
+}
+
 describe('TaskBoard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.getTasks.mockResolvedValue([])
     mockApi.getAgents.mockResolvedValue(AGENTS)
     mockApi.getSkills.mockResolvedValue(SKILLS)
+    mockApi.suggestTaskExecution.mockResolvedValue(AUTO_SUGGESTION)
     mockApi.retryTask.mockResolvedValue({ ...RUNNING_TASK, id: 10 })
     mockApi.bulkRetryTasks.mockResolvedValue([{ ...RUNNING_TASK, id: 10 }])
     mockApi.getTaskHistory.mockResolvedValue([])
@@ -222,6 +269,66 @@ describe('TaskBoard', () => {
           description: 'Audit synapse.network',
         })
       )
+    })
+  })
+
+  it('auto-selects agent and skill for a task description', async () => {
+    mockApi.createTask.mockResolvedValue({ ...PENDING_TASK, agent_id: 'cro_optimizer', skill_name: 'analytics-tracking' })
+    render(<TaskBoard />)
+    fireEvent.click(screen.getByTestId('create-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-description')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('task-description'), {
+      target: { value: 'Create a full analytics tracking plan with UTM coverage and event taxonomy' },
+    })
+
+    await waitFor(() => {
+      expect(mockApi.suggestTaskExecution).toHaveBeenCalled()
+      expect(screen.getByTestId('auto-suggestion-summary').textContent).toContain('analytics-tracking')
+    })
+
+    fireEvent.click(screen.getByTestId('submit-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.createTask).toHaveBeenCalledWith(expect.objectContaining({
+        agent_id: 'cro_optimizer',
+        skill_name: 'analytics-tracking',
+        confirm_auto_selection: true,
+      }))
+    })
+  })
+
+  it('requires confirmation for low-confidence auto-selection', async () => {
+    mockApi.suggestTaskExecution.mockResolvedValue(LOW_CONFIDENCE_SUGGESTION)
+    render(<TaskBoard />)
+    fireEvent.click(screen.getByTestId('create-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-description')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('task-description'), {
+      target: { value: 'Help me with this task soon' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('suggestion-candidates')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('submit-btn'))
+    expect(mockApi.createTask).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('suggestion-candidate-0'))
+    fireEvent.click(screen.getByTestId('submit-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.createTask).toHaveBeenCalledWith(expect.objectContaining({
+        agent_id: 'dev_rel',
+        skill_name: 'content-strategy',
+      }))
     })
   })
 
@@ -436,16 +543,16 @@ describe('TaskBoard', () => {
     expect(el).toBeDefined()
   })
 
-  it('alerts when running task without selecting skill', async () => {
+  it('runs task without manual skill selection when auto-resolution is available', async () => {
     const taskNoSkill = { ...PENDING_TASK, skill_name: null }
     mockApi.getTasks.mockResolvedValue([taskNoSkill])
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
     render(<TaskBoard />)
 
     const runBtn = await screen.findByTestId('run-1', {}, { timeout: 3000 })
     fireEvent.click(runBtn)
 
-    expect(alertSpy).toHaveBeenCalled()
-    alertSpy.mockRestore()
+    await waitFor(() => {
+      expect(mockApi.runTask).toHaveBeenCalledWith(1, undefined)
+    })
   })
 })

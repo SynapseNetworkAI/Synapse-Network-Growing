@@ -25,11 +25,12 @@ class AgentOut(BaseModel):
 
 class TaskCreate(BaseModel):
     description: str
-    agent_id: str
+    agent_id: Optional[str] = None
     requires_approval: bool = False
     priority: str = "normal"
     skill_name: Optional[str] = None
     context_files: Optional[list[str]] = None
+    confirm_auto_selection: bool = False
 
 
 class TaskOut(BaseModel):
@@ -77,6 +78,31 @@ class TaskHistoryOut(BaseModel):
 class TaskBulkRetryRequest(BaseModel):
     task_ids: list[int]
     mode: str = "run_now"
+
+
+class TaskExecutionSuggestionRequest(BaseModel):
+    description: str
+    agent_id: Optional[str] = None
+    skill_name: Optional[str] = None
+    limit: int = 3
+
+
+class TaskExecutionCandidate(BaseModel):
+    agent_id: str
+    display_name: str
+    agent_group: str = ""
+    skill_name: str
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class TaskExecutionSuggestion(BaseModel):
+    agent_id: Optional[str] = None
+    skill_name: Optional[str] = None
+    confidence: float = 0.0
+    reason: str = ""
+    requires_confirmation: bool = False
+    candidates: list[TaskExecutionCandidate] = []
 
 
 # ── Approval ──────────────────────────────────────────────────

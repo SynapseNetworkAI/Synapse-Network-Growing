@@ -18,6 +18,7 @@ target_repo: Synapse-Network-Growing
 2. 第二阶段：`project_id`、`agent_group` 持久化落库
 3. 第二阶段：重试历史时间线 UI 与历史接口
 4. 第三阶段：批量重试、批量审批、右侧独立详情抽屉
+5. 第四阶段：自动选 Agent、自动选 Skill、低置信度人工确认
 
 尚未实现：
 
@@ -383,6 +384,8 @@ last_error_message = Column(Text)
 2. Approvals 页面已支持多选待审批项并批量批准/拒绝，复用单条审批的后端校验逻辑。
 3. 任务详情已从内联展开升级为右侧抽屉，保留描述、失败原因、执行产出、重试历史与时间元信息。
 4. 当前仍未实现 `last_error_code`，错误结构化能力暂时停留在 `last_error_message`。
+5. 创建任务时，如果用户未显式指定 Agent 或 Skill，系统会基于任务描述、Agent goal 和 SKILL.md 描述自动推荐执行方案。
+6. 当匹配置信度不足时，前端不会直接提交，而是展示候选 Agent / Skill 供用户确认。
 
 ---
 
@@ -397,6 +400,12 @@ last_error_message = Column(Text)
 3. 当前 Agent 可用 Skills
 
 这样用户在创建时就能知道任务会投递到哪个上下文。
+
+当前实现已扩展为：
+
+1. 用户可以不选 Agent，直接输入任务描述。
+2. 系统会自动推荐 Agent / Skill，并在高置信度时自动用于创建任务。
+3. 当匹配结果不稳定时，系统展示候选项并要求用户确认后再提交。
 
 ### 日志查看
 

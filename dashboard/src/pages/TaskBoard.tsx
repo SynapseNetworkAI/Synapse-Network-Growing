@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, Agent, TaskLog, TaskHistoryItem } from '../api'
+import { api, Task, Agent, TaskLog, TaskHistoryItem, TaskExecutionSuggestion, ApiError } from '../api'
 
 const RETRYABLE_STATUSES = new Set(['failed', 'rejected'])
 
@@ -68,12 +68,16 @@ export default function TaskBoard() {
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
   const [preview, setPreview] = useState(false)
+  const [suggestion, setSuggestion] = useState<TaskExecutionSuggestion | null>(null)
+  const [suggestionLoading, setSuggestionLoading] = useState(false)
+  const [suggestionMessage, setSuggestionMessage] = useState('')
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
   const [drawerTaskId, setDrawerTaskId] = useState<number | null>(null)
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
   const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const suggestionRequestRef = useRef(0)
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([
@@ -159,30 +163,123 @@ export default function TaskBoard() {
   const retryableTaskIds = visibleTasks.filter((task) => RETRYABLE_STATUSES.has(task.status)).map((task) => task.id)
   const allRetryableSelected = retryableTaskIds.length > 0 && retryableTaskIds.every((id) => selectedRetryableTaskIds.includes(id))
 
+  const resolveSuggestion = useCallback(async (nextForm: typeof form) => {
+    const description = nextForm.description.trim()
+    if (!description) {
+      setSuggestion(null)
+      return null
+    }
+    const requestId = ++suggestionRequestRef.current
+    setSuggestionLoading(true)
+    try {
+      const data = await api.suggestTaskExecution({
+        description,
+        agent_id: nextForm.agent_id || undefined,
+        skill_name: nextForm.skill_name || undefined,
+        limit: 3,
+      })
+      if (requestId !== suggestionRequestRef.current) return null
+      setSuggestion(data)
+      return data
+    } catch {
+      if (requestId === suggestionRequestRef.current) setSuggestion(null)
+      return null
+    } finally {
+      if (requestId === suggestionRequestRef.current) setSuggestionLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showCreate) return
+    if (!form.description.trim()) {
+      setSuggestion(null)
+      setSuggestionMessage('')
+      return
+    }
+    if (form.agent_id && form.skill_name) {
+      setSuggestion(null)
+      return
+    }
+
+    const timer = setTimeout(() => {
+      resolveSuggestion(form)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [showCreate, form, resolveSuggestion])
+
+  const applySuggestion = (agentId: string, skillName: string) => {
+    setForm((prev) => ({ ...prev, agent_id: agentId, skill_name: skillName }))
+    setSuggestionMessage('')
+  }
+
   const handleCreate = async () => {
-    if (!form.description || !form.agent_id) return
-    await api.createTask({
-      description: form.description,
-      agent_id: form.agent_id,
-      requires_approval: form.requires_approval,
-      priority: form.priority,
-      skill_name: form.skill_name || undefined,
-    })
-    setForm({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
-    setShowCreate(false)
-    setPreview(false)
-    await load()
+    if (!form.description.trim()) return
+
+    let taskAgentId = form.agent_id || undefined
+    let taskSkillName = form.skill_name || undefined
+
+    if (!taskAgentId || !taskSkillName) {
+      const recommended = suggestion || await resolveSuggestion(form)
+      if (!recommended?.agent_id) {
+        alert('系统未能推断合适的 Agent / Skill，请手动选择后再提交')
+        return
+      }
+      if (!taskAgentId && recommended.requires_confirmation) {
+        setSuggestion(recommended)
+        setSuggestionMessage('系统推荐置信度不足，请确认 Agent / Skill 后再提交')
+        return
+      }
+      taskAgentId = taskAgentId || recommended.agent_id
+      if (!taskSkillName && recommended.skill_name && (!recommended.requires_confirmation || recommended.agent_id === taskAgentId)) {
+        taskSkillName = recommended.skill_name
+      }
+    }
+
+    try {
+      await api.createTask({
+        description: form.description,
+        agent_id: taskAgentId,
+        requires_approval: form.requires_approval,
+        priority: form.priority,
+        skill_name: taskSkillName,
+        confirm_auto_selection: true,
+      })
+      setForm({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
+      setSuggestion(null)
+      setSuggestionMessage('')
+      setShowCreate(false)
+      setPreview(false)
+      await load()
+    } catch (error) {
+      const detail = (error as ApiError).detail as { message?: string; suggestion?: TaskExecutionSuggestion } | undefined
+      if (detail?.suggestion) {
+        setSuggestion(detail.suggestion)
+        setSuggestionMessage(detail.message || '请确认系统推荐的 Agent / Skill')
+        return
+      }
+      alert(error instanceof Error ? error.message : '任务创建失败')
+    }
   }
 
   const handleRun = async (id: number) => {
     const task = tasks.find(t => t.id === id)
     const skill = runningSkill[id] || task?.skill_name
-    if (!skill) {
-      alert('请先选择一个 Skill 再执行')
-      return
+    try {
+      await api.runTask(id, skill || undefined)
+      await load()
+    } catch (error) {
+      const detail = (error as ApiError).detail as { message?: string; suggestion?: TaskExecutionSuggestion } | undefined
+      if (detail?.suggestion?.skill_name) {
+        setRunningSkill((prev) => ({ ...prev, [id]: detail.suggestion?.skill_name || '' }))
+        alert(detail.message || '系统已推荐 Skill，请确认后重新执行')
+        return
+      }
+      if (!skill) {
+        alert('请先选择一个 Skill 再执行')
+        return
+      }
+      alert(error instanceof Error ? error.message : '任务执行失败')
     }
-    await api.runTask(id, skill)
-    await load()
   }
 
   const handleRetry = async (taskId: number) => {
@@ -392,10 +489,13 @@ export default function TaskBoard() {
             <select
               data-testid="agent-select"
               value={form.agent_id}
-              onChange={(e) => setForm({ ...form, agent_id: e.target.value, skill_name: '' })}
+              onChange={(e) => {
+                setSuggestionMessage('')
+                setForm({ ...form, agent_id: e.target.value, skill_name: '' })
+              }}
               className="border rounded px-3 py-2 text-sm"
             >
-              <option value="">选择 Agent</option>
+              <option value="">自动选择 Agent</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.display_name} ({a.id})</option>
               ))}
@@ -403,10 +503,13 @@ export default function TaskBoard() {
             <select
               data-testid="skill-select"
               value={form.skill_name}
-              onChange={(e) => setForm({ ...form, skill_name: e.target.value })}
+              onChange={(e) => {
+                setSuggestionMessage('')
+                setForm({ ...form, skill_name: e.target.value })
+              }}
               className="border rounded px-3 py-2 text-sm"
             >
-              <option value="">选择 Skill (可选)</option>
+              <option value="">自动选择 Skill</option>
               {(selectedAgentSkills.length > 0 ? selectedAgentSkills : skills).map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
@@ -437,6 +540,52 @@ export default function TaskBoard() {
               <span className="mr-4">项目: {inferProjectFromAgent(selectedAgent)}</span>
               <span className="mr-4">组别: {selectedAgent.group || '-'}</span>
               <span>技能数: {selectedAgentSkills.length}</span>
+            </div>
+          )}
+
+          {suggestion && (
+            <div
+              data-testid="auto-suggestion-card"
+              className={`mb-3 rounded border px-3 py-3 text-sm ${suggestion.requires_confirmation ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}
+            >
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="font-medium text-gray-900">
+                    {suggestion.requires_confirmation ? '系统推荐需要人工确认' : '系统已自动匹配执行方案'}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1" data-testid="auto-suggestion-summary">
+                    推荐 Agent: {suggestion.agent_id || '-'} · 推荐 Skill: {suggestion.skill_name || '-'} · 置信度 {Math.round(suggestion.confidence * 100)}%
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">{suggestionMessage || suggestion.reason}</div>
+                </div>
+                {!suggestion.requires_confirmation && suggestion.agent_id && suggestion.skill_name && (
+                  <button
+                    data-testid="apply-suggestion"
+                    type="button"
+                    onClick={() => applySuggestion(suggestion.agent_id || '', suggestion.skill_name || '')}
+                    className="text-xs bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700"
+                  >
+                    采用推荐
+                  </button>
+                )}
+              </div>
+              {suggestion.requires_confirmation && suggestion.candidates.length > 0 && (
+                <div className="mt-3 space-y-2" data-testid="suggestion-candidates">
+                  {suggestion.candidates.map((candidate, index) => (
+                    <button
+                      key={`${candidate.agent_id}-${candidate.skill_name}`}
+                      data-testid={`suggestion-candidate-${index}`}
+                      type="button"
+                      onClick={() => applySuggestion(candidate.agent_id, candidate.skill_name)}
+                      className="w-full rounded border bg-white px-3 py-2 text-left hover:border-amber-400"
+                    >
+                      <div className="text-sm font-medium text-gray-900">{candidate.display_name} · {candidate.skill_name}</div>
+                      <div className="text-xs text-gray-500 mt-1">{candidate.reason} · 置信度 {Math.round(candidate.confidence * 100)}%</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {suggestionLoading && <div className="mt-2 text-xs text-gray-500">正在分析任务并匹配 Agent / Skill...</div>}
             </div>
           )}
 
@@ -501,7 +650,7 @@ export default function TaskBoard() {
               <button
                 data-testid="submit-btn"
                 onClick={handleCreate}
-                disabled={!form.description || !form.agent_id}
+                disabled={!form.description.trim()}
                 className="text-sm bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 提交任务
