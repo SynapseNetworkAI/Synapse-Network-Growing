@@ -1,0 +1,8 @@
+{
+  "name": "synapse-growing-copilot-sdk-runner",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@github/copilot-sdk": "^0.2.1"
+  }
+}

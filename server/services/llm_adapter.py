@@ -15,6 +15,7 @@ import logging
 import httpx
 
 from server import config
+from server.services.copilot_auth import CopilotAuthService
 
 logger = logging.getLogger("ops-dashboard.llm_adapter")
 
@@ -118,17 +119,17 @@ class ClaudeProvider(LLMProvider):
 
 
 class CopilotProvider(LLMProvider):
-    """GitHub Copilot chat completion (OpenAI-compatible endpoint with GitHub token)."""
+    """GitHub Copilot chat completion using Copilot CLI OAuth login state."""
 
     name = "copilot"
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
-        self.api_key = config.GITHUB_TOKEN if api_key is None else api_key
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, auth_service: CopilotAuthService | None = None):
+        self.api_key = api_key
         self.base_url = (config.COPILOT_BASE_URL if base_url is None else base_url).rstrip("/")
+        self.auth_service = auth_service or CopilotAuthService()
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
-        if not self.api_key:
-            raise RuntimeError("GITHUB_TOKEN not set. Configure the environment variable to enable Copilot execution.")
+        api_key = self.api_key or self._resolve_api_key()
 
         resp = httpx.post(
             f"{self.base_url}/chat/completions",
@@ -141,7 +142,7 @@ class CopilotProvider(LLMProvider):
                 "temperature": temperature,
             },
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
                 "Editor-Version": "vscode/1.100.0",
             },
@@ -155,6 +156,15 @@ class CopilotProvider(LLMProvider):
         text = data["choices"][0]["message"]["content"]
         tokens = data.get("usage", {}).get("total_tokens", 0)
         return text, tokens
+
+    def _resolve_api_key(self) -> str:
+        auth = self.auth_service.resolve_stored_auth()
+        if auth:
+            return auth.token
+        raise RuntimeError(
+            "Copilot OAuth token not found. Run `copilot login` or complete the /api/copilot-auth/device-code flow. "
+            "Do not use a GitHub PAT for Copilot chat completions."
+        )
 
 
 # ── Provider registry & factory ──────────────────────────────

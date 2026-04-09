@@ -4,12 +4,10 @@ import threading
 from pathlib import Path
 
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
-from server.services.crew_engine import CrewEngine
 from server.config import PROJECT_ROOT
+from server.services.task_runtime import get_task_runtime, RuntimeEvent
 
 logger = logging.getLogger("ops-dashboard.task_runner")
-
-_engine = CrewEngine(PROJECT_ROOT)
 
 
 def dispatch(task_id: int, agent_persona: dict, skill_name: str) -> threading.Thread:
@@ -50,13 +48,19 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        result = _engine.execute(
+        runtime = get_task_runtime(PROJECT_ROOT)
+        result = runtime.execute(
             persona=agent_persona,
             skill_name=skill_name,
             task_description=task.description,
             output_dir=output_dir,
             extra_context_files=extra_files,
         )
+
+        task.runtime_backend = result.runtime_backend
+        task.runtime_session_id = result.runtime_session_id
+        task.runtime_selected_agent = result.runtime_selected_agent
+        _persist_runtime_events(db, task_id, result.events)
 
         # Write results back to DB
         task.output_content = result.text
@@ -108,3 +112,8 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
 def _log(db, task_id: int, event_type: str, detail: str | None = None):
     db.add(TaskLogRow(task_id=task_id, event_type=event_type, detail=detail))
     db.flush()
+
+
+def _persist_runtime_events(db, task_id: int, events: list[RuntimeEvent]):
+    for event in events:
+        _log(db, task_id, event.event_type, event.detail)

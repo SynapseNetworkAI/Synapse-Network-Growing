@@ -3,7 +3,7 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Any, Optional, cast
 
 import yaml
 
@@ -17,7 +17,7 @@ from server.schemas import (
     TaskExecutionSuggestionRequest,
     TaskExecutionSuggestion,
 )
-from server.config import PROJECT_ROOT
+from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
 from server.services.execution_resolver import suggest_task_execution
 
@@ -25,86 +25,120 @@ logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed"}
+TASK_NOT_FOUND = "Task not found"
 
 
-def _add_log(db: Session, task_id: int, event_type: str, detail: str = None):
+def _add_log(db: Session, task_id: int, event_type: str, detail: str | None = None):
     db.add(TaskLogRow(task_id=task_id, event_type=event_type, detail=detail))
 
 
+def _as_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _as_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _require_task_id(row: TaskRow) -> int:
+    task_id = _as_int(row.id)
+    if task_id is None:
+        raise RuntimeError("Task row is missing id")
+    return task_id
+
+
+def _task_agent_group(row: TaskRow) -> str:
+    return _as_text(row.agent_group) or (_as_text(row.agent.group) if row.agent else "") or ""
+
+
+def _task_project_id(row: TaskRow) -> str | None:
+    return _as_text(row.project_id) or project_for_group(_task_agent_group(row))
+
+
 def _task_to_out(row: TaskRow) -> TaskOut:
-    agent_group = row.agent_group or (row.agent.group if row.agent else "")
-    project_id = row.project_id or project_for_group(agent_group)
+    agent_group = _task_agent_group(row)
+    project_id = _task_project_id(row)
     return TaskOut(
-        id=row.id,
-        description=row.description,
-        agent_id=row.agent_id,
-        status=row.status,
-        requires_approval=row.requires_approval,
-        priority=row.priority,
+        id=_require_task_id(row),
+        description=_as_text(row.description) or "",
+        agent_id=_as_text(row.agent_id) or "",
+        status=_as_text(row.status) or "pending",
+        requires_approval=cast(bool, row.requires_approval),
+        priority=_as_text(row.priority) or "normal",
         project_id=project_id or None,
         project_label=project_id or None,
         agent_group=agent_group or None,
-        skill_name=row.skill_name,
-        context_files=row.context_files,
-        retry_of_task_id=row.retry_of_task_id,
-        attempt_no=row.attempt_no or 1,
-        last_error_message=row.last_error_message,
-        output_path=row.output_path,
-        output_content=row.output_content,
-        execution_time_ms=row.execution_time_ms,
-        created_at=row.created_at,
-        started_at=row.started_at,
-        completed_at=row.completed_at,
+        skill_name=_as_text(row.skill_name),
+        context_files=_as_text(row.context_files),
+        retry_of_task_id=_as_int(row.retry_of_task_id),
+        attempt_no=_as_int(row.attempt_no) or 1,
+        last_error_message=_as_text(row.last_error_message),
+        runtime_backend=_as_text(row.runtime_backend),
+        runtime_session_id=_as_text(row.runtime_session_id),
+        runtime_selected_agent=_as_text(row.runtime_selected_agent),
+        output_path=_as_text(row.output_path),
+        output_content=_as_text(row.output_content),
+        execution_time_ms=_as_int(row.execution_time_ms),
+        created_at=cast(Any, row.created_at),
+        started_at=cast(Any, row.started_at),
+        completed_at=cast(Any, row.completed_at),
     )
 
 
 def _task_to_history_out(row: TaskRow) -> TaskHistoryOut:
-    agent_group = row.agent_group or (row.agent.group if row.agent else "")
-    project_id = row.project_id or project_for_group(agent_group)
+    agent_group = _task_agent_group(row)
+    project_id = _task_project_id(row)
     return TaskHistoryOut(
-        task_id=row.id,
-        retry_of_task_id=row.retry_of_task_id,
-        attempt_no=row.attempt_no or 1,
-        status=row.status,
+        task_id=_require_task_id(row),
+        retry_of_task_id=_as_int(row.retry_of_task_id),
+        attempt_no=_as_int(row.attempt_no) or 1,
+        status=_as_text(row.status) or "pending",
         project_id=project_id or None,
         agent_group=agent_group or None,
-        agent_id=row.agent_id,
-        skill_name=row.skill_name,
-        last_error_message=row.last_error_message,
-        created_at=row.created_at,
-        started_at=row.started_at,
-        completed_at=row.completed_at,
+        agent_id=_as_text(row.agent_id) or "",
+        skill_name=_as_text(row.skill_name),
+        last_error_message=_as_text(row.last_error_message),
+        runtime_backend=_as_text(row.runtime_backend),
+        created_at=cast(Any, row.created_at),
+        started_at=cast(Any, row.started_at),
+        completed_at=cast(Any, row.completed_at),
     )
 
 
 def _retry_root_id(row: TaskRow, by_id: dict[int, TaskRow]) -> int:
     current = row
     seen: set[int] = set()
-    while current.retry_of_task_id and current.retry_of_task_id in by_id and current.retry_of_task_id not in seen:
-        seen.add(current.id)
-        current = by_id[current.retry_of_task_id]
-    return current.id
+    current_retry_of = _as_int(current.retry_of_task_id)
+    while current_retry_of and current_retry_of in by_id and current_retry_of not in seen:
+        seen.add(_require_task_id(current))
+        current = by_id[current_retry_of]
+        current_retry_of = _as_int(current.retry_of_task_id)
+    return _require_task_id(current)
 
 
 def _retry_history_for_task(task_id: int, db: Session) -> list[TaskRow]:
     rows = db.query(TaskRow).order_by(TaskRow.created_at.asc(), TaskRow.id.asc()).all()
-    by_id = {row.id: row for row in rows}
+    by_id = {_require_task_id(row): row for row in rows}
     row = by_id.get(task_id)
     if not row:
         return []
 
     root_id = _retry_root_id(row, by_id)
     history = [candidate for candidate in rows if _retry_root_id(candidate, by_id) == root_id]
-    history.sort(key=lambda candidate: (candidate.attempt_no or 1, candidate.created_at or utcnow(), candidate.id))
+    history.sort(key=lambda candidate: (_as_int(candidate.attempt_no) or 1, candidate.created_at or utcnow(), _require_task_id(candidate)))
     return history
 
 
 def _validate_retry_source(source: TaskRow, mode: str):
-    if source.status not in {"failed", "rejected"}:
+    if _as_text(source.status) not in {"failed", "rejected"}:
         raise HTTPException(status_code=400, detail="Only failed or rejected tasks can be retried")
     if mode not in {"run_now", "edit_first"}:
         raise HTTPException(status_code=400, detail="mode must be run_now|edit_first")
-    if mode == "run_now" and not source.skill_name:
+    if mode == "run_now" and not _as_text(source.skill_name):
         raise HTTPException(status_code=400, detail="Cannot retry immediately without a skill")
 
 
@@ -126,14 +160,15 @@ def _build_retry_task(source: TaskRow, mode: str, db: Session) -> tuple[TaskRow,
     )
     db.add(row)
     db.flush()
-    _add_log(db, row.id, "created", row.description)
-    _add_log(db, row.id, "retried_from", f"task={source.id}")
+    _add_log(db, _require_task_id(row), "created", _as_text(row.description))
+    _add_log(db, _require_task_id(row), "retried_from", f"task={_require_task_id(source)}")
 
     if mode == "run_now":
-        row.status = "running"
-        row.started_at = utcnow()
-        _add_log(db, row.id, "started", f"skill={row.skill_name}")
-        return row, (row.id, _load_full_persona(row.agent_id), row.skill_name)
+        cast(Any, row).status = "running"
+        cast(Any, row).started_at = utcnow()
+        cast(Any, row).runtime_backend = ORCHESTRATION_BACKEND
+        _add_log(db, _require_task_id(row), "started", f"skill={_as_text(row.skill_name)}")
+        return row, (_require_task_id(row), _load_full_persona(_as_text(row.agent_id) or ""), _as_text(row.skill_name) or "")
 
     return row, None
 
@@ -180,11 +215,11 @@ def list_tasks(
     rows = q.order_by(TaskRow.created_at.desc(), TaskRow.id.desc()).all()
 
     if only_anomalies:
-        rows = [r for r in rows if r.status in {"failed", "pending_approval", "running"}]
+        rows = [r for r in rows if _as_text(r.status) in {"failed", "pending_approval", "running"}]
     if agent_group:
-        rows = [r for r in rows if (r.agent_group or (r.agent.group if r.agent else "")) == agent_group]
+        rows = [r for r in rows if _task_agent_group(r) == agent_group]
     if project_id:
-        rows = [r for r in rows if (r.project_id or project_for_group(r.agent_group or (r.agent.group if r.agent else ""))) == project_id]
+        rows = [r for r in rows if _task_project_id(r) == project_id]
 
     return [_task_to_out(r) for r in rows]
 
@@ -193,7 +228,7 @@ def list_tasks(
 def get_task(task_id: int, db: Session = Depends(get_db)):
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     return _task_to_out(row)
 
 
@@ -246,18 +281,18 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db)):
         agent_id=resolved_agent_id,
         requires_approval=body.requires_approval,
         priority=body.priority,
-        project_id=task_metadata_for_agent(agent.group)[0],
-        agent_group=task_metadata_for_agent(agent.group)[1],
+        project_id=task_metadata_for_agent(_as_text(agent.group))[0],
+        agent_group=task_metadata_for_agent(_as_text(agent.group))[1],
         skill_name=resolved_skill_name,
         context_files=json.dumps(body.context_files) if body.context_files else None,
     )
     db.add(row)
     db.flush()
-    _add_log(db, row.id, "created", body.description)
+    _add_log(db, _require_task_id(row), "created", body.description)
     db.commit()
     db.refresh(row)
     logger.info("Task #%d created: agent=%s, skill=%s, desc=%s",
-                row.id, row.agent_id, row.skill_name, row.description[:60])
+                _require_task_id(row), _as_text(row.agent_id), _as_text(row.skill_name), body.description[:60])
     return _task_to_out(row)
 
 
@@ -270,17 +305,18 @@ def run_task(
     """Transition task to 'running' and dispatch to background CrewEngine."""
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if row.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Cannot run task in '{row.status}' status")
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
+    row_status = _as_text(row.status) or "pending"
+    if row_status != "pending":
+        raise HTTPException(status_code=400, detail=f"Cannot run task in '{row_status}' status")
 
     # Determine skill
-    effective_skill = skill or row.skill_name
+    effective_skill = skill or _as_text(row.skill_name)
     if not effective_skill:
         suggestion = suggest_task_execution(
             db=db,
-            description=row.description,
-            preferred_agent_id=row.agent_id,
+            description=_as_text(row.description) or "",
+            preferred_agent_id=_as_text(row.agent_id),
         )
         if suggestion.requires_confirmation:
             raise HTTPException(status_code=409, detail={
@@ -293,19 +329,20 @@ def run_task(
         raise HTTPException(status_code=400, detail="No skill specified. Pass ?skill=... or set skill_name on task.")
 
     # Load persona
-    persona = _load_full_persona(row.agent_id)
+    persona = _load_full_persona(_as_text(row.agent_id) or "")
 
     # Mark as running
-    row.status = "running"
-    row.skill_name = effective_skill
-    row.started_at = utcnow()
-    _add_log(db, row.id, "started", f"skill={effective_skill}")
+    cast(Any, row).status = "running"
+    cast(Any, row).skill_name = effective_skill
+    cast(Any, row).started_at = utcnow()
+    cast(Any, row).runtime_backend = ORCHESTRATION_BACKEND
+    _add_log(db, _require_task_id(row), "started", f"skill={effective_skill}")
     db.commit()
     db.refresh(row)
 
     # Dispatch to background thread
     from server.services.task_runner import dispatch
-    dispatch(task_id=row.id, agent_persona=persona, skill_name=effective_skill)
+    dispatch(task_id=_require_task_id(row), agent_persona=persona, skill_name=effective_skill)
 
     return _task_to_out(row)  # returns status=running immediately
 
@@ -318,7 +355,7 @@ def retry_task(
 ):
     source = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not source:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     row, dispatch_payload = _build_retry_task(source, mode, db)
     db.commit()
     db.refresh(row)
@@ -339,7 +376,7 @@ def bulk_retry_tasks(body: TaskBulkRetryRequest, db: Session = Depends(get_db)):
 
     unique_ids = list(dict.fromkeys(body.task_ids))
     rows = db.query(TaskRow).filter(TaskRow.id.in_(unique_ids)).all()
-    by_id = {row.id: row for row in rows}
+    by_id = {_require_task_id(row): row for row in rows}
     missing_ids = [task_id for task_id in unique_ids if task_id not in by_id]
     if missing_ids:
         raise HTTPException(status_code=404, detail=f"Tasks not found: {missing_ids}")
@@ -369,7 +406,7 @@ def bulk_retry_tasks(body: TaskBulkRetryRequest, db: Session = Depends(get_db)):
 def get_task_history(task_id: int, db: Session = Depends(get_db)):
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     return [_task_to_history_out(item) for item in _retry_history_for_task(task_id, db)]
 
 
@@ -377,5 +414,5 @@ def get_task_history(task_id: int, db: Session = Depends(get_db)):
 def get_task_logs(task_id: int, db: Session = Depends(get_db)):
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     return db.query(TaskLogRow).filter(TaskLogRow.task_id == task_id).order_by(TaskLogRow.created_at).all()

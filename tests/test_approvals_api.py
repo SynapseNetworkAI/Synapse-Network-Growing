@@ -2,6 +2,17 @@
 from unittest.mock import patch, MagicMock
 
 from server.services.task_runner import _run_task_sync
+from server.services.task_runtime import TaskExecutionResult
+
+
+def _runtime_result(text: str, execution_time_ms: int = 100):
+    return TaskExecutionResult(
+        text=text,
+        files=[],
+        error=None,
+        execution_time_ms=execution_time_ms,
+        runtime_backend="legacy",
+    )
 
 
 def _create_approval_task(client):
@@ -20,15 +31,11 @@ def _create_approval_task(client):
         client.post(f"/api/tasks/{task_id}/run")
 
     # Run the task_runner synchronously with mocked engine
-    mock_result = MagicMock()
-    mock_result.text = "[Mock output] publish content"
-    mock_result.files = []
-    mock_result.error = None
-    mock_result.execution_time_ms = 100
-
     persona = {"role": "growth_lead", "display_name": "GL", "goal": "", "body": ""}
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = mock_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result("[Mock output] publish content")
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "social-content")
 
     return task_id
@@ -142,13 +149,10 @@ def test_dashboard_stats(synced_client):
         synced_client.post(f"/api/tasks/{task2_id}/run")
 
     # Complete t2 via task_runner
-    mock_result = MagicMock()
-    mock_result.text = "done"
-    mock_result.files = []
-    mock_result.error = None
-    mock_result.execution_time_ms = 50
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = mock_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result("done", execution_time_ms=50)
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task2_id, {"role": "dev_rel", "display_name": "DR", "goal": "", "body": ""}, "seo-audit")
 
     # Run t3 (with approval)
@@ -161,13 +165,10 @@ def test_dashboard_stats(synced_client):
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task3_id}/run")
 
-    mock_result2 = MagicMock()
-    mock_result2.text = "tweet"
-    mock_result2.files = []
-    mock_result2.error = None
-    mock_result2.execution_time_ms = 50
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = mock_result2
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result("tweet", execution_time_ms=50)
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task3_id, {"role": "growth_lead", "display_name": "GL", "goal": "", "body": ""}, "social-content")
 
     resp = synced_client.get("/api/dashboard/stats")

@@ -51,11 +51,24 @@ LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "300"))
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 
+# ── Orchestration ─────────────────────────────────────────────
+ORCHESTRATION_BACKEND = os.environ.get("ORCHESTRATION_BACKEND", "legacy")  # legacy | copilot_sdk
+COPILOT_SDK_MODEL = os.environ.get("COPILOT_SDK_MODEL", LLM_MODEL)
+COPILOT_SDK_TIMEOUT = int(os.environ.get("COPILOT_SDK_TIMEOUT", str(LLM_TIMEOUT)))
+COPILOT_SDK_NODE_BIN = os.environ.get("COPILOT_SDK_NODE_BIN", "node")
+COPILOT_SDK_RUNNER_PATH = os.environ.get(
+    "COPILOT_SDK_RUNNER_PATH",
+    str(PROJECT_ROOT / "copilot-sdk-runner" / "run_session.mjs"),
+)
+COPILOT_SDK_DB_ANALYST_MCP_COMMAND = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_COMMAND", "")
+COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON", "[]")
+
 # Per-provider credentials (loaded from .env or environment)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+COPILOT_OAUTH_TOKEN = os.environ.get("COPILOT_OAUTH_TOKEN", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 COPILOT_BASE_URL = os.environ.get("COPILOT_BASE_URL", "https://api.githubcopilot.com")
 

@@ -60,6 +60,9 @@ class TaskRow(Base):
     retry_of_task_id = Column(Integer)
     attempt_no = Column(Integer, default=1)
     last_error_message = Column(Text)
+    runtime_backend = Column(Text, default="")
+    runtime_session_id = Column(Text)
+    runtime_selected_agent = Column(Text)
     output_path = Column(Text)
     output_content = Column(Text)
     execution_time_ms = Column(Integer)
@@ -124,6 +127,9 @@ def _migrate(engine_):
             "retry_of_task_id": "INTEGER",
             "attempt_no": "INTEGER DEFAULT 1",
             "last_error_message": "TEXT",
+            "runtime_backend": "TEXT DEFAULT ''",
+            "runtime_session_id": "TEXT",
+            "runtime_selected_agent": "TEXT",
         }
         for col, col_type in new_cols.items():
             if col not in existing:

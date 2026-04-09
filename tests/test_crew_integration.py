@@ -8,6 +8,23 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from server.services.task_runtime import TaskExecutionResult
+
+
+def _runtime_result(
+    *,
+    text: str = "",
+    error: str | None = None,
+    execution_time_ms: int = 1,
+    runtime_backend: str = "legacy",
+):
+    return TaskExecutionResult(
+        text=text,
+        files=[],
+        error=error,
+        execution_time_ms=execution_time_ms,
+        runtime_backend=runtime_backend,
+    )
 
 # ── skill_loader tests ───────────────────────────────────────
 
@@ -299,16 +316,12 @@ def test_task_runner_happy_path(synced_client):
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task_id}/run")
 
-    mock_result = MagicMock()
-    mock_result.text = "# Landing Page\nGreat copy here"
-    mock_result.files = []
-    mock_result.error = None
-    mock_result.execution_time_ms = 1234
-
     persona = {"role": "content_writer", "display_name": "Writer", "goal": "Write", "body": ""}
 
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = mock_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(text="# Landing Page\nGreat copy here", execution_time_ms=1234)
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "copywriting")
 
     # Verify task completed
@@ -336,8 +349,10 @@ def test_task_runner_failure(synced_client):
 
     persona = {"role": "dev_rel", "display_name": "DR", "goal": "", "body": ""}
 
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.side_effect = RuntimeError("LLM exploded")
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.side_effect = RuntimeError("LLM exploded")
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "seo-audit")
 
     resp = synced_client.get(f"/api/tasks/{task_id}")
@@ -362,16 +377,12 @@ def test_task_runner_with_approval(synced_client):
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task_id}/run")
 
-    mock_result = MagicMock()
-    mock_result.text = "Tweet: Check out Synapse!"
-    mock_result.files = []
-    mock_result.error = None
-    mock_result.execution_time_ms = 500
-
     persona = {"role": "growth_lead", "display_name": "GL", "goal": "", "body": ""}
 
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = mock_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(text="Tweet: Check out Synapse!", execution_time_ms=500)
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "social-content")
 
     resp = synced_client.get(f"/api/tasks/{task_id}")
@@ -426,8 +437,10 @@ def test_adapter_claude_no_key():
 
 def test_adapter_copilot_no_key():
     from server.services.llm_adapter import CopilotProvider
-    provider = CopilotProvider(api_key="")
-    with pytest.raises(RuntimeError, match="GITHUB_TOKEN"):
+    auth_service = MagicMock()
+    auth_service.resolve_stored_auth.return_value = None
+    provider = CopilotProvider(api_key="", auth_service=auth_service)
+    with pytest.raises(RuntimeError, match="copilot login"):
         provider.call("sys", "usr", "gpt-4o", 0.7, 30)
 
 
@@ -482,6 +495,33 @@ def test_adapter_copilot_call_success():
     assert tokens == 7
     call_args = mock_post.call_args
     assert "Bearer ghp_test" in call_args.kwargs["headers"]["Authorization"]
+
+
+def test_adapter_copilot_uses_stored_oauth_token():
+    from server.services.copilot_auth import StoredCopilotAuth
+    from server.services.llm_adapter import CopilotProvider
+
+    auth_service = MagicMock()
+    auth_service.resolve_stored_auth.return_value = StoredCopilotAuth(
+        token="gho_test",
+        login="octocat",
+        source="apps_json",
+    )
+    provider = CopilotProvider(base_url="http://localhost:9999", auth_service=auth_service)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "Copilot says hi"}}],
+        "usage": {"total_tokens": 7},
+    }
+
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        text, tokens = provider.call("sys", "usr", "gpt-4o", 0.5, 30)
+
+    assert text == "Copilot says hi"
+    assert tokens == 7
+    call_args = mock_post.call_args
+    assert "Bearer gho_test" in call_args.kwargs["headers"]["Authorization"]
 
 
 def test_adapter_api_error():

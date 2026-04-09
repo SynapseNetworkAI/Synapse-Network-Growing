@@ -48,6 +48,9 @@ class TaskOut(BaseModel):
     retry_of_task_id: Optional[int] = None
     attempt_no: int = 1
     last_error_message: Optional[str] = None
+    runtime_backend: Optional[str] = None
+    runtime_session_id: Optional[str] = None
+    runtime_selected_agent: Optional[str] = None
     output_path: Optional[str] = None
     output_content: Optional[str] = None
     execution_time_ms: Optional[int] = None
@@ -68,6 +71,7 @@ class TaskHistoryOut(BaseModel):
     agent_id: str
     skill_name: Optional[str] = None
     last_error_message: Optional[str] = None
+    runtime_backend: Optional[str] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -169,3 +173,42 @@ class DashboardStats(BaseModel):
     task_completed: int
     task_failed: int
     approval_pending: int
+
+
+# ── Copilot Auth ─────────────────────────────────────────────
+
+class CopilotAuthStatus(BaseModel):
+    authenticated: bool
+    host: str = "https://github.com"
+    login: Optional[str] = None
+    source: Optional[str] = None
+    message: str = ""
+
+
+class CopilotDeviceCodeRequest(BaseModel):
+    host: str = "https://github.com"
+
+
+class CopilotDeviceCodeOut(BaseModel):
+    host: str
+    client_id: str
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+
+
+class CopilotDeviceCodePollRequest(BaseModel):
+    host: str = "https://github.com"
+    device_code: str
+    client_id: Optional[str] = None
+
+
+class CopilotDeviceCodePollOut(BaseModel):
+    status: str
+    host: str
+    login: Optional[str] = None
+    source: Optional[str] = None
+    interval: Optional[int] = None
+    message: str = ""

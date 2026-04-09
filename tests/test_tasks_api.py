@@ -2,6 +2,29 @@
 from unittest.mock import patch, MagicMock
 
 from server.database import AgentRow
+from server.services.task_runtime import TaskExecutionResult
+
+
+def _runtime_result(
+    *,
+    text: str = "",
+    error: str | None = None,
+    execution_time_ms: int = 1,
+    runtime_backend: str = "legacy",
+    runtime_session_id: str | None = None,
+    runtime_selected_agent: str | None = None,
+    events=None,
+):
+    return TaskExecutionResult(
+        text=text,
+        files=[],
+        error=error,
+        execution_time_ms=execution_time_ms,
+        runtime_backend=runtime_backend,
+        runtime_session_id=runtime_session_id,
+        runtime_selected_agent=runtime_selected_agent,
+        events=events or [],
+    )
 
 
 def test_create_task(synced_client):
@@ -186,6 +209,7 @@ def test_run_task_no_approval(synced_client):
     data = resp.json()
     assert data["status"] == "running"
     assert data["skill_name"] == "content-strategy"
+    assert data["runtime_backend"] == "legacy"
 
 
 def test_run_task_with_approval(synced_client):
@@ -202,6 +226,7 @@ def test_run_task_with_approval(synced_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "running"
+    assert data["runtime_backend"] == "legacy"
 
 
 def test_run_task_already_running(synced_client):
@@ -246,14 +271,10 @@ def test_retry_task_run_now_creates_new_running_task(synced_client):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    failed_result = MagicMock()
-    failed_result.text = ""
-    failed_result.files = []
-    failed_result.error = "boom"
-    failed_result.execution_time_ms = 1
-
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = failed_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(error="boom")
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "seo-audit")
 
     with patch("server.services.task_runner.dispatch") as mock_dispatch:
@@ -282,14 +303,10 @@ def test_retry_task_edit_first_creates_pending_task(synced_client):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    failed_result = MagicMock()
-    failed_result.text = ""
-    failed_result.files = []
-    failed_result.error = "boom"
-    failed_result.execution_time_ms = 1
-
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = failed_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(error="boom")
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "seo-audit")
 
     resp = synced_client.post(f"/api/tasks/{task_id}/retry?mode=edit_first")
@@ -314,14 +331,10 @@ def test_get_task_history_returns_retry_chain(synced_client):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    failed_result = MagicMock()
-    failed_result.text = ""
-    failed_result.files = []
-    failed_result.error = "boom"
-    failed_result.execution_time_ms = 1
-
-    with patch("server.services.task_runner._engine") as mock_engine:
-        mock_engine.execute.return_value = failed_result
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(error="boom")
+        mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "seo-audit")
 
     retried = synced_client.post(f"/api/tasks/{task_id}/retry?mode=edit_first").json()
@@ -352,14 +365,10 @@ def test_bulk_retry_creates_new_retry_tasks(synced_client):
             synced_client.post(f"/api/tasks/{task_id}/run")
 
         persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-        failed_result = MagicMock()
-        failed_result.text = ""
-        failed_result.files = []
-        failed_result.error = "boom"
-        failed_result.execution_time_ms = 1
-
-        with patch("server.services.task_runner._engine") as mock_engine:
-            mock_engine.execute.return_value = failed_result
+        with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+            mock_runtime = MagicMock()
+            mock_runtime.execute.return_value = _runtime_result(error="boom")
+            mock_runtime_factory.return_value = mock_runtime
             _run_task_sync(task_id, persona, "seo-audit")
 
     resp = synced_client.post("/api/tasks/bulk-retry", json={"task_ids": created_ids, "mode": "edit_first"})
@@ -398,3 +407,45 @@ def test_agent_task_count_after_tasks(synced_client):
 
     agent = synced_client.get("/api/agents/dev_rel").json()
     assert agent["task_count"] == 3
+
+
+def test_task_runner_persists_runtime_metadata_and_events(synced_client):
+    from server.services.task_runner import _run_task_sync
+    from server.services.task_runtime import RuntimeEvent
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Use copilot runtime",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            text="# Copilot output",
+            execution_time_ms=42,
+            runtime_backend="copilot_sdk",
+            runtime_session_id="session-123",
+            runtime_selected_agent="editor",
+            events=[
+                RuntimeEvent(event_type="runtime_started", detail="backend=copilot_sdk"),
+                RuntimeEvent(event_type="subagent_selected", detail="editor"),
+            ],
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "completed"
+    assert task["runtime_backend"] == "copilot_sdk"
+    assert task["runtime_session_id"] == "session-123"
+    assert task["runtime_selected_agent"] == "editor"
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_started" in event_types
+    assert "subagent_selected" in event_types

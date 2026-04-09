@@ -22,7 +22,7 @@ const STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
-function Md({ children }: { children: string }) {
+function Md({ children }: Readonly<{ children: string }>) {
   return (
     <div className="prose prose-sm max-w-none prose-headings:text-base prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
       <ReactMarkdown>{children}</ReactMarkdown>
@@ -34,11 +34,6 @@ function getTaskErrorSummary(task: Task) {
   if (task.last_error_message) return task.last_error_message
   if (task.output_content?.startsWith('[ERROR] ')) return task.output_content.replace('[ERROR] ', '').trim()
   return ''
-}
-
-function inferProjectFromAgent(agent: Agent | undefined) {
-  if (!agent?.group) return 'Synapse-Network-Growing'
-  return 'Synapse-Network-Growing'
 }
 
 function formatTime(value: string | null) {
@@ -76,6 +71,7 @@ export default function TaskBoard() {
   const [suggestionMessage, setSuggestionMessage] = useState('')
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
   const [drawerTaskId, setDrawerTaskId] = useState<number | null>(null)
+  const [drawerLogs, setDrawerLogs] = useState<Record<number, TaskLog[]>>({})
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
   const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
@@ -124,6 +120,15 @@ export default function TaskBoard() {
   }, [drawerTaskId, taskHistory])
 
   useEffect(() => {
+    if (drawerTaskId == null || drawerLogs[drawerTaskId]) return
+    api.getTaskLogs(drawerTaskId)
+      .then((logs) => {
+        setDrawerLogs((prev) => ({ ...prev, [drawerTaskId]: logs }))
+      })
+      .catch(() => {})
+  }, [drawerTaskId, drawerLogs])
+
+  useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((task) => task.id === id && RETRYABLE_STATUSES.has(task.status))))
     if (drawerTaskId != null && !tasks.some((task) => task.id === drawerTaskId)) {
       setDrawerTaskId(null)
@@ -159,6 +164,14 @@ export default function TaskBoard() {
   const projectKeys = Array.from(new Set(tasks.map(t => t.project_id).filter(Boolean))) as string[]
   const groupKeys = Array.from(new Set(agents.map(a => a.group).filter(Boolean)))
   const drawerTask = drawerTaskId != null ? tasks.find((task) => task.id === drawerTaskId) || null : null
+  const runtimeEvents = drawerTask ? (drawerLogs[drawerTask.id] || []).filter((log) => (
+    log.event_type.startsWith('runtime_')
+      || log.event_type.startsWith('subagent_')
+      || log.event_type === 'assistant_output'
+      || log.event_type === 'assistant_output_chunk'
+      || log.event_type === 'tool_requested'
+      || log.event_type === 'tool_execution_complete'
+  )) : []
   const selectedRetryableTaskIds = selectedTaskIds.filter((id) => {
     const task = tasks.find((candidate) => candidate.id === id)
     return task ? RETRYABLE_STATUSES.has(task.status) : false
@@ -540,7 +553,7 @@ export default function TaskBoard() {
 
           {selectedAgent && (
             <div className="mb-3 rounded border bg-gray-50 px-3 py-2 text-xs text-gray-600" data-testid="agent-meta-hint">
-              <span className="mr-4">项目: {inferProjectFromAgent(selectedAgent)}</span>
+              <span className="mr-4">项目: Synapse-Network-Growing</span>
               <span className="mr-4">组别: {selectedAgent.group || '-'}</span>
               <span>技能数: {selectedAgentSkills.length}</span>
             </div>
@@ -806,9 +819,24 @@ export default function TaskBoard() {
                         🛠 {drawerTask.skill_name}
                       </span>
                     )}
+                    {drawerTask.runtime_backend && (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded" data-testid={`runtime-backend-${drawerTask.id}`}>
+                        ⚙ {drawerTask.runtime_backend}
+                      </span>
+                    )}
+                    {drawerTask.runtime_selected_agent && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded" data-testid={`runtime-agent-${drawerTask.id}`}>
+                        🤖 {drawerTask.runtime_selected_agent}
+                      </span>
+                    )}
                   </div>
                   <h3 className="mt-2 text-lg font-semibold" data-testid={`task-detail-${drawerTask.id}`}>{drawerTask.description.split('\n')[0]}</h3>
                   <p className="mt-1 text-sm text-gray-500">Agent: @{drawerTask.agent_id}</p>
+                  {drawerTask.runtime_session_id && (
+                    <p className="mt-1 text-xs text-gray-400 font-mono" data-testid={`runtime-session-${drawerTask.id}`}>
+                      Session: {drawerTask.runtime_session_id}
+                    </p>
+                  )}
                 </div>
                 <button
                   data-testid="task-drawer-close"
@@ -851,6 +879,30 @@ export default function TaskBoard() {
                   </div>
                 </div>
               )}
+
+              <div className="mb-4" data-testid={`runtime-events-${drawerTask.id}`}>
+                <h4 className="text-xs font-bold text-gray-500 mb-2">运行时事件</h4>
+                <div className="bg-gray-50 border rounded p-3">
+                  {runtimeEvents.length === 0 ? (
+                    <p className="text-sm text-gray-400">暂无运行时事件</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {runtimeEvents
+                        .slice()
+                        .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
+                        .map((log, index) => (
+                          <div key={log.id} className="text-xs border-l-2 border-blue-200 pl-3" data-testid={`runtime-event-${drawerTask.id}-${index}`}>
+                            <div className="flex gap-2 flex-wrap items-center">
+                              <span className="font-semibold text-gray-700">{log.event_type}</span>
+                              <span className="text-gray-400 font-mono">{log.created_at}</span>
+                            </div>
+                            {log.detail && <p className="mt-0.5 text-gray-600">{log.detail}</p>}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <div className="mb-3" data-testid={`history-${drawerTask.id}`}>
                 <h4 className="text-xs font-bold text-gray-500 mb-2">重试历史时间线</h4>

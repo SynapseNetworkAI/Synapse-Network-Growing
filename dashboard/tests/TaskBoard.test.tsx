@@ -71,6 +71,9 @@ const PENDING_TASK = {
   retry_of_task_id: null,
   attempt_no: 1,
   last_error_message: null,
+  runtime_backend: null,
+  runtime_session_id: null,
+  runtime_selected_agent: null,
   output_path: null,
   output_content: null,
   execution_time_ms: null,
@@ -91,6 +94,9 @@ const COMPLETED_TASK = {
   id: 3,
   status: 'completed',
   skill_name: 'seo-audit',
+  runtime_backend: 'copilot_sdk',
+  runtime_session_id: 'session-42',
+  runtime_selected_agent: 'editor',
   output_content: '# SEO Report\n\nSite looks good!',
   execution_time_ms: 12500,
   started_at: '2026-04-10T00:01:00Z',
@@ -117,6 +123,7 @@ const HISTORY_ITEMS = [
     agent_id: 'seo_strategist',
     skill_name: 'seo-audit',
     last_error_message: 'OPENAI_API_KEY not set',
+    runtime_backend: 'legacy',
     created_at: '2026-04-10T00:00:00Z',
     started_at: '2026-04-10T00:01:00Z',
     completed_at: '2026-04-10T00:02:00Z',
@@ -131,9 +138,27 @@ const HISTORY_ITEMS = [
     agent_id: 'seo_strategist',
     skill_name: 'seo-audit',
     last_error_message: 'timeout',
+    runtime_backend: 'legacy',
     created_at: '2026-04-10T00:03:00Z',
     started_at: '2026-04-10T00:03:30Z',
     completed_at: '2026-04-10T00:04:00Z',
+  },
+]
+
+const RUNTIME_LOGS = [
+  {
+    id: 101,
+    task_id: 3,
+    event_type: 'runtime_started',
+    detail: 'backend=copilot_sdk model=gpt-4o',
+    created_at: '2026-04-10T00:01:01Z',
+  },
+  {
+    id: 102,
+    task_id: 3,
+    event_type: 'subagent_selected',
+    detail: 'editor',
+    created_at: '2026-04-10T00:01:02Z',
   },
 ]
 
@@ -191,6 +216,7 @@ describe('TaskBoard', () => {
     mockApi.retryTask.mockResolvedValue({ ...RUNNING_TASK, id: 10 })
     mockApi.bulkRetryTasks.mockResolvedValue([{ ...RUNNING_TASK, id: 10 }])
     mockApi.getTaskHistory.mockResolvedValue([])
+    mockApi.getTaskLogs.mockResolvedValue([])
   })
 
   it('renders the task board page', async () => {
@@ -459,6 +485,7 @@ describe('TaskBoard', () => {
 
   it('shows task detail in right drawer', async () => {
     mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
+    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
     render(<TaskBoard />)
 
     await waitFor(() => {
@@ -472,12 +499,16 @@ describe('TaskBoard', () => {
       const badge = screen.getByTestId('skill-badge-3')
       expect(badge).toBeDefined()
       expect(badge.textContent).toContain('seo-audit')
+      expect(screen.getByTestId('runtime-backend-3').textContent).toContain('copilot_sdk')
+      expect(screen.getByTestId('runtime-agent-3').textContent).toContain('editor')
+      expect(screen.getByTestId('runtime-session-3').textContent).toContain('session-42')
     })
   })
 
   it('shows output content in expanded view', async () => {
     mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
     mockApi.getTaskHistory.mockResolvedValue([])
+    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
     render(<TaskBoard />)
 
     await waitFor(() => {
@@ -489,6 +520,25 @@ describe('TaskBoard', () => {
     await waitFor(() => {
       expect(screen.getByTestId('task-drawer').textContent).toContain('SEO Report')
       expect(screen.getByTestId('task-drawer').textContent).toContain('Site looks good')
+    })
+  })
+
+  it('loads and renders runtime events in expanded view', async () => {
+    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
+    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-3')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByText('#3'))
+
+    await waitFor(() => {
+      expect(mockApi.getTaskLogs).toHaveBeenCalledWith(3)
+      expect(screen.getByTestId('runtime-events-3').textContent).toContain('runtime_started')
+      expect(screen.getByTestId('runtime-events-3').textContent).toContain('subagent_selected')
+      expect(screen.getByTestId('runtime-events-3').textContent).toContain('editor')
     })
   })
 

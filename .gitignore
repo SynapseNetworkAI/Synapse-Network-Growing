@@ -212,6 +212,8 @@ __marimo__/
 # Dashboard
 node_modules/
 dashboard/dist/
+dashboard/test-results/
+dashboard/playwright-report/
 
 # SQLite
 *.db

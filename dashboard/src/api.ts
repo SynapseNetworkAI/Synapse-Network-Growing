@@ -49,6 +49,9 @@ export interface Task {
   retry_of_task_id: number | null
   attempt_no: number
   last_error_message: string | null
+  runtime_backend: string | null
+  runtime_session_id: string | null
+  runtime_selected_agent: string | null
   output_path: string | null
   output_content: string | null
   execution_time_ms: number | null
@@ -86,6 +89,7 @@ export interface TaskHistoryItem {
   agent_id: string
   skill_name: string | null
   last_error_message: string | null
+  runtime_backend: string | null
   created_at: string | null
   started_at: string | null
   completed_at: string | null
