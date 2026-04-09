@@ -9,6 +9,7 @@ from server.config import CORS_ORIGINS, ENV, PORT, LOG_LEVEL
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals
+from server.services.org_builder import build_org_tree
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -62,6 +63,12 @@ def dashboard_stats(db: Session = Depends(get_db)):
         task_failed=db.query(TaskRow).filter(TaskRow.status.in_(["failed", "rejected"])).count(),
         approval_pending=db.query(ApprovalRow).filter(ApprovalRow.status == "pending").count(),
     )
+
+
+@app.get("/api/org")
+def get_org_tree():
+    """Return the full multi-project org tree."""
+    return build_org_tree()
 
 
 @app.get("/health")

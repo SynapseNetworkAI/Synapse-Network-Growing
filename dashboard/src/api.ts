@@ -67,12 +67,31 @@ export interface DashboardStats {
   approval_pending: number
 }
 
+export interface OrgNode {
+  id: string
+  display_name: string
+  type: 'cto' | 'domain' | 'team' | 'service' | 'agent'
+  goal: string
+  icon?: string
+  color?: string
+  project?: string
+  skills?: string[]
+  children?: OrgNode[]
+}
+
+export interface OrgTree {
+  root: OrgNode
+}
+
 // API functions
 export const api = {
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
   syncAgents: () => request<Agent[]>('/agents/sync', { method: 'POST' }),
+
+  // Org tree
+  getOrgTree: () => request<OrgTree>('/org'),
 
   // Tasks
   getTasks: (params?: { status?: string; agent_id?: string }) => {

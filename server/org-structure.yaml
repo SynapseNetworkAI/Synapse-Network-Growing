@@ -1,0 +1,113 @@
+# Global Organization Structure
+# Defines the full agent/service hierarchy across all Synapse projects.
+# Marketing agents under 'growth' domain auto-populate from roles/*/prompts/persona.md.
+
+cto:
+  id: cto
+  display_name: CTO / Manager
+  type: cto
+  goal: Synapse Network 赛博 CTO，AI 智能体经济基础设施总架构师
+  icon: "🧠"
+
+domains:
+  - id: settlement
+    display_name: Settlement Infra
+    type: domain
+    goal: 链上充值担保 + 链下网关秒扣 + 凭票免 Gas 提现
+    icon: "💰"
+    color: amber
+    project: Synapse-Network
+    children:
+      - id: gateway
+        display_name: Gateway
+        type: service
+        goal: 中心化快速路由、扣费、余额检查、风控
+        project: Synapse-Network/services/gateway
+      - id: gateway_admin
+        display_name: Gateway Admin
+        type: service
+        goal: 后台控制面 API——审批、审计、财务运营
+        project: Synapse-Network/services/gateway-admin
+      - id: user_front
+        display_name: User Frontend
+        type: service
+        goal: 面向开发者和 Owner 的消费端前端
+        project: Synapse-Network/services/user-front
+      - id: admin_front
+        display_name: Admin Frontend
+        type: service
+        goal: 运营后台前端 (Synapse Sentinel 设计体系)
+        project: Synapse-Network/services/admin-front
+
+  - id: growth
+    display_name: Growth Ops
+    type: domain
+    goal: 最大化 Synapse Network 的开发者获客、注册转化与品牌曝光
+    icon: "📈"
+    color: green
+    project: Synapse-Network-Growing
+    # teams 下的 agents 从 roles/*/prompts/persona.md 自动填充
+    teams:
+      - id: content
+        label: 内容与布道
+        icon: "📢"
+        color: blue
+      - id: growth
+        label: 增长与发布
+        icon: "🚀"
+        color: green
+      - id: optimization
+        label: 优化与分析
+        icon: "📊"
+        color: purple
+
+  - id: engineering
+    display_name: Engineering Platform
+    type: domain
+    goal: 工程编排、自动化测试、Agent 运行时基础设施
+    icon: "🏗️"
+    color: sky
+    children:
+      - id: spec2flow
+        display_name: Spec2Flow Orchestrator
+        type: service
+        goal: 需求分析 → 代码 → 测试 → 执行 → 反馈的编排控制面
+        project: Spec2Flow
+      - id: agents_memory
+        display_name: Agents Memory
+        type: service
+        goal: Agent 记忆运行时、标准框架、Profile 管理
+        project: Agents-Memory
+
+  - id: provider
+    display_name: Provider Runtime
+    type: domain
+    goal: API 卖家的独立服务端运行时——调用编排、结果返回、可观测性
+    icon: "🔌"
+    color: rose
+    project: Synapse-Network-Provider
+    children:
+      - id: provider_service
+        display_name: Provider Service
+        type: service
+        goal: Provider 自有 API runtime 和调用编排
+        project: Synapse-Network-Provider
+
+  - id: sdk
+    display_name: SDK & Integration
+    type: domain
+    goal: 对外利器——供开发者集成的 Python/TypeScript SDK
+    icon: "📦"
+    color: indigo
+    project: Synapse-Network-Sdk
+    children:
+      - id: sdk_python
+        display_name: Python SDK
+        type: service
+        goal: Python 端 MCP 接入与资金预算 SDK
+        project: Synapse-Network-Sdk/python
+      - id: sdk_typescript
+        display_name: TypeScript SDK
+        type: service
+        goal: TypeScript/Node 端 SDK
+        project: Synapse-Network-Sdk/typescript
