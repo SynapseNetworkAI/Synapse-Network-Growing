@@ -2,9 +2,18 @@
 id: cro_optimizer_persona
 title: CRO Optimizer Persona
 role: cro_optimizer
+display_name: CRO Optimizer
+goal: 负责全链路转化率优化
+skills:
+  - page-cro
+  - signup-flow-cro
+  - onboarding-cro
+  - form-cro
+  - ab-test-setup
+  - analytics-tracking
 status: published
 created_at: 2026-04-08
-updated_at: 2026-04-08
+updated_at: 2026-04-09
 author: CTO
 ---
 

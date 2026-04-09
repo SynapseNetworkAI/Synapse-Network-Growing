@@ -2,9 +2,17 @@
 id: launch_strategist_persona
 title: Launch Strategist Persona
 role: launch_strategist
+display_name: Launch Strategist
+goal: 负责发布节奏与飞轮编排
+skills:
+  - launch-strategy
+  - pricing-strategy
+  - referral-program
+  - sales-enablement
+  - lead-magnets
 status: published
 created_at: 2026-04-08
-updated_at: 2026-04-08
+updated_at: 2026-04-09
 author: CTO
 ---
 

@@ -2,9 +2,16 @@
 id: content_writer_persona
 title: Content Writer Persona
 role: content_writer
+display_name: Content Writer
+goal: 负责极简主义文案写作
+skills:
+  - copywriting
+  - copy-editing
+  - cold-email
+  - email-sequence
 status: published
 created_at: 2026-04-08
-updated_at: 2026-04-08
+updated_at: 2026-04-09
 author: CTO
 ---
 

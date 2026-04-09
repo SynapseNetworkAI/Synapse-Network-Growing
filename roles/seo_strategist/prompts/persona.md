@@ -2,9 +2,18 @@
 id: seo_strategist_persona
 title: SEO Strategist Persona
 role: seo_strategist
+display_name: SEO Strategist
+goal: 负责关键词与转化率优化
+skills:
+  - seo-audit
+  - ai-seo
+  - site-architecture
+  - schema-markup
+  - programmatic-seo
+  - competitor-alternatives
 status: published
 created_at: 2026-04-08
-updated_at: 2026-04-08
+updated_at: 2026-04-09
 author: CTO
 ---
 
