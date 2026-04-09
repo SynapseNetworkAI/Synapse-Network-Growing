@@ -18,7 +18,7 @@ target_repo: Synapse-Network-Growing
 2. 任务接口会返回运行时元数据：`runtime_backend`、`runtime_session_id`、`runtime_selected_agent`
 3. 运行时事件会被写入 `task_logs` 并在 TaskBoard 右侧抽屉中展示
 4. 前端页面在新增运行时信息后仍能稳定渲染、测试、打包
-5. 浏览器级验证可以稳定覆盖组织架构、任务抽屉运行时元数据、审批流
+5. 浏览器级验证可以稳定覆盖组织架构、任务抽屉运行时元数据、创建任务、失败后重试、单条审批与批量审批主链路
 
 ## 2. 覆盖范围
 
@@ -67,7 +67,7 @@ target_repo: Synapse-Network-Growing
 3. 任务抽屉展示 `runtime_session_id`
 4. 任务抽屉展示运行时事件流
 5. 新增运行时字段后既有 TaskBoard 交互不回归
-6. 浏览器级路由切换、任务详情抽屉、审批操作在真实 DOM 中可执行
+6. 浏览器级路由切换、任务详情抽屉、创建任务、失败后重试、单条审批、批量审批在真实 DOM 中可执行
 
 ## 3. 自动化执行命令
 
@@ -154,7 +154,16 @@ cd dashboard
 npm run test:e2e
 ```
 
-结果：`3 passed`
+结果：`6 passed`
+
+其中覆盖：
+
+1. 组织架构首页加载
+2. 任务抽屉运行时元数据展示
+3. 创建任务
+4. 失败任务重试
+5. 单条审批
+6. 批量审批
 
 前端构建：
 
