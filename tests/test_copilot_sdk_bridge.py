@@ -41,3 +41,16 @@ def test_bridge_preserves_exact_model_guidance_for_lowercase_id(tmp_path):
 
         with pytest.raises(RuntimeError, match="must match models.list exactly"):
             bridge.run_session({"model": "gpt-9", "prompt": "hi"}, timeout=30)
+
+
+def test_bridge_uses_unbounded_subprocess_timeout_when_zero(tmp_path):
+    bridge = _bridge(tmp_path)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = json.dumps({"success": True, "content": "ok", "events": []})
+        mock_run.return_value.stderr = ""
+
+        bridge.run_session({"model": "gpt-5.4", "prompt": "hi"}, timeout=0)
+
+    assert mock_run.call_args.kwargs["timeout"] is None

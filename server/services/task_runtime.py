@@ -101,13 +101,17 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             "sessionId": f"task-{int(time.time() * 1000)}",
             "prompt": prompt,
             "cwd": str(self.project_root),
-            "timeoutMs": config.COPILOT_SDK_TIMEOUT * 1000,
             "preferredAgent": preferred_agent,
             "customAgents": self._build_custom_agents(),
         }
+        if config.COPILOT_SDK_TIMEOUT > 0:
+            payload["timeoutMs"] = config.COPILOT_SDK_TIMEOUT * 1000
 
         try:
-            bridge_result = self.bridge.run_session(payload, timeout=config.COPILOT_SDK_TIMEOUT)
+            bridge_result = self.bridge.run_session(
+                payload,
+                timeout=config.COPILOT_SDK_TIMEOUT if config.COPILOT_SDK_TIMEOUT > 0 else None,
+            )
         except Exception as exc:
             elapsed = int((time.monotonic() - t0) * 1000)
             logger.exception("Copilot SDK runtime failed")
@@ -258,6 +262,12 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             "assistant.message_delta": "assistant_output_chunk",
             "tool.execution_complete": "tool_execution_complete",
             "tool.user_requested": "tool_requested",
+            "permission.requested": "permission_requested",
+            "permission.completed": "permission_completed",
+            "user_input.requested": "user_input_requested",
+            "user_input.completed": "user_input_completed",
+            "elicitation.requested": "elicitation_requested",
+            "elicitation.completed": "elicitation_completed",
         }
         return mapping.get(event_type, event_type.replace(".", "_"))
 

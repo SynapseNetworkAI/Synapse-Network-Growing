@@ -188,6 +188,9 @@ export default function TaskBoard() {
   const runtimeEvents = drawerTask ? (drawerLogs[drawerTask.id] || []).filter((log) => (
     log.event_type.startsWith('runtime_')
       || log.event_type.startsWith('subagent_')
+      || log.event_type.startsWith('permission_')
+      || log.event_type.startsWith('user_input_')
+      || log.event_type.startsWith('elicitation_')
       || log.event_type === 'assistant_output'
       || log.event_type === 'assistant_output_chunk'
       || log.event_type === 'tool_requested'

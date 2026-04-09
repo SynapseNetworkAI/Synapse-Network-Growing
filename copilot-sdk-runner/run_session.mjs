@@ -1,5 +1,12 @@
 import { CopilotClient } from "@github/copilot-sdk";
 
+const autoUserInputEnabled = ["1", "true", "yes", "on"].includes(
+  String(process.env.COPILOT_SDK_AUTO_USER_INPUT ?? "true").toLowerCase(),
+);
+const autoUserInputText =
+  process.env.COPILOT_SDK_AUTO_USER_INPUT_TEXT ||
+  "Proceed automatically using best effort. Do not wait for additional user input.";
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -30,6 +37,18 @@ function eventDetail(event) {
       return (event.data.deltaContent ?? "").slice(0, 200);
     case "session.created":
       return event.data?.sessionId ?? "";
+    case "permission.requested":
+      return event.data?.permissionRequest?.kind ?? event.data?.requestId ?? "";
+    case "permission.completed":
+      return event.data?.result?.kind ?? event.data?.requestId ?? "";
+    case "user_input.requested":
+      return event.data?.question ?? event.data?.requestId ?? "";
+    case "user_input.completed":
+      return event.data?.requestId ?? "";
+    case "elicitation.requested":
+      return event.data?.message ?? event.data?.requestId ?? "";
+    case "elicitation.completed":
+      return event.data?.action ?? event.data?.requestId ?? "";
     case "tool.user_requested":
       return event.data?.toolName ?? "";
     case "tool.execution_complete":
@@ -76,6 +95,18 @@ try {
     customAgents: input.customAgents,
     ...(input.preferredAgent ? { agent: input.preferredAgent } : {}),
     onPermissionRequest: async () => ({ kind: "approved" }),
+    ...(autoUserInputEnabled
+      ? {
+          onUserInputRequest: async (request) => ({
+            answer: request.choices?.[0] ?? autoUserInputText,
+            wasFreeform: !request.choices?.length,
+          }),
+        }
+      : {}),
+    onElicitationRequest: async () => ({ action: "cancel" }),
+    hooks: {
+      onPreToolUse: async () => ({ permissionDecision: "allow" }),
+    },
   });
 
   const unsubscribe = session.on((event) => {
@@ -96,6 +127,12 @@ try {
       "assistant.message",
       "assistant.message_delta",
       "assistant.usage",
+      "permission.requested",
+      "permission.completed",
+      "user_input.requested",
+      "user_input.completed",
+      "elicitation.requested",
+      "elicitation.completed",
       "subagent.selected",
       "subagent.started",
       "subagent.completed",
@@ -111,10 +148,9 @@ try {
     }
   });
 
-  const response = await session.sendAndWait(
-    { prompt: input.prompt },
-    input.timeoutMs ?? 300_000,
-  );
+  const sendTimeoutMs =
+    typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : undefined;
+  const response = await session.sendAndWait({ prompt: input.prompt }, sendTimeoutMs);
   unsubscribe?.();
 
   const finalContent = response?.data?.content ?? content;

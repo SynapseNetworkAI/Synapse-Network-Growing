@@ -63,7 +63,7 @@ class CopilotSDKBridge:
             capture_output=True,
             cwd=str(self.runner_path.parent),
             env=env,
-            timeout=timeout or config.COPILOT_SDK_TIMEOUT,
+            timeout=self._subprocess_timeout(timeout),
             check=False,
         )
 
@@ -109,3 +109,10 @@ class CopilotSDKBridge:
         return (
             f"{message} Copilot SDK model ids must match models.list exactly for the current auth context."
         )
+
+    def _subprocess_timeout(self, timeout: int | None) -> int | None:
+        if timeout is None:
+            timeout = config.COPILOT_SDK_TIMEOUT
+        if timeout <= 0:
+            return None
+        return timeout

@@ -55,6 +55,11 @@ MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 ORCHESTRATION_BACKEND = os.environ.get("ORCHESTRATION_BACKEND", "legacy")  # legacy | copilot_sdk
 COPILOT_SDK_MODEL = os.environ.get("COPILOT_SDK_MODEL", LLM_MODEL)
 COPILOT_SDK_TIMEOUT = int(os.environ.get("COPILOT_SDK_TIMEOUT", str(LLM_TIMEOUT)))
+COPILOT_SDK_AUTO_USER_INPUT = os.environ.get("COPILOT_SDK_AUTO_USER_INPUT", "true").lower() in {"1", "true", "yes", "on"}
+COPILOT_SDK_AUTO_USER_INPUT_TEXT = os.environ.get(
+    "COPILOT_SDK_AUTO_USER_INPUT_TEXT",
+    "Proceed automatically using best effort. Do not wait for additional user input.",
+)
 COPILOT_SDK_NODE_BIN = os.environ.get("COPILOT_SDK_NODE_BIN", "node")
 COPILOT_SDK_RUNNER_PATH = os.environ.get(
     "COPILOT_SDK_RUNNER_PATH",
