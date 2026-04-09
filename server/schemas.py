@@ -79,6 +79,20 @@ class TaskLogOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Agent Match ───────────────────────────────────────────────
+
+class AgentMatch(BaseModel):
+    id: str
+    display_name: str
+    goal: str
+    group: str = ""
+    skills: list[str] = []
+    matched_skills: list[str] = []
+    confidence: float = 0.0
+
+    model_config = {"from_attributes": True}
+
+
 # ── Dashboard ─────────────────────────────────────────────────
 
 class DashboardStats(BaseModel):

@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db, AgentRow, TaskRow
-from server.schemas import AgentOut
+from server.schemas import AgentOut, AgentMatch
 from server.services.agent_loader import discover_agents
+from server.services.agent_matcher import match_agents
 
 logger = logging.getLogger("ops-dashboard.agents")
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -25,6 +26,25 @@ def list_agents(db: Session = Depends(get_db)):
         out.completed_count = completed
         result.append(out)
     return result
+
+
+@router.get("/match", response_model=list[AgentMatch])
+def match_agents_endpoint(
+    skills: str,
+    limit: int = 5,
+    db: Session = Depends(get_db),
+):
+    """Find agents matching the requested skills, ranked by confidence.
+
+    Query params:
+        skills: comma-separated skill names  (e.g. "seo-audit,copywriting")
+        limit:  max results (default 5)
+    """
+    requested = [s.strip() for s in skills.split(",") if s.strip()]
+    if not requested:
+        return []
+    rows = db.query(AgentRow).all()
+    return match_agents(rows, requested, limit)
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
