@@ -1,6 +1,8 @@
 """Tests for /api/tasks endpoints."""
 from unittest.mock import patch, MagicMock
 
+from server.database import AgentRow
+
 
 def test_create_task(synced_client):
     resp = synced_client.post("/api/tasks", json={
@@ -65,6 +67,21 @@ def test_list_tasks_returns_derived_project_and_group(synced_client):
     assert task["project_id"] == "Synapse-Network-Growing"
     assert task["project_label"] == "Synapse-Network-Growing"
     assert task["agent_group"] == "content"
+
+
+def test_task_project_and_group_are_persisted_snapshot(synced_client, db_session):
+    create = synced_client.post("/api/tasks", json={"description": "persist me", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+
+    agent = db_session.query(AgentRow).filter(AgentRow.id == "dev_rel").first()
+    agent.group = "optimization"
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/tasks/{task_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_group"] == "content"
+    assert data["project_id"] == "Synapse-Network-Growing"
 
 
 def test_list_tasks_filter_by_agent_group(synced_client):
@@ -235,6 +252,41 @@ def test_retry_task_edit_first_creates_pending_task(synced_client):
     assert data["status"] == "pending"
     assert data["retry_of_task_id"] == task_id
     assert data["attempt_no"] == 2
+
+
+def test_get_task_history_returns_retry_chain(synced_client):
+    from server.services.task_runner import _run_task_sync
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "history me",
+        "agent_id": "seo_strategist",
+        "skill_name": "seo-audit",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
+    failed_result = MagicMock()
+    failed_result.text = ""
+    failed_result.files = []
+    failed_result.error = "boom"
+    failed_result.execution_time_ms = 1
+
+    with patch("server.services.task_runner._engine") as mock_engine:
+        mock_engine.execute.return_value = failed_result
+        _run_task_sync(task_id, persona, "seo-audit")
+
+    retried = synced_client.post(f"/api/tasks/{task_id}/retry?mode=edit_first").json()
+    history = synced_client.get(f"/api/tasks/{retried['id']}/history")
+
+    assert history.status_code == 200
+    data = history.json()
+    assert [item["attempt_no"] for item in data] == [1, 2]
+    assert data[0]["task_id"] == task_id
+    assert data[1]["retry_of_task_id"] == task_id
+    assert data[1]["project_id"] == "Synapse-Network-Growing"
 
 
 def test_retry_task_invalid_status(synced_client):

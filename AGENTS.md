@@ -39,6 +39,24 @@ Step 3: 下达任务    → 明确产出物路径、格式要求、KPI 标准
 
 **完整使用方案:** 见 `docs/marketing-skills-playbook.md`
 
+## Browser Automation
+
+浏览器自动化统一使用 `.agents/skills/agent-browser/SKILL.md`。
+
+适用场景：
+
+1. 本地前端验收
+2. 浏览器截图取证
+3. 表单填写与点击流验证
+4. 页面结构抓取与内容提取
+
+执行约定：
+
+1. 优先复用仓库根目录 `agent-browser.json`，不要每次重复传 profile、screenshot、download 目录。
+2. 标准流程固定为：`open` → `snapshot -i` → 基于 `@eN` refs 交互 → 页面变化后重新 `snapshot -i`。
+3. 临时运行产物统一落到 `.agent-browser/`，该目录不入库；只有需要沉淀的证据才移动到 `docs/test/`。
+4. 首次在新机器使用时，执行 `agent-browser install` 完成浏览器安装。
+
 ---
 
 ## 🏢 组织架构与角色边界 (Role Boundaries)

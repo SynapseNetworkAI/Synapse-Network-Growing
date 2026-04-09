@@ -66,6 +66,21 @@ export interface TaskLog {
   created_at: string
 }
 
+export interface TaskHistoryItem {
+  task_id: number
+  retry_of_task_id: number | null
+  attempt_no: number
+  status: string
+  project_id: string | null
+  agent_group: string | null
+  agent_id: string
+  skill_name: string | null
+  last_error_message: string | null
+  created_at: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
 export interface DashboardStats {
   agent_count: number
   task_total: number
@@ -122,6 +137,7 @@ export const api = {
   retryTask: (id: number, mode: 'run_now' | 'edit_first' = 'run_now') =>
     request<Task>(`/tasks/${id}/retry?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
+  getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
 
   // Approvals
   getApprovals: (status?: string) => {

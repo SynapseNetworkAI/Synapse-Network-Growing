@@ -1,0 +1,7 @@
+{
+  "profile": "./.agent-browser/profile",
+  "screenshotDir": "./.agent-browser/screenshots",
+  "downloadPath": "./.agent-browser/downloads",
+  "contentBoundaries": true,
+  "maxOutput": 50000
+}

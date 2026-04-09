@@ -1,13 +1,28 @@
 ---
 id: taskboard-ux-redesign
-title: 任务看板分类与重试机制设计方案
-status: proposed
+title: 任务看板分类、持久化与重试时间线设计方案
+status: implemented
 created_at: 2026-04-09
+updated_at: 2026-04-09
 author: CTO
 target_repo: Synapse-Network-Growing
 ---
 
-# 任务看板分类与重试机制设计方案
+# 任务看板分类、持久化与重试时间线设计方案
+
+## 实施状态
+
+截至 2026-04-09，以下内容已实现：
+
+1. 第一阶段：任务看板分类筛选、失败摘要、重试/编辑后重试
+2. 第二阶段：`project_id`、`agent_group` 持久化落库
+3. 第二阶段：重试历史时间线 UI 与历史接口
+
+尚未实现：
+
+1. 批量重试 / 批量审批
+2. 右侧独立详情抽屉
+3. 结构化错误码 `last_error_code`
 
 ## 1. 问题定义
 
@@ -182,14 +197,15 @@ OPENAI_API_KEY not set
 
 ### 阶段二：任务表新增显式归属字段
 
-如果后续任务来源不只来自 agent，还可能来自项目级工作流或跨项目 orchestration，则建议给 `TaskRow` 新增：
+实现状态：已完成
+
+本阶段已在 `TaskRow` 中新增并启用：
 
 1. `project_id`
 2. `agent_group`
 3. `retry_of_task_id`
 4. `attempt_no`
-5. `last_error_code`
-6. `last_error_message`
+5. `last_error_message`
 
 推荐字段定义：
 
@@ -198,7 +214,6 @@ project_id = Column(Text, default="Synapse-Network-Growing")
 agent_group = Column(Text, default="")
 retry_of_task_id = Column(Integer, ForeignKey("tasks.id"))
 attempt_no = Column(Integer, default=1)
-last_error_code = Column(Text)
 last_error_message = Column(Text)
 ```
 
@@ -207,6 +222,12 @@ last_error_message = Column(Text)
 1. 列表查询更直接，不必每次 join 或推导。
 2. 失败卡片可以直接显示摘要错误。
 3. 重试链路可以被完整追踪。
+
+当前实现说明：
+
+1. 新任务创建时写入 `project_id` 与 `agent_group` 快照
+2. 旧数据迁移时自动回填这两个字段
+3. 后续即使 Agent 分组变更，历史任务仍保留创建当时的归属快照
 
 ---
 
@@ -273,6 +294,26 @@ last_error_message = Column(Text)
 
 这是最安全、最可审计的做法。
 
+### 4.4 重试历史时间线
+
+实现状态：已完成
+
+第二阶段新增：
+
+1. `GET /api/tasks/{id}/history`
+2. 详情区“重试历史时间线”模块
+
+时间线展示内容：
+
+1. 第几次尝试
+2. 对应任务 ID
+3. 当前状态
+4. 来源任务 ID
+5. 创建/完成时间
+6. 错误摘要
+
+这样用户在查看失败任务时，可以直接看到整个重试链，而不需要手工翻日志。
+
 ---
 
 ## 5. 推荐页面布局
@@ -306,7 +347,7 @@ last_error_message = Column(Text)
 
 1. 用户先看分组，再看任务，不会在长列表中迷失。
 2. 失败恢复动作直接在卡片头部完成，不需要展开卡片。
-3. 详情区可以从“展开整个卡片”升级为“右侧抽屉”，减少页面跳动。
+3. 第二阶段已先在展开详情里实现重试历史时间线，右侧抽屉仍作为后续优化项。
 
 ---
 

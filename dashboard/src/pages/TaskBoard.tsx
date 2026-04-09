@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, Agent, TaskLog } from '../api'
+import { api, Task, Agent, TaskLog, TaskHistoryItem } from '../api'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
@@ -65,6 +65,7 @@ export default function TaskBoard() {
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
   const [expandedTask, setExpandedTask] = useState<number | null>(null)
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
+  const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
@@ -98,6 +99,15 @@ export default function TaskBoard() {
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [tasks, load])
+
+  useEffect(() => {
+    if (expandedTask == null || taskHistory[expandedTask]) return
+    api.getTaskHistory(expandedTask)
+      .then((history) => {
+        setTaskHistory((prev) => ({ ...prev, [expandedTask]: history }))
+      })
+      .catch(() => {})
+  }, [expandedTask, taskHistory])
 
   const selectedAgent = agents.find(a => a.id === form.agent_id)
   const selectedAgentSkills: string[] = (() => {
@@ -446,6 +456,7 @@ export default function TaskBoard() {
                   .map((task) => {
                     const isExpanded = expandedTask === task.id
                     const errorSummary = getTaskErrorSummary(task)
+                    const history = taskHistory[task.id] || []
                     return (
                       <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
                         <div
@@ -560,6 +571,41 @@ export default function TaskBoard() {
                                 </div>
                               </div>
                             )}
+                            <div className="mb-3" data-testid={`history-${task.id}`}>
+                              <h4 className="text-xs font-bold text-gray-500 mb-2">重试历史时间线</h4>
+                              <div className="bg-white border rounded p-3">
+                                {history.length === 0 ? (
+                                  <p className="text-sm text-gray-400">暂无重试历史</p>
+                                ) : (
+                                  <div className="space-y-3">
+                                    {history.map((item) => (
+                                      <div key={item.task_id} className="flex gap-3 items-start" data-testid={`history-item-${task.id}-${item.task_id}`}>
+                                        <div className={`mt-1 h-2.5 w-2.5 rounded-full ${STATUS_COLORS[item.status]?.split(' ')[0] || 'bg-gray-300'}`} />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-xs font-medium text-gray-700">尝试 #{item.attempt_no}</span>
+                                            <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}>
+                                              {STATUS_LABEL[item.status] || item.status}
+                                            </span>
+                                            <span className="text-xs text-gray-400 font-mono">Task #{item.task_id}</span>
+                                            {item.retry_of_task_id != null && (
+                                              <span className="text-xs text-gray-400">来自 #{item.retry_of_task_id}</span>
+                                            )}
+                                          </div>
+                                          <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
+                                            <span>创建: {item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</span>
+                                            <span>完成: {item.completed_at ? new Date(item.completed_at).toLocaleString('zh-CN') : '-'}</span>
+                                          </div>
+                                          {item.last_error_message && (
+                                            <p className="mt-1 text-xs text-red-600">{item.last_error_message}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                             <div className="grid grid-cols-3 gap-4 text-xs text-gray-500">
                               <div>创建: {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '-'}</div>
                               <div>开始: {task.started_at ? new Date(task.started_at).toLocaleString('zh-CN') : '-'}</div>

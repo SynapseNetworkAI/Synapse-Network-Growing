@@ -1,8 +1,6 @@
 """Tasks API router."""
 import json
 import logging
-from functools import lru_cache
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -10,8 +8,9 @@ from typing import Optional
 import yaml
 
 from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, utcnow
-from server.schemas import TaskCreate, TaskOut, TaskLogOut
+from server.schemas import TaskCreate, TaskOut, TaskLogOut, TaskHistoryOut
 from server.config import PROJECT_ROOT
+from server.services.task_metadata import task_metadata_for_agent, project_for_group
 
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -23,25 +22,9 @@ def _add_log(db: Session, task_id: int, event_type: str, detail: str = None):
     db.add(TaskLogRow(task_id=task_id, event_type=event_type, detail=detail))
 
 
-@lru_cache(maxsize=1)
-def _group_project_map() -> dict[str, str]:
-    """Map agent group -> project repo name using org-structure.yaml."""
-    org_path = PROJECT_ROOT / "server" / "org-structure.yaml"
-    if not org_path.exists():
-        return {}
-
-    cfg = yaml.safe_load(org_path.read_text(encoding="utf-8")) or {}
-    mapping: dict[str, str] = {}
-    for domain in cfg.get("domains", []):
-        project = domain.get("project", "")
-        for team in domain.get("teams", []):
-            mapping[team.get("id", "")] = project
-    return mapping
-
-
 def _task_to_out(row: TaskRow) -> TaskOut:
-    agent_group = row.agent.group if row.agent else ""
-    project_id = _group_project_map().get(agent_group, "")
+    agent_group = row.agent_group or (row.agent.group if row.agent else "")
+    project_id = row.project_id or project_for_group(agent_group)
     return TaskOut(
         id=row.id,
         description=row.description,
@@ -64,6 +47,47 @@ def _task_to_out(row: TaskRow) -> TaskOut:
         started_at=row.started_at,
         completed_at=row.completed_at,
     )
+
+
+def _task_to_history_out(row: TaskRow) -> TaskHistoryOut:
+    agent_group = row.agent_group or (row.agent.group if row.agent else "")
+    project_id = row.project_id or project_for_group(agent_group)
+    return TaskHistoryOut(
+        task_id=row.id,
+        retry_of_task_id=row.retry_of_task_id,
+        attempt_no=row.attempt_no or 1,
+        status=row.status,
+        project_id=project_id or None,
+        agent_group=agent_group or None,
+        agent_id=row.agent_id,
+        skill_name=row.skill_name,
+        last_error_message=row.last_error_message,
+        created_at=row.created_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+    )
+
+
+def _retry_root_id(row: TaskRow, by_id: dict[int, TaskRow]) -> int:
+    current = row
+    seen: set[int] = set()
+    while current.retry_of_task_id and current.retry_of_task_id in by_id and current.retry_of_task_id not in seen:
+        seen.add(current.id)
+        current = by_id[current.retry_of_task_id]
+    return current.id
+
+
+def _retry_history_for_task(task_id: int, db: Session) -> list[TaskRow]:
+    rows = db.query(TaskRow).order_by(TaskRow.created_at.asc(), TaskRow.id.asc()).all()
+    by_id = {row.id: row for row in rows}
+    row = by_id.get(task_id)
+    if not row:
+        return []
+
+    root_id = _retry_root_id(row, by_id)
+    history = [candidate for candidate in rows if _retry_root_id(candidate, by_id) == root_id]
+    history.sort(key=lambda candidate: (candidate.attempt_no or 1, candidate.created_at or utcnow(), candidate.id))
+    return history
 
 
 def _load_full_persona(agent_id: str) -> dict:
@@ -110,9 +134,9 @@ def list_tasks(
     if only_anomalies:
         rows = [r for r in rows if r.status in {"failed", "pending_approval", "running"}]
     if agent_group:
-        rows = [r for r in rows if (r.agent.group if r.agent else "") == agent_group]
+        rows = [r for r in rows if (r.agent_group or (r.agent.group if r.agent else "")) == agent_group]
     if project_id:
-        rows = [r for r in rows if _group_project_map().get(r.agent.group if r.agent else "", "") == project_id]
+        rows = [r for r in rows if (r.project_id or project_for_group(r.agent_group or (r.agent.group if r.agent else ""))) == project_id]
 
     return [_task_to_out(r) for r in rows]
 
@@ -140,6 +164,8 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db)):
         agent_id=body.agent_id,
         requires_approval=body.requires_approval,
         priority=body.priority,
+        project_id=task_metadata_for_agent(agent.group)[0],
+        agent_group=task_metadata_for_agent(agent.group)[1],
         skill_name=body.skill_name,
         context_files=json.dumps(body.context_files) if body.context_files else None,
     )
@@ -209,6 +235,8 @@ def retry_task(
         status="pending",
         requires_approval=source.requires_approval,
         priority=source.priority,
+        project_id=source.project_id,
+        agent_group=source.agent_group,
         skill_name=source.skill_name,
         context_files=source.context_files,
         retry_of_task_id=source.id,
@@ -236,6 +264,14 @@ def retry_task(
     db.commit()
     db.refresh(row)
     return _task_to_out(row)
+
+
+@router.get("/{task_id}/history", response_model=list[TaskHistoryOut])
+def get_task_history(task_id: int, db: Session = Depends(get_db)):
+    row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return [_task_to_history_out(item) for item in _retry_history_for_task(task_id, db)]
 
 
 @router.get("/{task_id}/logs", response_model=list[TaskLogOut])

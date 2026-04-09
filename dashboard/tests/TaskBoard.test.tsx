@@ -11,6 +11,7 @@ const mockApi = {
   runTask: vi.fn(),
   retryTask: vi.fn(),
   getTaskLogs: vi.fn(),
+  getTaskHistory: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
     runTask: (...args: unknown[]) => mockApi.runTask(...args),
     retryTask: (...args: unknown[]) => mockApi.retryTask(...args),
     getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
+    getTaskHistory: (...args: unknown[]) => mockApi.getTaskHistory(...args),
   },
 }))
 
@@ -100,6 +102,37 @@ const FAILED_TASK = {
   completed_at: '2026-04-10T00:02:00Z',
 }
 
+const HISTORY_ITEMS = [
+  {
+    task_id: 1,
+    retry_of_task_id: null,
+    attempt_no: 1,
+    status: 'failed',
+    project_id: 'Synapse-Network-Growing',
+    agent_group: 'optimization',
+    agent_id: 'seo_strategist',
+    skill_name: 'seo-audit',
+    last_error_message: 'OPENAI_API_KEY not set',
+    created_at: '2026-04-10T00:00:00Z',
+    started_at: '2026-04-10T00:01:00Z',
+    completed_at: '2026-04-10T00:02:00Z',
+  },
+  {
+    task_id: 4,
+    retry_of_task_id: 1,
+    attempt_no: 2,
+    status: 'failed',
+    project_id: 'Synapse-Network-Growing',
+    agent_group: 'optimization',
+    agent_id: 'seo_strategist',
+    skill_name: 'seo-audit',
+    last_error_message: 'timeout',
+    created_at: '2026-04-10T00:03:00Z',
+    started_at: '2026-04-10T00:03:30Z',
+    completed_at: '2026-04-10T00:04:00Z',
+  },
+]
+
 describe('TaskBoard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -107,6 +140,7 @@ describe('TaskBoard', () => {
     mockApi.getAgents.mockResolvedValue(AGENTS)
     mockApi.getSkills.mockResolvedValue(SKILLS)
     mockApi.retryTask.mockResolvedValue({ ...RUNNING_TASK, id: 10 })
+    mockApi.getTaskHistory.mockResolvedValue([])
   })
 
   it('renders the task board page', async () => {
@@ -296,6 +330,7 @@ describe('TaskBoard', () => {
 
   it('shows output content in expanded view', async () => {
     mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
+    mockApi.getTaskHistory.mockResolvedValue([])
     render(<TaskBoard />)
 
     await waitFor(() => {
@@ -308,6 +343,25 @@ describe('TaskBoard', () => {
       const detail = screen.getByTestId('task-detail-3')
       expect(detail.textContent).toContain('SEO Report')
       expect(detail.textContent).toContain('Site looks good')
+    })
+  })
+
+  it('loads and renders retry history timeline in expanded view', async () => {
+    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    mockApi.getTaskHistory.mockResolvedValue(HISTORY_ITEMS)
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-4')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByText('#4'))
+
+    await waitFor(() => {
+      expect(mockApi.getTaskHistory).toHaveBeenCalledWith(4)
+      expect(screen.getByTestId('history-4').textContent).toContain('重试历史时间线')
+      expect(screen.getByTestId('history-item-4-1').textContent).toContain('尝试 #1')
+      expect(screen.getByTestId('history-item-4-4').textContent).toContain('尝试 #2')
     })
   })
 

@@ -53,6 +53,8 @@ class TaskRow(Base):
     status = Column(Text, nullable=False, default="pending")
     requires_approval = Column(Boolean, default=False)
     priority = Column(Text, default="normal")
+    project_id = Column(Text, default="")
+    agent_group = Column(Text, default="")
     skill_name = Column(Text)
     context_files = Column(Text)  # JSON array of relative paths
     retry_of_task_id = Column(Integer)
@@ -114,6 +116,8 @@ def _migrate(engine_):
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}
         new_cols = {
+            "project_id": "TEXT DEFAULT ''",
+            "agent_group": "TEXT DEFAULT ''",
             "skill_name": "TEXT",
             "context_files": "TEXT",
             "execution_time_ms": "INTEGER",
@@ -127,6 +131,24 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
+
+        if "project_id" in {c["name"] for c in insp.get_columns("tasks")} and "agent_group" in {c["name"] for c in insp.get_columns("tasks")}:
+            from server.services.task_metadata import project_for_group
+
+            with engine_.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT tasks.id, COALESCE(tasks.project_id, ''), COALESCE(tasks.agent_group, ''), COALESCE(agents.\"group\", '') "
+                    "FROM tasks LEFT JOIN agents ON agents.id = tasks.agent_id"
+                )).fetchall()
+                for task_id, project_id, agent_group, current_group in rows:
+                    next_group = agent_group or current_group or ""
+                    next_project = project_id or project_for_group(next_group)
+                    if next_group != agent_group or next_project != project_id:
+                        conn.execute(
+                            text("UPDATE tasks SET agent_group = :agent_group, project_id = :project_id WHERE id = :task_id"),
+                            {"agent_group": next_group, "project_id": next_project, "task_id": task_id},
+                        )
+                conn.commit()
 
 
 def init_db():

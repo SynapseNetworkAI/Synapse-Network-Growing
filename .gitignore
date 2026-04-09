@@ -216,3 +216,6 @@ dashboard/dist/
 # SQLite
 *.db
 .DS_Store
+
+# agent-browser runtime state
+.agent-browser/

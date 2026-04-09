@@ -1,7 +1,7 @@
 ---
 id: taskboard-automation-test-plan
 title: 任务看板自动化测试方案
-status: ready
+status: verified
 created_at: 2026-04-09
 updated_at: 2026-04-09
 author: CTO
@@ -17,6 +17,7 @@ target_repo: Synapse-Network-Growing
 1. 分类与筛选是否正确
 2. 失败任务恢复链路是否可用
 3. 前后端数据结构是否一致
+4. 历史任务归属快照与重试时间线是否正确
 
 ## 2. 测试目录与功能关联
 
@@ -71,11 +72,13 @@ target_repo: Synapse-Network-Growing
 
 任务看板改造需要新增或验证的后端能力：
 
-1. 任务返回派生字段：`project_id`、`project_label`、`agent_group`
+1. 任务返回持久化字段：`project_id`、`project_label`、`agent_group`
 2. 任务返回失败摘要字段：`last_error_message`
 3. 任务返回重试链路字段：`retry_of_task_id`、`attempt_no`
 4. 支持按 `agent_group`、`project_id`、`only_anomalies` 过滤
 5. 支持 `POST /api/tasks/{id}/retry`
+6. 支持 `GET /api/tasks/{id}/history`
+7. 历史任务在 Agent 分组变化后仍保留原始 `project_id/agent_group` 快照
 
 ### 3.2 前端页面
 
@@ -89,6 +92,7 @@ target_repo: Synapse-Network-Growing
 6. 失败任务支持 `编辑后重试`
 7. 创建表单支持显示 Agent 提示信息
 8. 运行中任务继续轮询
+9. 详情区展示重试历史时间线
 
 ## 4. 用例矩阵
 
@@ -101,6 +105,8 @@ target_repo: Synapse-Network-Growing
 5. `retry?mode=run_now` 生成新任务并立即置为 `running`
 6. `retry?mode=edit_first` 生成新任务但保持 `pending`
 7. 对非失败任务调用 retry 返回 400
+8. `history` 接口返回按 attempt 排序的重试链
+9. 任务创建后，如果 Agent 分组后续变化，任务接口仍返回原始快照
 
 ### 前端用例
 
@@ -110,6 +116,7 @@ target_repo: Synapse-Network-Growing
 4. 点击 `编辑后重试` 打开表单并预填原任务
 5. 变更 `Agent组` 筛选时重新请求任务列表
 6. 运行中任务持续轮询
+7. 展开详情时请求并渲染重试历史时间线
 
 ## 5. 执行命令
 
@@ -133,7 +140,8 @@ UI 验证：
 2. 打开任务看板页面
 3. 创建失败任务或查看已有失败任务
 4. 验证失败摘要、重试按钮、筛选器和项目分组
-5. 截图作为最终结果凭证
+5. 展开失败任务，验证重试历史时间线
+6. 截图作为最终结果凭证
 
 ## 6. 通过标准
 
@@ -143,3 +151,30 @@ UI 验证：
 2. 前端 vitest 全通过
 3. UI 截图能看到新筛选器、项目分组或失败重试交互之一
 4. 若实现过程中发现 bug，必须登记到 `docs/test/bugfix.md` 并修复后重新验证
+
+## 7. 最新验证结果
+
+验证时间：2026-04-09
+
+后端：
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests/test_tasks_api.py tests/test_crew_integration.py -v
+```
+
+结果：`58 passed`
+
+前端：
+
+```bash
+cd dashboard
+yarn test
+```
+
+结果：`40 passed`
+
+UI 结果：
+
+1. 页面已展示持久化后的 `project_id` / `agent_group` 标签
+2. 详情区已展示三段重试历史时间线（Attempt #1 / #2 / #3）
+3. 验证截图已更新到 `docs/test/taskboard-validation.png`

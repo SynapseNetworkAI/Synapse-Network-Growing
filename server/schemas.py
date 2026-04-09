@@ -57,6 +57,23 @@ class TaskOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskHistoryOut(BaseModel):
+    task_id: int
+    retry_of_task_id: Optional[int] = None
+    attempt_no: int = 1
+    status: str
+    project_id: Optional[str] = None
+    agent_group: Optional[str] = None
+    agent_id: str
+    skill_name: Optional[str] = None
+    last_error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ── Approval ──────────────────────────────────────────────────
 
 class ApprovalOut(BaseModel):

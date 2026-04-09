@@ -22,6 +22,32 @@ This repository is the brain for our Multi-Agent Marketing & Growth Engine. It i
 4. **Launch Copy**: Hyper-optimized copy for PH / HN / X.
 5. **Provider Onboarding**: Conversion-focused landing page copy for API sellers.
 
+## Browser Automation
+
+This repository now includes the upstream `vercel-labs/agent-browser` skill for project-scoped browser automation.
+
+Reusable entry points:
+
+1. Skill source: `.agents/skills/agent-browser/`
+2. Skill lock: `skills-lock.json`
+3. Project defaults: `agent-browser.json`
+
+First-time setup on a machine:
+
+```bash
+agent-browser install
+```
+
+Reusable workflow:
+
+```bash
+agent-browser open http://127.0.0.1:9700/tasks
+agent-browser snapshot -i
+agent-browser screenshot
+```
+
+Runtime profile, downloads, and screenshots are isolated under `.agent-browser/` and ignored from git by default.
+
 Synapse-Network-Growing/
 ├── README.md                 # 30天战役总纲与里程碑跟踪（已更新）
 ├── AGENTS.md                 # 【必须】定义各路 AI Agent 的角色系统边界、权限与交互规则 

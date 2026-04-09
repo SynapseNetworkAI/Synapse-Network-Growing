@@ -48,6 +48,15 @@ def setup_db():
 
 
 @pytest.fixture
+def db_session():
+    db = TestSession()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture
 def client():
     return TestClient(app)
 
