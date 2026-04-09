@@ -46,8 +46,20 @@ export default function RequirementPool() {
   const [detail, setDetail] = useState<RequirementDetail | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+  const [showRevise, setShowRevise] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [form, setForm] = useState({ title: '', description_markdown: '', priority: 'normal' })
+  const [form, setForm] = useState({
+    title: '',
+    description_markdown: '',
+    priority: 'normal',
+    depends_on_requirement_ids: [] as number[],
+  })
+  const [revisionForm, setRevisionForm] = useState({
+    title: '',
+    description_markdown: '',
+    revision_note: '',
+    depends_on_requirement_ids: [] as number[],
+  })
 
   const loadRequirements = useCallback(async () => {
     const data = await api.getRequirements(statusFilter || undefined)
@@ -77,6 +89,17 @@ export default function RequirementPool() {
   }, [selectedId, loadDetail])
 
   useEffect(() => {
+    if (!detail) return
+    setRevisionForm({
+      title: detail.requirement.title,
+      description_markdown: detail.requirement.description_markdown,
+      revision_note: '',
+      depends_on_requirement_ids: detail.dependencies.map((dependency) => dependency.depends_on_requirement_id),
+    })
+    setShowRevise(false)
+  }, [detail])
+
+  useEffect(() => {
     if (!requirements.some((item) => item.status === 'in_progress')) return
     const timer = setInterval(() => {
       loadRequirements().catch(() => {})
@@ -100,9 +123,10 @@ export default function RequirementPool() {
         title: form.title.trim(),
         description_markdown: form.description_markdown.trim(),
         priority: form.priority,
+        depends_on_requirement_ids: form.depends_on_requirement_ids,
       })
       setShowCreate(false)
-      setForm({ title: '', description_markdown: '', priority: 'normal' })
+      setForm({ title: '', description_markdown: '', priority: 'normal', depends_on_requirement_ids: [] })
       await loadRequirements()
       setSelectedId(created.requirement.id)
       setDetail(created)
@@ -125,6 +149,36 @@ export default function RequirementPool() {
     await loadRequirements()
   }
 
+  const handleRevise = async () => {
+    if (selectedId == null || !detail) return
+    if (!revisionForm.description_markdown.trim()) return
+    setSubmitting(true)
+    try {
+      const data = await api.reviseRequirement(selectedId, {
+        title: revisionForm.title.trim(),
+        description_markdown: revisionForm.description_markdown.trim(),
+        revision_note: revisionForm.revision_note.trim() || null,
+        source_ref: detail.requirement.source_ref,
+        depends_on_requirement_ids: revisionForm.depends_on_requirement_ids,
+      })
+      setShowRevise(false)
+      setDetail(data)
+      await loadRequirements()
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const toggleDependency = (values: number[], requirementId: number) => {
+    if (values.includes(requirementId)) {
+      return values.filter((value) => value !== requirementId)
+    }
+    return [...values, requirementId]
+  }
+
+  const createDependencyCandidates = requirements
+  const revisionDependencyCandidates = requirements.filter((requirement) => requirement.id !== selectedId)
+
   return (
     <div data-testid="requirements-page" className="space-y-6">
       <div className="flex items-center justify-between">
@@ -144,6 +198,8 @@ export default function RequirementPool() {
             <option value="ready">已规划</option>
             <option value="in_progress">执行中</option>
             <option value="done">已完成</option>
+            <option value="blocked">阻塞</option>
+            <option value="needs_revision">需修订</option>
           </select>
           <button
             data-testid="create-requirement-btn"
@@ -182,6 +238,27 @@ export default function RequirementPool() {
               <option value="normal">normal</option>
               <option value="high">high</option>
             </select>
+            <div data-testid="create-dependencies" className="max-h-28 flex-1 overflow-auto rounded border px-3 py-2 text-xs text-gray-600">
+              {createDependencyCandidates.length === 0 ? (
+                <div>暂无可选依赖</div>
+              ) : (
+                createDependencyCandidates.map((requirement) => (
+                  <label key={requirement.id} className="flex items-center gap-2 py-1">
+                    <input
+                      data-testid={`create-dependency-${requirement.id}`}
+                      type="checkbox"
+                      checked={form.depends_on_requirement_ids.includes(requirement.id)}
+                      onChange={() => setForm((prev) => ({
+                        ...prev,
+                        depends_on_requirement_ids: toggleDependency(prev.depends_on_requirement_ids, requirement.id),
+                      }))}
+                    />
+                    <span>{requirement.title}</span>
+                    <span className="text-gray-400">{STATUS_LABEL[requirement.status] || requirement.status}</span>
+                  </label>
+                ))
+              )}
+            </div>
             <button
               data-testid="submit-requirement-btn"
               className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50"
@@ -220,6 +297,7 @@ export default function RequirementPool() {
               <div className="line-clamp-3 text-xs text-gray-600">{requirement.description_markdown}</div>
               <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
                 <span>优先级: {requirement.priority}</span>
+                <span>阻塞: {requirement.blocked_by_count}</span>
                 <span>{formatTime(requirement.updated_at)}</span>
               </div>
             </button>
@@ -245,26 +323,116 @@ export default function RequirementPool() {
                 <div className="flex items-center gap-2">
                   <button
                     data-testid="plan-requirement-btn"
-                    className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+                    className="rounded border px-3 py-2 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={detail.requirement.status === 'blocked' || detail.requirement.status === 'in_progress'}
                     onClick={() => { handlePlan().catch(() => {}) }}
                   >
                     生成计划
                   </button>
                   <button
                     data-testid="start-requirement-btn"
-                    className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                    className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!detail.workflow_run || detail.requirement.status === 'blocked' || detail.requirement.status === 'done'}
                     onClick={() => { handleStart().catch(() => {}) }}
                   >
                     启动执行
                   </button>
+                  <button
+                    data-testid="toggle-revise-btn"
+                    className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+                    onClick={() => setShowRevise((value) => !value)}
+                  >
+                    提交修订
+                  </button>
                 </div>
               </div>
+
+              {detail.requirement.blocked_by_count > 0 && (
+                <div data-testid="blocked-banner" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  当前需求被 {detail.requirement.blocked_by_count} 个未完成依赖阻塞，需等待上游 requirement 完成后再规划执行。
+                </div>
+              )}
+
+              {showRevise && (
+                <section data-testid="requirement-revision-form" className="rounded-xl border bg-amber-50 p-4 shadow-sm space-y-3">
+                  <div className="text-sm font-semibold">修订需求</div>
+                  <input
+                    data-testid="revise-title"
+                    className="w-full rounded border px-3 py-2"
+                    value={revisionForm.title}
+                    onChange={(event) => setRevisionForm((prev) => ({ ...prev, title: event.target.value }))}
+                  />
+                  <textarea
+                    data-testid="revise-description"
+                    className="min-h-32 w-full rounded border px-3 py-2"
+                    value={revisionForm.description_markdown}
+                    onChange={(event) => setRevisionForm((prev) => ({ ...prev, description_markdown: event.target.value }))}
+                  />
+                  <textarea
+                    data-testid="revise-note"
+                    className="min-h-20 w-full rounded border px-3 py-2"
+                    placeholder="记录这次需求修订的原因"
+                    value={revisionForm.revision_note}
+                    onChange={(event) => setRevisionForm((prev) => ({ ...prev, revision_note: event.target.value }))}
+                  />
+                  <div data-testid="revise-dependencies" className="rounded border bg-white px-3 py-2 text-xs text-gray-600">
+                    {revisionDependencyCandidates.length === 0 ? (
+                      <div>暂无可选依赖</div>
+                    ) : (
+                      revisionDependencyCandidates.map((requirement) => (
+                        <label key={requirement.id} className="flex items-center gap-2 py-1">
+                          <input
+                            data-testid={`revise-dependency-${requirement.id}`}
+                            type="checkbox"
+                            checked={revisionForm.depends_on_requirement_ids.includes(requirement.id)}
+                            onChange={() => setRevisionForm((prev) => ({
+                              ...prev,
+                              depends_on_requirement_ids: toggleDependency(prev.depends_on_requirement_ids, requirement.id),
+                            }))}
+                          />
+                          <span>{requirement.title}</span>
+                          <span className="text-gray-400">{STATUS_LABEL[requirement.status] || requirement.status}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      data-testid="submit-revision-btn"
+                      className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                      disabled={submitting}
+                      onClick={() => { handleRevise().catch(() => {}) }}
+                    >
+                      保存修订并重开流程
+                    </button>
+                  </div>
+                </section>
+              )}
 
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_320px]">
                 <div className="space-y-4">
                   <section className="rounded-xl border bg-slate-50 p-4">
                     <div className="mb-2 text-sm font-semibold">需求说明</div>
                     <Md>{detail.requirement.description_markdown}</Md>
+                  </section>
+
+                  <section className="rounded-xl border p-4" data-testid="dependencies-panel">
+                    <div className="mb-3 text-sm font-semibold">Dependencies</div>
+                    {detail.dependencies.length === 0 ? (
+                      <div className="text-xs text-gray-500">无依赖，可以直接规划执行。</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {detail.dependencies.map((dependency) => (
+                          <div key={dependency.id} data-testid={`dependency-${dependency.depends_on_requirement_id}`} className="rounded-lg bg-gray-50 p-3 text-xs">
+                            <div className="font-medium text-gray-900">{dependency.depends_on_title}</div>
+                            <div className="mt-1 flex items-center justify-between text-gray-500">
+                              <span>#{dependency.depends_on_requirement_id}</span>
+                              <span>{STATUS_LABEL[dependency.depends_on_status] || dependency.depends_on_status}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </section>
 
                   <section className="rounded-xl border p-4" data-testid="workflow-steps-panel">
@@ -292,6 +460,9 @@ export default function RequirementPool() {
                           <div className="mt-2 text-xs text-gray-600">{step.done_when_markdown}</div>
                         </div>
                       ))}
+                      {(detail.workflow_run?.steps || []).length === 0 && (
+                        <div className="text-xs text-gray-500">当前还没有 workflow run。先生成计划，再启动执行。</div>
+                      )}
                     </div>
                   </section>
                 </div>

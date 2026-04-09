@@ -145,6 +145,15 @@ export interface Requirement {
   updated_at: string
 }
 
+export interface RequirementDependency {
+  id: number
+  requirement_id: number
+  depends_on_requirement_id: number
+  depends_on_title: string
+  depends_on_status: string
+  dependency_type: string
+}
+
 export interface RequirementAcceptanceCheck {
   id: number
   requirement_id: number
@@ -211,6 +220,7 @@ export interface Artifact {
 export interface RequirementDetail {
   requirement: Requirement
   workflow_run: WorkflowRun | null
+  dependencies: RequirementDependency[]
   acceptance_checks: RequirementAcceptanceCheck[]
   artifacts: Artifact[]
 }
@@ -218,7 +228,7 @@ export interface RequirementDetail {
 export interface OrgNode {
   id: string
   display_name: string
-  type: 'cto' | 'domain' | 'team' | 'service' | 'agent'
+  type: 'org' | 'group' | 'agent'
   goal: string
   icon?: string
   color?: string
@@ -286,10 +296,29 @@ export const api = {
     return request<Requirement[]>(`/requirements${q}`)
   },
   getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),
-  createRequirement: (data: { title: string; description_markdown: string; priority?: string; source?: string; source_ref?: string | null }) =>
+  createRequirement: (data: {
+    title: string
+    description_markdown: string
+    priority?: string
+    source?: string
+    source_ref?: string | null
+    depends_on_requirement_ids?: number[]
+  }) =>
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
   startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
+  reviseRequirement: (id: number, data: {
+    title?: string
+    description_markdown: string
+    source_ref?: string | null
+    revision_note?: string | null
+    depends_on_requirement_ids?: number[]
+  }) => request<RequirementDetail>(`/requirements/${id}/revise`, { method: 'POST', body: JSON.stringify(data) }),
+  updateRequirementDependencies: (id: number, depends_on_requirement_ids: number[]) =>
+    request<RequirementDetail>(`/requirements/${id}/dependencies`, {
+      method: 'PUT',
+      body: JSON.stringify({ depends_on_requirement_ids }),
+    }),
 
   // Skills
   getSkills: () => request<string[]>('/skills'),

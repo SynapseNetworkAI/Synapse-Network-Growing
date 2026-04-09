@@ -8,6 +8,7 @@ const mockApi = {
   createRequirement: vi.fn(),
   planRequirement: vi.fn(),
   startRequirement: vi.fn(),
+  reviseRequirement: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -17,8 +18,26 @@ vi.mock('../src/api', () => ({
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
     planRequirement: (...args: unknown[]) => mockApi.planRequirement(...args),
     startRequirement: (...args: unknown[]) => mockApi.startRequirement(...args),
+    reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
   },
 }))
+
+const BLOCKER = {
+  id: 2,
+  title: 'Shared data contract',
+  description_markdown: 'Finish the upstream shared contract first.',
+  status: 'done',
+  priority: 'normal',
+  source: 'manual',
+  source_ref: null,
+  current_plan_version: 1,
+  blocked_by_count: 0,
+  active_workflow_run_id: 5,
+  started_at: '2026-04-10T00:00:00Z',
+  completed_at: '2026-04-10T00:05:00Z',
+  created_at: '2026-04-10T00:00:00Z',
+  updated_at: '2026-04-10T00:05:00Z',
+}
 
 const REQUIREMENT = {
   id: 1,
@@ -110,6 +129,16 @@ const DETAIL = {
       },
     ],
   },
+  dependencies: [
+    {
+      id: 1,
+      requirement_id: 1,
+      depends_on_requirement_id: 2,
+      depends_on_title: 'Shared data contract',
+      depends_on_status: 'done',
+      dependency_type: 'hard_block',
+    },
+  ],
   acceptance_checks: [
     {
       id: 1,
@@ -160,11 +189,12 @@ const DETAIL = {
 describe('RequirementPool', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockApi.getRequirements.mockResolvedValue([REQUIREMENT])
+    mockApi.getRequirements.mockResolvedValue([REQUIREMENT, BLOCKER])
     mockApi.getRequirement.mockResolvedValue(DETAIL)
     mockApi.createRequirement.mockResolvedValue(DETAIL)
     mockApi.planRequirement.mockResolvedValue(DETAIL)
     mockApi.startRequirement.mockResolvedValue(DETAIL)
+    mockApi.reviseRequirement.mockResolvedValue(DETAIL)
   })
 
   it('renders requirement list and detail panels', async () => {
@@ -179,15 +209,22 @@ describe('RequirementPool', () => {
       expect(screen.getByTestId('workflow-steps-panel')).toBeDefined()
       expect(screen.getByTestId('workflow-step-13')).toHaveTextContent('Bugfix after test failure')
     })
+    expect(screen.getByTestId('dependencies-panel')).toHaveTextContent('Shared data contract')
   })
 
   it('creates a new requirement', async () => {
     render(<RequirementPool />)
 
+    // Wait for requirements to load so dependency candidates are available
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-1')).toBeDefined()
+    })
+
     fireEvent.click(screen.getByTestId('create-requirement-btn'))
     fireEvent.change(screen.getByTestId('requirement-title'), { target: { value: 'New requirement' } })
     fireEvent.change(screen.getByTestId('requirement-description'), { target: { value: '## Goal\n\nShip it.' } })
     fireEvent.change(screen.getByTestId('requirement-priority'), { target: { value: 'high' } })
+    fireEvent.click(screen.getByTestId('create-dependency-2'))
     fireEvent.click(screen.getByTestId('submit-requirement-btn'))
 
     await waitFor(() => {
@@ -195,11 +232,20 @@ describe('RequirementPool', () => {
         title: 'New requirement',
         description_markdown: '## Goal\n\nShip it.',
         priority: 'high',
+        depends_on_requirement_ids: [2],
       })
     })
   })
 
   it('plans and starts a requirement', async () => {
+    // Use a draft requirement so the plan button is not disabled
+    const draftReq = { ...REQUIREMENT, status: 'draft' }
+    const draftDetail = { ...DETAIL, requirement: draftReq }
+    mockApi.getRequirements.mockResolvedValue([draftReq, BLOCKER])
+    mockApi.getRequirement.mockResolvedValue(draftDetail)
+    mockApi.planRequirement.mockResolvedValue(draftDetail)
+    mockApi.startRequirement.mockResolvedValue(draftDetail)
+
     render(<RequirementPool />)
 
     await waitFor(() => {
@@ -207,11 +253,43 @@ describe('RequirementPool', () => {
     })
 
     fireEvent.click(screen.getByTestId('plan-requirement-btn'))
-    fireEvent.click(screen.getByTestId('start-requirement-btn'))
 
     await waitFor(() => {
       expect(mockApi.planRequirement).toHaveBeenCalledWith(1)
+    })
+
+    fireEvent.click(screen.getByTestId('start-requirement-btn'))
+
+    await waitFor(() => {
       expect(mockApi.startRequirement).toHaveBeenCalledWith(1)
+    })
+  })
+
+  it('submits a requirement revision', async () => {
+    render(<RequirementPool />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('toggle-revise-btn')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('toggle-revise-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('revise-description')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('revise-description'), { target: { value: '## Revised\n\nClarify acceptance criteria.' } })
+    fireEvent.change(screen.getByTestId('revise-note'), { target: { value: 'Reviewer flagged ambiguous acceptance criteria.' } })
+    fireEvent.click(screen.getByTestId('submit-revision-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.reviseRequirement).toHaveBeenCalledWith(1, {
+        title: 'Launch FAQ quality gate',
+        description_markdown: '## Revised\n\nClarify acceptance criteria.',
+        revision_note: 'Reviewer flagged ambiguous acceptance criteria.',
+        source_ref: null,
+        depends_on_requirement_ids: [2],
+      })
     })
   })
 })

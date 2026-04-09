@@ -12,7 +12,9 @@ from server.database import (
     SessionLocal,
     AgentRow,
     ApprovalRow,
+    ApprovalRequestRow,
     ArtifactRow,
+    RequirementDependencyRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
     StepInputBindingRow,
@@ -25,10 +27,12 @@ from server.database import (
 )
 from server.schemas import (
     ArtifactOut,
+    RequirementDependencyOut,
     RequirementAcceptanceCheckOut,
     RequirementCreate,
     RequirementDetailOut,
     RequirementOut,
+    RequirementRevisionRequest,
     WorkflowRunOut,
     WorkflowStepOut,
 )
@@ -45,19 +49,24 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     requirement = RequirementRow(
         title=body.title,
         description_markdown=body.description_markdown,
-        status="draft",
+        status="ready",
         priority=body.priority,
         source=body.source,
         source_ref=body.source_ref,
     )
     db.add(requirement)
+    db.flush()
+    _replace_dependencies(db, requirement.id, body.depends_on_requirement_ids)
+    _refresh_requirement_dependency_state(db, requirement)
     db.commit()
-    db.refresh(requirement)
     return build_requirement_detail(db, requirement.id)
 
 
 def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _refresh_requirement_dependency_state(db, requirement)
+    if requirement.blocked_by_count > 0:
+        raise ValueError("Requirement is blocked by unfinished dependencies.")
     if requirement.current_plan_version > 0 and requirement.active_workflow_run_id:
         return build_requirement_detail(db, requirement.id)
 
@@ -112,8 +121,81 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     return build_requirement_detail(db, requirement.id)
 
 
+def update_requirement_dependencies(db: Session, requirement_id: int, dependency_ids: list[int]) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    if requirement.active_workflow_run_id and requirement.status == "in_progress":
+        raise ValueError("Cannot edit dependencies while a workflow run is in progress.")
+    _replace_dependencies(db, requirement.id, dependency_ids)
+    _refresh_requirement_dependency_state(db, requirement)
+    _refresh_dependents_for_requirement(db, requirement.id)
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
+def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisionRequest) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    active_run = _active_workflow_run(db, requirement)
+    previous_title = requirement.title
+    previous_description = requirement.description_markdown
+
+    if active_run is not None:
+        active_run.status = "cancelled"
+        for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == active_run.id).all():
+            if step.status in TERMINAL_STEP_STATUSES:
+                continue
+            step.status = "cancelled"
+            step.completed_at = step.completed_at or utcnow()
+
+    db.query(RequirementAcceptanceCheckRow).filter(
+        RequirementAcceptanceCheckRow.requirement_id == requirement.id
+    ).delete(synchronize_session=False)
+
+    for approval in db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.status == "pending",
+    ).all():
+        approval.status = "approved"
+        approval.reviewer = "system"
+        approval.decided_at = utcnow()
+        approval.comment = body.revision_note or "Requirement revision submitted"
+
+    if body.depends_on_requirement_ids is not None:
+        _replace_dependencies(db, requirement.id, body.depends_on_requirement_ids)
+
+    requirement.title = (body.title or requirement.title).strip()
+    requirement.description_markdown = body.description_markdown.strip()
+    requirement.source_ref = body.source_ref
+    requirement.active_workflow_run_id = None
+    requirement.started_at = None
+    requirement.completed_at = None
+    requirement.status = "ready"
+
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="requirement_revision",
+        content_summary=f"Revision for requirement #{requirement.id}",
+        human_readable_body=body.revision_note or requirement.description_markdown,
+        machine_readable_payload={
+            "previous_title": previous_title,
+            "previous_description_markdown": previous_description,
+            "title": requirement.title,
+            "description_markdown": requirement.description_markdown,
+            "revision_note": body.revision_note,
+        },
+    )
+
+    _refresh_requirement_dependency_state(db, requirement)
+    _refresh_dependents_for_requirement(db, requirement.id)
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
 def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _refresh_requirement_dependency_state(db, requirement)
+    if requirement.blocked_by_count > 0:
+        raise ValueError("Requirement is blocked by unfinished dependencies.")
     workflow_run = _active_workflow_run(db, requirement)
     if workflow_run is None:
         raise ValueError("Requirement has no active workflow run. Plan it first.")
@@ -147,6 +229,15 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
     checks = db.query(RequirementAcceptanceCheckRow).filter(
         RequirementAcceptanceCheckRow.requirement_id == requirement.id
     ).order_by(RequirementAcceptanceCheckRow.id.asc()).all()
+    dependency_rows = db.query(RequirementDependencyRow).filter(
+        RequirementDependencyRow.requirement_id == requirement.id
+    ).order_by(RequirementDependencyRow.id.asc()).all()
+    dependency_requirements = {
+        row.id: row
+        for row in db.query(RequirementRow).filter(
+            RequirementRow.id.in_([dep.depends_on_requirement_id for dep in dependency_rows] or [-1])
+        ).all()
+    }
     artifacts = db.query(ArtifactRow).filter(ArtifactRow.requirement_id == requirement.id).order_by(ArtifactRow.id.asc()).all()
     run_out = None
     if workflow_run is not None:
@@ -156,6 +247,18 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
     return RequirementDetailOut(
         requirement=RequirementOut.model_validate(requirement),
         workflow_run=run_out,
+        dependencies=[
+            RequirementDependencyOut(
+                id=dep.id,
+                requirement_id=dep.requirement_id,
+                depends_on_requirement_id=dep.depends_on_requirement_id,
+                depends_on_title=dependency_requirements.get(dep.depends_on_requirement_id).title,
+                depends_on_status=dependency_requirements.get(dep.depends_on_requirement_id).status,
+                dependency_type=dep.dependency_type,
+            )
+            for dep in dependency_rows
+            if dependency_requirements.get(dep.depends_on_requirement_id) is not None
+        ],
         acceptance_checks=[RequirementAcceptanceCheckOut.model_validate(check) for check in checks],
         artifacts=[ArtifactOut.model_validate(artifact) for artifact in artifacts],
     )
@@ -235,7 +338,10 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
             },
         )
         _mark_step_targets_failed(db, step, error_artifact)
-        if step.step_type in {"implementation", "review", "test", "bugfix"}:
+        failure_route = _resolve_failure_route(step, error_text)
+        if failure_route == "requirement_revision":
+            _create_requirement_revision_request(db, requirement, run, step, error_artifact, error_text)
+        elif step.step_type in {"implementation", "review", "test", "bugfix"}:
             _create_bugfix_branch(db, requirement, run, step, error_artifact)
             should_dispatch_next = True
         else:
@@ -647,6 +753,9 @@ def _create_bugfix_branch(
 
 
 def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: WorkflowRunRow):
+    if requirement.status == "needs_revision":
+        workflow_run.status = "cancelled"
+        return
     steps = db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).all()
     if not steps:
         workflow_run.status = "pending"
@@ -703,6 +812,139 @@ def _finalize_requirement(
     workflow_run.completed_at = utcnow()
     requirement.status = "done"
     requirement.completed_at = utcnow()
+    _refresh_dependents_for_requirement(db, requirement.id)
+
+
+def _create_requirement_revision_request(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    failed_step: WorkflowStepRow,
+    revision_artifact: ArtifactRow,
+    error_text: str,
+):
+    db.add(
+        ApprovalRequestRow(
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            step_id=failed_step.id,
+            approval_type="requirement_revision_approval",
+            status="pending",
+            reviewer="requirement_editor",
+            comment=error_text,
+        )
+    )
+    for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).all():
+        if step.id == failed_step.id or step.status in TERMINAL_STEP_STATUSES:
+            continue
+        step.status = "cancelled"
+        step.completed_at = step.completed_at or utcnow()
+    workflow_run.status = "cancelled"
+    workflow_run.completed_at = utcnow()
+    requirement.active_workflow_run_id = None
+    requirement.status = "needs_revision"
+    revision_artifact.artifact_type = "requirement_revision"
+
+
+def _resolve_failure_route(step: WorkflowStepRow, error_text: str) -> str:
+    lowered = error_text.lower()
+    if any(marker in lowered for marker in [
+        "requirement_revision",
+        "needs revision",
+        "ambiguous requirement",
+        "ambiguous spec",
+        "unclear acceptance",
+        "requirement issue",
+    ]):
+        return "requirement_revision"
+    policy = _json_loads(step.failure_policy_json, {})
+    return str((policy or {}).get("on_failure") or "bugfix")
+
+
+def _replace_dependencies(db: Session, requirement_id: int, dependency_ids: list[int]):
+    normalized = []
+    seen: set[int] = set()
+    for dep_id in dependency_ids:
+        dep_int = int(dep_id)
+        if dep_int == requirement_id:
+            raise ValueError("Requirement cannot depend on itself.")
+        if dep_int in seen:
+            continue
+        dependency = db.query(RequirementRow).filter(RequirementRow.id == dep_int).first()
+        if dependency is None:
+            raise ValueError(f"Dependency requirement #{dep_int} not found.")
+        if _dependency_creates_cycle(db, requirement_id, dep_int):
+            raise ValueError(f"Dependency on requirement #{dep_int} would create a cycle.")
+        seen.add(dep_int)
+        normalized.append(dep_int)
+
+    existing = db.query(RequirementDependencyRow).filter(
+        RequirementDependencyRow.requirement_id == requirement_id
+    ).all()
+    existing_ids = {row.depends_on_requirement_id for row in existing}
+    for row in existing:
+        if row.depends_on_requirement_id not in seen:
+            db.delete(row)
+    for dep_id in normalized:
+        if dep_id in existing_ids:
+            continue
+        db.add(
+            RequirementDependencyRow(
+                requirement_id=requirement_id,
+                depends_on_requirement_id=dep_id,
+                dependency_type="hard_block",
+            )
+        )
+    db.flush()
+
+
+def _dependency_creates_cycle(db: Session, requirement_id: int, dependency_id: int) -> bool:
+    pending = [dependency_id]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if current == requirement_id:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        children = db.query(RequirementDependencyRow).filter(
+            RequirementDependencyRow.requirement_id == current
+        ).all()
+        pending.extend(dep.depends_on_requirement_id for dep in children)
+    return False
+
+
+def _refresh_requirement_dependency_state(db: Session, requirement: RequirementRow):
+    dependency_rows = db.query(RequirementDependencyRow).filter(
+        RequirementDependencyRow.requirement_id == requirement.id
+    ).all()
+    if not dependency_rows:
+        requirement.blocked_by_count = 0
+        if requirement.active_workflow_run_id is None and requirement.status in {"draft", "blocked", "ready"}:
+            requirement.status = "ready"
+        return
+
+    dependency_ids = [row.depends_on_requirement_id for row in dependency_rows]
+    finished = {
+        row.id
+        for row in db.query(RequirementRow).filter(RequirementRow.id.in_(dependency_ids)).all()
+        if row.status == "done"
+    }
+    requirement.blocked_by_count = sum(1 for dep_id in dependency_ids if dep_id not in finished)
+    if requirement.active_workflow_run_id is None:
+        requirement.status = "blocked" if requirement.blocked_by_count > 0 else "ready"
+
+
+def _refresh_dependents_for_requirement(db: Session, requirement_id: int):
+    dependent_rows = db.query(RequirementDependencyRow).filter(
+        RequirementDependencyRow.depends_on_requirement_id == requirement_id
+    ).all()
+    for dep in dependent_rows:
+        dependent = db.query(RequirementRow).filter(RequirementRow.id == dep.requirement_id).first()
+        if dependent is None or dependent.status == "done":
+            continue
+        _refresh_requirement_dependency_state(db, dependent)
 
 
 def _create_artifact(

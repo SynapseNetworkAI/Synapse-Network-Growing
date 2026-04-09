@@ -5,8 +5,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.database import RequirementRow, get_db
-from server.schemas import RequirementCreate, RequirementDetailOut, RequirementOut
-from server.services.workflow_orchestrator import build_requirement_detail, create_requirement, plan_requirement, start_requirement
+from server.schemas import (
+    RequirementCreate,
+    RequirementDependencyUpdate,
+    RequirementDetailOut,
+    RequirementOut,
+    RequirementRevisionRequest,
+)
+from server.services.workflow_orchestrator import (
+    build_requirement_detail,
+    create_requirement,
+    plan_requirement,
+    revise_requirement,
+    start_requirement,
+    update_requirement_dependencies,
+)
 
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
 
@@ -54,5 +67,33 @@ def plan_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)
 def start_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return start_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/{requirement_id}/dependencies", response_model=RequirementDetailOut)
+def update_requirement_dependencies_endpoint(
+    requirement_id: int,
+    body: RequirementDependencyUpdate,
+    db: Session = Depends(get_db),
+):
+    try:
+        return update_requirement_dependencies(db, requirement_id, body.depends_on_requirement_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/revise", response_model=RequirementDetailOut)
+def revise_requirement_endpoint(
+    requirement_id: int,
+    body: RequirementRevisionRequest,
+    db: Session = Depends(get_db),
+):
+    if not body.description_markdown.strip():
+        raise HTTPException(status_code=400, detail="description_markdown is required")
+    if body.title is not None and not body.title.strip():
+        raise HTTPException(status_code=400, detail="title cannot be blank")
+    try:
+        return revise_requirement(db, requirement_id, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

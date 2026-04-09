@@ -64,11 +64,11 @@ export default function OrgChart() {
   /* ── Loading skeleton ──────────────────────────────────────── */
   if (loading) {
     return (
-      <div data-testid="orgchart-skeleton" className="animate-pulse space-y-6">
+      <div data-testid="orgchart-skeleton" className="space-y-6 animate-pulse">
         <div className="grid grid-cols-4 gap-4">
           {[1,2,3,4].map(i => <div key={i} className="h-20 bg-gray-200 rounded-lg" />)}
         </div>
-        <div className="flex justify-center"><div className="h-16 w-40 bg-gray-200 rounded-lg" /></div>
+        <div className="flex justify-center"><div className="w-40 h-16 bg-gray-200 rounded-lg" /></div>
         <div className="grid grid-cols-5 gap-4">
           {[1,2,3,4,5].map(i => <div key={i} className="h-32 bg-gray-100 rounded-lg" />)}
         </div>
@@ -78,24 +78,24 @@ export default function OrgChart() {
 
   if (error) {
     return (
-      <div data-testid="orgchart-error" className="text-center py-20">
-        <p className="text-red-600 text-lg mb-4">{error}</p>
-        <button onClick={load} className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">重试</button>
+      <div data-testid="orgchart-error" className="py-20 text-center">
+        <p className="mb-4 text-lg text-red-600">{error}</p>
+        <button onClick={load} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">重试</button>
       </div>
     )
   }
 
   if (!orgTree) {
     return (
-      <div data-testid="orgchart-empty" className="text-center py-20">
-        <p className="text-gray-500 mb-4">暂无组织数据</p>
-        <button onClick={handleSync} className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">同步 Roles</button>
+      <div data-testid="orgchart-empty" className="py-20 text-center">
+        <p className="mb-4 text-gray-500">暂无组织数据</p>
+        <button onClick={handleSync} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">同步 Roles</button>
       </div>
     )
   }
 
   const root = orgTree.root
-  const domains = root.children || []
+  const groups = root.children || []
 
   return (
     <div data-testid="orgchart-page">
@@ -119,163 +119,82 @@ export default function OrgChart() {
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">全局组织架构</h2>
-        <button onClick={handleSync} className="text-sm bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        <button onClick={handleSync} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">
           同步 Roles
         </button>
       </div>
 
-      {/* ── Level 0: CTO node ──────────────────────────────── */}
-      <div className="flex justify-center mb-1">
-        <div
-          data-testid="cto-node"
-          className={`bg-gray-800 text-white rounded-lg px-6 py-3 text-center shadow-lg cursor-pointer transition-all duration-200
-            ${selectedNode === root.id ? 'ring-2 ring-blue-400 scale-105' : 'hover:shadow-xl'}`}
-          onClick={() => setSelectedNode(selectedNode === root.id ? null : root.id)}
-        >
-          <div className="text-lg font-bold">{root.icon} {root.display_name}</div>
-          <div className="text-xs text-gray-300">{root.goal?.slice(0, 30)}</div>
+      <div data-testid="org-root" className="p-5 mb-6 border rounded-xl bg-slate-50">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">{root.display_name}</div>
+            <div className="mt-1 text-sm text-slate-600">{root.goal}</div>
+          </div>
+          <button
+            data-testid="root-detail-toggle"
+            className="px-3 py-2 text-sm border rounded hover:bg-white"
+            onClick={() => setSelectedNode(selectedNode === root.id ? null : root.id)}
+          >
+            查看详情
+          </button>
+        </div>
+        <div className="mt-3 text-xs text-slate-500">
+          动态分组: {groups.length} · 真实角色: {groups.reduce((count, group) => count + (group.children?.length || 0), 0)}
         </div>
       </div>
 
-      {/* ── Vertical connector ─────────────────────────────── */}
-      <div className="flex justify-center"><div className="w-px h-5 bg-gray-300" /></div>
-
-      {/* ── Horizontal fan-out line ────────────────────────── */}
-      <div className="flex justify-center mb-1">
-        <div className="border-t-2 border-gray-300" style={{ width: `${Math.min(domains.length * 18, 90)}%` }} />
-      </div>
-
-      {/* ── Level 1: Domain nodes ──────────────────────────── */}
-      <div data-testid="domain-row" className="flex justify-center gap-4 mb-6 flex-wrap">
-        {domains.map(domain => {
-          const c = getColor(domain.color)
-          const isExpanded = expandedDomains.has(domain.id)
-          const isSelected = selectedNode === domain.id
+      <div data-testid="group-grid" className="grid gap-4 lg:grid-cols-2">
+        {groups.map(group => {
+          const c = getColor(group.color)
+          const isExpanded = expandedDomains.has(group.id)
+          const isSelected = selectedNode === group.id
           return (
-            <div key={domain.id} className="flex flex-col items-center" style={{ minWidth: '140px', maxWidth: '200px', flex: '1 1 0' }}>
-              {/* Vertical line down from fan-out */}
-              <div className="w-px h-4 bg-gray-300" />
+            <section key={group.id} data-testid={`group-${group.id}`} className={`rounded-xl border-2 p-4 ${c.bg} ${c.border}`}>
               <div
-                data-testid={`domain-${domain.id}`}
-                className={`rounded-lg border-2 px-4 py-3 text-center cursor-pointer transition-all duration-200 w-full
-                  ${c.bg} ${c.border}
+                className={`rounded-lg border bg-white px-4 py-3 cursor-pointer transition-all duration-200
                   ${isSelected ? 'ring-2 ring-blue-500 scale-105 shadow-md' : 'hover:shadow-md hover:-translate-y-0.5'}`}
                 onClick={() => {
-                  toggleDomain(domain.id)
-                  setSelectedNode(isSelected ? null : domain.id)
+                  toggleDomain(group.id)
+                  setSelectedNode(isSelected ? null : group.id)
                 }}
               >
-                <div className="text-xl">{domain.icon}</div>
-                <div className="font-bold text-sm mt-1">{domain.display_name}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{domain.children?.length || 0} 子节点</div>
-                <div className="text-xs mt-1">{isExpanded ? '▼' : '▶'}</div>
+                <div className="mt-1 text-sm font-bold">{group.display_name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">{group.children?.length || 0} 个角色</div>
+                <div className="mt-1 text-xs">{isExpanded ? '▼' : '▶'}</div>
               </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* ── Level 2+: Expanded domain children ─────────────── */}
-      {domains.filter(d => expandedDomains.has(d.id)).map(domain => (
-        <DomainDetail
-          key={domain.id}
-          domain={domain}
-          selectedNode={selectedNode}
-          onSelectNode={(id) => setSelectedNode(selectedNode === id ? null : id)}
-        />
-      ))}
-
-      {/* ── Selected node detail ───────────────────────────── */}
-      {selectedDetail && (
-        <div data-testid="node-detail" className="mt-6 bg-white border rounded-lg p-5 shadow-sm">
-          <h3 className="text-lg font-bold mb-2">节点详情</h3>
-          <NodeDetailView node={selectedDetail} />
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ── Domain expanded detail ──────────────────────────────────── */
-function DomainDetail({ domain, selectedNode, onSelectNode }: {
-  domain: OrgNode
-  selectedNode: string | null
-  onSelectNode: (id: string) => void
-}) {
-  const c = getColor(domain.color)
-  const children = domain.children || []
-
-  if (children.length === 0) return null
-
-  // Check if this domain has team sub-groups (Growth domain pattern)
-  const hasTeams = children.some(ch => ch.type === 'team')
-
-  return (
-    <div data-testid={`domain-detail-${domain.id}`} className={`mb-6 rounded-lg border-2 p-4 ${c.bg} ${c.border}`}>
-      <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-        <span>{domain.icon}</span>
-        <span>{domain.display_name}</span>
-        {domain.project && <span className="text-xs font-mono text-gray-400">({domain.project})</span>}
-      </h3>
-
-      {hasTeams ? (
-        /* ── Team-based layout (Growth domain) ───────────── */
-        <div data-testid={`teams-${domain.id}`} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {children.map(team => {
-            const tc = getColor(team.color)
-            return (
-              <div key={team.id} data-testid={`team-${team.id}`}
-                className={`rounded-lg border p-3 ${tc.lightBg} ${tc.border}`}>
-                <div className="text-center mb-2">
-                  <span className="text-lg">{team.icon}</span>
-                  <h4 className="font-bold text-xs mt-0.5">{team.display_name}</h4>
-                </div>
-                <div className="space-y-1.5">
-                  {(team.children || []).map(agent => (
+              {isExpanded && (
+                <div className="grid gap-3 mt-4 md:grid-cols-2">
+                  {(group.children || []).map(agent => (
                     <div
                       key={agent.id}
                       data-testid={`node-${agent.id}`}
-                      className={`bg-white rounded-md px-3 py-2 text-sm border cursor-pointer transition-all duration-200
+                      className={`bg-white rounded-md px-3 py-3 border cursor-pointer transition-all duration-200
                         ${selectedNode === agent.id ? 'ring-2 ring-blue-500 scale-[1.02] shadow-sm' : 'hover:shadow-sm'}`}
-                      onClick={() => onSelectNode(agent.id)}
+                      onClick={() => setSelectedNode(selectedNode === agent.id ? null : agent.id)}
                     >
-                      <div className="font-medium">{agent.display_name}</div>
-                      <div className="text-xs text-gray-500 truncate">{agent.goal}</div>
+                      <div className="text-sm font-medium">{agent.display_name}</div>
+                      <div className="mt-1 text-xs text-gray-500 line-clamp-2">{agent.goal}</div>
                       {agent.skills && agent.skills.length > 0 && (
-                        <div className="flex gap-1 flex-wrap mt-1">
-                          {agent.skills.slice(0, 3).map(s => (
-                            <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded ${tc.tag} ${tc.tagText}`}>{s}</span>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {agent.skills.slice(0, 4).map(skill => (
+                            <span key={skill} className={`text-[10px] px-1.5 py-0.5 rounded ${c.tag} ${c.tagText}`}>{skill}</span>
                           ))}
-                          {agent.skills.length > 3 && (
-                            <span className="text-[10px] text-gray-400">+{agent.skills.length - 3}</span>
-                          )}
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        /* ── Service-based layout ────────────────────────── */
-        <div data-testid={`services-${domain.id}`} className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {children.map(service => (
-            <div
-              key={service.id}
-              data-testid={`node-${service.id}`}
-              className={`bg-white rounded-md px-3 py-2.5 border cursor-pointer transition-all duration-200
-                ${selectedNode === service.id ? 'ring-2 ring-blue-500 scale-[1.02] shadow-sm' : 'hover:shadow-sm'}`}
-              onClick={() => onSelectNode(service.id)}
-            >
-              <div className="font-medium text-sm">{service.display_name}</div>
-              <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{service.goal}</div>
-              {service.project && (
-                <div className="text-[10px] font-mono text-gray-400 mt-1 truncate">{service.project}</div>
               )}
-            </div>
-          ))}
+            </section>
+          )
+        })}
+      </div>
+
+      {/* ── Selected node detail ───────────────────────────── */}
+      {selectedDetail && (
+        <div data-testid="node-detail" className="p-5 mt-6 bg-white border rounded-lg shadow-sm">
+          <h3 className="mb-2 text-lg font-bold">节点详情</h3>
+          <NodeDetailView node={selectedDetail} />
         </div>
       )}
     </div>
@@ -290,14 +209,14 @@ function NodeDetailView({ node }: { node: OrgNode }) {
       <div className="flex items-center gap-3 mb-2">
         {node.icon && <span className="text-2xl">{node.icon}</span>}
         <div>
-          <h4 className="font-bold text-lg">{node.display_name}</h4>
+          <h4 className="text-lg font-bold">{node.display_name}</h4>
           <span className={`text-xs px-2 py-0.5 rounded ${c.tag} ${c.tagText}`}>{node.type}</span>
-          <span className="text-xs font-mono text-gray-400 ml-2">{node.id}</span>
+          <span className="ml-2 font-mono text-xs text-gray-400">{node.id}</span>
         </div>
       </div>
-      <p className="text-sm text-gray-600 mb-3">{node.goal}</p>
+      <p className="mb-3 text-sm text-gray-600">{node.goal}</p>
       {node.project && (
-        <p className="text-xs text-gray-400 mb-2">项目: <span className="font-mono">{node.project}</span></p>
+        <p className="mb-2 text-xs text-gray-400">项目: <span className="font-mono">{node.project}</span></p>
       )}
       {node.skills && node.skills.length > 0 && (
         <div className="flex gap-1.5 flex-wrap mb-3">

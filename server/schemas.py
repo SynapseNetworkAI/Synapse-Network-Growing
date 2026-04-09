@@ -183,6 +183,19 @@ class RequirementCreate(BaseModel):
     priority: str = "normal"
     source: str = "manual"
     source_ref: Optional[str] = None
+    depends_on_requirement_ids: list[int] = []
+
+
+class RequirementDependencyUpdate(BaseModel):
+    depends_on_requirement_ids: list[int] = []
+
+
+class RequirementRevisionRequest(BaseModel):
+    title: Optional[str] = None
+    description_markdown: str
+    source_ref: Optional[str] = None
+    revision_note: Optional[str] = None
+    depends_on_requirement_ids: Optional[list[int]] = None
 
 
 class ArtifactOut(BaseModel):
@@ -199,6 +212,15 @@ class ArtifactOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class RequirementDependencyOut(BaseModel):
+    id: int
+    requirement_id: int
+    depends_on_requirement_id: int
+    depends_on_title: str
+    depends_on_status: str
+    dependency_type: str
 
 
 class RequirementAcceptanceCheckOut(BaseModel):
@@ -278,6 +300,7 @@ class RequirementOut(BaseModel):
 class RequirementDetailOut(BaseModel):
     requirement: RequirementOut
     workflow_run: Optional[WorkflowRunOut] = None
+    dependencies: list[RequirementDependencyOut] = []
     acceptance_checks: list[RequirementAcceptanceCheckOut] = []
     artifacts: list[ArtifactOut] = []
 

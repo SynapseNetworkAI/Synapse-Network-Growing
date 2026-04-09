@@ -111,6 +111,14 @@ type RequirementDetail = {
       completed_at: string | null
     }>
   } | null
+  dependencies: Array<{
+    id: number
+    requirement_id: number
+    depends_on_requirement_id: number
+    depends_on_title: string
+    depends_on_status: string
+    dependency_type: string
+  }>
   acceptance_checks: Array<{
     id: number
     requirement_id: number
@@ -272,26 +280,33 @@ const taskHistory = [
 
 const orgTree = {
   root: {
-    id: 'cto',
-    display_name: 'CTO',
-    type: 'cto',
-    goal: 'Drive agentic growth execution',
-    icon: '🧠',
+    id: 'roles',
+    display_name: '真实 Agent 角色',
+    type: 'org',
+    goal: 'Only roles discovered from roles/* are rendered here.',
     children: [
       {
-        id: 'content-domain',
-        display_name: 'Content',
-        type: 'domain',
-        goal: 'Content operations',
-        icon: '✍️',
+        id: 'group-content',
+        display_name: 'content',
+        type: 'group',
+        goal: '2 discovered roles',
         color: 'blue',
         children: [
           {
-            id: 'content-writer',
+            id: 'content_writer',
             display_name: 'Content Writer',
-            type: 'service',
+            type: 'agent',
             goal: 'Writes launch copy',
             skills: ['copywriting', 'cold-email'],
+            children: [],
+          },
+          {
+            id: 'dev_rel',
+            display_name: 'DevRel Engineer',
+            type: 'agent',
+            goal: 'Own technical GTM',
+            skills: ['content-strategy'],
+            children: [],
           },
         ],
       },
@@ -387,6 +402,7 @@ test.beforeEach(async ({ page }) => {
   let requirementDetails: Record<number, RequirementDetail> = {
     1: {
       requirement: requirements[0],
+      dependencies: [],
       workflow_run: {
         id: 77,
         requirement_id: 1,
@@ -570,6 +586,7 @@ test.beforeEach(async ({ page }) => {
       const createdDetail: RequirementDetail = {
         requirement: createdRequirement,
         workflow_run: null,
+        dependencies: [],
         acceptance_checks: [],
         artifacts: [],
       }
@@ -794,8 +811,9 @@ test('loads org chart dashboard shell in browser', async ({ page }) => {
 
   await expect(page.getByTestId('orgchart-page')).toBeVisible()
   await expect(page.getByTestId('stats-bar')).toContainText('Agent 总数')
-  await expect(page.getByTestId('cto-node')).toContainText('CTO')
-  await expect(page.getByTestId('domain-content-domain')).toContainText('Content')
+  await expect(page.getByTestId('org-root')).toContainText('真实 Agent 角色')
+  await expect(page.getByTestId('group-group-content')).toContainText('content')
+  await expect(page.getByTestId('node-content_writer')).toContainText('Content Writer')
 })
 
 test('shows copilot runtime metadata in task drawer', async ({ page }) => {
