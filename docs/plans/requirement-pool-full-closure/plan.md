@@ -1,7 +1,7 @@
 ---
 created_at: 2026-04-09
 updated_at: 2026-04-09
-doc_status: active
+doc_status: completed
 ---
 
 # Execution Plan — Phase 1 Full Closure
@@ -28,25 +28,25 @@ Items explicitly deferred to Phase 2+ (AI planner, multi-tenant, DAG parallelism
 ## Remaining Work
 
 ### WS-1: Database Indexes (§5 DB Design Doc)
-- [ ] Add recommended secondary indexes to all 10 tables in database.py
+- [x] Add recommended secondary indexes to all 10 tables in database.py
 
 ### WS-2: Workflow Step Events (§16 Observability)
-- [ ] Write events to `workflow_step_events` on step state transitions in orchestrator
-- [ ] Populate `handoff_summary_markdown` when step completes (§3.6 Structured Handoff)
+- [x] Write events to `workflow_step_events` on step state transitions in orchestrator
+- [x] Populate `handoff_summary_markdown` when step completes (§3.6 Structured Handoff)
 
 ### WS-3: Missing API Endpoints (§18)
-- [ ] `PATCH /api/requirements/{id}` — partial field update
-- [ ] `POST /api/requirements/{id}/close` — manual close with governance check
+- [x] `PATCH /api/requirements/{id}` — partial field update
+- [x] `POST /api/requirements/{id}/close` — manual close with governance check
 
 ### WS-4: Requirement Pool Scoring (§8)
-- [ ] Implement priority+aging scoring formula for requirement list sorting
+- [x] Implement priority+aging scoring formula for requirement list sorting
 
 ### WS-5: Step State Completeness (§14.1)
-- [ ] Add missing step states: `ready`, `blocked` to step lifecycle
+- [x] Add missing step states: `ready`, `blocked` to step lifecycle
 
 ### WS-6: Tests for New Behavior
-- [ ] Backend tests for new endpoints + events + scoring
-- [ ] Frontend test coverage for any UI changes
+- [x] Backend tests for new endpoints + events + scoring
+- [x] Frontend test coverage for any UI changes
 
 ## Out of Scope (Phase 2+)
 
