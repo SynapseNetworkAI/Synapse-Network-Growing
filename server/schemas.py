@@ -28,6 +28,8 @@ class TaskCreate(BaseModel):
     agent_id: str
     requires_approval: bool = False
     priority: str = "normal"
+    skill_name: Optional[str] = None
+    context_files: Optional[list[str]] = None
 
 
 class TaskOut(BaseModel):
@@ -37,8 +39,11 @@ class TaskOut(BaseModel):
     status: str
     requires_approval: bool
     priority: str
+    skill_name: Optional[str] = None
+    context_files: Optional[str] = None
     output_path: Optional[str] = None
     output_content: Optional[str] = None
+    execution_time_ms: Optional[int] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

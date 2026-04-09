@@ -1,11 +1,12 @@
 """Shared test fixtures for the Ops Dashboard API tests."""
 import pytest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from server.database import Base, get_db
+from server.database import Base, get_db, SessionLocal as _ProdSession
 from server.main import app
 
 # In-memory SQLite for tests — StaticPool ensures all connections share one DB
@@ -39,7 +40,9 @@ def setup_db():
     """Create all tables before each test, drop after."""
     app.dependency_overrides[get_db] = _override_get_db
     Base.metadata.create_all(bind=TEST_ENGINE)
-    yield
+    # Also patch SessionLocal used by task_runner to use test DB
+    with patch("server.services.task_runner.SessionLocal", TestSession):
+        yield
     Base.metadata.drop_all(bind=TEST_ENGINE)
     app.dependency_overrides.clear()
 

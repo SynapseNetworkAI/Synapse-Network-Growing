@@ -31,8 +31,11 @@ export interface Task {
   status: string
   requires_approval: boolean
   priority: string
+  skill_name: string | null
+  context_files: string | null
   output_path: string | null
   output_content: string | null
+  execution_time_ms: number | null
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -101,9 +104,12 @@ export const api = {
     const q = qs.toString()
     return request<Task[]>(`/tasks${q ? '?' + q : ''}`)
   },
-  createTask: (data: { description: string; agent_id: string; requires_approval?: boolean; priority?: string }) =>
+  createTask: (data: { description: string; agent_id: string; requires_approval?: boolean; priority?: string; skill_name?: string }) =>
     request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
-  runTask: (id: number) => request<Task>(`/tasks/${id}/run`, { method: 'POST' }),
+  runTask: (id: number, skill?: string) => {
+    const qs = skill ? `?skill=${encodeURIComponent(skill)}` : ''
+    return request<Task>(`/tasks/${id}/run${qs}`, { method: 'POST' })
+  },
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
 
   // Approvals
@@ -116,4 +122,7 @@ export const api = {
 
   // Dashboard
   getStats: () => request<DashboardStats>('/dashboard/stats'),
+
+  // Skills
+  getSkills: () => request<string[]>('/skills'),
 }

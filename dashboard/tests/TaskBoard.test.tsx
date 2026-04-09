@@ -1,0 +1,286 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import TaskBoard from '../src/pages/TaskBoard'
+
+// Mock API
+const mockApi = {
+  getTasks: vi.fn(),
+  getAgents: vi.fn(),
+  getSkills: vi.fn(),
+  createTask: vi.fn(),
+  runTask: vi.fn(),
+  getTaskLogs: vi.fn(),
+}
+
+vi.mock('../src/api', () => ({
+  api: {
+    getTasks: (...args: unknown[]) => mockApi.getTasks(...args),
+    getAgents: (...args: unknown[]) => mockApi.getAgents(...args),
+    getSkills: (...args: unknown[]) => mockApi.getSkills(...args),
+    createTask: (...args: unknown[]) => mockApi.createTask(...args),
+    runTask: (...args: unknown[]) => mockApi.runTask(...args),
+    getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
+  },
+}))
+
+const AGENTS = [
+  {
+    id: 'seo_strategist',
+    display_name: 'SEO Strategist',
+    goal: 'Optimize',
+    group: 'optimization',
+    persona_path: null,
+    skills: '["seo-audit","ai-seo","site-architecture"]',
+    task_count: 0,
+    completed_count: 0,
+  },
+  {
+    id: 'content_writer',
+    display_name: 'Content Writer',
+    goal: 'Write copy',
+    group: 'content',
+    persona_path: null,
+    skills: '["copywriting","cold-email"]',
+    task_count: 0,
+    completed_count: 0,
+  },
+]
+
+const SKILLS = ['seo-audit', 'ai-seo', 'copywriting', 'cold-email', 'content-strategy', 'social-content']
+
+const PENDING_TASK = {
+  id: 1,
+  description: 'Audit synapse.network SEO',
+  agent_id: 'seo_strategist',
+  status: 'pending',
+  requires_approval: false,
+  priority: 'normal',
+  skill_name: 'seo-audit',
+  context_files: null,
+  output_path: null,
+  output_content: null,
+  execution_time_ms: null,
+  created_at: '2026-04-10T00:00:00Z',
+  started_at: null,
+  completed_at: null,
+}
+
+const RUNNING_TASK = {
+  ...PENDING_TASK,
+  id: 2,
+  status: 'running',
+  started_at: '2026-04-10T00:01:00Z',
+}
+
+const COMPLETED_TASK = {
+  ...PENDING_TASK,
+  id: 3,
+  status: 'completed',
+  skill_name: 'seo-audit',
+  output_content: '# SEO Report\n\nSite looks good!',
+  execution_time_ms: 12500,
+  started_at: '2026-04-10T00:01:00Z',
+  completed_at: '2026-04-10T00:01:12Z',
+}
+
+describe('TaskBoard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.getTasks.mockResolvedValue([])
+    mockApi.getAgents.mockResolvedValue(AGENTS)
+    mockApi.getSkills.mockResolvedValue(SKILLS)
+  })
+
+  it('renders the task board page', async () => {
+    render(<TaskBoard />)
+    expect(screen.getByText('任务看板')).toBeDefined()
+  })
+
+  it('fetches and displays skills list', async () => {
+    render(<TaskBoard />)
+    await waitFor(() => {
+      expect(mockApi.getSkills).toHaveBeenCalled()
+    })
+  })
+
+  it('shows empty state when no tasks', async () => {
+    render(<TaskBoard />)
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-tasks')).toBeDefined()
+    })
+  })
+
+  // ── Create form ──────────────────────────────────────────
+
+  it('shows create form with skill selector', async () => {
+    render(<TaskBoard />)
+    fireEvent.click(screen.getByTestId('create-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('skill-select')).toBeDefined()
+      expect(screen.getByTestId('agent-select')).toBeDefined()
+    })
+  })
+
+  it('populates skill dropdown from agent skills when agent selected', async () => {
+    render(<TaskBoard />)
+    fireEvent.click(screen.getByTestId('create-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-select')).toBeDefined()
+    })
+
+    // Select SEO strategist
+    fireEvent.change(screen.getByTestId('agent-select'), { target: { value: 'seo_strategist' } })
+
+    // Skill dropdown should have agent-specific skills
+    const skillSelect = screen.getByTestId('skill-select') as HTMLSelectElement
+    const options = Array.from(skillSelect.options).map(o => o.value)
+    expect(options).toContain('seo-audit')
+    expect(options).toContain('ai-seo')
+  })
+
+  it('submits task with skill_name', async () => {
+    mockApi.createTask.mockResolvedValue({ ...PENDING_TASK })
+    render(<TaskBoard />)
+    fireEvent.click(screen.getByTestId('create-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-select')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('agent-select'), { target: { value: 'seo_strategist' } })
+    fireEvent.change(screen.getByTestId('skill-select'), { target: { value: 'seo-audit' } })
+
+    const textarea = screen.getByTestId('task-description') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'Audit synapse.network' } })
+
+    fireEvent.click(screen.getByTestId('submit-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'seo_strategist',
+          skill_name: 'seo-audit',
+          description: 'Audit synapse.network',
+        })
+      )
+    })
+  })
+
+  // ── Task card display ────────────────────────────────────
+
+  it('displays pending task with run button', async () => {
+    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    render(<TaskBoard />)
+    await waitFor(() => {
+      expect(screen.getByTestId('task-1')).toBeDefined()
+      expect(screen.getByTestId('run-1')).toBeDefined()
+    })
+  })
+
+  it('displays running task with spinner', async () => {
+    mockApi.getTasks.mockResolvedValue([RUNNING_TASK])
+    render(<TaskBoard />)
+    await waitFor(() => {
+      expect(screen.getByTestId('task-2')).toBeDefined()
+      expect(screen.getByTestId('spinner-2')).toBeDefined()
+    })
+  })
+
+  it('calls runTask with skill parameter', async () => {
+    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    mockApi.runTask.mockResolvedValue(RUNNING_TASK)
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('run-1')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('run-1'))
+
+    await waitFor(() => {
+      expect(mockApi.runTask).toHaveBeenCalledWith(1, 'seo-audit')
+    })
+  })
+
+  // ── Expanded task detail ─────────────────────────────────
+
+  it('shows skill badge and execution time in expanded view', async () => {
+    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-3')).toBeDefined()
+    })
+
+    // Click on the task id text inside the header to expand
+    fireEvent.click(screen.getByText('#3'))
+
+    await waitFor(() => {
+      const badge = screen.getByTestId('skill-badge-3')
+      expect(badge).toBeDefined()
+      expect(badge.textContent).toContain('seo-audit')
+    })
+  })
+
+  it('shows output content in expanded view', async () => {
+    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-3')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByText('#3'))
+
+    await waitFor(() => {
+      const detail = screen.getByTestId('task-detail-3')
+      expect(detail.textContent).toContain('SEO Report')
+      expect(detail.textContent).toContain('Site looks good')
+    })
+  })
+
+  // ── Polling ──────────────────────────────────────────────
+
+  it('starts polling when running tasks exist', async () => {
+    // Just verify that getTasks is called multiple times (poll mechanism)
+    let callCount = 0
+    mockApi.getTasks.mockImplementation(() => {
+      callCount++
+      // After 2 calls, switch to completed to stop polling
+      if (callCount >= 3) return Promise.resolve([COMPLETED_TASK])
+      return Promise.resolve([RUNNING_TASK])
+    })
+
+    render(<TaskBoard />)
+
+    // Wait for initial load + at least one poll cycle
+    await waitFor(() => {
+      expect(callCount).toBeGreaterThanOrEqual(2)
+    }, { timeout: 10000 })
+  })
+
+  // ── Skill select on run for tasks without skill_name ────
+
+  it('shows inline skill dropdown for tasks without skill_name', async () => {
+    const taskNoSkill = { ...PENDING_TASK, skill_name: null }
+    mockApi.getTasks.mockResolvedValue([taskNoSkill])
+    render(<TaskBoard />)
+
+    const el = await screen.findByTestId('run-skill-1', {}, { timeout: 3000 })
+    expect(el).toBeDefined()
+  })
+
+  it('alerts when running task without selecting skill', async () => {
+    const taskNoSkill = { ...PENDING_TASK, skill_name: null }
+    mockApi.getTasks.mockResolvedValue([taskNoSkill])
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
+    render(<TaskBoard />)
+
+    const runBtn = await screen.findByTestId('run-1', {}, { timeout: 3000 })
+    fireEvent.click(runBtn)
+
+    expect(alertSpy).toHaveBeenCalled()
+    alertSpy.mockRestore()
+  })
+})

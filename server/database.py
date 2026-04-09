@@ -53,8 +53,11 @@ class TaskRow(Base):
     status = Column(Text, nullable=False, default="pending")
     requires_approval = Column(Boolean, default=False)
     priority = Column(Text, default="normal")
+    skill_name = Column(Text)
+    context_files = Column(Text)  # JSON array of relative paths
     output_path = Column(Text)
     output_content = Column(Text)
+    execution_time_ms = Column(Integer)
     created_at = Column(DateTime, default=utcnow)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
@@ -95,13 +98,29 @@ class TaskLogRow(Base):
 def _migrate(engine_):
     """Add missing columns to existing tables (lightweight migration)."""
     insp = inspect(engine_)
-    if "agents" in insp.get_table_names():
+    tables = insp.get_table_names()
+
+    if "agents" in tables:
         existing = {c["name"] for c in insp.get_columns("agents")}
         if "group" not in existing:
             logger.info("Migrating: adding 'group' column to agents table")
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE agents ADD COLUMN \"group\" TEXT DEFAULT ''"))
                 conn.commit()
+
+    if "tasks" in tables:
+        existing = {c["name"] for c in insp.get_columns("tasks")}
+        new_cols = {
+            "skill_name": "TEXT",
+            "context_files": "TEXT",
+            "execution_time_ms": "INTEGER",
+        }
+        for col, col_type in new_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to tasks table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
 
 def init_db():

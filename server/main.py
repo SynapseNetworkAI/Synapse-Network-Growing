@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from server.config import CORS_ORIGINS, ENV, PORT, LOG_LEVEL
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.schemas import DashboardStats
-from server.routers import agents, tasks, approvals
+from server.routers import agents, tasks, approvals, skills
 from server.services.org_builder import build_org_tree
 
 # ── Logging ───────────────────────────────────────────────────
@@ -42,6 +42,7 @@ app.add_middleware(
 app.include_router(agents.router)
 app.include_router(tasks.router)
 app.include_router(approvals.router)
+app.include_router(skills.router)
 
 
 @app.middleware("http")

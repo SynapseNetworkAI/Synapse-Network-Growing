@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { api, Task, Agent, TaskLog } from '../api'
 
@@ -32,35 +32,75 @@ function Md({ children }: { children: string }) {
 export default function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [skills, setSkills] = useState<string[]>([])
   const [filter, setFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ description: '', agent_id: '', requires_approval: false, priority: 'normal' })
+  const [form, setForm] = useState({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
   const [preview, setPreview] = useState(false)
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
   const [expandedTask, setExpandedTask] = useState<number | null>(null)
+  const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [t, a] = await Promise.all([
       api.getTasks(filter ? { status: filter } : undefined),
       api.getAgents(),
     ])
     setTasks(t)
     setAgents(a)
-  }
+  }, [filter])
 
-  useEffect(() => { load() }, [filter])
+  // Load skills list once
+  useEffect(() => {
+    api.getSkills().then(setSkills).catch(() => {})
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Poll for running tasks
+  useEffect(() => {
+    const hasRunning = tasks.some(t => t.status === 'running')
+    if (hasRunning) {
+      pollRef.current = setInterval(load, 3000)
+    } else if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [tasks, load])
+
+  // Derive agent skills for selected agent
+  const selectedAgentSkills: string[] = (() => {
+    if (!form.agent_id) return []
+    const agent = agents.find(a => a.id === form.agent_id)
+    if (!agent) return []
+    try { return JSON.parse(agent.skills) } catch { return [] }
+  })()
 
   const handleCreate = async () => {
     if (!form.description || !form.agent_id) return
-    await api.createTask(form)
-    setForm({ description: '', agent_id: '', requires_approval: false, priority: 'normal' })
+    await api.createTask({
+      description: form.description,
+      agent_id: form.agent_id,
+      requires_approval: form.requires_approval,
+      priority: form.priority,
+      skill_name: form.skill_name || undefined,
+    })
+    setForm({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
     setShowCreate(false)
     setPreview(false)
     await load()
   }
 
   const handleRun = async (id: number) => {
-    await api.runTask(id)
+    const task = tasks.find(t => t.id === id)
+    const skill = runningSkill[id] || task?.skill_name
+    if (!skill) {
+      alert('请先选择一个 Skill 再执行')
+      return
+    }
+    await api.runTask(id, skill)
     await load()
   }
 
@@ -129,17 +169,28 @@ export default function TaskBoard() {
       {/* ── Create form ──────────────────────────────────────── */}
       {showCreate && (
         <div data-testid="create-form" className="bg-white border rounded-lg p-4 mb-4 shadow-sm">
-          {/* Agent + Priority + Approval row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          {/* Agent + Skill + Priority + Approval row */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
             <select
               data-testid="agent-select"
               value={form.agent_id}
-              onChange={(e) => setForm({ ...form, agent_id: e.target.value })}
+              onChange={(e) => setForm({ ...form, agent_id: e.target.value, skill_name: '' })}
               className="border rounded px-3 py-2 text-sm"
             >
               <option value="">选择 Agent</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.display_name} ({a.id})</option>
+              ))}
+            </select>
+            <select
+              data-testid="skill-select"
+              value={form.skill_name}
+              onChange={(e) => setForm({ ...form, skill_name: e.target.value })}
+              className="border rounded px-3 py-2 text-sm"
+            >
+              <option value="">选择 Skill (可选)</option>
+              {(selectedAgentSkills.length > 0 ? selectedAgentSkills : skills).map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
             <select
@@ -265,15 +316,31 @@ export default function TaskBoard() {
                   </div>
                   <p className="text-sm truncate">{task.description.split('\n')[0]}</p>
                 </div>
-                <div className="flex gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
+                <div className="flex gap-2 ml-4 items-center" onClick={(e) => e.stopPropagation()}>
+                  {task.status === 'running' && (
+                    <span data-testid={`spinner-${task.id}`} className="text-blue-500 animate-spin text-sm">⏳</span>
+                  )}
                   {task.status === 'pending' && (
-                    <button
-                      data-testid={`run-${task.id}`}
-                      onClick={() => handleRun(task.id)}
-                      className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
-                    >
-                      执行
-                    </button>
+                    <>
+                      {!task.skill_name && (
+                        <select
+                          data-testid={`run-skill-${task.id}`}
+                          value={runningSkill[task.id] || ''}
+                          onChange={(e) => setRunningSkill({ ...runningSkill, [task.id]: e.target.value })}
+                          className="text-xs border rounded px-2 py-1"
+                        >
+                          <option value="">Skill...</option>
+                          {skills.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
+                      <button
+                        data-testid={`run-${task.id}`}
+                        onClick={() => handleRun(task.id)}
+                        className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
+                      >
+                        执行
+                      </button>
+                    </>
                   )}
                   <button
                     data-testid={`logs-${task.id}`}
@@ -288,6 +355,18 @@ export default function TaskBoard() {
               {/* Expanded detail */}
               {isExpanded && (
                 <div data-testid={`task-detail-${task.id}`} className="border-t px-4 py-3 bg-gray-50">
+                  {task.skill_name && (
+                    <div className="mb-2">
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${task.id}`}>
+                        🛠 {task.skill_name}
+                      </span>
+                      {task.execution_time_ms != null && (
+                        <span className="text-xs text-gray-400 ml-2">
+                          ⏱ {(task.execution_time_ms / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div className="mb-3">
                     <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
                     <div className="bg-white border rounded p-3">

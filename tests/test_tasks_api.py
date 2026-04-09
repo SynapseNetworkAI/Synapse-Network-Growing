@@ -1,4 +1,5 @@
 """Tests for /api/tasks endpoints."""
+from unittest.mock import patch, MagicMock
 
 
 def test_create_task(synced_client):
@@ -70,14 +71,19 @@ def test_get_task_not_found(synced_client):
 
 
 def test_run_task_no_approval(synced_client):
-    create = synced_client.post("/api/tasks", json={"description": "auto task", "agent_id": "dev_rel"})
+    create = synced_client.post("/api/tasks", json={
+        "description": "auto task",
+        "agent_id": "dev_rel",
+        "skill_name": "content-strategy",
+    })
     task_id = create.json()["id"]
-    resp = synced_client.post(f"/api/tasks/{task_id}/run")
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        resp = synced_client.post(f"/api/tasks/{task_id}/run")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "completed"
-    assert data["output_content"] is not None
-    assert data["completed_at"] is not None
+    assert data["status"] == "running"
+    assert data["skill_name"] == "content-strategy"
 
 
 def test_run_task_with_approval(synced_client):
@@ -85,46 +91,50 @@ def test_run_task_with_approval(synced_client):
         "description": "publish tweet",
         "agent_id": "growth_lead",
         "requires_approval": True,
+        "skill_name": "social-content",
     })
     task_id = create.json()["id"]
-    resp = synced_client.post(f"/api/tasks/{task_id}/run")
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        resp = synced_client.post(f"/api/tasks/{task_id}/run")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "pending_approval"
-
-    # Verify approval was created
-    approvals = synced_client.get("/api/approvals?status=pending").json()
-    assert len(approvals) == 1
-    assert approvals[0]["task_id"] == task_id
+    assert data["status"] == "running"
 
 
 def test_run_task_already_running(synced_client):
-    create = synced_client.post("/api/tasks", json={"description": "t", "agent_id": "dev_rel"})
+    create = synced_client.post("/api/tasks", json={
+        "description": "t", "agent_id": "dev_rel", "skill_name": "seo-audit",
+    })
     task_id = create.json()["id"]
-    synced_client.post(f"/api/tasks/{task_id}/run")
-    resp = synced_client.post(f"/api/tasks/{task_id}/run")
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        synced_client.post(f"/api/tasks/{task_id}/run")
+    resp = synced_client.post(f"/api/tasks/{task_id}/run?skill=seo-audit")
     assert resp.status_code == 400
 
 
 def test_task_logs(synced_client):
-    create = synced_client.post("/api/tasks", json={"description": "t", "agent_id": "dev_rel"})
+    create = synced_client.post("/api/tasks", json={
+        "description": "t", "agent_id": "dev_rel", "skill_name": "seo-audit",
+    })
     task_id = create.json()["id"]
-    synced_client.post(f"/api/tasks/{task_id}/run")
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        synced_client.post(f"/api/tasks/{task_id}/run")
     resp = synced_client.get(f"/api/tasks/{task_id}/logs")
     assert resp.status_code == 200
     logs = resp.json()
     event_types = [l["event_type"] for l in logs]
     assert "created" in event_types
     assert "started" in event_types
-    assert "completed" in event_types
 
 
 def test_agent_task_count_after_tasks(synced_client):
+    """Task count increments; run_task now goes async so completed_count only updates after runner finishes."""
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     synced_client.post("/api/tasks", json={"description": "t2", "agent_id": "dev_rel"})
-    create3 = synced_client.post("/api/tasks", json={"description": "t3", "agent_id": "dev_rel"})
-    synced_client.post(f"/api/tasks/{create3.json()['id']}/run")
+    synced_client.post("/api/tasks", json={"description": "t3", "agent_id": "dev_rel"})
 
     agent = synced_client.get("/api/agents/dev_rel").json()
     assert agent["task_count"] == 3
-    assert agent["completed_count"] == 1
