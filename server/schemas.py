@@ -175,6 +175,113 @@ class DashboardStats(BaseModel):
     approval_pending: int
 
 
+# ── Requirements / Workflow ─────────────────────────────────
+
+class RequirementCreate(BaseModel):
+    title: str
+    description_markdown: str
+    priority: str = "normal"
+    source: str = "manual"
+    source_ref: Optional[str] = None
+
+
+class ArtifactOut(BaseModel):
+    id: int
+    requirement_id: int
+    workflow_run_id: Optional[int] = None
+    step_id: Optional[int] = None
+    producer_step_id: Optional[int] = None
+    artifact_type: str
+    path: Optional[str] = None
+    content_summary: Optional[str] = None
+    human_readable_body: Optional[str] = None
+    machine_readable_payload: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RequirementAcceptanceCheckOut(BaseModel):
+    id: int
+    requirement_id: int
+    check_key: str
+    description: str
+    check_type: str
+    owner_role: str
+    status: str
+    success_criteria_markdown: Optional[str] = None
+    verified_by_step_id: Optional[int] = None
+    evidence_artifact_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowStepOut(BaseModel):
+    id: int
+    workflow_run_id: int
+    requirement_id: int
+    step_key: str
+    step_type: str
+    title: str
+    status: str
+    sequence_no: int
+    assigned_agent_id: Optional[str] = None
+    assigned_workflow_role: Optional[str] = None
+    branch_from_step_id: Optional[int] = None
+    compatibility_task_id: Optional[int] = None
+    retry_count: int = 0
+    handoff_summary_markdown: Optional[str] = None
+    done_when_markdown: str = ""
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class WorkflowRunOut(BaseModel):
+    id: int
+    requirement_id: int
+    plan_version: int
+    status: str
+    triggered_by: str
+    planner_artifact_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    steps: list[WorkflowStepOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class RequirementOut(BaseModel):
+    id: int
+    title: str
+    description_markdown: str
+    status: str
+    priority: str
+    source: str
+    source_ref: Optional[str] = None
+    current_plan_version: int
+    blocked_by_count: int
+    active_workflow_run_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class RequirementDetailOut(BaseModel):
+    requirement: RequirementOut
+    workflow_run: Optional[WorkflowRunOut] = None
+    acceptance_checks: list[RequirementAcceptanceCheckOut] = []
+    artifacts: list[ArtifactOut] = []
+
+
 # ── Copilot Auth ─────────────────────────────────────────────
 
 class CopilotAuthStatus(BaseModel):

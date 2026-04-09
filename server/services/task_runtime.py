@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,7 @@ from server.services.copilot_sdk_bridge import CopilotSDKBridge
 from server.services.skill_loader import load_skill
 
 logger = logging.getLogger("ops-dashboard.task_runtime")
+_E2E_REQUIREMENT_TEST_ATTEMPTS: dict[int, int] = {}
 
 
 @dataclass
@@ -289,7 +291,52 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         return normalize_copilot_event_type(event_type)
 
 
+class E2ETaskRuntime(BaseTaskRuntime):
+    def execute(
+        self,
+        persona: dict,
+        skill_name: str,
+        task_description: str,
+        output_dir: Path | None = None,
+        extra_context_files: list[str] | None = None,
+    ) -> TaskExecutionResult:
+        del persona, output_dir, extra_context_files
+        requirement_id = _extract_requirement_id(task_description)
+        if "[workflow_step:implementation]" in task_description:
+            return _e2e_result("Implementation output ready for review.")
+        if "[workflow_step:review]" in task_description:
+            return _e2e_result("Review passed and output is coherent.")
+        if "[workflow_step:bugfix]" in task_description:
+            return _e2e_result("Bugfix applied to resolve the failed validation.")
+        if "[workflow_step:test]" in task_description:
+            attempt_no = _E2E_REQUIREMENT_TEST_ATTEMPTS.get(requirement_id, 0) + 1
+            _E2E_REQUIREMENT_TEST_ATTEMPTS[requirement_id] = attempt_no
+            if attempt_no == 1:
+                return _e2e_result("", error="Validation failed: issue reproduced in end-to-end check.")
+            return _e2e_result("Validation passed after bugfix.")
+        return _e2e_result(f"E2E runtime completed task for skill {skill_name}.")
+
+
+def _e2e_result(text: str, error: str | None = None) -> TaskExecutionResult:
+    return TaskExecutionResult(
+        text=text,
+        error=error,
+        execution_time_ms=5,
+        model="deterministic-e2e",
+        runtime_backend="e2e",
+    )
+
+
+def _extract_requirement_id(task_description: str) -> int:
+    match = re.search(r"Requirement #(\d+)", task_description)
+    if not match:
+        return 0
+    return int(match.group(1))
+
+
 def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
+    if config.E2E_MODE:
+        return E2ETaskRuntime()
     backend = (config.ORCHESTRATION_BACKEND or "legacy").lower()
     if backend == "copilot_sdk":
         return CopilotSDKTaskRuntime(project_root=project_root)

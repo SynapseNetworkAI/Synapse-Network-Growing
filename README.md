@@ -49,6 +49,19 @@ agent-browser screenshot
 
 Runtime profile, downloads, and screenshots are isolated under `.agent-browser/` and ignored from git by default.
 
+## Testing
+
+Frontend and backend validation commands:
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python -m pytest -q
+cd dashboard && npm test
+cd dashboard && npm run build
+cd dashboard && npm run test:e2e
+```
+
+`npm run test:e2e` now boots an isolated real FastAPI backend plus Vite frontend, keeps the existing mocked smoke coverage, and adds a real requirement-workflow end-to-end verification with screenshot evidence under `dashboard/test-results/`.
+
 Systematic inspection entry point:
 
 ```bash

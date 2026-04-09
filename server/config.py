@@ -70,6 +70,8 @@ COPILOT_SDK_RUNNER_PATH = os.environ.get(
 )
 COPILOT_SDK_DB_ANALYST_MCP_COMMAND = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_COMMAND", "")
 COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON", "[]")
+E2E_MODE = os.environ.get("OPS_E2E_MODE", "false").lower() in {"1", "true", "yes", "on"}
+E2E_SYNC_DISPATCH = os.environ.get("OPS_E2E_SYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
 
 # Per-provider credentials (loaded from .env or environment)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")

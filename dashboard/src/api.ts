@@ -128,6 +128,93 @@ export interface DashboardStats {
   approval_pending: number
 }
 
+export interface Requirement {
+  id: number
+  title: string
+  description_markdown: string
+  status: string
+  priority: string
+  source: string
+  source_ref: string | null
+  current_plan_version: number
+  blocked_by_count: number
+  active_workflow_run_id: number | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RequirementAcceptanceCheck {
+  id: number
+  requirement_id: number
+  check_key: string
+  description: string
+  check_type: string
+  owner_role: string
+  status: string
+  success_criteria_markdown: string | null
+  verified_by_step_id: number | null
+  evidence_artifact_id: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface WorkflowStep {
+  id: number
+  workflow_run_id: number
+  requirement_id: number
+  step_key: string
+  step_type: string
+  title: string
+  status: string
+  sequence_no: number
+  assigned_agent_id: string | null
+  assigned_workflow_role: string | null
+  branch_from_step_id: number | null
+  compatibility_task_id: number | null
+  retry_count: number
+  handoff_summary_markdown: string | null
+  done_when_markdown: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface WorkflowRun {
+  id: number
+  requirement_id: number
+  plan_version: number
+  status: string
+  triggered_by: string
+  planner_artifact_id: number | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  steps: WorkflowStep[]
+}
+
+export interface Artifact {
+  id: number
+  requirement_id: number
+  workflow_run_id: number | null
+  step_id: number | null
+  producer_step_id: number | null
+  artifact_type: string
+  path: string | null
+  content_summary: string | null
+  human_readable_body: string | null
+  machine_readable_payload: string | null
+  created_at: string | null
+}
+
+export interface RequirementDetail {
+  requirement: Requirement
+  workflow_run: WorkflowRun | null
+  acceptance_checks: RequirementAcceptanceCheck[]
+  artifacts: Artifact[]
+}
+
 export interface OrgNode {
   id: string
   display_name: string
@@ -192,6 +279,17 @@ export const api = {
 
   // Dashboard
   getStats: () => request<DashboardStats>('/dashboard/stats'),
+
+  // Requirements
+  getRequirements: (status?: string) => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return request<Requirement[]>(`/requirements${q}`)
+  },
+  getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),
+  createRequirement: (data: { title: string; description_markdown: string; priority?: string; source?: string; source_ref?: string | null }) =>
+    request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
+  planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
+  startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
 
   // Skills
   getSkills: () => request<string[]>('/skills'),

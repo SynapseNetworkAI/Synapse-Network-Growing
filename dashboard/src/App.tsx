@@ -2,9 +2,11 @@ import { Routes, Route, NavLink } from 'react-router-dom'
 import OrgChart from './pages/OrgChart'
 import TaskBoard from './pages/TaskBoard'
 import Approvals from './pages/Approvals'
+import RequirementPool from './pages/RequirementPool'
 
 const navItems = [
   { to: '/', label: '组织架构' },
+  { to: '/requirements', label: '需求池' },
   { to: '/tasks', label: '任务看板' },
   { to: '/approvals', label: '审批中心' },
 ]
@@ -29,6 +31,7 @@ export default function App() {
       <main className="max-w-6xl mx-auto p-6">
         <Routes>
           <Route path="/" element={<OrgChart />} />
+          <Route path="/requirements" element={<RequirementPool />} />
           <Route path="/tasks" element={<TaskBoard />} />
           <Route path="/approvals" element={<Approvals />} />
         </Routes>

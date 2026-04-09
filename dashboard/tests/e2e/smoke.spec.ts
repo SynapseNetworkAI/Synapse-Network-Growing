@@ -61,9 +61,89 @@ type TaskHistoryItem = {
   completed_at: string | null
 }
 
+type Requirement = {
+  id: number
+  title: string
+  description_markdown: string
+  status: string
+  priority: string
+  source: string
+  source_ref: string | null
+  current_plan_version: number
+  blocked_by_count: number
+  active_workflow_run_id: number | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+type RequirementDetail = {
+  requirement: Requirement
+  workflow_run: {
+    id: number
+    requirement_id: number
+    plan_version: number
+    status: string
+    triggered_by: string
+    planner_artifact_id: number | null
+    started_at: string | null
+    completed_at: string | null
+    created_at: string | null
+    updated_at: string | null
+    steps: Array<{
+      id: number
+      workflow_run_id: number
+      requirement_id: number
+      step_key: string
+      step_type: string
+      title: string
+      status: string
+      sequence_no: number
+      assigned_agent_id: string | null
+      assigned_workflow_role: string | null
+      branch_from_step_id: number | null
+      compatibility_task_id: number | null
+      retry_count: number
+      handoff_summary_markdown: string | null
+      done_when_markdown: string
+      started_at: string | null
+      completed_at: string | null
+    }>
+  } | null
+  acceptance_checks: Array<{
+    id: number
+    requirement_id: number
+    check_key: string
+    description: string
+    check_type: string
+    owner_role: string
+    status: string
+    success_criteria_markdown: string | null
+    verified_by_step_id: number | null
+    evidence_artifact_id: number | null
+    created_at: string | null
+    updated_at: string | null
+  }>
+  artifacts: Array<{
+    id: number
+    requirement_id: number
+    workflow_run_id: number | null
+    step_id: number | null
+    producer_step_id: number | null
+    artifact_type: string
+    path: string | null
+    content_summary: string | null
+    human_readable_body: string | null
+    machine_readable_payload: string | null
+    created_at: string | null
+  }>
+}
+
 const TASK_LOGS_PATTERN = /^\/api\/tasks\/(\d+)\/logs$/
 const TASK_HISTORY_PATTERN = /^\/api\/tasks\/(\d+)\/history$/
 const TASK_RETRY_PATTERN = /^\/api\/tasks\/(\d+)\/retry$/
+const REQUIREMENT_DETAIL_PATTERN = /^\/api\/requirements\/(\d+)$/
 
 const agents = [
   {
@@ -285,6 +365,147 @@ test.beforeEach(async ({ page }) => {
     ],
   }
 
+  let requirements: Requirement[] = [
+    {
+      id: 1,
+      title: 'Launch FAQ quality gate',
+      description_markdown: 'Validate the launch FAQ flow and continue via bugfix until checks pass.',
+      status: 'in_progress',
+      priority: 'high',
+      source: 'manual',
+      source_ref: null,
+      current_plan_version: 1,
+      blocked_by_count: 0,
+      active_workflow_run_id: 77,
+      started_at: '2026-04-09T09:10:00.000000',
+      completed_at: null,
+      created_at: '2026-04-09T09:09:00.000000',
+      updated_at: '2026-04-09T09:11:00.000000',
+    },
+  ]
+
+  let requirementDetails: Record<number, RequirementDetail> = {
+    1: {
+      requirement: requirements[0],
+      workflow_run: {
+        id: 77,
+        requirement_id: 1,
+        plan_version: 1,
+        status: 'running',
+        triggered_by: 'user',
+        planner_artifact_id: 401,
+        started_at: '2026-04-09T09:10:00.000000',
+        completed_at: null,
+        created_at: '2026-04-09T09:09:30.000000',
+        updated_at: '2026-04-09T09:11:00.000000',
+        steps: [
+          {
+            id: 1001,
+            workflow_run_id: 77,
+            requirement_id: 1,
+            step_key: 'implementation',
+            step_type: 'implementation',
+            title: 'Implement requirement: Launch FAQ quality gate',
+            status: 'completed',
+            sequence_no: 10,
+            assigned_agent_id: 'content_writer',
+            assigned_workflow_role: 'implementer',
+            branch_from_step_id: null,
+            compatibility_task_id: 41,
+            retry_count: 0,
+            handoff_summary_markdown: null,
+            done_when_markdown: 'Implementation output is produced and ready for independent review.',
+            started_at: '2026-04-09T09:10:00.000000',
+            completed_at: '2026-04-09T09:10:20.000000',
+          },
+          {
+            id: 1002,
+            workflow_run_id: 77,
+            requirement_id: 1,
+            step_key: 'test',
+            step_type: 'test',
+            title: 'Validate requirement output: Launch FAQ quality gate',
+            status: 'failed',
+            sequence_no: 30,
+            assigned_agent_id: 'seo_strategist',
+            assigned_workflow_role: 'tester',
+            branch_from_step_id: null,
+            compatibility_task_id: 42,
+            retry_count: 0,
+            handoff_summary_markdown: null,
+            done_when_markdown: 'Validation completes with a test report and all validation targets passed.',
+            started_at: '2026-04-09T09:10:21.000000',
+            completed_at: '2026-04-09T09:10:35.000000',
+          },
+          {
+            id: 1003,
+            workflow_run_id: 77,
+            requirement_id: 1,
+            step_key: 'bugfix-1002',
+            step_type: 'bugfix',
+            title: 'Bugfix after test failure',
+            status: 'running',
+            sequence_no: 50,
+            assigned_agent_id: 'content_writer',
+            assigned_workflow_role: 'bugfixer',
+            branch_from_step_id: 1002,
+            compatibility_task_id: 43,
+            retry_count: 0,
+            handoff_summary_markdown: null,
+            done_when_markdown: 'Bugfix output resolves the recorded failure and is ready for re-review.',
+            started_at: '2026-04-09T09:10:36.000000',
+            completed_at: null,
+          },
+        ],
+      },
+      acceptance_checks: [
+        {
+          id: 1,
+          requirement_id: 1,
+          check_key: 'review_passed',
+          description: 'Review step confirms implementation output quality.',
+          check_type: 'manual_review',
+          owner_role: 'reviewer',
+          status: 'passed',
+          success_criteria_markdown: null,
+          verified_by_step_id: 1001,
+          evidence_artifact_id: 501,
+          created_at: '2026-04-09T09:09:30.000000',
+          updated_at: '2026-04-09T09:10:20.000000',
+        },
+        {
+          id: 2,
+          requirement_id: 1,
+          check_key: 'validation_passed',
+          description: 'Validation passes after bugfix.',
+          check_type: 'content_assertion',
+          owner_role: 'tester',
+          status: 'failed',
+          success_criteria_markdown: null,
+          verified_by_step_id: 1002,
+          evidence_artifact_id: 502,
+          created_at: '2026-04-09T09:09:30.000000',
+          updated_at: '2026-04-09T09:10:35.000000',
+        },
+      ],
+      artifacts: [
+        {
+          id: 502,
+          requirement_id: 1,
+          workflow_run_id: 77,
+          step_id: 1002,
+          producer_step_id: 1002,
+          artifact_type: 'bug_report',
+          path: null,
+          content_summary: 'Validation failed in FAQ flow.',
+          human_readable_body: 'Validation failed in FAQ flow.',
+          machine_readable_payload: '{}',
+          created_at: '2026-04-09T09:10:35.000000',
+        },
+      ],
+    },
+  }
+
   const buildStats = () => ({
     agent_count: 6,
     task_total: tasks.length,
@@ -315,6 +536,67 @@ test.beforeEach(async ({ page }) => {
       if (onlyAnomalies && task.status !== 'failed' && task.status !== 'rejected' && !task.last_error_message) return false
       return true
     })
+  }
+
+  const handleRequirementRoutes = async (
+    route: Route,
+    method: string,
+    path: string,
+    postData: string,
+  ) => {
+    if (method === 'GET' && path === '/api/requirements') {
+      await json(route, requirements)
+      return true
+    }
+
+    if (method === 'POST' && path === '/api/requirements') {
+      const body = JSON.parse(postData || '{}') as { title?: string; description_markdown?: string; priority?: string }
+      const createdRequirement: Requirement = {
+        id: 99,
+        title: body.title || 'Untitled requirement',
+        description_markdown: body.description_markdown || '',
+        status: 'draft',
+        priority: body.priority || 'normal',
+        source: 'manual',
+        source_ref: null,
+        current_plan_version: 0,
+        blocked_by_count: 0,
+        active_workflow_run_id: null,
+        started_at: null,
+        completed_at: null,
+        created_at: '2026-04-09T09:12:00.000000',
+        updated_at: '2026-04-09T09:12:00.000000',
+      }
+      const createdDetail: RequirementDetail = {
+        requirement: createdRequirement,
+        workflow_run: null,
+        acceptance_checks: [],
+        artifacts: [],
+      }
+      requirements = [createdRequirement, ...requirements]
+      requirementDetails[createdRequirement.id] = createdDetail
+      await json(route, createdDetail, 201)
+      return true
+    }
+
+    const requirementDetailMatch = REQUIREMENT_DETAIL_PATTERN.exec(path)
+    if (method === 'GET' && requirementDetailMatch) {
+      const detail = requirementDetails[Number(requirementDetailMatch[1])]
+      await json(route, detail || { message: 'Not found' }, detail ? 200 : 404)
+      return true
+    }
+
+    if (method === 'POST' && path === '/api/requirements/1/plan') {
+      await json(route, requirementDetails[1])
+      return true
+    }
+
+    if (method === 'POST' && path === '/api/requirements/1/start') {
+      await json(route, requirementDetails[1])
+      return true
+    }
+
+    return false
   }
 
   const handleTaskRoutes = async (
@@ -499,6 +781,7 @@ test.beforeEach(async ({ page }) => {
     if (method === 'GET' && path === '/api/agents') return json(route, agents)
     if (method === 'POST' && path === '/api/agents/sync') return json(route, agents)
     if (method === 'GET' && path === '/api/skills') return json(route, skills)
+    if (await handleRequirementRoutes(route, method, path, postData)) return
     if (await handleTaskRoutes(route, url, method, path, postData)) return
     if (await handleApprovalRoutes(route, url, method, path, postData)) return
 
@@ -572,6 +855,17 @@ test('creates a task from the task board form', async ({ page }) => {
   await expect(createdTask).toContainText('@content_writer')
   await expect(createdTask).toContainText('⚡ 高')
   await expect(page.locator('[data-testid="create-form"]')).toHaveCount(0)
+})
+
+test('renders requirement pool with bugfix branch and captures screenshot', async ({ page }) => {
+  await page.goto('/requirements')
+
+  await expect(page.getByTestId('requirements-page')).toBeVisible()
+  await expect(page.getByTestId('requirement-card-1')).toContainText('Launch FAQ quality gate')
+  await expect(page.getByTestId('workflow-steps-panel')).toBeVisible()
+  await expect(page.getByTestId('workflow-step-1003')).toContainText('Bugfix after test failure')
+
+  await page.screenshot({ path: 'test-results/requirements-pool.png', fullPage: true })
 })
 
 test('retries a failed task and shows the new running attempt', async ({ page }) => {

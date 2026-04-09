@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -43,9 +43,16 @@ def setup_db():
     # Also patch SessionLocal used by task_runner to use test DB
     with patch("server.services.task_runner.SessionLocal", TestSession), patch(
         "server.services.copilot_sdk_monitor.SessionLocal", TestSession
+    ), patch(
+        "server.services.workflow_orchestrator.SessionLocal", TestSession
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False):
         yield
-    Base.metadata.drop_all(bind=TEST_ENGINE)
+    with TEST_ENGINE.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        inspector = inspect(conn)
+        for table_name in inspector.get_table_names():
+            conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
     app.dependency_overrides.clear()
 
 

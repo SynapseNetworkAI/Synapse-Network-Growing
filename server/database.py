@@ -1,7 +1,16 @@
 """Database connection and table setup for Agentic Ops Dashboard."""
 import logging
 from sqlalchemy import (
-    Column, Integer, Text, Boolean, DateTime, ForeignKey, create_engine, event, inspect, text
+    Column,
+    Integer,
+    Text,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    create_engine,
+    event,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, timezone
@@ -42,6 +51,7 @@ class AgentRow(Base):
     created_at = Column(DateTime, default=utcnow)
 
     tasks = relationship("TaskRow", back_populates="agent")
+    workflow_steps = relationship("WorkflowStepRow", back_populates="agent")
 
 
 class TaskRow(Base):
@@ -74,6 +84,7 @@ class TaskRow(Base):
     agent = relationship("AgentRow", back_populates="tasks")
     approvals = relationship("ApprovalRow", back_populates="task")
     logs = relationship("TaskLogRow", back_populates="task", order_by="TaskLogRow.created_at")
+    workflow_steps = relationship("WorkflowStepRow", back_populates="compatibility_task")
 
 
 class ApprovalRow(Base):
@@ -100,6 +111,200 @@ class TaskLogRow(Base):
     created_at = Column(DateTime, default=utcnow)
 
     task = relationship("TaskRow", back_populates="logs")
+
+
+class RequirementRow(Base):
+    __tablename__ = "requirements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(Text, nullable=False)
+    description_markdown = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="draft")
+    priority = Column(Text, nullable=False, default="normal")
+    source = Column(Text, nullable=False, default="manual")
+    source_ref = Column(Text)
+    current_plan_version = Column(Integer, nullable=False, default=0)
+    planned_roles_json = Column(Text, nullable=False, default="[]")
+    blocked_by_count = Column(Integer, nullable=False, default=0)
+    active_workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    workflow_runs = relationship(
+        "WorkflowRunRow",
+        back_populates="requirement",
+        foreign_keys="WorkflowRunRow.requirement_id",
+        order_by="WorkflowRunRow.id",
+    )
+    active_workflow_run = relationship("WorkflowRunRow", foreign_keys=[active_workflow_run_id], post_update=True)
+    acceptance_checks = relationship(
+        "RequirementAcceptanceCheckRow",
+        back_populates="requirement",
+        order_by="RequirementAcceptanceCheckRow.id",
+    )
+    artifacts = relationship("ArtifactRow", back_populates="requirement", order_by="ArtifactRow.id")
+
+
+class RequirementDependencyRow(Base):
+    __tablename__ = "requirement_dependencies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    depends_on_requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    dependency_type = Column(Text, nullable=False, default="hard_block")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class WorkflowRunRow(Base):
+    __tablename__ = "workflow_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    plan_version = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False, default="pending")
+    triggered_by = Column(Text, nullable=False, default="system")
+    planner_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow", back_populates="workflow_runs", foreign_keys=[requirement_id])
+    steps = relationship("WorkflowStepRow", back_populates="workflow_run", order_by="WorkflowStepRow.sequence_no")
+
+
+class WorkflowStepRow(Base):
+    __tablename__ = "workflow_steps"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    step_key = Column(Text, nullable=False)
+    step_type = Column(Text, nullable=False)
+    title = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")
+    sequence_no = Column(Integer, nullable=False, default=0)
+    assigned_agent_id = Column(Text, ForeignKey("agents.id"))
+    assigned_workflow_role = Column(Text)
+    branch_from_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    context_scope = Column(Text, nullable=False, default="step_private")
+    handoff_summary_markdown = Column(Text)
+    done_when_markdown = Column(Text, nullable=False, default="")
+    file_scope_json = Column(Text, nullable=False, default="{}")
+    validation_targets_json = Column(Text, nullable=False, default="[]")
+    failure_policy_json = Column(Text, nullable=False, default="{}")
+    approval_policy_json = Column(Text, nullable=False, default="{}")
+    runtime_backend = Column(Text, nullable=False, default="")
+    runtime_session_id = Column(Text)
+    compatibility_task_id = Column(Integer, ForeignKey("tasks.id"))
+    retry_count = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="steps")
+    requirement = relationship("RequirementRow")
+    agent = relationship("AgentRow", back_populates="workflow_steps")
+    compatibility_task = relationship("TaskRow", back_populates="workflow_steps")
+    branch_from_step = relationship("WorkflowStepRow", remote_side=[id])
+    input_bindings = relationship("StepInputBindingRow", back_populates="step", order_by="StepInputBindingRow.id")
+    produced_artifacts = relationship("ArtifactRow", back_populates="step", foreign_keys="ArtifactRow.step_id")
+
+
+class WorkflowStepDependencyRow(Base):
+    __tablename__ = "workflow_step_dependencies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
+    depends_on_step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
+    dependency_kind = Column(Text, nullable=False)
+    required_artifact_types_json = Column(Text, nullable=False, default="[]")
+    is_blocking = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class ArtifactRow(Base):
+    __tablename__ = "artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
+    step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    producer_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    artifact_type = Column(Text, nullable=False)
+    path = Column(Text)
+    content_summary = Column(Text)
+    human_readable_body = Column(Text)
+    machine_readable_payload = Column(Text)
+    checksum = Column(Text)
+    snapshot_version = Column(Integer, nullable=False, default=1)
+    schema_version = Column(Text, nullable=False, default="1.0")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    requirement = relationship("RequirementRow", back_populates="artifacts")
+    step = relationship("WorkflowStepRow", back_populates="produced_artifacts", foreign_keys=[step_id])
+
+
+class StepInputBindingRow(Base):
+    __tablename__ = "step_input_bindings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
+    artifact_id = Column(Integer, ForeignKey("artifacts.id"), nullable=False)
+    purpose = Column(Text, nullable=False)
+    is_required = Column(Boolean, nullable=False, default=True)
+    consumed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    step = relationship("WorkflowStepRow", back_populates="input_bindings")
+    artifact = relationship("ArtifactRow")
+
+
+class RequirementAcceptanceCheckRow(Base):
+    __tablename__ = "requirement_acceptance_checks"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    check_key = Column(Text, nullable=False)
+    description = Column(Text, nullable=False)
+    check_type = Column(Text, nullable=False)
+    owner_role = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")
+    success_criteria_markdown = Column(Text)
+    verified_by_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    evidence_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow", back_populates="acceptance_checks")
+
+
+class ApprovalRequestRow(Base):
+    __tablename__ = "approval_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
+    step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    approval_type = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")
+    reviewer = Column(Text)
+    comment = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    decided_at = Column(DateTime)
+
+
+class WorkflowStepEventRow(Base):
+    __tablename__ = "workflow_step_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
+    event_type = Column(Text, nullable=False)
+    detail = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 # ── Init ──────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import threading
 from typing import Any, cast
 
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
-from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
+from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND, E2E_SYNC_DISPATCH
 from server.services.copilot_sdk_state import task_output_dir
 from server.services.task_runtime import get_task_runtime, RuntimeEvent
 
@@ -37,6 +37,11 @@ def _load_task_context_files(task: TaskRow) -> list[str] | None:
 
 def dispatch(task_id: int, agent_persona: dict, skill_name: str) -> threading.Thread:
     """Launch task execution in a background thread. Returns the thread."""
+    if E2E_SYNC_DISPATCH:
+        logger.info("Dispatching task #%d inline for E2E mode (skill=%s)", task_id, skill_name)
+        _run_task_sync(task_id, agent_persona, skill_name)
+        return threading.current_thread()
+
     thread = threading.Thread(
         target=_run_task_sync,
         args=(task_id, agent_persona, skill_name),
@@ -119,6 +124,9 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             "Task #%d finished: status=%s, output=%d chars, time=%dms",
             task_id, task.status, len(result.text), result.execution_time_ms,
         )
+        from server.services.workflow_orchestrator import sync_workflow_for_task
+
+        sync_workflow_for_task(task_id)
 
     except Exception as e:
         logger.exception("Task #%d crashed", task_id)
@@ -131,6 +139,9 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 cast(Any, task).completed_at = utcnow()
                 _log(db, task_id, "failed", str(e))
                 db.commit()
+                from server.services.workflow_orchestrator import sync_workflow_for_task
+
+                sync_workflow_for_task(task_id)
         except Exception:
             logger.exception("Failed to update task #%d status after crash", task_id)
     finally:
