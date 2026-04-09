@@ -482,7 +482,7 @@ def test_adapter_claude_call_success():
 
 def test_adapter_copilot_call_success():
     from server.services.llm_adapter import CopilotProvider
-    provider = CopilotProvider(api_key="ghp_test", base_url="http://localhost:9999")
+    provider = CopilotProvider(api_key="gho_test", base_url="http://localhost:9999")
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -494,7 +494,19 @@ def test_adapter_copilot_call_success():
     assert text == "Copilot says hi"
     assert tokens == 7
     call_args = mock_post.call_args
-    assert "Bearer ghp_test" in call_args.kwargs["headers"]["Authorization"]
+    assert "Bearer gho_test" in call_args.kwargs["headers"]["Authorization"]
+
+
+def test_adapter_copilot_rejects_personal_access_token_before_request():
+    from server.services.llm_adapter import CopilotProvider
+
+    provider = CopilotProvider(api_key="github_pat_test", base_url="http://localhost:9999")
+
+    with patch("httpx.post") as mock_post:
+        with pytest.raises(RuntimeError, match="Personal Access Tokens are not supported"):
+            provider.call("sys", "usr", "gpt-4o", 0.5, 30)
+
+    mock_post.assert_not_called()
 
 
 def test_adapter_copilot_uses_stored_oauth_token():

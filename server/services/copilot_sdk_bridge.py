@@ -79,6 +79,7 @@ class CopilotSDKBridge:
 
         if not data.get("success"):
             message = data.get("error") or stderr or "Copilot SDK runner failed"
+            message = self._normalize_error_message(message, payload)
             raise RuntimeError(message)
 
         return CopilotSDKBridgeResult(
@@ -91,4 +92,20 @@ class CopilotSDKBridge:
                 for item in data.get("events", [])
                 if isinstance(item, dict)
             ],
+        )
+
+    def _normalize_error_message(self, message: str, payload: dict) -> str:
+        model = payload.get("model")
+        if not isinstance(model, str):
+            return message
+        if 'is not available' not in message:
+            return message
+        candidate = model.strip().lower()
+        if candidate and candidate != model:
+            return (
+                f'{message} Copilot SDK model ids are case-sensitive. '
+                f'Try "{candidate}" if it appears in models.list for the current auth context.'
+            )
+        return (
+            f"{message} Copilot SDK model ids must match models.list exactly for the current auth context."
         )

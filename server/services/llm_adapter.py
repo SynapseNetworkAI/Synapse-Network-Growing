@@ -19,6 +19,9 @@ from server.services.copilot_auth import CopilotAuthService
 
 logger = logging.getLogger("ops-dashboard.llm_adapter")
 
+PERSONAL_ACCESS_TOKEN_PREFIXES = ("github_pat_", "ghp_")
+JSON_CONTENT_TYPE = "application/json"
+
 
 class LLMProvider(abc.ABC):
     """Abstract base for LLM providers."""
@@ -62,7 +65,7 @@ class OpenAIProvider(LLMProvider):
             },
             headers={
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
+                "Content-Type": JSON_CONTENT_TYPE,
             },
             timeout=timeout,
         )
@@ -103,7 +106,7 @@ class ClaudeProvider(LLMProvider):
             headers={
                 "x-api-key": self.api_key,
                 "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
+                "Content-Type": JSON_CONTENT_TYPE,
             },
             timeout=timeout,
         )
@@ -130,6 +133,7 @@ class CopilotProvider(LLMProvider):
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         api_key = self.api_key or self._resolve_api_key()
+        self._validate_api_key(api_key)
 
         resp = httpx.post(
             f"{self.base_url}/chat/completions",
@@ -143,7 +147,7 @@ class CopilotProvider(LLMProvider):
             },
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
+                "Content-Type": JSON_CONTENT_TYPE,
                 "Editor-Version": "vscode/1.100.0",
             },
             timeout=timeout,
@@ -165,6 +169,14 @@ class CopilotProvider(LLMProvider):
             "Copilot OAuth token not found. Run `copilot login` or complete the /api/copilot-auth/device-code flow. "
             "Do not use a GitHub PAT for Copilot chat completions."
         )
+
+    def _validate_api_key(self, api_key: str) -> None:
+        if api_key.startswith(PERSONAL_ACCESS_TOKEN_PREFIXES):
+            raise RuntimeError(
+                "Personal Access Tokens are not supported for LLM_PROVIDER=copilot direct /chat/completions calls. "
+                "Use `copilot login`, or provide an OAuth user token (`gho_...` / `ghu_...`). "
+                "If you want SDK/CLI token automation, prefer ORCHESTRATION_BACKEND=copilot_sdk."
+            )
 
 
 # ── Provider registry & factory ──────────────────────────────
