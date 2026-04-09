@@ -106,6 +106,28 @@ def test_approval_not_found(synced_client):
     assert resp.status_code == 404
 
 
+def test_bulk_approve_tasks(synced_client):
+    task_ids = [_create_approval_task(synced_client), _create_approval_task(synced_client)]
+    approvals = synced_client.get("/api/approvals?status=pending").json()
+    approval_ids = [approval["id"] for approval in approvals]
+
+    resp = synced_client.post("/api/approvals/bulk-decide", json={
+        "approval_ids": approval_ids,
+        "action": "approve",
+        "comment": "Batch LGTM",
+        "reviewer": "cto",
+    })
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert all(item["status"] == "approved" for item in data)
+
+    for task_id in task_ids:
+        task = synced_client.get(f"/api/tasks/{task_id}").json()
+        assert task["status"] == "completed"
+
+
 def test_dashboard_stats(synced_client):
     # Create tasks in various states
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})

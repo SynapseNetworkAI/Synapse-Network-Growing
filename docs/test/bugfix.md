@@ -1,10 +1,11 @@
 ---
-id: phase2-bugfix
-title: "Phase 2 Bug 记录"
+id: taskboard-bugfix-log
+title: "TaskBoard / Approvals Bug 记录"
 created_at: 2026-04-08
+updated_at: 2026-04-09
 ---
 
-# Phase 2: Bug 记录
+# TaskBoard / Approvals Bug 记录
 
 | # | 时间 | 模块 | 描述 | 状态 |
 |---|------|------|------|------|
@@ -20,3 +21,4 @@ created_at: 2026-04-08
 | 10 | 2026-04-09 | server/services/llm_adapter.py, tests/test_crew_integration.py | Provider 构造器把显式空字符串也当成“回退到 config”，导致 `.env` 中的 Copilot token 污染无 key 测试，并触发真实外网请求。改为仅在参数为 `None` 时才回退配置；测试继续用显式空字符串验证无 key 分支 | ✅ fixed |
 | 11 | 2026-04-09 | tests/test_tasks_api.py, dashboard/src/pages/TaskBoard.tsx | 新增重试与详情重构后出现两处回归：重试测试误把 `running` 任务当失败任务，详情区缺失 `skill-badge-*` 导致前端测试失败。前者改为先构造真实 failed 源任务再 retry，后者恢复详情 skill badge 标识 | ✅ fixed |
 | 12 | 2026-04-09 | tests/test_tasks_api.py, tests/conftest.py | Phase 2 持久化快照测试直接 `import tests.conftest.TestSession`，触发 pytest `conftest` 被按不同模块名加载，落到另一套 in-memory SQLite，查询时报 `no such table: agents`。改为通过 pytest fixture 注入共享 `db_session` | ✅ fixed |
+| 13 | 2026-04-09 | dashboard/tests/Approvals.test.tsx, dashboard/src/pages/Approvals.tsx | 第三阶段新增批量审批测试时，文件结尾缺少 `)` 导致 Vitest 报 `Expected ')' but found 'EOF'`；同时状态样式判断使用嵌套三元表达式，可读性差。修复测试闭合语法，并提取 `statusClassName()` 简化样式分支 | ✅ fixed |

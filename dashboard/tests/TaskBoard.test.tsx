@@ -10,6 +10,7 @@ const mockApi = {
   createTask: vi.fn(),
   runTask: vi.fn(),
   retryTask: vi.fn(),
+  bulkRetryTasks: vi.fn(),
   getTaskLogs: vi.fn(),
   getTaskHistory: vi.fn(),
 }
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
     createTask: (...args: unknown[]) => mockApi.createTask(...args),
     runTask: (...args: unknown[]) => mockApi.runTask(...args),
     retryTask: (...args: unknown[]) => mockApi.retryTask(...args),
+    bulkRetryTasks: (...args: unknown[]) => mockApi.bulkRetryTasks(...args),
     getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
     getTaskHistory: (...args: unknown[]) => mockApi.getTaskHistory(...args),
   },
@@ -140,6 +142,7 @@ describe('TaskBoard', () => {
     mockApi.getAgents.mockResolvedValue(AGENTS)
     mockApi.getSkills.mockResolvedValue(SKILLS)
     mockApi.retryTask.mockResolvedValue({ ...RUNNING_TASK, id: 10 })
+    mockApi.bulkRetryTasks.mockResolvedValue([{ ...RUNNING_TASK, id: 10 }])
     mockApi.getTaskHistory.mockResolvedValue([])
   })
 
@@ -310,7 +313,7 @@ describe('TaskBoard', () => {
 
   // ── Expanded task detail ─────────────────────────────────
 
-  it('shows skill badge and execution time in expanded view', async () => {
+  it('shows task detail in right drawer', async () => {
     mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
     render(<TaskBoard />)
 
@@ -318,10 +321,10 @@ describe('TaskBoard', () => {
       expect(screen.getByTestId('task-3')).toBeDefined()
     })
 
-    // Click on the task id text inside the header to expand
     fireEvent.click(screen.getByText('#3'))
 
     await waitFor(() => {
+      expect(screen.getByTestId('task-drawer')).toBeDefined()
       const badge = screen.getByTestId('skill-badge-3')
       expect(badge).toBeDefined()
       expect(badge.textContent).toContain('seo-audit')
@@ -340,9 +343,8 @@ describe('TaskBoard', () => {
     fireEvent.click(screen.getByText('#3'))
 
     await waitFor(() => {
-      const detail = screen.getByTestId('task-detail-3')
-      expect(detail.textContent).toContain('SEO Report')
-      expect(detail.textContent).toContain('Site looks good')
+      expect(screen.getByTestId('task-drawer').textContent).toContain('SEO Report')
+      expect(screen.getByTestId('task-drawer').textContent).toContain('Site looks good')
     })
   })
 
@@ -362,6 +364,29 @@ describe('TaskBoard', () => {
       expect(screen.getByTestId('history-4').textContent).toContain('重试历史时间线')
       expect(screen.getByTestId('history-item-4-1').textContent).toContain('尝试 #1')
       expect(screen.getByTestId('history-item-4-4').textContent).toContain('尝试 #2')
+    })
+  })
+
+  it('selects failed tasks and triggers bulk retry', async () => {
+    mockApi.getTasks.mockResolvedValue([FAILED_TASK, { ...FAILED_TASK, id: 8, retry_of_task_id: 4, attempt_no: 3 }])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('select-task-4')).toBeDefined()
+      expect(screen.getByTestId('select-task-8')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('select-task-4'))
+    fireEvent.click(screen.getByTestId('select-task-8'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-retry-bar').textContent).toContain('2')
+    })
+
+    fireEvent.click(screen.getByTestId('bulk-retry'))
+
+    await waitFor(() => {
+      expect(mockApi.bulkRetryTasks).toHaveBeenCalledWith({ task_ids: [4, 8], mode: 'run_now' })
     })
   })
 

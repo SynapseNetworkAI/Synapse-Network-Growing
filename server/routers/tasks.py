@@ -8,7 +8,7 @@ from typing import Optional
 import yaml
 
 from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, utcnow
-from server.schemas import TaskCreate, TaskOut, TaskLogOut, TaskHistoryOut
+from server.schemas import TaskCreate, TaskOut, TaskLogOut, TaskHistoryOut, TaskBulkRetryRequest
 from server.config import PROJECT_ROOT
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
 
@@ -88,6 +88,45 @@ def _retry_history_for_task(task_id: int, db: Session) -> list[TaskRow]:
     history = [candidate for candidate in rows if _retry_root_id(candidate, by_id) == root_id]
     history.sort(key=lambda candidate: (candidate.attempt_no or 1, candidate.created_at or utcnow(), candidate.id))
     return history
+
+
+def _validate_retry_source(source: TaskRow, mode: str):
+    if source.status not in {"failed", "rejected"}:
+        raise HTTPException(status_code=400, detail="Only failed or rejected tasks can be retried")
+    if mode not in {"run_now", "edit_first"}:
+        raise HTTPException(status_code=400, detail="mode must be run_now|edit_first")
+    if mode == "run_now" and not source.skill_name:
+        raise HTTPException(status_code=400, detail="Cannot retry immediately without a skill")
+
+
+def _build_retry_task(source: TaskRow, mode: str, db: Session) -> tuple[TaskRow, tuple[int, dict, str] | None]:
+    _validate_retry_source(source, mode)
+
+    row = TaskRow(
+        description=source.description,
+        agent_id=source.agent_id,
+        status="pending",
+        requires_approval=source.requires_approval,
+        priority=source.priority,
+        project_id=source.project_id,
+        agent_group=source.agent_group,
+        skill_name=source.skill_name,
+        context_files=source.context_files,
+        retry_of_task_id=source.id,
+        attempt_no=(source.attempt_no or 1) + 1,
+    )
+    db.add(row)
+    db.flush()
+    _add_log(db, row.id, "created", row.description)
+    _add_log(db, row.id, "retried_from", f"task={source.id}")
+
+    if mode == "run_now":
+        row.status = "running"
+        row.started_at = utcnow()
+        _add_log(db, row.id, "started", f"skill={row.skill_name}")
+        return row, (row.id, _load_full_persona(row.agent_id), row.skill_name)
+
+    return row, None
 
 
 def _load_full_persona(agent_id: str) -> dict:
@@ -224,46 +263,50 @@ def retry_task(
     source = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Task not found")
-    if source.status not in {"failed", "rejected"}:
-        raise HTTPException(status_code=400, detail="Only failed or rejected tasks can be retried")
-    if mode not in {"run_now", "edit_first"}:
-        raise HTTPException(status_code=400, detail="mode must be run_now|edit_first")
-
-    row = TaskRow(
-        description=source.description,
-        agent_id=source.agent_id,
-        status="pending",
-        requires_approval=source.requires_approval,
-        priority=source.priority,
-        project_id=source.project_id,
-        agent_group=source.agent_group,
-        skill_name=source.skill_name,
-        context_files=source.context_files,
-        retry_of_task_id=source.id,
-        attempt_no=(source.attempt_no or 1) + 1,
-    )
-    db.add(row)
-    db.flush()
-    _add_log(db, row.id, "created", row.description)
-    _add_log(db, row.id, "retried_from", f"task={source.id}")
-
-    if mode == "run_now":
-        if not row.skill_name:
-            raise HTTPException(status_code=400, detail="Cannot retry immediately without a skill")
-        persona = _load_full_persona(row.agent_id)
-        row.status = "running"
-        row.started_at = utcnow()
-        _add_log(db, row.id, "started", f"skill={row.skill_name}")
-        db.commit()
-        db.refresh(row)
-
-        from server.services.task_runner import dispatch
-        dispatch(task_id=row.id, agent_persona=persona, skill_name=row.skill_name)
-        return _task_to_out(row)
-
+    row, dispatch_payload = _build_retry_task(source, mode, db)
     db.commit()
     db.refresh(row)
+
+    if dispatch_payload:
+        from server.services.task_runner import dispatch
+
+        retry_task_id, persona, skill_name = dispatch_payload
+        dispatch(task_id=retry_task_id, agent_persona=persona, skill_name=skill_name)
+
     return _task_to_out(row)
+
+
+@router.post("/bulk-retry", response_model=list[TaskOut])
+def bulk_retry_tasks(body: TaskBulkRetryRequest, db: Session = Depends(get_db)):
+    if not body.task_ids:
+        raise HTTPException(status_code=400, detail="task_ids is required")
+
+    unique_ids = list(dict.fromkeys(body.task_ids))
+    rows = db.query(TaskRow).filter(TaskRow.id.in_(unique_ids)).all()
+    by_id = {row.id: row for row in rows}
+    missing_ids = [task_id for task_id in unique_ids if task_id not in by_id]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Tasks not found: {missing_ids}")
+
+    created_rows: list[TaskRow] = []
+    dispatch_payloads: list[tuple[int, dict, str]] = []
+    for task_id in unique_ids:
+        row, dispatch_payload = _build_retry_task(by_id[task_id], body.mode, db)
+        created_rows.append(row)
+        if dispatch_payload:
+            dispatch_payloads.append(dispatch_payload)
+
+    db.commit()
+    for row in created_rows:
+        db.refresh(row)
+
+    if dispatch_payloads:
+        from server.services.task_runner import dispatch
+
+        for retry_task_id, persona, skill_name in dispatch_payloads:
+            dispatch(task_id=retry_task_id, agent_persona=persona, skill_name=skill_name)
+
+    return [_task_to_out(row) for row in created_rows]
 
 
 @router.get("/{task_id}/history", response_model=list[TaskHistoryOut])

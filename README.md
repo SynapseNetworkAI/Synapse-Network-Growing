@@ -24,13 +24,14 @@ This repository is the brain for our Multi-Agent Marketing & Growth Engine. It i
 
 ## Browser Automation
 
-This repository now includes the upstream `vercel-labs/agent-browser` skill for project-scoped browser automation.
+This repository now includes the upstream `vercel-labs/agent-browser` and `dogfood` skills for project-scoped browser automation and systematic QA.
 
 Reusable entry points:
 
 1. Skill source: `.agents/skills/agent-browser/`
-2. Skill lock: `skills-lock.json`
-3. Project defaults: `agent-browser.json`
+2. Dogfood source: `.agents/skills/dogfood/`
+3. Skill lock: `skills-lock.json`
+4. Project defaults: `agent-browser.json`
 
 First-time setup on a machine:
 
@@ -47,6 +48,13 @@ agent-browser screenshot
 ```
 
 Runtime profile, downloads, and screenshots are isolated under `.agent-browser/` and ignored from git by default.
+
+Systematic inspection entry point:
+
+```bash
+# Read .agents/skills/dogfood/SKILL.md first, then inspect the local dashboard
+agent-browser open http://127.0.0.1:9700/tasks
+```
 
 Synapse-Network-Growing/
 ├── README.md                 # 30天战役总纲与里程碑跟踪（已更新）

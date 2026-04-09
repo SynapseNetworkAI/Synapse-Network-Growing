@@ -289,6 +289,51 @@ def test_get_task_history_returns_retry_chain(synced_client):
     assert data[1]["project_id"] == "Synapse-Network-Growing"
 
 
+def test_bulk_retry_creates_new_retry_tasks(synced_client):
+    from server.services.task_runner import _run_task_sync
+
+    created_ids = []
+    for desc in ("retry one", "retry two"):
+        created = synced_client.post("/api/tasks", json={
+            "description": desc,
+            "agent_id": "seo_strategist",
+            "skill_name": "seo-audit",
+        })
+        task_id = created.json()["id"]
+        created_ids.append(task_id)
+
+        with patch("server.services.task_runner.dispatch"):
+            synced_client.post(f"/api/tasks/{task_id}/run")
+
+        persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
+        failed_result = MagicMock()
+        failed_result.text = ""
+        failed_result.files = []
+        failed_result.error = "boom"
+        failed_result.execution_time_ms = 1
+
+        with patch("server.services.task_runner._engine") as mock_engine:
+            mock_engine.execute.return_value = failed_result
+            _run_task_sync(task_id, persona, "seo-audit")
+
+    resp = synced_client.post("/api/tasks/bulk-retry", json={"task_ids": created_ids, "mode": "edit_first"})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert [item["retry_of_task_id"] for item in data] == created_ids
+    assert [item["attempt_no"] for item in data] == [2, 2]
+    assert all(item["status"] == "pending" for item in data)
+
+
+def test_bulk_retry_rejects_non_retryable_tasks(synced_client):
+    create = synced_client.post("/api/tasks", json={"description": "not failed", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+
+    resp = synced_client.post("/api/tasks/bulk-retry", json={"task_ids": [task_id], "mode": "run_now"})
+    assert resp.status_code == 400
+
+
 def test_retry_task_invalid_status(synced_client):
     create = synced_client.post("/api/tasks", json={
         "description": "not failed yet",

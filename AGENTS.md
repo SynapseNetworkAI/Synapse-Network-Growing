@@ -42,6 +42,7 @@ Step 3: 下达任务    → 明确产出物路径、格式要求、KPI 标准
 ## Browser Automation
 
 浏览器自动化统一使用 `.agents/skills/agent-browser/SKILL.md`。
+系统化页面巡检与缺陷取证统一使用 `.agents/skills/dogfood/SKILL.md`。
 
 适用场景：
 
@@ -49,6 +50,7 @@ Step 3: 下达任务    → 明确产出物路径、格式要求、KPI 标准
 2. 浏览器截图取证
 3. 表单填写与点击流验证
 4. 页面结构抓取与内容提取
+5. 端到端 dogfood 巡检与缺陷报告输出
 
 执行约定：
 
@@ -56,6 +58,7 @@ Step 3: 下达任务    → 明确产出物路径、格式要求、KPI 标准
 2. 标准流程固定为：`open` → `snapshot -i` → 基于 `@eN` refs 交互 → 页面变化后重新 `snapshot -i`。
 3. 临时运行产物统一落到 `.agent-browser/`，该目录不入库；只有需要沉淀的证据才移动到 `docs/test/`。
 4. 首次在新机器使用时，执行 `agent-browser install` 完成浏览器安装。
+5. 做系统化巡检时，先阅读 `.agents/skills/dogfood/references/issue-taxonomy.md`，再把最终报告或截图沉淀到 `docs/test/`。
 
 ---
 

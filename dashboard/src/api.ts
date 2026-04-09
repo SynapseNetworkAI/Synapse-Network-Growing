@@ -81,6 +81,11 @@ export interface TaskHistoryItem {
   completed_at: string | null
 }
 
+export interface TaskBulkRetryRequest {
+  task_ids: number[]
+  mode?: 'run_now' | 'edit_first'
+}
+
 export interface DashboardStats {
   agent_count: number
   task_total: number
@@ -136,6 +141,8 @@ export const api = {
   },
   retryTask: (id: number, mode: 'run_now' | 'edit_first' = 'run_now') =>
     request<Task>(`/tasks/${id}/retry?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
+  bulkRetryTasks: (data: TaskBulkRetryRequest) =>
+    request<Task[]>('/tasks/bulk-retry', { method: 'POST', body: JSON.stringify(data) }),
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
   getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
 
@@ -146,6 +153,8 @@ export const api = {
   },
   decideApproval: (id: number, data: { action: string; comment?: string; reviewer?: string }) =>
     request<Approval>(`/approvals/${id}/decide`, { method: 'POST', body: JSON.stringify(data) }),
+  bulkDecideApprovals: (data: { approval_ids: number[]; action: string; comment?: string; reviewer?: string }) =>
+    request<Approval[]>('/approvals/bulk-decide', { method: 'POST', body: JSON.stringify(data) }),
 
   // Dashboard
   getStats: () => request<DashboardStats>('/dashboard/stats'),

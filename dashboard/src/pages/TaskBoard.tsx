@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { api, Task, Agent, TaskLog, TaskHistoryItem } from '../api'
 
+const RETRYABLE_STATUSES = new Set(['failed', 'rejected'])
+
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
   running: 'bg-blue-100 text-blue-700',
@@ -48,6 +50,10 @@ function inferProjectFromAgent(agent: Agent | undefined) {
   return 'Synapse-Network-Growing'
 }
 
+function formatTime(value: string | null) {
+  return value ? new Date(value).toLocaleString('zh-CN') : '-'
+}
+
 export default function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
@@ -63,9 +69,10 @@ export default function TaskBoard() {
   const [form, setForm] = useState({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
   const [preview, setPreview] = useState(false)
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
-  const [expandedTask, setExpandedTask] = useState<number | null>(null)
+  const [drawerTaskId, setDrawerTaskId] = useState<number | null>(null)
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
   const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async () => {
@@ -101,13 +108,20 @@ export default function TaskBoard() {
   }, [tasks, load])
 
   useEffect(() => {
-    if (expandedTask == null || taskHistory[expandedTask]) return
-    api.getTaskHistory(expandedTask)
+    if (drawerTaskId == null || taskHistory[drawerTaskId]) return
+    api.getTaskHistory(drawerTaskId)
       .then((history) => {
-        setTaskHistory((prev) => ({ ...prev, [expandedTask]: history }))
+        setTaskHistory((prev) => ({ ...prev, [drawerTaskId]: history }))
       })
       .catch(() => {})
-  }, [expandedTask, taskHistory])
+  }, [drawerTaskId, taskHistory])
+
+  useEffect(() => {
+    setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((task) => task.id === id && RETRYABLE_STATUSES.has(task.status))))
+    if (drawerTaskId != null && !tasks.some((task) => task.id === drawerTaskId)) {
+      setDrawerTaskId(null)
+    }
+  }, [tasks, drawerTaskId])
 
   const selectedAgent = agents.find(a => a.id === form.agent_id)
   const selectedAgentSkills: string[] = (() => {
@@ -137,6 +151,13 @@ export default function TaskBoard() {
 
   const projectKeys = Array.from(new Set(tasks.map(t => t.project_id).filter(Boolean))) as string[]
   const groupKeys = Array.from(new Set(agents.map(a => a.group).filter(Boolean)))
+  const drawerTask = drawerTaskId != null ? tasks.find((task) => task.id === drawerTaskId) || null : null
+  const selectedRetryableTaskIds = selectedTaskIds.filter((id) => {
+    const task = tasks.find((candidate) => candidate.id === id)
+    return task ? RETRYABLE_STATUSES.has(task.status) : false
+  })
+  const retryableTaskIds = visibleTasks.filter((task) => RETRYABLE_STATUSES.has(task.status)).map((task) => task.id)
+  const allRetryableSelected = retryableTaskIds.length > 0 && retryableTaskIds.every((id) => selectedRetryableTaskIds.includes(id))
 
   const handleCreate = async () => {
     if (!form.description || !form.agent_id) return
@@ -169,6 +190,17 @@ export default function TaskBoard() {
     await load()
   }
 
+  const handleBulkRetry = async (mode: 'run_now' | 'edit_first') => {
+    if (selectedRetryableTaskIds.length === 0) return
+    try {
+      await api.bulkRetryTasks({ task_ids: selectedRetryableTaskIds, mode })
+      setSelectedTaskIds([])
+      await load()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '批量重试失败')
+    }
+  }
+
   const handleEditRetry = (task: Task) => {
     setForm({
       description: task.description,
@@ -184,6 +216,12 @@ export default function TaskBoard() {
   const handleViewLogs = async (taskId: number) => {
     const logs = await api.getTaskLogs(taskId)
     setSelectedLogs({ taskId, logs })
+  }
+
+  const toggleTaskSelection = (taskId: number) => {
+    setSelectedTaskIds((prev) => (
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    ))
   }
 
   const insertMarkdown = (syntax: string) => {
@@ -309,6 +347,44 @@ export default function TaskBoard() {
         <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'pending_approval').length}</div></div>
         <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'completed').length}</div></div>
       </div>
+
+      {selectedRetryableTaskIds.length > 0 && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3" data-testid="bulk-retry-bar">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="text-sm text-red-900">已选择 {selectedRetryableTaskIds.length} 个失败/拒绝任务</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                data-testid="select-all-retryable"
+                onClick={() => setSelectedTaskIds(allRetryableSelected ? [] : retryableTaskIds)}
+                className="text-xs border border-red-300 px-3 py-1.5 rounded hover:bg-white"
+              >
+                {allRetryableSelected ? '取消全选' : '全选当前页失败任务'}
+              </button>
+              <button
+                data-testid="clear-selection"
+                onClick={() => setSelectedTaskIds([])}
+                className="text-xs border border-red-300 px-3 py-1.5 rounded hover:bg-white"
+              >
+                清空选择
+              </button>
+              <button
+                data-testid="bulk-retry"
+                onClick={() => handleBulkRetry('run_now')}
+                className="text-xs bg-red-600 text-white px-4 py-1.5 rounded hover:bg-red-700"
+              >
+                批量重试
+              </button>
+              <button
+                data-testid="bulk-edit-retry"
+                onClick={() => handleBulkRetry('edit_first')}
+                className="text-xs border border-red-300 px-4 py-1.5 rounded hover:bg-white"
+              >
+                批量创建重试任务
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div data-testid="create-form" className="bg-white border rounded-lg p-4 mb-4 shadow-sm">
@@ -454,17 +530,26 @@ export default function TaskBoard() {
                     return b.id - a.id
                   })
                   .map((task) => {
-                    const isExpanded = expandedTask === task.id
                     const errorSummary = getTaskErrorSummary(task)
-                    const history = taskHistory[task.id] || []
+                    const isSelected = selectedTaskIds.includes(task.id)
+                    const isRetryable = RETRYABLE_STATUSES.has(task.status)
                     return (
                       <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
                         <div
                           className="p-4 flex items-start justify-between cursor-pointer hover:bg-gray-50"
-                          onClick={() => setExpandedTask(isExpanded ? null : task.id)}
+                          onClick={() => setDrawerTaskId(task.id)}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              {isRetryable && (
+                                <input
+                                  data-testid={`select-task-${task.id}`}
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={() => toggleTaskSelection(task.id)}
+                                />
+                              )}
                               <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[task.status] || 'bg-gray-100'}`}>
                                 {STATUS_LABEL[task.status] || task.status}
                               </span>
@@ -479,7 +564,7 @@ export default function TaskBoard() {
                                 </span>
                               )}
                               {task.attempt_no > 1 && <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">第 {task.attempt_no} 次</span>}
-                              <span className="text-xs text-gray-300">{isExpanded ? '▼' : '▶'}</span>
+                              <span className="text-xs text-gray-300">▶</span>
                             </div>
                             <p className="text-sm truncate font-medium">{task.description.split('\n')[0]}</p>
                             {task.status === 'failed' && errorSummary && (
@@ -539,80 +624,6 @@ export default function TaskBoard() {
                             </button>
                           </div>
                         </div>
-
-                        {isExpanded && (
-                          <div data-testid={`task-detail-${task.id}`} className="border-t px-4 py-3 bg-gray-50">
-                            <div className="mb-2 flex gap-3 flex-wrap items-center text-xs text-gray-500">
-                              {task.skill_name && (
-                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${task.id}`}>
-                                  🛠 {task.skill_name}
-                                </span>
-                              )}
-                              {task.retry_of_task_id != null && <span>重试来源: #{task.retry_of_task_id}</span>}
-                              {task.execution_time_ms != null && <span>⏱ {(task.execution_time_ms / 1000).toFixed(1)}s</span>}
-                            </div>
-                            <div className="mb-3">
-                              <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
-                              <div className="bg-white border rounded p-3">
-                                <Md>{task.description}</Md>
-                              </div>
-                            </div>
-                            {errorSummary && (
-                              <div className="mb-3">
-                                <h4 className="text-xs font-bold text-gray-500 mb-1">失败原因</h4>
-                                <div className="bg-white border rounded p-3 text-sm text-red-600">{errorSummary}</div>
-                              </div>
-                            )}
-                            {task.output_content && (
-                              <div className="mb-3">
-                                <h4 className="text-xs font-bold text-gray-500 mb-1">执行产出</h4>
-                                <div className="bg-white border rounded p-3">
-                                  <Md>{task.output_content}</Md>
-                                </div>
-                              </div>
-                            )}
-                            <div className="mb-3" data-testid={`history-${task.id}`}>
-                              <h4 className="text-xs font-bold text-gray-500 mb-2">重试历史时间线</h4>
-                              <div className="bg-white border rounded p-3">
-                                {history.length === 0 ? (
-                                  <p className="text-sm text-gray-400">暂无重试历史</p>
-                                ) : (
-                                  <div className="space-y-3">
-                                    {history.map((item) => (
-                                      <div key={item.task_id} className="flex gap-3 items-start" data-testid={`history-item-${task.id}-${item.task_id}`}>
-                                        <div className={`mt-1 h-2.5 w-2.5 rounded-full ${STATUS_COLORS[item.status]?.split(' ')[0] || 'bg-gray-300'}`} />
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="text-xs font-medium text-gray-700">尝试 #{item.attempt_no}</span>
-                                            <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}>
-                                              {STATUS_LABEL[item.status] || item.status}
-                                            </span>
-                                            <span className="text-xs text-gray-400 font-mono">Task #{item.task_id}</span>
-                                            {item.retry_of_task_id != null && (
-                                              <span className="text-xs text-gray-400">来自 #{item.retry_of_task_id}</span>
-                                            )}
-                                          </div>
-                                          <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
-                                            <span>创建: {item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</span>
-                                            <span>完成: {item.completed_at ? new Date(item.completed_at).toLocaleString('zh-CN') : '-'}</span>
-                                          </div>
-                                          {item.last_error_message && (
-                                            <p className="mt-1 text-xs text-red-600">{item.last_error_message}</p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-4 text-xs text-gray-500">
-                              <div>创建: {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '-'}</div>
-                              <div>开始: {task.started_at ? new Date(task.started_at).toLocaleString('zh-CN') : '-'}</div>
-                              <div>完成: {task.completed_at ? new Date(task.completed_at).toLocaleString('zh-CN') : '-'}</div>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )
                   })}
@@ -620,6 +631,107 @@ export default function TaskBoard() {
             </section>
           ))}
       </div>
+
+      {drawerTask && (
+        <div className="fixed inset-0 z-40 flex justify-end" data-testid="task-drawer-shell">
+          <button className="absolute inset-0 bg-black/20" aria-label="关闭任务详情" onClick={() => setDrawerTaskId(null)} />
+          <aside className="relative h-full w-full max-w-2xl overflow-y-auto bg-white shadow-2xl" data-testid="task-drawer">
+            <div className="sticky top-0 z-10 border-b bg-white px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[drawerTask.status] || 'bg-gray-100'}`}>
+                      {STATUS_LABEL[drawerTask.status] || drawerTask.status}
+                    </span>
+                    <span className="text-xs text-gray-400 font-mono">#{drawerTask.id}</span>
+                    {drawerTask.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{drawerTask.project_label}</span>}
+                    {drawerTask.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{drawerTask.agent_group}</span>}
+                    {drawerTask.skill_name && (
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${drawerTask.id}`}>
+                        🛠 {drawerTask.skill_name}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="mt-2 text-lg font-semibold" data-testid={`task-detail-${drawerTask.id}`}>{drawerTask.description.split('\n')[0]}</h3>
+                  <p className="mt-1 text-sm text-gray-500">Agent: @{drawerTask.agent_id}</p>
+                </div>
+                <button
+                  data-testid="task-drawer-close"
+                  onClick={() => setDrawerTaskId(null)}
+                  className="text-sm border rounded px-3 py-1.5 hover:bg-gray-50"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="mb-4 flex gap-3 flex-wrap items-center text-xs text-gray-500">
+                {drawerTask.retry_of_task_id != null && <span>重试来源: #{drawerTask.retry_of_task_id}</span>}
+                {drawerTask.execution_time_ms != null && <span>⏱ {(drawerTask.execution_time_ms / 1000).toFixed(1)}s</span>}
+                <span>创建: {formatTime(drawerTask.created_at)}</span>
+                <span>开始: {formatTime(drawerTask.started_at)}</span>
+                <span>完成: {formatTime(drawerTask.completed_at)}</span>
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
+                <div className="bg-gray-50 border rounded p-3">
+                  <Md>{drawerTask.description}</Md>
+                </div>
+              </div>
+
+              {getTaskErrorSummary(drawerTask) && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-bold text-gray-500 mb-1">失败原因</h4>
+                  <div className="bg-red-50 border border-red-100 rounded p-3 text-sm text-red-600">{getTaskErrorSummary(drawerTask)}</div>
+                </div>
+              )}
+
+              {drawerTask.output_content && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-bold text-gray-500 mb-1">执行产出</h4>
+                  <div className="bg-gray-50 border rounded p-3">
+                    <Md>{drawerTask.output_content}</Md>
+                  </div>
+                </div>
+              )}
+
+              <div className="mb-3" data-testid={`history-${drawerTask.id}`}>
+                <h4 className="text-xs font-bold text-gray-500 mb-2">重试历史时间线</h4>
+                <div className="bg-gray-50 border rounded p-3">
+                  {(taskHistory[drawerTask.id] || []).length === 0 ? (
+                    <p className="text-sm text-gray-400">暂无重试历史</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {(taskHistory[drawerTask.id] || []).map((item) => (
+                        <div key={item.task_id} className="flex gap-3 items-start" data-testid={`history-item-${drawerTask.id}-${item.task_id}`}>
+                          <div className={`mt-1 h-2.5 w-2.5 rounded-full ${STATUS_COLORS[item.status]?.split(' ')[0] || 'bg-gray-300'}`} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-gray-700">尝试 #{item.attempt_no}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}>
+                                {STATUS_LABEL[item.status] || item.status}
+                              </span>
+                              <span className="text-xs text-gray-400 font-mono">Task #{item.task_id}</span>
+                              {item.retry_of_task_id != null && <span className="text-xs text-gray-400">来自 #{item.retry_of_task_id}</span>}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500 flex gap-3 flex-wrap">
+                              <span>创建: {formatTime(item.created_at)}</span>
+                              <span>完成: {formatTime(item.completed_at)}</span>
+                            </div>
+                            {item.last_error_message && <p className="mt-1 text-xs text-red-600">{item.last_error_message}</p>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
 
       {selectedLogs && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setSelectedLogs(null)}>

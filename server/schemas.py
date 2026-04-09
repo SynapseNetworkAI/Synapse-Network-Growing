@@ -74,6 +74,11 @@ class TaskHistoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskBulkRetryRequest(BaseModel):
+    task_ids: list[int]
+    mode: str = "run_now"
+
+
 # ── Approval ──────────────────────────────────────────────────
 
 class ApprovalOut(BaseModel):
@@ -90,6 +95,13 @@ class ApprovalOut(BaseModel):
 
 
 class ApprovalDecide(BaseModel):
+    action: str  # "approve" | "reject"
+    comment: str = ""
+    reviewer: str = "cto"
+
+
+class ApprovalBulkDecide(BaseModel):
+    approval_ids: list[int]
     action: str  # "approve" | "reject"
     comment: str = ""
     reviewer: str = "cto"

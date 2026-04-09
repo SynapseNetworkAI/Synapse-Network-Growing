@@ -18,6 +18,7 @@ target_repo: Synapse-Network-Growing
 2. 失败任务恢复链路是否可用
 3. 前后端数据结构是否一致
 4. 历史任务归属快照与重试时间线是否正确
+5. 第三阶段批量重试、批量审批与右侧抽屉交互是否稳定
 
 ## 2. 测试目录与功能关联
 
@@ -45,7 +46,9 @@ target_repo: Synapse-Network-Growing
 与任务看板功能直接相关的文件：
 
 1. `dashboard/tests/TaskBoard.test.tsx`
-   负责筛选器、分组展示、失败摘要、重试按钮、创建表单预填、轮询等 UI 行为。
+   负责筛选器、分组展示、失败摘要、重试按钮、批量重试、右侧抽屉、创建表单预填、轮询等 UI 行为。
+2. `dashboard/tests/Approvals.test.tsx`
+   负责审批中心待审批渲染、批量批准/拒绝的选择态与提交行为。
 
 ### `docs/test/`
 
@@ -79,6 +82,8 @@ target_repo: Synapse-Network-Growing
 5. 支持 `POST /api/tasks/{id}/retry`
 6. 支持 `GET /api/tasks/{id}/history`
 7. 历史任务在 Agent 分组变化后仍保留原始 `project_id/agent_group` 快照
+8. 支持 `POST /api/tasks/bulk-retry`
+9. 支持 `POST /api/approvals/bulk-decide`
 
 ### 3.2 前端页面
 
@@ -93,6 +98,9 @@ target_repo: Synapse-Network-Growing
 7. 创建表单支持显示 Agent 提示信息
 8. 运行中任务继续轮询
 9. 详情区展示重试历史时间线
+10. 失败/拒绝任务支持多选并批量重试
+11. 审批中心支持多选并批量批准/拒绝
+12. 任务详情使用右侧抽屉而非卡片内联展开
 
 ## 4. 用例矩阵
 
@@ -107,6 +115,9 @@ target_repo: Synapse-Network-Growing
 7. 对非失败任务调用 retry 返回 400
 8. `history` 接口返回按 attempt 排序的重试链
 9. 任务创建后，如果 Agent 分组后续变化，任务接口仍返回原始快照
+10. `bulk-retry` 能按请求顺序批量创建重试任务
+11. `bulk-retry` 对非失败/拒绝任务返回 400
+12. `bulk-decide` 能批量更新审批与对应任务状态
 
 ### 前端用例
 
@@ -117,13 +128,16 @@ target_repo: Synapse-Network-Growing
 5. 变更 `Agent组` 筛选时重新请求任务列表
 6. 运行中任务持续轮询
 7. 展开详情时请求并渲染重试历史时间线
+8. 多选失败任务后显示批量重试工具条并调用批量接口
+9. 点击任务卡片后以右侧抽屉展示详情
+10. 审批中心多选后显示批量审批工具条并调用批量接口
 
 ## 5. 执行命令
 
 后端：
 
 ```bash
-python -m pytest tests/test_tasks_api.py tests/test_crew_integration.py -v
+/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests/test_tasks_api.py tests/test_approvals_api.py tests/test_crew_integration.py -q
 python -m pytest tests/ -v
 ```
 
@@ -139,9 +153,10 @@ UI 验证：
 1. 启动后端与前端
 2. 打开任务看板页面
 3. 创建失败任务或查看已有失败任务
-4. 验证失败摘要、重试按钮、筛选器和项目分组
-5. 展开失败任务，验证重试历史时间线
-6. 截图作为最终结果凭证
+4. 验证失败摘要、重试按钮、批量重试工具条、筛选器和项目分组
+5. 打开失败任务右侧抽屉，验证重试历史时间线
+6. 切换到审批中心，验证批量审批工具条与批量批准动作
+7. 截图作为最终结果凭证
 
 ## 6. 通过标准
 
@@ -149,7 +164,7 @@ UI 验证：
 
 1. 后端 pytest 全通过
 2. 前端 vitest 全通过
-3. UI 截图能看到新筛选器、项目分组或失败重试交互之一
+3. UI 截图能看到批量重试工具条或右侧抽屉，以及批量审批工具条
 4. 若实现过程中发现 bug，必须登记到 `docs/test/bugfix.md` 并修复后重新验证
 
 ## 7. 最新验证结果
@@ -159,10 +174,10 @@ UI 验证：
 后端：
 
 ```bash
-/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests/test_tasks_api.py tests/test_crew_integration.py -v
+/Users/cliff/workspace/agent/.venv/bin/python -m pytest tests/test_tasks_api.py tests/test_approvals_api.py tests/test_crew_integration.py -q
 ```
 
-结果：`58 passed`
+结果：`69 passed`
 
 前端：
 
@@ -171,10 +186,11 @@ cd dashboard
 yarn test
 ```
 
-结果：`40 passed`
+结果：`43 passed`
 
 UI 结果：
 
 1. 页面已展示持久化后的 `project_id` / `agent_group` 标签
-2. 详情区已展示三段重试历史时间线（Attempt #1 / #2 / #3）
-3. 验证截图已更新到 `docs/test/taskboard-validation.png`
+2. TaskBoard 已展示批量重试工具条与右侧详情抽屉，抽屉内可见三段重试历史时间线（Attempt #1 / #2 / #3）
+3. Approvals 页面已展示批量审批工具条，并验证批量批准交互
+4. 验证截图将更新到 `docs/test/taskboard-phase3-validation.png` 与 `docs/test/approvals-phase3-validation.png`
