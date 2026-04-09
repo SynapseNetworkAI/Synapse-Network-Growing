@@ -49,7 +49,12 @@ function normalizeEvent(event) {
 
 const raw = await readStdin();
 const input = JSON.parse(raw || "{}");
-const githubToken = process.env.COPILOT_OAUTH_TOKEN || process.env.GITHUB_TOKEN || undefined;
+const githubToken =
+  process.env.COPILOT_GITHUB_TOKEN ||
+  process.env.GH_TOKEN ||
+  process.env.COPILOT_OAUTH_TOKEN ||
+  process.env.GITHUB_TOKEN ||
+  undefined;
 const client = new CopilotClient({
   cwd: input.cwd,
   logLevel: input.logLevel ?? "error",

@@ -13,6 +13,7 @@ from server.schemas import CopilotAuthStatus, CopilotDeviceCodeOut, CopilotDevic
 DEFAULT_GITHUB_HOST = "https://github.com"
 DEFAULT_COPILOT_CLIENT_ID = "Ov23ctDVkRmgkPke0Mmm"
 COPILOT_SCOPES = "read:user,read:org,repo,gist"
+JSON_ACCEPT_HEADER = "application/json"
 
 
 class StoredCopilotAuth(BaseModel):
@@ -83,7 +84,7 @@ class CopilotAuthService:
             f"{host.rstrip('/')}/login/device/code",
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
+                "Accept": JSON_ACCEPT_HEADER,
             },
             data={
                 "client_id": resolved_client_id,
@@ -116,7 +117,7 @@ class CopilotAuthService:
             f"{host.rstrip('/')}/login/oauth/access_token",
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
+                "Accept": JSON_ACCEPT_HEADER,
             },
             data={
                 "client_id": resolved_client_id,
@@ -168,7 +169,7 @@ class CopilotAuthService:
             f"{host.rstrip('/')}/copilot_internal/user",
             headers={
                 "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
+                "Accept": JSON_ACCEPT_HEADER,
             },
             timeout=30,
         )
@@ -177,9 +178,13 @@ class CopilotAuthService:
         return resp.json().get("login")
 
     def _token_from_env(self) -> str:
+        if config.COPILOT_GITHUB_TOKEN:
+            return config.COPILOT_GITHUB_TOKEN
+        if config.GH_TOKEN:
+            return config.GH_TOKEN
         if config.COPILOT_OAUTH_TOKEN:
             return config.COPILOT_OAUTH_TOKEN
-        if config.GITHUB_TOKEN.startswith("gho_"):
+        if config.GITHUB_TOKEN:
             return config.GITHUB_TOKEN
         return ""
 

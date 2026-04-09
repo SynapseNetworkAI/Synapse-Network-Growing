@@ -18,7 +18,7 @@ def test_copilot_auth_service_resolves_apps_json(tmp_path):
         }
     }), encoding="utf-8")
 
-    with patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.copilot_auth.config.GITHUB_TOKEN", ""):
+    with patch("server.services.copilot_auth.config.COPILOT_GITHUB_TOKEN", ""), patch("server.services.copilot_auth.config.GH_TOKEN", ""), patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.copilot_auth.config.GITHUB_TOKEN", ""):
         auth = CopilotAuthService(config_dir=config_dir).resolve_stored_auth()
 
     assert auth is not None
@@ -41,7 +41,7 @@ def test_copilot_auth_service_falls_back_to_oauth_json(tmp_path):
         ]
     }), encoding="utf-8")
 
-    with patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.copilot_auth.config.GITHUB_TOKEN", ""):
+    with patch("server.services.copilot_auth.config.COPILOT_GITHUB_TOKEN", ""), patch("server.services.copilot_auth.config.GH_TOKEN", ""), patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.copilot_auth.config.GITHUB_TOKEN", ""):
         auth = CopilotAuthService(config_dir=config_dir).resolve_stored_auth()
 
     assert auth is not None
@@ -66,6 +66,30 @@ def test_request_copilot_device_code_endpoint(client):
 
     assert resp.status_code == 200
     assert resp.json()["device_code"] == "device-code"
+
+
+def test_copilot_auth_service_prefers_copilot_github_token_from_env(tmp_path):
+    config_dir = tmp_path / "github-copilot"
+    config_dir.mkdir()
+
+    with patch("server.services.copilot_auth.config.COPILOT_GITHUB_TOKEN", "github_pat_models"), patch("server.services.copilot_auth.config.GH_TOKEN", "gho_from_gh_token"), patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", "gho_from_copilot_oauth"), patch("server.services.copilot_auth.config.GITHUB_TOKEN", "gho_from_github_token"):
+        auth = CopilotAuthService(config_dir=config_dir).resolve_stored_auth()
+
+    assert auth is not None
+    assert auth.token == "github_pat_models"
+    assert auth.source == "env"
+
+
+def test_copilot_auth_service_falls_back_to_gh_token_when_copilot_github_token_missing(tmp_path):
+    config_dir = tmp_path / "github-copilot"
+    config_dir.mkdir()
+
+    with patch("server.services.copilot_auth.config.COPILOT_GITHUB_TOKEN", ""), patch("server.services.copilot_auth.config.GH_TOKEN", "gho_from_gh_token"), patch("server.services.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.copilot_auth.config.GITHUB_TOKEN", ""):
+        auth = CopilotAuthService(config_dir=config_dir).resolve_stored_auth()
+
+    assert auth is not None
+    assert auth.token == "gho_from_gh_token"
+    assert auth.source == "env"
 
 
 def test_poll_copilot_device_code_complete_persists_login(tmp_path):

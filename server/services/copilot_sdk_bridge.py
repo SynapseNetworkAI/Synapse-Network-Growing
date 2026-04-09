@@ -46,12 +46,15 @@ class CopilotSDKBridge:
             )
 
         env = os.environ.copy()
-        oauth_token = config.COPILOT_OAUTH_TOKEN
-        if not oauth_token:
+        github_token = config.COPILOT_GITHUB_TOKEN or config.GH_TOKEN or config.COPILOT_OAUTH_TOKEN or config.GITHUB_TOKEN
+        if not github_token:
             auth = self.auth_service.resolve_stored_auth()
-            oauth_token = auth.token if auth else ""
-        if oauth_token:
-            env.setdefault("COPILOT_OAUTH_TOKEN", oauth_token)
+            github_token = auth.token if auth else ""
+        if github_token:
+            env.setdefault("COPILOT_GITHUB_TOKEN", github_token)
+            env.setdefault("GH_TOKEN", github_token)
+            env.setdefault("GITHUB_TOKEN", github_token)
+            env.setdefault("COPILOT_OAUTH_TOKEN", github_token)
 
         completed = subprocess.run(
             [self.node_bin, str(self.runner_path)],
