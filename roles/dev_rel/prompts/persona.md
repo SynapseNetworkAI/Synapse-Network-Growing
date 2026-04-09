@@ -4,6 +4,7 @@ title: DevRel Agent Persona
 role: dev_rel
 display_name: DevRel Engineer
 goal: 负责 DX 和技术布道
+group: content
 skills:
   - content-strategy
   - community-marketing

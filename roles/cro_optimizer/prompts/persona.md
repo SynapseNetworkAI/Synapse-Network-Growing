@@ -4,6 +4,7 @@ title: CRO Optimizer Persona
 role: cro_optimizer
 display_name: CRO Optimizer
 goal: 负责全链路转化率优化
+group: optimization
 skills:
   - page-cro
   - signup-flow-cro

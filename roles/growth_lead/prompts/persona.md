@@ -4,6 +4,7 @@ title: Growth Lead Persona
 role: growth_lead
 display_name: Growth Lead
 goal: 负责 GTM 和增长策略
+group: growth
 skills:
   - marketing-ideas
   - marketing-psychology

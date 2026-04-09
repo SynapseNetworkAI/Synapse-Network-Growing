@@ -33,6 +33,7 @@ class AgentRow(Base):
     id = Column(Text, primary_key=True)
     display_name = Column(Text, nullable=False)
     goal = Column(Text, nullable=False)
+    group = Column(Text, default="")  # content | growth | optimization
     persona_path = Column(Text)
     skills = Column(Text, default="[]")  # JSON array
     created_at = Column(DateTime, default=utcnow)

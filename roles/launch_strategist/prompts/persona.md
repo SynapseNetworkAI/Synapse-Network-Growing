@@ -4,6 +4,7 @@ title: Launch Strategist Persona
 role: launch_strategist
 display_name: Launch Strategist
 goal: 负责发布节奏与飞轮编排
+group: growth
 skills:
   - launch-strategy
   - pricing-strategy

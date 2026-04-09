@@ -4,6 +4,7 @@ title: Content Writer Persona
 role: content_writer
 display_name: Content Writer
 goal: 负责极简主义文案写作
+group: content
 skills:
   - copywriting
   - copy-editing

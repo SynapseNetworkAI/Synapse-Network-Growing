@@ -17,6 +17,7 @@ export interface Agent {
   id: string
   display_name: string
   goal: string
+  group: string
   persona_path: string | null
   skills: string
   task_count: number

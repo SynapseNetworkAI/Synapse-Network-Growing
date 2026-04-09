@@ -11,6 +11,7 @@ class AgentOut(BaseModel):
     id: str
     display_name: str
     goal: str
+    group: str = ""
     persona_path: Optional[str] = None
     skills: Optional[str] = "[]"
     created_at: Optional[datetime] = None

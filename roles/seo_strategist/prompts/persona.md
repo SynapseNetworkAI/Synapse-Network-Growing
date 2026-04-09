@@ -4,6 +4,7 @@ title: SEO Strategist Persona
 role: seo_strategist
 display_name: SEO Strategist
 goal: 负责关键词与转化率优化
+group: optimization
 skills:
   - seo-audit
   - ai-seo

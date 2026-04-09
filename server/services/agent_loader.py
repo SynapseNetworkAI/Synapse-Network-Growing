@@ -45,6 +45,7 @@ def discover_agents() -> list[dict]:
             "id": role_id,
             "display_name": fm.get("display_name", fm.get("title", role_id)),
             "goal": fm.get("goal", ""),
+            "group": fm.get("group", ""),
             "persona_path": str(persona_path),
             "skills": json.dumps(skills) if isinstance(skills, list) else skills,
         })
