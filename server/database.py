@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     create_engine,
     event,
     inspect,
@@ -115,6 +116,12 @@ class TaskLogRow(Base):
 
 class RequirementRow(Base):
     __tablename__ = "requirements"
+    __table_args__ = (
+        Index("requirements_status_idx", "status"),
+        Index("requirements_priority_idx", "priority"),
+        Index("requirements_created_at_idx", "created_at"),
+        Index("requirements_active_run_idx", "active_workflow_run_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(Text, nullable=False)
@@ -149,6 +156,10 @@ class RequirementRow(Base):
 
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
+    __table_args__ = (
+        Index("req_dep_requirement_idx", "requirement_id"),
+        Index("req_dep_depends_on_idx", "depends_on_requirement_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
@@ -159,6 +170,11 @@ class RequirementDependencyRow(Base):
 
 class WorkflowRunRow(Base):
     __tablename__ = "workflow_runs"
+    __table_args__ = (
+        Index("workflow_runs_requirement_idx", "requirement_id"),
+        Index("workflow_runs_status_idx", "status"),
+        Index("workflow_runs_plan_version_idx", "requirement_id", "plan_version"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
@@ -177,6 +193,13 @@ class WorkflowRunRow(Base):
 
 class WorkflowStepRow(Base):
     __tablename__ = "workflow_steps"
+    __table_args__ = (
+        Index("workflow_steps_run_idx", "workflow_run_id"),
+        Index("workflow_steps_requirement_idx", "requirement_id"),
+        Index("workflow_steps_status_idx", "status"),
+        Index("workflow_steps_assigned_agent_idx", "assigned_agent_id"),
+        Index("workflow_steps_compat_task_idx", "compatibility_task_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
@@ -216,6 +239,10 @@ class WorkflowStepRow(Base):
 
 class WorkflowStepDependencyRow(Base):
     __tablename__ = "workflow_step_dependencies"
+    __table_args__ = (
+        Index("step_deps_step_idx", "step_id"),
+        Index("step_deps_depends_on_idx", "depends_on_step_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
@@ -228,6 +255,13 @@ class WorkflowStepDependencyRow(Base):
 
 class ArtifactRow(Base):
     __tablename__ = "artifacts"
+    __table_args__ = (
+        Index("artifacts_requirement_idx", "requirement_id"),
+        Index("artifacts_run_idx", "workflow_run_id"),
+        Index("artifacts_step_idx", "step_id"),
+        Index("artifacts_type_idx", "artifact_type"),
+        Index("artifacts_producer_step_idx", "producer_step_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
@@ -250,6 +284,10 @@ class ArtifactRow(Base):
 
 class StepInputBindingRow(Base):
     __tablename__ = "step_input_bindings"
+    __table_args__ = (
+        Index("step_input_bindings_step_idx", "step_id"),
+        Index("step_input_bindings_artifact_idx", "artifact_id"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
@@ -265,6 +303,11 @@ class StepInputBindingRow(Base):
 
 class RequirementAcceptanceCheckRow(Base):
     __tablename__ = "requirement_acceptance_checks"
+    __table_args__ = (
+        Index("req_checks_requirement_idx", "requirement_id"),
+        Index("req_checks_status_idx", "status"),
+        Index("req_checks_owner_role_idx", "owner_role"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
@@ -284,6 +327,11 @@ class RequirementAcceptanceCheckRow(Base):
 
 class ApprovalRequestRow(Base):
     __tablename__ = "approval_requests"
+    __table_args__ = (
+        Index("approval_requests_requirement_idx", "requirement_id"),
+        Index("approval_requests_step_idx", "step_id"),
+        Index("approval_requests_status_idx", "status"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"))

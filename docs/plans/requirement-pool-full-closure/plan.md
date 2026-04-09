@@ -4,35 +4,59 @@ updated_at: 2026-04-09
 doc_status: active
 ---
 
-# Execution Plan
+# Execution Plan — Phase 1 Full Closure
 
 ## Scope
 
-- Backend requirement orchestration and API surface
-- Requirement pool UI and org chart UI
-- Backend API tests, frontend unit tests, and Playwright smoke coverage
+Complete all actionable Phase 1–4 gaps identified in the design doc gap analysis.
+Items explicitly deferred to Phase 2+ (AI planner, multi-tenant, DAG parallelism, external sync) are out of scope.
 
-## Design Notes
+## Completed (Previous Passes)
 
-- Keep the existing workflow mainline intact and only add missing control-plane behavior.
-- Implement requirement revision as an explicit, deterministic loop: `needs_revision` -> revise spec -> re-plan.
-- Replace the org tree source with discovered roles rather than patching the old static hierarchy.
+- [x] Requirement Pool CRUD + dependencies + blocking
+- [x] Deterministic planner → structured plan output
+- [x] Workflow orchestrator: step scheduling, bugfix loop, closeout
+- [x] Revision lifecycle with cancel-replan
+- [x] Dynamic org chart from roles/* discovery
+- [x] Full database schema (all 10 tables from DB design doc)
+- [x] RequirementPool UI: create, plan, start, revision, dependencies, steps, artifacts, acceptance checks
+- [x] OrgChart UI: dynamic agent groups
+- [x] Backend tests: 111 passed
+- [x] Frontend tests: 39 passed
+- [x] Playwright smoke + real E2E: 8 passed
 
-## Change Set
+## Remaining Work
 
-- Add dependency create/update/read support and automatic blocked/ready state recomputation.
-- Add revision submission endpoint and reopen/replan behavior.
-- Replace org API/tree rendering with roles-only dynamic grouping.
-- Update tests to lock the new contract.
+### WS-1: Database Indexes (§5 DB Design Doc)
+- [ ] Add recommended secondary indexes to all 10 tables in database.py
 
-## Action Sequence Snapshot
+### WS-2: Workflow Step Events (§16 Observability)
+- [ ] Write events to `workflow_step_events` on step state transitions in orchestrator
+- [ ] Populate `handoff_summary_markdown` when step completes (§3.6 Structured Handoff)
 
-```json
-[
-  "Document the remaining gaps and acceptance target.",
-  "Implement dependency gating and revision lifecycle in the backend.",
-  "Wire requirement pool UI to dependencies and revision actions.",
-  "Replace static org hierarchy with roles-only rendering.",
-  "Run backend, frontend, build, and Playwright validation."
-]
-```
+### WS-3: Missing API Endpoints (§18)
+- [ ] `PATCH /api/requirements/{id}` — partial field update
+- [ ] `POST /api/requirements/{id}/close` — manual close with governance check
+
+### WS-4: Requirement Pool Scoring (§8)
+- [ ] Implement priority+aging scoring formula for requirement list sorting
+
+### WS-5: Step State Completeness (§14.1)
+- [ ] Add missing step states: `ready`, `blocked` to step lifecycle
+
+### WS-6: Tests for New Behavior
+- [ ] Backend tests for new endpoints + events + scoring
+- [ ] Frontend test coverage for any UI changes
+
+## Out of Scope (Phase 2+)
+
+- AI-driven planner (LLM replaces deterministic planner)
+- Agent Context Contract (§11 structured 3-layer context)
+- Step Context JSON Schema (§10.6)
+- Structured Verifier Output (§13.1)
+- Recovery & Idempotency (§14.3-14.4)
+- Observability APIs (timeline, lineage, evidence views)
+- Step-level APIs (run/retry/logs/context/approve per step)
+- File scope enforcement at runtime
+- Approval gates (pre_execution, pre_publish, manual_close)
+- Multi-tenant isolation, DAG parallel scheduling, external sync

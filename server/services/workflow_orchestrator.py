@@ -22,6 +22,7 @@ from server.database import (
     TaskRow,
     WorkflowRunRow,
     WorkflowStepDependencyRow,
+    WorkflowStepEventRow,
     WorkflowStepRow,
     utcnow,
 )
@@ -32,6 +33,7 @@ from server.schemas import (
     RequirementCreate,
     RequirementDetailOut,
     RequirementOut,
+    RequirementPatch,
     RequirementRevisionRequest,
     WorkflowRunOut,
     WorkflowStepOut,
@@ -43,6 +45,19 @@ from server.services.workflow_planner import WorkflowRoleAssignments, build_plan
 
 RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
+SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
+
+
+def _record_step_event(db: Session, step_id: int, event_type: str, detail: str | None = None):
+    db.add(WorkflowStepEventRow(step_id=step_id, event_type=event_type, detail=detail))
+
+
+def _populate_handoff_summary(step: WorkflowStepRow, task: TaskRow):
+    output = (task.output_content or "").strip()
+    if not output:
+        return
+    summary_lines = output.split("\n")[:10]
+    step.handoff_summary_markdown = "\n".join(summary_lines)
 
 
 def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetailOut:
@@ -132,6 +147,49 @@ def update_requirement_dependencies(db: Session, requirement_id: int, dependency
     return build_requirement_detail(db, requirement.id)
 
 
+def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    if requirement.status == "in_progress":
+        raise ValueError("Cannot edit a requirement that is currently in progress.")
+    if body.title is not None:
+        if not body.title.strip():
+            raise ValueError("title cannot be blank")
+        requirement.title = body.title.strip()
+    if body.description_markdown is not None:
+        if not body.description_markdown.strip():
+            raise ValueError("description_markdown cannot be blank")
+        requirement.description_markdown = body.description_markdown.strip()
+    if body.priority is not None:
+        if body.priority not in {"low", "normal", "high"}:
+            raise ValueError("priority must be low|normal|high")
+        requirement.priority = body.priority
+    if body.source_ref is not None:
+        requirement.source_ref = body.source_ref
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
+def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    if requirement.status == "done":
+        return build_requirement_detail(db, requirement.id)
+    workflow_run = _active_workflow_run(db, requirement)
+    if workflow_run is not None and workflow_run.status not in {"completed", "cancelled", "failed"}:
+        for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).all():
+            if step.status in TERMINAL_STEP_STATUSES:
+                continue
+            step.status = "cancelled"
+            step.completed_at = step.completed_at or utcnow()
+            _record_step_event(db, step.id, "status_change", "cancelled (manual close)")
+        workflow_run.status = "completed"
+        workflow_run.completed_at = workflow_run.completed_at or utcnow()
+    requirement.status = "done"
+    requirement.completed_at = requirement.completed_at or utcnow()
+    _refresh_dependents_for_requirement(db, requirement.id)
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
 def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisionRequest) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     active_run = _active_workflow_run(db, requirement)
@@ -145,6 +203,7 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
                 continue
             step.status = "cancelled"
             step.completed_at = step.completed_at or utcnow()
+            _record_step_event(db, step.id, "status_change", "cancelled (revision)")
 
     db.query(RequirementAcceptanceCheckRow).filter(
         RequirementAcceptanceCheckRow.requirement_id == requirement.id
@@ -290,6 +349,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.runtime_session_id = task.runtime_session_id
         step.runtime_backend = task.runtime_backend or ""
         step.started_at = step.started_at or task.started_at or utcnow()
+        _record_step_event(db, step.id, "status_change", "running")
         db.commit()
         return
 
@@ -299,6 +359,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.runtime_backend = task.runtime_backend or ""
         step.started_at = step.started_at or task.started_at or utcnow()
         run.status = "running"
+        _record_step_event(db, step.id, "status_change", "waiting_approval")
         db.commit()
         return
 
@@ -308,6 +369,8 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.runtime_backend = task.runtime_backend or ""
         step.started_at = step.started_at or task.started_at or utcnow()
         step.completed_at = task.completed_at or utcnow()
+        _populate_handoff_summary(step, task)
+        _record_step_event(db, step.id, "status_change", "completed")
         artifact = _create_step_completion_artifact(db, step, task)
         _mark_step_targets_passed(db, step, artifact)
         _bind_output_to_followup_steps(db, step, artifact)
@@ -320,6 +383,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.status = "failed"
         step.started_at = step.started_at or task.started_at or utcnow()
         step.completed_at = task.completed_at or utcnow()
+        _record_step_event(db, step.id, "status_change", f"failed ({task.status})")
         error_text = task.last_error_message or task.output_content or "Workflow step failed"
         error_artifact = _create_artifact(
             db,
@@ -372,13 +436,25 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()
         ).all()
 
+        # Refresh ready/blocked state for schedulable steps
         for step in steps:
-            if step.status != "pending":
+            if step.status not in SCHEDULABLE_STEP_STATUSES:
                 continue
-            if not _dependencies_satisfied(db, step.id):
+            if _dependencies_satisfied(db, step.id):
+                if step.status != "ready":
+                    step.status = "ready"
+                    _record_step_event(db, step.id, "status_change", "ready")
+            else:
+                if step.status != "blocked":
+                    step.status = "blocked"
+                    _record_step_event(db, step.id, "status_change", "blocked (deps pending)")
+
+        for step in steps:
+            if step.status != "ready":
                 continue
             if step.step_type == "closeout":
                 _auto_complete_closeout(db, requirement, workflow_run, step)
+                _record_step_event(db, step.id, "status_change", "completed (auto-closeout)")
                 db.commit()
                 return
 
@@ -388,6 +464,7 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             step.compatibility_task_id = _as_int(task.id)
             workflow_run.status = "running"
             requirement.status = "in_progress"
+            _record_step_event(db, step.id, "status_change", f"running (task={task.id})")
             db.commit()
 
             from server.services.task_runner import dispatch
@@ -764,7 +841,8 @@ def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: 
         workflow_run.status = "running"
         requirement.status = "in_progress"
         return
-    if all(step.status == "completed" for step in steps) and _all_checks_passed(db, requirement.id):
+    non_cancelled = [s for s in steps if s.status != "cancelled"]
+    if non_cancelled and all(step.status == "completed" for step in non_cancelled) and _all_checks_passed(db, requirement.id):
         workflow_run.status = "completed"
         workflow_run.completed_at = workflow_run.completed_at or utcnow()
         requirement.status = "done"

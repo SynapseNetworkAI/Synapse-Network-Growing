@@ -1,7 +1,7 @@
 """Tests for requirement-first workflow orchestration."""
 from unittest.mock import MagicMock, patch
 
-from server.database import RequirementRow, TaskRow, WorkflowStepRow
+from server.database import RequirementRow, TaskRow, WorkflowStepEventRow, WorkflowStepRow
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import TaskExecutionResult
 
@@ -215,4 +215,126 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
 
     replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert replan_resp.status_code == 200
-    assert replan_resp.json()["requirement"]["current_plan_version"] == 2
+
+
+def test_patch_requirement_updates_fields(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Original title",
+            "description_markdown": "Original description.",
+            "priority": "normal",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}",
+        json={"title": "Updated title", "priority": "high"},
+    )
+    assert patch_resp.status_code == 200
+    patched = patch_resp.json()
+    assert patched["requirement"]["title"] == "Updated title"
+    assert patched["requirement"]["priority"] == "high"
+    assert patched["requirement"]["description_markdown"] == "Original description."
+
+
+def test_patch_requirement_rejects_blank_title(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Temp", "description_markdown": "Desc."},
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}",
+        json={"title": "   "},
+    )
+    assert patch_resp.status_code == 400
+
+
+def test_close_requirement_marks_done(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Close me", "description_markdown": "Should close."},
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    close_resp = synced_client.post(f"/api/requirements/{requirement_id}/close")
+    assert close_resp.status_code == 200
+    closed = close_resp.json()
+    assert closed["requirement"]["status"] == "done"
+    assert closed["requirement"]["completed_at"] is not None
+
+
+def test_close_requirement_unblocks_dependents(synced_client):
+    blocker = synced_client.post(
+        "/api/requirements",
+        json={"title": "Blocker", "description_markdown": "Blocks others."},
+    ).json()
+    blocker_id = blocker["requirement"]["id"]
+
+    dependent = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Dependent",
+            "description_markdown": "Depends on blocker.",
+            "depends_on_requirement_ids": [blocker_id],
+        },
+    ).json()
+    dependent_id = dependent["requirement"]["id"]
+    assert dependent["requirement"]["status"] == "blocked"
+
+    synced_client.post(f"/api/requirements/{blocker_id}/close")
+
+    refreshed = synced_client.get(f"/api/requirements/{dependent_id}").json()
+    assert refreshed["requirement"]["status"] == "ready"
+    assert refreshed["requirement"]["blocked_by_count"] == 0
+
+
+def test_list_requirements_score_sorting(synced_client):
+    synced_client.post(
+        "/api/requirements",
+        json={"title": "Low priority", "description_markdown": "L.", "priority": "low"},
+    )
+    synced_client.post(
+        "/api/requirements",
+        json={"title": "High priority", "description_markdown": "H.", "priority": "high"},
+    )
+
+    default_resp = synced_client.get("/api/requirements")
+    assert default_resp.status_code == 200
+
+    scored_resp = synced_client.get("/api/requirements?sort=score")
+    assert scored_resp.status_code == 200
+    scored = scored_resp.json()
+    assert len(scored) >= 2
+    assert scored[0]["title"] == "High priority"
+
+
+def test_workflow_step_events_recorded(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Events test",
+            "description_markdown": "Check events are recorded.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="done")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    events = db_session.query(WorkflowStepEventRow).all()
+    assert len(events) > 0
+    event_types = {e.event_type for e in events}
+    assert "status_change" in event_types

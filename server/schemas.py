@@ -198,6 +198,13 @@ class RequirementRevisionRequest(BaseModel):
     depends_on_requirement_ids: Optional[list[int]] = None
 
 
+class RequirementPatch(BaseModel):
+    title: Optional[str] = None
+    description_markdown: Optional[str] = None
+    priority: Optional[str] = None
+    source_ref: Optional[str] = None
+
+
 class ArtifactOut(BaseModel):
     id: int
     requirement_id: int

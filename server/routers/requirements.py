@@ -1,6 +1,8 @@
 """Requirements and workflow orchestration API."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -10,11 +12,14 @@ from server.schemas import (
     RequirementDependencyUpdate,
     RequirementDetailOut,
     RequirementOut,
+    RequirementPatch,
     RequirementRevisionRequest,
 )
 from server.services.workflow_orchestrator import (
     build_requirement_detail,
+    close_requirement,
     create_requirement,
+    patch_requirement,
     plan_requirement,
     revise_requirement,
     start_requirement,
@@ -23,16 +28,34 @@ from server.services.workflow_orchestrator import (
 
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
 
+_PRIORITY_SCORE = {"high": 30, "normal": 10, "low": 0}
+_STATUS_PENALTY = {"done": -100, "blocked": -20, "needs_revision": -10}
+
+
+def _requirement_score(row: RequirementRow) -> float:
+    priority = _PRIORITY_SCORE.get(str(row.priority), 10)
+    created = row.created_at or datetime.now(timezone.utc)
+    age_days = (datetime.now(timezone.utc) - created.replace(tzinfo=timezone.utc if created.tzinfo is None else created.tzinfo)).total_seconds() / 86400
+    aging_bonus = min(age_days * 2, 30)
+    penalty = _STATUS_PENALTY.get(str(row.status), 0)
+    blocker_penalty = int(row.blocked_by_count or 0) * 15
+    return priority + aging_bonus + penalty - blocker_penalty
+
 
 @router.get("", response_model=list[RequirementOut])
 def list_requirements(
     status: str | None = Query(None),
+    sort: str | None = Query(None, description="Sort mode: 'score' for priority+aging scoring, default is created_at desc"),
     db: Session = Depends(get_db),
 ):
     query = db.query(RequirementRow)
     if status:
         query = query.filter(RequirementRow.status == status)
-    rows = query.order_by(RequirementRow.created_at.desc(), RequirementRow.id.desc()).all()
+    rows = query.all()
+    if sort == "score":
+        rows.sort(key=_requirement_score, reverse=True)
+    else:
+        rows.sort(key=lambda r: (r.created_at or datetime.min.replace(tzinfo=timezone.utc), r.id), reverse=True)
     return [RequirementOut.model_validate(row) for row in rows]
 
 
@@ -53,6 +76,22 @@ def get_requirement(requirement_id: int, db: Session = Depends(get_db)):
         return build_requirement_detail(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/{requirement_id}", response_model=RequirementDetailOut)
+def patch_requirement_endpoint(requirement_id: int, body: RequirementPatch, db: Session = Depends(get_db)):
+    try:
+        return patch_requirement(db, requirement_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/close", response_model=RequirementDetailOut)
+def close_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return close_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{requirement_id}/plan", response_model=RequirementDetailOut)
