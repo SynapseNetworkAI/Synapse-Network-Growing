@@ -1,6 +1,7 @@
 """Tasks API router."""
 import json
 import logging
+from functools import lru_cache
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -20,6 +21,49 @@ VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejecte
 
 def _add_log(db: Session, task_id: int, event_type: str, detail: str = None):
     db.add(TaskLogRow(task_id=task_id, event_type=event_type, detail=detail))
+
+
+@lru_cache(maxsize=1)
+def _group_project_map() -> dict[str, str]:
+    """Map agent group -> project repo name using org-structure.yaml."""
+    org_path = PROJECT_ROOT / "server" / "org-structure.yaml"
+    if not org_path.exists():
+        return {}
+
+    cfg = yaml.safe_load(org_path.read_text(encoding="utf-8")) or {}
+    mapping: dict[str, str] = {}
+    for domain in cfg.get("domains", []):
+        project = domain.get("project", "")
+        for team in domain.get("teams", []):
+            mapping[team.get("id", "")] = project
+    return mapping
+
+
+def _task_to_out(row: TaskRow) -> TaskOut:
+    agent_group = row.agent.group if row.agent else ""
+    project_id = _group_project_map().get(agent_group, "")
+    return TaskOut(
+        id=row.id,
+        description=row.description,
+        agent_id=row.agent_id,
+        status=row.status,
+        requires_approval=row.requires_approval,
+        priority=row.priority,
+        project_id=project_id or None,
+        project_label=project_id or None,
+        agent_group=agent_group or None,
+        skill_name=row.skill_name,
+        context_files=row.context_files,
+        retry_of_task_id=row.retry_of_task_id,
+        attempt_no=row.attempt_no or 1,
+        last_error_message=row.last_error_message,
+        output_path=row.output_path,
+        output_content=row.output_content,
+        execution_time_ms=row.execution_time_ms,
+        created_at=row.created_at,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+    )
 
 
 def _load_full_persona(agent_id: str) -> dict:
@@ -51,6 +95,9 @@ def _load_full_persona(agent_id: str) -> dict:
 def list_tasks(
     status: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
+    agent_group: Optional[str] = Query(None),
+    project_id: Optional[str] = Query(None),
+    only_anomalies: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     q = db.query(TaskRow)
@@ -58,7 +105,16 @@ def list_tasks(
         q = q.filter(TaskRow.status == status)
     if agent_id:
         q = q.filter(TaskRow.agent_id == agent_id)
-    return q.order_by(TaskRow.created_at.desc()).all()
+    rows = q.order_by(TaskRow.created_at.desc()).all()
+
+    if only_anomalies:
+        rows = [r for r in rows if r.status in {"failed", "pending_approval", "running"}]
+    if agent_group:
+        rows = [r for r in rows if (r.agent.group if r.agent else "") == agent_group]
+    if project_id:
+        rows = [r for r in rows if _group_project_map().get(r.agent.group if r.agent else "", "") == project_id]
+
+    return [_task_to_out(r) for r in rows]
 
 
 @router.get("/{task_id}", response_model=TaskOut)
@@ -66,7 +122,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Task not found")
-    return row
+    return _task_to_out(row)
 
 
 @router.post("", response_model=TaskOut, status_code=201)
@@ -94,7 +150,7 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db)):
     db.refresh(row)
     logger.info("Task #%d created: agent=%s, skill=%s, desc=%s",
                 row.id, row.agent_id, row.skill_name, row.description[:60])
-    return row
+    return _task_to_out(row)
 
 
 @router.post("/{task_id}/run", response_model=TaskOut)
@@ -130,7 +186,56 @@ def run_task(
     from server.services.task_runner import dispatch
     dispatch(task_id=row.id, agent_persona=persona, skill_name=effective_skill)
 
-    return row  # returns status=running immediately
+    return _task_to_out(row)  # returns status=running immediately
+
+
+@router.post("/{task_id}/retry", response_model=TaskOut)
+def retry_task(
+    task_id: int,
+    mode: str = Query("run_now", description="Retry mode: run_now | edit_first"),
+    db: Session = Depends(get_db),
+):
+    source = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if source.status not in {"failed", "rejected"}:
+        raise HTTPException(status_code=400, detail="Only failed or rejected tasks can be retried")
+    if mode not in {"run_now", "edit_first"}:
+        raise HTTPException(status_code=400, detail="mode must be run_now|edit_first")
+
+    row = TaskRow(
+        description=source.description,
+        agent_id=source.agent_id,
+        status="pending",
+        requires_approval=source.requires_approval,
+        priority=source.priority,
+        skill_name=source.skill_name,
+        context_files=source.context_files,
+        retry_of_task_id=source.id,
+        attempt_no=(source.attempt_no or 1) + 1,
+    )
+    db.add(row)
+    db.flush()
+    _add_log(db, row.id, "created", row.description)
+    _add_log(db, row.id, "retried_from", f"task={source.id}")
+
+    if mode == "run_now":
+        if not row.skill_name:
+            raise HTTPException(status_code=400, detail="Cannot retry immediately without a skill")
+        persona = _load_full_persona(row.agent_id)
+        row.status = "running"
+        row.started_at = utcnow()
+        _add_log(db, row.id, "started", f"skill={row.skill_name}")
+        db.commit()
+        db.refresh(row)
+
+        from server.services.task_runner import dispatch
+        dispatch(task_id=row.id, agent_persona=persona, skill_name=row.skill_name)
+        return _task_to_out(row)
+
+    db.commit()
+    db.refresh(row)
+    return _task_to_out(row)
 
 
 @router.get("/{task_id}/logs", response_model=list[TaskLogOut])

@@ -31,8 +31,14 @@ export interface Task {
   status: string
   requires_approval: boolean
   priority: string
+  project_id: string | null
+  project_label: string | null
+  agent_group: string | null
   skill_name: string | null
   context_files: string | null
+  retry_of_task_id: number | null
+  attempt_no: number
+  last_error_message: string | null
   output_path: string | null
   output_content: string | null
   execution_time_ms: number | null
@@ -97,10 +103,13 @@ export const api = {
   getOrgTree: () => request<OrgTree>('/org'),
 
   // Tasks
-  getTasks: (params?: { status?: string; agent_id?: string }) => {
+  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; only_anomalies?: boolean }) => {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.agent_id) qs.set('agent_id', params.agent_id)
+    if (params?.agent_group) qs.set('agent_group', params.agent_group)
+    if (params?.project_id) qs.set('project_id', params.project_id)
+    if (params?.only_anomalies) qs.set('only_anomalies', 'true')
     const q = qs.toString()
     return request<Task[]>(`/tasks${q ? '?' + q : ''}`)
   },
@@ -110,6 +119,8 @@ export const api = {
     const qs = skill ? `?skill=${encodeURIComponent(skill)}` : ''
     return request<Task>(`/tasks/${id}/run${qs}`, { method: 'POST' })
   },
+  retryTask: (id: number, mode: 'run_now' | 'edit_first' = 'run_now') =>
+    request<Task>(`/tasks/${id}/retry?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
 
   // Approvals

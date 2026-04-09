@@ -20,7 +20,15 @@ const STATUS_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
-/* ── Markdown 渲染 wrapper ──────────────────────────────────── */
+const STATUS_ORDER: Record<string, number> = {
+  running: 0,
+  failed: 1,
+  pending_approval: 2,
+  pending: 3,
+  completed: 4,
+  rejected: 5,
+}
+
 function Md({ children }: { children: string }) {
   return (
     <div className="prose prose-sm max-w-none prose-headings:text-base prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
@@ -29,11 +37,28 @@ function Md({ children }: { children: string }) {
   )
 }
 
+function getTaskErrorSummary(task: Task) {
+  if (task.last_error_message) return task.last_error_message
+  if (task.output_content?.startsWith('[ERROR] ')) return task.output_content.replace('[ERROR] ', '').trim()
+  return ''
+}
+
+function inferProjectFromAgent(agent: Agent | undefined) {
+  if (!agent?.group) return 'Synapse-Network-Growing'
+  return 'Synapse-Network-Growing'
+}
+
 export default function TaskBoard() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [skills, setSkills] = useState<string[]>([])
-  const [filter, setFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [projectFilter, setProjectFilter] = useState('')
+  const [agentGroupFilter, setAgentGroupFilter] = useState('')
+  const [agentFilter, setAgentFilter] = useState('')
+  const [search, setSearch] = useState('')
+  const [onlyAnomalies, setOnlyAnomalies] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ description: '', agent_id: '', requires_approval: false, priority: 'normal', skill_name: '' })
   const [preview, setPreview] = useState(false)
@@ -44,21 +69,25 @@ export default function TaskBoard() {
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([
-      api.getTasks(filter ? { status: filter } : undefined),
+      api.getTasks({
+        status: statusFilter || undefined,
+        project_id: projectFilter || undefined,
+        agent_group: agentGroupFilter || undefined,
+        agent_id: agentFilter || undefined,
+        only_anomalies: onlyAnomalies || undefined,
+      }),
       api.getAgents(),
     ])
     setTasks(t)
     setAgents(a)
-  }, [filter])
+  }, [statusFilter, projectFilter, agentGroupFilter, agentFilter, onlyAnomalies])
 
-  // Load skills list once
   useEffect(() => {
     api.getSkills().then(setSkills).catch(() => {})
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  // Poll for running tasks
   useEffect(() => {
     const hasRunning = tasks.some(t => t.status === 'running')
     if (hasRunning) {
@@ -70,13 +99,34 @@ export default function TaskBoard() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [tasks, load])
 
-  // Derive agent skills for selected agent
+  const selectedAgent = agents.find(a => a.id === form.agent_id)
   const selectedAgentSkills: string[] = (() => {
-    if (!form.agent_id) return []
-    const agent = agents.find(a => a.id === form.agent_id)
-    if (!agent) return []
-    try { return JSON.parse(agent.skills) } catch { return [] }
+    if (!selectedAgent) return []
+    try { return JSON.parse(selectedAgent.skills) } catch { return [] }
   })()
+
+  const visibleTasks = tasks.filter((task) => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return [
+      task.description,
+      task.agent_id,
+      task.skill_name || '',
+      task.project_label || '',
+      task.agent_group || '',
+      getTaskErrorSummary(task),
+    ].some((value) => value.toLowerCase().includes(q))
+  })
+
+  const groupedTasks = visibleTasks.reduce<Record<string, Task[]>>((acc, task) => {
+    const key = task.project_label || task.project_id || '未分类'
+    acc[key] ||= []
+    acc[key].push(task)
+    return acc
+  }, {})
+
+  const projectKeys = Array.from(new Set(tasks.map(t => t.project_id).filter(Boolean))) as string[]
+  const groupKeys = Array.from(new Set(agents.map(a => a.group).filter(Boolean)))
 
   const handleCreate = async () => {
     if (!form.description || !form.agent_id) return
@@ -104,12 +154,28 @@ export default function TaskBoard() {
     await load()
   }
 
+  const handleRetry = async (taskId: number) => {
+    await api.retryTask(taskId, 'run_now')
+    await load()
+  }
+
+  const handleEditRetry = (task: Task) => {
+    setForm({
+      description: task.description,
+      agent_id: task.agent_id,
+      requires_approval: task.requires_approval,
+      priority: task.priority,
+      skill_name: task.skill_name || '',
+    })
+    setShowCreate(true)
+    setPreview(false)
+  }
+
   const handleViewLogs = async (taskId: number) => {
     const logs = await api.getTaskLogs(taskId)
     setSelectedLogs({ taskId, logs })
   }
 
-  /* ── Markdown 快捷插入工具栏 ─────────────────────────────── */
   const insertMarkdown = (syntax: string) => {
     const ta = document.getElementById('task-desc') as HTMLTextAreaElement | null
     if (!ta) return
@@ -123,15 +189,12 @@ export default function TaskBoard() {
       case 'heading': replacement = `\n## ${selected || '标题'}\n`; break
       case 'list': replacement = `\n- ${selected || '列表项'}\n`; break
       case 'checklist': replacement = `\n- [ ] ${selected || '待办项'}\n`; break
-      case 'code': replacement = selected.includes('\n')
-        ? `\n\`\`\`\n${selected || '代码'}\n\`\`\`\n`
-        : `\`${selected || '代码'}\``; break
+      case 'code': replacement = selected.includes('\n') ? `\n\`\`\`\n${selected || '代码'}\n\`\`\`\n` : `\`${selected || '代码'}\``; break
       case 'link': replacement = `[${selected || '链接文本'}](url)`; break
       default: replacement = selected
     }
     const newText = text.substring(0, start) + replacement + text.substring(end)
     setForm({ ...form, description: newText })
-    // Restore cursor
     setTimeout(() => {
       ta.focus()
       ta.selectionStart = ta.selectionEnd = start + replacement.length
@@ -140,13 +203,13 @@ export default function TaskBoard() {
 
   return (
     <div data-testid="taskboard-page">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h2 className="text-xl font-bold">任务看板</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <select
             data-testid="status-filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="text-sm border rounded px-3 py-2"
           >
             <option value="">全部状态</option>
@@ -155,7 +218,26 @@ export default function TaskBoard() {
             <option value="pending_approval">待审批</option>
             <option value="completed">已完成</option>
             <option value="rejected">已拒绝</option>
+            <option value="failed">失败</option>
           </select>
+          <select
+            data-testid="project-filter"
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="text-sm border rounded px-3 py-2"
+          >
+            <option value="">全部项目</option>
+            {projectKeys.map((project) => (
+              <option key={project} value={project}>{project}</option>
+            ))}
+          </select>
+          <button
+            data-testid="advanced-filters-toggle"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-sm border rounded px-3 py-2 hover:bg-gray-50"
+          >
+            {showAdvanced ? '收起高级筛选' : '高级筛选'}
+          </button>
           <button
             data-testid="create-btn"
             onClick={() => setShowCreate(!showCreate)}
@@ -166,10 +248,60 @@ export default function TaskBoard() {
         </div>
       </div>
 
-      {/* ── Create form ──────────────────────────────────────── */}
+      {showAdvanced && (
+        <div className="bg-white border rounded-lg p-3 mb-4 grid grid-cols-1 md:grid-cols-4 gap-3" data-testid="advanced-filters">
+          <select
+            data-testid="group-filter"
+            value={agentGroupFilter}
+            onChange={(e) => setAgentGroupFilter(e.target.value)}
+            className="text-sm border rounded px-3 py-2"
+          >
+            <option value="">全部 Agent 组</option>
+            {groupKeys.map((group) => (
+              <option key={group} value={group}>{group}</option>
+            ))}
+          </select>
+          <select
+            data-testid="agent-filter"
+            value={agentFilter}
+            onChange={(e) => setAgentFilter(e.target.value)}
+            className="text-sm border rounded px-3 py-2"
+          >
+            <option value="">全部 Agent</option>
+            {agents
+              .filter((agent) => !agentGroupFilter || agent.group === agentGroupFilter)
+              .map((agent) => (
+                <option key={agent.id} value={agent.id}>{agent.display_name} ({agent.id})</option>
+              ))}
+          </select>
+          <input
+            data-testid="task-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索任务 / Agent / Skill / 错误"
+            className="text-sm border rounded px-3 py-2"
+          />
+          <label className="flex items-center gap-2 text-sm border rounded px-3 py-2">
+            <input
+              data-testid="only-anomalies"
+              type="checkbox"
+              checked={onlyAnomalies}
+              onChange={(e) => setOnlyAnomalies(e.target.checked)}
+            />
+            仅看异常
+          </label>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" data-testid="task-summary-bar">
+        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'running').length}</div></div>
+        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'failed').length}</div></div>
+        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'pending_approval').length}</div></div>
+        <div className="bg-white border rounded-lg p-3"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'completed').length}</div></div>
+      </div>
+
       {showCreate && (
         <div data-testid="create-form" className="bg-white border rounded-lg p-4 mb-4 shadow-sm">
-          {/* Agent + Skill + Priority + Approval row */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
             <select
               data-testid="agent-select"
@@ -214,7 +346,14 @@ export default function TaskBoard() {
             </label>
           </div>
 
-          {/* Markdown toolbar */}
+          {selectedAgent && (
+            <div className="mb-3 rounded border bg-gray-50 px-3 py-2 text-xs text-gray-600" data-testid="agent-meta-hint">
+              <span className="mr-4">项目: {inferProjectFromAgent(selectedAgent)}</span>
+              <span className="mr-4">组别: {selectedAgent.group || '-'}</span>
+              <span>技能数: {selectedAgentSkills.length}</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-1 mb-1 border-b pb-1">
             <span className="text-xs text-gray-400 mr-2">Markdown</span>
             {[
@@ -247,7 +386,6 @@ export default function TaskBoard() {
             </button>
           </div>
 
-          {/* Textarea / Preview */}
           {preview ? (
             <div data-testid="md-preview" className="border rounded p-3 min-h-[200px] bg-gray-50">
               {form.description ? <Md>{form.description}</Md> : <p className="text-gray-400 text-sm">暂无内容</p>}
@@ -264,7 +402,6 @@ export default function TaskBoard() {
             />
           )}
 
-          {/* Character count + actions */}
           <div className="flex items-center justify-between mt-2">
             <span className="text-xs text-gray-400">{form.description.length} 字符</span>
             <div className="flex gap-2">
@@ -288,125 +425,172 @@ export default function TaskBoard() {
         </div>
       )}
 
-      {/* ── Task list ────────────────────────────────────────── */}
-      <div className="space-y-2">
-        {tasks.length === 0 && <p data-testid="empty-tasks" className="text-gray-500 text-sm">暂无任务</p>}
-        {tasks.map((task) => {
-          const isExpanded = expandedTask === task.id
-          return (
-            <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
-              {/* Task header row */}
-              <div
-                className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50"
-                onClick={() => setExpandedTask(isExpanded ? null : task.id)}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[task.status] || 'bg-gray-100'}`}>
-                      {STATUS_LABEL[task.status] || task.status}
-                    </span>
-                    <span className="text-xs text-gray-400 font-mono">#{task.id}</span>
-                    <span className="text-xs text-gray-400">@{task.agent_id}</span>
-                    {task.priority !== 'normal' && (
-                      <span className={`text-xs px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'}`}>
-                        {task.priority === 'high' ? '⚡ 高' : '低'}
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-300">{isExpanded ? '▼' : '▶'}</span>
-                  </div>
-                  <p className="text-sm truncate">{task.description.split('\n')[0]}</p>
-                </div>
-                <div className="flex gap-2 ml-4 items-center" onClick={(e) => e.stopPropagation()}>
-                  {task.status === 'running' && (
-                    <span data-testid={`spinner-${task.id}`} className="text-blue-500 animate-spin text-sm">⏳</span>
-                  )}
-                  {task.status === 'pending' && (
-                    <>
-                      {!task.skill_name && (
-                        <select
-                          data-testid={`run-skill-${task.id}`}
-                          value={runningSkill[task.id] || ''}
-                          onChange={(e) => setRunningSkill({ ...runningSkill, [task.id]: e.target.value })}
-                          className="text-xs border rounded px-2 py-1"
-                        >
-                          <option value="">Skill...</option>
-                          {skills.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      )}
-                      <button
-                        data-testid={`run-${task.id}`}
-                        onClick={() => handleRun(task.id)}
-                        className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
-                      >
-                        执行
-                      </button>
-                    </>
-                  )}
-                  <button
-                    data-testid={`logs-${task.id}`}
-                    onClick={() => handleViewLogs(task.id)}
-                    className="text-xs border px-3 py-1.5 rounded hover:bg-gray-50"
-                  >
-                    日志
-                  </button>
-                </div>
+      <div className="space-y-4">
+        {Object.keys(groupedTasks).length === 0 && <p data-testid="empty-tasks" className="text-gray-500 text-sm">暂无任务</p>}
+        {Object.entries(groupedTasks)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([project, projectTasks]) => (
+            <section key={project} data-testid={`project-section-${project}`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-700">项目: {project}</h3>
+                <span className="text-xs text-gray-400">{projectTasks.length} 个任务</span>
               </div>
+              <div className="space-y-2">
+                {projectTasks
+                  .slice()
+                  .sort((a, b) => {
+                    const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)
+                    if (statusDiff !== 0) return statusDiff
+                    return b.id - a.id
+                  })
+                  .map((task) => {
+                    const isExpanded = expandedTask === task.id
+                    const errorSummary = getTaskErrorSummary(task)
+                    return (
+                      <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
+                        <div
+                          className="p-4 flex items-start justify-between cursor-pointer hover:bg-gray-50"
+                          onClick={() => setExpandedTask(isExpanded ? null : task.id)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[task.status] || 'bg-gray-100'}`}>
+                                {STATUS_LABEL[task.status] || task.status}
+                              </span>
+                              <span className="text-xs text-gray-400 font-mono">#{task.id}</span>
+                              {task.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{task.project_label}</span>}
+                              <span className="text-xs text-gray-500">@{task.agent_id}</span>
+                              {task.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{task.agent_group}</span>}
+                              {task.skill_name && <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700">🛠 {task.skill_name}</span>}
+                              {task.priority !== 'normal' && (
+                                <span className={`text-xs px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'}`}>
+                                  {task.priority === 'high' ? '⚡ 高' : '低'}
+                                </span>
+                              )}
+                              {task.attempt_no > 1 && <span className="text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-700">第 {task.attempt_no} 次</span>}
+                              <span className="text-xs text-gray-300">{isExpanded ? '▼' : '▶'}</span>
+                            </div>
+                            <p className="text-sm truncate font-medium">{task.description.split('\n')[0]}</p>
+                            {task.status === 'failed' && errorSummary && (
+                              <p className="text-xs text-red-600 mt-1 truncate" data-testid={`error-summary-${task.id}`}>{errorSummary}</p>
+                            )}
+                          </div>
+                          <div className="flex gap-2 ml-4 items-center flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
+                            {task.status === 'running' && (
+                              <span data-testid={`spinner-${task.id}`} className="text-blue-500 animate-spin text-sm">⏳</span>
+                            )}
+                            {task.status === 'pending' && (
+                              <>
+                                {!task.skill_name && (
+                                  <select
+                                    data-testid={`run-skill-${task.id}`}
+                                    value={runningSkill[task.id] || ''}
+                                    onChange={(e) => setRunningSkill({ ...runningSkill, [task.id]: e.target.value })}
+                                    className="text-xs border rounded px-2 py-1"
+                                  >
+                                    <option value="">Skill...</option>
+                                    {skills.map((s) => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                )}
+                                <button
+                                  data-testid={`run-${task.id}`}
+                                  onClick={() => handleRun(task.id)}
+                                  className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700"
+                                >
+                                  执行
+                                </button>
+                              </>
+                            )}
+                            {task.status === 'failed' && (
+                              <>
+                                <button
+                                  data-testid={`retry-${task.id}`}
+                                  onClick={() => handleRetry(task.id)}
+                                  className="text-xs bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700"
+                                >
+                                  重试
+                                </button>
+                                <button
+                                  data-testid={`edit-retry-${task.id}`}
+                                  onClick={() => handleEditRetry(task)}
+                                  className="text-xs border px-3 py-1.5 rounded hover:bg-gray-50"
+                                >
+                                  编辑后重试
+                                </button>
+                              </>
+                            )}
+                            <button
+                              data-testid={`logs-${task.id}`}
+                              onClick={() => handleViewLogs(task.id)}
+                              className="text-xs border px-3 py-1.5 rounded hover:bg-gray-50"
+                            >
+                              日志
+                            </button>
+                          </div>
+                        </div>
 
-              {/* Expanded detail */}
-              {isExpanded && (
-                <div data-testid={`task-detail-${task.id}`} className="border-t px-4 py-3 bg-gray-50">
-                  {task.skill_name && (
-                    <div className="mb-2">
-                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${task.id}`}>
-                        🛠 {task.skill_name}
-                      </span>
-                      {task.execution_time_ms != null && (
-                        <span className="text-xs text-gray-400 ml-2">
-                          ⏱ {(task.execution_time_ms / 1000).toFixed(1)}s
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className="mb-3">
-                    <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
-                    <div className="bg-white border rounded p-3">
-                      <Md>{task.description}</Md>
-                    </div>
-                  </div>
-                  {task.output_content && (
-                    <div className="mb-3">
-                      <h4 className="text-xs font-bold text-gray-500 mb-1">执行产出</h4>
-                      <div className="bg-white border rounded p-3">
-                        <Md>{task.output_content}</Md>
+                        {isExpanded && (
+                          <div data-testid={`task-detail-${task.id}`} className="border-t px-4 py-3 bg-gray-50">
+                            <div className="mb-2 flex gap-3 flex-wrap items-center text-xs text-gray-500">
+                              {task.skill_name && (
+                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${task.id}`}>
+                                  🛠 {task.skill_name}
+                                </span>
+                              )}
+                              {task.retry_of_task_id != null && <span>重试来源: #{task.retry_of_task_id}</span>}
+                              {task.execution_time_ms != null && <span>⏱ {(task.execution_time_ms / 1000).toFixed(1)}s</span>}
+                            </div>
+                            <div className="mb-3">
+                              <h4 className="text-xs font-bold text-gray-500 mb-1">任务描述</h4>
+                              <div className="bg-white border rounded p-3">
+                                <Md>{task.description}</Md>
+                              </div>
+                            </div>
+                            {errorSummary && (
+                              <div className="mb-3">
+                                <h4 className="text-xs font-bold text-gray-500 mb-1">失败原因</h4>
+                                <div className="bg-white border rounded p-3 text-sm text-red-600">{errorSummary}</div>
+                              </div>
+                            )}
+                            {task.output_content && (
+                              <div className="mb-3">
+                                <h4 className="text-xs font-bold text-gray-500 mb-1">执行产出</h4>
+                                <div className="bg-white border rounded p-3">
+                                  <Md>{task.output_content}</Md>
+                                </div>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-3 gap-4 text-xs text-gray-500">
+                              <div>创建: {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '-'}</div>
+                              <div>开始: {task.started_at ? new Date(task.started_at).toLocaleString('zh-CN') : '-'}</div>
+                              <div>完成: {task.completed_at ? new Date(task.completed_at).toLocaleString('zh-CN') : '-'}</div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-4 text-xs text-gray-500">
-                    <div>创建: {task.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '-'}</div>
-                    <div>开始: {task.started_at ? new Date(task.started_at).toLocaleString('zh-CN') : '-'}</div>
-                    <div>完成: {task.completed_at ? new Date(task.completed_at).toLocaleString('zh-CN') : '-'}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                    )
+                  })}
+              </div>
+            </section>
+          ))}
       </div>
 
-      {/* ── Logs modal ───────────────────────────────────────── */}
       {selectedLogs && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setSelectedLogs(null)}>
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[70vh] overflow-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-bold mb-3">Task #{selectedLogs.taskId} 日志</h3>
             {selectedLogs.logs.length === 0 && <p className="text-sm text-gray-500">暂无日志</p>}
             <div className="space-y-2">
-              {selectedLogs.logs.map((log) => (
-                <div key={log.id} className="text-sm border-l-2 border-gray-300 pl-3">
-                  <span className="font-mono text-xs text-gray-400">{log.created_at}</span>
-                  <span className="ml-2 font-semibold">{log.event_type}</span>
-                  {log.detail && <p className="text-gray-600 text-xs mt-0.5">{log.detail}</p>}
-                </div>
-              ))}
+              {selectedLogs.logs
+                .slice()
+                .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+                .map((log) => (
+                  <div key={log.id} className={`text-sm border-l-2 pl-3 ${log.event_type === 'failed' ? 'border-red-400' : log.event_type === 'completed' ? 'border-green-400' : 'border-gray-300'}`}>
+                    <span className="font-mono text-xs text-gray-400">{log.created_at}</span>
+                    <span className="ml-2 font-semibold">{log.event_type}</span>
+                    {log.detail && <p className="text-gray-600 text-xs mt-0.5">{log.detail}</p>}
+                  </div>
+                ))}
             </div>
             <button onClick={() => setSelectedLogs(null)} className="mt-4 text-sm text-gray-500 hover:text-gray-700">
               关闭

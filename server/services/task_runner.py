@@ -61,11 +61,13 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         # Write results back to DB
         task.output_content = result.text
         task.execution_time_ms = result.execution_time_ms
+        task.last_error_message = None
         if result.files:
             task.output_path = str(result.files[0])
 
         if result.error:
             task.status = "failed"
+            task.last_error_message = result.error
             task.output_content = f"[ERROR] {result.error}"
             task.completed_at = utcnow()
             _log(db, task_id, "failed", result.error)
@@ -92,6 +94,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
             if task:
                 task.status = "failed"
+                task.last_error_message = str(e)
                 task.output_content = f"[ERROR] {e}"
                 task.completed_at = utcnow()
                 _log(db, task_id, "failed", str(e))

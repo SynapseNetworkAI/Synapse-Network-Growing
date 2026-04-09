@@ -55,6 +55,9 @@ class TaskRow(Base):
     priority = Column(Text, default="normal")
     skill_name = Column(Text)
     context_files = Column(Text)  # JSON array of relative paths
+    retry_of_task_id = Column(Integer)
+    attempt_no = Column(Integer, default=1)
+    last_error_message = Column(Text)
     output_path = Column(Text)
     output_content = Column(Text)
     execution_time_ms = Column(Integer)
@@ -114,6 +117,9 @@ def _migrate(engine_):
             "skill_name": "TEXT",
             "context_files": "TEXT",
             "execution_time_ms": "INTEGER",
+            "retry_of_task_id": "INTEGER",
+            "attempt_no": "INTEGER DEFAULT 1",
+            "last_error_message": "TEXT",
         }
         for col, col_type in new_cols.items():
             if col not in existing:

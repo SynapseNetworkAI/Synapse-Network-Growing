@@ -39,8 +39,14 @@ class TaskOut(BaseModel):
     status: str
     requires_approval: bool
     priority: str
+    project_id: Optional[str] = None
+    project_label: Optional[str] = None
+    agent_group: Optional[str] = None
     skill_name: Optional[str] = None
     context_files: Optional[str] = None
+    retry_of_task_id: Optional[int] = None
+    attempt_no: int = 1
+    last_error_message: Optional[str] = None
     output_path: Optional[str] = None
     output_content: Optional[str] = None
     execution_time_ms: Optional[int] = None

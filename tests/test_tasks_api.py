@@ -57,6 +57,45 @@ def test_list_tasks_filter_by_agent(synced_client):
     assert resp.json()[0]["agent_id"] == "dev_rel"
 
 
+def test_list_tasks_returns_derived_project_and_group(synced_client):
+    synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    resp = synced_client.get("/api/tasks")
+    assert resp.status_code == 200
+    task = resp.json()[0]
+    assert task["project_id"] == "Synapse-Network-Growing"
+    assert task["project_label"] == "Synapse-Network-Growing"
+    assert task["agent_group"] == "content"
+
+
+def test_list_tasks_filter_by_agent_group(synced_client):
+    synced_client.post("/api/tasks", json={"description": "seo", "agent_id": "seo_strategist"})
+    synced_client.post("/api/tasks", json={"description": "content", "agent_id": "content_writer"})
+    resp = synced_client.get("/api/tasks?agent_group=optimization")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["agent_id"] == "seo_strategist"
+
+
+def test_list_tasks_filter_by_project(synced_client):
+    synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    resp = synced_client.get("/api/tasks?project_id=Synapse-Network-Growing")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_list_tasks_only_anomalies(synced_client):
+    synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    failed = synced_client.post("/api/tasks", json={
+        "description": "t2", "agent_id": "seo_strategist", "skill_name": "seo-audit",
+    }).json()
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{failed['id']}/run")
+    resp = synced_client.get("/api/tasks?only_anomalies=true")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["status"] == "running"
+
+
 def test_get_task(synced_client):
     create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     task_id = create.json()["id"]
@@ -128,6 +167,84 @@ def test_task_logs(synced_client):
     event_types = [l["event_type"] for l in logs]
     assert "created" in event_types
     assert "started" in event_types
+
+
+def test_retry_task_run_now_creates_new_running_task(synced_client):
+    from server.services.task_runner import _run_task_sync
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "retry me",
+        "agent_id": "seo_strategist",
+        "skill_name": "seo-audit",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
+    failed_result = MagicMock()
+    failed_result.text = ""
+    failed_result.files = []
+    failed_result.error = "boom"
+    failed_result.execution_time_ms = 1
+
+    with patch("server.services.task_runner._engine") as mock_engine:
+        mock_engine.execute.return_value = failed_result
+        _run_task_sync(task_id, persona, "seo-audit")
+
+    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+        mock_dispatch.return_value = MagicMock()
+        resp = synced_client.post(f"/api/tasks/{task_id}/retry?mode=run_now")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "running"
+    assert data["retry_of_task_id"] == task_id
+    assert data["attempt_no"] == 2
+    mock_dispatch.assert_called_once()
+
+
+def test_retry_task_edit_first_creates_pending_task(synced_client):
+    from server.services.task_runner import _run_task_sync
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "retry me later",
+        "agent_id": "seo_strategist",
+        "skill_name": "seo-audit",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
+    failed_result = MagicMock()
+    failed_result.text = ""
+    failed_result.files = []
+    failed_result.error = "boom"
+    failed_result.execution_time_ms = 1
+
+    with patch("server.services.task_runner._engine") as mock_engine:
+        mock_engine.execute.return_value = failed_result
+        _run_task_sync(task_id, persona, "seo-audit")
+
+    resp = synced_client.post(f"/api/tasks/{task_id}/retry?mode=edit_first")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "pending"
+    assert data["retry_of_task_id"] == task_id
+    assert data["attempt_no"] == 2
+
+
+def test_retry_task_invalid_status(synced_client):
+    create = synced_client.post("/api/tasks", json={
+        "description": "not failed yet",
+        "agent_id": "dev_rel",
+    })
+    task_id = create.json()["id"]
+    resp = synced_client.post(f"/api/tasks/{task_id}/retry?mode=run_now")
+    assert resp.status_code == 400
 
 
 def test_agent_task_count_after_tasks(synced_client):

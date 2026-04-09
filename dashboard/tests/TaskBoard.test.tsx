@@ -9,6 +9,7 @@ const mockApi = {
   getSkills: vi.fn(),
   createTask: vi.fn(),
   runTask: vi.fn(),
+  retryTask: vi.fn(),
   getTaskLogs: vi.fn(),
 }
 
@@ -19,6 +20,7 @@ vi.mock('../src/api', () => ({
     getSkills: (...args: unknown[]) => mockApi.getSkills(...args),
     createTask: (...args: unknown[]) => mockApi.createTask(...args),
     runTask: (...args: unknown[]) => mockApi.runTask(...args),
+    retryTask: (...args: unknown[]) => mockApi.retryTask(...args),
     getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
   },
 }))
@@ -55,8 +57,14 @@ const PENDING_TASK = {
   status: 'pending',
   requires_approval: false,
   priority: 'normal',
+  project_id: 'Synapse-Network-Growing',
+  project_label: 'Synapse-Network-Growing',
+  agent_group: 'optimization',
   skill_name: 'seo-audit',
   context_files: null,
+  retry_of_task_id: null,
+  attempt_no: 1,
+  last_error_message: null,
   output_path: null,
   output_content: null,
   execution_time_ms: null,
@@ -83,17 +91,30 @@ const COMPLETED_TASK = {
   completed_at: '2026-04-10T00:01:12Z',
 }
 
+const FAILED_TASK = {
+  ...PENDING_TASK,
+  id: 4,
+  status: 'failed',
+  output_content: '[ERROR] OPENAI_API_KEY not set. Configure the environment variable to enable LLM execution.',
+  last_error_message: 'OPENAI_API_KEY not set. Configure the environment variable to enable LLM execution.',
+  completed_at: '2026-04-10T00:02:00Z',
+}
+
 describe('TaskBoard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.getTasks.mockResolvedValue([])
     mockApi.getAgents.mockResolvedValue(AGENTS)
     mockApi.getSkills.mockResolvedValue(SKILLS)
+    mockApi.retryTask.mockResolvedValue({ ...RUNNING_TASK, id: 10 })
   })
 
   it('renders the task board page', async () => {
     render(<TaskBoard />)
     expect(screen.getByText('任务看板')).toBeDefined()
+    await waitFor(() => {
+      expect(mockApi.getTasks).toHaveBeenCalled()
+    })
   })
 
   it('fetches and displays skills list', async () => {
@@ -187,6 +208,14 @@ describe('TaskBoard', () => {
     })
   })
 
+  it('shows project section heading', async () => {
+    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    render(<TaskBoard />)
+    await waitFor(() => {
+      expect(screen.getByTestId('project-section-Synapse-Network-Growing')).toBeDefined()
+    })
+  })
+
   it('calls runTask with skill parameter', async () => {
     mockApi.getTasks.mockResolvedValue([PENDING_TASK])
     mockApi.runTask.mockResolvedValue(RUNNING_TASK)
@@ -200,6 +229,48 @@ describe('TaskBoard', () => {
 
     await waitFor(() => {
       expect(mockApi.runTask).toHaveBeenCalledWith(1, 'seo-audit')
+    })
+  })
+
+  it('shows failed task summary and retry actions', async () => {
+    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error-summary-4').textContent).toContain('OPENAI_API_KEY not set')
+      expect(screen.getByTestId('retry-4')).toBeDefined()
+      expect(screen.getByTestId('edit-retry-4')).toBeDefined()
+    })
+  })
+
+  it('calls retryTask for failed task', async () => {
+    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('retry-4')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('retry-4'))
+
+    await waitFor(() => {
+      expect(mockApi.retryTask).toHaveBeenCalledWith(4, 'run_now')
+    })
+  })
+
+  it('prefills create form when editing failed retry', async () => {
+    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    render(<TaskBoard />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-retry-4')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('edit-retry-4'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-form')).toBeDefined()
+      expect((screen.getByTestId('task-description') as HTMLTextAreaElement).value).toContain('Audit synapse.network SEO')
     })
   })
 
@@ -258,6 +329,21 @@ describe('TaskBoard', () => {
     await waitFor(() => {
       expect(callCount).toBeGreaterThanOrEqual(2)
     }, { timeout: 10000 })
+  })
+
+  it('passes group filter to getTasks', async () => {
+    render(<TaskBoard />)
+
+    fireEvent.click(screen.getByTestId('advanced-filters-toggle'))
+    await waitFor(() => {
+      expect(screen.getByTestId('group-filter')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('group-filter'), { target: { value: 'optimization' } })
+
+    await waitFor(() => {
+      expect(mockApi.getTasks).toHaveBeenLastCalledWith(expect.objectContaining({ agent_group: 'optimization' }))
+    })
   })
 
   // ── Skill select on run for tasks without skill_name ────

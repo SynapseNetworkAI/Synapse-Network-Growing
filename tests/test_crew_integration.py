@@ -129,7 +129,7 @@ def test_crew_engine_execute_no_api_key():
     engine = CrewEngine(PROJECT_ROOT)
     persona = {"display_name": "Test", "goal": "Test", "body": ""}
     # Force openai provider with no key
-    with patch("server.services.llm_adapter.get_provider", return_value=OpenAIProvider(api_key="")):
+    with patch("server.services.crew_engine.get_provider", return_value=OpenAIProvider(api_key="")):
         result = engine.execute(persona, "seo-audit", "test task")
     assert result.error is not None
     assert "API_KEY" in result.error

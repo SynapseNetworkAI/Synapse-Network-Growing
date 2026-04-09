@@ -41,9 +41,9 @@ class OpenAIProvider(LLMProvider):
 
     name = "openai"
 
-    def __init__(self, api_key: str = "", base_url: str = ""):
-        self.api_key = api_key or config.OPENAI_API_KEY
-        self.base_url = (base_url or config.LLM_BASE_URL).rstrip("/")
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.api_key = config.OPENAI_API_KEY if api_key is None else api_key
+        self.base_url = (config.LLM_BASE_URL if base_url is None else base_url).rstrip("/")
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         if not self.api_key:
@@ -80,9 +80,9 @@ class ClaudeProvider(LLMProvider):
 
     name = "claude"
 
-    def __init__(self, api_key: str = "", base_url: str = ""):
-        self.api_key = api_key or config.ANTHROPIC_API_KEY
-        self.base_url = (base_url or config.ANTHROPIC_BASE_URL).rstrip("/")
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.api_key = config.ANTHROPIC_API_KEY if api_key is None else api_key
+        self.base_url = (config.ANTHROPIC_BASE_URL if base_url is None else base_url).rstrip("/")
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         if not self.api_key:
@@ -122,9 +122,9 @@ class CopilotProvider(LLMProvider):
 
     name = "copilot"
 
-    def __init__(self, api_key: str = "", base_url: str = ""):
-        self.api_key = api_key or config.GITHUB_TOKEN
-        self.base_url = (base_url or config.COPILOT_BASE_URL).rstrip("/")
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        self.api_key = config.GITHUB_TOKEN if api_key is None else api_key
+        self.base_url = (config.COPILOT_BASE_URL if base_url is None else base_url).rstrip("/")
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         if not self.api_key:
