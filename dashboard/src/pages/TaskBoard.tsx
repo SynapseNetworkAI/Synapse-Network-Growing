@@ -242,6 +242,7 @@ export default function TaskBoard() {
       task.skill_name || '',
       task.project_label || '',
       task.agent_group || '',
+      task.requirement_title || '',
       getTaskErrorSummary(task),
     ].some((value) => value.toLowerCase().includes(q))
   })
@@ -821,6 +822,7 @@ export default function TaskBoard() {
                               <span className="text-xs text-gray-500">@{task.agent_id}</span>
                               {task.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{task.agent_group}</span>}
                               {task.skill_name && <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700">🛠 {task.skill_name}</span>}
+                              {task.requirement_title && <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700" title={`需求 #${task.requirement_id}`}>📋 {task.requirement_title.length > 20 ? task.requirement_title.slice(0, 20) + '…' : task.requirement_title}</span>}
                               {task.priority !== 'normal' && (
                                 <span className={`text-xs px-2 py-0.5 rounded ${task.priority === 'high' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'}`}>
                                   {task.priority === 'high' ? '⚡ 高' : '低'}
@@ -967,6 +969,26 @@ export default function TaskBoard() {
                   <Md>{drawerTask.description}</Md>
                 </div>
               </div>
+
+              {drawerTask.requirement_title && (
+                <div className="mb-4">
+                  <h4 className="mb-1 text-xs font-bold text-gray-500">关联需求</h4>
+                  <div className="p-2 text-sm text-blue-800 border rounded bg-blue-50">
+                    📋 #{drawerTask.requirement_id} {drawerTask.requirement_title}
+                  </div>
+                </div>
+              )}
+
+              {drawerTask.output_files && drawerTask.output_files.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="mb-1 text-xs font-bold text-gray-500">产出文件</h4>
+                  <ul className="p-3 space-y-1 text-sm border rounded bg-gray-50">
+                    {drawerTask.output_files.map((file) => (
+                      <li key={file} className="font-mono text-xs text-gray-700 truncate">📄 {file}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {getTaskErrorSummary(drawerTask) && (
                 <div className="mb-4">

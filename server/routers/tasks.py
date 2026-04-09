@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 
 import yaml
 
-from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, utcnow
+from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, WorkflowStepRow, RequirementRow, utcnow
 from server.schemas import (
     TaskCreate,
     TaskOut,
@@ -59,9 +59,41 @@ def _task_project_id(row: TaskRow) -> str | None:
     return _as_text(row.project_id) or project_for_group(_task_agent_group(row))
 
 
+def _list_output_files(row: TaskRow) -> list[str] | None:
+    """List files in the task's output directory (relative paths)."""
+    from pathlib import Path
+    output_path = _as_text(row.output_path)
+    if not output_path:
+        return None
+    output_dir = Path(output_path).parent
+    if not output_dir.is_dir():
+        return None
+    try:
+        files = sorted(
+            str(f.relative_to(output_dir))
+            for f in output_dir.iterdir()
+            if f.is_file() and not f.name.startswith("copilot-session")
+        )
+        return files if files else None
+    except OSError:
+        return None
+
+
 def _task_to_out(row: TaskRow) -> TaskOut:
     agent_group = _task_agent_group(row)
     project_id = _task_project_id(row)
+
+    # Resolve requirement via workflow_steps relationship
+    requirement_id = None
+    requirement_title = None
+    if row.workflow_steps:
+        step = row.workflow_steps[0]
+        requirement_id = _as_int(step.requirement_id)
+        if step.requirement:
+            requirement_title = _as_text(step.requirement.title)
+
+    output_files = _list_output_files(row)
+
     return TaskOut(
         id=_require_task_id(row),
         description=_as_text(row.description) or "",
@@ -83,6 +115,9 @@ def _task_to_out(row: TaskRow) -> TaskOut:
         output_path=_as_text(row.output_path),
         output_content=_as_text(row.output_content),
         execution_time_ms=_as_int(row.execution_time_ms),
+        requirement_id=requirement_id,
+        requirement_title=requirement_title,
+        output_files=output_files,
         created_at=cast(Any, row.created_at),
         started_at=cast(Any, row.started_at),
         completed_at=cast(Any, row.completed_at),
@@ -204,6 +239,7 @@ def list_tasks(
     agent_id: Optional[str] = Query(None),
     agent_group: Optional[str] = Query(None),
     project_id: Optional[str] = Query(None),
+    requirement_id: Optional[int] = Query(None),
     only_anomalies: bool = Query(False),
     db: Session = Depends(get_db),
 ):
@@ -212,6 +248,13 @@ def list_tasks(
         q = q.filter(TaskRow.status == status)
     if agent_id:
         q = q.filter(TaskRow.agent_id == agent_id)
+    if requirement_id is not None:
+        task_ids = [
+            _as_int(s.compatibility_task_id)
+            for s in db.query(WorkflowStepRow).filter(WorkflowStepRow.requirement_id == requirement_id).all()
+            if s.compatibility_task_id is not None
+        ]
+        q = q.filter(TaskRow.id.in_(task_ids or [-1]))
     rows = q.order_by(TaskRow.created_at.desc(), TaskRow.id.desc()).all()
 
     if only_anomalies:

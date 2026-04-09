@@ -590,14 +590,20 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow) -> tuple[TaskRow, dic
 
 def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
     requirement = _require_requirement(db, step.requirement_id)
-    return "\n".join(
-        [
-            f"[workflow_step:{step.step_type}] {step.title}",
-            f"Requirement #{requirement.id}: {requirement.title}",
-            requirement.description_markdown,
-            f"Done when: {step.done_when_markdown}",
-        ]
-    )
+    parts = [
+        f"[workflow_step:{step.step_type}] {step.title}",
+        f"Requirement #{requirement.id}: {requirement.title}",
+        requirement.description_markdown,
+        f"Done when: {step.done_when_markdown}",
+    ]
+    # Include bound input artifacts so the agent has prior step context
+    bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
+    for binding in bindings:
+        artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
+        if artifact and artifact.human_readable_body:
+            parts.append(f"\n--- [{artifact.artifact_type}] {artifact.content_summary} ---")
+            parts.append(artifact.human_readable_body[:3000])
+    return "\n".join(parts)
 
 
 def _resolve_step_skill(db: Session, step: WorkflowStepRow) -> str:

@@ -55,6 +55,9 @@ export interface Task {
   output_path: string | null
   output_content: string | null
   execution_time_ms: number | null
+  requirement_id: number | null
+  requirement_title: string | null
+  output_files: string[] | null
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -252,12 +255,13 @@ export const api = {
   getOrgTree: () => request<OrgTree>('/org'),
 
   // Tasks
-  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; only_anomalies?: boolean }) => {
+  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean }) => {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.agent_id) qs.set('agent_id', params.agent_id)
     if (params?.agent_group) qs.set('agent_group', params.agent_group)
     if (params?.project_id) qs.set('project_id', params.project_id)
+    if (params?.requirement_id != null) qs.set('requirement_id', String(params.requirement_id))
     if (params?.only_anomalies) qs.set('only_anomalies', 'true')
     const q = qs.toString()
     return request<Task[]>(`/tasks${q ? '?' + q : ''}`)
