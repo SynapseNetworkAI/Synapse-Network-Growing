@@ -1,4 +1,5 @@
 """Approvals API router."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
@@ -6,6 +7,7 @@ from typing import Optional
 from server.database import get_db, ApprovalRow, TaskRow, TaskLogRow, utcnow
 from server.schemas import ApprovalOut, ApprovalDecide
 
+logger = logging.getLogger("ops-dashboard.approvals")
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
 
@@ -49,6 +51,7 @@ def decide_approval(approval_id: int, body: ApprovalDecide, db: Session = Depend
 
     db.commit()
     db.refresh(approval)
+    logger.info("Approval #%d %s by %s (task #%d)", approval.id, approval.status, approval.reviewer, approval.task_id)
     # Eagerly load task for response
     _ = approval.task
     return approval

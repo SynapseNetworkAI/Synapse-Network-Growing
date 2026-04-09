@@ -1,4 +1,5 @@
 """Tasks API router."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -6,6 +7,7 @@ from typing import Optional
 from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, utcnow
 from server.schemas import TaskCreate, TaskOut, TaskLogOut
 
+logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed"}
@@ -58,6 +60,7 @@ def create_task(body: TaskCreate, db: Session = Depends(get_db)):
     _add_log(db, row.id, "created", body.description)
     db.commit()
     db.refresh(row)
+    logger.info("Task #%d created: agent=%s, desc=%s", row.id, row.agent_id, row.description[:60])
     return row
 
 

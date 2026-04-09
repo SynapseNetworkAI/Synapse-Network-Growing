@@ -1,23 +1,34 @@
 """FastAPI main application for Agentic Ops Dashboard."""
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
+from server.config import CORS_ORIGINS, ENV, PORT, LOG_LEVEL
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals
 
+# ── Logging ───────────────────────────────────────────────────
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("ops-dashboard")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Starting Ops Dashboard (env=%s, port=%s)", ENV, PORT)
     init_db()
+    logger.info("Database initialized")
     yield
+    logger.info("Shutting down")
 
 
 app = FastAPI(title="Synapse Agentic Ops Dashboard", version="0.1.0", lifespan=lifespan)
-
-from server.config import CORS_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +41,14 @@ app.add_middleware(
 app.include_router(agents.router)
 app.include_router(tasks.router)
 app.include_router(approvals.router)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.debug("%s %s", request.method, request.url.path)
+    response = await call_next(request)
+    logger.debug("%s %s → %s", request.method, request.url.path, response.status_code)
+    return response
 
 
 @app.get("/api/dashboard/stats", response_model=DashboardStats)

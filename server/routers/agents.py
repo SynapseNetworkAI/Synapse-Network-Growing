@@ -1,4 +1,5 @@
 """Agents API router."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,6 +7,7 @@ from server.database import get_db, AgentRow, TaskRow
 from server.schemas import AgentOut
 from server.services.agent_loader import discover_agents
 
+logger = logging.getLogger("ops-dashboard.agents")
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
@@ -44,6 +46,7 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)):
 def sync_agents(db: Session = Depends(get_db)):
     """Scan roles/ directory and upsert agents into DB."""
     agents_data = discover_agents()
+    logger.info("Syncing %d agents from roles/ directory", len(agents_data))
     results = []
     for data in agents_data:
         existing = db.query(AgentRow).filter(AgentRow.id == data["id"]).first()
