@@ -371,6 +371,14 @@ def _migrate(engine_):
                 conn.execute(text("ALTER TABLE agents ADD COLUMN \"group\" TEXT DEFAULT ''"))
                 conn.commit()
 
+    if "requirements" in tables:
+        existing = {c["name"] for c in insp.get_columns("requirements")}
+        if "target_project_path" not in existing:
+            logger.info("Migrating: adding 'target_project_path' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN target_project_path TEXT"))
+                conn.commit()
+
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}
         new_cols = {

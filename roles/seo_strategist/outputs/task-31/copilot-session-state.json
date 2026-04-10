@@ -1,0 +1,16 @@
+{
+  "action": "start",
+  "status": "completed",
+  "sessionId": "task-1775791015302",
+  "model": "claude-opus-4.6",
+  "selectedAgent": "researcher",
+  "tokensUsed": 0,
+  "startedAt": "2026-04-10T03:16:55.339Z",
+  "heartbeatAt": "2026-04-10T03:23:05.344Z",
+  "updatedAt": "2026-04-10T03:23:05.344Z",
+  "lastSeq": 426,
+  "lastEventType": "session.idle",
+  "finishedAt": "2026-04-10T03:23:05.344Z",
+  "executionTimeMs": 370003,
+  "error": null
+}
