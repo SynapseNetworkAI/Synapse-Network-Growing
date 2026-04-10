@@ -1,0 +1,39 @@
+# Synapse Network — robots.txt
+# Place at site root: https://synapse.network/robots.txt
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /_next/static/
+Disallow: /internal/
+
+# Allow all search engine crawlers explicitly
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# AI search crawlers — allow access for AEO/GEO visibility
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Anthropic-AI
+Allow: /
+
+# Sitemap reference
+Sitemap: https://synapse.network/sitemap.xml
