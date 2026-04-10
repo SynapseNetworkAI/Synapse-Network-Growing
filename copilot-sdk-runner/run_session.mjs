@@ -530,7 +530,7 @@ async function runDetachedWorker(client, input) {
     heartbeatTimer.unref?.();
 
     const finalAssistantMessage = await waitForFinalAssistantMessage(session, {
-      sendPrompt: input.action === "resume" ? undefined : input.prompt,
+      sendPrompt: input.prompt || undefined,
       timeoutMs: typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : undefined,
       alreadyIdle: Boolean(input.assumeAlreadyIdle),
     });

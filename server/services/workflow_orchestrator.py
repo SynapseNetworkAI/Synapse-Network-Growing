@@ -47,6 +47,20 @@ RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
 SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
 
+import logging as _logging
+_logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
+
+
+def _clear_role_sessions() -> None:
+    """Clear Copilot SDK role session cache when a requirement reaches a terminal state."""
+    try:
+        from server.services.task_runtime import get_copilot_sdk_runtime
+        runtime = get_copilot_sdk_runtime()
+        if runtime is not None:
+            runtime.clear_role_sessions()
+    except Exception:
+        _logger.debug("Failed to clear role sessions (non-critical)", exc_info=True)
+
 
 def _record_step_event(db: Session, step_id: int, event_type: str, detail: str | None = None):
     db.add(WorkflowStepEventRow(step_id=step_id, event_type=event_type, detail=detail))
@@ -259,6 +273,13 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
 
 def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    # ── Serial execution guard: only one requirement may be in_progress at a time ──
+    running_count = db.query(RequirementRow).filter(
+        RequirementRow.status == "in_progress",
+        RequirementRow.id != requirement_id,
+    ).count()
+    if running_count > 0:
+        raise ValueError("另一个需求正在执行中，请等待完成后再启动。")
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
@@ -880,6 +901,7 @@ def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: 
         workflow_run.completed_at = workflow_run.completed_at or utcnow()
         requirement.status = "done"
         requirement.completed_at = requirement.completed_at or utcnow()
+        _clear_role_sessions()
         return
     if any(step.status == "failed" for step in steps):
         workflow_run.status = "running"
@@ -924,6 +946,7 @@ def _finalize_requirement(
     requirement.status = "done"
     requirement.completed_at = utcnow()
     _refresh_dependents_for_requirement(db, requirement.id)
+    _clear_role_sessions()
 
 
 def _create_requirement_revision_request(
@@ -955,6 +978,7 @@ def _create_requirement_revision_request(
     requirement.active_workflow_run_id = None
     requirement.status = "needs_revision"
     revision_artifact.artifact_type = "requirement_revision"
+    _clear_role_sessions()
 
 
 def _resolve_failure_route(step: WorkflowStepRow, error_text: str) -> str:

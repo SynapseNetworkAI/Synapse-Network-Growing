@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,14 @@ class TaskExecutionResult:
     runtime_selected_agent: str | None = None
     events: list[RuntimeEvent] = field(default_factory=list)
     deferred: bool = False
+
+
+@dataclass
+class RoleSessionInfo:
+    """Tracks an active Copilot SDK session for a specific role (agent_id)."""
+    session_id: str
+    output_dir: Path
+    last_used_at: float
 
 
 def normalize_copilot_event_type(event_type: str) -> str:
@@ -111,6 +120,16 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         self.project_root = (project_root or config.PROJECT_ROOT).resolve()
         self.bridge = bridge or CopilotSDKBridge(cwd=self.project_root)
         self.prompt_engine = CrewEngine(self.project_root)
+        self._role_sessions: dict[str, RoleSessionInfo] = {}
+        self._lock = threading.Lock()
+
+    def clear_role_sessions(self) -> None:
+        """Clear all role→session mappings. Called when a requirement finishes."""
+        with self._lock:
+            cleared = list(self._role_sessions.keys())
+            self._role_sessions.clear()
+        if cleared:
+            logger.info("Cleared role sessions for: %s", ", ".join(cleared))
 
     def execute(
         self,
@@ -122,9 +141,26 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         model = config.COPILOT_SDK_MODEL
-        session_id = f"task-{int(time.time() * 1000)}"
+        agent_id = persona.get("role", persona.get("id", "unknown"))
         prompt = self._build_parent_prompt(persona, skill_name, task_description, extra_context_files)
         preferred_agent = self._preferred_runtime_agent(skill_name, task_description)
+
+        with self._lock:
+            existing = self._role_sessions.get(agent_id)
+
+        if existing:
+            return self._execute_resume(
+                t0, model, agent_id, existing, prompt, preferred_agent, output_dir,
+            )
+        return self._execute_new(
+            t0, model, agent_id, prompt, preferred_agent, output_dir,
+        )
+
+    def _execute_new(
+        self, t0: float, model: str, agent_id: str, prompt: str,
+        preferred_agent: str | None, output_dir: Path | None,
+    ) -> TaskExecutionResult:
+        session_id = f"role-{agent_id}-{int(time.time() * 1000)}"
         resolved_output_dir = (output_dir or (self.project_root / "runtime" / session_id)).resolve()
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
         predicted_output = copilot_runtime_paths(resolved_output_dir)["output"]
@@ -140,7 +176,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             self.bridge.start_session(payload)
         except Exception as exc:
             elapsed = int((time.monotonic() - t0) * 1000)
-            logger.exception("Copilot SDK runtime failed")
+            logger.exception("Copilot SDK runtime failed (new session)")
             return TaskExecutionResult(
                 text="",
                 error=str(exc),
@@ -148,6 +184,13 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
                 model=model,
                 runtime_backend="copilot_sdk",
                 events=[RuntimeEvent(event_type="runtime_failed", detail=str(exc))],
+            )
+
+        with self._lock:
+            self._role_sessions[agent_id] = RoleSessionInfo(
+                session_id=session_id,
+                output_dir=resolved_output_dir,
+                last_used_at=time.time(),
             )
 
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -161,6 +204,58 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             events=[
                 RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model}"),
                 RuntimeEvent(event_type="runtime_worker_spawned", detail=f"session={session_id}"),
+            ],
+            deferred=True,
+        )
+
+    def _execute_resume(
+        self, t0: float, model: str, agent_id: str, existing: RoleSessionInfo,
+        prompt: str, preferred_agent: str | None, output_dir: Path | None,
+    ) -> TaskExecutionResult:
+        session_id = existing.session_id
+        # Each task gets its own output directory, but reuses the session
+        resolved_output_dir = (output_dir or (self.project_root / "runtime" / f"{session_id}-resume-{int(time.time() * 1000)}")).resolve()
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+        predicted_output = copilot_runtime_paths(resolved_output_dir)["output"]
+        payload = self.build_worker_payload(
+            action="resume",
+            session_id=session_id,
+            output_dir=resolved_output_dir,
+            prompt=prompt,
+            preferred_agent=preferred_agent,
+        )
+
+        try:
+            self.bridge.resume_session(payload)
+        except Exception as exc:
+            elapsed = int((time.monotonic() - t0) * 1000)
+            logger.warning(
+                "Copilot SDK session resume failed for role %s (session=%s), falling back to new session",
+                agent_id, session_id,
+            )
+            # Fallback: remove stale session and create a new one
+            with self._lock:
+                self._role_sessions.pop(agent_id, None)
+            return self._execute_new(t0, model, agent_id, prompt, preferred_agent, output_dir)
+
+        with self._lock:
+            self._role_sessions[agent_id] = RoleSessionInfo(
+                session_id=session_id,
+                output_dir=resolved_output_dir,
+                last_used_at=time.time(),
+            )
+
+        elapsed = int((time.monotonic() - t0) * 1000)
+        return TaskExecutionResult(
+            text="",
+            files=[predicted_output],
+            execution_time_ms=elapsed,
+            model=model,
+            runtime_backend="copilot_sdk",
+            runtime_session_id=session_id,
+            events=[
+                RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model} (resumed)"),
+                RuntimeEvent(event_type="runtime_session_resumed", detail=f"session={session_id} role={agent_id}"),
             ],
             deferred=True,
         )
@@ -192,7 +287,8 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             payload["preferredAgent"] = preferred_agent
         if action == "start":
             payload["model"] = config.COPILOT_SDK_MODEL
-            payload["prompt"] = prompt or ""
+        if prompt:
+            payload["prompt"] = prompt
         if config.COPILOT_SDK_TIMEOUT > 0:
             payload["timeoutMs"] = config.COPILOT_SDK_TIMEOUT * 1000
         return payload
@@ -334,10 +430,23 @@ def _extract_requirement_id(task_description: str) -> int:
     return int(match.group(1))
 
 
+_copilot_sdk_runtime_instance: CopilotSDKTaskRuntime | None = None
+_copilot_sdk_runtime_lock = threading.Lock()
+
+
 def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
     if config.E2E_MODE:
         return E2ETaskRuntime()
     backend = (config.ORCHESTRATION_BACKEND or "legacy").lower()
     if backend == "copilot_sdk":
-        return CopilotSDKTaskRuntime(project_root=project_root)
+        global _copilot_sdk_runtime_instance
+        with _copilot_sdk_runtime_lock:
+            if _copilot_sdk_runtime_instance is None:
+                _copilot_sdk_runtime_instance = CopilotSDKTaskRuntime(project_root=project_root)
+            return _copilot_sdk_runtime_instance
     return LegacyTaskRuntime(project_root=project_root)
+
+
+def get_copilot_sdk_runtime() -> CopilotSDKTaskRuntime | None:
+    """Return the singleton CopilotSDKTaskRuntime instance, or None if not active."""
+    return _copilot_sdk_runtime_instance
