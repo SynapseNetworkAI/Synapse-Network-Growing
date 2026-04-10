@@ -153,18 +153,23 @@ export default function RequirementPool() {
             value={form.target_project_path}
             onChange={(e) => setForm((prev) => ({ ...prev, target_project_path: e.target.value }))}
           />
-          <div className="flex items-center justify-between">
-            <select
-              data-testid="requirement-priority"
-              className="rounded border px-3 py-2 text-sm"
-              value={form.priority}
-              onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
-            >
-              <option value="low">low</option>
-              <option value="normal">normal</option>
-              <option value="high">high</option>
-            </select>
-            <div data-testid="create-dependencies" className="max-h-28 flex-1 overflow-auto rounded border px-3 py-2 text-xs text-gray-600">
+          <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">优先级</label>
+              <select
+                data-testid="requirement-priority"
+                className="rounded border px-3 py-2 text-sm"
+                value={form.priority}
+                onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
+              >
+                <option value="low">low</option>
+                <option value="normal">normal</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <label className="text-xs text-gray-500">前置依赖（勾选后等依赖完成才启动）</label>
+              <div data-testid="create-dependencies" className="max-h-28 flex-1 overflow-auto rounded border px-3 py-2 text-xs text-gray-600">
               {requirements.length === 0 ? (
                 <div>暂无可选依赖</div>
               ) : (
@@ -184,6 +189,7 @@ export default function RequirementPool() {
                   </label>
                 ))
               )}
+            </div>
             </div>
             <label className="flex items-center gap-2 py-2">
               <input
