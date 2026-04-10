@@ -70,64 +70,32 @@ class TestDetectPhasesFallback:
 # Agent-based phase detection
 # ---------------------------------------------------------------------------
 
-class TestDetectPhasesWithAgent:
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_returns_all_phases(self, MockBridge):
-        bridge = MockBridge.return_value
-        bridge.run_session.return_value = _mock_bridge_result(
-            {"design": True, "frontend": True, "backend": True, "test_impl": True}
-        )
-        p = _detect_phases_with_agent("Build analytics pipeline")
-        assert p.design and p.frontend and p.backend and p.test_impl
-        bridge.run_session.assert_called_once()
+# ---------------------------------------------------------------------------
+# _detect_phases_with_agent is now keyword-only (no agent call)
+# ---------------------------------------------------------------------------
 
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_returns_no_phases(self, MockBridge):
-        bridge = MockBridge.return_value
-        bridge.run_session.return_value = _mock_bridge_result(
-            {"design": False, "frontend": False, "backend": False, "test_impl": False}
-        )
-        p = _detect_phases_with_agent("Write a blog post")
+class TestDetectPhasesWithAgent:
+    def test_all_phases_from_keywords(self):
+        p = _detect_phases_with_agent("Build analytics pipeline: schema design, frontend SDK, backend API, pytest tests")
+        assert p.design and p.frontend and p.backend and p.test_impl
+
+    def test_no_phases_for_content(self):
+        p = _detect_phases_with_agent("Write a blog post about blockchain")
         assert not p.design and not p.frontend and not p.backend and not p.test_impl
 
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_returns_partial_phases(self, MockBridge):
-        bridge = MockBridge.return_value
-        bridge.run_session.return_value = _mock_bridge_result(
-            {"design": False, "frontend": True, "backend": True, "test_impl": False}
-        )
+    def test_partial_phases(self):
         p = _detect_phases_with_agent("实现前端和后端")
         assert not p.design
         assert p.frontend and p.backend
         assert not p.test_impl
         assert p.has_sub_steps
 
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_strips_markdown_fences(self, MockBridge):
-        bridge = MockBridge.return_value
-        result = MagicMock()
-        result.content = '```json\n{"design": true, "frontend": false, "backend": true, "test_impl": false}\n```'
-        bridge.run_session.return_value = result
-        p = _detect_phases_with_agent("Design backend API")
-        assert p.design and p.backend
-        assert not p.frontend and not p.test_impl
-
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_failure_falls_back_to_keywords(self, MockBridge):
-        bridge = MockBridge.return_value
-        bridge.run_session.side_effect = RuntimeError("no auth token")
+    def test_fallback_design_frontend_backend(self):
         p = _detect_phases_with_agent("方案设计，给出前端和后端的代码实现")
-        # Should fall back to keyword detection
         assert p.design and p.frontend and p.backend
 
-    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
-    def test_agent_invalid_json_falls_back(self, MockBridge):
-        bridge = MockBridge.return_value
-        result = MagicMock()
-        result.content = "I think you should design..."
-        bridge.run_session.return_value = result
+    def test_fallback_design_backend(self):
         p = _detect_phases_with_agent("方案设计，给出后端实现")
-        # Fallback to keyword
         assert p.design and p.backend
 
 
@@ -263,7 +231,7 @@ class TestBuildPlannerOutput:
         assert "closeout" in step_keys
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
-        assert output["schema_version"] == "1.1"
+        assert output["schema_version"] == "1.2"
         assert output["detected_phases"]["design"] is True
 
         # Review should depend on the last impl step (test_impl)

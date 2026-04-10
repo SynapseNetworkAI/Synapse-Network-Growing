@@ -1,8 +1,14 @@
 """Agent-driven planner for requirement-first workflows.
 
 Uses the Copilot SDK one-shot bridge to ask an LLM to analyse the
-requirement and decide which implementation sub-steps are needed, then
-generates dynamic file_scope based on target_project_path.
+requirement and produce a full ordered step plan, then generates dynamic
+file_scope based on target_project_path.
+
+Mode 1 (full-plan, default): agent returns a JSON step list with step_key,
+title, scope, depends_on, and done_when for each step.
+
+Mode 2 (phase-detect, fallback): agent returns 4 boolean flags and Python
+generates the fixed step set deterministically.
 """
 from __future__ import annotations
 
@@ -11,6 +17,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -21,28 +28,71 @@ from server.services.execution_resolver import suggest_task_execution
 logger = logging.getLogger("ops-dashboard.workflow_planner")
 
 # ---------------------------------------------------------------------------
-# Planner prompt for agent-based task splitting
+# Mode 1: Full-plan (agent decides everything)
 # ---------------------------------------------------------------------------
 
-_PLANNER_SYSTEM_PROMPT = """\
-You are a workflow planner. Given a requirement description, analyse what \
-implementation phases are needed and return a JSON object with exactly these \
-boolean fields:
 
-{
-  "design": true/false,      // architecture / schema / system design needed
-  "frontend": true/false,    // frontend / UI / SDK client code needed
-  "backend": true/false,     // backend / API / server / database / middleware needed
-  "test_impl": true/false    // automated tests / e2e / integration tests needed
-}
+@dataclass
+class _AgentStep:
+    step_key: str
+    title: str
+    scope: str
+    depends_on: list[str]
+    done_when: str
 
-Rules:
-- Set a field to true ONLY if the requirement explicitly or strongly implies \
-that phase of work.
-- If the requirement is purely about documentation, marketing, or content, \
-set all to false.
-- Return ONLY the JSON object, no markdown fences, no explanation.
-"""
+
+def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | None:
+    """Pass the requirement directly to the agent; it decides the step plan."""
+    try:
+        from server.services.copilot_sdk_bridge import CopilotSDKBridge
+
+        prompt = text[:4000]
+        if target_path:
+            prompt = f"Target project path: {target_path}\n\n{prompt}"
+
+        bridge = CopilotSDKBridge(cwd=config.PROJECT_ROOT)
+        payload = {
+            "prompt": prompt,
+            "model": config.COPILOT_SDK_MODEL,
+            "sessionId": "planner-fullplan-oneshot",
+            "cwd": str(config.PROJECT_ROOT),
+        }
+        result = bridge.run_session(payload, timeout=90)
+        content = result.content.strip()
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+        data = json.loads(content)
+
+        raw_steps = data.get("steps", [])
+        if not raw_steps or not isinstance(raw_steps, list):
+            return None
+
+        steps: list[_AgentStep] = []
+        seen_keys: set[str] = set()
+        for s in raw_steps:
+            key = re.sub(r"[^a-z0-9_]", "_", str(s.get("step_key", "step")).lower())
+            if key in seen_keys:
+                key = f"{key}_{len(steps)}"
+            seen_keys.add(key)
+            steps.append(_AgentStep(
+                step_key=key,
+                title=str(s.get("title", key)),
+                scope=str(s.get("scope", "backend")).lower(),
+                depends_on=[str(d) for d in s.get("depends_on", []) if str(d) in seen_keys],
+                done_when=str(s.get("done_when", "Step output is produced and ready for review.")),
+            ))
+
+        logger.info("Agent full-plan produced %d steps", len(steps))
+        return steps if steps else None
+
+    except Exception:
+        logger.warning("Agent full-plan failed, will fall back to phase-detect mode", exc_info=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Mode 2: Phase-detect (keyword fallback — no agent call)
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -66,35 +116,8 @@ class _DetectedPhases:
 
 
 def _detect_phases_with_agent(text: str) -> _DetectedPhases:
-    """Call the Copilot SDK one-shot bridge to let the LLM decide phases."""
-    try:
-        from server.services.copilot_sdk_bridge import CopilotSDKBridge
-
-        bridge = CopilotSDKBridge(cwd=config.PROJECT_ROOT)
-        payload = {
-            "prompt": (
-                f"{_PLANNER_SYSTEM_PROMPT}\n\n"
-                f"Requirement:\n{text[:3000]}"
-            ),
-            "model": config.COPILOT_SDK_MODEL,
-            "sessionId": "planner-oneshot",
-            "cwd": str(config.PROJECT_ROOT),
-        }
-        result = bridge.run_session(payload, timeout=60)
-        content = result.content.strip()
-        # Strip markdown code fences if present
-        content = re.sub(r"^```(?:json)?\s*", "", content)
-        content = re.sub(r"\s*```$", "", content)
-        data = json.loads(content)
-        return _DetectedPhases(
-            design=bool(data.get("design")),
-            frontend=bool(data.get("frontend")),
-            backend=bool(data.get("backend")),
-            test_impl=bool(data.get("test_impl")),
-        )
-    except Exception:
-        logger.warning("Agent-based phase detection failed, falling back to keyword detection", exc_info=True)
-        return _detect_phases_fallback(text)
+    """Keyword-based phase detection (used as fallback when full-plan agent fails)."""
+    return _detect_phases_fallback(text)
 
 
 def _detect_phases_fallback(text: str) -> _DetectedPhases:
@@ -141,6 +164,84 @@ def _review_file_scope(target_project_path: str | None) -> dict:
     return _project_file_scope(target_project_path, write=False)
 
 
+def _scope_to_file_scope(scope: str, target_path: str | None) -> dict:
+    """Map an agent-plan scope string to a file_scope dict.
+
+    - infrastructure / backend / frontend / test: full read+write on target project
+    - docs: base read+write only (roles/**, docs/**)
+    """
+    if scope in ("infrastructure", "backend", "frontend", "test"):
+        return _project_file_scope(target_path, write=True)
+    return _base_file_scope()  # docs, unknown
+
+
+# ---------------------------------------------------------------------------
+# Mode 1: Build workflow steps from agent full-plan
+# ---------------------------------------------------------------------------
+
+_SCOPE_CONSTRAINTS = {
+    "infrastructure": (
+        "SCOPE: Only create infrastructure artifacts (SQL DDL, docker-compose, config files, CI setup). "
+        "Do NOT write application code (Python, TypeScript, etc.) in this step."
+    ),
+    "backend": (
+        "SCOPE: Only implement backend/API/server-side code (endpoints, services, middleware, database). "
+        "Do NOT implement frontend code in this step."
+    ),
+    "frontend": (
+        "SCOPE: Only implement frontend/client-side code (components, hooks, SDK, styles). "
+        "Do NOT implement backend/API code in this step."
+    ),
+    "test": (
+        "SCOPE: Only implement automated tests (unit, integration, e2e). "
+        "Do NOT modify production application code in this step."
+    ),
+    "docs": (
+        "SCOPE: Only produce documentation (runbooks, architecture docs, ops guides). "
+        "Do NOT write implementation code in this step."
+    ),
+}
+
+
+def _build_steps_from_agent_plan(
+    requirement: RequirementRow,
+    agent_steps: list[_AgentStep],
+    target_path: str | None,
+) -> tuple[list[dict], list[str]]:
+    """Convert agent-produced _AgentStep list to workflow step dicts."""
+    result: list[dict] = []
+    keys: list[str] = [s.step_key for s in agent_steps]
+    project_note = f"\nTarget project: {target_path}" if target_path else ""
+
+    for step in agent_steps:
+        scope_constraint = _SCOPE_CONSTRAINTS.get(step.scope, "")
+        done_when = step.done_when
+        if scope_constraint and "SCOPE:" not in done_when:
+            done_when = f"{scope_constraint}\n\n{done_when}"
+        done_when += project_note
+
+        result.append({
+            "step_key": step.step_key,
+            "step_type": "implementation",
+            "title": step.title,
+            "assigned_role": "implementer",
+            "depends_on": step.depends_on,
+            "required_artifacts": [
+                {"artifact_type": "requirement_snapshot", "purpose": "primary_spec", "required": True},
+                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
+            ],
+            "file_scope": _scope_to_file_scope(step.scope, target_path),
+            "expected_outputs": [
+                {"artifact_type": "step_output", "description": f"{step.title} — implementation output."},
+            ],
+            "validation_targets": [],
+            "done_when_markdown": done_when,
+            "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
+        })
+
+    return result, keys
+
+
 # ---------------------------------------------------------------------------
 # Public planner entry point
 # ---------------------------------------------------------------------------
@@ -148,7 +249,6 @@ def _review_file_scope(target_project_path: str | None) -> dict:
 def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict, WorkflowRoleAssignments]:
     description = f"{requirement.title}\n\n{requirement.description_markdown}"
     target_path = getattr(requirement, "target_project_path", None)
-    phases = _detect_phases_with_agent(description)
 
     suggestion = suggest_task_execution(db=db, description=description)
     implementer_agent_id = suggestion.agent_id or _first_agent_id(db)
@@ -165,10 +265,25 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         tester_agent_id=tester_agent_id,
     )
 
-    # Build implementation steps
-    impl_steps, impl_keys = _build_implementation_steps(
-        requirement, phases, target_path,
-    )
+    # Mode 1: try agent full-plan first
+    planning_mode = "full_plan"
+    agent_steps = _plan_with_agent(description, target_path)
+    if agent_steps:
+        impl_steps, impl_keys = _build_steps_from_agent_plan(requirement, agent_steps, target_path)
+        detected_phases_dict: dict[str, Any] = {
+            s.step_key: s.scope for s in agent_steps
+        }
+    else:
+        # Mode 2: fall back to 4-boolean phase detection
+        planning_mode = "phase_detect"
+        phases = _detect_phases_with_agent(description)
+        impl_steps, impl_keys = _build_implementation_steps(requirement, phases, target_path)
+        detected_phases_dict = {
+            "design": phases.design,
+            "frontend": phases.frontend,
+            "backend": phases.backend,
+            "test_impl": phases.test_impl,
+        }
 
     # The last implementation step key — review depends on it
     last_impl_key = impl_keys[-1] if impl_keys else "implementation"
@@ -235,16 +350,11 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     ]
 
     planner_output = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
-        "detected_phases": {
-            "design": phases.design,
-            "frontend": phases.frontend,
-            "backend": phases.backend,
-            "test_impl": phases.test_impl,
-        },
+        "detected_phases": detected_phases_dict,
         "acceptance_checks": [
             {
                 "check_key": "review_passed",
@@ -272,6 +382,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "summary_markdown": "Tester is responsible for the final validation and closeout recommendation.",
         },
         "extensions": {
+            "planning_mode": planning_mode,
             "role_assignments": {
                 "implementer_agent_id": implementer_agent_id,
                 "reviewer_agent_id": reviewer_agent_id,
