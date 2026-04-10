@@ -68,6 +68,7 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         priority=body.priority,
         source=body.source,
         source_ref=body.source_ref,
+        target_project_path=body.target_project_path,
     )
     db.add(requirement)
     db.flush()
@@ -103,6 +104,7 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
             "priority": requirement.priority,
             "source": requirement.source,
             "source_ref": requirement.source_ref,
+            "target_project_path": requirement.target_project_path,
         },
     )
 
@@ -610,8 +612,12 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
         f"[workflow_step:{step.step_type}] {step.title}",
         f"Requirement #{requirement.id}: {requirement.title}",
         requirement.description_markdown,
-        f"Done when: {step.done_when_markdown}",
     ]
+    target_path = getattr(requirement, "target_project_path", None)
+    if target_path:
+        parts.append(f"Target project path: {target_path}")
+        parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
+    parts.append(f"Done when: {step.done_when_markdown}")
     # Include bound input artifacts so the agent has prior step context
     bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
     for binding in bindings:

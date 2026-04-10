@@ -130,6 +130,7 @@ class RequirementRow(Base):
     priority = Column(Text, nullable=False, default="normal")
     source = Column(Text, nullable=False, default="manual")
     source_ref = Column(Text)
+    target_project_path = Column(Text)
     current_plan_version = Column(Integer, nullable=False, default=0)
     planned_roles_json = Column(Text, nullable=False, default="[]")
     blocked_by_count = Column(Integer, nullable=False, default=0)

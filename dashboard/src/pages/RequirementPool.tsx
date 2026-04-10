@@ -55,6 +55,7 @@ export default function RequirementPool() {
     title: '',
     description_markdown: '',
     priority: 'normal',
+    target_project_path: '',
     depends_on_requirement_ids: [] as number[],
     auto_start: true,
   })
@@ -127,11 +128,12 @@ export default function RequirementPool() {
         title: form.title.trim(),
         description_markdown: form.description_markdown.trim(),
         priority: form.priority,
+        target_project_path: form.target_project_path.trim() || undefined,
         depends_on_requirement_ids: form.depends_on_requirement_ids,
         auto_start: form.auto_start,
       })
       setShowCreate(false)
-      setForm({ title: '', description_markdown: '', priority: 'normal', depends_on_requirement_ids: [], auto_start: true })
+      setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
       await loadRequirements()
       setSelectedId(created.requirement.id)
       setDetail(created)
@@ -231,6 +233,13 @@ export default function RequirementPool() {
             placeholder="用 Markdown 描述需求、目标和约束"
             value={form.description_markdown}
             onChange={(event) => setForm((prev) => ({ ...prev, description_markdown: event.target.value }))}
+          />
+          <input
+            data-testid="requirement-target-project"
+            className="w-full rounded border px-3 py-2 text-sm"
+            placeholder="目标项目路径 (可选, 如 /Users/cliff/workspace/agent/Synapse-Network)"
+            value={form.target_project_path}
+            onChange={(event) => setForm((prev) => ({ ...prev, target_project_path: event.target.value }))}
           />
           <div className="flex items-center justify-between">
             <select
@@ -428,6 +437,11 @@ export default function RequirementPool() {
                   <section className="rounded-xl border bg-slate-50 p-4">
                     <div className="mb-2 text-sm font-semibold">需求说明</div>
                     <Md>{detail.requirement.description_markdown}</Md>
+                    {detail.requirement.target_project_path && (
+                      <div className="mt-2 rounded bg-blue-50 px-3 py-1.5 text-xs text-blue-800" data-testid="target-project-path">
+                        目标项目: {detail.requirement.target_project_path}
+                      </div>
+                    )}
                   </section>
 
                   <section className="rounded-xl border p-4" data-testid="dependencies-panel">

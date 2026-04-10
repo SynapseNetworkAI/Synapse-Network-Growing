@@ -204,14 +204,15 @@ SQLite 下不应依赖原生 JSON 列能力作为核心前提。
 5. `priority` `TEXT NOT NULL DEFAULT 'normal'`
 6. `source` `TEXT NOT NULL DEFAULT 'manual'`
 7. `source_ref` `TEXT`
-8. `current_plan_version` `INTEGER NOT NULL DEFAULT 0`
-9. `planned_roles_json` `TEXT NOT NULL DEFAULT '[]'`
-10. `blocked_by_count` `INTEGER NOT NULL DEFAULT 0`
-11. `active_workflow_run_id` `INTEGER`
-12. `started_at` `DATETIME`
-13. `completed_at` `DATETIME`
-14. `created_at` `DATETIME NOT NULL`
-15. `updated_at` `DATETIME NOT NULL`
+8. `target_project_path` `TEXT` — 需求关联的目标项目路径（绝对路径），用于指导 Agent 在哪个项目中执行代码实现。Planner 根据此字段动态生成 `file_scope`，允许 Agent 读写目标项目目录。
+9. `current_plan_version` `INTEGER NOT NULL DEFAULT 0`
+10. `planned_roles_json` `TEXT NOT NULL DEFAULT '[]'`
+11. `blocked_by_count` `INTEGER NOT NULL DEFAULT 0`
+12. `active_workflow_run_id` `INTEGER`
+13. `started_at` `DATETIME`
+14. `completed_at` `DATETIME`
+15. `created_at` `DATETIME NOT NULL`
+16. `updated_at` `DATETIME NOT NULL`
 
 索引建议：
 
@@ -225,6 +226,10 @@ SQLite 下不应依赖原生 JSON 列能力作为核心前提。
 1. `active_workflow_run_id` 用于快速定位当前活跃 run
 2. `planned_roles_json` 是 Planner 推荐角色缓存，不是真相源
 3. `blocked_by_count` 是加速字段，可由依赖关系反推
+4. `target_project_path` 是可选字段。当设置后，Planner 将：
+   - 根据项目结构智能拆分实现步骤（方案设计、前端实现、后端实现、测试验证等）
+   - 动态生成 `file_scope`，允许 Agent 读写目标项目目录
+   - 在 task description 中注入项目路径，使 Agent 知道代码应写在何处
 
 ## 6.2 requirement_dependencies
 

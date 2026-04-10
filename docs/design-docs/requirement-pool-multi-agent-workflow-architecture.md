@@ -196,6 +196,29 @@ Requirement、Plan、Step Input、Artifact 引用都应基于运行开始时的�
 3. 给出所需角色与推荐 Agent。
 4. 标记可能的风险、阻塞与前置条件。
 
+#### 2.1 智能拆分策略
+
+当需求关联了 `target_project_path` 时，Planner 根据需求描述中的关键词自动识别并拆分实现步骤：
+
+| 关键词 | 拆分为 | 说明 |
+|--------|--------|------|
+| 方案设计、架构 | `design` step | 产出设计文档到 `roles/*/outputs/` |
+| 前端、frontend、UI | `frontend_impl` step | 允许写入目标项目前端目录 |
+| 后端、backend、API、服务端 | `backend_impl` step | 允许写入目标项目后端目录 |
+| 测试、test、验证 | `test_impl` step | 允许读写测试目录 |
+
+如果需求不包含上述关键词，退化为默认的单步 `implementation`。
+
+多步实现之间为串行依赖关系：design → frontend_impl → backend_impl，最后统一进入 review → test → closeout。
+
+#### 2.2 动态 file_scope
+
+`file_scope` 不再固定为 `roles/**` + `docs/**`，而是根据 `target_project_path` 动态生成：
+
+1. **实现步骤**：`allowed_read_globs` 和 `allowed_write_globs` 包含目标项目路径下的所有文件。
+2. **Review/Test 步骤**：`allowed_read_globs` 包含目标项目路径，`allowed_write_globs` 限制为 `roles/**`（只产出报告，不修改代码）。
+3. 始终保留 `roles/**`, `docs/**` 的读写权限用于产出文档和报告。
+
 ### Layer 3: Workflow Orchestrator
 
 负责把需求计划变成可执行工作流。

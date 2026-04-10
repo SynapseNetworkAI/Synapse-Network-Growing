@@ -186,6 +186,7 @@ class RequirementCreate(BaseModel):
     priority: str = "normal"
     source: str = "manual"
     source_ref: Optional[str] = None
+    target_project_path: Optional[str] = None
     depends_on_requirement_ids: list[int] = []
     auto_start: bool = False
 
@@ -207,6 +208,7 @@ class RequirementPatch(BaseModel):
     description_markdown: Optional[str] = None
     priority: Optional[str] = None
     source_ref: Optional[str] = None
+    target_project_path: Optional[str] = None
 
 
 class ArtifactOut(BaseModel):
@@ -297,6 +299,7 @@ class RequirementOut(BaseModel):
     priority: str
     source: str
     source_ref: Optional[str] = None
+    target_project_path: Optional[str] = None
     current_plan_version: int
     blocked_by_count: int
     active_workflow_run_id: Optional[int] = None

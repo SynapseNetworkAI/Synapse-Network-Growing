@@ -139,6 +139,7 @@ export interface Requirement {
   priority: string
   source: string
   source_ref: string | null
+  target_project_path: string | null
   current_plan_version: number
   blocked_by_count: number
   active_workflow_run_id: number | null
@@ -306,6 +307,7 @@ export const api = {
     priority?: string
     source?: string
     source_ref?: string | null
+    target_project_path?: string
     depends_on_requirement_ids?: number[]
     auto_start?: boolean
   }) =>

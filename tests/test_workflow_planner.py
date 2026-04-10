@@ -1,0 +1,300 @@
+"""Tests for the smart workflow planner: phase detection, dynamic file_scope, target_project_path."""
+import pytest
+from unittest.mock import MagicMock
+
+from server.database import AgentRow, RequirementRow
+from server.services.workflow_planner import (
+    _DetectedPhases,
+    _base_file_scope,
+    _build_implementation_steps,
+    _detect_phases,
+    _project_file_scope,
+    _review_file_scope,
+    build_planner_output,
+)
+
+
+# ---------------------------------------------------------------------------
+# Phase detection
+# ---------------------------------------------------------------------------
+
+class TestDetectPhases:
+    def test_empty_text(self):
+        p = _detect_phases("")
+        assert not p.design and not p.frontend and not p.backend and not p.test_impl
+        assert not p.has_sub_steps
+
+    def test_design_only(self):
+        p = _detect_phases("给出方案设计和架构")
+        assert p.design
+        assert not p.has_sub_steps  # only 1 phase → no sub-steps
+
+    def test_frontend_backend(self):
+        p = _detect_phases("前端 SDK 埋点实现, 后端 API 接受埋点")
+        assert p.frontend and p.backend
+        assert p.has_sub_steps
+
+    def test_full_requirement_zh(self):
+        text = "方案设计，给出前端和后端的代码实现，之后给出自动化测试方案"
+        p = _detect_phases(text)
+        assert p.design and p.frontend and p.backend and p.test_impl
+        assert p.has_sub_steps
+
+    def test_english_keywords(self):
+        text = "Design the architecture, implement frontend React UI and backend API with Kafka, then add e2e tests"
+        p = _detect_phases(text)
+        assert p.design and p.frontend and p.backend and p.test_impl
+
+    def test_clickhouse_triggers_backend(self):
+        p = _detect_phases("使用 clickhouse 数据库存储")
+        assert p.backend
+
+    def test_react_triggers_frontend(self):
+        p = _detect_phases("React component for analytics dashboard")
+        assert p.frontend
+
+    def test_pytest_triggers_test_impl(self):
+        p = _detect_phases("Write pytest integration tests")
+        assert p.test_impl
+
+
+# ---------------------------------------------------------------------------
+# File scope generation
+# ---------------------------------------------------------------------------
+
+class TestFileScope:
+    def test_base_scope_has_roles_docs(self):
+        scope = _base_file_scope()
+        assert "roles/**" in scope["allowed_read_globs"]
+        assert "roles/**" in scope["allowed_write_globs"]
+        assert ".git/**" in scope["blocked_globs"]
+
+    def test_project_scope_without_path(self):
+        scope = _project_file_scope(None)
+        assert scope == _base_file_scope()
+
+    def test_project_scope_with_path(self):
+        path = "/Users/cliff/workspace/agent/Synapse-Network"
+        scope = _project_file_scope(path)
+        assert f"{path}/**" in scope["allowed_read_globs"]
+        assert f"{path}/**" in scope["allowed_write_globs"]
+
+    def test_project_scope_readonly(self):
+        path = "/Users/cliff/workspace/agent/Synapse-Network"
+        scope = _project_file_scope(path, write=False)
+        assert f"{path}/**" in scope["allowed_read_globs"]
+        assert f"{path}/**" not in scope["allowed_write_globs"]
+
+    def test_review_scope_is_readonly(self):
+        path = "/some/project"
+        scope = _review_file_scope(path)
+        assert f"{path}/**" in scope["allowed_read_globs"]
+        assert f"{path}/**" not in scope["allowed_write_globs"]
+        # But can still write to roles/**
+        assert "roles/**" in scope["allowed_write_globs"]
+
+    def test_trailing_slash_stripped(self):
+        scope = _project_file_scope("/some/path/")
+        assert "/some/path/**" in scope["allowed_read_globs"]
+
+
+# ---------------------------------------------------------------------------
+# Implementation step building
+# ---------------------------------------------------------------------------
+
+def _mock_requirement(title="Test", description="", target_path=None):
+    req = MagicMock(spec=RequirementRow)
+    req.title = title
+    req.description_markdown = description
+    req.target_project_path = target_path
+    return req
+
+
+class TestBuildImplementationSteps:
+    def test_single_step_when_no_sub_phases(self):
+        req = _mock_requirement(title="Simple task")
+        phases = _DetectedPhases()
+        steps, keys = _build_implementation_steps(req, phases, None)
+        assert len(steps) == 1
+        assert keys == ["implementation"]
+        assert steps[0]["step_key"] == "implementation"
+
+    def test_multi_phase_creates_sub_steps(self):
+        req = _mock_requirement(title="Full stack")
+        phases = _DetectedPhases(design=True, frontend=True, backend=True, test_impl=True)
+        steps, keys = _build_implementation_steps(req, phases, "/proj")
+        assert keys == ["design", "frontend_impl", "backend_impl", "test_impl"]
+        assert len(steps) == 4
+        # Check dependency chain
+        assert steps[0]["depends_on"] == []
+        assert steps[1]["depends_on"] == ["design"]
+        assert steps[2]["depends_on"] == ["frontend_impl"]
+        assert steps[3]["depends_on"] == ["backend_impl"]
+
+    def test_frontend_backend_only(self):
+        req = _mock_requirement(title="FB only")
+        phases = _DetectedPhases(frontend=True, backend=True)
+        steps, keys = _build_implementation_steps(req, phases, "/proj")
+        assert keys == ["frontend_impl", "backend_impl"]
+        assert steps[0]["depends_on"] == []
+        assert steps[1]["depends_on"] == ["frontend_impl"]
+
+    def test_target_path_in_done_when(self):
+        req = _mock_requirement(title="Code task")
+        phases = _DetectedPhases(frontend=True, backend=True)
+        steps, keys = _build_implementation_steps(req, phases, "/my/project")
+        for step in steps:
+            assert "/my/project" in step["done_when_markdown"]
+
+    def test_file_scope_includes_project_path(self):
+        req = _mock_requirement(title="Code task")
+        phases = _DetectedPhases(frontend=True, backend=True)
+        steps, _ = _build_implementation_steps(req, phases, "/my/project")
+        for step in steps:
+            assert "/my/project/**" in step["file_scope"]["allowed_write_globs"]
+
+
+# ---------------------------------------------------------------------------
+# Full planner output (integration with DB)
+# ---------------------------------------------------------------------------
+
+class TestBuildPlannerOutput:
+    def test_plan_with_target_project_path(self, synced_client, db_session):
+        req = RequirementRow(
+            title="埋点系统",
+            description_markdown="方案设计，给出前端和后端的代码实现，之后给出自动化测试方案",
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        output, assignments = build_planner_output(db_session, req)
+        step_keys = [s["step_key"] for s in output["workflow_steps"]]
+
+        # Should have design, frontend_impl, backend_impl, test_impl + review + test + closeout
+        assert "design" in step_keys
+        assert "frontend_impl" in step_keys
+        assert "backend_impl" in step_keys
+        assert "test_impl" in step_keys
+        assert "review" in step_keys
+        assert "test" in step_keys
+        assert "closeout" in step_keys
+
+        assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
+        assert output["schema_version"] == "1.1"
+        assert output["detected_phases"]["design"] is True
+
+        # Review should depend on the last impl step (test_impl)
+        review_step = next(s for s in output["workflow_steps"] if s["step_key"] == "review")
+        assert review_step["depends_on"] == ["test_impl"]
+
+    def test_plan_without_target_project_path(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Write a blog post",
+            description_markdown="Write a marketing blog post about Synapse",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        output, _ = build_planner_output(db_session, req)
+        step_keys = [s["step_key"] for s in output["workflow_steps"]]
+
+        # Should fall back to single implementation step
+        assert "implementation" in step_keys
+        assert "design" not in step_keys
+        assert output["target_project_path"] is None
+
+    def test_plan_simple_backend_frontend(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Feature X",
+            description_markdown="实现前端 UI 和后端 API",
+            target_project_path="/proj",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        output, _ = build_planner_output(db_session, req)
+        step_keys = [s["step_key"] for s in output["workflow_steps"]]
+        assert step_keys == ["frontend_impl", "backend_impl", "review", "test", "closeout"]
+
+
+# ---------------------------------------------------------------------------
+# API integration: create requirement with target_project_path
+# ---------------------------------------------------------------------------
+
+class TestRequirementApiWithProjectPath:
+    def test_create_requirement_with_target_project_path(self, synced_client):
+        resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Analytics pipeline",
+                "description_markdown": "Build 前端 SDK and 后端 API",
+                "target_project_path": "/Users/cliff/workspace/Synapse-Network",
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["requirement"]["target_project_path"] == "/Users/cliff/workspace/Synapse-Network"
+
+    def test_create_requirement_without_target_project_path(self, synced_client):
+        resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Simple task",
+                "description_markdown": "Write a blog post",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["requirement"]["target_project_path"] is None
+
+    def test_plan_with_target_path_creates_multi_steps(self, synced_client, db_session):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Full stack feature",
+                "description_markdown": "方案设计，给出前端和后端的代码实现，之后给出自动化测试方案",
+                "target_project_path": "/proj",
+            },
+        )
+        requirement_id = create_resp.json()["requirement"]["id"]
+
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+        assert plan_resp.status_code == 200
+        steps = plan_resp.json()["workflow_run"]["steps"]
+        step_keys = [s["step_key"] for s in steps]
+
+        # All implementation sub-steps + review + test + closeout
+        assert "design" in step_keys
+        assert "frontend_impl" in step_keys
+        assert "backend_impl" in step_keys
+        assert "test_impl" in step_keys
+        assert "review" in step_keys
+        assert "test" in step_keys
+        assert "closeout" in step_keys
+
+        # Verify file_scope from DB directly
+        import json
+        from server.database import WorkflowStepRow
+        impl_step = db_session.query(WorkflowStepRow).filter(
+            WorkflowStepRow.step_key == "frontend_impl",
+            WorkflowStepRow.requirement_id == requirement_id,
+        ).first()
+        scope = json.loads(impl_step.file_scope_json)
+        assert "/proj/**" in scope["allowed_write_globs"]
+
+    def test_plan_without_target_path_creates_single_impl_step(self, synced_client):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Blog post",
+                "description_markdown": "Write a marketing blog post",
+            },
+        )
+        requirement_id = create_resp.json()["requirement"]["id"]
+
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+        assert plan_resp.status_code == 200
+        steps = plan_resp.json()["workflow_run"]["steps"]
+        impl_steps = [s for s in steps if s["step_type"] == "implementation"]
+        assert len(impl_steps) == 1
+        assert impl_steps[0]["step_key"] == "implementation"

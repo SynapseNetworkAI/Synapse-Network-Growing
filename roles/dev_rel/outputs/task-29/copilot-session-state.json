@@ -1,13 +1,16 @@
 {
   "action": "start",
-  "status": "running",
+  "status": "completed",
   "sessionId": "task-1775750609347",
   "model": "claude-opus-4.6",
   "selectedAgent": "researcher",
   "tokensUsed": 0,
   "startedAt": "2026-04-09T16:03:29.383Z",
-  "heartbeatAt": "2026-04-09T16:06:25.397Z",
-  "updatedAt": "2026-04-09T16:06:25.397Z",
-  "lastSeq": 447,
-  "lastEventType": "tool.execution_complete"
+  "heartbeatAt": "2026-04-09T16:10:46.431Z",
+  "updatedAt": "2026-04-09T16:10:46.431Z",
+  "lastSeq": 643,
+  "lastEventType": "session.idle",
+  "finishedAt": "2026-04-09T16:10:46.431Z",
+  "executionTimeMs": 437047,
+  "error": null
 }
