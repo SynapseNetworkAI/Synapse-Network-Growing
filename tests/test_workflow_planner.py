@@ -1,61 +1,134 @@
-"""Tests for the smart workflow planner: phase detection, dynamic file_scope, target_project_path."""
+"""Tests for the agent-driven workflow planner: phase detection, dynamic file_scope, target_project_path."""
+import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from server.database import AgentRow, RequirementRow
+from server.database import AgentRow, RequirementRow, WorkflowStepRow
 from server.services.workflow_planner import (
     _DetectedPhases,
     _base_file_scope,
     _build_implementation_steps,
-    _detect_phases,
+    _detect_phases_fallback,
+    _detect_phases_with_agent,
     _project_file_scope,
     _review_file_scope,
     build_planner_output,
 )
 
 
+def _mock_bridge_result(phases: dict) -> MagicMock:
+    """Create a mock bridge result returning a JSON phases dict."""
+    result = MagicMock()
+    result.content = json.dumps(phases)
+    return result
+
+
 # ---------------------------------------------------------------------------
-# Phase detection
+# Keyword fallback detection (still used when agent is unavailable)
 # ---------------------------------------------------------------------------
 
-class TestDetectPhases:
+class TestDetectPhasesFallback:
     def test_empty_text(self):
-        p = _detect_phases("")
+        p = _detect_phases_fallback("")
         assert not p.design and not p.frontend and not p.backend and not p.test_impl
         assert not p.has_sub_steps
 
     def test_design_only(self):
-        p = _detect_phases("给出方案设计和架构")
+        p = _detect_phases_fallback("给出方案设计和架构")
         assert p.design
-        assert not p.has_sub_steps  # only 1 phase → no sub-steps
+        assert not p.has_sub_steps
 
     def test_frontend_backend(self):
-        p = _detect_phases("前端 SDK 埋点实现, 后端 API 接受埋点")
+        p = _detect_phases_fallback("前端 SDK 埋点实现, 后端 API 接受埋点")
         assert p.frontend and p.backend
         assert p.has_sub_steps
 
     def test_full_requirement_zh(self):
         text = "方案设计，给出前端和后端的代码实现，之后给出自动化测试方案"
-        p = _detect_phases(text)
+        p = _detect_phases_fallback(text)
         assert p.design and p.frontend and p.backend and p.test_impl
-        assert p.has_sub_steps
 
     def test_english_keywords(self):
         text = "Design the architecture, implement frontend React UI and backend API with Kafka, then add e2e tests"
-        p = _detect_phases(text)
+        p = _detect_phases_fallback(text)
         assert p.design and p.frontend and p.backend and p.test_impl
 
     def test_clickhouse_triggers_backend(self):
-        p = _detect_phases("使用 clickhouse 数据库存储")
+        p = _detect_phases_fallback("使用 clickhouse 数据库存储")
         assert p.backend
 
     def test_react_triggers_frontend(self):
-        p = _detect_phases("React component for analytics dashboard")
+        p = _detect_phases_fallback("React component for analytics dashboard")
         assert p.frontend
 
     def test_pytest_triggers_test_impl(self):
-        p = _detect_phases("Write pytest integration tests")
+        p = _detect_phases_fallback("Write pytest integration tests")
         assert p.test_impl
+
+
+# ---------------------------------------------------------------------------
+# Agent-based phase detection
+# ---------------------------------------------------------------------------
+
+class TestDetectPhasesWithAgent:
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_returns_all_phases(self, MockBridge):
+        bridge = MockBridge.return_value
+        bridge.run_session.return_value = _mock_bridge_result(
+            {"design": True, "frontend": True, "backend": True, "test_impl": True}
+        )
+        p = _detect_phases_with_agent("Build analytics pipeline")
+        assert p.design and p.frontend and p.backend and p.test_impl
+        bridge.run_session.assert_called_once()
+
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_returns_no_phases(self, MockBridge):
+        bridge = MockBridge.return_value
+        bridge.run_session.return_value = _mock_bridge_result(
+            {"design": False, "frontend": False, "backend": False, "test_impl": False}
+        )
+        p = _detect_phases_with_agent("Write a blog post")
+        assert not p.design and not p.frontend and not p.backend and not p.test_impl
+
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_returns_partial_phases(self, MockBridge):
+        bridge = MockBridge.return_value
+        bridge.run_session.return_value = _mock_bridge_result(
+            {"design": False, "frontend": True, "backend": True, "test_impl": False}
+        )
+        p = _detect_phases_with_agent("实现前端和后端")
+        assert not p.design
+        assert p.frontend and p.backend
+        assert not p.test_impl
+        assert p.has_sub_steps
+
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_strips_markdown_fences(self, MockBridge):
+        bridge = MockBridge.return_value
+        result = MagicMock()
+        result.content = '```json\n{"design": true, "frontend": false, "backend": true, "test_impl": false}\n```'
+        bridge.run_session.return_value = result
+        p = _detect_phases_with_agent("Design backend API")
+        assert p.design and p.backend
+        assert not p.frontend and not p.test_impl
+
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_failure_falls_back_to_keywords(self, MockBridge):
+        bridge = MockBridge.return_value
+        bridge.run_session.side_effect = RuntimeError("no auth token")
+        p = _detect_phases_with_agent("方案设计，给出前端和后端的代码实现")
+        # Should fall back to keyword detection
+        assert p.design and p.frontend and p.backend
+
+    @patch("server.services.copilot_sdk_bridge.CopilotSDKBridge")
+    def test_agent_invalid_json_falls_back(self, MockBridge):
+        bridge = MockBridge.return_value
+        result = MagicMock()
+        result.content = "I think you should design..."
+        bridge.run_session.return_value = result
+        p = _detect_phases_with_agent("方案设计，给出后端实现")
+        # Fallback to keyword
+        assert p.design and p.backend
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +228,15 @@ class TestBuildImplementationSteps:
 
 
 # ---------------------------------------------------------------------------
-# Full planner output (integration with DB)
+# Full planner output (integration with DB — mock agent)
 # ---------------------------------------------------------------------------
+
+def _patch_agent_phases(phases: dict):
+    """Return a context manager that mocks the bridge to return the given phases."""
+    mock_bridge_cls = MagicMock()
+    mock_bridge_cls.return_value.run_session.return_value = _mock_bridge_result(phases)
+    return patch("server.services.copilot_sdk_bridge.CopilotSDKBridge", mock_bridge_cls)
+
 
 class TestBuildPlannerOutput:
     def test_plan_with_target_project_path(self, synced_client, db_session):
@@ -168,7 +248,9 @@ class TestBuildPlannerOutput:
         db_session.add(req)
         db_session.flush()
 
-        output, assignments = build_planner_output(db_session, req)
+        with _patch_agent_phases({"design": True, "frontend": True, "backend": True, "test_impl": True}):
+            output, assignments = build_planner_output(db_session, req)
+
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
         # Should have design, frontend_impl, backend_impl, test_impl + review + test + closeout
@@ -196,7 +278,9 @@ class TestBuildPlannerOutput:
         db_session.add(req)
         db_session.flush()
 
-        output, _ = build_planner_output(db_session, req)
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
         # Should fall back to single implementation step
@@ -213,7 +297,9 @@ class TestBuildPlannerOutput:
         db_session.add(req)
         db_session.flush()
 
-        output, _ = build_planner_output(db_session, req)
+        with _patch_agent_phases({"design": False, "frontend": True, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
         assert step_keys == ["frontend_impl", "backend_impl", "review", "test", "closeout"]
 
@@ -258,7 +344,9 @@ class TestRequirementApiWithProjectPath:
         )
         requirement_id = create_resp.json()["requirement"]["id"]
 
-        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+        with _patch_agent_phases({"design": True, "frontend": True, "backend": True, "test_impl": True}):
+            plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
         assert plan_resp.status_code == 200
         steps = plan_resp.json()["workflow_run"]["steps"]
         step_keys = [s["step_key"] for s in steps]
@@ -273,8 +361,6 @@ class TestRequirementApiWithProjectPath:
         assert "closeout" in step_keys
 
         # Verify file_scope from DB directly
-        import json
-        from server.database import WorkflowStepRow
         impl_step = db_session.query(WorkflowStepRow).filter(
             WorkflowStepRow.step_key == "frontend_impl",
             WorkflowStepRow.requirement_id == requirement_id,
@@ -292,7 +378,9 @@ class TestRequirementApiWithProjectPath:
         )
         requirement_id = create_resp.json()["requirement"]["id"]
 
-        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
         assert plan_resp.status_code == 200
         steps = plan_resp.json()["workflow_run"]["steps"]
         impl_steps = [s for s in steps if s["step_type"] == "implementation"]

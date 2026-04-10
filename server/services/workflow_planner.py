@@ -1,39 +1,48 @@
-"""Smart planner for requirement-first workflows.
+"""Agent-driven planner for requirement-first workflows.
 
-Analyses requirement text to split implementation into sub-steps
-(design, frontend, backend, test_impl) and generates dynamic file_scope
-when a target_project_path is provided.
+Uses the Copilot SDK one-shot bridge to ask an LLM to analyse the
+requirement and decide which implementation sub-steps are needed, then
+generates dynamic file_scope based on target_project_path.
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server.database import AgentRow, RequirementRow
 from server.services.execution_resolver import suggest_task_execution
 
+logger = logging.getLogger("ops-dashboard.workflow_planner")
+
 # ---------------------------------------------------------------------------
-# Keyword patterns for intelligent step splitting
+# Planner prompt for agent-based task splitting
 # ---------------------------------------------------------------------------
-_DESIGN_KEYWORDS = re.compile(
-    r"方案设计|架构|architecture|设计文档|design|schema|DDL|数据模型",
-    re.IGNORECASE,
-)
-_FRONTEND_KEYWORDS = re.compile(
-    r"前端|frontend|UI|页面|组件|React|Vue|sdk\.ts|analytics\.ts|埋点.*(前端|SDK)",
-    re.IGNORECASE,
-)
-_BACKEND_KEYWORDS = re.compile(
-    r"后端|backend|API|服务端|server|endpoint|kafka|clickhouse|数据库|中间件|接受埋点",
-    re.IGNORECASE,
-)
-_TEST_IMPL_KEYWORDS = re.compile(
-    r"自动化测试|测试方案|test.*(方案|实现|代码)|验证数据|e2e|集成测试|pytest|vitest",
-    re.IGNORECASE,
-)
+
+_PLANNER_SYSTEM_PROMPT = """\
+You are a workflow planner. Given a requirement description, analyse what \
+implementation phases are needed and return a JSON object with exactly these \
+boolean fields:
+
+{
+  "design": true/false,      // architecture / schema / system design needed
+  "frontend": true/false,    // frontend / UI / SDK client code needed
+  "backend": true/false,     // backend / API / server / database / middleware needed
+  "test_impl": true/false    // automated tests / e2e / integration tests needed
+}
+
+Rules:
+- Set a field to true ONLY if the requirement explicitly or strongly implies \
+that phase of work.
+- If the requirement is purely about documentation, marketing, or content, \
+set all to false.
+- Return ONLY the JSON object, no markdown fences, no explanation.
+"""
 
 
 @dataclass(frozen=True)
@@ -56,12 +65,49 @@ class _DetectedPhases:
         return sum([self.design, self.frontend, self.backend, self.test_impl]) >= 2
 
 
-def _detect_phases(text: str) -> _DetectedPhases:
+def _detect_phases_with_agent(text: str) -> _DetectedPhases:
+    """Call the Copilot SDK one-shot bridge to let the LLM decide phases."""
+    try:
+        from server.services.copilot_sdk_bridge import CopilotSDKBridge
+
+        bridge = CopilotSDKBridge(cwd=config.PROJECT_ROOT)
+        payload = {
+            "prompt": (
+                f"{_PLANNER_SYSTEM_PROMPT}\n\n"
+                f"Requirement:\n{text[:3000]}"
+            ),
+            "model": config.COPILOT_SDK_MODEL,
+            "sessionId": "planner-oneshot",
+            "cwd": str(config.PROJECT_ROOT),
+        }
+        result = bridge.run_session(payload, timeout=60)
+        content = result.content.strip()
+        # Strip markdown code fences if present
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+        data = json.loads(content)
+        return _DetectedPhases(
+            design=bool(data.get("design")),
+            frontend=bool(data.get("frontend")),
+            backend=bool(data.get("backend")),
+            test_impl=bool(data.get("test_impl")),
+        )
+    except Exception:
+        logger.warning("Agent-based phase detection failed, falling back to keyword detection", exc_info=True)
+        return _detect_phases_fallback(text)
+
+
+def _detect_phases_fallback(text: str) -> _DetectedPhases:
+    """Keyword fallback when the agent call is unavailable."""
+    _DESIGN = re.compile(r"方案设计|架构|architecture|设计文档|design|schema|DDL|数据模型", re.IGNORECASE)
+    _FRONTEND = re.compile(r"前端|frontend|UI|页面|组件|React|Vue|sdk\.ts|analytics\.ts|埋点.*(前端|SDK)", re.IGNORECASE)
+    _BACKEND = re.compile(r"后端|backend|API|服务端|server|endpoint|kafka|clickhouse|数据库|中间件|接受埋点", re.IGNORECASE)
+    _TEST = re.compile(r"自动化测试|测试方案|test.*(方案|实现|代码)|验证数据|e2e|集成测试|pytest|vitest", re.IGNORECASE)
     return _DetectedPhases(
-        design=bool(_DESIGN_KEYWORDS.search(text)),
-        frontend=bool(_FRONTEND_KEYWORDS.search(text)),
-        backend=bool(_BACKEND_KEYWORDS.search(text)),
-        test_impl=bool(_TEST_IMPL_KEYWORDS.search(text)),
+        design=bool(_DESIGN.search(text)),
+        frontend=bool(_FRONTEND.search(text)),
+        backend=bool(_BACKEND.search(text)),
+        test_impl=bool(_TEST.search(text)),
     )
 
 
@@ -102,7 +148,7 @@ def _review_file_scope(target_project_path: str | None) -> dict:
 def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict, WorkflowRoleAssignments]:
     description = f"{requirement.title}\n\n{requirement.description_markdown}"
     target_path = getattr(requirement, "target_project_path", None)
-    phases = _detect_phases(description)
+    phases = _detect_phases_with_agent(description)
 
     suggestion = suggest_task_execution(db=db, description=description)
     implementer_agent_id = suggestion.agent_id or _first_agent_id(db)
