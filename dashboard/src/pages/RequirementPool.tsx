@@ -32,6 +32,7 @@ export default function RequirementPool() {
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [titleError, setTitleError] = useState(false)
   const [form, setForm] = useState({
     title: '',
     description_markdown: '',
@@ -58,7 +59,12 @@ export default function RequirementPool() {
   }, [requirements, loadRequirements])
 
   const handleCreate = async () => {
-    if (!form.title.trim() || !form.description_markdown.trim()) return
+    if (!form.title.trim()) {
+      setTitleError(true)
+      return
+    }
+    if (!form.description_markdown.trim()) return
+    setTitleError(false)
     setSubmitting(true)
     try {
       const created = await api.createRequirement({
@@ -70,6 +76,7 @@ export default function RequirementPool() {
         auto_start: form.auto_start,
       })
       setShowCreate(false)
+      setTitleError(false)
       setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
       await loadRequirements()
       navigate(`/requirements/${created.requirement.id}`)
@@ -117,13 +124,21 @@ export default function RequirementPool() {
 
       {showCreate && (
         <div data-testid="requirement-create-form" className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
-          <input
-            data-testid="requirement-title"
-            className="w-full rounded border px-3 py-2"
-            placeholder="需求标题"
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-          />
+          <div>
+            <input
+              data-testid="requirement-title"
+              className={`w-full rounded border px-3 py-2 ${titleError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+              placeholder="需求标题"
+              value={form.title}
+              onChange={(e) => {
+                setTitleError(false)
+                setForm((prev) => ({ ...prev, title: e.target.value }))
+              }}
+            />
+            {titleError && (
+              <p className="mt-1 text-xs text-red-500">请填写需求标题</p>
+            )}
+          </div>
           <textarea
             data-testid="requirement-description"
             className="min-h-32 w-full rounded border px-3 py-2"
