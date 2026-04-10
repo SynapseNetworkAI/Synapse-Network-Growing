@@ -1,8 +1,10 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import OrgChart from './pages/OrgChart'
 import TaskBoard from './pages/TaskBoard'
+import TaskDetail from './pages/TaskDetail'
 import Approvals from './pages/Approvals'
 import RequirementPool from './pages/RequirementPool'
+import RequirementDetail from './pages/RequirementDetail'
 
 const navItems = [
   { to: '/', label: '组织架构' },
@@ -32,7 +34,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={<OrgChart />} />
           <Route path="/requirements" element={<RequirementPool />} />
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
           <Route path="/tasks" element={<TaskBoard />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/approvals" element={<Approvals />} />
         </Routes>
       </main>

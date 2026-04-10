@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, Agent, TaskLog, TaskHistoryItem, TaskExecutionSuggestion, ApiError } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { api, Task, Agent, TaskLog, TaskExecutionSuggestion, ApiError } from '../api'
 
 const RETRYABLE_STATUSES = new Set(['failed', 'rejected'])
 
@@ -39,10 +40,6 @@ function getTaskErrorSummary(task: Task) {
 function toUtcDate(value: string): Date {
   // Backend sends UTC timestamps without 'Z' suffix; append it so Date parses as UTC.
   return new Date(value.endsWith('Z') ? value : value + 'Z')
-}
-
-function formatTime(value: string | null) {
-  return value ? toUtcDate(value).toLocaleString('zh-CN') : '-'
 }
 
 function parseTime(value: string | null) {
@@ -88,25 +85,6 @@ function formatDuration(ms: number | null) {
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`
 }
 
-function normalizeComparableContent(value: string | null | undefined) {
-  return (value || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function isDuplicateOutput(outputContent: string | null | undefined, assistantMessages: string[]) {
-  const normalizedOutput = normalizeComparableContent(outputContent)
-  if (!normalizedOutput) return false
-
-  const combinedTranscript = normalizeComparableContent(assistantMessages.join('\n\n'))
-  if (combinedTranscript && normalizedOutput === combinedTranscript) {
-    return true
-  }
-
-  return assistantMessages.some((message) => normalizeComparableContent(message) === normalizedOutput)
-}
-
 function taskCreatedAtValue(task: Task) {
   if (!task.created_at) return 0
   const parsed = Date.parse(task.created_at)
@@ -120,6 +98,7 @@ function compareTasksByNewestFirst(left: Task, right: Task) {
 }
 
 export default function TaskBoard() {
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState<Task[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [skills, setSkills] = useState<string[]>([])
@@ -137,20 +116,11 @@ export default function TaskBoard() {
   const [suggestionLoading, setSuggestionLoading] = useState(false)
   const [suggestionMessage, setSuggestionMessage] = useState('')
   const [selectedLogs, setSelectedLogs] = useState<{ taskId: number; logs: TaskLog[] } | null>(null)
-  const [drawerTaskId, setDrawerTaskId] = useState<number | null>(null)
-  const [drawerLogs, setDrawerLogs] = useState<Record<number, TaskLog[]>>({})
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
-  const [taskHistory, setTaskHistory] = useState<Record<number, TaskHistoryItem[]>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const drawerLogsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const suggestionRequestRef = useRef(0)
-
-  const loadDrawerLogs = useCallback(async (taskId: number) => {
-    const logs = await api.getTaskLogs(taskId)
-    setDrawerLogs((prev) => ({ ...prev, [taskId]: logs }))
-  }, [])
 
   const load = useCallback(async () => {
     const [t, a] = await Promise.all([
@@ -193,44 +163,8 @@ export default function TaskBoard() {
   }, [tasks])
 
   useEffect(() => {
-    if (drawerTaskId == null || taskHistory[drawerTaskId]) return
-    api.getTaskHistory(drawerTaskId)
-      .then((history) => {
-        setTaskHistory((prev) => ({ ...prev, [drawerTaskId]: history }))
-      })
-      .catch(() => {})
-  }, [drawerTaskId, taskHistory])
-
-  useEffect(() => {
-    if (drawerTaskId == null) return
-    loadDrawerLogs(drawerTaskId).catch(() => {})
-  }, [drawerTaskId, loadDrawerLogs])
-
-  useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((task) => task.id === id && RETRYABLE_STATUSES.has(task.status))))
-    if (drawerTaskId != null && !tasks.some((task) => task.id === drawerTaskId)) {
-      setDrawerTaskId(null)
-    }
-  }, [tasks, drawerTaskId])
-
-  useEffect(() => {
-    if (drawerLogsPollRef.current) {
-      clearInterval(drawerLogsPollRef.current)
-      drawerLogsPollRef.current = null
-    }
-    if (drawerTaskId == null) return
-    const drawerTask = tasks.find((task) => task.id === drawerTaskId)
-    if (drawerTask?.status !== 'running') return
-    drawerLogsPollRef.current = setInterval(() => {
-      loadDrawerLogs(drawerTaskId).catch(() => {})
-    }, 3000)
-    return () => {
-      if (drawerLogsPollRef.current) {
-        clearInterval(drawerLogsPollRef.current)
-        drawerLogsPollRef.current = null
-      }
-    }
-  }, [drawerTaskId, tasks, loadDrawerLogs])
+  }, [tasks])
 
   const selectedAgent = agents.find(a => a.id === form.agent_id)
   const selectedAgentSkills: string[] = (() => {
@@ -261,17 +195,6 @@ export default function TaskBoard() {
 
   const projectKeys = Array.from(new Set(tasks.map(t => t.project_id).filter(Boolean))) as string[]
   const groupKeys = Array.from(new Set(agents.map(a => a.group).filter(Boolean)))
-  const drawerTask = drawerTaskId != null ? tasks.find((task) => task.id === drawerTaskId) || null : null
-  const assistantOutputs = drawerTask ? (drawerLogs[drawerTask.id] || [])
-    .filter((log) => log.event_type === 'assistant_output' && Boolean(log.detail?.trim()))
-    .slice()
-    .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at))) : []
-  const assistantMessages = assistantOutputs.map((log) => log.detail?.trim() || '').filter(Boolean)
-  const shouldShowOutputContent = drawerTask
-    ? Boolean(drawerTask.output_content?.trim()) && !isDuplicateOutput(drawerTask.output_content, assistantMessages)
-    : false
-  const drawerExecutionTime = drawerTask ? getExecutionTimeMs(drawerTask, nowMs) : null
-  const drawerExecutionLabel = formatDuration(drawerExecutionTime)
   const selectedRetryableTaskIds = selectedTaskIds.filter((id) => {
     const task = tasks.find((candidate) => candidate.id === id)
     return task ? RETRYABLE_STATUSES.has(task.status) : false
@@ -806,7 +729,7 @@ export default function TaskBoard() {
                       <div key={task.id} data-testid={`task-${task.id}`} className="bg-white border rounded-lg shadow-sm">
                         <div
                           className="flex items-start justify-between p-4 cursor-pointer hover:bg-gray-50"
-                          onClick={() => setDrawerTaskId(task.id)}
+                          onClick={() => navigate(`/tasks/${task.id}`)}
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -906,173 +829,6 @@ export default function TaskBoard() {
             </section>
           ))}
       </div>
-
-      {drawerTask && (
-        <div className="fixed inset-0 z-40 flex justify-end" data-testid="task-drawer-shell">
-          <button className="absolute inset-0 bg-black/20" aria-label="关闭任务详情" onClick={() => setDrawerTaskId(null)} />
-          <aside className="relative w-full h-full max-w-2xl overflow-y-auto bg-white shadow-2xl" data-testid="task-drawer">
-            <div className="sticky top-0 z-10 px-6 py-4 bg-white border-b">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[drawerTask.status] || 'bg-gray-100'}`}>
-                      {STATUS_LABEL[drawerTask.status] || drawerTask.status}
-                    </span>
-                    <span className="font-mono text-xs text-gray-400">#{drawerTask.id}</span>
-                    {drawerTask.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{drawerTask.project_label}</span>}
-                    {drawerTask.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{drawerTask.agent_group}</span>}
-                    {drawerTask.skill_name && (
-                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${drawerTask.id}`}>
-                        🛠 {drawerTask.skill_name}
-                      </span>
-                    )}
-                    {drawerTask.runtime_backend && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded" data-testid={`runtime-backend-${drawerTask.id}`}>
-                        ⚙ {drawerTask.runtime_backend}
-                      </span>
-                    )}
-                    {drawerTask.runtime_selected_agent && (
-                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded" data-testid={`runtime-agent-${drawerTask.id}`}>
-                        🤖 {drawerTask.runtime_selected_agent}
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="mt-2 text-lg font-semibold" data-testid={`task-detail-${drawerTask.id}`}>{drawerTask.description.split('\n')[0]}</h3>
-                  <p className="mt-1 text-sm text-gray-500">Agent: @{drawerTask.agent_id}</p>
-                  {drawerTask.runtime_session_id && (
-                    <p className="mt-1 font-mono text-xs text-gray-400" data-testid={`runtime-session-${drawerTask.id}`}>
-                      Session: {drawerTask.runtime_session_id}
-                    </p>
-                  )}
-                </div>
-                <button
-                  data-testid="task-drawer-close"
-                  onClick={() => setDrawerTaskId(null)}
-                  className="text-sm border rounded px-3 py-1.5 hover:bg-gray-50"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-
-            <div className="px-6 py-5">
-              <div className="flex flex-wrap items-center gap-3 mb-4 text-xs text-gray-500">
-                {drawerTask.retry_of_task_id != null && <span>重试来源: #{drawerTask.retry_of_task_id}</span>}
-                {drawerExecutionLabel && (
-                  <span data-testid={`drawer-execution-time-${drawerTask.id}`}>
-                    ⏱ {drawerTask.status === 'running' ? `已运行 ${drawerExecutionLabel}` : `耗时 ${drawerExecutionLabel}`}
-                  </span>
-                )}
-                <span>创建: {formatTime(drawerTask.created_at)}</span>
-                <span>开始: {formatTime(drawerTask.started_at)}</span>
-                <span>完成: {formatTime(drawerTask.completed_at)}</span>
-              </div>
-
-              <div className="mb-4">
-                <h4 className="mb-1 text-xs font-bold text-gray-500">任务描述</h4>
-                <div className="p-3 border rounded bg-gray-50">
-                  <Md>{drawerTask.description}</Md>
-                </div>
-              </div>
-
-              {drawerTask.requirement_title && (
-                <div className="mb-4">
-                  <h4 className="mb-1 text-xs font-bold text-gray-500">关联需求</h4>
-                  <div className="p-2 text-sm text-blue-800 border rounded bg-blue-50">
-                    📋 #{drawerTask.requirement_id} {drawerTask.requirement_title}
-                  </div>
-                </div>
-              )}
-
-              {drawerTask.output_files && drawerTask.output_files.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="mb-1 text-xs font-bold text-gray-500">产出文件</h4>
-                  <ul className="p-3 space-y-1 text-sm border rounded bg-gray-50">
-                    {drawerTask.output_files.map((file) => (
-                      <li key={file} className="font-mono text-xs text-gray-700 truncate">📄 {file}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {getTaskErrorSummary(drawerTask) && (
-                <div className="mb-4">
-                  <h4 className="mb-1 text-xs font-bold text-gray-500">失败原因</h4>
-                  <div className="p-3 text-sm text-red-600 border border-red-100 rounded bg-red-50">{getTaskErrorSummary(drawerTask)}</div>
-                </div>
-              )}
-
-              {shouldShowOutputContent && drawerTask.output_content && (
-                <div className="mb-4">
-                  <h4 className="mb-1 text-xs font-bold text-gray-500">执行产出</h4>
-                  <div className="p-3 border rounded bg-gray-50">
-                    <Md>{drawerTask.output_content}</Md>
-                  </div>
-                </div>
-              )}
-
-              <div className="mb-4" data-testid={`runtime-events-${drawerTask.id}`}>
-                <h4 className="mb-2 text-xs font-bold text-gray-500">Copilot 输出</h4>
-                <div className="p-3 border rounded bg-gray-50">
-                  {assistantOutputs.length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      {drawerTask.status === 'running' ? 'Copilot 正在执行，等待 assistant_output...' : '暂无 assistant_output'}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {assistantOutputs.map((log, index) => (
-                        <div key={log.id} className="p-3 bg-white border rounded border-slate-200" data-testid={`runtime-event-${drawerTask.id}-${index}`}>
-                          <div className="flex flex-wrap items-center gap-2 mb-2 text-xs text-gray-400">
-                            <span>assistant</span>
-                            <span className="font-mono">{log.created_at}</span>
-                          </div>
-                          {log.detail && (
-                            <div className="text-sm text-gray-700">
-                              <Md>{log.detail}</Md>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="mb-3" data-testid={`history-${drawerTask.id}`}>
-                <h4 className="mb-2 text-xs font-bold text-gray-500">重试历史时间线</h4>
-                <div className="p-3 border rounded bg-gray-50">
-                  {(taskHistory[drawerTask.id] || []).length === 0 ? (
-                    <p className="text-sm text-gray-400">暂无重试历史</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {(taskHistory[drawerTask.id] || []).map((item) => (
-                        <div key={item.task_id} className="flex items-start gap-3" data-testid={`history-item-${drawerTask.id}-${item.task_id}`}>
-                          <div className={`mt-1 h-2.5 w-2.5 rounded-full ${STATUS_COLORS[item.status]?.split(' ')[0] || 'bg-gray-300'}`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-medium text-gray-700">尝试 #{item.attempt_no}</span>
-                              <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[item.status] || 'bg-gray-100 text-gray-700'}`}>
-                                {STATUS_LABEL[item.status] || item.status}
-                              </span>
-                              <span className="font-mono text-xs text-gray-400">Task #{item.task_id}</span>
-                              {item.retry_of_task_id != null && <span className="text-xs text-gray-400">来自 #{item.retry_of_task_id}</span>}
-                            </div>
-                            <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
-                              <span>创建: {formatTime(item.created_at)}</span>
-                              <span>完成: {formatTime(item.completed_at)}</span>
-                            </div>
-                            {item.last_error_message && <p className="mt-1 text-xs text-red-600">{item.last_error_message}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
 
       {selectedLogs && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setSelectedLogs(null)}>

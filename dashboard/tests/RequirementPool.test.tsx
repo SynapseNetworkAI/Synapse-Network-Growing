@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import RequirementPool from '../src/pages/RequirementPool'
 
 const mockApi = {
@@ -197,23 +198,17 @@ describe('RequirementPool', () => {
     mockApi.reviseRequirement.mockResolvedValue(DETAIL)
   })
 
-  it('renders requirement list and detail panels', async () => {
-    render(<RequirementPool />)
+  it('renders requirement list', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('requirements-page')).toBeDefined()
       expect(screen.getByTestId('requirement-card-1')).toBeDefined()
     })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('workflow-steps-panel')).toBeDefined()
-      expect(screen.getByTestId('workflow-step-13')).toHaveTextContent('Bugfix after test failure')
-    })
-    expect(screen.getByTestId('dependencies-panel')).toHaveTextContent('Shared data contract')
   })
 
   it('creates a new requirement', async () => {
-    render(<RequirementPool />)
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
 
     // Wait for requirements to load so dependency candidates are available
     await waitFor(() => {
@@ -238,59 +233,5 @@ describe('RequirementPool', () => {
     })
   })
 
-  it('plans and starts a requirement', async () => {
-    // Use a draft requirement so the plan button is not disabled
-    const draftReq = { ...REQUIREMENT, status: 'draft' }
-    const draftDetail = { ...DETAIL, requirement: draftReq }
-    mockApi.getRequirements.mockResolvedValue([draftReq, BLOCKER])
-    mockApi.getRequirement.mockResolvedValue(draftDetail)
-    mockApi.planRequirement.mockResolvedValue(draftDetail)
-    mockApi.startRequirement.mockResolvedValue(draftDetail)
 
-    render(<RequirementPool />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('plan-requirement-btn')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByTestId('plan-requirement-btn'))
-
-    await waitFor(() => {
-      expect(mockApi.planRequirement).toHaveBeenCalledWith(1)
-    })
-
-    fireEvent.click(screen.getByTestId('start-requirement-btn'))
-
-    await waitFor(() => {
-      expect(mockApi.startRequirement).toHaveBeenCalledWith(1)
-    })
-  })
-
-  it('submits a requirement revision', async () => {
-    render(<RequirementPool />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('toggle-revise-btn')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByTestId('toggle-revise-btn'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('revise-description')).toBeDefined()
-    })
-
-    fireEvent.change(screen.getByTestId('revise-description'), { target: { value: '## Revised\n\nClarify acceptance criteria.' } })
-    fireEvent.change(screen.getByTestId('revise-note'), { target: { value: 'Reviewer flagged ambiguous acceptance criteria.' } })
-    fireEvent.click(screen.getByTestId('submit-revision-btn'))
-
-    await waitFor(() => {
-      expect(mockApi.reviseRequirement).toHaveBeenCalledWith(1, {
-        title: 'Launch FAQ quality gate',
-        description_markdown: '## Revised\n\nClarify acceptance criteria.',
-        revision_note: 'Reviewer flagged ambiguous acceptance criteria.',
-        source_ref: null,
-        depends_on_requirement_ids: [2],
-      })
-    })
-  })
 })

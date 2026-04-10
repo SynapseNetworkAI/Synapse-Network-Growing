@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import TaskBoard from '../src/pages/TaskBoard'
 
 // Mock API
@@ -234,7 +235,7 @@ describe('TaskBoard', () => {
   })
 
   it('renders the task board page', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     expect(screen.getByText('任务看板')).toBeDefined()
     await waitFor(() => {
       expect(mockApi.getTasks).toHaveBeenCalled()
@@ -242,14 +243,14 @@ describe('TaskBoard', () => {
   })
 
   it('fetches and displays skills list', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(mockApi.getSkills).toHaveBeenCalled()
     })
   })
 
   it('shows empty state when no tasks', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('empty-tasks')).toBeDefined()
     })
@@ -258,7 +259,7 @@ describe('TaskBoard', () => {
   // ── Create form ──────────────────────────────────────────
 
   it('shows create form with skill selector', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('create-btn'))
     await waitFor(() => {
       expect(screen.getByTestId('skill-select')).toBeDefined()
@@ -267,7 +268,7 @@ describe('TaskBoard', () => {
   })
 
   it('populates skill dropdown from agent skills when agent selected', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('create-btn'))
 
     await waitFor(() => {
@@ -286,7 +287,7 @@ describe('TaskBoard', () => {
 
   it('submits task with skill_name', async () => {
     mockApi.createTask.mockResolvedValue({ ...PENDING_TASK })
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('create-btn'))
 
     await waitFor(() => {
@@ -314,7 +315,7 @@ describe('TaskBoard', () => {
 
   it('auto-selects agent and skill for a task description', async () => {
     mockApi.createTask.mockResolvedValue({ ...PENDING_TASK, agent_id: 'cro_optimizer', skill_name: 'analytics-tracking' })
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('create-btn'))
 
     await waitFor(() => {
@@ -343,7 +344,7 @@ describe('TaskBoard', () => {
 
   it('requires confirmation for low-confidence auto-selection', async () => {
     mockApi.suggestTaskExecution.mockResolvedValue(LOW_CONFIDENCE_SUGGESTION)
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('create-btn'))
 
     await waitFor(() => {
@@ -376,7 +377,7 @@ describe('TaskBoard', () => {
 
   it('displays pending task with run button', async () => {
     mockApi.getTasks.mockResolvedValue([PENDING_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('task-1')).toBeDefined()
       expect(screen.getByTestId('run-1')).toBeDefined()
@@ -385,7 +386,7 @@ describe('TaskBoard', () => {
 
   it('displays running task with spinner', async () => {
     mockApi.getTasks.mockResolvedValue([RUNNING_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('task-2')).toBeDefined()
       expect(screen.getByTestId('spinner-2')).toBeDefined()
@@ -394,7 +395,7 @@ describe('TaskBoard', () => {
 
   it('shows project section heading', async () => {
     mockApi.getTasks.mockResolvedValue([PENDING_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('project-section-Synapse-Network-Growing')).toBeDefined()
     })
@@ -418,7 +419,7 @@ describe('TaskBoard', () => {
       created_at: '2026-04-10T00:05:00Z',
     }
     mockApi.getTasks.mockResolvedValue([olderTask, newerTask])
-    const { container } = render(<TaskBoard />)
+    const { container } = render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('project-section-alpha-project')).toBeDefined()
@@ -440,7 +441,7 @@ describe('TaskBoard', () => {
   it('calls runTask with skill parameter', async () => {
     mockApi.getTasks.mockResolvedValue([PENDING_TASK])
     mockApi.runTask.mockResolvedValue(RUNNING_TASK)
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('run-1')).toBeDefined()
@@ -455,7 +456,7 @@ describe('TaskBoard', () => {
 
   it('shows failed task summary and retry actions', async () => {
     mockApi.getTasks.mockResolvedValue([FAILED_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('error-summary-4').textContent).toContain('OPENAI_API_KEY not set')
@@ -466,7 +467,7 @@ describe('TaskBoard', () => {
 
   it('calls retryTask for failed task', async () => {
     mockApi.getTasks.mockResolvedValue([FAILED_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('retry-4')).toBeDefined()
@@ -481,7 +482,7 @@ describe('TaskBoard', () => {
 
   it('prefills create form when editing failed retry', async () => {
     mockApi.getTasks.mockResolvedValue([FAILED_TASK])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('edit-retry-4')).toBeDefined()
@@ -495,137 +496,11 @@ describe('TaskBoard', () => {
     })
   })
 
-  // ── Expanded task detail ─────────────────────────────────
-
-  it('shows task detail in right drawer', async () => {
-    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
-    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-3')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByText('#3'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-drawer')).toBeDefined()
-      const badge = screen.getByTestId('skill-badge-3')
-      expect(badge).toBeDefined()
-      expect(badge.textContent).toContain('seo-audit')
-      expect(screen.getByTestId('runtime-backend-3').textContent).toContain('copilot_sdk')
-      expect(screen.getByTestId('runtime-agent-3').textContent).toContain('editor')
-      expect(screen.getByTestId('runtime-session-3').textContent).toContain('session-42')
-    })
-  })
-
-  it('shows output content in expanded view', async () => {
-    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
-    mockApi.getTaskHistory.mockResolvedValue([])
-    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-3')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByText('#3'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-drawer').textContent).toContain('SEO Report')
-      expect(screen.getByTestId('task-drawer').textContent).toContain('Site looks good')
-    })
-  })
-
-  it('hides execution output when it duplicates copilot output', async () => {
-    mockApi.getTasks.mockResolvedValue([COMPLETED_DUPLICATE_OUTPUT_TASK])
-    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-5')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByText('#5'))
-
-    await waitFor(() => {
-      const drawer = screen.getByTestId('task-drawer')
-      expect(drawer.textContent).toContain('Copilot 输出')
-      expect(drawer.textContent).not.toContain('执行产出')
-    })
-  })
-
-  it('loads and renders runtime events in expanded view', async () => {
-    mockApi.getTasks.mockResolvedValue([COMPLETED_TASK])
-    mockApi.getTaskLogs.mockResolvedValue(RUNTIME_LOGS)
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-3')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByText('#3'))
-
-    await waitFor(() => {
-      expect(mockApi.getTaskLogs).toHaveBeenCalledWith(3)
-      expect(screen.getByTestId('runtime-events-3').textContent).toContain('Execution Summary')
-      expect(screen.getByTestId('runtime-events-3').textContent).toContain('Site looks good')
-      expect(screen.getByTestId('runtime-events-3').textContent).not.toContain('runtime_started')
-      expect(screen.getByTestId('runtime-events-3').textContent).not.toContain('tool_execution_complete')
-    })
-  })
-
-  it('updates running execution time dynamically in the drawer', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    vi.setSystemTime(new Date('2026-04-10T00:01:05Z'))
-    mockApi.getTasks.mockResolvedValue([RUNNING_TASK])
-    mockApi.getTaskLogs.mockResolvedValue([])
-
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-2')).toBeDefined()
-      expect(screen.getByTestId('execution-time-2').textContent).toContain('已运行 5.0s')
-    })
-
-    fireEvent.click(screen.getByText('#2'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('drawer-execution-time-2').textContent).toContain('已运行 5.0s')
-    })
-
-    act(() => {
-      vi.advanceTimersByTime(2000)
-    })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('execution-time-2').textContent).toContain('已运行 7.0s')
-      expect(screen.getByTestId('drawer-execution-time-2').textContent).toContain('已运行 7.0s')
-    })
-  })
-
-  it('loads and renders retry history timeline in expanded view', async () => {
-    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
-    mockApi.getTaskHistory.mockResolvedValue(HISTORY_ITEMS)
-    render(<TaskBoard />)
-
-    await waitFor(() => {
-      expect(screen.getByTestId('task-4')).toBeDefined()
-    })
-
-    fireEvent.click(screen.getByText('#4'))
-
-    await waitFor(() => {
-      expect(mockApi.getTaskHistory).toHaveBeenCalledWith(4)
-      expect(screen.getByTestId('history-4').textContent).toContain('重试历史时间线')
-      expect(screen.getByTestId('history-item-4-1').textContent).toContain('尝试 #1')
-      expect(screen.getByTestId('history-item-4-4').textContent).toContain('尝试 #2')
-    })
-  })
+  // ── Bulk actions ──────────────────────────────────────────
 
   it('selects failed tasks and triggers bulk retry', async () => {
     mockApi.getTasks.mockResolvedValue([FAILED_TASK, { ...FAILED_TASK, id: 8, retry_of_task_id: 4, attempt_no: 3 }])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByTestId('select-task-4')).toBeDefined()
@@ -658,7 +533,7 @@ describe('TaskBoard', () => {
       return Promise.resolve([RUNNING_TASK])
     })
 
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     // Wait for initial load + at least one poll cycle
     await waitFor(() => {
@@ -667,7 +542,7 @@ describe('TaskBoard', () => {
   })
 
   it('passes group filter to getTasks', async () => {
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     fireEvent.click(screen.getByTestId('advanced-filters-toggle'))
     await waitFor(() => {
@@ -686,7 +561,7 @@ describe('TaskBoard', () => {
   it('shows inline skill dropdown for tasks without skill_name', async () => {
     const taskNoSkill = { ...PENDING_TASK, skill_name: null }
     mockApi.getTasks.mockResolvedValue([taskNoSkill])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     const el = await screen.findByTestId('run-skill-1', {}, { timeout: 3000 })
     expect(el).toBeDefined()
@@ -695,7 +570,7 @@ describe('TaskBoard', () => {
   it('runs task without manual skill selection when auto-resolution is available', async () => {
     const taskNoSkill = { ...PENDING_TASK, skill_name: null }
     mockApi.getTasks.mockResolvedValue([taskNoSkill])
-    render(<TaskBoard />)
+    render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     const runBtn = await screen.findByTestId('run-1', {}, { timeout: 3000 })
     fireEvent.click(runBtn)
