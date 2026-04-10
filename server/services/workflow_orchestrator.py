@@ -638,15 +638,69 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
     if target_path:
         parts.append(f"Target project path: {target_path}")
         parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
-    parts.append(f"Done when: {step.done_when_markdown}")
-    # Include bound input artifacts so the agent has prior step context
+    parts.append(f"\n## Done When\n{step.done_when_markdown}")
+
+    # Include handoff summaries from completed predecessor steps (Markdown, not raw JSON)
+    deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
+    for dep in deps:
+        pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
+        if pred and pred.handoff_summary_markdown:
+            parts.append(f"\n## Prior Step: {pred.title}\n{pred.handoff_summary_markdown}")
+
+    # Include bound input artifacts — convert plan JSONs to concise Markdown summaries
     bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
     for binding in bindings:
         artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
-        if artifact and artifact.human_readable_body:
-            parts.append(f"\n--- [{artifact.artifact_type}] {artifact.content_summary} ---")
+        if not artifact:
+            continue
+        if artifact.artifact_type == "implementation_plan":
+            # Convert plan JSON into a concise Markdown summary for the agent
+            plan_md = _plan_artifact_to_markdown(artifact)
+            if plan_md:
+                parts.append(f"\n## Implementation Plan\n{plan_md}")
+        elif artifact.human_readable_body:
+            parts.append(f"\n## {artifact.artifact_type}: {artifact.content_summary}")
             parts.append(artifact.human_readable_body[:3000])
     return "\n".join(parts)
+
+
+def _plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
+    """Convert an implementation_plan artifact into concise Markdown for the executing agent."""
+    payload = artifact.machine_readable_payload
+    if not payload:
+        return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
+    try:
+        plan = json.loads(payload) if isinstance(payload, str) else payload
+    except (json.JSONDecodeError, TypeError):
+        return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
+
+    lines = []
+    goal = plan.get("goal_summary_markdown") or plan.get("goal_summary", "")
+    if goal:
+        lines.append(goal)
+
+    target = plan.get("target_project_path")
+    if target:
+        lines.append(f"**Target project:** `{target}`")
+
+    phases = plan.get("detected_phases", {})
+    active = [k for k, v in phases.items() if v]
+    if active:
+        lines.append(f"**Phases:** {', '.join(active)}")
+
+    steps = plan.get("workflow_steps", [])
+    if steps:
+        lines.append("\n### Workflow Steps")
+        for i, s in enumerate(steps, 1):
+            role = s.get("assigned_role", "")
+            done = s.get("done_when_markdown", "")
+            lines.append(f"{i}. **{s.get('title', s.get('step_key', ''))}** ({role}): {done}")
+
+    risks = plan.get("known_risks_markdown", "")
+    if risks:
+        lines.append(f"\n### Risks\n{risks}")
+
+    return "\n".join(lines)
 
 
 def _resolve_step_skill(db: Session, step: WorkflowStepRow) -> str:

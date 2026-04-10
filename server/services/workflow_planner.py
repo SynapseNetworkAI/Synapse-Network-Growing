@@ -340,7 +340,7 @@ def _build_implementation_steps(
                 {"artifact_type": "step_output", "description": "Architecture design document with technical decisions."},
             ],
             "validation_targets": [],
-            "done_when_markdown": f"Architecture design document is produced with schema definitions, technology choices, and component boundaries.{project_note}",
+            "done_when_markdown": f"Architecture design document is produced with schema definitions, technology choices, and component boundaries. SCOPE: Only produce design documents — do NOT write implementation code in this step.{project_note}",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
         })
         keys.append(key)
@@ -363,7 +363,7 @@ def _build_implementation_steps(
                 {"artifact_type": "step_output", "description": "Frontend code implementation."},
             ],
             "validation_targets": [],
-            "done_when_markdown": f"Frontend code is implemented in the target project. Write actual source code files, not just documentation.{project_note}",
+            "done_when_markdown": f"Frontend code is implemented in the target project. Write actual source code files, not just documentation. SCOPE: Only implement frontend/client-side code (components, hooks, SDK, styles). Do NOT implement backend/API code in this step.{project_note}",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
         })
         keys.append(key)
@@ -386,7 +386,7 @@ def _build_implementation_steps(
                 {"artifact_type": "step_output", "description": "Backend/API code implementation."},
             ],
             "validation_targets": [],
-            "done_when_markdown": f"Backend code is implemented in the target project. Write actual source code files, not just documentation.{project_note}",
+            "done_when_markdown": f"Backend code is implemented in the target project. Write actual source code files, not just documentation. SCOPE: Only implement backend/API/server-side code (endpoints, services, middleware, database). Do NOT implement frontend code in this step.{project_note}",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
         })
         keys.append(key)
@@ -409,7 +409,7 @@ def _build_implementation_steps(
                 {"artifact_type": "step_output", "description": "Automated test code implementation."},
             ],
             "validation_targets": [],
-            "done_when_markdown": f"Automated tests are implemented and can be executed in the target project.{project_note}",
+            "done_when_markdown": f"Automated tests are implemented and can be executed in the target project. Focus on integration tests and end-to-end tests that validate frontend-backend interaction. Unit tests should already exist from prior implementation steps.{project_note}",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
         })
         keys.append(key)

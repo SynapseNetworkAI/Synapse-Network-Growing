@@ -1,6 +1,6 @@
-# Role-Based Session Reuse & Serial Requirement Execution
+# Role-Based Session Reuse, Serial Execution & Prompt Optimization
 
-> Design Doc — April 2026
+> Design Doc — April 2026 (updated)
 
 ## Problem
 
@@ -84,20 +84,55 @@ if running > 0:
 
 3. 需求完成/失败时的 `_refresh_run_status()` 调用 `clear_role_sessions()` 清理。
 
+## Phase 3: Prompt Quality Optimization
+
+### Problem
+
+发给执行 agent 的 prompt 有两个问题：
+
+1. **Plan artifact 以原始 JSON 注入**：`implementation_plan` artifact 包含大量 schema 元数据（file_scope、failure_policy、validation_targets），对执行 agent 完全无用，浪费 token。
+2. **Step 边界不清晰**：`done_when_markdown` 只说"Write actual source code"，不限制 scope，导致 frontend_impl step 同时输出了后端代码。
+
+### Solution
+
+#### A) Plan Artifact → 精简 Markdown 转换
+
+`_step_task_description()` 遇到 `implementation_plan` 类型的 artifact 时，调用 `_plan_artifact_to_markdown()` 将 JSON 转为精简 Markdown：
+
+- 只保留 goal_summary、target_project、detected_phases、workflow_steps 列表、risks
+- 删除 file_scope、failure_policy、acceptance_checks 等系统级字段
+- 从 ~3000 字符 JSON 压缩到 ~500 字符 Markdown
+
+#### B) Step 边界约束
+
+在 `done_when_markdown` 中添加 `SCOPE:` 约束：
+
+| Step | 约束 |
+|------|------|
+| frontend_impl | `SCOPE: Only implement frontend/client-side code. Do NOT implement backend/API code.` |
+| backend_impl | `SCOPE: Only implement backend/API/server-side code. Do NOT implement frontend code.` |
+| design | `SCOPE: Only produce design documents — do NOT write implementation code.` |
+| test_impl | `Focus on integration tests and e2e tests. Unit tests should already exist from prior steps.` |
+
+#### C) Predecessor Handoff Summary
+
+执行 agent 的 prompt 现在包含前置 step 的 `handoff_summary_markdown`，而不是完整的 artifact body。这让下游 step 能快速理解上游结论。
+
 ## Implementation Changes
 
 | File | Change |
 |------|--------|
 | `server/services/task_runtime.py` | `CopilotSDKTaskRuntime` 维护 `_role_sessions` 映射，`execute()` 判断复用/新建，新增 `clear_role_sessions()` |
-| `copilot-sdk-runner/run_session.mjs` | resume 模式支持发送新 prompt（`sendPrompt` 参数支持 resume 时传入） |
-| `server/services/workflow_orchestrator.py` | `start_requirement()` 加串行守卫；需求完成时调 `clear_role_sessions()` |
-| `server/services/copilot_sdk_monitor.py` | `_complete_task` / `_fail_task` 不变，stale recovery 兼容 role session |
-| `tests/` | 新增 session 复用 + 串行执行测试 |
+| `copilot-sdk-runner/run_session.mjs` | resume 模式支持发送新 prompt |
+| `server/services/workflow_orchestrator.py` | 串行守卫；`clear_role_sessions()`；`_step_task_description()` plan→MD 转换 + handoff summary |
+| `server/services/workflow_planner.py` | `done_when_markdown` 加 SCOPE 边界约束 |
+| `tests/` | 新增 session 复用 + 串行执行 + prompt 质量测试 |
 
 ## Risks & Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| 上下文窗口溢出 | 当前需求步骤 < 10，单需求内累积不会超限；后续 Phase 3 可加 summarize |
+| 上下文窗口溢出 | 当前需求步骤 < 10，单需求内累积不会超限；后续可加 summarize |
 | Session idle timeout | 已有 `resumeSession()` + stale recovery 机制 |
 | resume 失败 | fallback 回 createSession()：清除 role 映射，重新建立 |
+| Agent 仍然越界 | SCOPE 约束 + review step 兜底；后续可加 file_scope enforcement |

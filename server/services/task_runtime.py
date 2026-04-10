@@ -156,11 +156,14 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             t0, model, agent_id, prompt, preferred_agent, output_dir,
         )
 
+    _session_counter: int = 0
+
     def _execute_new(
         self, t0: float, model: str, agent_id: str, prompt: str,
         preferred_agent: str | None, output_dir: Path | None,
     ) -> TaskExecutionResult:
-        session_id = f"role-{agent_id}-{int(time.time() * 1000)}"
+        CopilotSDKTaskRuntime._session_counter += 1
+        session_id = f"role-{agent_id}-{int(time.time() * 1000)}-{CopilotSDKTaskRuntime._session_counter}"
         resolved_output_dir = (output_dir or (self.project_root / "runtime" / session_id)).resolve()
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
         predicted_output = copilot_runtime_paths(resolved_output_dir)["output"]
