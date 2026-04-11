@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -28,6 +29,11 @@ from server.database import (
     WorkflowStepEventRow,
     WorkflowStepRow,
     utcnow,
+)
+from server.services.agents_memory_sync import (
+    push_task_completed as _am_push_task_completed,
+    push_task_failed as _am_push_task_failed,
+    push_requirement_completed as _am_push_requirement_completed,
 )
 from server.schemas import (
     ArtifactOut,
@@ -151,11 +157,26 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     _refresh_requirement_dependency_state(db, requirement)
     db.commit()
 
+    detail = build_requirement_detail(db, requirement.id)
     if body.auto_start and requirement.blocked_by_count == 0:
-        detail = plan_requirement(db, _as_int(requirement.id))
-        return start_requirement(db, _as_int(requirement.id))
+        req_id = _as_int(requirement.id)
 
-    return build_requirement_detail(db, requirement.id)
+        def _bg_plan_and_start(req_id: int) -> None:
+            bg_db = SessionLocal()
+            try:
+                plan_requirement(bg_db, req_id)
+                start_requirement(bg_db, req_id)
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger("ops-dashboard.orchestrator").warning(
+                    "Background plan/start failed for req %s: %s", req_id, exc
+                )
+            finally:
+                bg_db.close()
+
+        threading.Thread(target=_bg_plan_and_start, args=(req_id,), daemon=True).start()
+
+    return detail
 
 
 def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
@@ -465,6 +486,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         _bind_output_to_followup_steps(db, step, artifact)
         # Snapshot git diff now, before the next step is dispatched
         _snapshot_file_changes(task, requirement)
+        _am_push_task_completed(task, step, requirement)
         if step.step_type == "closeout":
             _finalize_requirement(db, requirement, run, step, artifact)
         else:
@@ -493,6 +515,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
             },
         )
         _mark_step_targets_failed(db, step, error_artifact)
+        _am_push_task_failed(task, step, requirement)
         failure_route = _resolve_failure_route(step, error_text)
         if failure_route == "requirement_revision":
             _create_requirement_revision_request(db, requirement, run, step, error_artifact, error_text)
@@ -1064,6 +1087,23 @@ def _finalize_requirement(
     requirement.completed_at = utcnow()
     _refresh_dependents_for_requirement(db, requirement.id)
     _clear_role_sessions()
+    # Async push full requirement summary to Agents-Memory
+    steps = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id
+    ).order_by(WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()).all()
+    steps_summary = [
+        {
+            "title": s.title,
+            "role": s.assigned_workflow_role or "",
+            "status": s.status,
+            "execution_time_ms": None,
+        }
+        for s in steps
+    ]
+    output_summary = artifact.human_readable_body if artifact else ""
+    changed_files_json = _json_loads(getattr(artifact, "machine_readable_payload", None) or "{}", {})
+    changed_files = list(changed_files_json.get("changed_files", []))
+    _am_push_requirement_completed(requirement, steps_summary, output_summary or "", changed_files)
 
 
 def _create_requirement_revision_request(

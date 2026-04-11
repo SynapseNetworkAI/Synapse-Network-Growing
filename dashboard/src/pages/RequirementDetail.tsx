@@ -32,7 +32,7 @@ const STEP_STATUS_CLASS: Record<string, string> = {
 
 function Md({ children }: Readonly<{ children: string }>) {
   return (
-    <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-headings:mb-2">
+    <div className="prose-sm prose max-w-none prose-p:my-1 prose-ul:my-1 prose-headings:mb-2">
       <ReactMarkdown>{children}</ReactMarkdown>
     </div>
   )
@@ -51,6 +51,7 @@ export default function RequirementDetail() {
 
   const [detail, setDetail] = useState<RequirementDetailType | null>(null)
   const [requirements, setRequirements] = useState<Requirement[]>([])
+  const [expandedStepId, setExpandedStepId] = useState<number | null>(null)
   const [showRevise, setShowRevise] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [revisionForm, setRevisionForm] = useState({
@@ -125,7 +126,7 @@ export default function RequirementDetail() {
     return (
       <div className="space-y-4">
         <button onClick={() => navigate('/requirements')} className="text-sm text-blue-600 hover:underline">← 返回需求池</button>
-        <div className="rounded-xl border bg-white p-8 text-sm text-gray-500">加载中…</div>
+        <div className="p-8 text-sm text-gray-500 bg-white border rounded-xl">加载中…</div>
       </div>
     )
   }
@@ -138,15 +139,15 @@ export default function RequirementDetail() {
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <Link to="/requirements" className="text-blue-600 hover:underline">需求池</Link>
         <span>/</span>
-        <span className="text-gray-900 font-medium">{req.title}</span>
+        <span className="font-medium text-gray-900">{req.title}</span>
       </div>
 
       {/* Header */}
-      <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-6">
+      <div className="p-6 space-y-6 bg-white border shadow-sm rounded-2xl">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold">{req.title}</h2>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500">
               <span className={`rounded-full px-2 py-1 font-medium ${STATUS_CLASS[req.status] || STATUS_CLASS.draft}`}>
                 {STATUS_LABEL[req.status] || req.status}
               </span>
@@ -157,7 +158,7 @@ export default function RequirementDetail() {
           <div className="flex items-center gap-2">
             <button
               data-testid="plan-requirement-btn"
-              className="rounded border px-3 py-2 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={req.status === 'blocked' || req.status === 'in_progress'}
               onClick={() => { handlePlan().catch(() => {}) }}
             >
@@ -165,7 +166,7 @@ export default function RequirementDetail() {
             </button>
             <button
               data-testid="start-requirement-btn"
-              className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!detail.workflow_run || req.status === 'blocked' || req.status === 'done'}
               onClick={() => { handleStart().catch(() => {}) }}
             >
@@ -173,7 +174,7 @@ export default function RequirementDetail() {
             </button>
             <button
               data-testid="toggle-revise-btn"
-              className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+              className="px-3 py-2 text-sm border rounded hover:bg-gray-50"
               onClick={() => setShowRevise((v) => !v)}
             >
               提交修订
@@ -182,34 +183,34 @@ export default function RequirementDetail() {
         </div>
 
         {req.blocked_by_count > 0 && (
-          <div data-testid="blocked-banner" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div data-testid="blocked-banner" className="px-4 py-3 text-sm text-red-700 border border-red-200 rounded-xl bg-red-50">
             当前需求被 {req.blocked_by_count} 个未完成依赖阻塞，需等待上游 requirement 完成后再规划执行。
           </div>
         )}
 
         {showRevise && (
-          <section data-testid="requirement-revision-form" className="rounded-xl border bg-amber-50 p-4 shadow-sm space-y-3">
+          <section data-testid="requirement-revision-form" className="p-4 space-y-3 border shadow-sm rounded-xl bg-amber-50">
             <div className="text-sm font-semibold">修订需求</div>
             <input
               data-testid="revise-title"
-              className="w-full rounded border px-3 py-2"
+              className="w-full px-3 py-2 border rounded"
               value={revisionForm.title}
               onChange={(e) => setRevisionForm((prev) => ({ ...prev, title: e.target.value }))}
             />
             <textarea
               data-testid="revise-description"
-              className="min-h-32 w-full rounded border px-3 py-2"
+              className="w-full px-3 py-2 border rounded min-h-32"
               value={revisionForm.description_markdown}
               onChange={(e) => setRevisionForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
             />
             <textarea
               data-testid="revise-note"
-              className="min-h-20 w-full rounded border px-3 py-2"
+              className="w-full px-3 py-2 border rounded min-h-20"
               placeholder="记录这次需求修订的原因"
               value={revisionForm.revision_note}
               onChange={(e) => setRevisionForm((prev) => ({ ...prev, revision_note: e.target.value }))}
             />
-            <div data-testid="revise-dependencies" className="rounded border bg-white px-3 py-2 text-xs text-gray-600">
+            <div data-testid="revise-dependencies" className="px-3 py-2 text-xs text-gray-600 bg-white border rounded">
               {revisionDependencyCandidates.length === 0 ? (
                 <div>暂无可选依赖</div>
               ) : (
@@ -233,7 +234,7 @@ export default function RequirementDetail() {
             <div className="flex justify-end">
               <button
                 data-testid="submit-revision-btn"
-                className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-white rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
                 disabled={submitting}
                 onClick={() => { handleRevise().catch(() => {}) }}
               >
@@ -246,7 +247,7 @@ export default function RequirementDetail() {
         {/* Main content grid */}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_320px]">
           <div className="space-y-4">
-            <section className="rounded-xl border bg-slate-50 p-4">
+            <section className="p-4 border rounded-xl bg-slate-50">
               <div className="mb-2 text-sm font-semibold">需求说明</div>
               <Md>{req.description_markdown}</Md>
               {req.target_project_path && (
@@ -256,7 +257,7 @@ export default function RequirementDetail() {
               )}
             </section>
 
-            <section className="rounded-xl border p-4" data-testid="dependencies-panel">
+            <section className="p-4 border rounded-xl" data-testid="dependencies-panel">
               <div className="mb-3 text-sm font-semibold">Dependencies</div>
               {detail.dependencies.length === 0 ? (
                 <div className="text-xs text-gray-500">无依赖，可以直接规划执行。</div>
@@ -267,10 +268,10 @@ export default function RequirementDetail() {
                       key={dep.id}
                       to={`/requirements/${dep.depends_on_requirement_id}`}
                       data-testid={`dependency-${dep.depends_on_requirement_id}`}
-                      className="block rounded-lg bg-gray-50 p-3 text-xs hover:bg-gray-100 transition"
+                      className="block p-3 text-xs transition rounded-lg bg-gray-50 hover:bg-gray-100"
                     >
                       <div className="font-medium text-gray-900">{dep.depends_on_title}</div>
-                      <div className="mt-1 flex items-center justify-between text-gray-500">
+                      <div className="flex items-center justify-between mt-1 text-gray-500">
                         <span>#{dep.depends_on_requirement_id}</span>
                         <span>{STATUS_LABEL[dep.depends_on_status] || dep.depends_on_status}</span>
                       </div>
@@ -280,8 +281,8 @@ export default function RequirementDetail() {
               )}
             </section>
 
-            <section className="rounded-xl border p-4" data-testid="workflow-steps-panel">
-              <div className="mb-3 flex items-center justify-between">
+            <section className="p-4 border rounded-xl" data-testid="workflow-steps-panel">
+              <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-semibold">Workflow Steps</div>
                 <div className="text-xs text-gray-500">Run #{detail.workflow_run?.id ?? '-'}</div>
               </div>
@@ -308,7 +309,7 @@ export default function RequirementDetail() {
                       key={step.id}
                       to={`/tasks/${taskId}`}
                       data-testid={`workflow-step-${step.id}`}
-                      className="block rounded-lg border p-3 hover:bg-blue-50 transition cursor-pointer"
+                      className="block p-3 transition border rounded-lg cursor-pointer hover:bg-blue-50"
                     >
                       {inner}
                       {step.branch_from_step_id != null && (
@@ -317,12 +318,31 @@ export default function RequirementDetail() {
                       <div className="mt-2 text-xs text-gray-600">{step.done_when_markdown}</div>
                     </Link>
                   ) : (
-                    <div key={step.id} data-testid={`workflow-step-${step.id}`} className="rounded-lg border p-3">
+                    <div
+                      key={step.id}
+                      data-testid={`workflow-step-${step.id}`}
+                      className="p-3 transition border rounded-lg cursor-pointer hover:bg-gray-50"
+                      onClick={() => setExpandedStepId(expandedStepId === step.id ? null : step.id)}
+                    >
                       {inner}
                       {step.branch_from_step_id != null && (
                         <div className="mt-2 text-xs text-amber-600">Bugfix branch from step #{step.branch_from_step_id}</div>
                       )}
-                      <div className="mt-2 text-xs text-gray-600">{step.done_when_markdown}</div>
+                      {expandedStepId === step.id ? (
+                        <div className="mt-3 space-y-2">
+                          {step.done_when_markdown && (
+                            <div className="px-3 py-2 text-xs text-gray-700 border border-gray-100 rounded-md bg-gray-50">
+                              <div className="mb-1 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">验收标准 done_when</div>
+                              <Md>{step.done_when_markdown}</Md>
+                            </div>
+                          )}
+                          <div className="px-3 py-2 text-xs border rounded-md bg-amber-50 border-amber-100 text-amber-700">
+                            Task 尚未分派 — 等待前置步骤完成后将自动调度执行
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-gray-400 line-clamp-1">{step.done_when_markdown}</div>
+                      )}
                     </div>
                   )
                 })}
@@ -334,14 +354,14 @@ export default function RequirementDetail() {
           </div>
 
           <div className="space-y-4">
-            <section className="rounded-xl border p-4" data-testid="acceptance-checks-panel">
+            <section className="p-4 border rounded-xl" data-testid="acceptance-checks-panel">
               <div className="mb-3 text-sm font-semibold">Acceptance Checks</div>
               <div className="space-y-2">
                 {detail.acceptance_checks.map((check) => (
-                  <div key={check.id} className="rounded-lg bg-gray-50 p-3 text-xs">
+                  <div key={check.id} className="p-3 text-xs rounded-lg bg-gray-50">
                     <div className="font-medium text-gray-900">{check.check_key}</div>
                     <div className="mt-1 text-gray-600">{check.description}</div>
-                    <div className="mt-2 flex items-center justify-between text-gray-500">
+                    <div className="flex items-center justify-between mt-2 text-gray-500">
                       <span>{check.owner_role}</span>
                       <span>{check.status}</span>
                     </div>
@@ -350,11 +370,11 @@ export default function RequirementDetail() {
               </div>
             </section>
 
-            <section className="rounded-xl border p-4" data-testid="artifacts-panel">
+            <section className="p-4 border rounded-xl" data-testid="artifacts-panel">
               <div className="mb-3 text-sm font-semibold">Artifacts</div>
               <div className="space-y-2">
                 {detail.artifacts.slice().reverse().slice(0, 8).map((artifact) => (
-                  <div key={artifact.id} className="rounded-lg bg-gray-50 p-3 text-xs">
+                  <div key={artifact.id} className="p-3 text-xs rounded-lg bg-gray-50">
                     <div className="font-medium text-gray-900">{artifact.artifact_type}</div>
                     <div className="mt-1 text-gray-600">{artifact.content_summary || '-'}</div>
                   </div>
