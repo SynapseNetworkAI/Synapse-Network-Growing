@@ -369,6 +369,7 @@ export const api = {
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
   startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
+  advanceQueue: () => request<{ started?: number; skipped?: string }>('/requirements/queue/advance', { method: 'POST' }),
   reviseRequirement: (id: number, data: {
     title?: string
     description_markdown: string

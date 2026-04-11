@@ -46,6 +46,12 @@ export default function RequirementPool() {
 
   const loadRequirements = useCallback(async () => {
     const data = await api.getRequirements(statusFilter || undefined)
+    // Sort: in_progress first, then by created_at desc
+    data.sort((a, b) => {
+      if (a.status === 'in_progress' && b.status !== 'in_progress') return -1
+      if (b.status === 'in_progress' && a.status !== 'in_progress') return 1
+      return 0
+    })
     setRequirements(data)
   }, [statusFilter])
 
@@ -53,10 +59,16 @@ export default function RequirementPool() {
     loadRequirements().catch(() => {})
   }, [loadRequirements])
 
-  // Poll while any in_progress
+  // Auto-advance queue on first load if nothing in_progress
   useEffect(() => {
-    if (!requirements.some((r) => r.status === 'in_progress')) return
-    const timer = setInterval(() => { loadRequirements().catch(() => {}) }, 2500)
+    api.advanceQueue().then(() => loadRequirements().catch(() => {})).catch(() => {})
+  }, [])
+
+  // Poll while any in_progress or ready (plan may be generating)
+  useEffect(() => {
+    const needsPoll = requirements.some((r) => r.status === 'in_progress' || (r.status === 'ready' && r.current_plan_version === 0))
+    if (!needsPoll) return
+    const timer = setInterval(() => { loadRequirements().catch(() => {}) }, 3000)
     return () => clearInterval(timer)
   }, [requirements, loadRequirements])
 
@@ -269,6 +281,29 @@ export default function RequirementPool() {
       )}
 
       <div className="space-y-3">
+        {/* Queue status banner */}
+        {!showCreate && (() => {
+          const inProgress = requirements.filter((r) => r.status === 'in_progress')
+          const readyCount = requirements.filter((r) => r.status === 'ready' && r.current_plan_version === 0).length
+          const plannedCount = requirements.filter((r) => r.status === 'ready' && r.current_plan_version > 0).length
+          if (inProgress.length > 0) return (
+            <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
+              <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+              <span>正在执行：<span className="font-medium">{inProgress[0].title}</span></span>
+              {readyCount + plannedCount > 0 && <span className="ml-auto text-blue-400">队列中还有 {readyCount + plannedCount} 个需求</span>}
+            </div>
+          )
+          if (readyCount + plannedCount > 0) return (
+            <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+              <span>队列中有 <span className="font-medium">{readyCount + plannedCount}</span> 个待执行需求</span>
+              <button
+                className="ml-3 rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
+                onClick={() => api.advanceQueue().then(() => loadRequirements().catch(() => {})).catch(() => {})}
+              >启动下一个</button>
+            </div>
+          )
+          return null
+        })()}
         {requirements.length === 0 && (
           <div data-testid="requirements-empty" className="p-6 text-sm text-gray-500 bg-white border border-dashed rounded-xl">
             还没有 requirement。先创建一条需求，再规划和启动 workflow。

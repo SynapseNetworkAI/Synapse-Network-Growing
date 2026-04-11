@@ -1112,6 +1112,65 @@ def _finalize_requirement(
     changed_files_json = _json_loads(getattr(artifact, "machine_readable_payload", None) or "{}", {})
     changed_files = list(changed_files_json.get("changed_files", []))
     _am_push_requirement_completed(requirement, steps_summary, output_summary or "", changed_files)
+    # After completing, advance the queue so the next ready requirement starts automatically
+    _schedule_advance_queue()
+
+
+def _schedule_advance_queue() -> None:
+    """Fire-and-forget: pick the next queued ready requirement and start it."""
+    def _run() -> None:
+        db = SessionLocal()
+        try:
+            advance_requirement_queue(db)
+        except Exception:
+            _logger.debug("Queue advance failed (non-critical)", exc_info=True)
+        finally:
+            db.close()
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def advance_requirement_queue(db: Session) -> dict:
+    """Start the next highest-priority 'ready' requirement if nothing is in_progress.
+
+    Returns {"started": req_id} or {"skipped": reason}.
+    """
+    # Check if anything is already executing
+    active = db.query(RequirementRow).filter(
+        RequirementRow.status == "in_progress"
+    ).first()
+    if active:
+        return {"skipped": f"requirement #{active.id} already in_progress"}
+
+    # Find candidates: ready, unblocked, no workflow run yet
+    candidates = db.query(RequirementRow).filter(
+        RequirementRow.status == "ready",
+        RequirementRow.blocked_by_count == 0,
+        RequirementRow.active_workflow_run_id.is_(None),
+    ).all()
+
+    if not candidates:
+        return {"skipped": "no ready requirements"}
+
+    _PRIORITY_SCORE_LOCAL = {"high": 100, "normal": 50, "low": 10}
+
+    def _score(r: RequirementRow) -> float:
+        p = _PRIORITY_SCORE_LOCAL.get(str(r.priority), 50)
+        created = r.created_at or datetime.now(timezone.utc)
+        age = (datetime.now(timezone.utc) - (created if created.tzinfo else created.replace(tzinfo=timezone.utc))).total_seconds() / 86400
+        return p + min(age * 2, 30)
+
+    candidates.sort(key=_score, reverse=True)
+    next_req = candidates[0]
+    req_id = _as_int(next_req.id)
+
+    _logger.info("Queue advance: starting requirement #%s '%s'", req_id, next_req.title[:60])
+    try:
+        plan_requirement(db, req_id)
+        start_requirement(db, req_id)
+        return {"started": req_id}
+    except Exception as exc:
+        _logger.warning("Queue advance failed for req #%s: %s", req_id, exc)
+        return {"skipped": str(exc)}
 
 
 def _create_requirement_revision_request(

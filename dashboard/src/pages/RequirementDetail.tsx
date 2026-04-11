@@ -90,11 +90,6 @@ export default function RequirementDetail() {
     return () => clearInterval(timer)
   }, [detail, loadDetail])
 
-  const handlePlan = async () => {
-    const data = await api.planRequirement(requirementId)
-    setDetail(data)
-  }
-
   const handleStart = async () => {
     const data = await api.startRequirement(requirementId)
     setDetail(data)
@@ -157,14 +152,6 @@ export default function RequirementDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              data-testid="plan-requirement-btn"
-              className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={req.status === 'blocked' || req.status === 'in_progress'}
-              onClick={() => { handlePlan().catch(() => {}) }}
-            >
-              生成计划
-            </button>
             <button
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -291,7 +278,7 @@ export default function RequirementDetail() {
               return (
                 <section className="border rounded-xl" data-testid="plan-panel">
                   <button
-                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
+                    className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
                     onClick={() => setShowPlan((v) => !v)}
                   >
                     <span className="flex items-center gap-2">
@@ -302,10 +289,10 @@ export default function RequirementDetail() {
                         </span>
                       )}
                     </span>
-                    <span className="text-gray-400 text-xs">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
+                    <span className="text-xs text-gray-400">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
                   </button>
                   {showPlan && (
-                    <div className="border-t px-4 py-3">
+                    <div className="px-4 py-3 border-t">
                       {planArtifact.content_summary && (
                         <div className="mb-2 text-xs text-gray-500">{planArtifact.content_summary}</div>
                       )}
@@ -386,7 +373,7 @@ export default function RequirementDetail() {
                   )
                 })}
                 {(detail.workflow_run?.steps || []).length === 0 && (
-                  <div className="text-xs text-gray-500">当前还没有 workflow run。先生成计划，再启动执行。</div>
+                  <div className="text-xs text-gray-500">计划正在生成中，请稍候…</div>
                 )}
               </div>
             </section>

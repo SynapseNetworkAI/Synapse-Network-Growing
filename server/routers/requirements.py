@@ -16,6 +16,7 @@ from server.schemas import (
     RequirementRevisionRequest,
 )
 from server.services.workflow_orchestrator import (
+    advance_requirement_queue,
     build_requirement_detail,
     close_requirement,
     create_requirement,
@@ -108,6 +109,12 @@ def start_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db
         return start_requirement(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/queue/advance")
+def queue_advance_endpoint(db: Session = Depends(get_db)):
+    """Advance the requirement queue: start the next ready requirement if nothing is in_progress."""
+    return advance_requirement_queue(db)
 
 
 @router.put("/{requirement_id}/dependencies", response_model=RequirementDetailOut)
