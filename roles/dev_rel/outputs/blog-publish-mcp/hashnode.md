@@ -11,7 +11,7 @@ hashnode_tags:
   - ai-agents
   - mcp
   - web3
-  - python
+  - developer-tools
   - micropayments
 hashnode_canonical_url: https://synapsenetwork.substack.com/p/how-to-let-ai-agents-discover-and-pay-for-apis
 cover_image_size: "1600×840px"

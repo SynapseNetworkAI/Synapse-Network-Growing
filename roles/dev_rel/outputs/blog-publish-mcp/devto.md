@@ -9,7 +9,7 @@ created_at: 2026-04-11
 updated_at: 2026-04-11
 author: AI-DevRel
 description: AI agents are smart but broke. Here's how Synapse Network + MCP lets them autonomously discover and pay for APIs with a $5 budget and 3 lines of Python.
-tags: ai, machinelearning, python, web3
+tags: aiagents, mcp, web3, developertools
 canonical_url: https://synapsenetwork.substack.com/p/how-to-let-ai-agents-discover-and-pay-for-apis
 cover_image: https://synapse.network/blog/mcp-budgeted-tool-use-cover.png
 ---
