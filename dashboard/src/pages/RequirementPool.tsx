@@ -30,6 +30,8 @@ export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 10
   const [showCreate, setShowCreate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [titleError, setTitleError] = useState(false)
@@ -53,6 +55,7 @@ export default function RequirementPool() {
       return 0
     })
     setRequirements(data)
+    setPage(1)
   }, [statusFilter])
 
   useEffect(() => {
@@ -94,6 +97,7 @@ export default function RequirementPool() {
       setDepQuery('')
       setDepOpen(false)
       setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
+      setPage(1)
       await loadRequirements()
       navigate(`/requirements/${created.requirement.id}`)
     } finally {
@@ -309,7 +313,7 @@ export default function RequirementPool() {
             还没有 requirement。先创建一条需求，再规划和启动 workflow。
           </div>
         )}
-        {requirements.map((requirement) => (
+        {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => (
           <button
             key={requirement.id}
             data-testid={`requirement-card-${requirement.id}`}
@@ -336,6 +340,39 @@ export default function RequirementPool() {
             </div>
           </button>
         ))}
+
+        {/* Pagination */}
+        {requirements.length > PAGE_SIZE && (() => {
+          const totalPages = Math.ceil(requirements.length / PAGE_SIZE)
+          const start = (page - 1) * PAGE_SIZE + 1
+          const end = Math.min(page * PAGE_SIZE, requirements.length)
+          return (
+            <div className="flex items-center justify-between pt-1 text-xs text-gray-500">
+              <span>{start}–{end} / {requirements.length} 条需求</span>
+              <div className="flex items-center gap-1">
+                <button
+                  className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >‹ 上一页</button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    className={`rounded border px-2.5 py-1 ${
+                      p === page ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-gray-50'
+                    }`}
+                    onClick={() => setPage(p)}
+                  >{p}</button>
+                ))}
+                <button
+                  className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >下一页 ›</button>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
