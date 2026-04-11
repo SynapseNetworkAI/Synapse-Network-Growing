@@ -559,6 +559,45 @@ export interface OperatingReviewRecommendation {
   rationale: string
 }
 
+export interface OperatingReviewBundleItem {
+  bundle_item_key: string
+  title: string
+  candidate_type: string
+  project_key: string
+  project_display_name: string
+  action: string
+  materialization_mode: string
+  priority: string
+  score: number
+  budget_cost: number
+  source_ref?: string | null
+  target_project_path?: string | null
+  requirement_id?: number | null
+  template_key?: string | null
+  rationale: string
+  description_markdown: string
+  acceptance_checks: Record<string, unknown>[]
+  approval_required: boolean
+}
+
+export interface OperatingReviewOperatorDecision {
+  decision_key: string
+  title: string
+  decision_type: string
+  severity: string
+  summary: string
+  owner_hint?: string | null
+  related_bundle_item_key?: string | null
+}
+
+export interface OperatingReviewOperatorPackage {
+  title: string
+  summary_markdown: string
+  checklist: string[]
+  decisions: OperatingReviewOperatorDecision[]
+  recommended_bundle_item_keys: string[]
+}
+
 export interface CompanyOperatingReview {
   id: number
   cycle_label: string
@@ -569,9 +608,26 @@ export interface CompanyOperatingReview {
   bottlenecks: OperatingReviewItem[]
   incidents: OperatingReviewItem[]
   next_cycle_recommendations: OperatingReviewRecommendation[]
+  next_cycle_requirement_bundle: OperatingReviewBundleItem[]
+  operator_review_package: OperatingReviewOperatorPackage
   source_snapshot: Record<string, unknown>
   created_at: string | null
   updated_at: string | null
+}
+
+export interface CompanyReviewBundleMaterializeResult {
+  review_id: number
+  created_requirement_ids: number[]
+  reused_requirement_ids: number[]
+  skipped_bundle_item_keys: string[]
+  items: Array<{
+    bundle_item_key: string
+    status: string
+    title: string
+    action: string
+    requirement_id?: number | null
+    source_ref?: string | null
+  }>
 }
 
 // API functions
@@ -585,6 +641,11 @@ export const api = {
   getOrgTree: () => request<OrgTree>('/org'),
   getCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review'),
   refreshCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review/refresh', { method: 'POST' }),
+  materializeCompanyReviewBundle: (reviewId: number, data?: { bundle_item_keys?: string[]; auto_start?: boolean }) =>
+    request<CompanyReviewBundleMaterializeResult>(`/company-review/${reviewId}/materialize-bundle`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
 
   // Tasks
   getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean; search?: string; page?: number; page_size?: number }) => {

@@ -232,6 +232,45 @@ class OperatingReviewRecommendationOut(BaseModel):
     rationale: str
 
 
+class OperatingReviewBundleItemOut(BaseModel):
+    bundle_item_key: str
+    title: str
+    candidate_type: str
+    project_key: str
+    project_display_name: str
+    action: str
+    materialization_mode: str
+    priority: str = "normal"
+    score: float = 0.0
+    budget_cost: int = 0
+    source_ref: Optional[str] = None
+    target_project_path: Optional[str] = None
+    requirement_id: Optional[int] = None
+    template_key: Optional[str] = None
+    rationale: str
+    description_markdown: str
+    acceptance_checks: list[dict[str, object]] = []
+    approval_required: bool = False
+
+
+class OperatingReviewOperatorDecisionOut(BaseModel):
+    decision_key: str
+    title: str
+    decision_type: str
+    severity: str = "medium"
+    summary: str
+    owner_hint: Optional[str] = None
+    related_bundle_item_key: Optional[str] = None
+
+
+class OperatingReviewOperatorPackageOut(BaseModel):
+    title: str
+    summary_markdown: str
+    checklist: list[str] = []
+    decisions: list[OperatingReviewOperatorDecisionOut] = []
+    recommended_bundle_item_keys: list[str] = []
+
+
 class CompanyOperatingReviewOut(BaseModel):
     id: int
     cycle_label: str
@@ -242,9 +281,33 @@ class CompanyOperatingReviewOut(BaseModel):
     bottlenecks: list[OperatingReviewItemOut] = []
     incidents: list[OperatingReviewItemOut] = []
     next_cycle_recommendations: list[OperatingReviewRecommendationOut] = []
+    next_cycle_requirement_bundle: list[OperatingReviewBundleItemOut] = []
+    operator_review_package: OperatingReviewOperatorPackageOut
     source_snapshot: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class CompanyReviewBundleMaterializeRequest(BaseModel):
+    bundle_item_keys: list[str] = []
+    auto_start: bool = False
+
+
+class CompanyReviewBundleMaterializeItemOut(BaseModel):
+    bundle_item_key: str
+    status: str
+    title: str
+    action: str
+    requirement_id: Optional[int] = None
+    source_ref: Optional[str] = None
+
+
+class CompanyReviewBundleMaterializeResultOut(BaseModel):
+    review_id: int
+    created_requirement_ids: list[int] = []
+    reused_requirement_ids: list[int] = []
+    skipped_bundle_item_keys: list[str] = []
+    items: list[CompanyReviewBundleMaterializeItemOut] = []
 
 
 class ProjectPolicyCreate(BaseModel):

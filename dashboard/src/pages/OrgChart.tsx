@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, CompanyOperatingReview, DashboardStats, OrgNode, OrgTree } from '../api'
+import { api, CompanyOperatingReview, CompanyReviewBundleMaterializeResult, DashboardStats, OrgNode, OrgTree } from '../api'
 
 /* ── Color mapping ──────────────────────────────────────────── */
 const COLOR_MAP: Record<string, { bg: string; border: string; tag: string; tagText: string; lightBg: string }> = {
@@ -24,6 +24,8 @@ export default function OrgChart() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshingReview, setRefreshingReview] = useState(false)
+  const [materializingBundle, setMaterializingBundle] = useState(false)
+  const [bundleResult, setBundleResult] = useState<CompanyReviewBundleMaterializeResult | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set())
 
@@ -61,8 +63,20 @@ export default function OrgChart() {
     try {
       const companyReview = await api.refreshCompanyOperatingReview()
       setReview(companyReview)
+      setBundleResult(null)
     } finally {
       setRefreshingReview(false)
+    }
+  }
+
+  const handleMaterializeBundle = async () => {
+    if (!review) return
+    setMaterializingBundle(true)
+    try {
+      const result = await api.materializeCompanyReviewBundle(review.id, {})
+      setBundleResult(result)
+    } finally {
+      setMaterializingBundle(false)
     }
   }
 
@@ -164,6 +178,17 @@ export default function OrgChart() {
             </div>
           </div>
 
+          {bundleResult && (
+            <div data-testid="company-review-bundle-result" className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              <div className="font-medium">
+                Bundle materialized: created {bundleResult.created_requirement_ids.length}, reused {bundleResult.reused_requirement_ids.length}
+              </div>
+              <div className="mt-1 text-xs text-emerald-800">
+                {bundleResult.items.map((item) => `${item.status}: ${item.title}`).join(' · ')}
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             {[
               ['active', review.portfolio_summary.active_requirements],
@@ -178,6 +203,71 @@ export default function OrgChart() {
                 <div className="text-xs text-slate-500">{label}</div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <div data-testid="next-cycle-bundle-panel" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900">Next Cycle Requirement Bundle</h4>
+                  <p className="mt-1 text-xs text-slate-500">将公司级 review 转成下一周期的可执行 requirement 集。</p>
+                </div>
+                <button
+                  data-testid="materialize-company-review-bundle"
+                  onClick={() => { handleMaterializeBundle().catch(() => {}) }}
+                  className="px-4 py-2 text-sm text-white bg-emerald-600 rounded hover:bg-emerald-700"
+                >
+                  {materializingBundle ? '生成中…' : '生成 Bundle'}
+                </button>
+              </div>
+              <div className="mt-3 space-y-3">
+                {review.next_cycle_requirement_bundle.map((item) => (
+                  <div key={item.bundle_item_key} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium text-slate-900">{item.title}</div>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-600">{item.priority}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{item.materialization_mode}</span>
+                      {item.approval_required && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">approval required</span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-600">
+                      {item.project_display_name} / {item.action} / score {item.score} / budget {item.budget_cost}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">{item.rationale}</div>
+                    {item.acceptance_checks.length > 0 && (
+                      <div className="mt-2 text-xs text-slate-500">acceptance checks: {item.acceptance_checks.length}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div data-testid="operator-review-package-panel" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-semibold text-slate-900">{review.operator_review_package.title}</h4>
+              <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{review.operator_review_package.summary_markdown}</p>
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Checklist</div>
+                <div className="mt-2 space-y-2">
+                  {review.operator_review_package.checklist.map((item) => (
+                    <div key={item} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Operator Decisions</div>
+                <div className="mt-2 space-y-2">
+                  {review.operator_review_package.decisions.map((item) => (
+                    <div key={item.decision_key} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <div className="font-medium">{item.title}</div>
+                      <div className="mt-1">{item.summary}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 xl:grid-cols-3">

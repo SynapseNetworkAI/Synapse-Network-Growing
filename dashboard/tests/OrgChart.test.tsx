@@ -13,6 +13,7 @@ vi.mock('../src/api', async () => {
       getStats: vi.fn(),
       getCompanyOperatingReview: vi.fn(),
       refreshCompanyOperatingReview: vi.fn(),
+      materializeCompanyReviewBundle: vi.fn(),
       syncAgents: vi.fn(),
     },
   }
@@ -143,6 +144,50 @@ const mockReview: CompanyOperatingReview = {
       rationale: 'Top-ranked release bottleneck across the portfolio.',
     },
   ],
+  next_cycle_requirement_bundle: [
+    {
+      bundle_item_key: 'signal:7',
+      title: 'Release Bottleneck: Synapse-Network-Sdk - SDK critical release blocker',
+      candidate_type: 'signal',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      action: 'intake',
+      materialization_mode: 'create_requirement',
+      priority: 'high',
+      score: 88,
+      budget_cost: 26,
+      source_ref: 'signal:7',
+      target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Sdk',
+      requirement_id: null,
+      template_key: 'release_bottleneck',
+      rationale: 'Top-ranked release bottleneck across the portfolio.',
+      description_markdown: '## Optimization Template',
+      acceptance_checks: [
+        { check_key: 'release_blocker_removed' },
+        { check_key: 'rollback_path_documented' },
+      ],
+      approval_required: true,
+    },
+  ],
+  operator_review_package: {
+    title: 'Operator Review Package',
+    summary_markdown: 'Cycle `2026-W15` operator package.\n\n- Bundle candidates: 1',
+    checklist: [
+      'Confirm the next-cycle bundle matches the current company goal and operator bandwidth.',
+    ],
+    decisions: [
+      {
+        decision_key: 'bundle-approval:signal:7',
+        title: 'Approve next-cycle bundle item: Release Bottleneck: Synapse-Network-Sdk - SDK critical release blocker',
+        decision_type: 'bundle_approval',
+        severity: 'high',
+        summary: 'Synapse-Network-Sdk / intake / score 88',
+        owner_hint: 'operator',
+        related_bundle_item_key: 'signal:7',
+      },
+    ],
+    recommended_bundle_item_keys: ['signal:7'],
+  },
   source_snapshot: {
     scheduler_generated_at: '2026-04-11T13:00:00Z',
   },
@@ -163,6 +208,22 @@ describe('OrgChart', () => {
     vi.clearAllMocks()
     vi.mocked(api.getCompanyOperatingReview).mockResolvedValue(mockReview)
     vi.mocked(api.refreshCompanyOperatingReview).mockResolvedValue(mockReview)
+    vi.mocked(api.materializeCompanyReviewBundle).mockResolvedValue({
+      review_id: 1,
+      created_requirement_ids: [42],
+      reused_requirement_ids: [],
+      skipped_bundle_item_keys: [],
+      items: [
+        {
+          bundle_item_key: 'signal:7',
+          status: 'created',
+          title: 'Release Bottleneck: Synapse-Network-Sdk - SDK critical release blocker',
+          action: 'create_requirement',
+          requirement_id: 42,
+          source_ref: 'company-review-bundle:1:signal:7',
+        },
+      ],
+    })
   })
 
   it('shows skeleton while loading', () => {
@@ -209,6 +270,8 @@ describe('OrgChart', () => {
     expect(screen.getByTestId('node-dev_rel')).toHaveTextContent('community-marketing')
     expect(screen.getByTestId('company-review-panel')).toHaveTextContent('Company Operating Review')
     expect(screen.getAllByText('SDK critical release blocker').length).toBeGreaterThan(0)
+    expect(screen.getByTestId('next-cycle-bundle-panel')).toHaveTextContent('Next Cycle Requirement Bundle')
+    expect(screen.getByTestId('operator-review-package-panel')).toHaveTextContent('Operator Review Package')
   })
 
   it('shows selected node detail', async () => {
@@ -259,6 +322,22 @@ describe('OrgChart', () => {
     await waitFor(() => {
       expect(api.refreshCompanyOperatingReview).toHaveBeenCalled()
       expect(screen.getByText(/Cycle focus: budget pressure/)).toBeInTheDocument()
+    })
+  })
+
+  it('materializes the next cycle bundle', async () => {
+    vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
+    vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    renderOrgChart()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('company-review-panel')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('materialize-company-review-bundle'))
+    await waitFor(() => {
+      expect(api.materializeCompanyReviewBundle).toHaveBeenCalledWith(1, {})
+      expect(screen.getByTestId('company-review-bundle-result')).toHaveTextContent('created 1, reused 0')
     })
   })
 })
