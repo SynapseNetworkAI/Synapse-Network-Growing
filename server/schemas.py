@@ -187,6 +187,47 @@ class DashboardStats(BaseModel):
     approval_pending: int
 
 
+class ProjectPolicyCreate(BaseModel):
+    project_key: str
+    display_name: str
+    root_path: str
+    status: str = "active"
+    allowed_write_globs: list[str] = ["**"]
+    forbidden_globs: list[str] = []
+    required_checks: list[str] = []
+    release_mode: str = "manual"
+    requires_manual_approval: bool = True
+    notes: Optional[str] = None
+
+
+class ProjectPolicyPatch(BaseModel):
+    display_name: Optional[str] = None
+    root_path: Optional[str] = None
+    status: Optional[str] = None
+    allowed_write_globs: Optional[list[str]] = None
+    forbidden_globs: Optional[list[str]] = None
+    required_checks: Optional[list[str]] = None
+    release_mode: Optional[str] = None
+    requires_manual_approval: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class ProjectPolicyOut(BaseModel):
+    id: int
+    project_key: str
+    display_name: str
+    root_path: str
+    status: str
+    allowed_write_globs: list[str]
+    forbidden_globs: list[str]
+    required_checks: list[str]
+    release_mode: str
+    requires_manual_approval: bool
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 # ── Requirements / Workflow ─────────────────────────────────
 
 class RequirementCreate(BaseModel):

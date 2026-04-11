@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api/requirements", tags=["requirements"])
 
 _PRIORITY_SCORE = {"high": 30, "normal": 10, "low": 0}
 _STATUS_PENALTY = {"done": -100, "blocked": -20, "needs_revision": -10, "deleted": -200}
+_DEFAULT_STATUS_SORT_RANK = {"in_progress": 0, "deleted": 2}
 
 
 def _requirement_score(row: RequirementRow) -> float:
@@ -45,6 +46,15 @@ def _requirement_score(row: RequirementRow) -> float:
     penalty = _STATUS_PENALTY.get(str(row.status), 0)
     blocker_penalty = int(row.blocked_by_count or 0) * 15
     return priority + aging_bonus + penalty - blocker_penalty
+
+
+def _requirement_default_sort_key(row: RequirementRow) -> tuple[int, float, int]:
+    rank = _DEFAULT_STATUS_SORT_RANK.get(str(row.status), 1)
+    updated = row.updated_at or row.created_at or datetime.min.replace(tzinfo=timezone.utc)
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (rank, -(updated - epoch).total_seconds(), -(row.id or 0))
 
 
 @router.get("", response_model=list[RequirementOut])
@@ -66,7 +76,7 @@ def list_requirements(
     if sort == "score":
         rows.sort(key=_requirement_score, reverse=True)
     else:
-        rows.sort(key=lambda r: (r.created_at or datetime.min.replace(tzinfo=timezone.utc), r.id), reverse=True)
+        rows.sort(key=_requirement_default_sort_key)
     if changed:
         db.commit()
     return [RequirementOut.model_validate(row) for row in rows]

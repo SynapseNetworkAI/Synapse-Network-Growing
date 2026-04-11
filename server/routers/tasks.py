@@ -33,7 +33,7 @@ from server.services.execution_resolver import suggest_task_execution
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
-VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed", "paused", "deleted"}
+VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed", "paused", "cancelled", "deleted"}
 TASK_NOT_FOUND = "Task not found"
 
 

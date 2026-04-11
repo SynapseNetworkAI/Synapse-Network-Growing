@@ -390,6 +390,53 @@ def test_list_requirements_can_filter_deleted(synced_client):
     assert payload[0]["status"] == "deleted"
 
 
+def test_list_requirements_default_sorting_prioritizes_running_and_pushes_deleted_last(synced_client):
+    running_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Running requirement", "description_markdown": "Keep this at the top.", "priority": "high"},
+    )
+    running_id = running_resp.json()["requirement"]["id"]
+
+    archived_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Archived requirement", "description_markdown": "This should stay at the bottom."},
+    )
+    archived_id = archived_resp.json()["requirement"]["id"]
+
+    ready_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Ready requirement", "description_markdown": "This can stay in the middle."},
+    )
+    ready_id = ready_resp.json()["requirement"]["id"]
+
+    synced_client.post(f"/api/requirements/{running_id}/plan")
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{running_id}/start")
+
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "in_progress"
+
+    delete_resp = synced_client.delete(f"/api/requirements/{archived_id}")
+    assert delete_resp.status_code == 200
+    assert delete_resp.json()["requirement"]["status"] == "deleted"
+
+    listed_resp = synced_client.get("/api/requirements")
+    assert listed_resp.status_code == 200
+    listed = listed_resp.json()
+
+    ids = [item["id"] for item in listed]
+    assert ids[0] == running_id
+    assert ids[-1] == archived_id
+    assert ready_id in ids[1:-1]
+
+
 def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",

@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from server.database import AgentRow, RequirementRow, WorkflowStepRow
+from server.database import AgentRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
 from server.services.workflow_planner import (
     _DetectedPhases,
     _base_file_scope,
@@ -231,6 +231,7 @@ class TestBuildPlannerOutput:
         assert "closeout" in step_keys
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
+        assert output["project_policies"][0]["project_key"] == "synapse-network"
         assert output["schema_version"] == "1.2"
         assert output["detected_phases"]["design"] is True
 
@@ -271,6 +272,37 @@ class TestBuildPlannerOutput:
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
         assert step_keys == ["frontend_impl", "backend_impl", "review", "test", "closeout"]
 
+    def test_policy_augments_file_scope(self, synced_client, db_session):
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="proj-policy",
+                display_name="Proj Policy",
+                root_path="/proj",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='["secrets/**"]',
+                required_checks_json='["pytest -q"]',
+                release_mode="manual",
+                requires_manual_approval=True,
+            )
+        )
+        db_session.commit()
+
+        req = RequirementRow(
+            title="Scoped feature",
+            description_markdown="实现前端 UI 和后端 API",
+            target_project_path="/proj",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": True, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
+        assert "/proj/src/**" in frontend_step["file_scope"]["allowed_write_globs"]
+        assert "/proj/secrets/**" in frontend_step["file_scope"]["blocked_globs"]
+
 
 # ---------------------------------------------------------------------------
 # API integration: create requirement with target_project_path
@@ -307,7 +339,7 @@ class TestRequirementApiWithProjectPath:
             json={
                 "title": "Full stack feature",
                 "description_markdown": "方案设计，给出前端和后端的代码实现，之后给出自动化测试方案",
-                "target_project_path": "/proj",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
             },
         )
         requirement_id = create_resp.json()["requirement"]["id"]
@@ -334,7 +366,7 @@ class TestRequirementApiWithProjectPath:
             WorkflowStepRow.requirement_id == requirement_id,
         ).first()
         scope = json.loads(impl_step.file_scope_json)
-        assert "/proj/**" in scope["allowed_write_globs"]
+        assert "/Users/cliff/workspace/agent/Synapse-Network/**" in scope["allowed_write_globs"]
 
     def test_plan_without_target_path_creates_single_impl_step(self, synced_client):
         create_resp = synced_client.post(

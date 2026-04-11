@@ -53,6 +53,7 @@ from server.schemas import (
 from server.config import PROJECT_ROOT
 from server.services.copilot_sdk_state import copilot_runtime_paths, load_runtime_state, save_runtime_state, task_output_dir
 from server.services.execution_resolver import suggest_task_execution
+from server.services.project_policy import project_policy_summary_markdown, resolve_project_policies_for_target
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
 
@@ -220,6 +221,11 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
 def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     _ensure_requirement_not_deleted(requirement)
+    project_policies = resolve_project_policies_for_target(
+        db,
+        _normalize_target_project_path(requirement.target_project_path),
+        require_active=bool(requirement.target_project_path),
+    )
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
@@ -240,6 +246,15 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
             "source": requirement.source,
             "source_ref": requirement.source_ref,
             "target_project_path": requirement.target_project_path,
+            "project_policies": [
+                {
+                    "project_key": str(row.project_key),
+                    "display_name": str(row.display_name),
+                    "root_path": str(row.root_path),
+                    "status": str(row.status),
+                }
+                for row in project_policies
+            ],
         },
     )
 
@@ -408,6 +423,11 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
 def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     _ensure_requirement_not_deleted(requirement)
+    resolve_project_policies_for_target(
+        db,
+        _normalize_target_project_path(requirement.target_project_path),
+        require_active=bool(requirement.target_project_path),
+    )
     # ── Serial execution guard: only one requirement may be in_progress at a time ──
     running_count = db.query(RequirementRow).filter(
         RequirementRow.status == "in_progress",
@@ -435,7 +455,12 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
 
     _dispatch_next_step_for_requirement(requirement.id)
     db.expire_all()
-    return build_requirement_detail(db, requirement.id)
+
+    fresh_db = SessionLocal()
+    try:
+        return build_requirement_detail(fresh_db, requirement.id)
+    finally:
+        fresh_db.close()
 
 
 def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
@@ -481,7 +506,7 @@ def pause_task(db: Session, task_id: int) -> TaskRow:
         raise ValueError(f"Task #{task_id} is not running (status={task_status})")
 
     _terminate_task_runtime(task)
-    cast(Any, task).status = "paused"
+    cast(Any, task).status = "cancelled"
     cast(Any, task).last_error_message = "Paused by user"
     db.add(TaskLogRow(task_id=task_id, event_type="paused", detail="Task paused by user"))
 
@@ -758,7 +783,7 @@ def _pause_workflow_step(db: Session, step: WorkflowStepRow) -> None:
 
     if task is not None:
         _terminate_task_runtime(task)
-        cast(Any, task).status = "paused"
+        cast(Any, task).status = "cancelled"
         cast(Any, task).last_error_message = "Paused by user"
         db.add(TaskLogRow(task_id=task.id, event_type="paused", detail="Requirement paused by user"))
 
@@ -925,6 +950,9 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
     if target_path:
         parts.append(f"Target project path: {target_path}")
         parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
+        project_policy_summary = project_policy_summary_markdown(db, target_path)
+        if project_policy_summary:
+            parts.append(project_policy_summary)
     parts.append(f"\n## Done When\n{step.done_when_markdown}")
 
     # Include handoff summaries from completed predecessor steps (Markdown, not raw JSON)

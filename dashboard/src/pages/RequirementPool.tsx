@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, Requirement } from '../api'
+
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   ready: '已规划',
@@ -32,6 +33,29 @@ function formatTime(value: string | null) {
 function getTargetProjectPaths(value: string | null) {
   if (!value) return []
   return value.split('\n').map((item) => item.trim()).filter(Boolean)
+}
+
+function getRequirementSortRank(requirement: Requirement) {
+  if (requirement.status === 'in_progress') return 0
+  if (requirement.status === 'deleted') return 2
+  return 1
+}
+
+function getRequirementSortTimestamp(requirement: Requirement) {
+  const timestamp = Date.parse(requirement.updated_at ?? requirement.created_at ?? '')
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function sortRequirements(requirements: Requirement[]) {
+  return [...requirements].sort((a, b) => {
+    const rankDiff = getRequirementSortRank(a) - getRequirementSortRank(b)
+    if (rankDiff !== 0) return rankDiff
+
+    const timeDiff = getRequirementSortTimestamp(b) - getRequirementSortTimestamp(a)
+    if (timeDiff !== 0) return timeDiff
+
+    return b.id - a.id
+  })
 }
 
 export default function RequirementPool() {
@@ -66,13 +90,7 @@ export default function RequirementPool() {
 
   const loadRequirements = useCallback(async () => {
     const data = await api.getRequirements(statusFilter || undefined)
-    // Sort: in_progress first, then by created_at desc
-    data.sort((a, b) => {
-      if (a.status === 'in_progress' && b.status !== 'in_progress') return -1
-      if (b.status === 'in_progress' && a.status !== 'in_progress') return 1
-      return 0
-    })
-    setRequirements(data)
+    setRequirements(sortRequirements(data))
     setPage(1)
   }, [statusFilter])
 

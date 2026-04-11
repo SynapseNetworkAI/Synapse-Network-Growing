@@ -73,8 +73,22 @@ const PAUSED_REQUIREMENT = {
 
 const DELETED_REQUIREMENT = {
   ...REQUIREMENT,
+  id: 4,
+  title: 'Archived launch QA',
   status: 'deleted',
   updated_at: '2026-04-10T00:00:15Z',
+}
+
+const READY_REQUIREMENT = {
+  ...BLOCKER,
+  id: 3,
+  title: 'Queue next launch review',
+  status: 'ready',
+  current_plan_version: 1,
+  active_workflow_run_id: null,
+  completed_at: null,
+  created_at: '2026-04-10T00:06:00Z',
+  updated_at: '2026-04-10T00:06:00Z',
 }
 
 const DETAIL = {
@@ -309,6 +323,27 @@ describe('RequirementPool', () => {
       expect(mockApi.deleteRequirement).toHaveBeenCalledWith(1)
       expect(screen.getByText('已删除')).toBeDefined()
     })
+  })
+
+  it('sorts running requirements first and deleted requirements last', async () => {
+    mockApi.getRequirements.mockResolvedValue([DELETED_REQUIREMENT, READY_REQUIREMENT, REQUIREMENT, BLOCKER])
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-1')).toBeDefined()
+      expect(screen.getByTestId('requirement-card-3')).toBeDefined()
+    })
+
+    const cardIds = Array.from(document.querySelectorAll('[data-testid^="requirement-card-"]'))
+      .map((element) => element.getAttribute('data-testid'))
+
+    expect(cardIds).toEqual([
+      'requirement-card-1',
+      'requirement-card-3',
+      'requirement-card-2',
+      'requirement-card-4',
+    ])
   })
 
 

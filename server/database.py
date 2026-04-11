@@ -157,6 +157,29 @@ class RequirementRow(Base):
     artifacts = relationship("ArtifactRow", back_populates="requirement", order_by="ArtifactRow.id")
 
 
+class ProjectPolicyRow(Base):
+    __tablename__ = "project_policies"
+    __table_args__ = (
+        Index("project_policies_project_key_idx", "project_key", unique=True),
+        Index("project_policies_root_path_idx", "root_path", unique=True),
+        Index("project_policies_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_key = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False)
+    root_path = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active")
+    allowed_write_globs_json = Column(Text, nullable=False, default="[]")
+    forbidden_globs_json = Column(Text, nullable=False, default="[]")
+    required_checks_json = Column(Text, nullable=False, default="[]")
+    release_mode = Column(Text, nullable=False, default="manual")
+    requires_manual_approval = Column(Boolean, nullable=False, default=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -426,6 +449,13 @@ def _migrate(engine_):
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
+    from server.services.project_policy import ensure_default_project_policies
+
+    db = SessionLocal()
+    try:
+        ensure_default_project_policies(db)
+    finally:
+        db.close()
 
 
 def get_db():

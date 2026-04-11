@@ -182,6 +182,22 @@ export interface DashboardStats {
   approval_pending: number
 }
 
+export interface ProjectPolicy {
+  id: number
+  project_key: string
+  display_name: string
+  root_path: string
+  status: string
+  allowed_write_globs: string[]
+  forbidden_globs: string[]
+  required_checks: string[]
+  release_mode: string
+  requires_manual_approval: boolean
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface Requirement {
   id: number
   title: string
@@ -353,6 +369,32 @@ export const api = {
 
   // Dashboard
   getStats: () => request<DashboardStats>('/dashboard/stats'),
+
+  // Project policies
+  getProjectPolicies: () => request<ProjectPolicy[]>('/project-policies'),
+  createProjectPolicy: (data: {
+    project_key: string
+    display_name: string
+    root_path: string
+    status?: string
+    allowed_write_globs?: string[]
+    forbidden_globs?: string[]
+    required_checks?: string[]
+    release_mode?: string
+    requires_manual_approval?: boolean
+    notes?: string | null
+  }) => request<ProjectPolicy>('/project-policies', { method: 'POST', body: JSON.stringify(data) }),
+  updateProjectPolicy: (id: number, data: {
+    display_name?: string
+    root_path?: string
+    status?: string
+    allowed_write_globs?: string[]
+    forbidden_globs?: string[]
+    required_checks?: string[]
+    release_mode?: string
+    requires_manual_approval?: boolean
+    notes?: string | null
+  }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Requirements
   getRequirements: (status?: string) => {

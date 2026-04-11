@@ -1,26 +1,89 @@
-# Synapse-Growing : 30-Day Blitzkrieg 🚀
+# Synapse-Network-Growing
 
-**Target:** Make Synapse Network the de-facto settlement layer for Agentic Frameworks within 30 days.
-**Core Ethos:** Speed is King. Code is Law. Less is More.
+Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐步演进成一个 **AI 时代的公司操作系统**:
 
-## 🌟 The North Star
-We are the "Stripe for AI Agents". 
-- **Platform**: `Synapse-Network` (Gateway & Settlement)
-- **SDK**: `Synapse-Network-Sdk` (Developer integration)
-- **Provider**: `Synapse-Network-Provider` (Service onboarding)
+1. 让任务先进入统一需求池，而不是散落在聊天、文档、会议和人为转述里。
+2. 让 Agent 成为默认执行者，自动完成需求分析、实现、测试、修复、复盘和协作交付。
+3. 让系统持续优化的不只是单个任务，还包括项目质量、交付速度、跨团队协作流程和组织运行方式。
+4. 让人从“中间传话与重复执行”中退出，回到目标定义、边界设定、风险审批和异常决策。
 
-## 🏢 Agentic Organization Structure
-This repository is the brain for our Multi-Agent Marketing & Growth Engine. It is strictly partitioned by **Role** to ensure contextual isolation for autonomous agents.
+这套方向对应 [AI 时代的公司架构设计](../cliff-mind/agnet/ai时代公司架构设计.md) 里的核心判断：
 
-- **Growth Lead (增长负责人)**: Ruthless focus on distribution, conversion, ROI, and narrative constraints.
-- **DevRel (技术布道师)**: Hardcore focus on DX (Developer Experience), code snippets, API design, and system architecture.
+- 组织要从“职能分工”升级成“能力编排 + 治理边界”。
+- 流程要从给人看的 SOP，升级成“人和 Agent 都能执行的 machine-readable workflow”。
+- 人应该主要站在流程两端：定义目标、设定边界、处理例外，而不是承担大量中间搬运。
 
-## 🎯 The 30-Day Deliverables
-1. **Hero Demo Script**: 1-minute visceral demonstration of M2M payment.
-2. **`synapse-agent-demo`**: A plug-and-play codebase with a perfect README.
-3. **Core Tech Blog**: *How to let AI agents discover and pay for APIs*.
-4. **Launch Copy**: Hyper-optimized copy for PH / HN / X.
-5. **Provider Onboarding**: Conversion-focused landing page copy for API sellers.
+## 🌟 项目定位
+
+这个仓库是整个 Synapse 体系里的 **运营与编排中枢**，负责把“AI 时代公司架构”落成真实可运行的系统。
+
+- **主产品**: `Synapse-Network`
+  核心业务系统，负责 Gateway、结算、风控、运营后台与产品主链路。
+- **服务提供者运行时**: `Synapse-Network-Provider`
+  面向 API / Service Provider 的运行时与接入侧能力。
+- **用户接入层**: `Synapse-Network-Sdk`
+  面向开发者和 Agent 框架的 Python / TypeScript SDK。
+- **记忆与约束层**: `Agents-Memory`
+  提供长期记忆、文档规范、标准约束和项目上下文沉淀。
+- **编排与优化层**: `Synapse-Network-Growing`
+  负责需求池、Agent 组织、执行编排、跨项目协同、优化闭环与可视化控制面。
+
+## 🏢 AI 时代公司架构映射
+
+围绕 AI-native company 的五层模型，这个仓库当前承担的是下面几层能力：
+
+1. **目标层**: 把任务、需求、角色和项目统一进一个可调度的控制面。
+2. **流程层**: 把需求拆成 machine-readable 的 workflow step，而不是停留在口头协作。
+3. **能力层**: 复用角色、技能、运行时、浏览器自动化、记忆系统，而不是每个项目各做一套。
+4. **治理层**: 通过审批、状态机、日志、测试和异常分支控制高风险动作。
+5. **评估层**: 为后续的自动优化预留任务结果、工件、变更快照、执行日志和项目维度的数据基础。
+
+## ✅ 当前已经具备的能力
+
+从现有实现和设计文档看，Synapse-Network-Growing 已经不只是“营销 Agent 仓库”，而是具备了多项目自动执行的第一代骨架：
+
+1. **需求池 + 工作流编排**
+   需求已经是顶层对象，不再只是单条 task；系统支持规划、执行、测试、bugfix、revision 和关闭闭环。
+2. **多 Agent 角色协作**
+   业务角色来自 `roles/*`，执行时再映射到 workflow role 和 runtime agent，已经具备串行协作基础。
+3. **跨项目目标路径**
+   `target_project_path` 已经能把需求指向外部项目，并允许在目标项目里真实落代码和抓取 diff。
+4. **多项目组织视图**
+   `server/org-structure.yaml` 已经把 `Synapse-Network`、`Synapse-Network-Provider`、`Synapse-Network-Sdk`、`Agents-Memory`、`Spec2Flow` 纳入统一组织图。
+5. **长任务与后台恢复**
+   当前 runtime 已支持长任务执行、监控、恢复、日志持久化和状态同步。
+6. **记忆回流**
+   完成任务、失败记录、需求完成结果已经可以回流到 `Agents-Memory`，为后续优化提供可复用经验。
+
+## ⚠️ 为了实现 AI 时代公司架构，还缺的关键能力
+
+如果目标是“任务全部交给 Agent 执行，并且能自主优化多个项目和协作流程”，当前设计方向是对的，但还没有完全闭环。接下来最关键的缺口有：
+
+1. **项目级治理与授权边界**
+   现在已经能指向多个项目，但还缺更明确的 project policy：哪些目录可写、哪些动作必须审批、哪些仓库允许自动提交 / push / merge。
+2. **项目级目标与指标系统**
+   现在更偏执行编排，缺少 outcome-based evaluation，例如质量分、转化指标、交付时长、缺陷率、回滚率、协作摩擦成本。
+3. **自动优化引擎**
+   系统能执行需求，但还缺“发现问题 → 生成优化需求 → 排序 → 自动验证收益”的持续优化回路。
+4. **跨项目调度与资源仲裁**
+   现在支持多项目目标，但还缺 portfolio scheduler，去决定哪个项目优先、哪些 Agent 资源分配给哪个项目、冲突时如何仲裁。
+5. **标准化 SOP / Policy 包**
+   现在有角色、提示词和技能，但每个项目的 machine-readable SOP、审批规则、Definition of Done 还不够完整。
+6. **安全的交付闭环**
+   还需要更完整的 worktree / branch / PR / review / rollout / rollback 自动化，才能安全地大规模改多个真实项目。
+
+## 🧭 现在的设计是否支持自动化优化多个项目
+
+**短答案：可以支持，但目前属于“方向已经正确，底座已经成型，离 fully autonomous multi-project optimizer 还差几层治理和评估能力”。**
+
+更具体地说：
+
+1. **支持的部分**
+   现在已经有多项目组织图、目标项目路径、跨项目写代码、任务日志、变更快照、记忆沉淀和需求池工作流，这些都是必须的基础设施。
+2. **还不够的部分**
+   目前更像“多项目执行编排器”，还不是“多项目自我优化系统”；它能帮你做事，但还不够稳地判断“做什么最值得、做完是否真的变好、是否应该继续扩大自动化权限”。
+3. **结论**
+   用现在这套设计去驱动多个外部项目做自动化执行，已经是可行的；要升级成真正的 AI 公司操作系统，还需要补齐策略、评估、治理和交付安全这四个层面。
 
 ## Browser Automation
 
@@ -72,15 +135,16 @@ agent-browser open http://127.0.0.1:9700/tasks
 ## Key Docs
 
 1. `docs/phase2-plan.md` - Phase 2 dashboard implementation baseline
-2. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
-3. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
-4. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
-5. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
+2. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
+3. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
+4. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
+5. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
+6. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
 
 Synapse-Network-Growing/
-├── README.md                 # 30天战役总纲与里程碑跟踪（已更新）
-├── AGENTS.md                 # 【必须】定义各路 AI Agent 的角色系统边界、权限与交互规则 
-├── roles/                    # 【核心】按公司架构切分，隔离 Agent 上下文
+├── README.md                 # 项目定位、系统目标、能力边界与演进方向
+├── AGENTS.md                 # 【必须】定义各路 AI Agent 的角色系统边界、权限与交互规则
+├── roles/                    # 【核心】按公司能力与角色切分，隔离 Agent 上下文
 │   ├── growth_lead/          # 增长负责人的工作台（看重分发、转化、ROI、叙事）
 │   │   ├── prompts/          # 专属于增长 Agent 的 Persona 设定
 │   │   ├── go_to_market/     # ★ 需求 4: PH / HN / X 的发布文案 (3个版本)

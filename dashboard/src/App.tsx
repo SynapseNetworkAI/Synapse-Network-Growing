@@ -5,10 +5,12 @@ import TaskDetail from './pages/TaskDetail'
 import Approvals from './pages/Approvals'
 import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
+import ProjectPolicies from './pages/ProjectPolicies'
 
 const navItems = [
   { to: '/', label: '组织架构' },
   { to: '/requirements', label: '需求池' },
+  { to: '/project-policies', label: '项目策略' },
   { to: '/tasks', label: '任务看板' },
   { to: '/approvals', label: '审批中心' },
 ]
@@ -35,6 +37,7 @@ export default function App() {
           <Route path="/" element={<OrgChart />} />
           <Route path="/requirements" element={<RequirementPool />} />
           <Route path="/requirements/:id" element={<RequirementDetail />} />
+          <Route path="/project-policies" element={<ProjectPolicies />} />
           <Route path="/tasks" element={<TaskBoard />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/approvals" element={<Approvals />} />
