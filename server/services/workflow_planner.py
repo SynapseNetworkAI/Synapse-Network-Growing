@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import AgentRow, RequirementRow
+from server.database import AgentRow, ArtifactRow, RequirementRow
 from server.services.execution_resolver import suggest_task_execution
 from server.services.project_intelligence import resolve_requirement_routing
 from server.services.project_policy import apply_project_policies_to_scope, project_policy_to_dict, resolve_project_policies_for_target
@@ -311,6 +311,61 @@ def _build_delivery_contract(
     }
 
 
+def _latest_requirement_template_payload(db: Session, requirement_id: int) -> dict[str, Any]:
+    artifact = db.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "requirement_template",
+    ).order_by(ArtifactRow.id.desc()).first()
+    if artifact is None or not artifact.machine_readable_payload:
+        return {}
+    try:
+        payload = json.loads(artifact.machine_readable_payload)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _template_acceptance_checks(template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = template_payload.get("acceptance_checks") or []
+    return [dict(item) for item in raw if isinstance(item, dict)]
+
+
+def _merge_acceptance_checks(default_checks: list[dict[str, Any]], template_checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for check in default_checks + template_checks:
+        check_key = str(check.get("check_key") or "").strip()
+        if not check_key or check_key in seen:
+            continue
+        seen.add(check_key)
+        merged.append(dict(check))
+    return merged
+
+
+def _apply_template_targets_to_steps(workflow_steps: list[dict[str, Any]], template_checks: list[dict[str, Any]]) -> None:
+    if not template_checks:
+        return
+    by_key = {str(step.get("step_key") or ""): step for step in workflow_steps}
+    for check in template_checks:
+        check_key = str(check.get("check_key") or "").strip()
+        if not check_key:
+            continue
+        step_key = str(check.get("validation_step_key") or "")
+        if not step_key:
+            step_key = "review" if str(check.get("check_type") or "") == "manual_review" else "test"
+        step = by_key.get(step_key)
+        if step is None:
+            continue
+        targets = list(step.get("validation_targets") or [])
+        if any(str(item.get("check_key") or "") == check_key for item in targets if isinstance(item, dict)):
+            continue
+        targets.append({
+            "check_key": check_key,
+            "method": str(check.get("verification_type") or ("manual_review" if str(check.get("check_type") or "") == "manual_review" else "agent_validation")),
+        })
+        step["validation_targets"] = targets
+
+
 # ---------------------------------------------------------------------------
 # Public planner entry point
 # ---------------------------------------------------------------------------
@@ -319,6 +374,8 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     description = f"{requirement.title}\n\n{requirement.description_markdown}"
     target_path = getattr(requirement, "target_project_path", None)
     project_policies = [project_policy_to_dict(row) for row in resolve_project_policies_for_target(db, target_path, require_active=False)]
+    template_payload = _latest_requirement_template_payload(db, int(requirement.id))
+    template_checks = _template_acceptance_checks(template_payload)
     routing_context = resolve_requirement_routing(
         db,
         title=str(requirement.title),
@@ -426,6 +483,8 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         },
     ]
 
+    _apply_template_targets_to_steps(workflow_steps, template_checks)
+
     for step in workflow_steps:
         step["file_scope"] = apply_project_policies_to_scope(
             db,
@@ -448,6 +507,39 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "owner_role": "tester",
         "success_criteria_markdown": "Tester validates the produced artifacts and confirms all acceptance targets are satisfied.",
     }
+    acceptance_checks = _merge_acceptance_checks([review_check, validation_check], template_checks)
+    manual_checks = [
+        {
+            "check_key": str(check["check_key"]),
+            "description": str(check["description"]),
+            "owner_role": str(check.get("owner_role") or "reviewer"),
+            "check_type": str(check.get("check_type") or "manual_review"),
+            "verification_type": "manual",
+            "method": "manual_review",
+            "step_key": str(check.get("validation_step_key") or "review"),
+            "step_type": "review",
+            "blocking": True,
+            "required_artifact_type": "review_report",
+        }
+        for check in acceptance_checks
+        if str(check.get("check_type") or "") == "manual_review"
+    ]
+    automated_checks = [
+        {
+            "check_key": str(check["check_key"]),
+            "description": str(check["description"]),
+            "owner_role": str(check.get("owner_role") or "tester"),
+            "check_type": str(check.get("check_type") or "content_assertion"),
+            "verification_type": "automated",
+            "method": "agent_validation",
+            "step_key": str(check.get("validation_step_key") or "test"),
+            "step_type": "test",
+            "blocking": True,
+            "required_artifact_type": "test_report",
+        }
+        for check in acceptance_checks
+        if str(check.get("check_type") or "") != "manual_review"
+    ]
 
     planner_output = {
         "schema_version": "1.5",
@@ -463,8 +555,9 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "summary_markdown": routing_context.get("summary") or "No managed project routing summary was generated.",
             "project_scorecards": routing_context.get("project_scorecards") or [],
         },
+        "requirement_template": template_payload,
         "detected_phases": detected_phases_dict,
-        "acceptance_checks": [review_check, validation_check],
+        "acceptance_checks": acceptance_checks,
         "required_roles": ["implementer", "reviewer", "tester"],
         "known_risks_markdown": "- Requirement may need iterative bugfix if validation fails.\n- File scope is constrained by target_project_path and project policy.\n- Queue priority now considers project readiness, bug pressure, and delivery friction.",
         "open_questions_markdown": "- No open questions generated by smart planner.",
@@ -478,35 +571,9 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             ),
             "closeout_owner_role": "tester",
             "bugfix_owner_role": "implementer",
-            "gates": ["review_passed", "validation_passed"],
-            "manual_checks": [
-                {
-                    "check_key": review_check["check_key"],
-                    "description": review_check["description"],
-                    "owner_role": review_check["owner_role"],
-                    "check_type": review_check["check_type"],
-                    "verification_type": "manual",
-                    "method": "manual_review",
-                    "step_key": "review",
-                    "step_type": "review",
-                    "blocking": True,
-                    "required_artifact_type": "review_report",
-                },
-            ],
-            "automated_checks": [
-                {
-                    "check_key": validation_check["check_key"],
-                    "description": validation_check["description"],
-                    "owner_role": validation_check["owner_role"],
-                    "check_type": validation_check["check_type"],
-                    "verification_type": "automated",
-                    "method": "agent_validation",
-                    "step_key": "test",
-                    "step_type": "test",
-                    "blocking": True,
-                    "required_artifact_type": "test_report",
-                },
-            ],
+            "gates": [str(check.get("check_key") or "") for check in acceptance_checks if str(check.get("check_key") or "").strip()],
+            "manual_checks": manual_checks,
+            "automated_checks": automated_checks,
             "bugfix_loop": {
                 "trigger_step_types": ["review", "test", "bugfix"],
                 "reentry_step_type": "bugfix",

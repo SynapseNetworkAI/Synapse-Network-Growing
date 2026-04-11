@@ -303,6 +303,24 @@ class OptimizationSignalCreateRequirementRequest(BaseModel):
     auto_start: bool = False
 
 
+class OptimizationRequirementTemplateOut(BaseModel):
+    template_key: str
+    category: str
+    display_name: str
+    description: str
+    supported_signal_types: list[str] = []
+    default_acceptance_checks: list[dict[str, object]] = []
+
+
+class OptimizationTemplateCreateRequirementRequest(BaseModel):
+    title: str
+    context_summary: str
+    target_project_path: Optional[str] = None
+    priority: str = "normal"
+    evidence: list[dict[str, object]] = []
+    auto_start: bool = False
+
+
 class OptimizationSignalAutoIntakeRequest(BaseModel):
     min_score: float = 60.0
     max_created: int = 1
@@ -332,6 +350,9 @@ class RequirementCreate(BaseModel):
     target_project_path: Optional[str] = None
     depends_on_requirement_ids: list[int] = []
     auto_start: bool = False
+    template_key: Optional[str] = None
+    template_payload: Optional[dict[str, object]] = None
+    template_acceptance_checks: list[dict[str, object]] = []
 
 
 class RequirementDependencyUpdate(BaseModel):

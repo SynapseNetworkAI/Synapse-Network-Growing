@@ -17,6 +17,7 @@ from server.database import (
     TaskRow,
 )
 from server.schemas import RequirementCreate
+from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.project_intelligence import build_project_catalog
 from server.services.workflow_orchestrator import create_requirement
 
@@ -596,26 +597,29 @@ def create_requirement_from_signal(
     score_breakdown = build_optimization_signal_score_breakdown(row, project_map=_project_map(db))
     priority = str(score_breakdown.get("recommended_priority") or "normal")
     evidence = _json_loads(row.evidence_json, [])
-    body = RequirementCreate(
+    template_key = template_key_for_signal(str(row.signal_type))
+    body = build_template_instance(
+        template_key=template_key,
         title=(title or row.title).strip(),
-        description_markdown=(
-            f"## Optimization Signal\n\n{row.summary}\n\n"
-            f"- Signal type: `{row.signal_type}`\n"
-            f"- Severity: `{row.severity}`\n"
-            f"- Confidence: `{row.confidence}`\n"
-            f"- Occurrences: `{row.occurrence_count}`\n\n"
-            f"## Score Breakdown\n\n"
-            f"- Total score: `{score_breakdown.get('total')}`\n"
-            f"- Impact: `{score_breakdown.get('impact')}`\n"
-            f"- Risk: `{score_breakdown.get('risk')}`\n"
-            f"- Urgency: `{score_breakdown.get('urgency')}`\n"
-            f"- Implementation cost: `{score_breakdown.get('implementation_cost')}`\n\n"
-            f"## Evidence\n\n```json\n{json.dumps(evidence[:8], ensure_ascii=False, indent=2)}\n```"
+        context_summary=(
+            f"{row.summary}\n\n"
+            f"Signal type: {row.signal_type}\n"
+            f"Severity: {row.severity}\n"
+            f"Confidence: {row.confidence}\n"
+            f"Occurrences: {row.occurrence_count}"
         ),
+        target_project_path=row.routing_target_path,
         priority=priority,
         source="optimization_signal",
         source_ref=f"optimization-signal:{row.id}",
-        target_project_path=row.routing_target_path,
+        evidence=evidence,
+        score_breakdown=score_breakdown,
+        template_payload_extra={
+            "signal_id": int(row.id),
+            "signal_type": str(row.signal_type),
+            "project_key": row.project_key,
+            "project_display_name": str(row.project_key or row.routing_target_path or "Org Ops"),
+        },
         auto_start=auto_start,
     )
     detail = create_requirement(db, body)

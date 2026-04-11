@@ -11,8 +11,15 @@ from server.schemas import (
     OptimizationSignalAutoIntakeRequest,
     OptimizationSignalAutoIntakeResultOut,
     OptimizationSignalCreateRequirementRequest,
+    OptimizationRequirementTemplateOut,
+    OptimizationTemplateCreateRequirementRequest,
     OptimizationSignalOut,
     RequirementDetailOut,
+)
+from server.services.optimization_templates import (
+    build_template_instance,
+    get_optimization_requirement_template,
+    list_optimization_requirement_templates,
 )
 from server.services.optimization_signals import (
     _project_map,
@@ -23,9 +30,15 @@ from server.services.optimization_signals import (
     optimization_signal_to_dict,
     refresh_optimization_signals,
 )
+from server.services.workflow_orchestrator import create_requirement
 
 
 router = APIRouter(prefix="/api/optimization-signals", tags=["optimization-signals"])
+
+
+@router.get("/templates", response_model=list[OptimizationRequirementTemplateOut])
+def list_optimization_templates_endpoint():
+    return [OptimizationRequirementTemplateOut(**item) for item in list_optimization_requirement_templates()]
 
 
 @router.get("", response_model=list[OptimizationSignalOut])
@@ -81,6 +94,37 @@ def create_requirement_from_signal_endpoint(
             signal_id=signal_id,
             title=body.title,
             auto_start=body.auto_start,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return detail
+
+
+@router.post("/templates/{template_key}/create-requirement", response_model=RequirementDetailOut)
+def create_requirement_from_template_endpoint(
+    template_key: str,
+    body: OptimizationTemplateCreateRequirementRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        template = get_optimization_requirement_template(template_key)
+        detail = create_requirement(
+            db,
+            build_template_instance(
+                template_key=template["template_key"],
+                title=body.title,
+                context_summary=body.context_summary,
+                target_project_path=body.target_project_path,
+                priority=body.priority,
+                source="optimization_template",
+                source_ref=f"optimization-template:{template['template_key']}",
+                evidence=list(body.evidence or []),
+                template_payload_extra={
+                    "operator_created": True,
+                    "project_display_name": str(body.target_project_path or "Org Ops").rsplit("/", 1)[-1],
+                },
+                auto_start=body.auto_start,
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

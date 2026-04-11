@@ -3,7 +3,8 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
-from server.database import AgentRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
+from server.database import AgentRow, ArtifactRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
+from server.services.optimization_templates import get_optimization_requirement_template
 from server.services.workflow_planner import (
     _DetectedPhases,
     _base_file_scope,
@@ -327,6 +328,43 @@ class TestBuildPlannerOutput:
 
         assert output["project_intelligence"]["routing_mode"] == "auto"
         assert output["project_intelligence"]["routed_project_keys"] == ["synapse-network-sdk"]
+
+    def test_template_acceptance_checks_are_merged_into_planner_output(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Template-backed release work",
+            description_markdown="Remove recurring release blockers.",
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        )
+        db_session.add(req)
+        db_session.flush()
+        template = get_optimization_requirement_template("release_bottleneck")
+        db_session.add(
+            ArtifactRow(
+                requirement_id=req.id,
+                artifact_type="requirement_template",
+                content_summary="Template context",
+                machine_readable_payload=json.dumps({
+                    "template_key": template["template_key"],
+                    "acceptance_checks": template["acceptance_checks"],
+                }),
+            )
+        )
+        db_session.commit()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": True}):
+            output, _ = build_planner_output(db_session, req)
+
+        acceptance_keys = [item["check_key"] for item in output["acceptance_checks"]]
+        assert "review_passed" in acceptance_keys
+        assert "validation_passed" in acceptance_keys
+        assert "release_blocker_removed" in acceptance_keys
+        assert "rollback_path_documented" in acceptance_keys
+        assert output["requirement_template"]["template_key"] == "release_bottleneck"
+
+        review_step = next(step for step in output["workflow_steps"] if step["step_key"] == "review")
+        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
+        assert any(target["check_key"] == "rollback_path_documented" for target in review_step["validation_targets"])
+        assert any(target["check_key"] == "release_blocker_removed" for target in test_step["validation_targets"])
 
 
 # ---------------------------------------------------------------------------

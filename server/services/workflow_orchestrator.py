@@ -212,6 +212,20 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         human_readable_body=str(routing_context.get("summary") or "Requirement routing was assessed during intake."),
         machine_readable_payload=routing_context,
     )
+    if body.template_key or body.template_payload or body.template_acceptance_checks:
+        template_payload = dict(body.template_payload or {})
+        if body.template_key and "template_key" not in template_payload:
+            template_payload["template_key"] = body.template_key
+        if body.template_acceptance_checks:
+            template_payload["acceptance_checks"] = body.template_acceptance_checks
+        _create_artifact(
+            db,
+            requirement_id=requirement.id,
+            artifact_type="requirement_template",
+            content_summary=f"Template for requirement #{requirement.id}",
+            human_readable_body=str(template_payload.get("description") or body.description_markdown[:500]),
+            machine_readable_payload=template_payload,
+        )
     _replace_dependencies(db, requirement.id, body.depends_on_requirement_ids)
     _refresh_requirement_dependency_state(db, requirement)
     db.commit()
@@ -1312,6 +1326,13 @@ def _create_bugfix_branch(
     bugfix_agent_id = failed_step.assigned_agent_id or _fallback_agent_id(db)
     reviewer_agent_id = _secondary_agent_id(db, exclude={bugfix_agent_id})
     tester_agent_id = _secondary_agent_id(db, exclude={bugfix_agent_id, reviewer_agent_id})
+    inherited_targets = _json_loads(failed_step.validation_targets_json, [])
+    review_targets = [{"check_key": "review_passed", "method": "manual_review"}]
+    test_targets = [{"check_key": "validation_passed", "method": "agent_validation"}]
+    if failed_step.step_type == "review" and isinstance(inherited_targets, list) and inherited_targets:
+        review_targets = inherited_targets
+    if failed_step.step_type == "test" and isinstance(inherited_targets, list) and inherited_targets:
+        test_targets = inherited_targets
 
     bugfix_step = WorkflowStepRow(
         workflow_run_id=workflow_run.id,
@@ -1349,7 +1370,7 @@ def _create_bugfix_branch(
         context_scope="verification",
         done_when_markdown="Bugfix review report is created and review check is passed.",
         file_scope_json=failed_step.file_scope_json,
-        validation_targets_json=json.dumps([{"check_key": "review_passed", "method": "manual_review"}]),
+        validation_targets_json=json.dumps(review_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
         approval_policy_json=json.dumps({}),
     )
@@ -1370,7 +1391,7 @@ def _create_bugfix_branch(
         context_scope="verification",
         done_when_markdown="Retest completes with a passing test report.",
         file_scope_json=failed_step.file_scope_json,
-        validation_targets_json=json.dumps([{"check_key": "validation_passed", "method": "agent_validation"}]),
+        validation_targets_json=json.dumps(test_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
         approval_policy_json=json.dumps({}),
     )

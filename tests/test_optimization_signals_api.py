@@ -121,12 +121,19 @@ def test_create_requirement_from_optimization_signal_marks_signal_converted(sync
     assert detail["requirement"]["source"] == "optimization_signal"
     assert detail["requirement"]["source_ref"] == f"optimization-signal:{signal['id']}"
     assert detail["requirement"]["target_project_path"] == target_path
+    assert detail["requirement"]["title"].startswith("Release Bottleneck:")
 
     list_resp = synced_client.get("/api/optimization-signals?status=converted")
     assert list_resp.status_code == 200
     converted = next(item for item in list_resp.json() if item["id"] == signal["id"])
     assert converted["status"] == "converted"
     assert converted["converted_requirement_id"] == detail["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{detail['requirement']['id']}/plan")
+    assert plan_resp.status_code == 200
+    acceptance_keys = [item["check_key"] for item in plan_resp.json()["acceptance_checks"]]
+    assert "release_blocker_removed" in acceptance_keys
+    assert "rollback_path_documented" in acceptance_keys
 
 
 def test_auto_intake_picks_highest_scored_signal(synced_client, db_session):
@@ -243,3 +250,44 @@ def test_queue_advance_auto_intakes_best_signal_when_no_ready_requirements(synce
     assert mock_plan.call_args[0][1] == started_requirement_id
     assert mock_start.call_count == 1
     assert mock_start.call_args[0][1] == started_requirement_id
+
+
+def test_lists_templates_and_operator_can_create_template_backed_requirements(synced_client):
+    templates_resp = synced_client.get("/api/optimization-signals/templates")
+    assert templates_resp.status_code == 200
+    templates = templates_resp.json()
+    template_keys = {item["template_key"] for item in templates}
+    assert {"defect_reduction", "release_bottleneck", "approval_automation", "onboarding_friction", "docs_drift"} <= template_keys
+
+
+def test_operator_template_requirements_generate_structured_acceptance_checks(synced_client):
+    cases = [
+        ("defect_reduction", "Defect signal", "/Users/cliff/workspace/agent/Synapse-Network"),
+        ("release_bottleneck", "Release blocker", "/Users/cliff/workspace/agent/Synapse-Network-Provider"),
+        ("approval_automation", "Approval friction", "/Users/cliff/workspace/agent/Synapse-Network-Sdk"),
+        ("onboarding_friction", "Onboarding gap", "/Users/cliff/workspace/agent/Agents-Memory"),
+        ("docs_drift", "Docs drift", "/Users/cliff/workspace/agent/Synapse-Network-Growing"),
+    ]
+    expected = {
+        "defect_reduction": {"root_cause_documented", "regression_guard_added"},
+        "release_bottleneck": {"release_blocker_removed", "rollback_path_documented"},
+        "approval_automation": {"manual_override_reduced", "escalation_policy_preserved"},
+        "onboarding_friction": {"readiness_gap_closed", "onboarding_contract_documented"},
+        "docs_drift": {"docs_alignment_verified", "docs_examples_refreshed"},
+    }
+
+    for template_key, title, target_path in cases:
+        create_resp = synced_client.post(
+            f"/api/optimization-signals/templates/{template_key}/create-requirement",
+            json={
+                "title": title,
+                "context_summary": f"Apply template {template_key}",
+                "target_project_path": target_path,
+            },
+        )
+        assert create_resp.status_code == 200
+        detail = create_resp.json()
+        plan_resp = synced_client.post(f"/api/requirements/{detail['requirement']['id']}/plan")
+        assert plan_resp.status_code == 200
+        acceptance_keys = {item["check_key"] for item in plan_resp.json()["acceptance_checks"]}
+        assert expected[template_key] <= acceptance_keys
