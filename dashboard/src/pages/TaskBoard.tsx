@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useNavigate } from 'react-router-dom'
-import { api, Task, Agent, TaskLog, TaskExecutionSuggestion, ApiError } from '../api'
+import { api, Task, Agent, TaskLog, TaskExecutionSuggestion, ApiError, AgentsMemoryResult, agentsMemoryApi } from '../api'
 
 const RETRYABLE_STATUSES = new Set(['failed', 'rejected'])
 
@@ -106,7 +106,6 @@ export default function TaskBoard() {
   const [projectFilter, setProjectFilter] = useState('')
   const [agentGroupFilter, setAgentGroupFilter] = useState('')
   const [agentFilter, setAgentFilter] = useState('')
-  const [search, setSearch] = useState('')
   const [onlyAnomalies, setOnlyAnomalies] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
@@ -122,20 +121,39 @@ export default function TaskBoard() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const suggestionRequestRef = useRef(0)
 
-  const load = useCallback(async () => {
-    const [t, a] = await Promise.all([
+  // Pagination & search state
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
+  const [searchInput, setSearchInput] = useState('')    // raw input (debounced)
+  const [searchQuery, setSearchQuery] = useState('')    // committed to backend
+
+  // Agents-Memory state
+  const [memoryResults, setMemoryResults] = useState<AgentsMemoryResult[]>([])
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+
+  const load = useCallback(async (targetPage = page) => {
+    const [pageData, a] = await Promise.all([
       api.getTasks({
         status: statusFilter || undefined,
         project_id: projectFilter || undefined,
         agent_group: agentGroupFilter || undefined,
         agent_id: agentFilter || undefined,
         only_anomalies: onlyAnomalies || undefined,
+        search: searchQuery || undefined,
+        page: targetPage,
+        page_size: 10,
       }),
       api.getAgents(),
     ])
-    setTasks(t)
+    setTasks(pageData.items)
     setAgents(a)
-  }, [statusFilter, projectFilter, agentGroupFilter, agentFilter, onlyAnomalies])
+    setTotal(pageData.total)
+    setTotalPages(pageData.total_pages)
+    setStatusCounts(pageData.status_counts)
+  }, [statusFilter, projectFilter, agentGroupFilter, agentFilter, onlyAnomalies, searchQuery, page])
 
   useEffect(() => {
     api.getSkills().then(setSkills).catch(() => {})
@@ -143,8 +161,34 @@ export default function TaskBoard() {
 
   useEffect(() => { load() }, [load])
 
+  // Debounce searchInput → searchQuery (300ms), reset to page 1
   useEffect(() => {
-    const hasRunning = tasks.some(t => t.status === 'running')
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Agents-Memory search whenever searchQuery changes
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setMemoryResults([])
+      setMemoryOpen(false)
+      return
+    }
+    setMemoryLoading(true)
+    agentsMemoryApi.search(searchQuery, 8)
+      .then((r) => {
+        setMemoryResults(r.results)
+        setMemoryOpen(r.results.length > 0)
+      })
+      .catch(() => setMemoryResults([]))
+      .finally(() => setMemoryLoading(false))
+  }, [searchQuery])
+
+  useEffect(() => {
+    const hasRunning = (statusCounts['running'] ?? 0) > 0
     if (hasRunning) {
       pollRef.current = setInterval(load, 3000)
     } else if (pollRef.current) {
@@ -152,15 +196,15 @@ export default function TaskBoard() {
       pollRef.current = null
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [tasks, load])
+  }, [statusCounts, load])
 
   useEffect(() => {
-    if (!tasks.some((task) => task.status === 'running')) return
+    if ((statusCounts['running'] ?? 0) === 0) return
     const timer = setInterval(() => {
       setNowMs(Date.now())
     }, 1000)
     return () => clearInterval(timer)
-  }, [tasks])
+  }, [statusCounts])
 
   useEffect(() => {
     setSelectedTaskIds((prev) => prev.filter((id) => tasks.some((task) => task.id === id && RETRYABLE_STATUSES.has(task.status))))
@@ -172,19 +216,8 @@ export default function TaskBoard() {
     try { return JSON.parse(selectedAgent.skills) } catch { return [] }
   })()
 
-  const visibleTasks = tasks.filter((task) => {
-    if (!search.trim()) return true
-    const q = search.trim().toLowerCase()
-    return [
-      task.description,
-      task.agent_id,
-      task.skill_name || '',
-      task.project_label || '',
-      task.agent_group || '',
-      task.requirement_title || '',
-      getTaskErrorSummary(task),
-    ].some((value) => value.toLowerCase().includes(q))
-  })
+  // All tasks on current page (server already filtered by search)
+  const visibleTasks = tasks
 
   const groupedTasks = visibleTasks.reduce<Record<string, Task[]>>((acc, task) => {
     const key = task.project_label || task.project_id || '未分类'
@@ -393,7 +426,7 @@ export default function TaskBoard() {
           <select
             data-testid="status-filter"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部状态</option>
@@ -407,7 +440,7 @@ export default function TaskBoard() {
           <select
             data-testid="project-filter"
             value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
+            onChange={(e) => { setProjectFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部项目</option>
@@ -437,7 +470,7 @@ export default function TaskBoard() {
           <select
             data-testid="group-filter"
             value={agentGroupFilter}
-            onChange={(e) => setAgentGroupFilter(e.target.value)}
+            onChange={(e) => { setAgentGroupFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部 Agent 组</option>
@@ -448,7 +481,7 @@ export default function TaskBoard() {
           <select
             data-testid="agent-filter"
             value={agentFilter}
-            onChange={(e) => setAgentFilter(e.target.value)}
+            onChange={(e) => { setAgentFilter(e.target.value); setPage(1) }}
             className="px-3 py-2 text-sm border rounded"
           >
             <option value="">全部 Agent</option>
@@ -458,30 +491,108 @@ export default function TaskBoard() {
                 <option key={agent.id} value={agent.id}>{agent.display_name} ({agent.id})</option>
               ))}
           </select>
-          <input
-            data-testid="task-search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索任务 / Agent / Skill / 错误"
-            className="px-3 py-2 text-sm border rounded"
-          />
-          <label className="flex items-center gap-2 px-3 py-2 text-sm border rounded">
+          <label className="flex items-center gap-2 px-3 py-2 text-sm border rounded col-span-2">
             <input
               data-testid="only-anomalies"
               type="checkbox"
               checked={onlyAnomalies}
-              onChange={(e) => setOnlyAnomalies(e.target.checked)}
+              onChange={(e) => { setOnlyAnomalies(e.target.checked); setPage(1) }}
             />
             仅看异常
           </label>
         </div>
       )}
 
+      {/* Search bar + Memory panel */}
+      <div className="mb-4">
+        <div className="relative flex items-center gap-2">
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+            <input
+              data-testid="task-search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="搜索任务标题 / 内容 / Skill…"
+              className="w-full pl-9 pr-4 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none"
+            />
+          </div>
+          {searchQuery && (
+            <button
+              className="text-xs text-gray-500 hover:text-gray-800 px-2"
+              onClick={() => { setSearchInput(''); setSearchQuery(''); setPage(1) }}
+            >
+              清空
+            </button>
+          )}
+          {memoryResults.length > 0 && (
+            <button
+              onClick={() => setMemoryOpen((v) => !v)}
+              className={`flex items-center gap-1 px-3 py-2 text-xs rounded-lg border transition ${memoryOpen ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            >
+              🧠 Memory
+              <span className={`inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-[10px] font-bold ${memoryOpen ? 'bg-indigo-600 text-white' : 'bg-gray-500 text-white'}`}>
+                {memoryResults.length}
+              </span>
+            </button>
+          )}
+          {memoryLoading && <span className="text-xs text-gray-400">搜索中…</span>}
+        </div>
+
+        {memoryOpen && memoryResults.length > 0 && (
+          <div className="mt-1 border rounded-lg bg-white shadow-lg overflow-hidden" data-testid="memory-results-panel">
+            <div className="flex items-center justify-between px-3 py-2 bg-indigo-50 border-b">
+              <span className="text-xs font-semibold text-indigo-700">🧠 Agents-Memory 相关记录</span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`http://localhost:10000`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-indigo-600 hover:underline"
+                >
+                  在 Agents-Memory 中查看全部 →
+                </a>
+                <button onClick={() => setMemoryOpen(false)} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+              </div>
+            </div>
+            <ul className="divide-y">
+              {memoryResults.map((r) => (
+                <li key={`${r.type}-${r.id}`}>
+                  <a
+                    href={agentsMemoryApi.linkFor(r)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-start gap-3 px-3 py-2.5 hover:bg-gray-50 transition"
+                  >
+                    <span className={`mt-0.5 shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${r.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {r.type === 'error' ? 'ERR' : 'WIKI'}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-800 truncate">{r.title}</span>
+                        <span className="text-xs text-gray-400 shrink-0 font-mono">{r.id}</span>
+                        <span className="text-xs text-gray-300 shrink-0">{(r.score * 100).toFixed(0)}%</span>
+                      </div>
+                      {r.snippet && <p className="mt-0.5 text-xs text-gray-500 line-clamp-1">{r.snippet}</p>}
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {searchQuery && (
+          <div className="mt-1 text-xs text-gray-500 px-1">
+            共 <span className="font-medium text-gray-800">{total}</span> 条任务匹配"{searchQuery}"
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 mb-4 md:grid-cols-4" data-testid="task-summary-bar">
-        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'running').length}</div></div>
-        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'failed').length}</div></div>
-        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'pending_approval').length}</div></div>
-        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{tasks.filter(t => t.status === 'completed').length}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{statusCounts['running'] ?? 0}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{statusCounts['failed'] ?? 0}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{statusCounts['pending_approval'] ?? 0}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{statusCounts['completed'] ?? 0}</div></div>
       </div>
 
       {selectedRetryableTaskIds.length > 0 && (
@@ -701,8 +812,7 @@ export default function TaskBoard() {
 
       <div className="space-y-4">
         {Object.keys(groupedTasks).length === 0 && <p data-testid="empty-tasks" className="text-sm text-gray-500">暂无任务</p>}
-        {Object.entries(groupedTasks)
-          .sort(([, leftTasks], [, rightTasks]) => {
+        {Object.entries(groupedTasks)          .sort(([, leftTasks], [, rightTasks]) => {
             const leftNewest = leftTasks.reduce((max, task) => Math.max(max, taskCreatedAtValue(task)), 0)
             const rightNewest = rightTasks.reduce((max, task) => Math.max(max, taskCreatedAtValue(task)), 0)
             if (rightNewest !== leftNewest) return rightNewest - leftNewest
@@ -829,6 +939,47 @@ export default function TaskBoard() {
             </section>
           ))}
       </div>
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-6 py-3" data-testid="pagination">
+          <button
+            data-testid="prev-page"
+            onClick={() => { const p = Math.max(1, page - 1); setPage(p); load(p) }}
+            disabled={page <= 1}
+            className="px-4 py-2 text-sm border rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            ← 上一页
+          </button>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const pageNum = totalPages <= 7
+                ? i + 1
+                : page <= 4 ? i + 1
+                : page >= totalPages - 3 ? totalPages - 6 + i
+                : page - 3 + i
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => { setPage(pageNum); load(pageNum) }}
+                  className={`w-9 h-9 text-sm rounded-lg border transition ${pageNum === page ? 'bg-blue-600 text-white border-blue-600 font-semibold' : 'hover:bg-gray-50'}`}
+                >
+                  {pageNum}
+                </button>
+              )
+            })}
+          </div>
+          <button
+            data-testid="next-page"
+            onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); load(p) }}
+            disabled={page >= totalPages}
+            className="px-4 py-2 text-sm border rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            下一页 →
+          </button>
+          <span className="text-xs text-gray-400">共 {total} 条 / 第 {page}/{totalPages} 页</span>
+        </div>
+      )}
 
       {selectedLogs && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setSelectedLogs(null)}>

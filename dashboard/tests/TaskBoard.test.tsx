@@ -2,6 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import TaskBoard from '../src/pages/TaskBoard'
+import type { Task } from '../src/api'
+
+// Helper: wrap a Task array in the TaskPage shape the backend now returns
+function makePage(items: Task[]) {
+  const status_counts: Record<string, number> = {}
+  for (const t of items) {
+    status_counts[t.status] = (status_counts[t.status] ?? 0) + 1
+  }
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    page_size: 10,
+    total_pages: Math.max(1, Math.ceil(items.length / 10)),
+    status_counts,
+  }
+}
 
 // Mock API
 const mockApi = {
@@ -29,6 +46,10 @@ vi.mock('../src/api', () => ({
     bulkRetryTasks: (...args: unknown[]) => mockApi.bulkRetryTasks(...args),
     getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
     getTaskHistory: (...args: unknown[]) => mockApi.getTaskHistory(...args),
+  },
+  agentsMemoryApi: {
+    search: () => Promise.resolve({ query: '', results: [], total: 0 }),
+    linkFor: () => '#',
   },
 }))
 
@@ -224,7 +245,7 @@ describe('TaskBoard', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
-    mockApi.getTasks.mockResolvedValue([])
+    mockApi.getTasks.mockResolvedValue(makePage([]))
     mockApi.getAgents.mockResolvedValue(AGENTS)
     mockApi.getSkills.mockResolvedValue(SKILLS)
     mockApi.suggestTaskExecution.mockResolvedValue(AUTO_SUGGESTION)
@@ -376,7 +397,7 @@ describe('TaskBoard', () => {
   // ── Task card display ────────────────────────────────────
 
   it('displays pending task with run button', async () => {
-    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([PENDING_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('task-1')).toBeDefined()
@@ -385,7 +406,7 @@ describe('TaskBoard', () => {
   })
 
   it('displays running task with spinner', async () => {
-    mockApi.getTasks.mockResolvedValue([RUNNING_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([RUNNING_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('task-2')).toBeDefined()
@@ -394,7 +415,7 @@ describe('TaskBoard', () => {
   })
 
   it('shows project section heading', async () => {
-    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([PENDING_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
     await waitFor(() => {
       expect(screen.getByTestId('project-section-Synapse-Network-Growing')).toBeDefined()
@@ -418,7 +439,7 @@ describe('TaskBoard', () => {
       project_label: 'zeta-project',
       created_at: '2026-04-10T00:05:00Z',
     }
-    mockApi.getTasks.mockResolvedValue([olderTask, newerTask])
+    mockApi.getTasks.mockResolvedValue(makePage([olderTask, newerTask]))
     const { container } = render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
@@ -439,7 +460,7 @@ describe('TaskBoard', () => {
   })
 
   it('calls runTask with skill parameter', async () => {
-    mockApi.getTasks.mockResolvedValue([PENDING_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([PENDING_TASK]))
     mockApi.runTask.mockResolvedValue(RUNNING_TASK)
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
@@ -455,7 +476,7 @@ describe('TaskBoard', () => {
   })
 
   it('shows failed task summary and retry actions', async () => {
-    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([FAILED_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
@@ -466,7 +487,7 @@ describe('TaskBoard', () => {
   })
 
   it('calls retryTask for failed task', async () => {
-    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([FAILED_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
@@ -481,7 +502,7 @@ describe('TaskBoard', () => {
   })
 
   it('prefills create form when editing failed retry', async () => {
-    mockApi.getTasks.mockResolvedValue([FAILED_TASK])
+    mockApi.getTasks.mockResolvedValue(makePage([FAILED_TASK]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
@@ -499,7 +520,7 @@ describe('TaskBoard', () => {
   // ── Bulk actions ──────────────────────────────────────────
 
   it('selects failed tasks and triggers bulk retry', async () => {
-    mockApi.getTasks.mockResolvedValue([FAILED_TASK, { ...FAILED_TASK, id: 8, retry_of_task_id: 4, attempt_no: 3 }])
+    mockApi.getTasks.mockResolvedValue(makePage([FAILED_TASK, { ...FAILED_TASK, id: 8, retry_of_task_id: 4, attempt_no: 3 }]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     await waitFor(() => {
@@ -529,8 +550,8 @@ describe('TaskBoard', () => {
     mockApi.getTasks.mockImplementation(() => {
       callCount++
       // After 2 calls, switch to completed to stop polling
-      if (callCount >= 3) return Promise.resolve([COMPLETED_TASK])
-      return Promise.resolve([RUNNING_TASK])
+      if (callCount >= 3) return Promise.resolve(makePage([COMPLETED_TASK]))
+      return Promise.resolve(makePage([RUNNING_TASK]))
     })
 
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
@@ -560,7 +581,7 @@ describe('TaskBoard', () => {
 
   it('shows inline skill dropdown for tasks without skill_name', async () => {
     const taskNoSkill = { ...PENDING_TASK, skill_name: null }
-    mockApi.getTasks.mockResolvedValue([taskNoSkill])
+    mockApi.getTasks.mockResolvedValue(makePage([taskNoSkill]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     const el = await screen.findByTestId('run-skill-1', {}, { timeout: 3000 })
@@ -569,7 +590,7 @@ describe('TaskBoard', () => {
 
   it('runs task without manual skill selection when auto-resolution is available', async () => {
     const taskNoSkill = { ...PENDING_TASK, skill_name: null }
-    mockApi.getTasks.mockResolvedValue([taskNoSkill])
+    mockApi.getTasks.mockResolvedValue(makePage([taskNoSkill]))
     render(<MemoryRouter><TaskBoard /></MemoryRouter>)
 
     const runBtn = await screen.findByTestId('run-1', {}, { timeout: 3000 })

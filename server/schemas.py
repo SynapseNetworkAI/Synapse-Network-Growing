@@ -82,6 +82,15 @@ class TaskHistoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskPage(BaseModel):
+    items: list[TaskOut]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    status_counts: dict[str, int]
+
+
 class TaskBulkRetryRequest(BaseModel):
     task_ids: list[int]
     mode: str = "run_now"

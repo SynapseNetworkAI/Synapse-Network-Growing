@@ -1,10 +1,12 @@
 """Tasks API router."""
 import json
 import logging
+import math
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import Any, Optional, cast
 
@@ -14,6 +16,7 @@ from server.database import get_db, TaskRow, AgentRow, TaskLogRow, ApprovalRow, 
 from server.schemas import (
     TaskCreate,
     TaskOut,
+    TaskPage,
     TaskLogOut,
     TaskHistoryOut,
     TaskBulkRetryRequest,
@@ -236,7 +239,7 @@ def _load_full_persona(agent_id: str) -> dict:
     }
 
 
-@router.get("", response_model=list[TaskOut])
+@router.get("", response_model=TaskPage)
 def list_tasks(
     status: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
@@ -244,6 +247,9 @@ def list_tasks(
     project_id: Optional[str] = Query(None),
     requirement_id: Optional[int] = Query(None),
     only_anomalies: bool = Query(False),
+    search: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     q = db.query(TaskRow)
@@ -258,6 +264,14 @@ def list_tasks(
             if s.compatibility_task_id is not None
         ]
         q = q.filter(TaskRow.id.in_(task_ids or [-1]))
+    if search:
+        pattern = f"%{search}%"
+        q = q.filter(
+            or_(
+                TaskRow.description.ilike(pattern),
+                TaskRow.output_content.ilike(pattern),
+            )
+        )
     rows = q.order_by(TaskRow.created_at.desc(), TaskRow.id.desc()).all()
 
     if only_anomalies:
@@ -267,7 +281,25 @@ def list_tasks(
     if project_id:
         rows = [r for r in rows if _task_project_id(r) == project_id]
 
-    return [_task_to_out(r) for r in rows]
+    # Status counts across all filtered rows (not just current page)
+    status_counts: dict[str, int] = {}
+    for r in rows:
+        s = _as_text(r.status) or "pending"
+        status_counts[s] = status_counts.get(s, 0) + 1
+
+    total = len(rows)
+    total_pages = math.ceil(total / page_size) if total > 0 else 1
+    start = (page - 1) * page_size
+    page_rows = rows[start: start + page_size]
+
+    return TaskPage(
+        items=[_task_to_out(r) for r in page_rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        status_counts=status_counts,
+    )
 
 
 @router.get("/{task_id}", response_model=TaskOut)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges } from '../api'
+import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges, AgentsMemoryResult, agentsMemoryApi } from '../api'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
@@ -154,12 +154,13 @@ export default function TaskDetail() {
   const [history, setHistory] = useState<TaskHistoryItem[]>([])
   const [fileChanges, setFileChanges] = useState<TaskFileChanges | null>(null)
   const [selectedDiff, setSelectedDiff] = useState<FileChange | null>(null)
+  const [memoryResults, setMemoryResults] = useState<AgentsMemoryResult[]>([])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const logsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadTask = useCallback(async () => {
-    const tasks = await api.getTasks({})
-    const found = tasks.find((t) => t.id === taskId) || null
+    const pageData = await api.getTasks({ page: 1, page_size: 100 })
+    const found = pageData.items.find((t) => t.id === taskId) || null
     setTask(found)
   }, [taskId])
 
@@ -174,6 +175,15 @@ export default function TaskDetail() {
     api.getTaskHistory(taskId).then(setHistory).catch(() => {})
     api.getTaskFileChanges(taskId).then(setFileChanges).catch(() => {})
   }, [loadTask, loadLogs, taskId])
+
+  // Agents-Memory: search using task description once task is loaded
+  useEffect(() => {
+    if (!task?.description) return
+    const query = task.description.slice(0, 120)
+    agentsMemoryApi.search(query, 5)
+      .then((r) => setMemoryResults(r.results))
+      .catch(() => {})
+  }, [task?.description])
 
   // Poll task + logs while running
   useEffect(() => {
@@ -328,6 +338,47 @@ export default function TaskDetail() {
                   <span className="text-xs text-green-600 shrink-0">+{f.additions}</span>
                   <span className="text-xs text-red-500 shrink-0">-{f.deletions}</span>
                 </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Agents-Memory related records */}
+      {memoryResults.length > 0 && (
+        <div className="p-5 bg-white border shadow-sm rounded-xl" data-testid="memory-section">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-gray-500">🧠 相关工程记忆（Agents-Memory）</h3>
+            <a
+              href={`http://localhost:10000`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-indigo-600 hover:underline"
+            >
+              在 Agents-Memory 中搜索 →
+            </a>
+          </div>
+          <ul className="space-y-1.5">
+            {memoryResults.map((r) => (
+              <li key={`${r.type}-${r.id}`}>
+                <a
+                  href={agentsMemoryApi.linkFor(r)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`flex items-start gap-3 px-3 py-2.5 rounded-lg border-l-4 bg-gray-50 hover:bg-gray-100 transition ${r.type === 'error' ? 'border-red-400' : 'border-blue-400'}`}
+                >
+                  <span className={`mt-0.5 shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${r.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {r.type === 'error' ? 'ERR' : 'WIKI'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800 truncate">{r.title}</span>
+                      <span className="font-mono text-xs text-gray-400 shrink-0">{r.id}</span>
+                      <span className="text-xs text-gray-300 shrink-0">{(r.score * 100).toFixed(0)}%</span>
+                    </div>
+                    {r.snippet && <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{r.snippet}</p>}
+                  </div>
+                </a>
               </li>
             ))}
           </ul>

@@ -113,6 +113,42 @@ export interface TaskFileChanges {
   error?: string
 }
 
+export interface TaskPage {
+  items: Task[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+  status_counts: Record<string, number>
+}
+
+// Agents-Memory types
+export interface AgentsMemoryResult {
+  type: 'error' | 'wiki'
+  id: string
+  title: string
+  snippet: string
+  score: number
+}
+
+export interface AgentsMemorySearchResponse {
+  query: string
+  results: AgentsMemoryResult[]
+  total: number
+}
+
+const AGENTS_MEMORY_BASE = 'http://localhost:10100'
+
+export const agentsMemoryApi = {
+  search: (q: string, limit = 5): Promise<AgentsMemorySearchResponse> =>
+    fetch(`${AGENTS_MEMORY_BASE}/api/search?q=${encodeURIComponent(q)}&mode=hybrid&limit=${limit}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r))),
+  linkFor: (result: AgentsMemoryResult) =>
+    result.type === 'wiki'
+      ? `http://localhost:10000/wiki/${result.id}`
+      : `http://localhost:10000/errors/${result.id}`,
+}
+
 export interface TaskBulkRetryRequest {
   task_ids: number[]
   mode?: 'run_now' | 'edit_first'
@@ -271,7 +307,7 @@ export const api = {
   getOrgTree: () => request<OrgTree>('/org'),
 
   // Tasks
-  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean }) => {
+  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean; search?: string; page?: number; page_size?: number }) => {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.agent_id) qs.set('agent_id', params.agent_id)
@@ -279,8 +315,11 @@ export const api = {
     if (params?.project_id) qs.set('project_id', params.project_id)
     if (params?.requirement_id != null) qs.set('requirement_id', String(params.requirement_id))
     if (params?.only_anomalies) qs.set('only_anomalies', 'true')
+    if (params?.search) qs.set('search', params.search)
+    if (params?.page != null) qs.set('page', String(params.page))
+    if (params?.page_size != null) qs.set('page_size', String(params.page_size))
     const q = qs.toString()
-    return request<Task[]>(`/tasks${q ? '?' + q : ''}`)
+    return request<TaskPage>(`/tasks${q ? '?' + q : ''}`)
   },
   createTask: (data: { description: string; agent_id?: string; requires_approval?: boolean; priority?: string; skill_name?: string; confirm_auto_selection?: boolean }) =>
     request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
