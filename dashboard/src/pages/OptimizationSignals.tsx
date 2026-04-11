@@ -20,6 +20,7 @@ export default function OptimizationSignals() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [actioningId, setActioningId] = useState<number | null>(null)
+  const [autoIntaking, setAutoIntaking] = useState(false)
 
   const load = async (refresh = false) => {
     if (refresh) {
@@ -74,6 +75,25 @@ export default function OptimizationSignals() {
           >
             {refreshing ? '刷新中…' : '刷新信号'}
           </button>
+          <button
+            data-testid="optimization-signal-auto-intake"
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={autoIntaking}
+            onClick={async () => {
+              setAutoIntaking(true)
+              try {
+                const result = await api.autoIntakeOptimizationSignals({ max_created: 1 })
+                await load()
+                if (result.created[0]) {
+                  navigate(`/requirements/${result.created[0].requirement_id}`)
+                }
+              } finally {
+                setAutoIntaking(false)
+              }
+            }}
+          >
+            {autoIntaking ? '自动 intake 中…' : '自动转高价值信号'}
+          </button>
         </div>
       </div>
 
@@ -91,9 +111,12 @@ export default function OptimizationSignals() {
                   <span className={`rounded-full px-2 py-0.5 text-xs ${severityClass[signal.severity] || severityClass.low}`}>
                     {signal.severity}
                   </span>
+                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-700">
+                    score {Number(signal.score_breakdown?.total || 0).toFixed(1)}
+                  </span>
                 </div>
                 <div className="mt-1 text-xs text-gray-500">
-                  {signal.signal_type} · {signal.source_kind} · status={signal.status}
+                  {signal.signal_type} · {signal.source_kind} · status={signal.status} · {signal.intake_recommendation || 'observe'}
                 </div>
               </div>
               <div className="text-right text-xs text-gray-500">
@@ -108,6 +131,11 @@ export default function OptimizationSignals() {
               <div>项目: {signal.project_key || 'org-ops'}</div>
               <div>路径: {signal.routing_target_path || signal.project_root_path || '-'}</div>
               <div>最近证据: {formatTime(signal.latest_evidence_at)}</div>
+              <div>推荐优先级: {signal.recommended_priority || '-'}</div>
+              <div>Impact: {signal.score_breakdown?.impact ?? '-'}</div>
+              <div>Risk: {signal.score_breakdown?.risk ?? '-'}</div>
+              <div>Urgency: {signal.score_breakdown?.urgency ?? '-'}</div>
+              <div>实现成本: {signal.score_breakdown?.implementation_cost ?? '-'}</div>
               <div>已转需求: {signal.converted_requirement_id || '-'}</div>
             </div>
 
@@ -138,7 +166,7 @@ export default function OptimizationSignals() {
                   }
                 }}
               >
-                {signal.converted_requirement_id ? '已转需求' : '转为需求'}
+                {signal.converted_requirement_id ? '已转需求' : (signal.auto_intake_eligible ? '立即 intake' : '转为需求')}
               </button>
               <button
                 data-testid={`optimization-signal-dismiss-${signal.id}`}

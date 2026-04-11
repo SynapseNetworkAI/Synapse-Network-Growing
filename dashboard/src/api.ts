@@ -241,8 +241,22 @@ export interface OptimizationSignal {
   occurrence_count: number
   latest_evidence_at: string | null
   converted_requirement_id: number | null
+  score_breakdown?: Record<string, number | string | boolean | null>
+  recommended_priority?: string
+  auto_intake_eligible?: boolean
+  intake_recommendation?: string
   created_at: string | null
   updated_at: string | null
+}
+
+export interface OptimizationSignalAutoIntakeResult {
+  created: Array<{
+    signal_id: number
+    requirement_id: number
+    title: string
+    score: number
+  }>
+  skipped: string[]
 }
 
 export interface Requirement {
@@ -281,6 +295,7 @@ export interface ProjectScorecard {
   total_requirement_count: number
   bug_report_count: number
   blocked_publish_count: number
+  manual_override_count?: number
   validation_pass_rate: number
   automation_coverage: number
   notes: string | null
@@ -308,6 +323,12 @@ export interface RequirementScoreBreakdown {
   readiness_adjustment: number
   bug_pressure: number
   delivery_pressure: number
+  manual_escalation_pressure?: number
+  signal_impact?: number
+  signal_risk?: number
+  signal_confidence?: number
+  signal_urgency?: number
+  implementation_cost_adjustment?: number
   automation_gap: number
 }
 
@@ -533,6 +554,8 @@ export const api = {
     return request<OptimizationSignal[]>(`/optimization-signals${q}`)
   },
   refreshOptimizationSignals: () => request<OptimizationSignal[]>('/optimization-signals/refresh', { method: 'POST' }),
+  autoIntakeOptimizationSignals: (data?: { min_score?: number; max_created?: number; auto_start?: boolean }) =>
+    request<OptimizationSignalAutoIntakeResult>('/optimization-signals/auto-intake', { method: 'POST', body: JSON.stringify(data || {}) }),
   dismissOptimizationSignal: (id: number) => request<OptimizationSignal>(`/optimization-signals/${id}/dismiss`, { method: 'POST' }),
   createRequirementFromSignal: (id: number, data?: { title?: string; auto_start?: boolean }) =>
     request<RequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),

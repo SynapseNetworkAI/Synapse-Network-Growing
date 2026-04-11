@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from server.database import ApprovalRow, ArtifactRow, RequirementRow, TaskRow
 
@@ -126,3 +127,119 @@ def test_create_requirement_from_optimization_signal_marks_signal_converted(sync
     converted = next(item for item in list_resp.json() if item["id"] == signal["id"])
     assert converted["status"] == "converted"
     assert converted["converted_requirement_id"] == detail["requirement"]["id"]
+
+
+def test_auto_intake_picks_highest_scored_signal(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    blocker_requirement = RequirementRow(
+        title="Gateway publish blocker",
+        description_markdown="Blocked by release policy.",
+        status="done",
+        priority="high",
+        source="manual",
+        target_project_path=target_path,
+        current_plan_version=1,
+    )
+    manual_requirement = RequirementRow(
+        title="Need manual approvals",
+        description_markdown="Manual override pressure exists.",
+        status="done",
+        priority="normal",
+        source="manual",
+        target_project_path=target_path,
+        current_plan_version=1,
+    )
+    db_session.add_all([blocker_requirement, manual_requirement])
+    db_session.flush()
+    db_session.add(
+        ArtifactRow(
+            requirement_id=blocker_requirement.id,
+            artifact_type="delivery_state",
+            content_summary="Blocked publish",
+            machine_readable_payload=json.dumps({
+                "publish_status": "blocked",
+                "publish_blockers": ["publish disabled by project policy"],
+            }),
+        )
+    )
+    task = TaskRow(
+        description="Needs manual approval",
+        agent_id="growth_lead",
+        status="pending_approval",
+        requires_approval=True,
+        priority="normal",
+        project_id=target_path,
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(ApprovalRow(task_id=task.id, status="pending"))
+    db_session.commit()
+
+    refresh_resp = synced_client.post("/api/optimization-signals/refresh")
+    assert refresh_resp.status_code == 200
+    signals = refresh_resp.json()
+    delivery_signal = next(item for item in signals if item["signal_type"] == "delivery_blocker")
+    manual_signal = next(item for item in signals if item["signal_type"] == "manual_override")
+    assert delivery_signal["score_breakdown"]["total"] > manual_signal["score_breakdown"]["total"]
+    assert delivery_signal["auto_intake_eligible"] is True
+
+    intake_resp = synced_client.post("/api/optimization-signals/auto-intake", json={"max_created": 1})
+    assert intake_resp.status_code == 200
+    payload = intake_resp.json()
+    assert len(payload["created"]) == 1
+    assert payload["created"][0]["signal_id"] == delivery_signal["id"]
+
+    requirements_resp = synced_client.get("/api/requirements?sort=score")
+    created_requirement = next(
+        item for item in requirements_resp.json()
+        if item["source_ref"] == f"optimization-signal:{delivery_signal['id']}"
+    )
+    assert requirements_resp.json()[0]["id"] == created_requirement["id"]
+    assert created_requirement["priority"] == "high"
+    assert created_requirement["score_breakdown"]["signal_impact"] > 0
+    assert created_requirement["score_breakdown"]["signal_risk"] > 0
+
+
+def test_queue_advance_auto_intakes_best_signal_when_no_ready_requirements(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network-Sdk"
+    requirement = RequirementRow(
+        title="SDK delivery blocker",
+        description_markdown="Blocked publish",
+        status="done",
+        priority="high",
+        source="manual",
+        target_project_path=target_path,
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement.id,
+            artifact_type="delivery_state",
+            content_summary="Blocked publish",
+            machine_readable_payload=json.dumps({
+                "publish_status": "blocked",
+                "publish_blockers": ["required check pending: npm run build"],
+            }),
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflow_orchestrator.plan_requirement") as mock_plan, patch(
+        "server.services.workflow_orchestrator.start_requirement"
+    ) as mock_start:
+        resp = synced_client.post("/api/requirements/queue/advance")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "started" in payload
+    started_requirement_id = payload["started"]
+    created_requirement = db_session.query(RequirementRow).filter(RequirementRow.id == started_requirement_id).first()
+    assert created_requirement is not None
+    assert created_requirement.source == "optimization_signal"
+    assert created_requirement.source_ref is not None
+    assert mock_plan.call_count == 1
+    assert mock_plan.call_args[0][1] == started_requirement_id
+    assert mock_start.call_count == 1
+    assert mock_start.call_args[0][1] == started_requirement_id

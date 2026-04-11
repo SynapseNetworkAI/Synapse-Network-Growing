@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, ProjectOnboardingRow, RequirementRow
+from server.database import ApprovalRequestRow, ApprovalRow, ArtifactRow, ProjectOnboardingRow, RequirementRow, TaskRow
 from server.services.project_onboarding import project_onboarding_to_dict
 from server.services.project_policy import list_project_policies, project_policy_to_dict, resolve_project_policies_for_target
 
@@ -193,6 +193,7 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
     planned_requirements = defaultdict(int)
     bugged_requirements = defaultdict(set)
     blocked_delivery = defaultdict(int)
+    manual_overrides = defaultdict(int)
 
     requirement_by_id = {int(row.id): row for row in requirements}
     requirement_roots: dict[int, list[str]] = {
@@ -226,6 +227,29 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
         for root in requirement_roots.get(requirement_id, []):
             blocked_delivery[root] += 1
 
+    for approval_request in db.query(ApprovalRequestRow).all():
+        requirement = requirement_by_id.get(int(approval_request.requirement_id or 0))
+        if requirement is None or str(requirement.status) == "deleted":
+            continue
+        for root in requirement_roots.get(int(requirement.id), []):
+            manual_overrides[root] += 1
+
+    tasks_by_id = {int(row.id): row for row in db.query(TaskRow).all()}
+    for approval in db.query(ApprovalRow).all():
+        task = tasks_by_id.get(int(approval.task_id))
+        if task is None:
+            continue
+        roots: set[str] = set()
+        if str(task.project_id or "").strip():
+            roots.add(str(task.project_id))
+        for step in task.workflow_steps:
+            requirement = requirement_by_id.get(int(step.requirement_id))
+            if requirement is None or str(requirement.status) == "deleted":
+                continue
+            roots.update(requirement_roots.get(int(requirement.id), []))
+        for root in roots:
+            manual_overrides[root] += 1
+
     catalog: dict[str, dict[str, Any]] = {}
     for policy in policies:
         root = str(policy["root_path"])
@@ -254,6 +278,7 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
             "total_requirement_count": total,
             "bug_report_count": bug_count,
             "blocked_publish_count": blocked_delivery[root],
+            "manual_override_count": manual_overrides[root],
             "validation_pass_rate": validation_pass_rate,
             "automation_coverage": automation_coverage,
             "notes": notes,
@@ -472,18 +497,36 @@ def build_requirement_score_breakdown(db: Session, requirement: RequirementRow) 
         readiness_adjustment = round((avg_readiness - 50.0) / 5.0, 2)
         bug_pressure = float(min(sum(int(item.get("bug_report_count") or 0) for item in project_scorecards) * 6, 18))
         delivery_pressure = float(min(sum(int(item.get("blocked_publish_count") or 0) for item in project_scorecards) * 5, 15))
+        manual_escalation_pressure = float(min(sum(int(item.get("manual_override_count") or 0) for item in project_scorecards) * 4, 12))
         avg_automation_coverage = sum(float(item.get("automation_coverage") or 0.0) for item in project_scorecards) / len(project_scorecards)
         automation_gap = round(max(0.0, 0.7 - avg_automation_coverage) * 10.0, 2)
     else:
         readiness_adjustment = 0.0
         bug_pressure = 0.0
         delivery_pressure = 0.0
+        manual_escalation_pressure = 0.0
         automation_gap = 0.0
 
     if str(routing.get("readiness_status") or "") == "needs_setup":
         readiness_adjustment -= 10.0
     elif str(routing.get("readiness_status") or "") == "mixed":
         readiness_adjustment -= 5.0
+
+    signal_impact = 0.0
+    signal_risk = 0.0
+    signal_confidence = 0.0
+    signal_urgency = 0.0
+    implementation_cost_adjustment = 0.0
+    source_ref = str(getattr(requirement, "source_ref", "") or "")
+    if str(getattr(requirement, "source", "")) == "optimization_signal" and source_ref.startswith("optimization-signal:"):
+        from server.services.optimization_signals import get_optimization_signal_requirement_context
+
+        signal_context = get_optimization_signal_requirement_context(db, source_ref)
+        signal_impact = float(signal_context.get("impact") or 0.0)
+        signal_risk = float(signal_context.get("risk") or 0.0)
+        signal_confidence = float(signal_context.get("confidence_component") or 0.0)
+        signal_urgency = float(signal_context.get("urgency") or 0.0)
+        implementation_cost_adjustment = float(signal_context.get("implementation_cost_adjustment") or 0.0)
 
     total = round(
         priority
@@ -493,6 +536,12 @@ def build_requirement_score_breakdown(db: Session, requirement: RequirementRow) 
         + readiness_adjustment
         + bug_pressure
         + delivery_pressure
+        + manual_escalation_pressure
+        + signal_impact
+        + signal_risk
+        + signal_confidence
+        + signal_urgency
+        + implementation_cost_adjustment
         + automation_gap,
         2,
     )
@@ -505,6 +554,12 @@ def build_requirement_score_breakdown(db: Session, requirement: RequirementRow) 
         "readiness_adjustment": round(readiness_adjustment, 2),
         "bug_pressure": round(bug_pressure, 2),
         "delivery_pressure": round(delivery_pressure, 2),
+        "manual_escalation_pressure": round(manual_escalation_pressure, 2),
+        "signal_impact": round(signal_impact, 2),
+        "signal_risk": round(signal_risk, 2),
+        "signal_confidence": round(signal_confidence, 2),
+        "signal_urgency": round(signal_urgency, 2),
+        "implementation_cost_adjustment": round(implementation_cost_adjustment, 2),
         "automation_gap": round(automation_gap, 2),
         "routing_context": routing,
     }

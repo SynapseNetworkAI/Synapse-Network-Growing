@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -16,7 +15,6 @@ from server.database import (
     OptimizationSignalRow,
     RequirementRow,
     TaskRow,
-    WorkflowStepRow,
 )
 from server.schemas import RequirementCreate
 from server.services.project_intelligence import build_project_catalog
@@ -108,6 +106,124 @@ def _task_project_context(task: TaskRow, project_map: dict[str, dict[str, Any]],
 
 def _signal_title(prefix: str, display_name: str, suffix: str) -> str:
     return f"{prefix}: {display_name} {suffix}".strip()
+
+
+_SIGNAL_IMPACT_BASE = {
+    "delivery_blocker": 26.0,
+    "bug_report": 24.0,
+    "manual_override": 18.0,
+}
+_SIGNAL_RISK_BASE = {
+    "delivery_blocker": 10.0,
+    "bug_report": 8.0,
+    "manual_override": 5.0,
+}
+_SIGNAL_COST = {
+    "delivery_blocker": 6.0,
+    "bug_report": 9.0,
+    "manual_override": 12.0,
+}
+_SEVERITY_RISK = {"high": 20.0, "medium": 12.0, "low": 6.0}
+
+
+def _signal_score_metadata(total: float, *, automation_ready: bool, status: str, confidence: float) -> dict[str, Any]:
+    auto_intake_eligible = (
+        status == "open"
+        and automation_ready
+        and confidence >= 0.72
+        and total >= 60.0
+    )
+    if auto_intake_eligible:
+        intake_recommendation = "auto_create"
+    elif not automation_ready:
+        intake_recommendation = "needs_setup"
+    elif total >= 45.0:
+        intake_recommendation = "review"
+    else:
+        intake_recommendation = "observe"
+
+    if total >= 72.0:
+        recommended_priority = "high"
+    elif total >= 45.0:
+        recommended_priority = "normal"
+    else:
+        recommended_priority = "low"
+
+    return {
+        "auto_intake_eligible": auto_intake_eligible,
+        "intake_recommendation": intake_recommendation,
+        "recommended_priority": recommended_priority,
+    }
+
+
+def build_optimization_signal_score_breakdown(
+    row: OptimizationSignalRow,
+    *,
+    project_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    project = dict((project_map or {}).get(str(row.routing_target_path or row.project_root_path or "")) or {})
+    automation_ready = bool(project.get("automation_ready")) if project else row.routing_target_path is None
+    readiness_score = int(project.get("readiness_score") or 0)
+    bug_count = int(project.get("bug_report_count") or 0)
+    blocked_publish_count = int(project.get("blocked_publish_count") or 0)
+    manual_override_count = int(project.get("manual_override_count") or 0)
+    automation_coverage = float(project.get("automation_coverage") or 0.0)
+
+    occurrence_count = int(row.occurrence_count or 0)
+    impact = min(
+        _SIGNAL_IMPACT_BASE.get(str(row.signal_type), 16.0)
+        + min(occurrence_count * 4.0, 18.0)
+        + min(bug_count * 2.0 + blocked_publish_count * 3.0 + manual_override_count * 2.0, 12.0),
+        48.0,
+    )
+    risk = min(
+        _SEVERITY_RISK.get(str(row.severity), 10.0)
+        + _SIGNAL_RISK_BASE.get(str(row.signal_type), 4.0)
+        + (6.0 if readiness_score < 60 else 0.0),
+        32.0,
+    )
+    confidence_component = round(min(float(row.confidence or 0.0) * 18.0, 18.0), 2)
+
+    latest = row.latest_evidence_at or row.updated_at or row.created_at or datetime.now(timezone.utc)
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    age_days = max((datetime.now(timezone.utc) - latest).total_seconds() / 86400, 0.0)
+    urgency = round(
+        max(4.0, 18.0 - min(age_days * 2.2, 12.0))
+        + min(occurrence_count * 1.2, 6.0)
+        + (4.0 if str(row.signal_type) == "delivery_blocker" else 0.0),
+        2,
+    )
+    implementation_cost = round(
+        _SIGNAL_COST.get(str(row.signal_type), 10.0)
+        + (5.0 if not automation_ready else 0.0)
+        + max(0.0, 0.65 - automation_coverage) * 6.0,
+        2,
+    )
+    implementation_cost_adjustment = round(-implementation_cost, 2)
+    total = round(impact + risk + confidence_component + urgency + implementation_cost_adjustment, 2)
+
+    metadata = _signal_score_metadata(
+        total,
+        automation_ready=automation_ready,
+        status=str(row.status),
+        confidence=float(row.confidence or 0.0),
+    )
+    return {
+        "total": total,
+        "impact": round(impact, 2),
+        "risk": round(risk, 2),
+        "confidence_component": confidence_component,
+        "urgency": urgency,
+        "implementation_cost": implementation_cost,
+        "implementation_cost_adjustment": implementation_cost_adjustment,
+        "automation_ready": automation_ready,
+        "readiness_score": readiness_score,
+        "bug_pressure": bug_count,
+        "delivery_pressure": blocked_publish_count,
+        "manual_override_pressure": manual_override_count,
+        **metadata,
+    }
 
 
 def _summarize_bug_signals(db: Session, project_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -350,7 +466,49 @@ def _upsert_signal(db: Session, payload: dict[str, Any]) -> OptimizationSignalRo
     return row
 
 
-def optimization_signal_to_dict(row: OptimizationSignalRow) -> dict[str, Any]:
+def _signal_id_from_source_ref(source_ref: str | None) -> int | None:
+    raw = str(source_ref or "").strip()
+    if not raw.startswith("optimization-signal:"):
+        return None
+    signal_id = raw.split(":", 1)[-1].strip()
+    return int(signal_id) if signal_id.isdigit() else None
+
+
+def get_optimization_signal_requirement_context(db: Session, source_ref: str | None) -> dict[str, float]:
+    signal_id = _signal_id_from_source_ref(source_ref)
+    if signal_id is None:
+        return {
+            "impact": 0.0,
+            "risk": 0.0,
+            "confidence_component": 0.0,
+            "urgency": 0.0,
+            "implementation_cost_adjustment": 0.0,
+        }
+    row = db.query(OptimizationSignalRow).filter(OptimizationSignalRow.id == signal_id).first()
+    if row is None:
+        return {
+            "impact": 0.0,
+            "risk": 0.0,
+            "confidence_component": 0.0,
+            "urgency": 0.0,
+            "implementation_cost_adjustment": 0.0,
+        }
+    breakdown = build_optimization_signal_score_breakdown(row, project_map=_project_map(db))
+    return {
+        "impact": round(float(breakdown.get("impact") or 0.0) * 0.35, 2),
+        "risk": round(float(breakdown.get("risk") or 0.0) * 0.3, 2),
+        "confidence_component": round(float(breakdown.get("confidence_component") or 0.0) * 0.4, 2),
+        "urgency": round(float(breakdown.get("urgency") or 0.0) * 0.35, 2),
+        "implementation_cost_adjustment": round(float(breakdown.get("implementation_cost_adjustment") or 0.0) * 0.35, 2),
+    }
+
+
+def optimization_signal_to_dict(
+    row: OptimizationSignalRow,
+    *,
+    project_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    score_breakdown = build_optimization_signal_score_breakdown(row, project_map=project_map)
     return {
         "id": int(row.id),
         "dedupe_key": str(row.dedupe_key),
@@ -368,6 +526,10 @@ def optimization_signal_to_dict(row: OptimizationSignalRow) -> dict[str, Any]:
         "occurrence_count": int(row.occurrence_count or 0),
         "latest_evidence_at": row.latest_evidence_at,
         "converted_requirement_id": int(row.converted_requirement_id) if row.converted_requirement_id is not None else None,
+        "score_breakdown": score_breakdown,
+        "recommended_priority": str(score_breakdown.get("recommended_priority") or "normal"),
+        "auto_intake_eligible": bool(score_breakdown.get("auto_intake_eligible")),
+        "intake_recommendation": str(score_breakdown.get("intake_recommendation") or "observe"),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -396,11 +558,16 @@ def list_optimization_signals(db: Session, *, status: str | None = None) -> list
     query = db.query(OptimizationSignalRow)
     if status:
         query = query.filter(OptimizationSignalRow.status == status)
-    return query.order_by(
-        OptimizationSignalRow.latest_evidence_at.desc().nullslast(),
-        OptimizationSignalRow.updated_at.desc(),
-        OptimizationSignalRow.id.desc(),
-    ).all()
+    rows = query.all()
+    project_map = _project_map(db)
+    rows.sort(
+        key=lambda row: (
+            -float(build_optimization_signal_score_breakdown(row, project_map=project_map).get("total") or 0.0),
+            -(row.latest_evidence_at.timestamp() if row.latest_evidence_at else 0.0),
+            -(int(row.id) or 0),
+        )
+    )
+    return rows
 
 
 def dismiss_optimization_signal(db: Session, signal_id: int) -> OptimizationSignalRow:
@@ -426,7 +593,8 @@ def create_requirement_from_signal(
     if row.converted_requirement_id is not None:
         raise ValueError("Optimization signal already converted to a requirement")
 
-    priority = "high" if row.severity == "high" else ("normal" if row.severity == "medium" else "low")
+    score_breakdown = build_optimization_signal_score_breakdown(row, project_map=_project_map(db))
+    priority = str(score_breakdown.get("recommended_priority") or "normal")
     evidence = _json_loads(row.evidence_json, [])
     body = RequirementCreate(
         title=(title or row.title).strip(),
@@ -436,6 +604,12 @@ def create_requirement_from_signal(
             f"- Severity: `{row.severity}`\n"
             f"- Confidence: `{row.confidence}`\n"
             f"- Occurrences: `{row.occurrence_count}`\n\n"
+            f"## Score Breakdown\n\n"
+            f"- Total score: `{score_breakdown.get('total')}`\n"
+            f"- Impact: `{score_breakdown.get('impact')}`\n"
+            f"- Risk: `{score_breakdown.get('risk')}`\n"
+            f"- Urgency: `{score_breakdown.get('urgency')}`\n"
+            f"- Implementation cost: `{score_breakdown.get('implementation_cost')}`\n\n"
             f"## Evidence\n\n```json\n{json.dumps(evidence[:8], ensure_ascii=False, indent=2)}\n```"
         ),
         priority=priority,
@@ -450,3 +624,56 @@ def create_requirement_from_signal(
     db.commit()
     db.refresh(row)
     return row, detail
+
+
+def auto_intake_optimization_signals(
+    db: Session,
+    *,
+    min_score: float = 60.0,
+    max_created: int = 1,
+    auto_start: bool = False,
+    compare_with_requirement_score: float | None = None,
+) -> dict[str, Any]:
+    refresh_optimization_signals(db)
+    rows = list_optimization_signals(db, status="open")
+    project_map = _project_map(db)
+    created: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    limit = max(1, min(int(max_created or 1), 5))
+
+    for row in rows:
+        breakdown = build_optimization_signal_score_breakdown(row, project_map=project_map)
+        total = float(breakdown.get("total") or 0.0)
+        if compare_with_requirement_score is not None and total < compare_with_requirement_score + 8.0:
+            skipped.append(f"signal #{row.id} below current requirement baseline")
+            continue
+        if total < min_score:
+            skipped.append(f"signal #{row.id} score {round(total, 2)} below min_score {round(min_score, 2)}")
+            continue
+        if not bool(breakdown.get("auto_intake_eligible")):
+            skipped.append(f"signal #{row.id} not auto-intake eligible")
+            continue
+        try:
+            updated_signal, detail = create_requirement_from_signal(
+                db,
+                signal_id=int(row.id),
+                auto_start=auto_start,
+            )
+        except ValueError as exc:
+            skipped.append(f"signal #{row.id}: {exc}")
+            continue
+        created.append(
+            {
+                "signal_id": int(updated_signal.id),
+                "requirement_id": int(detail.requirement.id),
+                "title": str(detail.requirement.title),
+                "score": round(total, 2),
+            }
+        )
+        if len(created) >= limit:
+            break
+
+    return {
+        "created": created,
+        "skipped": skipped,
+    }

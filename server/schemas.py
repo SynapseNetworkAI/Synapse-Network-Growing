@@ -290,6 +290,10 @@ class OptimizationSignalOut(BaseModel):
     occurrence_count: int = 0
     latest_evidence_at: Optional[datetime] = None
     converted_requirement_id: Optional[int] = None
+    score_breakdown: dict[str, float | bool | str | None] = {}
+    recommended_priority: str = "normal"
+    auto_intake_eligible: bool = False
+    intake_recommendation: str = "observe"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -297,6 +301,24 @@ class OptimizationSignalOut(BaseModel):
 class OptimizationSignalCreateRequirementRequest(BaseModel):
     title: Optional[str] = None
     auto_start: bool = False
+
+
+class OptimizationSignalAutoIntakeRequest(BaseModel):
+    min_score: float = 60.0
+    max_created: int = 1
+    auto_start: bool = False
+
+
+class OptimizationSignalAutoIntakeItemOut(BaseModel):
+    signal_id: int
+    requirement_id: int
+    title: str
+    score: float
+
+
+class OptimizationSignalAutoIntakeResultOut(BaseModel):
+    created: list[OptimizationSignalAutoIntakeItemOut] = []
+    skipped: list[str] = []
 
 
 # ── Requirements / Workflow ─────────────────────────────────
@@ -419,6 +441,7 @@ class ProjectScorecardOut(BaseModel):
     total_requirement_count: int = 0
     bug_report_count: int = 0
     blocked_publish_count: int = 0
+    manual_override_count: int = 0
     validation_pass_rate: float = 0.0
     automation_coverage: float = 0.0
     notes: Optional[str] = None
@@ -446,6 +469,12 @@ class RequirementScoreBreakdownOut(BaseModel):
     readiness_adjustment: float = 0.0
     bug_pressure: float = 0.0
     delivery_pressure: float = 0.0
+    manual_escalation_pressure: float = 0.0
+    signal_impact: float = 0.0
+    signal_risk: float = 0.0
+    signal_confidence: float = 0.0
+    signal_urgency: float = 0.0
+    implementation_cost_adjustment: float = 0.0
     automation_gap: float = 0.0
 
 

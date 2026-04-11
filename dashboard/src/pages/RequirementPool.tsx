@@ -501,6 +501,17 @@ export default function RequirementPool() {
                     </div>
                   )}
                   <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                    <span>bug: {requirement.score_breakdown?.bug_pressure ?? 0}</span>
+                    <span>delivery: {requirement.score_breakdown?.delivery_pressure ?? 0}</span>
+                    <span>manual: {requirement.score_breakdown?.manual_escalation_pressure ?? 0}</span>
+                    {Number(requirement.score_breakdown?.signal_impact ?? 0) > 0 && (
+                      <span>signal impact: {requirement.score_breakdown?.signal_impact ?? 0}</span>
+                    )}
+                    {Number(requirement.score_breakdown?.signal_urgency ?? 0) > 0 && (
+                      <span>signal urgency: {requirement.score_breakdown?.signal_urgency ?? 0}</span>
+                    )}
+                  </div>
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
                     <span>优先级: {requirement.priority}</span>
                     <span>阻塞: {requirement.blocked_by_count}</span>

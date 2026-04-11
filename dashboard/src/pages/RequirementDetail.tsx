@@ -45,12 +45,6 @@ function Md({ children }: Readonly<{ children: string }>) {
   )
 }
 
-function formatTime(value: string | null) {
-  if (!value) return '-'
-  const d = new Date(value.endsWith('Z') ? value : value + 'Z')
-  return d.toLocaleString('zh-CN')
-}
-
 function getTargetProjectPaths(value: string | null) {
   if (!value) return []
   return value.split('\n').map((item) => item.trim()).filter(Boolean)

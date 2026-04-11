@@ -1593,9 +1593,6 @@ def advance_requirement_queue(db: Session) -> dict:
         RequirementRow.active_workflow_run_id.is_(None),
     ).all()
 
-    if not candidates:
-        return {"skipped": "no ready requirements"}
-
     scored_candidates: list[tuple[RequirementRow, dict[str, Any]]] = []
     skipped_not_ready: list[str] = []
     for candidate in candidates:
@@ -1608,10 +1605,35 @@ def advance_requirement_queue(db: Session) -> dict:
             continue
         scored_candidates.append((candidate, score))
 
+    best_requirement_score = max(
+        (float(item[1].get("total") or 0.0) for item in scored_candidates),
+        default=None,
+    )
+
+    from server.services.optimization_signals import auto_intake_optimization_signals
+
     if not scored_candidates:
+        auto_intake_result = auto_intake_optimization_signals(
+            db,
+            min_score=60.0,
+            max_created=1,
+            auto_start=False,
+        )
+        if auto_intake_result.get("created"):
+            return advance_requirement_queue(db)
         if skipped_not_ready:
             return {"skipped": "no automation-ready requirements: " + ", ".join(skipped_not_ready)}
         return {"skipped": "no ready requirements"}
+
+    auto_intake_result = auto_intake_optimization_signals(
+        db,
+        min_score=65.0,
+        max_created=1,
+        auto_start=False,
+        compare_with_requirement_score=best_requirement_score,
+    )
+    if auto_intake_result.get("created"):
+        return advance_requirement_queue(db)
 
     scored_candidates.sort(key=lambda item: float(item[1].get("total") or 0.0), reverse=True)
     next_req = scored_candidates[0][0]
