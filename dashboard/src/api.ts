@@ -193,8 +193,12 @@ export interface ProjectPolicy {
   required_checks: string[]
   release_mode: string
   requires_manual_approval: boolean
+  autonomy_mode: string
+  allow_rebalance: boolean
+  allow_preemption: boolean
   scheduler_weight: number
   max_parallel_requirements: number
+  portfolio_budget_points: number
   notes: string | null
   created_at: string | null
   updated_at: string | null
@@ -268,7 +272,13 @@ export interface SchedulerProjectState {
   active_count: number
   queued_count: number
   max_parallel_requirements: number
+  autonomy_mode: string
+  allow_rebalance: boolean
+  allow_preemption: boolean
   scheduler_weight: number
+  portfolio_budget_points: number
+  budget_used: number
+  budget_remaining: number
   readiness_status: string
   readiness_score: number
 }
@@ -284,12 +294,15 @@ export interface SchedulerDecision {
   score: number
   base_score: number
   scheduler_weight: number
+  autonomy_mode: string
+  budget_cost: number
   project_slot_available: boolean
   reason: string
   reasons: string[]
   template_key?: string | null
   source?: string | null
   preempt_requirement_id?: number | null
+  approval_required: boolean
 }
 
 export interface SchedulerPlan {
@@ -301,6 +314,8 @@ export interface SchedulerPlan {
   decisions: SchedulerDecision[]
   started_ids: number[]
   created_requirement_ids: number[]
+  preempted_ids: number[]
+  rebalanced_ids: number[]
   skipped: string[]
 }
 
@@ -584,8 +599,12 @@ export const api = {
     required_checks?: string[]
     release_mode?: string
     requires_manual_approval?: boolean
+    autonomy_mode?: string
+    allow_rebalance?: boolean
+    allow_preemption?: boolean
     scheduler_weight?: number
     max_parallel_requirements?: number
+    portfolio_budget_points?: number
     notes?: string | null
   }) => request<ProjectPolicy>('/project-policies', { method: 'POST', body: JSON.stringify(data) }),
   updateProjectPolicy: (id: number, data: {
@@ -597,8 +616,12 @@ export const api = {
     required_checks?: string[]
     release_mode?: string
     requires_manual_approval?: boolean
+    autonomy_mode?: string
+    allow_rebalance?: boolean
+    allow_preemption?: boolean
     scheduler_weight?: number
     max_parallel_requirements?: number
+    portfolio_budget_points?: number
     notes?: string | null
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getOptimizationSignals: (status?: string, refresh?: boolean) => {
@@ -624,6 +647,7 @@ export const api = {
     return request<Requirement[]>(`/requirements${q}`)
   },
   getRequirementScheduler: () => request<SchedulerPlan>('/requirements/scheduler'),
+  rebalanceRequirementScheduler: () => request<SchedulerPlan>('/requirements/scheduler/rebalance', { method: 'POST' }),
   getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),
   createRequirement: (data: {
     title: string

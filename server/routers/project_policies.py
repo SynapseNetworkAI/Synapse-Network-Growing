@@ -36,6 +36,8 @@ def create_project_policy_endpoint(body: ProjectPolicyCreate, db: Session = Depe
         raise HTTPException(status_code=400, detail="status must be active|disabled")
     if body.release_mode not in {"disabled", "manual", "auto"}:
         raise HTTPException(status_code=400, detail="release_mode must be disabled|manual|auto")
+    if body.autonomy_mode not in {"observe", "recommend", "execute_with_approval", "execute_autonomously"}:
+        raise HTTPException(status_code=400, detail="autonomy_mode must be observe|recommend|execute_with_approval|execute_autonomously")
     if not body.project_key.strip() or not body.display_name.strip() or not body.root_path.strip():
         raise HTTPException(status_code=400, detail="project_key, display_name, and root_path are required")
     try:
@@ -50,8 +52,12 @@ def create_project_policy_endpoint(body: ProjectPolicyCreate, db: Session = Depe
             required_checks=body.required_checks,
             release_mode=body.release_mode,
             requires_manual_approval=body.requires_manual_approval,
+            autonomy_mode=body.autonomy_mode,
+            allow_rebalance=body.allow_rebalance,
+            allow_preemption=body.allow_preemption,
             scheduler_weight=body.scheduler_weight,
             max_parallel_requirements=body.max_parallel_requirements,
+            portfolio_budget_points=body.portfolio_budget_points,
             notes=body.notes,
         )
     except ValueError as exc:
@@ -68,6 +74,8 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
         raise HTTPException(status_code=400, detail="status must be active|disabled")
     if body.release_mode is not None and body.release_mode not in {"disabled", "manual", "auto"}:
         raise HTTPException(status_code=400, detail="release_mode must be disabled|manual|auto")
+    if body.autonomy_mode is not None and body.autonomy_mode not in {"observe", "recommend", "execute_with_approval", "execute_autonomously"}:
+        raise HTTPException(status_code=400, detail="autonomy_mode must be observe|recommend|execute_with_approval|execute_autonomously")
     try:
         updated = update_project_policy(
             db,
@@ -80,8 +88,12 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
             required_checks=body.required_checks,
             release_mode=body.release_mode,
             requires_manual_approval=body.requires_manual_approval,
+            autonomy_mode=body.autonomy_mode,
+            allow_rebalance=body.allow_rebalance,
+            allow_preemption=body.allow_preemption,
             scheduler_weight=body.scheduler_weight,
             max_parallel_requirements=body.max_parallel_requirements,
+            portfolio_budget_points=body.portfolio_budget_points,
             notes=body.notes,
         )
     except ValueError as exc:

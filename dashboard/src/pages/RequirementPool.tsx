@@ -442,28 +442,47 @@ export default function RequirementPool() {
                   <div className="mt-2 text-xs text-amber-300">最近一次队列推进: {queueMessage}</div>
                 )}
               </div>
-              <button
-                data-testid="scheduler-advance-btn"
-                className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
-                onClick={() => {
-                  api.advanceQueue()
-                    .then((result) => {
-                      setQueueMessage(queueSkipMessage(result.skipped))
-                      return loadPool()
-                    })
-                    .catch(() => {})
-                }}
-              >
-                运行调度器
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  data-testid="scheduler-rebalance-btn"
+                  className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-medium text-rose-100 hover:bg-rose-950/50"
+                  onClick={() => {
+                    api.rebalanceRequirementScheduler()
+                      .then((result) => {
+                        setQueueMessage(queueSkipMessage(result.skipped))
+                        return loadPool()
+                      })
+                      .catch(() => {})
+                  }}
+                >
+                  执行再平衡
+                </button>
+                <button
+                  data-testid="scheduler-advance-btn"
+                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
+                  onClick={() => {
+                    api.advanceQueue()
+                      .then((result) => {
+                        setQueueMessage(queueSkipMessage(result.skipped))
+                        return loadPool()
+                      })
+                      .catch(() => {})
+                  }}
+                >
+                  运行调度器
+                </button>
+              </div>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {scheduler.project_states.map((project) => (
                 <div key={project.project_key} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs">
                   <div className="font-medium text-slate-100">{project.display_name}</div>
                   <div className="mt-1 text-slate-300">readiness: {project.readiness_status} ({project.readiness_score})</div>
+                  <div className="text-slate-300">autonomy: {project.autonomy_mode}</div>
                   <div className="text-slate-300">slots: {project.active_count}/{project.max_parallel_requirements}</div>
                   <div className="text-slate-300">queued: {project.queued_count} / weight x{project.scheduler_weight}</div>
+                  <div className="text-slate-300">budget: {project.budget_used}/{project.portfolio_budget_points} (left {project.budget_remaining})</div>
+                  <div className="text-slate-400">rebalance: {project.allow_rebalance ? 'on' : 'off'} / preempt: {project.allow_preemption ? 'on' : 'off'}</div>
                 </div>
               ))}
             </div>
@@ -481,9 +500,12 @@ export default function RequirementPool() {
                       </div>
                     </div>
                     <div className="mt-1 text-slate-300">
-                      score {decision.score} (base {decision.base_score}){decision.template_key ? ` / template ${decision.template_key}` : ''}
+                      score {decision.score} (base {decision.base_score}) / budget {decision.budget_cost}{decision.template_key ? ` / template ${decision.template_key}` : ''}
                     </div>
-                    <div className="mt-1 text-slate-400">{decision.reason || decision.reasons[0] || 'scheduler observed this candidate'}</div>
+                    <div className="mt-1 text-slate-400">
+                      {decision.reason || decision.reasons[0] || 'scheduler observed this candidate'}
+                      {decision.approval_required ? ' / approval required' : ''}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -610,10 +632,11 @@ export default function RequirementPool() {
                       }`}
                     >
                       <div className="font-medium">
-                        调度决策: {schedulerDecision.action} / score {schedulerDecision.score}
+                        调度决策: {schedulerDecision.action} / score {schedulerDecision.score} / budget {schedulerDecision.budget_cost}
                       </div>
                       <div className="mt-1">
-                        {schedulerDecision.reason || schedulerDecision.reasons[0] || 'scheduler waiting'}
+                        {(schedulerDecision.reason || schedulerDecision.reasons[0] || 'scheduler waiting') +
+                          (schedulerDecision.approval_required ? ' / approval required' : '')}
                       </div>
                     </div>
                   )}

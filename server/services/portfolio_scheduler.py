@@ -19,6 +19,7 @@ from server.services.project_policy import list_project_policies, project_policy
 DEFAULT_GLOBAL_CAPACITY = 2
 MAX_GLOBAL_CAPACITY = 3
 PREEMPT_THRESHOLD = 18.0
+MIN_PROJECT_BUDGET = 20
 
 _TEMPLATE_BONUS = {
     "release_bottleneck": 8.0,
@@ -27,6 +28,29 @@ _TEMPLATE_BONUS = {
     "onboarding_friction": 4.0,
     "docs_drift": 3.0,
 }
+
+
+def _budget_cost(base_score: float, template_key: str | None) -> int:
+    template_bonus = _TEMPLATE_BONUS.get(str(template_key or ""), 0.0)
+    return max(10, min(80, int(round((float(base_score or 0.0) / 4.0) + template_bonus + 8.0))))
+
+
+def _policy_for_project(
+    policy_by_root: dict[str, dict[str, Any]],
+    *,
+    project_key: str,
+    root_path: str,
+) -> dict[str, Any]:
+    if root_path and root_path in policy_by_root:
+        return dict(policy_by_root[root_path])
+    return next(
+        (
+            dict(policy)
+            for policy in policy_by_root.values()
+            if str(policy.get("project_key") or "") == project_key
+        ),
+        {},
+    )
 
 
 def _latest_template_key(db: Session, requirement_id: int) -> str | None:
@@ -80,8 +104,12 @@ def _project_context_for_requirement(
             "project_key": str(project.get("project_key") or "org-ops"),
             "display_name": str(project.get("display_name") or root.rsplit("/", 1)[-1] or "Org Ops"),
             "root_path": root,
+            "autonomy_mode": str(policy.get("autonomy_mode") or "recommend"),
+            "allow_rebalance": bool(policy.get("allow_rebalance", True)),
+            "allow_preemption": bool(policy.get("allow_preemption", False)),
             "scheduler_weight": float(policy.get("scheduler_weight") or 1.0),
             "max_parallel_requirements": int(policy.get("max_parallel_requirements") or 1),
+            "portfolio_budget_points": max(MIN_PROJECT_BUDGET, int(policy.get("portfolio_budget_points") or 100)),
             "readiness_status": str(project.get("readiness_status") or "unknown"),
             "readiness_score": int(project.get("readiness_score") or 0),
         }
@@ -97,8 +125,12 @@ def _project_context_for_requirement(
         "project_key": str(project.get("project_key") or policy.get("project_key") or "org-ops"),
         "display_name": str(project.get("display_name") or policy.get("display_name") or (target_root.rsplit("/", 1)[-1] if target_root else "Org Ops")),
         "root_path": target_root,
+        "autonomy_mode": str(policy.get("autonomy_mode") or "recommend"),
+        "allow_rebalance": bool(policy.get("allow_rebalance", True)),
+        "allow_preemption": bool(policy.get("allow_preemption", False)),
         "scheduler_weight": float(policy.get("scheduler_weight") or 1.0),
         "max_parallel_requirements": int(policy.get("max_parallel_requirements") or 1),
+        "portfolio_budget_points": max(MIN_PROJECT_BUDGET, int(policy.get("portfolio_budget_points") or 100)),
         "readiness_status": str(project.get("readiness_status") or "unknown"),
         "readiness_score": int(project.get("readiness_score") or 0),
     }
@@ -120,6 +152,7 @@ def _running_requirement_decision(
     score = build_requirement_score_breakdown(db, requirement)
     context = _project_context_for_requirement(requirement, score, policy_by_root, project_catalog)
     template_key = _latest_template_key(db, int(requirement.id))
+    budget_cost = _budget_cost(float(score.get("total") or 0.0), template_key)
     weighted = _weighted_scheduler_score(
         float(score.get("total") or 0.0),
         scheduler_weight=float(context["scheduler_weight"]),
@@ -138,12 +171,17 @@ def _running_requirement_decision(
         "score": weighted,
         "base_score": float(score.get("total") or 0.0),
         "scheduler_weight": float(context["scheduler_weight"]),
+        "autonomy_mode": str(context["autonomy_mode"]),
+        "budget_cost": budget_cost,
         "project_slot_available": False,
         "reason": "currently running",
         "reasons": ["currently running"],
         "template_key": template_key,
         "source": str(requirement.source),
         "preempt_requirement_id": None,
+        "approval_required": False,
+        "allow_rebalance": bool(context["allow_rebalance"]),
+        "allow_preemption": bool(context["allow_preemption"]),
     }
 
 
@@ -162,6 +200,7 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
 
     project_active_counts: dict[str, int] = {}
     project_queue_counts: dict[str, int] = {}
+    project_budget_usage: dict[str, int] = {}
     decisions: list[dict[str, Any]] = []
 
     for req in running_requirements:
@@ -169,12 +208,14 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         decisions.append(decision)
         key = str(decision["project_key"])
         project_active_counts[key] = project_active_counts.get(key, 0) + 1
+        project_budget_usage[key] = project_budget_usage.get(key, 0) + int(decision.get("budget_cost") or 0)
 
     for req in paused_requirements:
         score = build_requirement_score_breakdown(db, req)
         context = _project_context_for_requirement(req, score, policy_by_root, project_catalog)
         key = str(context["project_key"])
         project_active_counts[key] = project_active_counts.get(key, 0) + 1
+        project_budget_usage[key] = project_budget_usage.get(key, 0) + _budget_cost(float(score.get("total") or 0.0), _latest_template_key(db, int(req.id)))
 
     requirement_candidates: list[dict[str, Any]] = []
     for requirement in ready_requirements:
@@ -186,6 +227,7 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         template_key = _latest_template_key(db, int(requirement.id))
         active_count = project_active_counts.get(key, 0)
         quota = int(context["max_parallel_requirements"])
+        budget_cost = _budget_cost(float(score.get("total") or 0.0), template_key)
         scheduler_score = _weighted_scheduler_score(
             float(score.get("total") or 0.0),
             scheduler_weight=float(context["scheduler_weight"]),
@@ -211,12 +253,17 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
                 "score": scheduler_score,
                 "base_score": float(score.get("total") or 0.0),
                 "scheduler_weight": float(context["scheduler_weight"]),
+                "autonomy_mode": str(context["autonomy_mode"]),
+                "budget_cost": budget_cost,
                 "project_slot_available": False,
                 "reason": f"automation not ready ({routing.get('readiness_status') or 'unknown'})",
                 "reasons": reasons + [f"automation not ready ({routing.get('readiness_status') or 'unknown'})"],
                 "template_key": template_key,
                 "source": str(requirement.source),
                 "preempt_requirement_id": None,
+                "approval_required": False,
+                "allow_rebalance": bool(context["allow_rebalance"]),
+                "allow_preemption": bool(context["allow_preemption"]),
             })
             continue
         requirement_candidates.append({
@@ -230,12 +277,17 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             "score": scheduler_score,
             "base_score": float(score.get("total") or 0.0),
             "scheduler_weight": float(context["scheduler_weight"]),
+            "autonomy_mode": str(context["autonomy_mode"]),
+            "budget_cost": budget_cost,
             "project_slot_available": active_count < quota,
             "reason": "",
             "reasons": reasons,
             "template_key": template_key,
             "source": str(requirement.source),
             "preempt_requirement_id": None,
+            "approval_required": False,
+            "allow_rebalance": bool(context["allow_rebalance"]),
+            "allow_preemption": bool(context["allow_preemption"]),
         })
 
     signal_candidates: list[dict[str, Any]] = []
@@ -245,10 +297,11 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         project = next((item for item in project_catalog.values() if str(item.get("project_key")) == project_key), None) or {}
         display_name = str(project.get("display_name") or project_key or "Org Ops")
         root_path = str(project.get("root_path") or signal.routing_target_path or signal.project_root_path or "")
-        policy = dict(policy_by_root.get(root_path) or {})
+        policy = _policy_for_project(policy_by_root, project_key=project_key, root_path=root_path)
         quota = int(policy.get("max_parallel_requirements") or 1)
         active_count = project_active_counts.get(project_key, 0)
         template_key = template_key_for_signal(str(signal.signal_type))
+        budget_cost = _budget_cost(float(breakdown.get("total") or 0.0), template_key)
         scheduler_score = _weighted_scheduler_score(
             float(breakdown.get("total") or 0.0),
             scheduler_weight=float(policy.get("scheduler_weight") or 1.0),
@@ -267,6 +320,8 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             "score": scheduler_score,
             "base_score": float(breakdown.get("total") or 0.0),
             "scheduler_weight": float(policy.get("scheduler_weight") or 1.0),
+            "autonomy_mode": str(policy.get("autonomy_mode") or "recommend"),
+            "budget_cost": budget_cost,
             "project_slot_available": active_count < quota,
             "reason": "",
             "reasons": [
@@ -277,6 +332,9 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             "source": "optimization_signal",
             "preempt_requirement_id": None,
             "auto_intake_eligible": bool(breakdown.get("auto_intake_eligible")),
+            "approval_required": False,
+            "allow_rebalance": bool(policy.get("allow_rebalance", True)),
+            "allow_preemption": bool(policy.get("allow_preemption", False)),
         })
 
     available_slots = max(global_capacity - len(running_requirements), 0)
@@ -294,17 +352,21 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             decisions.append(candidate)
             continue
         project_key = str(candidate["project_key"])
-        quota = int(
-            next(
-                (
-                    policy.get("max_parallel_requirements")
-                    for policy in policy_by_root.values()
-                    if str(policy.get("project_key")) == project_key
-                ),
-                1,
-            )
-            or 1
+        project_policy = _policy_for_project(
+            policy_by_root,
+            project_key=project_key,
+            root_path=str(candidate.get("root_path") or ""),
         )
+        quota = int(project_policy.get("max_parallel_requirements") or 1)
+        budget_cap = max(MIN_PROJECT_BUDGET, int(project_policy.get("portfolio_budget_points") or 100))
+        budget_used = int(project_budget_usage.get(project_key, 0))
+        budget_cost = int(candidate.get("budget_cost") or 0)
+        if budget_used + budget_cost > budget_cap:
+            candidate["action"] = "delay"
+            candidate["reason"] = f"project budget exhausted ({budget_used}/{budget_cap})"
+            candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
+            decisions.append(candidate)
+            continue
         if project_allocations.get(project_key, 0) >= quota:
             candidate["action"] = "delay"
             candidate["reason"] = "project quota full"
@@ -312,17 +374,52 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             decisions.append(candidate)
             continue
         if available_slots > 0:
-            candidate["action"] = "intake" if candidate["candidate_type"] == "signal" else "start"
+            if candidate["candidate_type"] == "signal":
+                autonomy_mode = str(candidate.get("autonomy_mode") or "recommend")
+                if autonomy_mode != "execute_autonomously":
+                    candidate["action"] = "delay" if autonomy_mode in {"observe", "recommend"} else "approval_required"
+                    candidate["approval_required"] = autonomy_mode == "execute_with_approval"
+                    candidate["reason"] = (
+                        "signal intake requires operator approval"
+                        if autonomy_mode == "execute_with_approval"
+                        else f"autopilot mode `{autonomy_mode}` only recommends signal intake"
+                    )
+                    candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
+                    decisions.append(candidate)
+                    continue
+                candidate["action"] = "intake"
+            else:
+                candidate["action"] = "start"
             candidate["reason"] = "scheduled in current capacity window"
             candidate["reasons"] = list(candidate["reasons"]) + ["scheduled in current capacity window"]
             available_slots -= 1
             project_allocations[project_key] = project_allocations.get(project_key, 0) + 1
+            project_budget_usage[project_key] = project_budget_usage.get(project_key, 0) + budget_cost
             decisions.append(candidate)
             continue
         if weakest_running and float(candidate.get("score") or 0.0) >= float(weakest_running.get("score") or 0.0) + PREEMPT_THRESHOLD:
-            candidate["action"] = "preempt_candidate"
+            if not bool(candidate.get("allow_rebalance", True)):
+                candidate["action"] = "delay"
+                candidate["reason"] = "project rebalance disabled by policy"
+                candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
+                decisions.append(candidate)
+                continue
+            if not bool(weakest_running.get("allow_preemption", False)):
+                candidate["action"] = "preempt_candidate"
+                candidate["approval_required"] = True
+                candidate["preempt_requirement_id"] = weakest_running.get("requirement_id")
+                candidate["reason"] = f"candidate outranks running requirement #{weakest_running.get('requirement_id')}, but target project blocks autonomous preemption"
+                candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
+                decisions.append(candidate)
+                continue
+            candidate["action"] = "rebalance_start" if str(candidate.get("autonomy_mode") or "recommend") == "execute_autonomously" else "preempt_candidate"
             candidate["preempt_requirement_id"] = weakest_running.get("requirement_id")
-            candidate["reason"] = f"higher-value than running requirement #{weakest_running.get('requirement_id')}"
+            candidate["approval_required"] = candidate["action"] != "rebalance_start"
+            candidate["reason"] = (
+                f"auto rebalance will preempt requirement #{weakest_running.get('requirement_id')}"
+                if candidate["action"] == "rebalance_start"
+                else f"higher-value than running requirement #{weakest_running.get('requirement_id')}"
+            )
             candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
         else:
             candidate["action"] = "delay"
@@ -333,7 +430,9 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
     project_states = []
     for project in sorted(project_catalog.values(), key=lambda item: str(item.get("display_name") or "")):
         project_key = str(project.get("project_key") or "")
-        policy = next((item for item in policy_by_root.values() if str(item.get("project_key")) == project_key), {})
+        policy = _policy_for_project(policy_by_root, project_key=project_key, root_path=str(project.get("root_path") or ""))
+        budget_cap = max(MIN_PROJECT_BUDGET, int(policy.get("portfolio_budget_points") or 100))
+        budget_used = int(project_budget_usage.get(project_key, 0))
         project_states.append({
             "project_key": project_key,
             "display_name": str(project.get("display_name") or project_key),
@@ -341,7 +440,13 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
             "active_count": int(project_active_counts.get(project_key, 0)),
             "queued_count": int(project_queue_counts.get(project_key, 0)),
             "max_parallel_requirements": int(policy.get("max_parallel_requirements") or 1),
+            "autonomy_mode": str(policy.get("autonomy_mode") or "recommend"),
+            "allow_rebalance": bool(policy.get("allow_rebalance", True)),
+            "allow_preemption": bool(policy.get("allow_preemption", False)),
             "scheduler_weight": float(policy.get("scheduler_weight") or 1.0),
+            "portfolio_budget_points": budget_cap,
+            "budget_used": budget_used,
+            "budget_remaining": max(budget_cap - budget_used, 0),
             "readiness_status": str(project.get("readiness_status") or "unknown"),
             "readiness_score": int(project.get("readiness_score") or 0),
         })
@@ -355,6 +460,8 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         "decisions": decisions,
         "started_ids": [],
         "created_requirement_ids": [],
+        "preempted_ids": [],
+        "rebalanced_ids": [],
         "skipped": [],
     }
 
@@ -385,16 +492,23 @@ def execute_portfolio_schedule(db: Session) -> dict[str, Any]:
     plan = build_portfolio_schedule(db)
     started_ids: list[int] = []
     created_requirement_ids: list[int] = []
+    preempted_ids: list[int] = []
+    rebalanced_ids: list[int] = []
     skipped: list[str] = []
 
     from server.services.optimization_signals import create_requirement_from_signal
-    from server.services.workflow_orchestrator import plan_requirement, start_requirement
+    from server.services.workflow_orchestrator import pause_requirement, plan_requirement, start_requirement
 
     for decision in plan["decisions"]:
         action = str(decision.get("action") or "")
-        if action not in {"start", "intake"}:
+        if action not in {"start", "intake", "rebalance_start"}:
             continue
         try:
+            if action == "rebalance_start":
+                preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
+                if preempt_requirement_id:
+                    pause_requirement(db, preempt_requirement_id)
+                    preempted_ids.append(preempt_requirement_id)
             if action == "intake":
                 signal_id = int(decision["signal_id"])
                 _signal, detail = create_requirement_from_signal(db, signal_id=signal_id, auto_start=False)
@@ -409,10 +523,67 @@ def execute_portfolio_schedule(db: Session) -> dict[str, Any]:
                 plan_requirement(db, requirement_id)
             start_requirement(db, requirement_id)
             started_ids.append(requirement_id)
+            if action == "rebalance_start":
+                rebalanced_ids.append(requirement_id)
+                break
         except Exception as exc:  # noqa: BLE001
             skipped.append(f"{decision.get('title')}: {exc}")
 
     plan["started_ids"] = started_ids
     plan["created_requirement_ids"] = created_requirement_ids
+    plan["preempted_ids"] = preempted_ids
+    plan["rebalanced_ids"] = rebalanced_ids
+    plan["skipped"] = skipped
+    return plan
+
+
+def execute_portfolio_rebalance(db: Session) -> dict[str, Any]:
+    plan = build_portfolio_schedule(db)
+    started_ids: list[int] = []
+    created_requirement_ids: list[int] = []
+    preempted_ids: list[int] = []
+    rebalanced_ids: list[int] = []
+    skipped: list[str] = []
+
+    from server.services.optimization_signals import create_requirement_from_signal
+    from server.services.workflow_orchestrator import pause_requirement, plan_requirement, start_requirement
+
+    candidates = [
+        decision
+        for decision in plan["decisions"]
+        if str(decision.get("action") or "") in {"preempt_candidate", "rebalance_start"}
+    ]
+    for decision in candidates:
+        try:
+            preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
+            if preempt_requirement_id:
+                pause_requirement(db, preempt_requirement_id)
+                preempted_ids.append(preempt_requirement_id)
+            if decision["candidate_type"] == "signal":
+                signal_id = int(decision["signal_id"])
+                _signal, detail = create_requirement_from_signal(db, signal_id=signal_id, auto_start=False)
+                requirement_id = int(detail.requirement.id)
+                created_requirement_ids.append(requirement_id)
+            else:
+                requirement_id = int(decision["requirement_id"])
+            requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+            if requirement is None:
+                raise ValueError(f"requirement #{requirement_id} not found")
+            if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
+                plan_requirement(db, requirement_id)
+            start_requirement(db, requirement_id)
+            started_ids.append(requirement_id)
+            rebalanced_ids.append(requirement_id)
+            break
+        except Exception as exc:  # noqa: BLE001
+            skipped.append(f"{decision.get('title')}: {exc}")
+
+    if not started_ids and not skipped:
+        skipped.append("no rebalance candidates")
+
+    plan["started_ids"] = started_ids
+    plan["created_requirement_ids"] = created_requirement_ids
+    plan["preempted_ids"] = preempted_ids
+    plan["rebalanced_ids"] = rebalanced_ids
     plan["skipped"] = skipped
     return plan

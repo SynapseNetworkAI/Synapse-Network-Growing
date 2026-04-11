@@ -5,6 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from server.database import (
+    ArtifactRow,
     ProjectOnboardingRow,
     ProjectPolicyRow,
     RequirementAcceptanceCheckRow,
@@ -421,6 +422,40 @@ def test_scheduler_endpoint_exposes_project_capacity_and_decisions(synced_client
     assert decision["score"] >= decision["base_score"]
 
 
+def test_scheduler_delays_requirement_when_project_budget_is_exhausted(synced_client, db_session):
+    synced_client.get("/api/project-policies")
+    sdk_policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network-sdk").first()
+    assert sdk_policy is not None
+    sdk_policy.portfolio_budget_points = 20
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "SDK release bottleneck",
+            "description_markdown": "High urgency release unblocker.",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement_id,
+            artifact_type="requirement_template",
+            content_summary="release bottleneck template",
+            machine_readable_payload=json.dumps({"template_key": "release_bottleneck"}),
+        )
+    )
+    db_session.commit()
+
+    scheduler_resp = synced_client.get("/api/requirements/scheduler")
+    assert scheduler_resp.status_code == 200
+    decision = next(item for item in scheduler_resp.json()["decisions"] if item.get("requirement_id") == requirement_id)
+    assert decision["action"] == "delay"
+    assert "budget exhausted" in decision["reason"]
+
+
 def test_queue_advance_can_start_multiple_projects_in_same_window(synced_client):
     sdk_resp = synced_client.post(
         "/api/requirements",
@@ -458,6 +493,84 @@ def test_queue_advance_can_start_multiple_projects_in_same_window(synced_client)
     memory_detail = synced_client.get(f"/api/requirements/{memory_id}").json()
     assert sdk_detail["requirement"]["status"] == "in_progress"
     assert memory_detail["requirement"]["status"] == "in_progress"
+
+
+def test_manual_scheduler_rebalance_preempts_lower_value_running_requirement(synced_client, db_session):
+    synced_client.get("/api/project-policies")
+    sdk_policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network-sdk").first()
+    network_policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network").first()
+    assert sdk_policy is not None and network_policy is not None
+    sdk_policy.autonomy_mode = "execute_with_approval"
+    sdk_policy.allow_rebalance = True
+    sdk_policy.scheduler_weight = 2.2
+    sdk_policy.portfolio_budget_points = 160
+    network_policy.allow_preemption = False
+    db_session.commit()
+
+    running_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Low value maintenance",
+            "description_markdown": "Routine maintenance task.",
+            "priority": "low",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+        },
+    )
+    running_id = running_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{running_id}/plan")
+
+    candidate_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "SDK critical release blocker",
+            "description_markdown": "Urgent SDK unblocker with high leverage.",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        },
+    )
+    candidate_id = candidate_resp.json()["requirement"]["id"]
+    db_session.add(
+        ArtifactRow(
+            requirement_id=candidate_id,
+            artifact_type="requirement_template",
+            content_summary="release bottleneck template",
+            machine_readable_payload=json.dumps({"template_key": "release_bottleneck"}),
+        )
+    )
+    db_session.commit()
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{running_id}/start")
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "in_progress"
+
+    with patch("server.services.portfolio_scheduler.MAX_GLOBAL_CAPACITY", 1), patch(
+        "server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()
+    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
+        scheduler_resp = synced_client.get("/api/requirements/scheduler")
+        rebalance_resp = synced_client.post("/api/requirements/scheduler/rebalance")
+
+    assert scheduler_resp.status_code == 200
+    decision = next(item for item in scheduler_resp.json()["decisions"] if item.get("requirement_id") == candidate_id)
+    assert decision["action"] == "preempt_candidate"
+    assert decision["approval_required"] is True
+
+    assert rebalance_resp.status_code == 200
+    rebalance_payload = rebalance_resp.json()
+    assert running_id in rebalance_payload["preempted_ids"]
+    assert candidate_id in rebalance_payload["started_ids"]
+    assert candidate_id in rebalance_payload["rebalanced_ids"]
+
+    running_detail = synced_client.get(f"/api/requirements/{running_id}").json()
+    candidate_detail = synced_client.get(f"/api/requirements/{candidate_id}").json()
+    assert running_detail["requirement"]["status"] == "paused"
+    assert candidate_detail["requirement"]["status"] == "in_progress"
 
 
 def test_patch_requirement_rejects_blank_title(synced_client):

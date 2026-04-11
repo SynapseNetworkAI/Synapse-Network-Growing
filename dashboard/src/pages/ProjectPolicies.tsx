@@ -23,8 +23,12 @@ export default function ProjectPolicies() {
     status: string
     release_mode: string
     requires_manual_approval: boolean
+    autonomy_mode: string
+    allow_rebalance: boolean
+    allow_preemption: boolean
     scheduler_weight: string
     max_parallel_requirements: string
+    portfolio_budget_points: string
     allowed_write_globs: string
     forbidden_globs: string
     required_checks: string
@@ -64,8 +68,12 @@ export default function ProjectPolicies() {
               status: policy.status,
               release_mode: policy.release_mode,
               requires_manual_approval: policy.requires_manual_approval,
+              autonomy_mode: policy.autonomy_mode,
+              allow_rebalance: policy.allow_rebalance,
+              allow_preemption: policy.allow_preemption,
               scheduler_weight: String(policy.scheduler_weight ?? 1),
               max_parallel_requirements: String(policy.max_parallel_requirements ?? 1),
+              portfolio_budget_points: String(policy.portfolio_budget_points ?? 100),
               allowed_write_globs: policy.allowed_write_globs.join('\n'),
               forbidden_globs: policy.forbidden_globs.join('\n'),
               required_checks: policy.required_checks.join('\n'),
@@ -302,7 +310,8 @@ export default function ProjectPolicies() {
                 <div className="text-right text-xs text-gray-500">
                   <div>更新时间: {formatTime(policy.updated_at)}</div>
                   <div>发布模式: {policy.release_mode}</div>
-                  <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位</div>
+                  <div>自治: {policy.autonomy_mode}</div>
+                  <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位 / budget {policy.portfolio_budget_points}</div>
                 </div>
               </div>
 
@@ -347,6 +356,20 @@ export default function ProjectPolicies() {
                   </select>
                 </label>
                 <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">自治模式</span>
+                  <select
+                    aria-label="自治模式"
+                    className="w-full rounded border px-3 py-2"
+                    value={draft.autonomy_mode}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, autonomy_mode: e.target.value } }))}
+                  >
+                    <option value="observe">observe</option>
+                    <option value="recommend">recommend</option>
+                    <option value="execute_with_approval">execute_with_approval</option>
+                    <option value="execute_autonomously">execute_autonomously</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm">
                   <span className="text-gray-500">调度权重</span>
                   <input
                     aria-label="调度权重"
@@ -372,6 +395,19 @@ export default function ProjectPolicies() {
                     onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, max_parallel_requirements: e.target.value } }))}
                   />
                 </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">项目预算</span>
+                  <input
+                    aria-label="项目预算"
+                    className="w-full rounded border px-3 py-2"
+                    type="number"
+                    min="20"
+                    max="300"
+                    step="5"
+                    value={draft.portfolio_budget_points}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, portfolio_budget_points: e.target.value } }))}
+                  />
+                </label>
               </div>
 
               <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -382,6 +418,24 @@ export default function ProjectPolicies() {
                 />
                 需要人工审批
               </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={draft.allow_rebalance}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, allow_rebalance: e.target.checked } }))}
+                  />
+                  允许 scheduler 做 portfolio rebalance
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={draft.allow_preemption}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, allow_preemption: e.target.checked } }))}
+                  />
+                  允许本项目中的运行中 requirement 被 preempt
+                </label>
+              </div>
 
               <div className="grid gap-4 md:grid-cols-3">
                 <label className="space-y-1 text-sm">
@@ -433,8 +487,12 @@ export default function ProjectPolicies() {
                         status: draft.status,
                         release_mode: draft.release_mode,
                         requires_manual_approval: draft.requires_manual_approval,
+                        autonomy_mode: draft.autonomy_mode,
+                        allow_rebalance: draft.allow_rebalance,
+                        allow_preemption: draft.allow_preemption,
                         scheduler_weight: Number(draft.scheduler_weight || 1),
                         max_parallel_requirements: Math.max(1, Number(draft.max_parallel_requirements || 1)),
+                        portfolio_budget_points: Math.max(20, Number(draft.portfolio_budget_points || 100)),
                         allowed_write_globs: parseLines(draft.allowed_write_globs),
                         forbidden_globs: parseLines(draft.forbidden_globs),
                         required_checks: parseLines(draft.required_checks),

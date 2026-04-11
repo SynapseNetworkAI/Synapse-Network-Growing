@@ -6,6 +6,7 @@ import RequirementPool from '../src/pages/RequirementPool'
 const mockApi = {
   getRequirements: vi.fn(),
   getRequirementScheduler: vi.fn(),
+  rebalanceRequirementScheduler: vi.fn(),
   getRequirement: vi.fn(),
   createRequirement: vi.fn(),
   planRequirement: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('../src/api', () => ({
   api: {
     getRequirements: (...args: unknown[]) => mockApi.getRequirements(...args),
     getRequirementScheduler: (...args: unknown[]) => mockApi.getRequirementScheduler(...args),
+    rebalanceRequirementScheduler: (...args: unknown[]) => mockApi.rebalanceRequirementScheduler(...args),
     getRequirement: (...args: unknown[]) => mockApi.getRequirement(...args),
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
     planRequirement: (...args: unknown[]) => mockApi.planRequirement(...args),
@@ -325,7 +327,13 @@ const SCHEDULER_PLAN = {
       active_count: 1,
       queued_count: 0,
       max_parallel_requirements: 1,
+      autonomy_mode: 'execute_autonomously',
+      allow_rebalance: true,
+      allow_preemption: true,
       scheduler_weight: 1.2,
+      portfolio_budget_points: 140,
+      budget_used: 26,
+      budget_remaining: 114,
       readiness_status: 'ready',
       readiness_score: 100,
     },
@@ -336,7 +344,13 @@ const SCHEDULER_PLAN = {
       active_count: 0,
       queued_count: 1,
       max_parallel_requirements: 1,
+      autonomy_mode: 'execute_autonomously',
+      allow_rebalance: true,
+      allow_preemption: true,
       scheduler_weight: 1.1,
+      portfolio_budget_points: 95,
+      budget_used: 0,
+      budget_remaining: 95,
       readiness_status: 'policy_only',
       readiness_score: 70,
     },
@@ -353,12 +367,15 @@ const SCHEDULER_PLAN = {
       score: 74,
       base_score: 72,
       scheduler_weight: 1.2,
+      autonomy_mode: 'execute_autonomously',
+      budget_cost: 26,
       project_slot_available: false,
       reason: 'currently running',
       reasons: ['currently running'],
       template_key: null,
       source: 'manual',
       preempt_requirement_id: null,
+      approval_required: false,
     },
     {
       candidate_type: 'requirement',
@@ -371,16 +388,21 @@ const SCHEDULER_PLAN = {
       score: 63,
       base_score: 54,
       scheduler_weight: 1.1,
+      autonomy_mode: 'execute_autonomously',
+      budget_cost: 22,
       project_slot_available: true,
       reason: 'scheduled in current capacity window',
       reasons: ['base score 54', 'project weight 1.1', 'scheduled in current capacity window'],
       template_key: null,
       source: 'manual',
       preempt_requirement_id: null,
+      approval_required: false,
     },
   ],
   started_ids: [],
   created_requirement_ids: [],
+  preempted_ids: [],
+  rebalanced_ids: [],
   skipped: [],
 }
 
@@ -389,6 +411,7 @@ describe('RequirementPool', () => {
     vi.clearAllMocks()
     mockApi.getRequirements.mockResolvedValue([REQUIREMENT, BLOCKER])
     mockApi.getRequirementScheduler.mockResolvedValue(SCHEDULER_PLAN)
+    mockApi.rebalanceRequirementScheduler.mockResolvedValue(SCHEDULER_PLAN)
     mockApi.getRequirement.mockResolvedValue(DETAIL)
     mockApi.createRequirement.mockResolvedValue(DETAIL)
     mockApi.planRequirement.mockResolvedValue(DETAIL)
@@ -414,6 +437,8 @@ describe('RequirementPool', () => {
     expect(screen.getByText('Score: 72')).toBeDefined()
     expect(screen.getByText(/Multi-Project Scheduler/)).toBeDefined()
     expect(screen.getByText(/全局槽位 1\/3/)).toBeDefined()
+    expect(screen.getAllByText(/autonomy: execute_autonomously/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/budget: 26\/140/)).toBeDefined()
   })
 
   it('creates a new requirement', async () => {

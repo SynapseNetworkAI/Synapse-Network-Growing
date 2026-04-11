@@ -11,8 +11,10 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert "synapse-network-growing" in project_keys
     assert "agents-memory" in project_keys
     synapse_policy = next(item for item in payload if item["project_key"] == "synapse-network")
+    assert synapse_policy["autonomy_mode"] in {"observe", "recommend", "execute_with_approval", "execute_autonomously"}
     assert synapse_policy["scheduler_weight"] >= 1.0
     assert synapse_policy["max_parallel_requirements"] >= 1
+    assert synapse_policy["portfolio_budget_points"] >= 20
 
 
 def test_project_policy_can_be_updated(synced_client):
@@ -23,9 +25,13 @@ def test_project_policy_can_be_updated(synced_client):
         f"/api/project-policies/{policy['id']}",
         json={
             "release_mode": "disabled",
+            "autonomy_mode": "execute_autonomously",
+            "allow_rebalance": True,
+            "allow_preemption": True,
             "required_checks": ["pytest -q", "npm test"],
             "scheduler_weight": 1.8,
             "max_parallel_requirements": 2,
+            "portfolio_budget_points": 160,
             "notes": "Tightened during validation.",
         },
     )
@@ -33,9 +39,13 @@ def test_project_policy_can_be_updated(synced_client):
     assert patch_resp.status_code == 200
     updated = patch_resp.json()
     assert updated["release_mode"] == "disabled"
+    assert updated["autonomy_mode"] == "execute_autonomously"
+    assert updated["allow_rebalance"] is True
+    assert updated["allow_preemption"] is True
     assert updated["required_checks"] == ["pytest -q", "npm test"]
     assert updated["scheduler_weight"] == 1.8
     assert updated["max_parallel_requirements"] == 2
+    assert updated["portfolio_budget_points"] == 160
     assert updated["notes"] == "Tightened during validation."
 
 
@@ -51,8 +61,12 @@ def test_project_policy_can_be_created(synced_client):
             "required_checks": ["pytest -q"],
             "release_mode": "manual",
             "requires_manual_approval": True,
+            "autonomy_mode": "recommend",
+            "allow_rebalance": True,
+            "allow_preemption": False,
             "scheduler_weight": 1.3,
             "max_parallel_requirements": 2,
+            "portfolio_budget_points": 120,
             "notes": "Temporary sandbox policy.",
         },
     )
@@ -62,8 +76,10 @@ def test_project_policy_can_be_created(synced_client):
     assert created["project_key"] == "sandbox-app"
     assert created["allowed_write_globs"] == ["src/**"]
     assert created["forbidden_globs"] == ["secrets/**"]
+    assert created["autonomy_mode"] == "recommend"
     assert created["scheduler_weight"] == 1.3
     assert created["max_parallel_requirements"] == 2
+    assert created["portfolio_budget_points"] == 120
 
 
 def test_planning_requires_registered_project_policy(synced_client):

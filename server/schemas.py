@@ -197,8 +197,12 @@ class ProjectPolicyCreate(BaseModel):
     required_checks: list[str] = []
     release_mode: str = "manual"
     requires_manual_approval: bool = True
+    autonomy_mode: str = "recommend"
+    allow_rebalance: bool = True
+    allow_preemption: bool = False
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
+    portfolio_budget_points: int = 100
     notes: Optional[str] = None
 
 
@@ -211,8 +215,12 @@ class ProjectPolicyPatch(BaseModel):
     required_checks: Optional[list[str]] = None
     release_mode: Optional[str] = None
     requires_manual_approval: Optional[bool] = None
+    autonomy_mode: Optional[str] = None
+    allow_rebalance: Optional[bool] = None
+    allow_preemption: Optional[bool] = None
     scheduler_weight: Optional[float] = None
     max_parallel_requirements: Optional[int] = None
+    portfolio_budget_points: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -227,8 +235,12 @@ class ProjectPolicyOut(BaseModel):
     required_checks: list[str]
     release_mode: str
     requires_manual_approval: bool
+    autonomy_mode: str = "recommend"
+    allow_rebalance: bool = True
+    allow_preemption: bool = False
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
+    portfolio_budget_points: int = 100
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -352,7 +364,13 @@ class SchedulerProjectStateOut(BaseModel):
     active_count: int = 0
     queued_count: int = 0
     max_parallel_requirements: int = 1
+    autonomy_mode: str = "recommend"
+    allow_rebalance: bool = True
+    allow_preemption: bool = False
     scheduler_weight: float = 1.0
+    portfolio_budget_points: int = 100
+    budget_used: int = 0
+    budget_remaining: int = 0
     readiness_status: str = "unknown"
     readiness_score: int = 0
 
@@ -368,12 +386,15 @@ class SchedulerDecisionOut(BaseModel):
     score: float = 0.0
     base_score: float = 0.0
     scheduler_weight: float = 1.0
+    autonomy_mode: str = "recommend"
+    budget_cost: int = 0
     project_slot_available: bool = False
     reason: str = ""
     reasons: list[str] = []
     template_key: Optional[str] = None
     source: Optional[str] = None
     preempt_requirement_id: Optional[int] = None
+    approval_required: bool = False
 
 
 class SchedulerPlanOut(BaseModel):
@@ -385,6 +406,8 @@ class SchedulerPlanOut(BaseModel):
     decisions: list[SchedulerDecisionOut] = []
     started_ids: list[int] = []
     created_requirement_ids: list[int] = []
+    preempted_ids: list[int] = []
+    rebalanced_ids: list[int] = []
     skipped: list[str] = []
 
 

@@ -176,8 +176,12 @@ class ProjectPolicyRow(Base):
     required_checks_json = Column(Text, nullable=False, default="[]")
     release_mode = Column(Text, nullable=False, default="manual")
     requires_manual_approval = Column(Boolean, nullable=False, default=True)
+    autonomy_mode = Column(Text, nullable=False, default="recommend")
+    allow_rebalance = Column(Boolean, nullable=False, default=True)
+    allow_preemption = Column(Boolean, nullable=False, default=False)
     scheduler_weight = Column(Float, nullable=False, default=1.0)
     max_parallel_requirements = Column(Integer, nullable=False, default=1)
+    portfolio_budget_points = Column(Integer, nullable=False, default=100)
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -469,8 +473,12 @@ def _migrate(engine_):
     if "project_policies" in tables:
         existing = {c["name"] for c in insp.get_columns("project_policies")}
         project_policy_cols = {
+            "autonomy_mode": "TEXT DEFAULT 'recommend'",
+            "allow_rebalance": "BOOLEAN DEFAULT 1",
+            "allow_preemption": "BOOLEAN DEFAULT 0",
             "scheduler_weight": "FLOAT DEFAULT 1.0",
             "max_parallel_requirements": "INTEGER DEFAULT 1",
+            "portfolio_budget_points": "INTEGER DEFAULT 100",
         }
         for col, col_type in project_policy_cols.items():
             if col not in existing:

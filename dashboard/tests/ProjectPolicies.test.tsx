@@ -36,8 +36,12 @@ const POLICIES = [
     required_checks: ['pytest -q', 'npm test'],
     release_mode: 'manual',
     requires_manual_approval: true,
+    autonomy_mode: 'execute_with_approval',
+    allow_rebalance: true,
+    allow_preemption: false,
     scheduler_weight: 1.4,
     max_parallel_requirements: 2,
+    portfolio_budget_points: 130,
     notes: 'Primary product repo.',
     created_at: '2026-04-11T10:00:00Z',
     updated_at: '2026-04-11T10:05:00Z',
@@ -103,8 +107,10 @@ describe('ProjectPolicies', () => {
     })
 
     fireEvent.change(screen.getByDisplayValue('Primary product repo.'), { target: { value: 'Updated notes' } })
+    fireEvent.change(screen.getByLabelText('自治模式'), { target: { value: 'execute_autonomously' } })
     fireEvent.change(screen.getByLabelText('调度权重'), { target: { value: '1.8' } })
     fireEvent.change(screen.getByLabelText('项目并行槽位'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('项目预算'), { target: { value: '160' } })
     fireEvent.click(screen.getByTestId('project-policy-save-1'))
 
     await waitFor(() => {
@@ -112,8 +118,10 @@ describe('ProjectPolicies', () => {
         notes: 'Updated notes',
         release_mode: 'manual',
         status: 'active',
+        autonomy_mode: 'execute_autonomously',
         scheduler_weight: 1.8,
         max_parallel_requirements: 3,
+        portfolio_budget_points: 160,
       }))
     })
   })

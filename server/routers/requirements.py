@@ -19,7 +19,7 @@ from server.schemas import (
     SchedulerPlanOut,
 )
 from server.services.project_intelligence import build_requirement_score_breakdown, serialize_requirement
-from server.services.portfolio_scheduler import build_portfolio_schedule
+from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
 from server.services.workflow_orchestrator import (
     _normalize_target_project_path,
     advance_requirement_queue,
@@ -99,6 +99,11 @@ def create_requirement_endpoint(body: RequirementCreate, db: Session = Depends(g
 @router.get("/scheduler", response_model=SchedulerPlanOut)
 def get_requirement_scheduler(db: Session = Depends(get_db)):
     return build_portfolio_schedule(db)
+
+
+@router.post("/scheduler/rebalance", response_model=SchedulerPlanOut)
+def rebalance_requirement_scheduler(db: Session = Depends(get_db)):
+    return execute_portfolio_rebalance(db)
 
 
 @router.get("/{requirement_id}", response_model=RequirementDetailOut)
