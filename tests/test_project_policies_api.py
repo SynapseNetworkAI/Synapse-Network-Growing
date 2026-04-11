@@ -15,6 +15,8 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert synapse_policy["scheduler_weight"] >= 1.0
     assert synapse_policy["max_parallel_requirements"] >= 1
     assert synapse_policy["portfolio_budget_points"] >= 20
+    assert synapse_policy["capability_matrix"]["shell_access"] is True
+    assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
 
 
 def test_project_policy_can_be_updated(synced_client):
@@ -28,6 +30,19 @@ def test_project_policy_can_be_updated(synced_client):
             "autonomy_mode": "execute_autonomously",
             "allow_rebalance": True,
             "allow_preemption": True,
+            "capability_matrix": {
+                "shell_access": True,
+                "git_read": True,
+                "git_write": True,
+                "git_push": True,
+                "network_access": True,
+                "publish": True,
+            },
+            "interrupt_policy": {
+                "operator_confirmation_actions": ["publish"],
+                "auto_pause_on_events": ["capability_denied", "policy_violation"],
+                "auto_abort_on_events": ["publish_without_gate"],
+            },
             "required_checks": ["pytest -q", "npm test"],
             "scheduler_weight": 1.8,
             "max_parallel_requirements": 2,
@@ -42,6 +57,8 @@ def test_project_policy_can_be_updated(synced_client):
     assert updated["autonomy_mode"] == "execute_autonomously"
     assert updated["allow_rebalance"] is True
     assert updated["allow_preemption"] is True
+    assert updated["capability_matrix"]["publish"] is True
+    assert updated["interrupt_policy"]["operator_confirmation_actions"] == ["publish"]
     assert updated["required_checks"] == ["pytest -q", "npm test"]
     assert updated["scheduler_weight"] == 1.8
     assert updated["max_parallel_requirements"] == 2
@@ -64,6 +81,19 @@ def test_project_policy_can_be_created(synced_client):
             "autonomy_mode": "recommend",
             "allow_rebalance": True,
             "allow_preemption": False,
+            "capability_matrix": {
+                "shell_access": True,
+                "git_read": True,
+                "git_write": True,
+                "git_push": False,
+                "network_access": False,
+                "publish": False,
+            },
+            "interrupt_policy": {
+                "operator_confirmation_actions": ["git_push", "publish"],
+                "auto_pause_on_events": ["capability_denied"],
+                "auto_abort_on_events": ["forbidden_write"],
+            },
             "scheduler_weight": 1.3,
             "max_parallel_requirements": 2,
             "portfolio_budget_points": 120,
@@ -77,6 +107,8 @@ def test_project_policy_can_be_created(synced_client):
     assert created["allowed_write_globs"] == ["src/**"]
     assert created["forbidden_globs"] == ["secrets/**"]
     assert created["autonomy_mode"] == "recommend"
+    assert created["capability_matrix"]["git_push"] is False
+    assert created["interrupt_policy"]["auto_pause_on_events"] == ["capability_denied"]
     assert created["scheduler_weight"] == 1.3
     assert created["max_parallel_requirements"] == 2
     assert created["portfolio_budget_points"] == 120

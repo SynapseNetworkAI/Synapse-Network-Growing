@@ -246,6 +246,9 @@ class TestBuildPlannerOutput:
         assert output["delivery_contract"]["branch_name"].startswith(f"ops/req-{req.id}-")
         assert output["delivery_contract"]["release_mode"] == "manual"
         assert output["delivery_contract"]["required_checks"]
+        assert output["delivery_contract"]["required_capabilities"] == ["git_push", "publish"]
+        assert output["delivery_contract"]["auto_publish_allowed"] is False
+        assert output["execution_controls"]["capability_matrix"]["shell_access"] is True
         assert output["extensions"]["role_assignments"]["researcher_agent_id"]
         assert output["extensions"]["role_assignments"]["synthesizer_agent_id"]
 
@@ -254,6 +257,8 @@ class TestBuildPlannerOutput:
         assert review_step["depends_on"] == ["test_impl"]
         first_impl = next(s for s in output["workflow_steps"] if s["step_key"] == "design")
         assert first_impl["depends_on"] == ["synthesis"]
+        assert first_impl["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
+        assert first_impl["approval_policy"]["deny_execution"] is False
 
     def test_plan_without_target_project_path(self, synced_client, db_session):
         req = RequirementRow(
@@ -320,6 +325,52 @@ class TestBuildPlannerOutput:
         frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
         assert "/proj/src/**" in frontend_step["file_scope"]["allowed_write_globs"]
         assert "/proj/secrets/**" in frontend_step["file_scope"]["blocked_globs"]
+
+    def test_capability_matrix_marks_step_as_denied_when_shell_is_disabled(self, synced_client, db_session):
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="restricted-proj",
+                display_name="Restricted Proj",
+                root_path="/restricted",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='["secrets/**"]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": False,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["publish"],
+                    "auto_pause_on_events": ["capability_denied"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+        db_session.commit()
+
+        req = RequirementRow(
+            title="Restricted feature",
+            description_markdown="实现后端 API",
+            target_project_path="/restricted",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        research_step = next(s for s in output["workflow_steps"] if s["step_key"] == "research")
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert research_step["approval_policy"]["deny_execution"] is True
+        assert "shell_access disabled by project capability matrix" in research_step["approval_policy"]["deny_reasons"]
+        assert implementation_step["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
 
     def test_auto_routing_metadata_for_sdk_requirement(self, synced_client, db_session):
         req = RequirementRow(

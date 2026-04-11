@@ -10,6 +10,33 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+const CAPABILITY_OPTIONS = [
+  { key: 'shell_access', label: '允许 shell / terminal' },
+  { key: 'git_read', label: '允许 git read' },
+  { key: 'git_write', label: '允许 git write' },
+  { key: 'git_push', label: '允许 git push' },
+  { key: 'network_access', label: '允许 network access' },
+  { key: 'publish', label: '允许 publish' },
+] as const
+
+const INTERRUPT_OPTION_GROUPS = [
+  {
+    key: 'operator_confirmation_actions',
+    title: '需人工确认的动作',
+    options: ['shell_access', 'git_write', 'git_push', 'network_access', 'publish'],
+  },
+  {
+    key: 'auto_pause_on_events',
+    title: '自动暂停事件',
+    options: ['capability_denied', 'policy_violation', 'missing_required_checks', 'session_resume_failure', 'operator_confirmation_required'],
+  },
+  {
+    key: 'auto_abort_on_events',
+    title: '自动终止事件',
+    options: ['forbidden_write', 'publish_without_gate'],
+  },
+] as const
+
 export default function ProjectPolicies() {
   const [policies, setPolicies] = useState<ProjectPolicy[]>([])
   const [onboardings, setOnboardings] = useState<ProjectOnboarding[]>([])
@@ -26,6 +53,19 @@ export default function ProjectPolicies() {
     autonomy_mode: string
     allow_rebalance: boolean
     allow_preemption: boolean
+    capability_matrix: {
+      shell_access: boolean
+      git_read: boolean
+      git_write: boolean
+      git_push: boolean
+      network_access: boolean
+      publish: boolean
+    }
+    interrupt_policy: {
+      operator_confirmation_actions: string[]
+      auto_pause_on_events: string[]
+      auto_abort_on_events: string[]
+    }
     scheduler_weight: string
     max_parallel_requirements: string
     portfolio_budget_points: string
@@ -71,6 +111,8 @@ export default function ProjectPolicies() {
               autonomy_mode: policy.autonomy_mode,
               allow_rebalance: policy.allow_rebalance,
               allow_preemption: policy.allow_preemption,
+              capability_matrix: policy.capability_matrix,
+              interrupt_policy: policy.interrupt_policy,
               scheduler_weight: String(policy.scheduler_weight ?? 1),
               max_parallel_requirements: String(policy.max_parallel_requirements ?? 1),
               portfolio_budget_points: String(policy.portfolio_budget_points ?? 100),
@@ -93,6 +135,31 @@ export default function ProjectPolicies() {
     loadPolicies().catch(() => {})
   }, [])
 
+  const toggleInterruptValue = (
+    policyId: number,
+    groupKey: 'operator_confirmation_actions' | 'auto_pause_on_events' | 'auto_abort_on_events',
+    value: string,
+  ) => {
+    setDrafts((prev) => {
+      const draft = prev[policyId]
+      if (!draft) return prev
+      const current = draft.interrupt_policy[groupKey]
+      const nextValues = current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current, value]
+      return {
+        ...prev,
+        [policyId]: {
+          ...draft,
+          interrupt_policy: {
+            ...draft.interrupt_policy,
+            [groupKey]: nextValues,
+          },
+        },
+      }
+    })
+  }
+
   if (loading) {
     return <div data-testid="project-policies-loading" className="rounded-xl border bg-white p-6 text-sm text-gray-500">正在加载项目策略…</div>
   }
@@ -106,7 +173,7 @@ export default function ProjectPolicies() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">项目策略</h2>
-          <p className="text-sm text-gray-500">先 onboarding 新项目，再为每个受管项目定义可写范围、禁止范围、必跑检查和发布模式。</p>
+          <p className="text-sm text-gray-500">先 onboarding 新项目，再为每个受管项目定义可写范围、禁止范围、必跑检查、能力矩阵和发布模式。</p>
           <p className="text-xs text-gray-400">P2 调度器会直接读取每个项目的 `scheduler weight` 和 `max parallel requirements` 进行跨项目编排。</p>
         </div>
         <button
@@ -311,6 +378,7 @@ export default function ProjectPolicies() {
                   <div>更新时间: {formatTime(policy.updated_at)}</div>
                   <div>发布模式: {policy.release_mode}</div>
                   <div>自治: {policy.autonomy_mode}</div>
+                  <div>能力: shell {policy.capability_matrix.shell_access ? 'on' : 'off'} / git_write {policy.capability_matrix.git_write ? 'on' : 'off'} / push {policy.capability_matrix.git_push ? 'on' : 'off'} / publish {policy.capability_matrix.publish ? 'on' : 'off'}</div>
                   <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位 / budget {policy.portfolio_budget_points}</div>
                 </div>
               </div>
@@ -464,6 +532,54 @@ export default function ProjectPolicies() {
                 </label>
               </div>
 
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700">Capability Matrix</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {CAPABILITY_OPTIONS.map((option) => (
+                      <label key={`${policy.id}-${option.key}`} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={draft.capability_matrix[option.key]}
+                          onChange={(e) => setDrafts((prev) => ({
+                            ...prev,
+                            [policy.id]: {
+                              ...draft,
+                              capability_matrix: {
+                                ...draft.capability_matrix,
+                                [option.key]: e.target.checked,
+                              },
+                            },
+                          }))}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-sm font-medium text-gray-700">Interrupt Policy</div>
+                  {INTERRUPT_OPTION_GROUPS.map((group) => (
+                    <div key={`${policy.id}-${group.key}`} className="rounded-lg border p-3">
+                      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">{group.title}</div>
+                      <div className="grid gap-2">
+                        {group.options.map((option) => (
+                          <label key={`${policy.id}-${group.key}-${option}`} className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={draft.interrupt_policy[group.key].includes(option)}
+                              onChange={() => toggleInterruptValue(policy.id, group.key, option)}
+                            />
+                            {option}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <label className="space-y-1 text-sm">
                 <span className="text-gray-500">备注</span>
                 <textarea
@@ -490,6 +606,8 @@ export default function ProjectPolicies() {
                         autonomy_mode: draft.autonomy_mode,
                         allow_rebalance: draft.allow_rebalance,
                         allow_preemption: draft.allow_preemption,
+                        capability_matrix: draft.capability_matrix,
+                        interrupt_policy: draft.interrupt_policy,
                         scheduler_weight: Number(draft.scheduler_weight || 1),
                         max_parallel_requirements: Math.max(1, Number(draft.max_parallel_requirements || 1)),
                         portfolio_budget_points: Math.max(20, Number(draft.portfolio_budget_points || 100)),

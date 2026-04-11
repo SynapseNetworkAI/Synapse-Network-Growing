@@ -310,6 +310,21 @@ class CompanyReviewBundleMaterializeResultOut(BaseModel):
     items: list[CompanyReviewBundleMaterializeItemOut] = []
 
 
+class ProjectCapabilityMatrix(BaseModel):
+    shell_access: bool = True
+    git_read: bool = True
+    git_write: bool = True
+    git_push: bool = False
+    network_access: bool = False
+    publish: bool = False
+
+
+class ProjectInterruptPolicy(BaseModel):
+    operator_confirmation_actions: list[str] = []
+    auto_pause_on_events: list[str] = []
+    auto_abort_on_events: list[str] = []
+
+
 class ProjectPolicyCreate(BaseModel):
     project_key: str
     display_name: str
@@ -323,6 +338,8 @@ class ProjectPolicyCreate(BaseModel):
     autonomy_mode: str = "recommend"
     allow_rebalance: bool = True
     allow_preemption: bool = False
+    capability_matrix: ProjectCapabilityMatrix = ProjectCapabilityMatrix()
+    interrupt_policy: ProjectInterruptPolicy = ProjectInterruptPolicy()
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
@@ -341,6 +358,8 @@ class ProjectPolicyPatch(BaseModel):
     autonomy_mode: Optional[str] = None
     allow_rebalance: Optional[bool] = None
     allow_preemption: Optional[bool] = None
+    capability_matrix: Optional[ProjectCapabilityMatrix] = None
+    interrupt_policy: Optional[ProjectInterruptPolicy] = None
     scheduler_weight: Optional[float] = None
     max_parallel_requirements: Optional[int] = None
     portfolio_budget_points: Optional[int] = None
@@ -361,6 +380,8 @@ class ProjectPolicyOut(BaseModel):
     autonomy_mode: str = "recommend"
     allow_rebalance: bool = True
     allow_preemption: bool = False
+    capability_matrix: ProjectCapabilityMatrix = ProjectCapabilityMatrix()
+    interrupt_policy: ProjectInterruptPolicy = ProjectInterruptPolicy()
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100

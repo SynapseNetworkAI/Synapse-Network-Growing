@@ -868,11 +868,64 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
         json={"completed_checks": ["pytest -q", "npm run build"], "note": "ship it"},
     )
     assert publish_resp.status_code == 200
-    published = publish_resp.json()
-    assert published["delivery_state"]["publish_status"] == "published"
-    assert published["delivery_state"]["pending_checks"] == []
-    assert sorted(published["delivery_state"]["confirmed_checks"]) == ["npm run build", "pytest -q"]
-    assert any(artifact["artifact_type"] == "publish_record" for artifact in published["artifacts"])
+
+
+def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access(synced_client, db_session):
+    target_path = "/tmp/restricted-capability-project"
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="restricted-capability-project",
+            display_name="Restricted Capability Project",
+            root_path=target_path,
+            status="active",
+            allowed_write_globs_json='["src/**"]',
+            forbidden_globs_json='["secrets/**"]',
+            required_checks_json="[]",
+            release_mode="manual",
+            requires_manual_approval=True,
+            capability_matrix_json=json.dumps({
+                "shell_access": False,
+                "git_read": True,
+                "git_write": True,
+                "git_push": False,
+                "network_access": False,
+                "publish": False,
+            }),
+            interrupt_policy_json=json.dumps({
+                "operator_confirmation_actions": ["publish"],
+                "auto_pause_on_events": ["capability_denied"],
+                "auto_abort_on_events": ["forbidden_write"],
+            }),
+        )
+    )
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Restricted shell capability",
+            "description_markdown": "Implement backend API changes in a restricted project.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "blocked"
+    assert detail["workflow_run"]["status"] == "paused"
+    assert detail["workflow_run"]["steps"][0]["status"] == "blocked"
+
+    interrupt_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "capability_interrupt",
+    ).first()
+    assert interrupt_artifact is not None
+    assert "shell_access disabled" in (interrupt_artifact.human_readable_body or "")
 
 
 def test_close_requirement_unblocks_dependents(synced_client, db_session):

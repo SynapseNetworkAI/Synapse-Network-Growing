@@ -207,6 +207,8 @@ def create_project_onboarding(
             autonomy_mode="recommend",
             allow_rebalance=True,
             allow_preemption=False,
+            capability_matrix=None,
+            interrupt_policy=None,
             scheduler_weight=1.0,
             max_parallel_requirements=1,
             portfolio_budget_points=100,

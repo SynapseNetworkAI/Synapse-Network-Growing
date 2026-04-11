@@ -39,6 +39,19 @@ const POLICIES = [
     autonomy_mode: 'execute_with_approval',
     allow_rebalance: true,
     allow_preemption: false,
+    capability_matrix: {
+      shell_access: true,
+      git_read: true,
+      git_write: true,
+      git_push: false,
+      network_access: false,
+      publish: false,
+    },
+    interrupt_policy: {
+      operator_confirmation_actions: ['git_push', 'publish'],
+      auto_pause_on_events: ['capability_denied', 'policy_violation'],
+      auto_abort_on_events: ['forbidden_write'],
+    },
     scheduler_weight: 1.4,
     max_parallel_requirements: 2,
     portfolio_budget_points: 130,
@@ -111,6 +124,8 @@ describe('ProjectPolicies', () => {
     fireEvent.change(screen.getByLabelText('调度权重'), { target: { value: '1.8' } })
     fireEvent.change(screen.getByLabelText('项目并行槽位'), { target: { value: '3' } })
     fireEvent.change(screen.getByLabelText('项目预算'), { target: { value: '160' } })
+    fireEvent.click(screen.getByLabelText('允许 git push'))
+    fireEvent.click(screen.getByLabelText('允许 publish'))
     fireEvent.click(screen.getByTestId('project-policy-save-1'))
 
     await waitFor(() => {
@@ -119,6 +134,13 @@ describe('ProjectPolicies', () => {
         release_mode: 'manual',
         status: 'active',
         autonomy_mode: 'execute_autonomously',
+        capability_matrix: expect.objectContaining({
+          git_push: true,
+          publish: true,
+        }),
+        interrupt_policy: expect.objectContaining({
+          operator_confirmation_actions: ['git_push', 'publish'],
+        }),
         scheduler_weight: 1.8,
         max_parallel_requirements: 3,
         portfolio_budget_points: 160,

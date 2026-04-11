@@ -1194,6 +1194,97 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         _dispatch_next_step_for_requirement(requirement.id)
 
 
+def _interrupt_step_for_policy(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+) -> bool:
+    policy = _json_loads(getattr(step, "approval_policy_json", None), {})
+    if not isinstance(policy, dict) or not policy:
+        return False
+
+    approval_type: str | None = None
+    event_type: str | None = None
+    reason = ""
+
+    if bool(policy.get("deny_execution")):
+        approval_type = "capability_policy_review"
+        event_type = "capability_denied"
+        reason = "; ".join(str(item) for item in policy.get("deny_reasons") or [] if str(item).strip()) or "step denied by capability matrix"
+    elif bool(policy.get("requires_operator_confirmation")):
+        approval_type = "step_operator_confirmation"
+        event_type = "operator_confirmation_required"
+        actions = ", ".join(str(item) for item in policy.get("operator_confirmation_actions") or [] if str(item).strip())
+        reason = f"operator confirmation required before step may use: {actions}" if actions else "operator confirmation required"
+    else:
+        return False
+
+    interrupt_policy = policy.get("interrupt_policy") or {}
+    auto_abort_events = set(str(item) for item in interrupt_policy.get("auto_abort_on_events") or [] if str(item).strip())
+    auto_pause_events = set(str(item) for item in interrupt_policy.get("auto_pause_on_events") or [] if str(item).strip())
+
+    existing = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.step_id == step.id,
+        ApprovalRequestRow.approval_type == approval_type,
+        ApprovalRequestRow.status == "pending",
+    ).first()
+    if existing is None:
+        db.add(
+            ApprovalRequestRow(
+                requirement_id=requirement.id,
+                workflow_run_id=workflow_run.id,
+                step_id=step.id,
+                approval_type=approval_type,
+                status="pending",
+                reviewer="operator",
+                comment=reason,
+            )
+        )
+    _create_artifact(
+        db,
+        requirement_id=step.requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="capability_interrupt",
+        content_summary=reason[:200],
+        human_readable_body=reason,
+        machine_readable_payload={
+            "step_id": _as_int(step.id),
+            "step_key": str(step.step_key),
+            "step_type": str(step.step_type),
+            "event_type": event_type,
+            "approval_type": approval_type,
+            "approval_policy": policy,
+            "triggered_at": utcnow().isoformat(),
+        },
+    )
+    step.status = "blocked"
+    step.completed_at = None
+    if event_type in auto_abort_events:
+        workflow_run.status = "failed"
+        workflow_run.completed_at = utcnow()
+        requirement.status = "needs_revision"
+    elif event_type in auto_pause_events or approval_type == "step_operator_confirmation":
+        workflow_run.status = "paused"
+        requirement.status = "blocked"
+    else:
+        workflow_run.status = "paused"
+        requirement.status = "blocked"
+    _record_step_event(db, step.id, event_type or "policy_interrupt", reason)
+    _logger.warning(
+        "event=step_policy_interrupt requirement_id=%s workflow_run_id=%s step_id=%s event=%s reason=%s",
+        requirement.id,
+        workflow_run.id,
+        step.id,
+        event_type,
+        reason,
+    )
+    return True
+
+
 def _dispatch_next_step_for_requirement(requirement_id: int):
     db = SessionLocal()
     try:
@@ -1231,6 +1322,9 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
         for step in steps:
             if step.status != "ready":
                 continue
+            if _interrupt_step_for_policy(db, requirement, workflow_run, step):
+                db.commit()
+                return
             if step.step_type == "closeout":
                 _auto_complete_closeout(db, requirement, workflow_run, step)
                 _record_step_event(db, step.id, "status_change", "completed (auto-closeout)")
@@ -1377,7 +1471,7 @@ def _create_workflow_steps(
             file_scope_json=json.dumps(step_packet.get("file_scope") or {}),
             validation_targets_json=json.dumps(step_packet.get("validation_targets") or []),
             failure_policy_json=json.dumps(step_packet.get("failure_policy") or {}),
-            approval_policy_json=json.dumps({}),
+            approval_policy_json=json.dumps(step_packet.get("approval_policy") or {}),
         )
         db.add(step)
         db.flush()
@@ -1452,6 +1546,11 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
         project_policy_summary = project_policy_summary_markdown(db, target_path)
         if project_policy_summary:
             parts.append(project_policy_summary)
+    approval_policy = _json_loads(getattr(step, "approval_policy_json", None), {})
+    capability_lines = _approval_policy_markdown_lines(approval_policy)
+    if capability_lines:
+        parts.append("\n## Capability Contract")
+        parts.extend(capability_lines)
     parts.append(f"\n## Done When\n{step.done_when_markdown}")
 
     # Include handoff summaries from completed predecessor steps (Markdown, not raw JSON)
@@ -1484,6 +1583,70 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
             parts.append(f"\n## {artifact.artifact_type}: {artifact.content_summary}")
             parts.append(artifact.human_readable_body[:3000])
     return "\n".join(parts)
+
+
+def _approval_policy_markdown_lines(policy: dict[str, Any]) -> list[str]:
+    if not isinstance(policy, dict) or not policy:
+        return []
+    lines: list[str] = []
+    required = [str(item) for item in policy.get("required_capabilities") or [] if str(item).strip()]
+    if required:
+        lines.append(f"- Required capabilities: {', '.join(required)}")
+    matrix = policy.get("capability_matrix") or {}
+    if isinstance(matrix, dict) and matrix:
+        summary = ", ".join(
+            f"{key}={'yes' if bool(matrix.get(key)) else 'no'}"
+            for key in ("shell_access", "git_read", "git_write", "git_push", "network_access", "publish")
+        )
+        lines.append(f"- Effective matrix: {summary}")
+    confirmation = [str(item) for item in policy.get("operator_confirmation_actions") or [] if str(item).strip()]
+    if confirmation:
+        lines.append(f"- Operator confirmation actions: {', '.join(confirmation)}")
+    deny_reasons = [str(item) for item in policy.get("deny_reasons") or [] if str(item).strip()]
+    if deny_reasons:
+        lines.append(f"- Denied actions: {'; '.join(deny_reasons)}")
+    interrupt_policy = policy.get("interrupt_policy") or {}
+    if isinstance(interrupt_policy, dict):
+        pause_events = ", ".join(str(item) for item in interrupt_policy.get("auto_pause_on_events") or [] if str(item).strip()) or "none"
+        abort_events = ", ".join(str(item) for item in interrupt_policy.get("auto_abort_on_events") or [] if str(item).strip()) or "none"
+        lines.append(f"- Interrupt policy: pause on {pause_events}; abort on {abort_events}")
+    return lines
+
+
+def _step_required_capabilities_for_type(step_type: str) -> list[str]:
+    required = ["git_read"]
+    if step_type in {"research", "synthesis", "review", "test", "implementation", "bugfix"}:
+        required.append("shell_access")
+    if step_type in {"implementation", "bugfix"}:
+        required.append("git_write")
+    ordered: list[str] = []
+    for key in ("shell_access", "git_read", "git_write", "git_push", "network_access", "publish"):
+        if key in required and key not in ordered:
+            ordered.append(key)
+    return ordered
+
+
+def _derived_approval_policy(step_type: str, base_policy: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(base_policy, dict):
+        base_policy = {}
+    capability_matrix = dict(base_policy.get("capability_matrix") or {})
+    interrupt_policy = dict(base_policy.get("interrupt_policy") or {})
+    required_capabilities = _step_required_capabilities_for_type(step_type)
+    denied = [name for name in required_capabilities if capability_matrix and not bool(capability_matrix.get(name))]
+    confirmation = [
+        name
+        for name in required_capabilities
+        if name in set(interrupt_policy.get("operator_confirmation_actions") or [])
+    ]
+    return {
+        "required_capabilities": required_capabilities,
+        "capability_matrix": capability_matrix,
+        "interrupt_policy": interrupt_policy,
+        "requires_operator_confirmation": bool(confirmation),
+        "operator_confirmation_actions": confirmation,
+        "deny_execution": bool(denied),
+        "deny_reasons": [f"{name} disabled by project capability matrix" for name in denied],
+    }
 
 
 def _plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
@@ -1677,6 +1840,7 @@ def _create_bugfix_branch(
         review_targets = inherited_targets
     if failed_step.step_type == "test" and isinstance(inherited_targets, list) and inherited_targets:
         test_targets = inherited_targets
+    base_approval_policy = _json_loads(getattr(failed_step, "approval_policy_json", None), {})
 
     bugfix_step = WorkflowStepRow(
         workflow_run_id=workflow_run.id,
@@ -1694,7 +1858,7 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps([]),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps({}),
+        approval_policy_json=json.dumps(_derived_approval_policy("bugfix", base_approval_policy)),
     )
     db.add(bugfix_step)
     db.flush()
@@ -1716,7 +1880,7 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps(review_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps({}),
+        approval_policy_json=json.dumps(_derived_approval_policy("review", base_approval_policy)),
     )
     db.add(review_step)
     db.flush()
@@ -1737,7 +1901,7 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps(test_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps({}),
+        approval_policy_json=json.dumps(_derived_approval_policy("test", base_approval_policy)),
     )
     db.add(test_step)
     db.flush()
@@ -2528,6 +2692,26 @@ def _delivery_contract_markdown(payload: dict[str, Any]) -> str:
         lines.append(
             f"- Manual approval: {'yes' if payload.get('requires_manual_approval') else 'no'}"
         )
+    capability_matrix = payload.get("capability_matrix") or {}
+    if isinstance(capability_matrix, dict) and capability_matrix:
+        lines.extend(["", "## Capability Matrix"])
+        for key, value in capability_matrix.items():
+            lines.append(f"- {key}: {'enabled' if value else 'disabled'}")
+    interrupt_policy = payload.get("interrupt_policy") or {}
+    if isinstance(interrupt_policy, dict) and interrupt_policy:
+        lines.extend(["", "## Interrupt Policy"])
+        lines.append(
+            "- Operator confirmation actions: "
+            + (", ".join(str(item) for item in interrupt_policy.get("operator_confirmation_actions") or [] if str(item).strip()) or "none")
+        )
+        lines.append(
+            "- Auto-pause on: "
+            + (", ".join(str(item) for item in interrupt_policy.get("auto_pause_on_events") or [] if str(item).strip()) or "none")
+        )
+        lines.append(
+            "- Auto-abort on: "
+            + (", ".join(str(item) for item in interrupt_policy.get("auto_abort_on_events") or [] if str(item).strip()) or "none")
+        )
     required_checks = [str(item) for item in payload.get("required_checks") or [] if str(item).strip()]
     if required_checks:
         lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
@@ -2754,6 +2938,13 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
     ]
     intelligence = planner_output.get("project_intelligence") or {}
     intelligence_summary = str(intelligence.get("summary_markdown") or "").strip()
+    execution_controls = planner_output.get("execution_controls") or {}
+    capability_matrix = execution_controls.get("capability_matrix") or {}
+    capability_summary = ", ".join(
+        f"{key}={'yes' if bool(capability_matrix.get(key)) else 'no'}"
+        for key in ("shell_access", "git_read", "git_write", "git_push", "network_access", "publish")
+        if key in capability_matrix
+    )
     return "\n".join(
         [
             f"# Plan\n",
@@ -2766,6 +2957,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             f"- Tester: {assignments.tester_agent_id}",
             "## Project Intelligence",
             *( [f"- {line}" for line in intelligence_summary.splitlines() if line.strip()] or ["- No project routing intelligence was attached."] ),
+            "## Capability Matrix",
+            *( [f"- {capability_summary}"] if capability_summary else ["- No explicit capability matrix attached."] ),
             "## Delivery Contract",
             *(delivery_summary_lines or ["- Delivery contract will be generated for branch/review-ready/publish/rollback."]),
             "## Validation Contract",

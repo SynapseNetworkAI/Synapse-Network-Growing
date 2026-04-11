@@ -45,6 +45,11 @@
 1. shell、git、network、publish、rollback、delete 等高风险能力必须明确授权。
 2. capability matrix 和 interrupt policy 必须先于更强自动化能力落地。
 3. 越危险的能力，越不能走默认直通。
+4. project policy 必须显式声明：
+   `shell_access`、`git_read`、`git_write`、`git_push`、`network_access`、`publish`。
+5. interrupt policy 必须显式声明：
+   哪些动作需要 operator confirmation，哪些事件要自动暂停，哪些事件要自动终止。
+6. workflow step 不得隐式继承高风险能力；必须在 planner 输出和 step policy 中可见、可追踪。
 
 ## 8. 所有关键自动化都必须可观测
 
@@ -67,3 +72,9 @@
 3. 做 context budget + compact + stale memory verify。
 4. 把 runtime / subagent lifecycle 做成 artifacts 和 telemetry。
 5. 把 recovery narrative / incident taxonomy 做到详情页和 signal 里。
+
+当前状态：
+
+1. `research + synthesis` 已落地。
+2. capability matrix + interrupt policy 已落地到 `project policy -> planner -> workflow step -> delivery contract` 链路。
+3. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。

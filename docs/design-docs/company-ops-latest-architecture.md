@@ -27,6 +27,57 @@
 4. 多代理用于隔离不确定性
 5. runtime / subagent 必须有生命周期与 cleanup
 
+## 1.2 新增的执行约束层
+
+现在 `project policy` 不再只负责路径和发布模式，还负责显式执行约束。
+
+每个项目策略现在都包含两组控制面：
+
+1. `capability_matrix`
+2. `interrupt_policy`
+
+### capability matrix
+
+当前统一字段为：
+
+1. `shell_access`
+2. `git_read`
+3. `git_write`
+4. `git_push`
+5. `network_access`
+6. `publish`
+
+它们的作用不是“给 UI 展示一下”，而是直接进入：
+
+1. planner output
+2. workflow step `approval_policy`
+3. delivery contract 的 `auto_publish_allowed`
+4. step dispatch 前的 policy interrupt
+
+### interrupt policy
+
+当前统一字段为：
+
+1. `operator_confirmation_actions`
+2. `auto_pause_on_events`
+3. `auto_abort_on_events`
+
+它定义了：
+
+1. 哪些动作必须转 operator confirmation
+2. 哪些事件要把 workflow 自动暂停
+3. 哪些事件要直接终止并转入 revision / incident 路径
+
+### 当前已接入的行为
+
+当前系统已经做到：
+
+1. planner 会把 capability/interrupt 约束写入每个 workflow step
+2. step prompt 会显式展示 capability contract，而不是让 agent 猜
+3. 如果某个 step 所需能力被 policy 禁用，dispatch 前会生成 `capability_interrupt` artifact
+4. 触发 `capability_denied` 时，workflow 会按 interrupt policy 自动 `pause / block`
+5. delivery contract 的 auto publish 只会在 `git_push + publish` 都允许、且不要求 operator confirmation 时开启
+
 ## 2. 当前推荐的数据库策略
 
 ## 2.1 是否要立刻换成更强的数据库

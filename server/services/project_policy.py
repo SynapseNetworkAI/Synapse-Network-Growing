@@ -9,6 +9,44 @@ from sqlalchemy.orm import Session
 
 from server.database import ProjectPolicyRow
 
+CAPABILITY_KEYS = (
+    "shell_access",
+    "git_read",
+    "git_write",
+    "git_push",
+    "network_access",
+    "publish",
+)
+INTERRUPT_CONFIRM_ACTIONS = ("shell_access", "git_write", "git_push", "network_access", "publish")
+INTERRUPT_PAUSE_EVENTS = (
+    "capability_denied",
+    "policy_violation",
+    "missing_required_checks",
+    "session_resume_failure",
+    "operator_confirmation_required",
+)
+INTERRUPT_ABORT_EVENTS = ("forbidden_write", "publish_without_gate")
+
+
+def default_capability_matrix(*, release_mode: str = "manual") -> dict[str, bool]:
+    auto_release = release_mode == "auto"
+    return {
+        "shell_access": True,
+        "git_read": True,
+        "git_write": True,
+        "git_push": auto_release,
+        "network_access": False,
+        "publish": auto_release,
+    }
+
+
+def default_interrupt_policy() -> dict[str, list[str]]:
+    return {
+        "operator_confirmation_actions": ["git_push", "publish"],
+        "auto_pause_on_events": ["capability_denied", "policy_violation", "missing_required_checks", "session_resume_failure"],
+        "auto_abort_on_events": ["forbidden_write", "publish_without_gate"],
+    }
+
 
 DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
     {
@@ -27,6 +65,11 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "execute_autonomously",
         "allow_rebalance": True,
         "allow_preemption": True,
+        "capability_matrix": {
+            **default_capability_matrix(release_mode="manual"),
+            "network_access": True,
+        },
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 1.2,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 140,
@@ -44,6 +87,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "execute_with_approval",
         "allow_rebalance": True,
         "allow_preemption": False,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 1.4,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 130,
@@ -61,6 +106,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "recommend",
         "allow_rebalance": True,
         "allow_preemption": False,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 1.0,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 100,
@@ -78,6 +125,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "execute_autonomously",
         "allow_rebalance": True,
         "allow_preemption": True,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 1.1,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 95,
@@ -95,6 +144,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "recommend",
         "allow_rebalance": True,
         "allow_preemption": False,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 0.9,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 80,
@@ -112,6 +163,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "autonomy_mode": "execute_with_approval",
         "allow_rebalance": True,
         "allow_preemption": False,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
         "scheduler_weight": 1.0,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 90,
@@ -122,6 +175,10 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
 
 def _json_dump_list(values: list[str]) -> str:
     return json.dumps(values, ensure_ascii=False)
+
+
+def _json_dump_dict(value: dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _json_load_list(raw: str | None, fallback: list[str] | None = None) -> list[str]:
@@ -136,6 +193,18 @@ def _json_load_list(raw: str | None, fallback: list[str] | None = None) -> list[
     return [str(item).strip() for item in data if str(item).strip()]
 
 
+def _json_load_dict(raw: str | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not raw:
+        return dict(fallback or {})
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return dict(fallback or {})
+    if not isinstance(data, dict):
+        return dict(fallback or {})
+    return dict(data)
+
+
 def _normalize_globs(values: list[str] | None, *, default: list[str]) -> list[str]:
     normalized = [str(value).strip() for value in (values or []) if str(value).strip()]
     return normalized or list(default)
@@ -143,6 +212,84 @@ def _normalize_globs(values: list[str] | None, *, default: list[str]) -> list[st
 
 def _normalize_root_path(value: str) -> str:
     return str(Path(value.strip()).resolve()) if value.strip() else ""
+
+
+def _normalize_capability_matrix(value: dict[str, Any] | None, *, release_mode: str = "manual") -> dict[str, bool]:
+    base = default_capability_matrix(release_mode=release_mode)
+    raw = value or {}
+    return {key: bool(raw.get(key, base[key])) for key in CAPABILITY_KEYS}
+
+
+def _normalize_interrupt_policy(value: dict[str, Any] | None) -> dict[str, list[str]]:
+    base = default_interrupt_policy()
+    raw = value or {}
+
+    def _normalize_list(key: str, allowed: tuple[str, ...], fallback: list[str]) -> list[str]:
+        items = raw.get(key, fallback)
+        if not isinstance(items, list):
+            items = fallback
+        result: list[str] = []
+        for item in items:
+            text = str(item).strip()
+            if text and text in allowed and text not in result:
+                result.append(text)
+        return result
+
+    return {
+        "operator_confirmation_actions": _normalize_list(
+            "operator_confirmation_actions",
+            INTERRUPT_CONFIRM_ACTIONS,
+            list(base["operator_confirmation_actions"]),
+        ),
+        "auto_pause_on_events": _normalize_list(
+            "auto_pause_on_events",
+            INTERRUPT_PAUSE_EVENTS,
+            list(base["auto_pause_on_events"]),
+        ),
+        "auto_abort_on_events": _normalize_list(
+            "auto_abort_on_events",
+            INTERRUPT_ABORT_EVENTS,
+            list(base["auto_abort_on_events"]),
+        ),
+    }
+
+
+def aggregate_execution_controls(project_policies: list[dict[str, Any]]) -> dict[str, Any]:
+    capability_matrix = default_capability_matrix()
+    interrupt_policy = default_interrupt_policy()
+    policy_summaries: list[dict[str, Any]] = []
+    for policy in project_policies:
+        normalized_capabilities = _normalize_capability_matrix(
+            policy.get("capability_matrix") if isinstance(policy, dict) else None,
+            release_mode=str(policy.get("release_mode") or "manual"),
+        )
+        normalized_interrupt = _normalize_interrupt_policy(
+            policy.get("interrupt_policy") if isinstance(policy, dict) else None
+        )
+        capability_matrix = {
+            key: bool(capability_matrix.get(key, True) and normalized_capabilities.get(key, False))
+            for key in CAPABILITY_KEYS
+        }
+        for field in ("operator_confirmation_actions", "auto_pause_on_events", "auto_abort_on_events"):
+            merged: list[str] = []
+            for item in list(interrupt_policy.get(field) or []) + list(normalized_interrupt.get(field) or []):
+                text = str(item).strip()
+                if text and text not in merged:
+                    merged.append(text)
+            interrupt_policy[field] = merged
+        policy_summaries.append(
+            {
+                "project_key": str(policy.get("project_key") or ""),
+                "display_name": str(policy.get("display_name") or ""),
+                "capability_matrix": normalized_capabilities,
+                "interrupt_policy": normalized_interrupt,
+            }
+        )
+    return {
+        "capability_matrix": capability_matrix,
+        "interrupt_policy": interrupt_policy,
+        "policy_summaries": policy_summaries,
+    }
 
 
 def ensure_default_project_policies(db: Session) -> None:
@@ -168,6 +315,10 @@ def ensure_default_project_policies(db: Session) -> None:
                 autonomy_mode=str(policy.get("autonomy_mode") or "recommend"),
                 allow_rebalance=bool(policy.get("allow_rebalance", True)),
                 allow_preemption=bool(policy.get("allow_preemption", False)),
+                capability_matrix_json=_json_dump_dict(
+                    _normalize_capability_matrix(policy.get("capability_matrix"), release_mode=str(policy.get("release_mode") or "manual"))
+                ),
+                interrupt_policy_json=_json_dump_dict(_normalize_interrupt_policy(policy.get("interrupt_policy"))),
                 scheduler_weight=float(policy.get("scheduler_weight") or 1.0),
                 max_parallel_requirements=int(policy.get("max_parallel_requirements") or 1),
                 portfolio_budget_points=max(20, int(policy.get("portfolio_budget_points") or 100)),
@@ -194,6 +345,13 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
         "autonomy_mode": str(getattr(row, "autonomy_mode", None) or "recommend"),
         "allow_rebalance": bool(getattr(row, "allow_rebalance", True)),
         "allow_preemption": bool(getattr(row, "allow_preemption", False)),
+        "capability_matrix": _normalize_capability_matrix(
+            _json_load_dict(getattr(row, "capability_matrix_json", None), {}),
+            release_mode=str(row.release_mode or "manual"),
+        ),
+        "interrupt_policy": _normalize_interrupt_policy(
+            _json_load_dict(getattr(row, "interrupt_policy_json", None), {})
+        ),
         "scheduler_weight": float(row.scheduler_weight or 1.0),
         "max_parallel_requirements": int(row.max_parallel_requirements or 1),
         "portfolio_budget_points": max(20, int(getattr(row, "portfolio_budget_points", 100) or 100)),
@@ -228,6 +386,8 @@ def create_project_policy(
     autonomy_mode: str,
     allow_rebalance: bool,
     allow_preemption: bool,
+    capability_matrix: dict[str, Any] | None,
+    interrupt_policy: dict[str, Any] | None,
     scheduler_weight: float,
     max_parallel_requirements: int,
     portfolio_budget_points: int,
@@ -253,6 +413,10 @@ def create_project_policy(
         autonomy_mode=(autonomy_mode or "recommend").strip() or "recommend",
         allow_rebalance=bool(allow_rebalance),
         allow_preemption=bool(allow_preemption),
+        capability_matrix_json=_json_dump_dict(
+            _normalize_capability_matrix(capability_matrix, release_mode=release_mode)
+        ),
+        interrupt_policy_json=_json_dump_dict(_normalize_interrupt_policy(interrupt_policy)),
         scheduler_weight=max(0.2, float(scheduler_weight or 1.0)),
         max_parallel_requirements=max(1, int(max_parallel_requirements or 1)),
         portfolio_budget_points=max(20, int(portfolio_budget_points or 100)),
@@ -279,6 +443,8 @@ def update_project_policy(
     autonomy_mode: str | None = None,
     allow_rebalance: bool | None = None,
     allow_preemption: bool | None = None,
+    capability_matrix: dict[str, Any] | None = None,
+    interrupt_policy: dict[str, Any] | None = None,
     scheduler_weight: float | None = None,
     max_parallel_requirements: int | None = None,
     portfolio_budget_points: int | None = None,
@@ -313,6 +479,13 @@ def update_project_policy(
         row.allow_rebalance = bool(allow_rebalance)
     if allow_preemption is not None:
         row.allow_preemption = bool(allow_preemption)
+    if capability_matrix is not None:
+        release_mode_for_matrix = release_mode if release_mode is not None else str(row.release_mode or "manual")
+        row.capability_matrix_json = _json_dump_dict(
+            _normalize_capability_matrix(capability_matrix, release_mode=release_mode_for_matrix)
+        )
+    if interrupt_policy is not None:
+        row.interrupt_policy_json = _json_dump_dict(_normalize_interrupt_policy(interrupt_policy))
     if scheduler_weight is not None:
         row.scheduler_weight = max(0.2, float(scheduler_weight))
     if max_parallel_requirements is not None:
@@ -441,4 +614,15 @@ def project_policy_summary_markdown(db: Session, target_project_path: str | None
             lines.append(f"  Allowed write globs: {', '.join(data['allowed_write_globs'])}")
         if data["forbidden_globs"]:
             lines.append(f"  Forbidden globs: {', '.join(data['forbidden_globs'])}")
+        capability_matrix = data.get("capability_matrix") or {}
+        capability_summary = ", ".join(
+            f"{key}={'yes' if capability_matrix.get(key) else 'no'}"
+            for key in CAPABILITY_KEYS
+        )
+        lines.append(f"  Capability matrix: {capability_summary}")
+        interrupt_policy = data.get("interrupt_policy") or {}
+        confirmation = ", ".join(interrupt_policy.get("operator_confirmation_actions") or []) or "none"
+        pause_events = ", ".join(interrupt_policy.get("auto_pause_on_events") or []) or "none"
+        abort_events = ", ".join(interrupt_policy.get("auto_abort_on_events") or []) or "none"
+        lines.append(f"  Interrupt policy: confirm={confirmation}; pause={pause_events}; abort={abort_events}")
     return "\n".join(lines)

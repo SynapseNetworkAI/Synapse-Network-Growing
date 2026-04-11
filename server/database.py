@@ -179,6 +179,8 @@ class ProjectPolicyRow(Base):
     autonomy_mode = Column(Text, nullable=False, default="recommend")
     allow_rebalance = Column(Boolean, nullable=False, default=True)
     allow_preemption = Column(Boolean, nullable=False, default=False)
+    capability_matrix_json = Column(Text, nullable=False, default="{}")
+    interrupt_policy_json = Column(Text, nullable=False, default="{}")
     scheduler_weight = Column(Float, nullable=False, default=1.0)
     max_parallel_requirements = Column(Integer, nullable=False, default=1)
     portfolio_budget_points = Column(Integer, nullable=False, default=100)
@@ -492,6 +494,8 @@ def _migrate(engine_):
             "autonomy_mode": "TEXT DEFAULT 'recommend'",
             "allow_rebalance": "BOOLEAN DEFAULT 1",
             "allow_preemption": "BOOLEAN DEFAULT 0",
+            "capability_matrix_json": "TEXT DEFAULT '{}'",
+            "interrupt_policy_json": "TEXT DEFAULT '{}'",
             "scheduler_weight": "FLOAT DEFAULT 1.0",
             "max_parallel_requirements": "INTEGER DEFAULT 1",
             "portfolio_budget_points": "INTEGER DEFAULT 100",

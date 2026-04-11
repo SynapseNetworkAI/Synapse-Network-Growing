@@ -295,8 +295,12 @@ npm run dev
 2. 定义项目根路径。
 3. 定义允许写入与禁止写入范围。
 4. 定义 required checks。
-5. 设置 release mode、manual approval、autonomy mode。
-6. 设置 scheduler weight、max parallel requirements、budget。
+5. 设置 capability matrix：
+   `shell / git_read / git_write / git_push / network / publish`
+6. 设置 interrupt policy：
+   哪些动作要人工确认、哪些事件自动暂停、哪些事件自动终止。
+7. 设置 release mode、manual approval、autonomy mode。
+8. 设置 scheduler weight、max parallel requirements、budget。
 
 ### 正确使用方式
 
@@ -310,8 +314,33 @@ npm run dev
 4. write scope
 5. forbidden scope
 6. release policy
+7. capability matrix
+8. interrupt policy
 
 这样 requirement planner、scheduler 和 delivery gate 才能安全地自动工作。
+
+### capability matrix 怎么配
+
+推荐默认值：
+
+1. `shell_access` 开
+2. `git_read` 开
+3. `git_write` 开
+4. `git_push` 关
+5. `network_access` 关
+6. `publish` 关
+
+只有当某个项目真的准备好了自动发布链路时，再打开 `git_push` 和 `publish`。
+
+### interrupt policy 怎么配
+
+推荐默认值：
+
+1. `operator_confirmation_actions` 包含 `git_push`、`publish`
+2. `auto_pause_on_events` 包含 `capability_denied`、`policy_violation`、`missing_required_checks`
+3. `auto_abort_on_events` 包含 `forbidden_write`、`publish_without_gate`
+
+如果某个 workflow step 需要的能力被禁用，系统会在调度前创建 `capability_interrupt` artifact，并把 requirement 收口到 `blocked / paused`，而不是硬跑。
 
 ## 3.6 任务看板 `/tasks`
 

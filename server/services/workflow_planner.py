@@ -26,7 +26,13 @@ from server import config
 from server.database import AgentRow, ArtifactRow, RequirementRow
 from server.services.execution_resolver import suggest_task_execution
 from server.services.project_intelligence import resolve_requirement_routing
-from server.services.project_policy import apply_project_policies_to_scope, project_policy_to_dict, resolve_project_policies_for_target
+from server.services.project_policy import (
+    CAPABILITY_KEYS,
+    aggregate_execution_controls,
+    apply_project_policies_to_scope,
+    project_policy_to_dict,
+    resolve_project_policies_for_target,
+)
 
 logger = logging.getLogger("ops-dashboard.workflow_planner")
 
@@ -329,6 +335,7 @@ def _build_delivery_contract(
     requirement: RequirementRow,
     target_path: str | None,
     project_policies: list[dict[str, Any]],
+    execution_controls: dict[str, Any],
 ) -> dict[str, Any]:
     required_checks: list[str] = []
     for policy in project_policies:
@@ -338,6 +345,8 @@ def _build_delivery_contract(
 
     release_mode = _merge_release_mode(project_policies)
     requires_manual_approval = any(bool(policy.get("requires_manual_approval")) for policy in project_policies)
+    capability_matrix = dict(execution_controls.get("capability_matrix") or {})
+    interrupt_policy = dict(execution_controls.get("interrupt_policy") or {})
     branch_name = f"ops/req-{getattr(requirement, 'id', 'x')}-{_slugify_branch_fragment(requirement.title)[:40]}"
     base_branch = "main"
     root_target = target_path or (project_policies[0]["root_path"] if project_policies else None)
@@ -357,21 +366,71 @@ def _build_delivery_contract(
         "release_mode": release_mode,
         "requires_manual_approval": requires_manual_approval,
         "required_checks": required_checks,
-        "auto_publish_allowed": release_mode == "auto" and not requires_manual_approval and not required_checks,
+        "required_capabilities": ["git_push", "publish"],
+        "capability_matrix": capability_matrix,
+        "interrupt_policy": interrupt_policy,
+        "auto_publish_allowed": (
+            release_mode == "auto"
+            and not requires_manual_approval
+            and not required_checks
+            and bool(capability_matrix.get("git_push"))
+            and bool(capability_matrix.get("publish"))
+            and "publish" not in set(interrupt_policy.get("operator_confirmation_actions") or [])
+        ),
         "managed_projects": [
             {
                 "project_key": policy["project_key"],
                 "display_name": policy["display_name"],
                 "root_path": policy["root_path"],
                 "release_mode": policy["release_mode"],
+                "capability_matrix": policy.get("capability_matrix") or {},
+                "interrupt_policy": policy.get("interrupt_policy") or {},
             }
             for policy in project_policies
         ],
         "rollback_hint_markdown": rollback_hint,
         "summary_markdown": (
             f"Ship through branch `{branch_name}`, validate before promotion, surface a review-ready bundle, "
-            f"and only publish when release mode `{release_mode}` allows it."
+            f"and only publish when release mode `{release_mode}` allows it. "
+            f"Capability gate: git_push={'yes' if capability_matrix.get('git_push') else 'no'}, "
+            f"publish={'yes' if capability_matrix.get('publish') else 'no'}."
         ),
+    }
+
+
+def _step_required_capabilities(step: dict[str, Any]) -> list[str]:
+    step_type = str(step.get("step_type") or "")
+    required = ["git_read"]
+    if step_type in {"research", "synthesis", "review", "test", "implementation", "bugfix"}:
+        required.append("shell_access")
+    if step_type in {"implementation", "bugfix"}:
+        required.append("git_write")
+    ordered: list[str] = []
+    for key in CAPABILITY_KEYS:
+        if key in required and key not in ordered:
+            ordered.append(key)
+    return ordered
+
+
+def _step_approval_policy(step: dict[str, Any], execution_controls: dict[str, Any]) -> dict[str, Any]:
+    required_capabilities = _step_required_capabilities(step)
+    capability_matrix = dict(execution_controls.get("capability_matrix") or {})
+    interrupt_policy = dict(execution_controls.get("interrupt_policy") or {})
+    denied = [name for name in required_capabilities if not bool(capability_matrix.get(name))]
+    confirmation = [
+        name
+        for name in required_capabilities
+        if name in set(interrupt_policy.get("operator_confirmation_actions") or [])
+    ]
+    deny_reasons = [f"{name} disabled by project capability matrix" for name in denied]
+    return {
+        "required_capabilities": required_capabilities,
+        "capability_matrix": capability_matrix,
+        "interrupt_policy": interrupt_policy,
+        "requires_operator_confirmation": bool(confirmation),
+        "operator_confirmation_actions": confirmation,
+        "deny_execution": bool(denied),
+        "deny_reasons": deny_reasons,
     }
 
 
@@ -438,6 +497,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     description = f"{requirement.title}\n\n{requirement.description_markdown}"
     target_path = getattr(requirement, "target_project_path", None)
     project_policies = [project_policy_to_dict(row) for row in resolve_project_policies_for_target(db, target_path, require_active=False)]
+    execution_controls = aggregate_execution_controls(project_policies)
     template_payload = _latest_requirement_template_payload(db, int(requirement.id))
     template_checks = _template_acceptance_checks(template_payload)
     routing_context = resolve_requirement_routing(
@@ -469,7 +529,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         reviewer_agent_id=reviewer_agent_id,
         tester_agent_id=tester_agent_id,
     )
-    delivery_contract = _build_delivery_contract(requirement, target_path, project_policies)
+    delivery_contract = _build_delivery_contract(requirement, target_path, project_policies, execution_controls)
 
     # Mode 1: try agent full-plan first
     planning_mode = "full_plan"
@@ -567,6 +627,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             target_path,
             write=step.get("step_type") == "implementation",
         )
+        step["approval_policy"] = _step_approval_policy(step, execution_controls)
 
     review_check = {
         "check_key": "review_passed",
@@ -622,6 +683,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
         "project_policies": project_policies,
+        "execution_controls": execution_controls,
         "project_intelligence": {
             "routing_mode": routing_context.get("routing_mode"),
             "readiness_status": routing_context.get("readiness_status"),

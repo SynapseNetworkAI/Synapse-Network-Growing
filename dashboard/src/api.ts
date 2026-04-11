@@ -212,6 +212,19 @@ export interface ProjectPolicy {
   autonomy_mode: string
   allow_rebalance: boolean
   allow_preemption: boolean
+  capability_matrix: {
+    shell_access: boolean
+    git_read: boolean
+    git_write: boolean
+    git_push: boolean
+    network_access: boolean
+    publish: boolean
+  }
+  interrupt_policy: {
+    operator_confirmation_actions: string[]
+    auto_pause_on_events: string[]
+    auto_abort_on_events: string[]
+  }
   scheduler_weight: number
   max_parallel_requirements: number
   portfolio_budget_points: number
@@ -741,6 +754,19 @@ export const api = {
     autonomy_mode?: string
     allow_rebalance?: boolean
     allow_preemption?: boolean
+    capability_matrix?: {
+      shell_access?: boolean
+      git_read?: boolean
+      git_write?: boolean
+      git_push?: boolean
+      network_access?: boolean
+      publish?: boolean
+    }
+    interrupt_policy?: {
+      operator_confirmation_actions?: string[]
+      auto_pause_on_events?: string[]
+      auto_abort_on_events?: string[]
+    }
     scheduler_weight?: number
     max_parallel_requirements?: number
     portfolio_budget_points?: number
@@ -758,6 +784,19 @@ export const api = {
     autonomy_mode?: string
     allow_rebalance?: boolean
     allow_preemption?: boolean
+    capability_matrix?: {
+      shell_access?: boolean
+      git_read?: boolean
+      git_write?: boolean
+      git_push?: boolean
+      network_access?: boolean
+      publish?: boolean
+    }
+    interrupt_policy?: {
+      operator_confirmation_actions?: string[]
+      auto_pause_on_events?: string[]
+      auto_abort_on_events?: string[]
+    }
     scheduler_weight?: number
     max_parallel_requirements?: number
     portfolio_budget_points?: number
