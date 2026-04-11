@@ -88,7 +88,7 @@ class _MockGatewayHandler(BaseHTTPRequestHandler):
                 "invocationId": MOCK_INVOCATION_ID,
                 "serviceId": MOCK_SERVICE_ID,
                 "status": "SUCCEEDED",
-                "costUsdc": str(MOCK_SERVICE_PRICE),
+                "chargedUsdc": MOCK_SERVICE_PRICE,
                 "result": {
                     "body": {
                         "ticker": "AAPL",
@@ -145,13 +145,13 @@ def run_demo(gateway_url: str, api_key: str, budget_usdc: float = 5.00):
     )
     print(f"      ✅  Invocation SUCCEEDED")
     print(f"          invocationId : {result.invocation_id}")
-    print(f"          cost paid    : ${result.costUsdc} USDC")
+    print(f"          cost paid    : ${result.charged_usdc} USDC")
     print(f"          status       : {result.status}")
     if result.result:
         body = result.result.get("body") or result.result
         print(f"          response     : {json.dumps(body, ensure_ascii=False)}")
 
-    remaining = round(budget_usdc - float(result.costUsdc), 6)
+    remaining = round(budget_usdc - float(result.charged_usdc), 6)
     print(f"\n      💰  Remaining budget (simulated): ${remaining:.2f} USDC")
     print("\n" + "=" * 60)
     print("  Task Complete. Machine-to-Machine payments — unlocked.")

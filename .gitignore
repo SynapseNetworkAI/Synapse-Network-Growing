@@ -221,3 +221,11 @@ dashboard/playwright-report/
 
 # agent-browser runtime state
 .agent-browser/
+
+# Agent task runtime artifacts (session logs, event streams, git diffs)
+copilot-session.stdout.log
+copilot-session.stderr.log
+copilot-session-events.jsonl
+copilot-session-state.json
+runtime-events.json
+file-changes.json

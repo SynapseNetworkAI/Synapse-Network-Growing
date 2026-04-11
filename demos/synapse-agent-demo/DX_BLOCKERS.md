@@ -8,6 +8,7 @@ updated_at: 2026-04-11
 author: DevRel-Agent
 target_repo: Synapse-Network-Sdk
 ---
+<!-- Updated by live gateway DX audit — 2026-04-11 -->
 
 # DX Blockers — SDK Quickstart End-to-End Validation
 
@@ -89,22 +90,25 @@ synapse-cli init --budget 5.00
 
 ---
 
-## ✅ Verified Working Flow (3 lines, real SDK)
+## ✅ Verified Working Flow (real SDK, real gateway)
 
 ```python
-from synapse_client import SynapseClient                        # Line 1
+from synapse_client import SynapseClient                         # Line 1
 
-client = SynapseClient(api_key="your_key")                      # Line 2
-services = client.search_services(query="market sentiment")     # Line 3 — discover
+client = SynapseClient(api_key="your_token")                     # Line 2
+services = client.search_services(query="market sentiment")      # Line 3 — discover
 
 service = services.services[0]
-result = client.invoke(                                          # Line 4 — invoke + pay
-    service.serviceId,
-    payload={"ticker": "AAPL"},
-    cost_usdc=float(service.price_usdc),
+result = client.invoke(                                           # Line 4 — invoke + pay
+    service.service_id,                          # snake_case field (canonical)
+    payload={"symbol": "ETH"},
+    cost_usdc=float(service.price_usdc),         # Decimal property → float
 )
-print(result.status, result.costUsdc)  # → SUCCEEDED  0.05
+print(result.status, result.charged_usdc)        # → SUCCEEDED  0.01
 ```
+
+> **Note:** `service.serviceId` and `service.serviceName` work as camelCase aliases.  
+> `result.charged_usdc` is the correct field (not `costUsdc`).
 
 Runnable demo (mock gateway, zero dependencies beyond SDK):
 ```bash
@@ -112,14 +116,40 @@ pip install synapse-client
 python demos/synapse-agent-demo/quickstart_demo.py --mock
 ```
 
+Full auth flow from private key (requires `eth-account`):
+```bash
+pip install "synapse-client[dev]"
+python demos/synapse-agent-demo/full_auth_flow.py --dev-key
+```
+
+---
+
+## 🔴 Blocker #6 — `InvocationResponse.costUsdc` Field Does Not Exist
+
+**Friction:** The initial demo used `result.costUsdc` to read back the charged amount.  
+**Reality:** `InvocationResponse` model has **`charged_usdc`** (snake_case, alias `chargedUsdc`).  
+`costUsdc` is silently stored as a Pydantic extra field if present, returning an untyped string rather than a float — a silent data type bug.
+
+```python
+# ❌ Wrong — untyped string from model_extra, returns None if gateway doesn't echo it
+print(result.costUsdc)
+
+# ✅ Correct — typed float field
+print(result.charged_usdc)
+```
+
+**Fix Applied (this repo):** `quickstart_demo.py` now uses `result.charged_usdc` and the mock gateway response sends `chargedUsdc` (matching the model alias).  
+**Required Action (SDK repo):** Add a deprecation shim `@property def costUsdc` if backward compat is needed.
+
 ---
 
 ## Summary Table
 
-| # | Severity | Issue | Fix Location |
-|---|----------|-------|-------------|
-| 1 | 🔴 Blocker | Package name `synapse-sdk` vs `synapse-client` | SDK `pyproject.toml` or all marketing copy |
-| 2 | 🔴 Blocker | `AgentWallet` class missing | SDK: add wrapper or update docs |
-| 3 | 🔴 Blocker | `wallet.mcp_tool()` not implemented | SDK: implement MCP adapter |
-| 4 | 🟡 Warning | `synapse-cli` CLI not defined | SDK `pyproject.toml` scripts |
-| 5 | 🟡 Warning | No API key provisioning guide | Docs / README |
+| # | Severity | Issue | Status | Fix Location |
+|---|----------|-------|--------|-------------|
+| 1 | 🔴 Blocker | Package name `synapse-sdk` vs `synapse-client` | ⚠️ Open | SDK `pyproject.toml` or all marketing copy |
+| 2 | 🔴 Blocker | `AgentWallet` class missing | ⚠️ Open | SDK: add wrapper or update docs |
+| 3 | 🔴 Blocker | `wallet.mcp_tool()` not implemented | ⚠️ Open | SDK: implement MCP adapter |
+| 4 | 🟡 Warning | `synapse-cli` CLI not defined | ⚠️ Open | SDK `pyproject.toml` scripts |
+| 5 | 🟡 Warning | No API key provisioning guide | ✅ Fixed | Added `full_auth_flow.py` demo |
+| 6 | 🔴 Blocker | `result.costUsdc` field bug (should be `charged_usdc`) | ✅ Fixed | `quickstart_demo.py` patched |
