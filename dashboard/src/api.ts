@@ -224,6 +224,27 @@ export interface ProjectOnboarding {
   updated_at: string | null
 }
 
+export interface OptimizationSignal {
+  id: number
+  dedupe_key: string
+  signal_type: string
+  source_kind: string
+  status: string
+  title: string
+  summary: string
+  severity: string
+  confidence: number
+  project_key: string | null
+  project_root_path: string | null
+  routing_target_path: string | null
+  evidence: Record<string, unknown>[]
+  occurrence_count: number
+  latest_evidence_at: string | null
+  converted_requirement_id: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface Requirement {
   id: number
   title: string
@@ -504,6 +525,17 @@ export const api = {
     requires_manual_approval?: boolean
     notes?: string | null
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getOptimizationSignals: (status?: string, refresh?: boolean) => {
+    const params = new URLSearchParams()
+    if (status) params.set('status', status)
+    if (refresh) params.set('refresh', 'true')
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<OptimizationSignal[]>(`/optimization-signals${q}`)
+  },
+  refreshOptimizationSignals: () => request<OptimizationSignal[]>('/optimization-signals/refresh', { method: 'POST' }),
+  dismissOptimizationSignal: (id: number) => request<OptimizationSignal>(`/optimization-signals/${id}/dismiss`, { method: 'POST' }),
+  createRequirementFromSignal: (id: number, data?: { title?: string; auto_start?: boolean }) =>
+    request<RequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
   // Requirements
   getRequirements: (status?: string, sort?: string) => {

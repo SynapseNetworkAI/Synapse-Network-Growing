@@ -5,6 +5,7 @@ import logging
 from sqlalchemy import (
     Column,
     Integer,
+    Float,
     Text,
     Boolean,
     DateTime,
@@ -206,6 +207,37 @@ class ProjectOnboardingRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     policy = relationship("ProjectPolicyRow")
+
+
+class OptimizationSignalRow(Base):
+    __tablename__ = "optimization_signals"
+    __table_args__ = (
+        Index("optimization_signals_dedupe_idx", "dedupe_key", unique=True),
+        Index("optimization_signals_status_idx", "status"),
+        Index("optimization_signals_project_idx", "project_key"),
+        Index("optimization_signals_type_idx", "signal_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dedupe_key = Column(Text, nullable=False)
+    signal_type = Column(Text, nullable=False)
+    source_kind = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="open")
+    title = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False, default="")
+    severity = Column(Text, nullable=False, default="medium")
+    confidence = Column(Float, nullable=False, default=0.5)
+    project_key = Column(Text)
+    project_root_path = Column(Text)
+    routing_target_path = Column(Text)
+    evidence_json = Column(Text, nullable=False, default="[]")
+    occurrence_count = Column(Integer, nullable=False, default=1)
+    latest_evidence_at = Column(DateTime)
+    converted_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    converted_requirement = relationship("RequirementRow")
 
 
 class RequirementDependencyRow(Base):

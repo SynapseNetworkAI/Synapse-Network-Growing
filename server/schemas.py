@@ -269,6 +269,36 @@ class ProjectOnboardingOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class OptimizationSignalEvidenceOut(BaseModel):
+    data: dict[str, object] = {}
+
+
+class OptimizationSignalOut(BaseModel):
+    id: int
+    dedupe_key: str
+    signal_type: str
+    source_kind: str
+    status: str
+    title: str
+    summary: str
+    severity: str
+    confidence: float
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    routing_target_path: Optional[str] = None
+    evidence: list[dict[str, object]] = []
+    occurrence_count: int = 0
+    latest_evidence_at: Optional[datetime] = None
+    converted_requirement_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class OptimizationSignalCreateRequirementRequest(BaseModel):
+    title: Optional[str] = None
+    auto_start: bool = False
+
+
 # ── Requirements / Workflow ─────────────────────────────────
 
 class RequirementCreate(BaseModel):

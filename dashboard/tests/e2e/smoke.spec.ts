@@ -69,6 +69,7 @@ type Requirement = {
   priority: string
   source: string
   source_ref: string | null
+  target_project_path?: string | null
   current_plan_version: number
   blocked_by_count: number
   active_workflow_run_id: number | null
@@ -76,6 +77,20 @@ type Requirement = {
   completed_at: string | null
   created_at: string
   updated_at: string
+  routing_context?: {
+    routing_mode: string
+    target_project_path: string | null
+    summary: string | null
+    automation_ready: boolean
+    readiness_status: string
+    routed_project_keys: string[]
+    routed_display_names: string[]
+    skipped_project_keys: string[]
+    project_scorecards: Array<Record<string, unknown>>
+  }
+  score_breakdown?: {
+    total: number
+  }
 }
 
 type RequirementDetail = {
@@ -544,7 +559,9 @@ test.beforeEach(async ({ page }) => {
     const agentGroup = requestUrl.searchParams.get('agent_group')
     const agentId = requestUrl.searchParams.get('agent_id')
     const onlyAnomalies = requestUrl.searchParams.get('only_anomalies') === 'true'
-    return tasks.filter((task) => {
+    const page = Number(requestUrl.searchParams.get('page') || '1')
+    const pageSize = Number(requestUrl.searchParams.get('page_size') || '10')
+    const filtered = tasks.filter((task) => {
       if (status && task.status !== status) return false
       if (projectId && task.project_id !== projectId) return false
       if (agentGroup && task.agent_group !== agentGroup) return false
@@ -552,6 +569,20 @@ test.beforeEach(async ({ page }) => {
       if (onlyAnomalies && task.status !== 'failed' && task.status !== 'rejected' && !task.last_error_message) return false
       return true
     })
+    const statusCounts = filtered.reduce<Record<string, number>>((acc, task) => {
+      acc[task.status] = (acc[task.status] || 0) + 1
+      return acc
+    }, {})
+    const start = (page - 1) * pageSize
+    const items = filtered.slice(start, start + pageSize)
+    return {
+      items,
+      total: filtered.length,
+      page,
+      page_size: pageSize,
+      total_pages: Math.max(1, Math.ceil(filtered.length / pageSize)),
+      status_counts: statusCounts,
+    }
   }
 
   const handleRequirementRoutes = async (
@@ -571,10 +602,11 @@ test.beforeEach(async ({ page }) => {
         id: 99,
         title: body.title || 'Untitled requirement',
         description_markdown: body.description_markdown || '',
-        status: 'draft',
+        status: 'ready',
         priority: body.priority || 'normal',
         source: 'manual',
         source_ref: null,
+        target_project_path: null,
         current_plan_version: 0,
         blocked_by_count: 0,
         active_workflow_run_id: null,
@@ -582,6 +614,20 @@ test.beforeEach(async ({ page }) => {
         completed_at: null,
         created_at: '2026-04-09T09:12:00.000000',
         updated_at: '2026-04-09T09:12:00.000000',
+        routing_context: {
+          routing_mode: 'unrouted',
+          target_project_path: null,
+          summary: 'Requirement is not routed to a managed project yet.',
+          automation_ready: false,
+          readiness_status: 'unrouted',
+          routed_project_keys: [],
+          routed_display_names: [],
+          skipped_project_keys: [],
+          project_scorecards: [],
+        },
+        score_breakdown: {
+          total: 40,
+        },
       }
       const createdDetail: RequirementDetail = {
         requirement: createdRequirement,
@@ -822,13 +868,13 @@ test('shows copilot runtime metadata in task drawer', async ({ page }) => {
   await expect(page.getByTestId('taskboard-page')).toBeVisible()
   await expect(page.getByTestId('task-18')).toBeVisible()
 
-  await page.getByTestId('task-18').locator('p').first().click()
+  await page.getByTestId('task-18').click()
 
-  await expect(page.getByTestId('task-drawer')).toBeVisible()
+  await expect(page.getByTestId('task-detail-page')).toBeVisible()
   await expect(page.getByTestId('runtime-backend-18')).toContainText('copilot_sdk')
   await expect(page.getByTestId('runtime-agent-18')).toContainText('editor')
   await expect(page.getByTestId('runtime-session-18')).toContainText('task-1775725256108')
-  await expect(page.getByTestId('drawer-execution-time-18')).toContainText('42.9s')
+  await expect(page.getByTestId('execution-time-18')).toContainText('42.9s')
   await expect(page.getByTestId('runtime-events-18')).toContainText('Synapse Network: Launch Teaser for AI Agent Developers')
   await expect(page.getByTestId('runtime-events-18')).not.toContainText('runtime_started')
   await expect(page.getByTestId('runtime-events-18')).not.toContainText('assistant_output')
@@ -880,6 +926,7 @@ test('renders requirement pool with bugfix branch and captures screenshot', asyn
 
   await expect(page.getByTestId('requirements-page')).toBeVisible()
   await expect(page.getByTestId('requirement-card-1')).toContainText('Launch FAQ quality gate')
+  await page.getByTestId('requirement-card-1').locator('button').first().click()
   await expect(page.getByTestId('workflow-steps-panel')).toBeVisible()
   await expect(page.getByTestId('workflow-step-1003')).toContainText('Bugfix after test failure')
 
