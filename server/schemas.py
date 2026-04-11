@@ -373,6 +373,52 @@ class DeliveryStateOut(BaseModel):
     publish_note: Optional[str] = None
 
 
+class ProjectScorecardOut(BaseModel):
+    project_key: str
+    display_name: str
+    root_path: str
+    policy_status: str
+    release_mode: str
+    requires_manual_approval: bool = False
+    readiness_status: str = "unknown"
+    readiness_score: int = 0
+    automation_ready: bool = False
+    onboarding_present: bool = False
+    active_requirement_count: int = 0
+    completed_requirement_count: int = 0
+    total_requirement_count: int = 0
+    bug_report_count: int = 0
+    blocked_publish_count: int = 0
+    validation_pass_rate: float = 0.0
+    automation_coverage: float = 0.0
+    notes: Optional[str] = None
+    agents_memory_namespace: Optional[str] = None
+
+
+class RequirementRoutingContextOut(BaseModel):
+    routing_mode: str = "unrouted"
+    target_project_path: Optional[str] = None
+    summary: Optional[str] = None
+    automation_ready: bool = False
+    readiness_status: str = "unknown"
+    routed_project_keys: list[str] = []
+    routed_display_names: list[str] = []
+    skipped_project_keys: list[str] = []
+    project_scorecards: list[ProjectScorecardOut] = []
+
+
+class RequirementScoreBreakdownOut(BaseModel):
+    total: float = 0.0
+    priority: float = 0.0
+    aging: float = 0.0
+    status_adjustment: float = 0.0
+    blocker_penalty: float = 0.0
+    readiness_adjustment: float = 0.0
+    bug_pressure: float = 0.0
+    delivery_pressure: float = 0.0
+    automation_gap: float = 0.0
+
+
 class WorkflowStepOut(BaseModel):
     id: int
     workflow_run_id: int
@@ -427,8 +473,8 @@ class RequirementOut(BaseModel):
     completed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
+    routing_context: RequirementRoutingContextOut = RequirementRoutingContextOut()
+    score_breakdown: RequirementScoreBreakdownOut = RequirementScoreBreakdownOut()
 
 
 class RequirementDetailOut(BaseModel):

@@ -46,10 +46,15 @@ function getRequirementSortTimestamp(requirement: Requirement) {
   return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
-function sortRequirements(requirements: Requirement[]) {
+function sortRequirements(requirements: Requirement[], sortMode: string) {
   return [...requirements].sort((a, b) => {
     const rankDiff = getRequirementSortRank(a) - getRequirementSortRank(b)
     if (rankDiff !== 0) return rankDiff
+
+    if (sortMode === 'score') {
+      const scoreDiff = (b.score_breakdown?.total ?? 0) - (a.score_breakdown?.total ?? 0)
+      if (scoreDiff !== 0) return scoreDiff
+    }
 
     const timeDiff = getRequirementSortTimestamp(b) - getRequirementSortTimestamp(a)
     if (timeDiff !== 0) return timeDiff
@@ -62,6 +67,7 @@ export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [sortMode, setSortMode] = useState('score')
   const [actioningRequirementId, setActioningRequirementId] = useState<number | null>(null)
   const [editingRequirement, setEditingRequirement] = useState<{
     id: number
@@ -89,10 +95,10 @@ export default function RequirementPool() {
   })
 
   const loadRequirements = useCallback(async () => {
-    const data = await api.getRequirements(statusFilter || undefined)
-    setRequirements(sortRequirements(data))
+    const data = await api.getRequirements(statusFilter || undefined, sortMode === 'score' ? 'score' : undefined)
+    setRequirements(sortRequirements(data, sortMode))
     setPage(1)
-  }, [statusFilter])
+  }, [sortMode, statusFilter])
 
   useEffect(() => {
     loadRequirements().catch(() => {})
@@ -233,6 +239,15 @@ export default function RequirementPool() {
             <option value="needs_revision">需修订</option>
             <option value="deleted">已删除</option>
           </select>
+          <select
+            data-testid="requirement-sort-mode"
+            className="px-3 py-2 text-sm border rounded"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value)}
+          >
+            <option value="score">智能排序</option>
+            <option value="updated">最近更新</option>
+          </select>
           <button
             data-testid="create-requirement-btn"
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
@@ -268,7 +283,7 @@ export default function RequirementPool() {
             onChange={(e) => setForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
           />
           <div className="space-y-1">
-            <div className="text-xs text-gray-500">目标项目路径（可选，每行一个路径）</div>
+            <div className="text-xs text-gray-500">目标项目路径（可选，每行一个路径；留空时会按项目 readiness 和语义自动路由）</div>
             <textarea
               data-testid="requirement-target-project"
               className="w-full px-3 py-2 font-mono text-sm leading-relaxed border rounded"
@@ -421,6 +436,8 @@ export default function RequirementPool() {
           const isRunning = requirement.status === 'in_progress'
           const isDeleted = requirement.status === 'deleted'
           const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
+          const routingContext = requirement.routing_context
+          const projectScorecards = routingContext?.project_scorecards || []
           let toggleLabel = '启动'
           if (actioningRequirementId === requirement.id) {
             toggleLabel = '处理中…'
@@ -454,10 +471,40 @@ export default function RequirementPool() {
                       </div>
                     </div>
                   )}
+                  {routingContext?.summary && (
+                    <div
+                      className={`mb-2 rounded-md px-3 py-2 text-xs ${
+                        routingContext.automation_ready
+                          ? 'bg-emerald-50 text-emerald-800'
+                          : 'bg-amber-50 text-amber-800'
+                      }`}
+                    >
+                      <div className="font-medium">
+                        路由: {routingContext.routing_mode} / readiness: {routingContext.readiness_status}
+                      </div>
+                      <div className="mt-1">{routingContext.summary}</div>
+                    </div>
+                  )}
+                  {projectScorecards.length > 0 && (
+                    <div className="mb-2 grid gap-2 md:grid-cols-2">
+                      {projectScorecards.map((project) => (
+                        <div
+                          key={`${requirement.id}-${project.project_key}`}
+                          className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700"
+                        >
+                          <div className="font-medium">{project.display_name}</div>
+                          <div>readiness: {project.readiness_status} ({project.readiness_score})</div>
+                          <div>bug pressure: {project.bug_report_count}</div>
+                          <div>blocked publish: {project.blocked_publish_count}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
                     <span>优先级: {requirement.priority}</span>
                     <span>阻塞: {requirement.blocked_by_count}</span>
+                    <span>Score: {requirement.score_breakdown?.total ?? 0}</span>
                     <span>{formatTime(requirement.updated_at)}</span>
                   </div>
                 </button>

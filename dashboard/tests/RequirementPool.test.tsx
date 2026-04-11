@@ -45,6 +45,28 @@ const BLOCKER = {
   completed_at: '2026-04-10T00:05:00Z',
   created_at: '2026-04-10T00:00:00Z',
   updated_at: '2026-04-10T00:05:00Z',
+  routing_context: {
+    routing_mode: 'unrouted',
+    target_project_path: null,
+    summary: 'Requirement is not routed to a managed project yet.',
+    automation_ready: false,
+    readiness_status: 'unrouted',
+    routed_project_keys: [],
+    routed_display_names: [],
+    skipped_project_keys: [],
+    project_scorecards: [],
+  },
+  score_breakdown: {
+    total: 18,
+    priority: 10,
+    aging: 8,
+    status_adjustment: -100,
+    blocker_penalty: 0,
+    readiness_adjustment: 0,
+    bug_pressure: 0,
+    delivery_pressure: 0,
+    automation_gap: 0,
+  },
 }
 
 const REQUIREMENT = {
@@ -63,6 +85,50 @@ const REQUIREMENT = {
   completed_at: null,
   created_at: '2026-04-10T00:00:00Z',
   updated_at: '2026-04-10T00:00:10Z',
+  routing_context: {
+    routing_mode: 'explicit',
+    target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network',
+    summary: 'Explicit target project routing. Projects: Synapse-Network-Growing, Synapse-Network.',
+    automation_ready: true,
+    readiness_status: 'ready',
+    routed_project_keys: ['synapse-network-growing', 'synapse-network'],
+    routed_display_names: ['Synapse-Network-Growing', 'Synapse-Network'],
+    skipped_project_keys: [],
+    project_scorecards: [
+      {
+        project_key: 'synapse-network-growing',
+        display_name: 'Synapse-Network-Growing',
+        root_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        policy_status: 'active',
+        release_mode: 'manual',
+        requires_manual_approval: true,
+        readiness_status: 'ready',
+        readiness_score: 100,
+        automation_ready: true,
+        onboarding_present: true,
+        active_requirement_count: 1,
+        completed_requirement_count: 2,
+        total_requirement_count: 3,
+        bug_report_count: 1,
+        blocked_publish_count: 0,
+        validation_pass_rate: 0.67,
+        automation_coverage: 0.67,
+        notes: 'Control plane repo.',
+        agents_memory_namespace: 'synapse-network-growing',
+      },
+    ],
+  },
+  score_breakdown: {
+    total: 72,
+    priority: 30,
+    aging: 30,
+    status_adjustment: 0,
+    blocker_penalty: 0,
+    readiness_adjustment: 10,
+    bug_pressure: 6,
+    delivery_pressure: 0,
+    automation_gap: -4,
+  },
 }
 
 const PAUSED_REQUIREMENT = {
@@ -89,6 +155,28 @@ const READY_REQUIREMENT = {
   completed_at: null,
   created_at: '2026-04-10T00:06:00Z',
   updated_at: '2026-04-10T00:06:00Z',
+  routing_context: {
+    routing_mode: 'auto',
+    target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Sdk',
+    summary: 'Auto-routed requirement to matching managed projects. Projects: Synapse-Network-Sdk.',
+    automation_ready: true,
+    readiness_status: 'policy_only',
+    routed_project_keys: ['synapse-network-sdk'],
+    routed_display_names: ['Synapse-Network-Sdk'],
+    skipped_project_keys: [],
+    project_scorecards: [],
+  },
+  score_breakdown: {
+    total: 54,
+    priority: 10,
+    aging: 30,
+    status_adjustment: 0,
+    blocker_penalty: 0,
+    readiness_adjustment: 6,
+    bug_pressure: 0,
+    delivery_pressure: 0,
+    automation_gap: 8,
+  },
 }
 
 const DETAIL = {
@@ -219,6 +307,7 @@ const DETAIL = {
       created_at: '2026-04-10T00:00:08Z',
     },
   ],
+  delivery_state: null,
 }
 
 describe('RequirementPool', () => {
@@ -244,6 +333,9 @@ describe('RequirementPool', () => {
       expect(screen.getByTestId('requirement-card-1')).toBeDefined()
       expect(screen.getByText('目标项目:')).toBeDefined()
     })
+
+    expect(screen.getByText(/路由: explicit \/ readiness: ready/)).toBeDefined()
+    expect(screen.getByText('Score: 72')).toBeDefined()
   })
 
   it('creates a new requirement', async () => {
@@ -344,6 +436,20 @@ describe('RequirementPool', () => {
       'requirement-card-2',
       'requirement-card-4',
     ])
+  })
+
+  it('uses score sort mode when loading requirements', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, 'score')
+    })
+
+    fireEvent.change(screen.getByTestId('requirement-sort-mode'), { target: { value: 'updated' } })
+
+    await waitFor(() => {
+      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, undefined)
+    })
   })
 
 

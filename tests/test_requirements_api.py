@@ -5,6 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from server.database import (
+    ProjectOnboardingRow,
     ProjectPolicyRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
@@ -274,6 +275,126 @@ def test_patch_requirement_updates_fields(synced_client):
     assert patched["requirement"]["title"] == "Updated title"
     assert patched["requirement"]["priority"] == "high"
     assert patched["requirement"]["description_markdown"] == "Original description."
+
+
+def test_requirement_intake_auto_routes_to_matching_project(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Improve SDK onboarding",
+            "description_markdown": "Update the Python SDK MCP integration flow and tighten developer integration docs.",
+            "priority": "high",
+        },
+    )
+
+    assert create_resp.status_code == 201
+    payload = create_resp.json()
+    assert payload["requirement"]["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network-Sdk"
+    assert payload["requirement"]["routing_context"]["routing_mode"] == "auto"
+    assert payload["requirement"]["routing_context"]["routed_project_keys"] == ["synapse-network-sdk"]
+    assert payload["requirement"]["routing_context"]["automation_ready"] is True
+    route_artifact = next(artifact for artifact in payload["artifacts"] if artifact["artifact_type"] == "routing_decision")
+    route_payload = json.loads(route_artifact["machine_readable_payload"])
+    assert route_payload["routing_mode"] == "auto"
+    assert route_payload["routed_project_keys"] == ["synapse-network-sdk"]
+
+
+def test_queue_advance_prefers_automation_ready_projects(synced_client, db_session, tmp_path):
+    ready_repo = tmp_path / "ready-repo"
+    ready_repo.mkdir()
+    unready_repo = tmp_path / "unready-repo"
+    unready_repo.mkdir()
+
+    ready_policy = ProjectPolicyRow(
+        project_key="ready-repo",
+        display_name="Ready Repo",
+        root_path=str(ready_repo),
+        status="active",
+        allowed_write_globs_json='["**"]',
+        forbidden_globs_json='[]',
+        required_checks_json='[]',
+        release_mode="manual",
+        requires_manual_approval=True,
+    )
+    unready_policy = ProjectPolicyRow(
+        project_key="unready-repo",
+        display_name="Unready Repo",
+        root_path=str(unready_repo),
+        status="active",
+        allowed_write_globs_json='["**"]',
+        forbidden_globs_json='[]',
+        required_checks_json='[]',
+        release_mode="manual",
+        requires_manual_approval=True,
+    )
+    db_session.add_all([ready_policy, unready_policy])
+    db_session.flush()
+    db_session.add_all([
+        ProjectOnboardingRow(
+            project_key="ready-repo",
+            display_name="Ready Repo",
+            root_path=str(ready_repo),
+            docs_entrypoints_json='[]',
+            validation_commands_json='["pytest -q"]',
+            agents_memory_namespace="ready-repo",
+            policy_id=ready_policy.id,
+            readiness_status="ready",
+            readiness_score=100,
+            readiness_items_json='[]',
+            missing_items_json='[]',
+        ),
+        ProjectOnboardingRow(
+            project_key="unready-repo",
+            display_name="Unready Repo",
+            root_path=str(unready_repo),
+            docs_entrypoints_json='[]',
+            validation_commands_json='[]',
+            agents_memory_namespace="unready-repo",
+            policy_id=unready_policy.id,
+            readiness_status="needs_setup",
+            readiness_score=25,
+            readiness_items_json='[]',
+            missing_items_json='["Validation Commands"]',
+        ),
+    ])
+    db_session.commit()
+
+    blocked_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Highest priority but unready project",
+            "description_markdown": "Target the unready project and improve automation.",
+            "priority": "high",
+            "target_project_path": str(unready_repo),
+        },
+    )
+    ready_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Ready project follow-up",
+            "description_markdown": "Target the ready project and improve automation.",
+            "priority": "normal",
+            "target_project_path": str(ready_repo),
+        },
+    )
+    blocked_id = blocked_resp.json()["requirement"]["id"]
+    ready_id = ready_resp.json()["requirement"]["id"]
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        queue_resp = synced_client.post("/api/requirements/queue/advance")
+
+    assert queue_resp.status_code == 200
+    assert queue_resp.json()["started"] == ready_id
+
+    blocked_detail = synced_client.get(f"/api/requirements/{blocked_id}").json()
+    assert blocked_detail["requirement"]["status"] == "ready"
+    assert blocked_detail["requirement"]["routing_context"]["automation_ready"] is False
 
 
 def test_patch_requirement_rejects_blank_title(synced_client):

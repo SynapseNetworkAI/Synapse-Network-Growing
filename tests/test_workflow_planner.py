@@ -232,8 +232,10 @@ class TestBuildPlannerOutput:
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.4"
+        assert output["schema_version"] == "1.5"
         assert output["detected_phases"]["design"] is True
+        assert output["project_intelligence"]["routing_mode"] == "explicit"
+        assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
         assert output["validation_plan"]["bugfix_owner_role"] == "implementer"
         assert output["validation_plan"]["closeout_owner_role"] == "tester"
         assert output["validation_plan"]["manual_checks"][0]["check_key"] == "review_passed"
@@ -264,6 +266,7 @@ class TestBuildPlannerOutput:
         assert "implementation" in step_keys
         assert "design" not in step_keys
         assert output["target_project_path"] is None
+        assert output["project_intelligence"]["routing_mode"] == "unrouted"
 
     def test_plan_simple_backend_frontend(self, synced_client, db_session):
         req = RequirementRow(
@@ -310,6 +313,20 @@ class TestBuildPlannerOutput:
         frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
         assert "/proj/src/**" in frontend_step["file_scope"]["allowed_write_globs"]
         assert "/proj/secrets/**" in frontend_step["file_scope"]["blocked_globs"]
+
+    def test_auto_routing_metadata_for_sdk_requirement(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Improve SDK integration",
+            description_markdown="Update the Python SDK MCP integration flow for developers.",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        assert output["project_intelligence"]["routing_mode"] == "auto"
+        assert output["project_intelligence"]["routed_project_keys"] == ["synapse-network-sdk"]
 
 
 # ---------------------------------------------------------------------------

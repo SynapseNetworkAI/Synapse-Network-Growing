@@ -240,6 +240,54 @@ export interface Requirement {
   completed_at: string | null
   created_at: string
   updated_at: string
+  routing_context: RequirementRoutingContext
+  score_breakdown: RequirementScoreBreakdown
+}
+
+export interface ProjectScorecard {
+  project_key: string
+  display_name: string
+  root_path: string
+  policy_status: string
+  release_mode: string
+  requires_manual_approval: boolean
+  readiness_status: string
+  readiness_score: number
+  automation_ready: boolean
+  onboarding_present: boolean
+  active_requirement_count: number
+  completed_requirement_count: number
+  total_requirement_count: number
+  bug_report_count: number
+  blocked_publish_count: number
+  validation_pass_rate: number
+  automation_coverage: number
+  notes: string | null
+  agents_memory_namespace: string | null
+}
+
+export interface RequirementRoutingContext {
+  routing_mode: string
+  target_project_path: string | null
+  summary: string | null
+  automation_ready: boolean
+  readiness_status: string
+  routed_project_keys: string[]
+  routed_display_names: string[]
+  skipped_project_keys: string[]
+  project_scorecards: ProjectScorecard[]
+}
+
+export interface RequirementScoreBreakdown {
+  total: number
+  priority: number
+  aging: number
+  status_adjustment: number
+  blocker_penalty: number
+  readiness_adjustment: number
+  bug_pressure: number
+  delivery_pressure: number
+  automation_gap: number
 }
 
 export interface RequirementDependency {
@@ -458,8 +506,11 @@ export const api = {
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Requirements
-  getRequirements: (status?: string) => {
-    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+  getRequirements: (status?: string, sort?: string) => {
+    const params = new URLSearchParams()
+    if (status) params.set('status', status)
+    if (sort) params.set('sort', sort)
+    const q = params.toString() ? `?${params.toString()}` : ''
     return request<Requirement[]>(`/requirements${q}`)
   },
   getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),

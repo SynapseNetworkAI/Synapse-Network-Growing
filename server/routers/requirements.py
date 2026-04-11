@@ -17,6 +17,7 @@ from server.schemas import (
     RequirementPublishRequest,
     RequirementRevisionRequest,
 )
+from server.services.project_intelligence import build_requirement_score_breakdown, serialize_requirement
 from server.services.workflow_orchestrator import (
     _normalize_target_project_path,
     advance_requirement_queue,
@@ -35,19 +36,7 @@ from server.services.workflow_orchestrator import (
 
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
 
-_PRIORITY_SCORE = {"high": 30, "normal": 10, "low": 0}
-_STATUS_PENALTY = {"done": -100, "blocked": -20, "needs_revision": -10, "deleted": -200}
 _DEFAULT_STATUS_SORT_RANK = {"in_progress": 0, "deleted": 2}
-
-
-def _requirement_score(row: RequirementRow) -> float:
-    priority = _PRIORITY_SCORE.get(str(row.priority), 10)
-    created = row.created_at or datetime.now(timezone.utc)
-    age_days = (datetime.now(timezone.utc) - created.replace(tzinfo=timezone.utc if created.tzinfo is None else created.tzinfo)).total_seconds() / 86400
-    aging_bonus = min(age_days * 2, 30)
-    penalty = _STATUS_PENALTY.get(str(row.status), 0)
-    blocker_penalty = int(row.blocked_by_count or 0) * 15
-    return priority + aging_bonus + penalty - blocker_penalty
 
 
 def _requirement_default_sort_key(row: RequirementRow) -> tuple[int, float, int]:
@@ -75,13 +64,23 @@ def list_requirements(
         if normalized_target != row.target_project_path:
             row.target_project_path = normalized_target
             changed = True
+    score_map = {
+        int(row.id): build_requirement_score_breakdown(db, row)
+        for row in rows
+    }
     if sort == "score":
-        rows.sort(key=_requirement_score, reverse=True)
+        rows.sort(
+            key=lambda row: (
+                _DEFAULT_STATUS_SORT_RANK.get(str(row.status), 1),
+                -(float(score_map[int(row.id)].get("total") or 0.0)),
+                -(int(row.id or 0)),
+            )
+        )
     else:
         rows.sort(key=_requirement_default_sort_key)
     if changed:
         db.commit()
-    return [RequirementOut.model_validate(row) for row in rows]
+    return [RequirementOut(**serialize_requirement(db, row)) for row in rows]
 
 
 @router.post("", response_model=RequirementDetailOut, status_code=201)

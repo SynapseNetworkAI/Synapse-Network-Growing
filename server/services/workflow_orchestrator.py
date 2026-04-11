@@ -56,6 +56,7 @@ from server.config import PROJECT_ROOT
 from server.services.copilot_sdk_state import copilot_runtime_paths, load_runtime_state, save_runtime_state, task_output_dir
 from server.services.execution_resolver import suggest_task_execution
 from server.services.project_policy import project_policy_summary_markdown, resolve_project_policies_for_target
+from server.services.project_intelligence import build_requirement_score_breakdown, resolve_requirement_routing, serialize_requirement
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
 
@@ -183,6 +184,13 @@ def _normalize_target_project_path(raw_path: str | None) -> str | None:
 
 
 def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetailOut:
+    requested_target = _normalize_target_project_path(body.target_project_path)
+    routing_context = resolve_requirement_routing(
+        db,
+        title=body.title,
+        description_markdown=body.description_markdown,
+        target_project_path=requested_target,
+    )
     requirement = RequirementRow(
         title=body.title,
         description_markdown=body.description_markdown,
@@ -190,10 +198,20 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         priority=body.priority,
         source=body.source,
         source_ref=body.source_ref,
-        target_project_path=_normalize_target_project_path(body.target_project_path),
+        target_project_path=_normalize_target_project_path(
+            str(routing_context.get("target_project_path") or "") or requested_target
+        ),
     )
     db.add(requirement)
     db.flush()
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="routing_decision",
+        content_summary=f"Routing for requirement #{requirement.id}",
+        human_readable_body=str(routing_context.get("summary") or "Requirement routing was assessed during intake."),
+        machine_readable_payload=routing_context,
+    )
     _replace_dependencies(db, requirement.id, body.depends_on_requirement_ids)
     _refresh_requirement_dependency_state(db, requirement)
     db.commit()
@@ -702,7 +720,7 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
         run_out.steps = steps
 
     return RequirementDetailOut(
-        requirement=RequirementOut.model_validate(requirement),
+        requirement=RequirementOut(**serialize_requirement(db, requirement)),
         workflow_run=run_out,
         dependencies=[
             RequirementDependencyOut(
@@ -1578,16 +1596,25 @@ def advance_requirement_queue(db: Session) -> dict:
     if not candidates:
         return {"skipped": "no ready requirements"}
 
-    _PRIORITY_SCORE_LOCAL = {"high": 100, "normal": 50, "low": 10}
+    scored_candidates: list[tuple[RequirementRow, dict[str, Any]]] = []
+    skipped_not_ready: list[str] = []
+    for candidate in candidates:
+        score = build_requirement_score_breakdown(db, candidate)
+        routing = dict(score.get("routing_context") or {})
+        if candidate.target_project_path and not bool(routing.get("automation_ready")):
+            skipped_not_ready.append(
+                f"#{candidate.id}({routing.get('readiness_status') or 'unknown'})"
+            )
+            continue
+        scored_candidates.append((candidate, score))
 
-    def _score(r: RequirementRow) -> float:
-        p = _PRIORITY_SCORE_LOCAL.get(str(r.priority), 50)
-        created = r.created_at or datetime.now(timezone.utc)
-        age = (datetime.now(timezone.utc) - (created if created.tzinfo else created.replace(tzinfo=timezone.utc))).total_seconds() / 86400
-        return p + min(age * 2, 30)
+    if not scored_candidates:
+        if skipped_not_ready:
+            return {"skipped": "no automation-ready requirements: " + ", ".join(skipped_not_ready)}
+        return {"skipped": "no ready requirements"}
 
-    candidates.sort(key=_score, reverse=True)
-    next_req = candidates[0]
+    scored_candidates.sort(key=lambda item: float(item[1].get("total") or 0.0), reverse=True)
+    next_req = scored_candidates[0][0]
     req_id = _as_int(next_req.id)
 
     _logger.info("Queue advance: starting requirement #%s '%s'", req_id, next_req.title[:60])
@@ -2303,6 +2330,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
         for line in str((planner_output.get("delivery_contract") or {}).get("summary_markdown") or "").splitlines()
         if line.strip()
     ]
+    intelligence = planner_output.get("project_intelligence") or {}
+    intelligence_summary = str(intelligence.get("summary_markdown") or "").strip()
     return "\n".join(
         [
             f"# Plan\n",
@@ -2311,6 +2340,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             f"- Implementer: {assignments.implementer_agent_id}",
             f"- Reviewer: {assignments.reviewer_agent_id}",
             f"- Tester: {assignments.tester_agent_id}",
+            "## Project Intelligence",
+            *( [f"- {line}" for line in intelligence_summary.splitlines() if line.strip()] or ["- No project routing intelligence was attached."] ),
             "## Delivery Contract",
             *(delivery_summary_lines or ["- Delivery contract will be generated for branch/review-ready/publish/rollback."]),
             "## Validation Contract",
