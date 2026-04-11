@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, cast
 
 import yaml
@@ -60,6 +63,64 @@ def _clear_role_sessions() -> None:
             runtime.clear_role_sessions()
     except Exception:
         _logger.debug("Failed to clear role sessions (non-critical)", exc_info=True)
+
+
+def _snapshot_file_changes(task: TaskRow, requirement: RequirementRow) -> None:
+    """Capture `git diff HEAD` in the target project and save to the task output dir."""
+    try:
+        target_path = str(requirement.target_project_path) if requirement.target_project_path else None
+        output_path = str(task.output_path) if task.output_path else None
+        if not target_path or not output_path:
+            return
+        target_dir = Path(target_path)
+        if not target_dir.is_dir():
+            return
+        result = subprocess.run(
+            ["git", "diff", "HEAD", "--unified=5"],
+            cwd=str(target_dir), capture_output=True, text=True, timeout=15,
+        )
+        diff_text = result.stdout
+
+        changed_files: list[dict] = []
+        current: dict | None = None
+        for line in diff_text.splitlines(keepends=True):
+            if line.startswith("diff --git "):
+                if current:
+                    changed_files.append(current)
+                current = {"filename": "", "additions": 0, "deletions": 0, "patch": ""}
+            elif current is not None:
+                if line.startswith("+++ b/"):
+                    current["filename"] = line[6:].rstrip("\n")
+                elif line.startswith("+") and not line.startswith("+++"):
+                    current["additions"] += 1
+                    current["patch"] += line
+                elif line.startswith("-") and not line.startswith("---"):
+                    current["deletions"] += 1
+                    current["patch"] += line
+                else:
+                    current["patch"] += line
+        if current:
+            changed_files.append(current)
+        changed_files = [f for f in changed_files if f["filename"]]
+
+        snapshot = {
+            "changed_files": changed_files,
+            "target_project_path": target_path,
+            "source": "snapshot",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "task_id": int(task.id),
+        }
+        output_dir = Path(output_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "file-changes.json").write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2)
+        )
+        _logger.info(
+            "Saved file-changes snapshot for task %s: %d files changed",
+            task.id, len(changed_files),
+        )
+    except Exception:
+        _logger.debug("Failed to snapshot file changes for task %s (non-critical)", task.id, exc_info=True)
 
 
 def _record_step_event(db: Session, step_id: int, event_type: str, detail: str | None = None):
@@ -402,6 +463,8 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         artifact = _create_step_completion_artifact(db, step, task)
         _mark_step_targets_passed(db, step, artifact)
         _bind_output_to_followup_steps(db, step, artifact)
+        # Snapshot git diff now, before the next step is dispatched
+        _snapshot_file_changes(task, requirement)
         if step.step_type == "closeout":
             _finalize_requirement(db, requirement, run, step, artifact)
         else:

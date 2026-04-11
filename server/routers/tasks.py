@@ -1,6 +1,9 @@
 """Tasks API router."""
 import json
 import logging
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Any, Optional, cast
@@ -459,3 +462,87 @@ def get_task_logs(task_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     return db.query(TaskLogRow).filter(TaskLogRow.task_id == task_id).order_by(TaskLogRow.created_at).all()
+
+
+# ---------------------------------------------------------------------------
+# File changes (git diff) endpoint
+# ---------------------------------------------------------------------------
+
+def _run_git(args: list[str], cwd: str, timeout: int = 15) -> str:
+    result = subprocess.run(
+        ["git"] + args, cwd=cwd,
+        capture_output=True, text=True, timeout=timeout,
+    )
+    return result.stdout
+
+
+def _parse_git_diff(diff_text: str) -> list[dict]:
+    """Split a unified diff into per-file objects with additions/deletions counts."""
+    files: list[dict] = []
+    current: dict | None = None
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            if current:
+                files.append(current)
+            current = {"filename": "", "additions": 0, "deletions": 0, "patch": ""}
+        elif current is not None:
+            if line.startswith("+++ b/"):
+                current["filename"] = line[6:].rstrip("\n")
+            elif line.startswith("+") and not line.startswith("+++"):
+                current["additions"] += 1
+                current["patch"] += line
+            elif line.startswith("-") and not line.startswith("---"):
+                current["deletions"] += 1
+                current["patch"] += line
+            else:
+                current["patch"] += line
+    if current:
+        files.append(current)
+    return [f for f in files if f["filename"]]
+
+
+def _get_target_project_path(row: TaskRow) -> str | None:
+    """Resolve target_project_path via task → workflow_step → requirement."""
+    if not row.workflow_steps:
+        return None
+    step = row.workflow_steps[0]
+    req = step.requirement if step.requirement else None
+    if req is None:
+        return None
+    return str(req.target_project_path) if req.target_project_path else None
+
+
+@router.get("/{task_id}/file-changes")
+def get_task_file_changes(task_id: int, db: Session = Depends(get_db)):
+    """Return git diff for files changed by this task in the target project."""
+    row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
+
+    # 1. Try reading cached snapshot first (written at step completion)
+    output_path = _as_text(row.output_path)
+    if output_path:
+        cache_file = Path(output_path).parent / "file-changes.json"
+        if cache_file.is_file():
+            try:
+                return json.loads(cache_file.read_text())
+            except Exception:
+                pass  # fall through to live diff
+
+    # 2. Live diff from target project
+    target_path = _get_target_project_path(row)
+    if not target_path or not Path(target_path).is_dir():
+        return {"changed_files": [], "target_project_path": target_path, "source": "live"}
+
+    try:
+        diff_text = _run_git(["diff", "HEAD", "--unified=5"], cwd=target_path)
+        changed_files = _parse_git_diff(diff_text)
+        return {
+            "changed_files": changed_files,
+            "target_project_path": target_path,
+            "source": "live",
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.warning("Git diff failed for task %s: %s", task_id, exc)
+        return {"changed_files": [], "target_project_path": target_path, "source": "live", "error": str(exc)}

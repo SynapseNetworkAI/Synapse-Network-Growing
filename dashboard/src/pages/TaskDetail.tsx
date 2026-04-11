@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, TaskLog, TaskHistoryItem } from '../api'
+import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges } from '../api'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
@@ -87,6 +87,64 @@ function getTaskErrorSummary(task: Task) {
   return ''
 }
 
+// ── Diff viewer ─────────────────────────────────────────────────────────────
+
+function DiffLine({ line }: Readonly<{ line: string }>) {
+  if (line.startsWith('+') && !line.startsWith('+++'))
+    return <div className="px-2 font-mono text-xs leading-5 text-green-800 whitespace-pre bg-green-50">{line}</div>
+  if (line.startsWith('-') && !line.startsWith('---'))
+    return <div className="px-2 font-mono text-xs leading-5 text-red-800 whitespace-pre bg-red-50">{line}</div>
+  if (line.startsWith('@@'))
+    return <div className="px-2 font-mono text-xs leading-5 text-blue-600 whitespace-pre bg-blue-50">{line}</div>
+  return <div className="px-2 font-mono text-xs leading-5 text-gray-700 whitespace-pre">{line}</div>
+}
+
+function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () => void }>) {
+  return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <dialog
+        open
+        className="relative w-[90vw] max-w-4xl max-h-[85vh] flex flex-col rounded-xl bg-white shadow-2xl m-0 p-0 border-0"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50 rounded-t-xl">
+          <div className="min-w-0">
+            <span className="block font-mono text-sm font-semibold text-gray-800 truncate">{file.filename}</span>
+            <span className="text-xs text-gray-500">
+              <span className="text-green-600">+{file.additions}</span>
+              {' / '}
+              <span className="text-red-500">-{file.deletions}</span>
+            </span>
+          </div>
+          <button
+            className="p-1 ml-4 text-gray-400 rounded shrink-0 hover:bg-gray-200 hover:text-gray-700"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        {/* Diff body */}
+        <div className="flex-1 overflow-auto rounded-b-xl">
+          {file.patch ? (
+            <div className="divide-y divide-gray-100">
+              {file.patch.split('\n').map((line, i) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <DiffLine key={i} line={line} />
+              ))}
+            </div>
+          ) : (
+            <p className="p-4 text-sm text-gray-400">无 diff 内容</p>
+          )}
+        </div>
+      </dialog>
+    </div>
+  )
+}
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>()
   const taskId = Number(id)
@@ -94,6 +152,8 @@ export default function TaskDetail() {
   const [task, setTask] = useState<Task | null>(null)
   const [logs, setLogs] = useState<TaskLog[]>([])
   const [history, setHistory] = useState<TaskHistoryItem[]>([])
+  const [fileChanges, setFileChanges] = useState<TaskFileChanges | null>(null)
+  const [selectedDiff, setSelectedDiff] = useState<FileChange | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const logsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -112,6 +172,7 @@ export default function TaskDetail() {
     loadTask().catch(() => {})
     loadLogs().catch(() => {})
     api.getTaskHistory(taskId).then(setHistory).catch(() => {})
+    api.getTaskFileChanges(taskId).then(setFileChanges).catch(() => {})
   }, [loadTask, loadLogs, taskId])
 
   // Poll task + logs while running
@@ -142,7 +203,7 @@ export default function TaskDetail() {
     return (
       <div className="space-y-4">
         <Link to="/tasks" className="text-sm text-blue-600 hover:underline">← 返回任务看板</Link>
-        <div className="rounded-xl border bg-white p-8 text-sm text-gray-500">加载中…</div>
+        <div className="p-8 text-sm text-gray-500 bg-white border rounded-xl">加载中…</div>
       </div>
     )
   }
@@ -157,6 +218,8 @@ export default function TaskDetail() {
 
   return (
     <div data-testid="task-detail-page" className="space-y-6">
+      {/* Diff modal */}
+      {selectedDiff && <DiffModal file={selectedDiff} onClose={() => setSelectedDiff(null)} />}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <Link to="/tasks" className="text-blue-600 hover:underline">任务看板</Link>
@@ -169,11 +232,11 @@ export default function TaskDetail() {
             <span>/</span>
           </>
         )}
-        <span className="text-gray-900 font-medium">Task #{task.id}</span>
+        <span className="font-medium text-gray-900">Task #{task.id}</span>
       </div>
 
       {/* Header card */}
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="p-6 bg-white border shadow-sm rounded-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -224,7 +287,7 @@ export default function TaskDetail() {
       </div>
 
       {/* Task description */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm">
+      <div className="p-5 bg-white border shadow-sm rounded-xl">
         <h3 className="mb-2 text-sm font-bold text-gray-500">任务描述</h3>
         <div className="p-3 border rounded bg-gray-50">
           <Md>{task.description}</Md>
@@ -233,20 +296,47 @@ export default function TaskDetail() {
 
       {/* Linked requirement */}
       {task.requirement_title && (
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="p-5 bg-white border shadow-sm rounded-xl">
           <h3 className="mb-2 text-sm font-bold text-gray-500">关联需求</h3>
           <Link
             to={`/requirements/${task.requirement_id}`}
-            className="block p-3 text-sm text-blue-800 border rounded bg-blue-50 hover:bg-blue-100 transition"
+            className="block p-3 text-sm text-blue-800 transition border rounded bg-blue-50 hover:bg-blue-100"
           >
             📋 #{task.requirement_id} {task.requirement_title}
           </Link>
         </div>
       )}
 
+      {/* File changes (git diff) */}
+      {fileChanges && fileChanges.changed_files.length > 0 && (
+        <div className="p-5 bg-white border shadow-sm rounded-xl">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-gray-500">文件改动</h3>
+            <span className="text-xs text-gray-400">
+              {fileChanges.source === 'snapshot' ? '📸 快照' : '⚡ 实时'}
+              {fileChanges.target_project_path && ` · ${fileChanges.target_project_path.split('/').slice(-2).join('/')}`}
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {fileChanges.changed_files.map((f) => (
+              <li key={f.filename}>
+                <button
+                  className="flex items-center w-full gap-2 px-3 py-2 text-left transition border border-transparent rounded-lg hover:bg-gray-50 hover:border-gray-200"
+                  onClick={() => setSelectedDiff(f)}
+                >
+                  <span className="flex-1 font-mono text-xs text-gray-700 truncate">📄 {f.filename}</span>
+                  <span className="text-xs text-green-600 shrink-0">+{f.additions}</span>
+                  <span className="text-xs text-red-500 shrink-0">-{f.deletions}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Output files */}
       {task.output_files && task.output_files.length > 0 && (
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="p-5 bg-white border shadow-sm rounded-xl">
           <h3 className="mb-2 text-sm font-bold text-gray-500">产出文件</h3>
           <ul className="p-3 space-y-1 text-sm border rounded bg-gray-50">
             {task.output_files.map((file) => (
@@ -258,7 +348,7 @@ export default function TaskDetail() {
 
       {/* Error */}
       {errorSummary && (
-        <div className="rounded-xl border border-red-200 bg-white p-5 shadow-sm">
+        <div className="p-5 bg-white border border-red-200 shadow-sm rounded-xl">
           <h3 className="mb-2 text-sm font-bold text-gray-500">失败原因</h3>
           <div className="p-3 text-sm text-red-600 border border-red-100 rounded bg-red-50">{errorSummary}</div>
         </div>
@@ -266,7 +356,7 @@ export default function TaskDetail() {
 
       {/* Execution output */}
       {shouldShowOutputContent && task.output_content && (
-        <div className="rounded-xl border bg-white p-5 shadow-sm">
+        <div className="p-5 bg-white border shadow-sm rounded-xl">
           <h3 className="mb-2 text-sm font-bold text-gray-500">执行产出</h3>
           <div className="p-3 border rounded bg-gray-50">
             <Md>{task.output_content}</Md>
@@ -275,7 +365,7 @@ export default function TaskDetail() {
       )}
 
       {/* Copilot output */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm" data-testid={`runtime-events-${task.id}`}>
+      <div className="p-5 bg-white border shadow-sm rounded-xl" data-testid={`runtime-events-${task.id}`}>
         <h3 className="mb-2 text-sm font-bold text-gray-500">Copilot 输出</h3>
         <div className="p-3 border rounded bg-gray-50">
           {assistantOutputs.length === 0 ? (
@@ -303,7 +393,7 @@ export default function TaskDetail() {
       </div>
 
       {/* Retry history */}
-      <div className="rounded-xl border bg-white p-5 shadow-sm" data-testid={`history-${task.id}`}>
+      <div className="p-5 bg-white border shadow-sm rounded-xl" data-testid={`history-${task.id}`}>
         <h3 className="mb-2 text-sm font-bold text-gray-500">重试历史时间线</h3>
         <div className="p-3 border rounded bg-gray-50">
           {history.length === 0 ? (

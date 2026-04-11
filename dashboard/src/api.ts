@@ -98,6 +98,21 @@ export interface TaskHistoryItem {
   completed_at: string | null
 }
 
+export interface FileChange {
+  filename: string
+  additions: number
+  deletions: number
+  patch: string
+}
+
+export interface TaskFileChanges {
+  changed_files: FileChange[]
+  target_project_path: string | null
+  source: 'snapshot' | 'live'
+  captured_at: string | null
+  error?: string
+}
+
 export interface TaskBulkRetryRequest {
   task_ids: number[]
   mode?: 'run_now' | 'edit_first'
@@ -281,6 +296,7 @@ export const api = {
     request<Task[]>('/tasks/bulk-retry', { method: 'POST', body: JSON.stringify(data) }),
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
   getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
+  getTaskFileChanges: (id: number) => request<TaskFileChanges>(`/tasks/${id}/file-changes`),
 
   // Approvals
   getApprovals: (status?: string) => {
