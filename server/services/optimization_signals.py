@@ -18,6 +18,7 @@ from server.database import (
     TaskRow,
 )
 from server.schemas import RequirementCreate
+from server.services.incidents import list_open_incidents
 from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.project_intelligence import build_project_catalog
 from server.services.workflow_orchestrator import create_requirement
@@ -41,6 +42,21 @@ def _json_dumps(payload: Any) -> str:
 def _normalize_key(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", value.lower()).strip("-")
     return normalized or "signal"
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _severity_rank(value: str) -> int:
@@ -121,11 +137,13 @@ _SIGNAL_RISK_BASE = {
     "delivery_blocker": 10.0,
     "bug_report": 8.0,
     "manual_override": 5.0,
+    "workflow_incident": 12.0,
 }
 _SIGNAL_COST = {
     "delivery_blocker": 6.0,
     "bug_report": 9.0,
     "manual_override": 12.0,
+    "workflow_incident": 8.0,
 }
 _SEVERITY_RISK = {"high": 20.0, "medium": 12.0, "low": 6.0}
 
@@ -428,6 +446,73 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
     return list(grouped.values())
 
 
+def _incident_project_context(incident: dict[str, Any], project_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    root_path = str(incident.get("project_root_path") or "")
+    if root_path and root_path in project_map:
+        return dict(project_map[root_path])
+    display_name = str(incident.get("project_display_name") or root_path.rsplit("/", 1)[-1] or "Org Ops")
+    return {
+        "project_key": None,
+        "display_name": display_name,
+        "root_path": root_path or None,
+    }
+
+
+def _summarize_workflow_incidents(db: Session, project_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str | None, str, str], dict[str, Any]] = {}
+    for incident in list_open_incidents(db):
+        project = _incident_project_context(incident, project_map)
+        incident_code = str(incident.get("incident_code") or "workflow_incident")
+        recovery_status = str(incident.get("recovery_status") or "observe")
+        key = (project.get("project_key"), str(project.get("root_path") or ""), incident_code)
+        signal = groups.get(key)
+        evidence = {
+            "incident_key": str(incident.get("incident_key") or ""),
+            "requirement_id": int(incident.get("requirement_id") or 0),
+            "source_artifact_id": int(incident.get("source_artifact_id") or 0),
+            "incident_family": str(incident.get("incident_family") or ""),
+            "incident_code": incident_code,
+            "recovery_status": recovery_status,
+            "summary": str(incident.get("summary") or ""),
+            "recommended_action": str(incident.get("recommended_action") or ""),
+            "occurred_at": incident.get("occurred_at"),
+        }
+        if signal is None:
+            display_name = str(project.get("display_name") or project.get("root_path") or "Org Ops")
+            signal = {
+                "dedupe_key": f"workflow-incident::{project.get('project_key') or 'org'}::{_normalize_key(incident_code)}",
+                "signal_type": "workflow_incident",
+                "source_kind": "incident",
+                "status": "open",
+                "title": _signal_title("Workflow incident", display_name, incident_code),
+                "summary": f"{display_name} has an active `{incident_code}` incident that needs recovery handling.",
+                "severity": str(incident.get("severity") or "medium"),
+                "confidence": 0.9,
+                "project_key": project.get("project_key"),
+                "project_root_path": project.get("root_path"),
+                "routing_target_path": project.get("root_path"),
+                "evidence": [],
+                "latest_evidence_at": None,
+                "incident_family": str(incident.get("incident_family") or ""),
+                "incident_code": incident_code,
+                "recovery_status": recovery_status,
+                "recovery_narrative": str(incident.get("summary") or ""),
+            }
+            groups[key] = signal
+        signal["evidence"].append(evidence)
+        signal["severity"] = max(
+            [str(signal.get("severity") or "low"), str(incident.get("severity") or "low")],
+            key=_severity_rank,
+        )
+        signal["latest_evidence_at"] = max(
+            _parse_utc_datetime(signal.get("latest_evidence_at")) or datetime.fromtimestamp(0, timezone.utc),
+            _parse_utc_datetime(incident.get("occurred_at")) or datetime.fromtimestamp(0, timezone.utc),
+        )
+        if recovery_status in {"operator_review_required", "runtime_recovery_required", "replan_required"}:
+            signal["confidence"] = 0.94
+    return list(groups.values())
+
+
 def _upsert_signal(db: Session, payload: dict[str, Any]) -> OptimizationSignalRow:
     row = db.query(OptimizationSignalRow).filter(OptimizationSignalRow.dedupe_key == payload["dedupe_key"]).first()
     latest_evidence_at = payload.get("latest_evidence_at")
@@ -530,6 +615,22 @@ def optimization_signal_to_dict(
         "occurrence_count": int(row.occurrence_count or 0),
         "latest_evidence_at": row.latest_evidence_at,
         "converted_requirement_id": int(row.converted_requirement_id) if row.converted_requirement_id is not None else None,
+        "incident_family": next(
+            (str(item.get("incident_family") or "") for item in _json_loads(row.evidence_json, []) if isinstance(item, dict) and str(item.get("incident_family") or "").strip()),
+            None,
+        ),
+        "incident_code": next(
+            (str(item.get("incident_code") or "") for item in _json_loads(row.evidence_json, []) if isinstance(item, dict) and str(item.get("incident_code") or "").strip()),
+            None,
+        ),
+        "recovery_status": next(
+            (str(item.get("recovery_status") or "") for item in _json_loads(row.evidence_json, []) if isinstance(item, dict) and str(item.get("recovery_status") or "").strip()),
+            None,
+        ),
+        "recovery_narrative": next(
+            (str(item.get("summary") or item.get("recommended_action") or "") for item in _json_loads(row.evidence_json, []) if isinstance(item, dict) and (str(item.get("summary") or "").strip() or str(item.get("recommended_action") or "").strip())),
+            None,
+        ),
         "score_breakdown": score_breakdown,
         "recommended_priority": str(score_breakdown.get("recommended_priority") or "normal"),
         "auto_intake_eligible": bool(score_breakdown.get("auto_intake_eligible")),
@@ -546,14 +647,17 @@ def refresh_optimization_signals(db: Session) -> list[OptimizationSignalRow]:
         "bug_reports": 0,
         "delivery_blockers": 0,
         "manual_overrides": 0,
+        "workflow_incidents": 0,
     }
     bug_signals = _summarize_bug_signals(db, project_map)
     delivery_signals = _summarize_delivery_blockers(db, project_map)
     manual_override_signals = _summarize_manual_overrides(db, project_map)
+    workflow_incident_signals = _summarize_workflow_incidents(db, project_map)
     sources["bug_reports"] = len(bug_signals)
     sources["delivery_blockers"] = len(delivery_signals)
     sources["manual_overrides"] = len(manual_override_signals)
-    for payload in bug_signals + delivery_signals + manual_override_signals:
+    sources["workflow_incidents"] = len(workflow_incident_signals)
+    for payload in bug_signals + delivery_signals + manual_override_signals + workflow_incident_signals:
         seen_keys.add(str(payload["dedupe_key"]))
         _upsert_signal(db, payload)
 
@@ -565,10 +669,11 @@ def refresh_optimization_signals(db: Session) -> list[OptimizationSignalRow]:
         resolved += 1
     db.commit()
     logger.info(
-        "event=optimization_signals_refresh bug_reports=%s delivery_blockers=%s manual_overrides=%s active=%s resolved=%s",
+        "event=optimization_signals_refresh bug_reports=%s delivery_blockers=%s manual_overrides=%s workflow_incidents=%s active=%s resolved=%s",
         sources["bug_reports"],
         sources["delivery_blockers"],
         sources["manual_overrides"],
+        sources["workflow_incidents"],
         len(seen_keys),
         resolved,
     )

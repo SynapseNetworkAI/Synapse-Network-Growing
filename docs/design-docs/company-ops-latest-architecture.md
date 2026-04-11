@@ -227,6 +227,81 @@ artifact payload 会记录：
 
 这一步的意义是：operator 终于能直接回答“这个 requirement 现在到底卡在 runtime 的哪一层”，而不是同时翻 task logs、session state 和 workflow 状态。
 
+## 1.5 新增的 incident taxonomy / recovery narrative 层
+
+在 runtime telemetry 之后，当前系统又补上了一层统一的 incident view。
+
+这层的目标是：
+
+1. 把分散的 failure artifact 统一归类
+2. 为 operator 生成可执行的 recovery narrative
+3. 让 requirement detail 和 optimization signals 读同一套事故视图
+
+### 当前统一接入的 incident 来源
+
+当前 incident taxonomy 会归一这些 artifact：
+
+1. `bug_report`
+2. `capability_interrupt`
+3. `stale_memory_verification`
+4. `bugfix_circuit_breaker`
+5. `runtime_lifecycle`
+
+### incident record 的统一字段
+
+每个 incident 至少包含：
+
+1. `incident_family`
+2. `incident_code`
+3. `severity`
+4. `recovery_status`
+5. `summary`
+6. `recommended_action`
+7. `source_artifact_type`
+8. `source_artifact_id`
+
+### 当前 taxonomy family
+
+目前系统已经覆盖这些 family：
+
+1. `verification`
+2. `governance`
+3. `context_integrity`
+4. `recovery_loop`
+5. `runtime_orchestration`
+
+### requirement detail 如何使用它
+
+`/requirements/:id` 现在新增了 `Recovery Narrative & Incidents` 面板。
+
+operator 可以直接看到：
+
+1. 当前 requirement 最近的重要 incident
+2. 事故属于哪一类 taxonomy
+3. 当前 recovery status 是什么
+4. 推荐动作是什么
+
+### optimization signals 如何使用它
+
+optimization signal 现在除了原来的：
+
+1. `bug_report`
+2. `delivery_blocker`
+3. `manual_override`
+
+还会生成：
+
+1. `workflow_incident`
+
+这类 signal 会直接附带：
+
+1. `incident_family`
+2. `incident_code`
+3. `recovery_status`
+4. `recovery_narrative`
+
+因此 signal 不再只是“有问题”，而是会明确告诉 operator“这是哪类事故，以及建议怎样收口”。
+
 ## 2. 当前推荐的数据库策略
 
 ## 2.1 是否要立刻换成更强的数据库

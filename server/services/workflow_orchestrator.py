@@ -42,6 +42,7 @@ from server.services.agents_memory_sync import (
 from server.schemas import (
     ArtifactOut,
     DeliveryStateOut,
+    IncidentRecordOut,
     RequirementDependencyOut,
     RequirementAcceptanceCheckOut,
     RequirementCreate,
@@ -54,6 +55,7 @@ from server.schemas import (
     WorkflowStepOut,
 )
 from server.config import PROJECT_ROOT
+from server.services.incidents import list_requirement_incidents
 from server.services.copilot_sdk_state import (
     copilot_runtime_paths,
     load_runtime_state,
@@ -1083,6 +1085,7 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
         acceptance_checks=[RequirementAcceptanceCheckOut.model_validate(check) for check in checks],
         artifacts=[ArtifactOut.model_validate(artifact) for artifact in artifacts],
         delivery_state=_build_delivery_state(db, requirement),
+        incidents=[IncidentRecordOut(**incident) for incident in list_requirement_incidents(db, requirement_id)],
     )
 
 

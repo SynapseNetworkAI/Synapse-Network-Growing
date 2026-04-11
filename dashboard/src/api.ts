@@ -276,6 +276,10 @@ export interface OptimizationSignal {
   occurrence_count: number
   latest_evidence_at: string | null
   converted_requirement_id: number | null
+  incident_family?: string | null
+  incident_code?: string | null
+  recovery_status?: string | null
+  recovery_narrative?: string | null
   score_breakdown?: Record<string, number | string | boolean | null>
   recommended_priority?: string
   auto_intake_eligible?: boolean
@@ -526,6 +530,25 @@ export interface RequirementDetail {
   acceptance_checks: RequirementAcceptanceCheck[]
   artifacts: Artifact[]
   delivery_state: DeliveryState | null
+  incidents: Array<{
+    incident_key: string
+    requirement_id: number
+    workflow_run_id: number | null
+    step_id: number | null
+    source_artifact_id: number
+    source_artifact_type: string
+    incident_family: string
+    incident_code: string
+    severity: string
+    recovery_status: string
+    title: string
+    summary: string
+    recommended_action: string
+    project_root_path: string | null
+    project_display_name: string | null
+    evidence: Record<string, unknown>[]
+    occurred_at: string | null
+  }>
 }
 
 export interface OrgNode {

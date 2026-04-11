@@ -196,6 +196,7 @@ def test_requirement_bugfix_loop_circuit_breaks_on_repeated_identical_errors(syn
     data = start_resp.json()
     assert data["requirement"]["status"] == "needs_revision"
     assert data["workflow_run"]["status"] == "cancelled"
+    assert any(item["incident_code"] == "bugfix_circuit_breaker" for item in data["incidents"])
 
     bugfix_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "bugfix"]
     assert len(bugfix_steps) == 2
@@ -919,6 +920,7 @@ def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access
     assert detail["requirement"]["status"] == "blocked"
     assert detail["workflow_run"]["status"] == "paused"
     assert detail["workflow_run"]["steps"][0]["status"] == "blocked"
+    assert any(item["incident_code"] == "capability_denied" for item in detail["incidents"])
 
     interrupt_artifact = db_session.query(ArtifactRow).filter(
         ArtifactRow.requirement_id == requirement_id,
@@ -970,6 +972,7 @@ def test_start_requirement_blocks_when_context_is_stale(synced_client, db_sessio
     detail = start_resp.json()
     assert detail["requirement"]["status"] == "blocked"
     assert detail["workflow_run"]["status"] == "paused"
+    assert any(item["incident_code"] == "stale_memory_blocked" for item in detail["incidents"])
 
     stale_artifact = db_session.query(ArtifactRow).filter(
         ArtifactRow.requirement_id == requirement_id,

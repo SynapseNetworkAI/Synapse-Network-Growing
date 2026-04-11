@@ -57,6 +57,16 @@ def test_refresh_optimization_signals_deduplicates_bug_reports_and_collects_sour
                 "publish_blockers": ["required check pending: npm run build"],
             }),
         ),
+        ArtifactRow(
+            requirement_id=req1.id,
+            artifact_type="stale_memory_verification",
+            content_summary="stale context verification for step implementation",
+            machine_readable_payload=json.dumps({
+                "verification_status": "stale",
+                "stale_findings": ["implementation_plan comes from workflow run #2"],
+                "step_key": "implementation",
+            }),
+        ),
     ])
     task = TaskRow(
         description="Need manual approval",
@@ -80,6 +90,9 @@ def test_refresh_optimization_signals_deduplicates_bug_reports_and_collects_sour
     assert by_type["bug_report"]["project_key"] == "synapse-network"
     assert by_type["delivery_blocker"]["occurrence_count"] == 1
     assert by_type["manual_override"]["occurrence_count"] == 1
+    assert by_type["workflow_incident"]["incident_family"] == "context_integrity"
+    assert by_type["workflow_incident"]["incident_code"] == "stale_memory_blocked"
+    assert by_type["workflow_incident"]["recovery_status"] == "replan_required"
 
 
 def test_create_requirement_from_optimization_signal_marks_signal_converted(synced_client, db_session):
@@ -257,7 +270,7 @@ def test_lists_templates_and_operator_can_create_template_backed_requirements(sy
     assert templates_resp.status_code == 200
     templates = templates_resp.json()
     template_keys = {item["template_key"] for item in templates}
-    assert {"defect_reduction", "release_bottleneck", "approval_automation", "onboarding_friction", "docs_drift"} <= template_keys
+    assert {"defect_reduction", "release_bottleneck", "approval_automation", "incident_recovery", "onboarding_friction", "docs_drift"} <= template_keys
 
 
 def test_operator_template_requirements_generate_structured_acceptance_checks(synced_client):

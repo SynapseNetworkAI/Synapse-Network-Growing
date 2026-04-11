@@ -149,7 +149,16 @@ export default function OptimizationSignals() {
               <div>Urgency: {signal.score_breakdown?.urgency ?? '-'}</div>
               <div>实现成本: {signal.score_breakdown?.implementation_cost ?? '-'}</div>
               <div>已转需求: {signal.converted_requirement_id || '-'}</div>
+              {signal.incident_family && <div>Incident: {signal.incident_family} / {signal.incident_code || '-'}</div>}
+              {signal.recovery_status && <div>Recovery: {signal.recovery_status}</div>}
             </div>
+
+            {signal.recovery_narrative && (
+              <div className="mt-3 rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">
+                <div className="font-medium">Recovery Narrative</div>
+                <div className="mt-1">{signal.recovery_narrative}</div>
+              </div>
+            )}
 
             {signal.evidence.length > 0 && (
               <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-700">

@@ -89,6 +89,33 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
             },
         ],
     },
+    "incident_recovery": {
+        "template_key": "incident_recovery",
+        "category": "runtime_reliability",
+        "display_name": "Incident Recovery",
+        "description": "Stabilize a workflow/runtime incident and add recovery guards so the same failure path can close cleanly next time.",
+        "supported_signal_types": ["workflow_incident"],
+        "acceptance_checks": [
+            {
+                "check_key": "incident_root_cause_documented",
+                "description": "Review confirms the incident root cause and recovery path are documented.",
+                "check_type": "manual_review",
+                "owner_role": "reviewer",
+                "success_criteria_markdown": "Review artifact explains why the incident happened, which guardrail failed, and what recovery path was chosen.",
+                "validation_step_key": "review",
+                "verification_type": "manual",
+            },
+            {
+                "check_key": "recovery_guard_verified",
+                "description": "Validation confirms the same runtime/recovery path now closes without repeating the incident.",
+                "check_type": "content_assertion",
+                "owner_role": "tester",
+                "success_criteria_markdown": "Validation evidence proves the incident path is now recoverable, bounded, or explicitly escalated.",
+                "validation_step_key": "test",
+                "verification_type": "automated",
+            },
+        ],
+    },
     "onboarding_friction": {
         "template_key": "onboarding_friction",
         "category": "process_quality",
@@ -150,6 +177,7 @@ _SIGNAL_TEMPLATE_MAP = {
     "bug_report": "defect_reduction",
     "delivery_blocker": "release_bottleneck",
     "manual_override": "approval_automation",
+    "workflow_incident": "incident_recovery",
 }
 
 

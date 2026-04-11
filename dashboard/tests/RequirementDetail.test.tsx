@@ -266,6 +266,27 @@ const detail = {
     published_at: null,
     publish_note: null,
   },
+  incidents: [
+    {
+      incident_key: 'bugfix_circuit_breaker:33',
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 22,
+      source_artifact_id: 33,
+      source_artifact_type: 'bugfix_circuit_breaker',
+      incident_family: 'recovery_loop',
+      incident_code: 'bugfix_circuit_breaker',
+      severity: 'critical',
+      recovery_status: 'operator_review_required',
+      title: 'Recovery incident: bugfix circuit breaker',
+      summary: 'Repeated validation failures triggered a circuit breaker.',
+      recommended_action: 'Inspect the repeated error fingerprint and handle the operator review follow-up.',
+      project_root_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+      project_display_name: 'Synapse-Network-Growing',
+      evidence: [],
+      occurred_at: '2026-04-11T08:04:30Z',
+    },
+  ],
 }
 
 describe('RequirementDetail', () => {
@@ -305,6 +326,7 @@ describe('RequirementDetail', () => {
     expect(screen.getByTestId('delivery-state-panel')).toBeInTheDocument()
     expect(screen.getByTestId('context-governance-panel')).toBeInTheDocument()
     expect(screen.getByTestId('runtime-lifecycle-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('incident-panel')).toBeInTheDocument()
     expect(screen.getByText('Latest Compaction')).toBeInTheDocument()
     expect(screen.getByText(/status: fresh/)).toBeInTheDocument()
     expect(screen.getByText(/phase: running/)).toBeInTheDocument()
@@ -312,6 +334,8 @@ describe('RequirementDetail', () => {
     expect(screen.getByText(/subagents:/)).toBeInTheDocument()
     expect(screen.getByText(/subagent_started/)).toBeInTheDocument()
     expect(screen.getAllByText(/editor/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Recovery incident: bugfix circuit breaker/)).toBeInTheDocument()
+    expect(screen.getByText(/operator_review_required/)).toBeInTheDocument()
     expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
     expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
     expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()

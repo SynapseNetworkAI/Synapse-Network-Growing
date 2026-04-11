@@ -728,6 +728,34 @@ export default function RequirementDetail() {
               </div>
             </section>
 
+            {detail.incidents.length > 0 && (
+              <section className="p-4 border rounded-xl bg-rose-50" data-testid="incident-panel">
+                <div className="mb-3 text-sm font-semibold">Recovery Narrative & Incidents</div>
+                <div className="space-y-3">
+                  {detail.incidents.map((incident) => (
+                    <div key={incident.incident_key} className="rounded-lg border border-rose-100 bg-white p-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-medium text-gray-900">{incident.title}</div>
+                        <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] text-rose-700">
+                          {incident.severity}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                          {incident.incident_family} / {incident.incident_code}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-gray-700">{incident.summary}</div>
+                      <div className="mt-2 text-gray-500">
+                        recovery: {incident.recovery_status} · source: {incident.source_artifact_type} #{incident.source_artifact_id}
+                      </div>
+                      <div className="mt-2 text-rose-700">
+                        Recommended action: {incident.recommended_action}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {bugReports.length > 0 && (
               <section className="p-4 border rounded-xl" data-testid="bug-reports-panel">
                 <div className="mb-3 text-sm font-semibold">Recent Bug Reports</div>

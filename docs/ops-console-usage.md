@@ -246,8 +246,9 @@ npm run dev
 2. 再看 workflow 是否合理。
 3. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
 4. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死，也没有停在异常状态。
-5. 再看 validation contract 是否覆盖关键风险。
-6. 最后再做 publish，而不是跳过验证直接关单。
+5. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
+6. 再看 validation contract 是否覆盖关键风险。
+7. 最后再做 publish，而不是跳过验证直接关单。
 
 ### Runtime Lifecycle 面板怎么用
 
@@ -277,6 +278,22 @@ npm run dev
 2. runtime state 里出现 cleanup / abort 相关信息
 
 说明 requirement 是被系统或 operator 主动收口，而不是正常完成。
+
+### Recovery Narrative & Incidents 面板怎么用
+
+这个面板会把 requirement 里最近的重要事故归类出来，当前会覆盖：
+
+1. verification failure
+2. capability/policy interrupt
+3. stale memory block
+4. bugfix circuit breaker
+5. runtime failure / abnormal pause
+
+推荐阅读顺序：
+
+1. 先看 `incident_family / incident_code`，判断这是验证问题、治理问题、上下文问题还是运行期问题。
+2. 再看 `recovery_status`，判断当前应该继续自动修复、重新规划，还是转 operator review。
+3. 最后看 `recommended_action`，决定是 revise、re-plan、修 policy，还是处理 follow-up incident requirement。
 
 ### 当 requirement 被 stale memory 阻断时怎么办
 

@@ -79,7 +79,8 @@
 2. capability matrix + interrupt policy 已落地到 `project policy -> planner -> workflow step -> delivery contract` 链路。
 3. `context budget + compact + stale memory verify` 已落地到 `planner -> workflow step -> orchestrator -> artifacts -> requirement detail` 链路。
 4. `runtime / subagent lifecycle` 已落地到 `task logs -> runtime state -> workflow artifacts -> requirement detail` 链路。
-5. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
+5. `recovery narrative / incident taxonomy` 已落地到 `failure artifacts -> unified incident view -> requirement detail / optimization signals` 链路。
+6. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
 
 ## 11. Context Governance 落地要求
 
@@ -153,3 +154,31 @@
 1. pause / cancel / abort 时，要能看到 cleanup 何时被请求。
 2. 如果 runtime backend 支持外部 state，state snapshot 也应进入 telemetry。
 3. operator 需要能从 artifact 判断“这次是正常结束，还是被中断收口”。
+
+## 13. Recovery Narrative / Incident Taxonomy 落地要求
+
+为了保证错误路径是真正的主路径，事故与恢复信息必须满足下面这些要求。
+
+### 13.1 Incident taxonomy 必须统一
+
+不能让 `bug_report`、`capability_interrupt`、`stale_memory_verification`、`bugfix_circuit_breaker`、`runtime_lifecycle` 各说各话。
+
+后续设计必须把这些证据归一到统一 incident 视图，至少包含：
+
+1. `incident_family`
+2. `incident_code`
+3. `severity`
+4. `recovery_status`
+5. `recommended_action`
+
+### 13.2 Recovery narrative 必须面向 operator
+
+1. narrative 要回答“发生了什么、为什么值得停下来、下一步该怎么处理”。
+2. narrative 不能只是把原始错误字符串复读一遍。
+3. incident summary 要能直接进入 requirement detail、optimization signal 和 company review。
+
+### 13.3 Signal 必须能读 incident
+
+1. optimization signal 不只看 bug / blocker / approval，也要能看 workflow/runtime/context incident。
+2. signal 里的 taxonomy 与 detail 页必须一致，不能出现两套分类规则。
+3. incident signal 默认应导向 recovery / stabilization 类型 requirement，而不是把所有事故都粗暴映射成“修 bug”。

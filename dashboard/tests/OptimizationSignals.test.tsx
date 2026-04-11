@@ -44,6 +44,10 @@ const SIGNALS = [
     occurrence_count: 2,
     latest_evidence_at: '2026-04-11T12:00:00Z',
     converted_requirement_id: null,
+    incident_family: 'verification',
+    incident_code: 'automated_validation_failure',
+    recovery_status: 'bugfix_loop_active',
+    recovery_narrative: 'Automated validation failed and the workflow should continue through bugfix plus re-validation.',
     score_breakdown: {
       total: 78.4,
       impact: 34,
@@ -86,6 +90,8 @@ describe('OptimizationSignals', () => {
     expect(screen.getByText(/Repeated bug reports detected/)).toBeInTheDocument()
     expect(screen.getByText('score 78.4')).toBeInTheDocument()
     expect(screen.getByText('推荐优先级: high')).toBeInTheDocument()
+    expect(screen.getByText(/Incident: verification \/ automated_validation_failure/)).toBeInTheDocument()
+    expect(screen.getByText(/Recovery Narrative/)).toBeInTheDocument()
   })
 
   it('refreshes, auto-intakes, and converts a signal into a requirement', async () => {

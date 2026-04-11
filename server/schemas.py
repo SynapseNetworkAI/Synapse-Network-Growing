@@ -452,6 +452,10 @@ class OptimizationSignalOut(BaseModel):
     occurrence_count: int = 0
     latest_evidence_at: Optional[datetime] = None
     converted_requirement_id: Optional[int] = None
+    incident_family: Optional[str] = None
+    incident_code: Optional[str] = None
+    recovery_status: Optional[str] = None
+    recovery_narrative: Optional[str] = None
     score_breakdown: dict[str, float | bool | str | None] = {}
     recommended_priority: str = "normal"
     auto_intake_eligible: bool = False
@@ -643,6 +647,26 @@ class RequirementAcceptanceCheckOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class IncidentRecordOut(BaseModel):
+    incident_key: str
+    requirement_id: int
+    workflow_run_id: Optional[int] = None
+    step_id: Optional[int] = None
+    source_artifact_id: int
+    source_artifact_type: str
+    incident_family: str
+    incident_code: str
+    severity: str
+    recovery_status: str
+    title: str
+    summary: str
+    recommended_action: str
+    project_root_path: Optional[str] = None
+    project_display_name: Optional[str] = None
+    evidence: list[dict[str, object]] = []
+    occurred_at: Optional[str] = None
+
+
 class DeliveryStateOut(BaseModel):
     branch_name: Optional[str] = None
     branch_strategy: Optional[str] = None
@@ -781,6 +805,7 @@ class RequirementDetailOut(BaseModel):
     acceptance_checks: list[RequirementAcceptanceCheckOut] = []
     artifacts: list[ArtifactOut] = []
     delivery_state: Optional[DeliveryStateOut] = None
+    incidents: list[IncidentRecordOut] = []
 
 
 # ── Copilot Auth ─────────────────────────────────────────────
