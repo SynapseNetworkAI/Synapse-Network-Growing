@@ -333,6 +333,10 @@ export const api = {
     request<Task>(`/tasks/${id}/retry?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
   bulkRetryTasks: (data: TaskBulkRetryRequest) =>
     request<Task[]>('/tasks/bulk-retry', { method: 'POST', body: JSON.stringify(data) }),
+  pauseTask: (id: number) =>
+    request<Task>(`/tasks/${id}/pause`, { method: 'POST' }),
+  updateTask: (id: number, data: { description?: string; priority?: string }) =>
+    request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
   getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
   getTaskFileChanges: (id: number) => request<TaskFileChanges>(`/tasks/${id}/file-changes`),
@@ -369,6 +373,9 @@ export const api = {
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
   startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
+  pauseRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/pause`, { method: 'POST' }),
+  updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
+    request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   advanceQueue: () => request<{ started?: number; skipped?: string }>('/requirements/queue/advance', { method: 'POST' }),
   reviseRequirement: (id: number, data: {
     title?: string

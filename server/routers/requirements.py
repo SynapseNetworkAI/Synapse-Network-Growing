@@ -16,11 +16,13 @@ from server.schemas import (
     RequirementRevisionRequest,
 )
 from server.services.workflow_orchestrator import (
+    _normalize_target_project_path,
     advance_requirement_queue,
     build_requirement_detail,
     close_requirement,
     create_requirement,
     patch_requirement,
+    pause_requirement,
     plan_requirement,
     revise_requirement,
     start_requirement,
@@ -53,10 +55,18 @@ def list_requirements(
     if status:
         query = query.filter(RequirementRow.status == status)
     rows = query.all()
+    changed = False
+    for row in rows:
+        normalized_target = _normalize_target_project_path(row.target_project_path)
+        if normalized_target != row.target_project_path:
+            row.target_project_path = normalized_target
+            changed = True
     if sort == "score":
         rows.sort(key=_requirement_score, reverse=True)
     else:
         rows.sort(key=lambda r: (r.created_at or datetime.min.replace(tzinfo=timezone.utc), r.id), reverse=True)
+    if changed:
+        db.commit()
     return [RequirementOut.model_validate(row) for row in rows]
 
 
@@ -107,6 +117,14 @@ def plan_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)
 def start_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return start_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/pause", response_model=RequirementDetailOut)
+def pause_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return pause_requirement(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

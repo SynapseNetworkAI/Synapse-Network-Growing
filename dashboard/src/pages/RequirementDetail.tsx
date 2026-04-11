@@ -6,6 +6,7 @@ import { api, RequirementDetail as RequirementDetailType, Requirement } from '..
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   ready: '已规划',
+  paused: '已暂停',
   in_progress: '执行中',
   done: '已完成',
   needs_revision: '需修订',
@@ -15,6 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_CLASS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
   ready: 'bg-sky-100 text-sky-700',
+  paused: 'bg-slate-200 text-slate-700',
   in_progress: 'bg-blue-100 text-blue-700',
   done: 'bg-green-100 text-green-700',
   needs_revision: 'bg-amber-100 text-amber-700',
@@ -23,7 +25,9 @@ const STATUS_CLASS: Record<string, string> = {
 
 const STEP_STATUS_CLASS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
+  ready: 'bg-sky-50 text-sky-700',
   running: 'bg-blue-100 text-blue-700',
+  paused: 'bg-slate-200 text-slate-700',
   waiting_approval: 'bg-yellow-100 text-yellow-700',
   completed: 'bg-green-100 text-green-700',
   failed: 'bg-red-100 text-red-700',
@@ -42,6 +46,11 @@ function formatTime(value: string | null) {
   if (!value) return '-'
   const d = new Date(value.endsWith('Z') ? value : value + 'Z')
   return d.toLocaleString('zh-CN')
+}
+
+function getTargetProjectPaths(value: string | null) {
+  if (!value) return []
+  return value.split('\n').map((item) => item.trim()).filter(Boolean)
 }
 
 export default function RequirementDetail() {
@@ -95,6 +104,11 @@ export default function RequirementDetail() {
     setDetail(data)
   }
 
+  const handlePause = async () => {
+    const data = await api.pauseRequirement(requirementId)
+    setDetail(data)
+  }
+
   const handleRevise = async () => {
     if (!detail || !revisionForm.description_markdown.trim()) return
     setSubmitting(true)
@@ -128,6 +142,7 @@ export default function RequirementDetail() {
   }
 
   const req = detail.requirement
+  const targetProjectPaths = getTargetProjectPaths(req.target_project_path)
 
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
@@ -156,9 +171,15 @@ export default function RequirementDetail() {
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!detail.workflow_run || req.status === 'blocked' || req.status === 'done'}
-              onClick={() => { handleStart().catch(() => {}) }}
+              onClick={() => {
+                if (req.status === 'in_progress') {
+                  handlePause().catch(() => {})
+                  return
+                }
+                handleStart().catch(() => {})
+              }}
             >
-              启动执行
+              {req.status === 'in_progress' ? '暂停执行' : '启动执行'}
             </button>
             <button
               data-testid="toggle-revise-btn"
@@ -238,9 +259,14 @@ export default function RequirementDetail() {
             <section className="p-4 border rounded-xl bg-slate-50">
               <div className="mb-2 text-sm font-semibold">需求说明</div>
               <Md>{req.description_markdown}</Md>
-              {req.target_project_path && (
-                <div className="mt-2 rounded bg-blue-50 px-3 py-1.5 text-xs text-blue-800" data-testid="target-project-path">
-                  目标项目: {req.target_project_path}
+              {targetProjectPaths.length > 0 && (
+                <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-xs text-blue-800" data-testid="target-project-path">
+                  <div className="mb-1 font-medium">目标项目:</div>
+                  <div className="space-y-1 font-mono">
+                    {targetProjectPaths.map((projectPath) => (
+                      <div key={projectPath} className="break-all">{projectPath}</div>
+                    ))}
+                  </div>
                 </div>
               )}
             </section>

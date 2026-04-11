@@ -220,6 +220,11 @@ class RequirementPatch(BaseModel):
     target_project_path: Optional[str] = None
 
 
+class TaskPatch(BaseModel):
+    description: Optional[str] = None
+    priority: Optional[str] = None
+
+
 class ArtifactOut(BaseModel):
     id: int
     requirement_id: int

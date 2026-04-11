@@ -1,9 +1,0 @@
-{
-  "status": "completed",
-  "sessionId": "task-1775750609347",
-  "selectedAgent": "researcher",
-  "tokensUsed": 0,
-  "model": "claude-opus-4.6",
-  "executionTimeMs": 437047,
-  "outputPath": "/Users/cliff/workspace/agent/Synapse-Network-Growing/roles/dev_rel/outputs/task-29/output.md"
-}

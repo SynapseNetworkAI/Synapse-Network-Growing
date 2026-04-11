@@ -1,6 +1,6 @@
 ---
 created_at: 2026-04-09
-updated_at: 2026-04-09
+updated_at: 2026-04-11
 doc_status: completed
 ---
 
@@ -19,7 +19,7 @@ Items explicitly deferred to Phase 2+ (AI planner, multi-tenant, DAG parallelism
 - [x] Revision lifecycle with cancel-replan
 - [x] Dynamic org chart from roles/* discovery
 - [x] Full database schema (all 10 tables from DB design doc)
-- [x] RequirementPool UI: create, plan, start, revision, dependencies, steps, artifacts, acceptance checks
+- [x] RequirementPool UI: create, plan, start/pause, paused status filter, multi-target display, revision, dependencies, steps, artifacts, acceptance checks
 - [x] OrgChart UI: dynamic agent groups
 - [x] Backend tests: 111 passed
 - [x] Frontend tests: 39 passed

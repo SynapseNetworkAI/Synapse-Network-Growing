@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -47,6 +49,8 @@ from server.schemas import (
     WorkflowRunOut,
     WorkflowStepOut,
 )
+from server.config import PROJECT_ROOT
+from server.services.copilot_sdk_state import copilot_runtime_paths, load_runtime_state, save_runtime_state, task_output_dir
 from server.services.execution_resolver import suggest_task_execution
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
@@ -55,6 +59,8 @@ from server.services.workflow_planner import WorkflowRoleAssignments, build_plan
 RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
 SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
+PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
 
 import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
@@ -149,6 +155,27 @@ def _populate_handoff_summary(step: WorkflowStepRow, task: TaskRow):
     step.handoff_summary_markdown = "\n".join(summary_lines)
 
 
+def _normalize_target_project_path(raw_path: str | None) -> str | None:
+    if raw_path is None:
+        return None
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in raw_path.splitlines():
+        candidate = line.strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        lines.append(candidate)
+
+    if lines == [PRIMARY_GROWING_PROJECT]:
+        lines.append(PRIMARY_SYNAPSE_PROJECT)
+
+    if not lines:
+        return None
+    return "\n".join(lines)
+
+
 def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetailOut:
     requirement = RequirementRow(
         title=body.title,
@@ -157,7 +184,7 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         priority=body.priority,
         source=body.source,
         source_ref=body.source_ref,
-        target_project_path=body.target_project_path,
+        target_project_path=_normalize_target_project_path(body.target_project_path),
     )
     db.add(requirement)
     db.flush()
@@ -393,6 +420,85 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     return build_requirement_detail(db, requirement.id)
 
 
+def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    workflow_run = _active_workflow_run(db, requirement)
+    if workflow_run is None or requirement.status != "in_progress":
+        raise ValueError("Requirement is not currently running.")
+
+    running_steps = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id,
+        WorkflowStepRow.status.in_(tuple(RUNNING_STEP_STATUSES)),
+    ).all()
+    if not running_steps:
+        raise ValueError("Requirement has no running workflow step to pause.")
+
+    for step in running_steps:
+        _pause_workflow_step(db, step)
+
+    workflow_run.status = "paused"
+    workflow_run.started_at = None
+    workflow_run.completed_at = None
+    requirement.status = "paused"
+    requirement.started_at = None
+    requirement.completed_at = None
+    _clear_role_sessions()
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
+def pause_task(db: Session, task_id: int) -> TaskRow:
+    """Pause a running task and cascade the pause to its parent requirement.
+
+    Sets the task status to 'paused', terminates the runtime, resets the linked
+    workflow step back to 'ready', and pauses the parent requirement if it is
+    currently in_progress.
+    """
+    task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if task is None:
+        raise ValueError(f"Task #{task_id} not found")
+    task_status = _as_text(cast(Any, task).status)
+    if task_status != "running":
+        raise ValueError(f"Task #{task_id} is not running (status={task_status})")
+
+    _terminate_task_runtime(task)
+    cast(Any, task).status = "paused"
+    cast(Any, task).last_error_message = "Paused by user"
+    db.add(TaskLogRow(task_id=task_id, event_type="paused", detail="Task paused by user"))
+
+    # Reset the linked workflow step back to ready
+    step = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.compatibility_task_id == task_id
+    ).first()
+    if step is not None:
+        step.status = "ready"
+        step.runtime_session_id = None
+        step.runtime_backend = ""
+        step.compatibility_task_id = None
+        step.started_at = None
+        step.completed_at = None
+        _record_step_event(db, step.id, "status_change", "ready (task paused by user)")
+
+        # Cascade to parent requirement
+        parent_req = db.query(RequirementRow).filter(
+            RequirementRow.id == step.requirement_id
+        ).first()
+        if parent_req is not None and _as_text(cast(Any, parent_req).status) == "in_progress":
+            workflow_run = _active_workflow_run(db, parent_req)
+            if workflow_run is not None:
+                workflow_run.status = "paused"
+                workflow_run.started_at = None
+                workflow_run.completed_at = None
+            cast(Any, parent_req).status = "paused"
+            cast(Any, parent_req).started_at = None
+            cast(Any, parent_req).completed_at = None
+            _clear_role_sessions()
+
+    db.commit()
+    db.refresh(task)
+    return task
+
+
 def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     workflow_run = _active_workflow_run(db, requirement)
@@ -616,6 +722,51 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
         db.close()
 
 
+def _pause_workflow_step(db: Session, step: WorkflowStepRow) -> None:
+    task = None
+    if step.compatibility_task_id:
+        task = db.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
+
+    if task is not None:
+        _terminate_task_runtime(task)
+        cast(Any, task).status = "paused"
+        cast(Any, task).last_error_message = "Paused by user"
+        db.add(TaskLogRow(task_id=task.id, event_type="paused", detail="Requirement paused by user"))
+
+    step.status = "ready"
+    step.runtime_session_id = None
+    step.runtime_backend = ""
+    step.compatibility_task_id = None
+    step.started_at = None
+    step.completed_at = None
+    _record_step_event(db, step.id, "status_change", "ready (manual pause)")
+
+
+def _terminate_task_runtime(task: TaskRow) -> None:
+    if str(task.runtime_backend or "") != "copilot_sdk":
+        return
+
+    output_dir = task_output_dir(PROJECT_ROOT, str(task.agent_id), int(task.id))
+    paths = copilot_runtime_paths(output_dir)
+    state = load_runtime_state(paths["state"]) or {}
+    worker_pid = int(state.get("workerPid") or 0)
+
+    if worker_pid > 0:
+        try:
+            os.killpg(worker_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            _logger.warning("Permission denied while pausing worker pid=%s for task #%s", worker_pid, task.id)
+        except OSError as exc:
+            _logger.warning("Failed to pause worker pid=%s for task #%s: %s", worker_pid, task.id, exc)
+
+    state["status"] = "paused"
+    state["updatedAt"] = utcnow().isoformat()
+    state["pausedAt"] = utcnow().isoformat()
+    save_runtime_state(paths["state"], state)
+
+
 def _create_acceptance_checks(db: Session, requirement_id: int, planner_output: dict):
     for check in planner_output.get("acceptance_checks", []):
         db.add(
@@ -728,7 +879,7 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
         f"Requirement #{requirement.id}: {requirement.title}",
         requirement.description_markdown,
     ]
-    target_path = getattr(requirement, "target_project_path", None)
+    target_path = _normalize_target_project_path(getattr(requirement, "target_project_path", None))
     if target_path:
         parts.append(f"Target project path: {target_path}")
         parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
@@ -1141,6 +1292,13 @@ def advance_requirement_queue(db: Session) -> dict:
     if active:
         return {"skipped": f"requirement #{active.id} already in_progress"}
 
+    # Halt if any requirement is paused — wait for user to resume or start a new task
+    paused = db.query(RequirementRow).filter(
+        RequirementRow.status == "paused"
+    ).first()
+    if paused:
+        return {"skipped": f"requirement #{paused.id} is paused; resume it or start a new task first"}
+
     # Find candidates: ready, unblocked, no workflow run yet
     candidates = db.query(RequirementRow).filter(
         RequirementRow.status == "ready",
@@ -1402,6 +1560,9 @@ def _require_requirement(db: Session, requirement_id: int) -> RequirementRow:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found")
+    normalized_target = _normalize_target_project_path(requirement.target_project_path)
+    if normalized_target != requirement.target_project_path:
+        requirement.target_project_path = normalized_target
     return requirement
 
 

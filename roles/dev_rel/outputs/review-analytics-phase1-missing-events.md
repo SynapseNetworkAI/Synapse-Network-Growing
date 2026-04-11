@@ -21,152 +21,150 @@ target_repo: Synapse-Network / Synapse-Network-Provider
 | File | Repo | Role |
 |------|------|------|
 | `services/gateway/src/services/analytics/gateway_events.py` | Synapse-Network | New: `emit_provider_first_revenue_received()` |
+| `services/gateway/src/services/analytics/emitter.py` | Synapse-Network | **Not modified** — KafkaBackend race condition remains |
 | `app/services/analytics/provider_events.py` | Synapse-Network-Provider | New: `emit_service_registered()`, `emit_service_register_failed()`, `emit_provider_health_degraded()` |
-| `app/services/analytics/emitter.py` | Synapse-Network-Provider | New: full `AnalyticsEmitter` + `KafkaBackend` + `FileBackend` + `DualBackend` + factory |
+| `app/services/analytics/emitter.py` | Synapse-Network-Provider | New: full `AnalyticsEmitter` + `KafkaBackend` (with `asyncio.Lock`) + `FileBackend` + `DualBackend` + factory |
 | `app/services/analytics/privacy.py` | Synapse-Network-Provider | New: `sha256_hash()` |
-| `tests/test_provider_analytics.py` | Synapse-Network-Provider | New: 16 unit tests for all 3 provider emitters |
-| `tests/unit/test_analytics_fullstack_unit.py` | Synapse-Network | Extended: `TestProviderFirstRevenueReceived` class (5 tests) |
+| `tests/test_provider_analytics.py` | Synapse-Network-Provider | New: 16 unit tests for all 3 new provider emitters |
+| `tests/unit/test_analytics_fullstack_unit.py` | Synapse-Network | Extended: `TestProviderFirstRevenueReceived` class (5 new tests) |
 
 ---
 
-## 2. Test Results
+## 2. Test Results (Executed)
 
 ```
-Synapse-Network Gateway — analytics unit tests
-  27 passed, 0 failed, 0 errors
-  (test_analytics_fullstack_unit.py + test_analytics_emitter_unit.py)
+Synapse-Network Gateway — all analytics test files
+  test_analytics_emitter_unit.py       10 passed
+  test_analytics_fullstack_unit.py     27 passed  (+5 for new event)
+  test_gateway_events_unit.py          20 passed  (all pre-existing tests regression-free)
+  test_events_router_unit.py            6 passed  (all pre-existing tests regression-free)
+  Gateway total:                        63 passed
 
 Synapse-Network-Provider — provider analytics tests
-  16 passed, 0 failed, 0 errors
-  (test_provider_analytics.py)
+  test_provider_analytics.py           16 passed
+  Provider total:                       16 passed
 
-Total: 43 passed ✅
+Grand total: 79 passed, 0 failed, 0 errors
 ```
+
+> `test_gateway_events_unit.py` (20 tests) and `test_events_router_unit.py` (6 tests) were both verified
+> to pass after gateway_events.py was modified — confirming zero regressions to existing emitters.
 
 ---
 
 ## 3. Review Findings
 
-### ✅ PASS
+### PASS
 
-| # | Finding |
-|---|---------|
-| P1 | All 4 new event emitters use correct snake_case event names: `service_registered`, `service_register_failed`, `provider_health_degraded`, `provider_first_revenue_received` |
-| P2 | All provider emitters hash the `provider_address` via `sha256_hash()` before using it as `distinct_id`. No raw `0x…` addresses leak into stored events. |
-| P3 | `emit_provider_health_degraded` also hashes `provider_address` into the `provider_id` property field (double hashing coverage: both `distinct_id` and `properties.provider_id`). |
-| P4 | `emit_provider_first_revenue_received` correctly sets `is_first_revenue: True` and makes `time_since_listing_ms` optional (omitted when `None`, not serialized as `null`). |
-| P5 | Provider `KafkaBackend` uses a lazily created `asyncio.Lock` in `_ensure_producer()`, fixing the original review blocker B5 for concurrent initialization. |
-| P6 | All emitters are fire-and-forget: silent no-op when `_emitter is None`, and exception caught/logged (never re-raised) in `_emit()`. |
-| P7 | `DualBackend` (Provider) correctly falls back to `FileBackend` on Kafka failure; events are never silently dropped. |
-| P8 | `privacy.py` normalizes input (`.strip().lower()`) before hashing — prevents `0xABC` vs `0xabc` creating different digests. |
-| P9 | Test isolation is correct: `_reset_emitter` autouse fixture clears `_emitter` before and after each test. |
-| P10 | All new test classes verify: event name, required properties, PII hashing, no-op behavior when emitter is None. |
-| P11 | `manifest_version` defaults to `"1"` — backward-compatible, no breaking change. |
-| P12 | Module-level docstrings on all new files include wire-up examples, consistent with existing gateway_events.py style. |
+- P1: All 4 new emitters use correct snake_case event names matching the tracking plan exactly
+- P2: All emitters hash `provider_address` via `sha256_hash()` as `distinct_id` — no raw `0x...` addresses leak
+- P3: `emit_provider_health_degraded` double-hashes: both `distinct_id` and `properties.provider_id` are hashed
+- P4: `emit_provider_first_revenue_received` marks `is_first_revenue: True`; `time_since_listing_ms` is omitted entirely when `None` (not null-serialized)
+- P5: Provider `KafkaBackend._ensure_producer()` uses `asyncio.Lock` — concurrent initialization race condition fixed for new code
+- P6: `role: "provider"` is hard-coded in Provider `_emit()` default and injected into every event's properties dict
+- P7: `env: os.getenv("ENVIRONMENT", "local")` is injected into every provider event, matching the gateway pattern (provider_events.py line 62)
+- P8: All emitters are fire-and-forget: silent no-op when `_emitter is None`, exceptions caught/logged, never re-raised
+- P9: `DualBackend` (Provider) falls back to `FileBackend` on Kafka failure — events are never silently dropped
+- P10: `privacy.py` normalizes input (`.strip().lower()`) before hashing — `0xABC` and `0xabc` produce the same digest
+- P11: `_reset_emitter` autouse fixture provides correct test isolation
+- P12: All 3 Provider test classes verify: event name, required properties, PII hashing, no-op when emitter is None
+- P13: `manifest_version` defaults to `"1"` in `emit_service_registered()` — backward-compatible
+- P14: All pre-existing gateway event tests pass with zero regressions (20 + 6 tests confirmed)
 
 ---
 
-### ⚠️ WARN (non-blocking, should fix in follow-up)
+### BLOCK — Must Fix Before Merge
 
-**W1 — Gateway `KafkaBackend` still lacks `asyncio.Lock`**
+**BLOCK-1: Gateway `KafkaBackend._ensure_producer()` has no `asyncio.Lock`**
 
-The Provider's `emitter.py` correctly added `asyncio.Lock` to `_ensure_producer()` (fixing the original blocker B5), but the Gateway's `emitter.py` `KafkaBackend` was not updated with the same fix.
+The Provider's new `emitter.py` correctly fixes the B5 race condition with `asyncio.Lock`. The Gateway's `emitter.py` — which handles all production-volume financial events — was **not updated** with the same fix.
 
 ```python
-# Synapse-Network/services/gateway/src/services/analytics/emitter.py
-# Lines 123-136 — NO asyncio.Lock present
+# gateway/src/services/analytics/emitter.py  lines 123-136 — UNFIXED
 async def _ensure_producer(self):
-    if self._producer is None:           # ← race condition under concurrent awaits
-        from aiokafka import AIOKafkaProducer
-        ...
+    if self._producer is None:           # race: two concurrent awaits both see None,
+        from aiokafka import AIOKafkaProducer  #   creating duplicate producers and
+        self._producer = AIOKafkaProducer(...)  #  duplicate event delivery
+        await self._producer.start()
 ```
 
-The Provider version correctly does:
 ```python
+# provider/app/services/analytics/emitter.py — CORRECT fix already applied
 async def _ensure_producer(self):
     import asyncio
     if self._lock is None:
         self._lock = asyncio.Lock()
     async with self._lock:
-        if self._producer is None:       # ← double-checked locking, safe
+        if self._producer is None:
             ...
 ```
 
-**Recommendation:** Port the lock pattern to the Gateway emitter as well.
+For financial analytics events (`invoke_completed`, `deposit_completed`, `settlement_claim_completed`), duplicate delivery can cause double-counting in billing dashboards.
+
+**Required fix:** Port the `asyncio.Lock` pattern to `services/gateway/src/services/analytics/emitter.py`.
 
 ---
 
-**W2 — New event emitters not yet wired to Provider business logic**
+### WARN — Non-Blocking, Should Fix in Follow-up
 
-The three Provider emitters (`emit_service_registered`, `emit_service_register_failed`, `emit_provider_health_degraded`) are implemented and tested in isolation, but are not yet called from the actual service registration or health monitor code in `Synapse-Network-Provider/app/`.
+**W1: New Provider emitters not yet wired to business logic**
+
+All three provider emitters exist only in the analytics package — no service registration handler or health monitor calls them. Events will not fire in production.
 
 ```bash
-# No callers found:
 grep -rn "emit_service_registered\|emit_service_register_failed\|emit_provider_health_degraded" \
-  Synapse-Network-Provider/app/ --include="*.py" | grep -v "analytics/"
+  Synapse-Network-Provider/app/ | grep -v "analytics/"
 # → (no output)
 ```
 
-Events will not fire in production until the business logic is updated to call them. This is a follow-up wiring task, not a blocker for the emitter implementation itself.
+**W2: `emit_provider_first_revenue_received` not wired to Gateway settlement path**
+
+The emitter is implemented and tested but no invoice settlement code checks the first-revenue condition and calls it. Docstring correctly warns callers are responsible, but no call-site exists yet.
+
+**W3: New gateway function tests placed in wrong file**
+
+`TestProviderFirstRevenueReceived` (5 tests) was added to `test_analytics_fullstack_unit.py`. The established pattern: every gateway event helper has its unit tests in `test_gateway_events_unit.py`. The 13th helper (`emit_provider_first_revenue_received`) is the only exception.
+
+**W4: Provider `emitter.py` duplicates Gateway `emitter.py`**
+
+This is intentional (no cross-repo import). But this PR is a live example of the risk: the `asyncio.Lock` fix was applied to one copy and missed in the other.
 
 ---
 
-**W3 — `emit_provider_first_revenue_received` not yet wired to Gateway settlement logic**
-
-The Gateway emitter is defined but the settlement/payment processing code does not yet check the first-revenue condition and call this emitter. Callers are responsible (documented in the docstring), but without a concrete integration point the event will never fire.
-
-**Recommendation:** Create a follow-up ticket to wire this into the invoice settlement path (e.g., check `prior_settled_invoices_count == 0` before calling `emit_provider_first_revenue_received`).
-
----
-
-**W4 — Provider `emitter.py` duplicates Gateway `emitter.py`**
-
-The file comment acknowledges this:
-> "Same implementation as the Gateway emitter; duplicated here so the Provider Service has no import dependency on the Gateway package."
-
-This is an acceptable architecture decision for service isolation. However, any future changes to shared emitter behavior (e.g., adding `asyncio.Lock` to KafkaBackend) must be applied to both files manually. Consider extracting a shared `synapse-analytics-core` package in the long term.
-
----
-
-### ❌ BLOCK (must fix before merge)
-
-**None.** No blocking issues found.
-
----
-
-## 4. Phase 1 Event Coverage Verification
+## 4. Phase 1 Event Coverage
 
 | Event Name | Emitter File | Status |
 |-----------|-------------|--------|
-| `wallet_connected` | frontend SDK | ✅ existing |
-| `consumer_signup_completed` | frontend SDK | ✅ existing |
-| `deposit_completed` | `gateway_events.py` | ✅ existing |
-| `invoke_completed` | `gateway_events.py` | ✅ existing |
-| `invoke_failed` | `gateway_events.py` | ✅ existing |
-| `service_registered` | `provider_events.py` | ✅ **newly implemented** |
-| `service_register_failed` | `provider_events.py` | ✅ **newly implemented** |
-| `provider_first_revenue_received` | `gateway_events.py` | ✅ **newly implemented** |
-| `provider_health_degraded` | `provider_events.py` | ✅ **newly implemented** |
+| `wallet_connected` | frontend SDK | existing |
+| `consumer_signup_completed` | frontend SDK | existing |
+| `deposit_completed` | `gateway_events.py` | existing |
+| `invoke_completed` | `gateway_events.py` | existing |
+| `invoke_failed` | `gateway_events.py` | existing |
+| `service_registered` | `provider_events.py` | **newly implemented** |
+| `service_register_failed` | `provider_events.py` | **newly implemented** |
+| `provider_first_revenue_received` | `gateway_events.py` | **newly implemented** |
+| `provider_health_degraded` | `provider_events.py` | **newly implemented** |
 
-**Phase 1: 9/9 events implemented.** ✅
+**Phase 1: 9/9 events implemented.**
 
 ---
 
 ## 5. Verdict
 
-**APPROVED_WITH_WARNINGS**
+**BLOCKED**
 
-The 4 missing Phase 1 events are correctly implemented with appropriate privacy controls, error handling, and test coverage. All 43 tests pass. No blocking issues were found.
+79/79 tests pass with zero regressions. The 4 new emitters are structurally correct: proper event names, PII hashing, `role`/`env` injection, fire-and-forget error handling, and isolated tests.
 
-The warnings (W1–W4) should be tracked as follow-up tasks but do not block merging this implementation.
+One blocking issue: the `asyncio.Lock` fix (original blocker B5) was applied only to the new Provider `KafkaBackend` but not back-ported to the Gateway `KafkaBackend`, which handles all production financial events. This is a 10-minute fix.
 
 ---
 
-## 6. Action Items (Follow-up)
+## 6. Action Items
 
-| Priority | Action | Owner |
-|----------|--------|-------|
-| HIGH | W1: Port `asyncio.Lock` to Gateway `KafkaBackend._ensure_producer()` | gateway team |
-| HIGH | W2: Wire `emit_service_registered` / `emit_service_register_failed` into Provider registration handler | provider team |
-| HIGH | W3: Wire `emit_provider_first_revenue_received` into Gateway settlement/invoice path | gateway team |
-| MED | W4: Extract shared `synapse-analytics-core` emitter package to avoid copy-paste drift | platform team |
+| Priority | Blocking | Action | Owner |
+|----------|----------|--------|-------|
+| HIGH | YES | **BLOCK-1:** Add `asyncio.Lock` to Gateway `KafkaBackend._ensure_producer()` in `services/gateway/src/services/analytics/emitter.py` | gateway team |
+| MED | no | **W1:** Wire `emit_service_registered` / `emit_service_register_failed` into Provider registration handler | provider team |
+| MED | no | **W2:** Wire `emit_provider_first_revenue_received` into Gateway invoice settlement path | gateway team |
+| LOW | no | **W3:** Move `TestProviderFirstRevenueReceived` tests to `test_gateway_events_unit.py` | gateway team |
+| LOW | no | **W4:** Add sync comment to both `emitter.py` copies; open ticket for `synapse-analytics-core` shared package | platform team |

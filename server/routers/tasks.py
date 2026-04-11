@@ -22,6 +22,7 @@ from server.schemas import (
     TaskBulkRetryRequest,
     TaskExecutionSuggestionRequest,
     TaskExecutionSuggestion,
+    TaskPatch,
 )
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
@@ -30,7 +31,7 @@ from server.services.execution_resolver import suggest_task_execution
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
-VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed"}
+VALID_STATUSES = {"pending", "running", "pending_approval", "approved", "rejected", "completed", "failed", "paused"}
 TASK_NOT_FOUND = "Task not found"
 
 
@@ -308,6 +309,47 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
     return _task_to_out(row)
+
+
+@router.patch("/{task_id}", response_model=TaskOut)
+def patch_task(
+    task_id: int,
+    body: TaskPatch,
+    db: Session = Depends(get_db),
+):
+    """Edit task description and/or priority (only for pending or paused tasks)."""
+    row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
+    row_status = _as_text(row.status) or "pending"
+    if row_status not in {"pending", "paused"}:
+        raise HTTPException(status_code=400, detail=f"Cannot edit task in '{row_status}' status. Only pending or paused tasks can be edited.")
+    if body.description is not None:
+        if not body.description.strip():
+            raise HTTPException(status_code=400, detail="description cannot be blank")
+        cast(Any, row).description = body.description.strip()
+        _add_log(db, _require_task_id(row), "edited", "description updated")
+    if body.priority is not None:
+        if body.priority not in {"low", "normal", "high"}:
+            raise HTTPException(status_code=400, detail="priority must be low|normal|high")
+        cast(Any, row).priority = body.priority
+    db.commit()
+    db.refresh(row)
+    return _task_to_out(row)
+
+
+@router.post("/{task_id}/pause", response_model=TaskOut)
+def pause_task_endpoint(
+    task_id: int,
+    db: Session = Depends(get_db),
+):
+    """Pause a running task and cascade the pause to parent requirement."""
+    from server.services.workflow_orchestrator import pause_task
+    try:
+        row = pause_task(db, task_id)
+        return _task_to_out(row)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/suggest-execution", response_model=TaskExecutionSuggestion)

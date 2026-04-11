@@ -1,9 +1,0 @@
-{
-  "status": "completed",
-  "sessionId": "task-1775751047450",
-  "selectedAgent": "db-analyst",
-  "tokensUsed": 0,
-  "model": "claude-opus-4.6",
-  "executionTimeMs": 341550,
-  "outputPath": "/Users/cliff/workspace/agent/Synapse-Network-Growing/roles/seo_strategist/outputs/task-30/output.md"
-}

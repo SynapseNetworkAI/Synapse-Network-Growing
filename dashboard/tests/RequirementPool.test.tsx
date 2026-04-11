@@ -9,6 +9,8 @@ const mockApi = {
   createRequirement: vi.fn(),
   planRequirement: vi.fn(),
   startRequirement: vi.fn(),
+  pauseRequirement: vi.fn(),
+  advanceQueue: vi.fn(),
   reviseRequirement: vi.fn(),
 }
 
@@ -19,6 +21,8 @@ vi.mock('../src/api', () => ({
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
     planRequirement: (...args: unknown[]) => mockApi.planRequirement(...args),
     startRequirement: (...args: unknown[]) => mockApi.startRequirement(...args),
+    pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
+    advanceQueue: (...args: unknown[]) => mockApi.advanceQueue(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
   },
 }))
@@ -31,6 +35,7 @@ const BLOCKER = {
   priority: 'normal',
   source: 'manual',
   source_ref: null,
+  target_project_path: null,
   current_plan_version: 1,
   blocked_by_count: 0,
   active_workflow_run_id: 5,
@@ -48,6 +53,7 @@ const REQUIREMENT = {
   priority: 'high',
   source: 'manual',
   source_ref: null,
+  target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network',
   current_plan_version: 1,
   blocked_by_count: 0,
   active_workflow_run_id: 7,
@@ -55,6 +61,12 @@ const REQUIREMENT = {
   completed_at: null,
   created_at: '2026-04-10T00:00:00Z',
   updated_at: '2026-04-10T00:00:10Z',
+}
+
+const PAUSED_REQUIREMENT = {
+  ...REQUIREMENT,
+  status: 'paused',
+  updated_at: '2026-04-10T00:00:12Z',
 }
 
 const DETAIL = {
@@ -195,6 +207,8 @@ describe('RequirementPool', () => {
     mockApi.createRequirement.mockResolvedValue(DETAIL)
     mockApi.planRequirement.mockResolvedValue(DETAIL)
     mockApi.startRequirement.mockResolvedValue(DETAIL)
+    mockApi.pauseRequirement.mockResolvedValue({ ...DETAIL, requirement: PAUSED_REQUIREMENT })
+    mockApi.advanceQueue.mockResolvedValue({ skipped: 'no ready requirements' })
     mockApi.reviseRequirement.mockResolvedValue(DETAIL)
   })
 
@@ -204,6 +218,7 @@ describe('RequirementPool', () => {
     await waitFor(() => {
       expect(screen.getByTestId('requirements-page')).toBeDefined()
       expect(screen.getByTestId('requirement-card-1')).toBeDefined()
+      expect(screen.getByText('目标项目:')).toBeDefined()
     })
   })
 
@@ -219,7 +234,8 @@ describe('RequirementPool', () => {
     fireEvent.change(screen.getByTestId('requirement-title'), { target: { value: 'New requirement' } })
     fireEvent.change(screen.getByTestId('requirement-description'), { target: { value: '## Goal\n\nShip it.' } })
     fireEvent.change(screen.getByTestId('requirement-priority'), { target: { value: 'high' } })
-    fireEvent.click(screen.getByTestId('create-dependency-2'))
+    fireEvent.focus(screen.getByTestId('create-dependency-search'))
+    fireEvent.mouseDown(screen.getByTestId('create-dependency-2'))
     fireEvent.click(screen.getByTestId('submit-requirement-btn'))
 
     await waitFor(() => {
@@ -227,9 +243,40 @@ describe('RequirementPool', () => {
         title: 'New requirement',
         description_markdown: '## Goal\n\nShip it.',
         priority: 'high',
+        target_project_path: undefined,
         depends_on_requirement_ids: [2],
         auto_start: true,
       })
+    })
+  })
+
+  it('toggles running requirement from pause to start', async () => {
+    mockApi.getRequirements
+      .mockResolvedValueOnce([REQUIREMENT, BLOCKER])
+      .mockResolvedValueOnce([REQUIREMENT, BLOCKER])
+      .mockResolvedValueOnce([PAUSED_REQUIREMENT, BLOCKER])
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-toggle-1').textContent).toBe('暂停')
+    })
+
+    fireEvent.click(screen.getByTestId('requirement-toggle-1'))
+
+    await waitFor(() => {
+      expect(mockApi.pauseRequirement).toHaveBeenCalledWith(1)
+      expect(screen.getByTestId('requirement-toggle-1').textContent).toBe('启动')
+    })
+  })
+
+  it('includes paused status filter and renders both target projects', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: '已暂停' })).toBeDefined()
+      expect(screen.getByText('/Users/cliff/workspace/agent/Synapse-Network-Growing')).toBeDefined()
+      expect(screen.getByText('/Users/cliff/workspace/agent/Synapse-Network')).toBeDefined()
     })
   })
 

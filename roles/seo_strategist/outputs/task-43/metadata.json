@@ -1,9 +1,0 @@
-{
-  "status": "completed",
-  "sessionId": "role-seo_strategist-1775837680118-3",
-  "selectedAgent": "db-analyst",
-  "tokensUsed": 0,
-  "model": "claude-sonnet-4.6",
-  "executionTimeMs": 174467,
-  "outputPath": "/Users/cliff/workspace/agent/Synapse-Network-Growing/roles/seo_strategist/outputs/task-43/output.md"
-}

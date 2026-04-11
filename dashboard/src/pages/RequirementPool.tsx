@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, Requirement } from '../api'
-
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   ready: '已规划',
+  paused: '已暂停',
   in_progress: '执行中',
   done: '已完成',
   needs_revision: '需修订',
@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_CLASS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
   ready: 'bg-sky-100 text-sky-700',
+  paused: 'bg-slate-200 text-slate-700',
   in_progress: 'bg-blue-100 text-blue-700',
   done: 'bg-green-100 text-green-700',
   needs_revision: 'bg-amber-100 text-amber-700',
@@ -26,10 +27,24 @@ function formatTime(value: string | null) {
   return d.toLocaleString('zh-CN')
 }
 
+function getTargetProjectPaths(value: string | null) {
+  if (!value) return []
+  return value.split('\n').map((item) => item.trim()).filter(Boolean)
+}
+
 export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [statusFilter, setStatusFilter] = useState('')
+  const [actioningRequirementId, setActioningRequirementId] = useState<number | null>(null)
+  const [editingRequirement, setEditingRequirement] = useState<{
+    id: number
+    title: string
+    description_markdown: string
+    priority: string
+    target_project_path: string
+  } | null>(null)
+  const [editRequirementSaving, setEditRequirementSaving] = useState(false)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 10
   const [showCreate, setShowCreate] = useState(false)
@@ -110,7 +125,53 @@ export default function RequirementPool() {
     return [...values, requirementId]
   }
 
+  const handleExecutionToggle = async (requirement: Requirement) => {
+    setActioningRequirementId(requirement.id)
+    try {
+      if (requirement.status === 'in_progress') {
+        await api.pauseRequirement(requirement.id)
+      } else {
+        await api.startRequirement(requirement.id)
+      }
+      await loadRequirements()
+    } finally {
+      setActioningRequirementId(null)
+    }
+  }
+
+  const handleOpenEditRequirement = (requirement: Requirement) => {
+    setEditingRequirement({
+      id: requirement.id,
+      title: requirement.title,
+      description_markdown: requirement.description_markdown,
+      priority: requirement.priority,
+      target_project_path: requirement.target_project_path || '',
+    })
+  }
+
+  const handleSaveRequirement = async () => {
+    if (!editingRequirement) return
+    setEditRequirementSaving(true)
+    try {
+      await api.updateRequirement(editingRequirement.id, {
+        title: editingRequirement.title,
+        description_markdown: editingRequirement.description_markdown,
+        priority: editingRequirement.priority,
+        target_project_path: editingRequirement.target_project_path || undefined,
+      })
+      setEditingRequirement(null)
+      await loadRequirements()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setEditRequirementSaving(false)
+    }
+  }
+
+  const hasRunningRequirement = requirements.some((requirement) => requirement.status === 'in_progress')
+
   return (
+    <>
     <div data-testid="requirements-page" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -127,6 +188,7 @@ export default function RequirementPool() {
             <option value="">全部状态</option>
             <option value="draft">草稿</option>
             <option value="ready">已规划</option>
+            <option value="paused">已暂停</option>
             <option value="in_progress">执行中</option>
             <option value="done">已完成</option>
             <option value="blocked">阻塞</option>
@@ -313,33 +375,88 @@ export default function RequirementPool() {
             还没有 requirement。先创建一条需求，再规划和启动 workflow。
           </div>
         )}
-        {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => (
-          <button
-            key={requirement.id}
-            data-testid={`requirement-card-${requirement.id}`}
-            className="w-full p-4 text-left transition bg-white border shadow-sm rounded-xl hover:border-blue-300 hover:shadow-md"
-            onClick={() => navigate(`/requirements/${requirement.id}`)}
-          >
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div>
-                <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
-                <div className="mt-1 text-xs text-gray-500">Plan v{requirement.current_plan_version || 0}</div>
+        {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
+          const showToggle = requirement.status === 'in_progress' || ((requirement.status === 'ready' || requirement.status === 'paused') && requirement.current_plan_version > 0)
+          const isRunning = requirement.status === 'in_progress'
+          const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
+          let toggleLabel = '启动'
+          if (actioningRequirementId === requirement.id) {
+            toggleLabel = '处理中…'
+          } else if (isRunning) {
+            toggleLabel = '暂停'
+          }
+
+          return (
+            <div
+              key={requirement.id}
+              data-testid={`requirement-card-${requirement.id}`}
+              className="w-full p-4 text-left transition bg-white border shadow-sm rounded-xl hover:border-blue-300 hover:shadow-md"
+            >
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  className="flex-1 text-left"
+                  onClick={() => navigate(`/requirements/${requirement.id}`)}
+                >
+                  <div className="mb-2">
+                    <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
+                    <div className="mt-1 text-xs text-gray-500">Plan v{requirement.current_plan_version || 0}</div>
+                  </div>
+                  {targetProjectPaths.length > 0 && (
+                    <div className="mb-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                      <div className="mb-1 font-medium">目标项目:</div>
+                      <div className="space-y-1 font-mono">
+                        {targetProjectPaths.map((projectPath) => (
+                          <div key={projectPath} className="break-all">{projectPath}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
+                  <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
+                    <span>优先级: {requirement.priority}</span>
+                    <span>阻塞: {requirement.blocked_by_count}</span>
+                    <span>{formatTime(requirement.updated_at)}</span>
+                  </div>
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid={`requirement-edit-${requirement.id}`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleOpenEditRequirement(requirement)
+                    }}
+                  >
+                    编辑
+                  </button>
+                  {showToggle && (
+                    <button
+                      type="button"
+                      data-testid={`requirement-toggle-${requirement.id}`}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        isRunning
+                          ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                          : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
+                      }`}
+                      disabled={actioningRequirementId === requirement.id || (!isRunning && hasRunningRequirement)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleExecutionToggle(requirement).catch(() => {})
+                      }}
+                    >
+                      {toggleLabel}
+                    </button>
+                  )}
+                  <span className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_CLASS[requirement.status] || STATUS_CLASS.draft}`}>
+                    {STATUS_LABEL[requirement.status] || requirement.status}
+                  </span>
+                </div>
               </div>
-              <span className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_CLASS[requirement.status] || STATUS_CLASS.draft}`}>
-                {STATUS_LABEL[requirement.status] || requirement.status}
-              </span>
             </div>
-            {requirement.target_project_path && (
-              <div className="mb-2 text-xs text-blue-700 truncate">{requirement.target_project_path}</div>
-            )}
-            <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
-            <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
-              <span>优先级: {requirement.priority}</span>
-              <span>阻塞: {requirement.blocked_by_count}</span>
-              <span>{formatTime(requirement.updated_at)}</span>
-            </div>
-          </button>
-        ))}
+          )
+        })}
 
         {/* Pagination */}
         {requirements.length > PAGE_SIZE && (() => {
@@ -375,5 +492,70 @@ export default function RequirementPool() {
         })()}
       </div>
     </div>
+
+    {editingRequirement && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditingRequirement(null)}>
+        <div className="bg-white rounded-xl p-6 max-w-xl w-full max-h-[80vh] overflow-auto shadow-xl space-y-4" onClick={(e) => e.stopPropagation()} data-testid="edit-requirement-modal">
+          <h3 className="font-bold text-base">编辑需求 #{editingRequirement.id}</h3>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">标题</label>
+            <input
+              data-testid="edit-requirement-title"
+              className="w-full border rounded px-3 py-2 text-sm"
+              value={editingRequirement.title}
+              onChange={(e) => setEditingRequirement({ ...editingRequirement, title: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">需求描述 (Markdown)</label>
+            <textarea
+              data-testid="edit-requirement-description"
+              className="w-full border rounded px-3 py-2 text-sm min-h-[120px] font-mono resize-y"
+              value={editingRequirement.description_markdown}
+              onChange={(e) => setEditingRequirement({ ...editingRequirement, description_markdown: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">优先级</label>
+            <select
+              data-testid="edit-requirement-priority"
+              className="w-full border rounded px-3 py-2 text-sm"
+              value={editingRequirement.priority}
+              onChange={(e) => setEditingRequirement({ ...editingRequirement, priority: e.target.value })}
+            >
+              <option value="low">低</option>
+              <option value="normal">普通</option>
+              <option value="high">⚡ 高</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">目标项目路径（每行一个）</label>
+            <textarea
+              data-testid="edit-requirement-target"
+              className="w-full border rounded px-3 py-2 text-sm font-mono min-h-[64px] resize-y"
+              value={editingRequirement.target_project_path}
+              onChange={(e) => setEditingRequirement({ ...editingRequirement, target_project_path: e.target.value })}
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEditingRequirement(null)}
+              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+            >
+              取消
+            </button>
+            <button
+              data-testid="save-requirement-btn"
+              disabled={editRequirementSaving || !editingRequirement.title.trim() || !editingRequirement.description_markdown.trim()}
+              onClick={() => { handleSaveRequirement().catch(() => {}) }}
+              className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {editRequirementSaving ? '保存中…' : '保存'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   )
 }

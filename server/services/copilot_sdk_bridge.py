@@ -168,9 +168,29 @@ class CopilotSDKBridge:
             process.stdin.write(json.dumps(payload))
             process.stdin.flush()
             process.stdin.close()
+            self._write_worker_pid(payload, int(process.pid or 0))
             return int(process.pid or 0)
         finally:
             if stdout_handle is not None:
                 stdout_handle.close()
             if stderr_handle is not None:
                 stderr_handle.close()
+
+    def _write_worker_pid(self, payload: dict, pid: int) -> None:
+        state_path = payload.get("statePath")
+        if not isinstance(state_path, str) or not state_path:
+            return
+
+        state_file = Path(state_path)
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict = {}
+        if state_file.exists():
+            try:
+                existing = json.loads(state_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+        existing["workerPid"] = pid
+        existing.setdefault("status", "starting")
+        if payload.get("sessionId") is not None:
+            existing.setdefault("sessionId", payload.get("sessionId"))
+        state_file.write_text(json.dumps(existing, indent=2), encoding="utf-8")

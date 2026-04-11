@@ -8,6 +8,7 @@ const RETRYABLE_STATUSES = new Set(['failed', 'rejected'])
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
   running: 'bg-blue-100 text-blue-700',
+  paused: 'bg-slate-200 text-slate-700',
   pending_approval: 'bg-yellow-100 text-yellow-700',
   completed: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
@@ -17,6 +18,7 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   pending: '待执行',
   running: '执行中',
+  paused: '已暂停',
   pending_approval: '待审批',
   completed: '已完成',
   rejected: '已拒绝',
@@ -118,6 +120,8 @@ export default function TaskBoard() {
   const [runningSkill, setRunningSkill] = useState<Record<number, string>>({})
   const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([])
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [editingTask, setEditingTask] = useState<{ id: number; description: string; priority: string } | null>(null)
+  const [editTaskSaving, setEditTaskSaving] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const suggestionRequestRef = useRef(0)
 
@@ -197,7 +201,6 @@ export default function TaskBoard() {
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [statusCounts, load])
-
   useEffect(() => {
     if ((statusCounts['running'] ?? 0) === 0) return
     const timer = setInterval(() => {
@@ -382,6 +385,36 @@ export default function TaskBoard() {
     setPreview(false)
   }
 
+  const handlePauseTask = async (taskId: number) => {
+    try {
+      await api.pauseTask(taskId)
+      await load()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '暂停失败')
+    }
+  }
+
+  const handleOpenEditTask = (task: Task) => {
+    setEditingTask({ id: task.id, description: task.description, priority: task.priority })
+  }
+
+  const handleSaveTask = async () => {
+    if (!editingTask) return
+    setEditTaskSaving(true)
+    try {
+      await api.updateTask(editingTask.id, {
+        description: editingTask.description,
+        priority: editingTask.priority,
+      })
+      setEditingTask(null)
+      await load()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setEditTaskSaving(false)
+    }
+  }
+
   const handleViewLogs = async (taskId: number) => {
     const logs = await api.getTaskLogs(taskId)
     setSelectedLogs({ taskId, logs })
@@ -432,6 +465,7 @@ export default function TaskBoard() {
             <option value="">全部状态</option>
             <option value="pending">待执行</option>
             <option value="running">执行中</option>
+            <option value="paused">已暂停</option>
             <option value="pending_approval">待审批</option>
             <option value="completed">已完成</option>
             <option value="rejected">已拒绝</option>
@@ -590,9 +624,9 @@ export default function TaskBoard() {
 
       <div className="grid grid-cols-2 gap-3 mb-4 md:grid-cols-4" data-testid="task-summary-bar">
         <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">执行中</div><div className="text-lg font-semibold">{statusCounts['running'] ?? 0}</div></div>
+        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">已暂停</div><div className="text-lg font-semibold text-slate-600">{statusCounts['paused'] ?? 0}</div></div>
         <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">失败</div><div className="text-lg font-semibold">{statusCounts['failed'] ?? 0}</div></div>
         <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">待审批</div><div className="text-lg font-semibold">{statusCounts['pending_approval'] ?? 0}</div></div>
-        <div className="p-3 bg-white border rounded-lg"><div className="text-xs text-gray-500">已完成</div><div className="text-lg font-semibold">{statusCounts['completed'] ?? 0}</div></div>
       </div>
 
       {selectedRetryableTaskIds.length > 0 && (
@@ -881,7 +915,25 @@ export default function TaskBoard() {
                           </div>
                           <div className="flex flex-wrap items-center justify-end gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
                             {task.status === 'running' && (
-                              <span data-testid={`spinner-${task.id}`} className="text-sm text-blue-500 animate-spin">⏳</span>
+                              <>
+                                <span data-testid={`spinner-${task.id}`} className="text-sm text-blue-500 animate-spin">⏳</span>
+                                <button
+                                  data-testid={`pause-task-${task.id}`}
+                                  onClick={() => handlePauseTask(task.id)}
+                                  className="text-xs border border-amber-300 bg-amber-50 text-amber-700 px-3 py-1.5 rounded hover:bg-amber-100"
+                                >
+                                  暂停
+                                </button>
+                              </>
+                            )}
+                            {(task.status === 'pending' || task.status === 'paused') && (
+                              <button
+                                data-testid={`edit-task-${task.id}`}
+                                onClick={() => handleOpenEditTask(task)}
+                                className="text-xs border px-3 py-1.5 rounded hover:bg-gray-50"
+                              >
+                                编辑
+                              </button>
                             )}
                             {task.status === 'pending' && (
                               <>
@@ -1001,6 +1053,52 @@ export default function TaskBoard() {
             <button onClick={() => setSelectedLogs(null)} className="mt-4 text-sm text-gray-500 hover:text-gray-700">
               关闭
             </button>
+          </div>
+        </div>
+      )}
+
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditingTask(null)}>
+          <div className="bg-white rounded-xl p-6 max-w-xl w-full shadow-xl space-y-4" onClick={(e) => e.stopPropagation()} data-testid="edit-task-modal">
+            <h3 className="font-bold text-base">编辑任务 #{editingTask.id}</h3>
+            <div className="space-y-2">
+              <label className="text-xs text-gray-500">任务描述</label>
+              <textarea
+                data-testid="edit-task-description"
+                className="w-full border rounded p-3 text-sm font-mono resize-y min-h-[120px] focus:ring-2 focus:ring-blue-300 outline-none"
+                value={editingTask.description}
+                onChange={(e) => setEditingTask({ ...editingTask, description: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">优先级</label>
+              <select
+                data-testid="edit-task-priority"
+                className="px-3 py-2 text-sm border rounded w-full"
+                value={editingTask.priority}
+                onChange={(e) => setEditingTask({ ...editingTask, priority: e.target.value })}
+              >
+                <option value="low">低</option>
+                <option value="normal">普通</option>
+                <option value="high">⚡ 高</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setEditingTask(null)}
+                className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+              >
+                取消
+              </button>
+              <button
+                data-testid="save-task-btn"
+                disabled={editTaskSaving || !editingTask.description.trim()}
+                onClick={() => { handleSaveTask().catch(() => {}) }}
+                className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {editTaskSaving ? '保存中…' : '保存'}
+              </button>
+            </div>
           </div>
         </div>
       )}

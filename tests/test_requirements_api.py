@@ -18,6 +18,19 @@ def _runtime_result(*, text: str = "", error: str | None = None, execution_time_
     )
 
 
+def _deferred_runtime_result(*, session_id: str = "session-running-123", execution_time_ms: int = 5):
+    return TaskExecutionResult(
+        text="",
+        files=[],
+        error=None,
+        execution_time_ms=execution_time_ms,
+        runtime_backend="copilot_sdk",
+        runtime_session_id=session_id,
+        events=[],
+        deferred=True,
+    )
+
+
 def _sync_dispatch(task_id: int, agent_persona: dict, skill_name: str):
     _run_task_sync(task_id, agent_persona, skill_name)
     return MagicMock(name=f"task-{task_id}")
@@ -291,6 +304,84 @@ def test_close_requirement_unblocks_dependents(synced_client):
     refreshed = synced_client.get(f"/api/requirements/{dependent_id}").json()
     assert refreshed["requirement"]["status"] == "ready"
     assert refreshed["requirement"]["blocked_by_count"] == 0
+
+
+def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Pause running requirement",
+            "description_markdown": "Allow operators to pause and restart a running workflow.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    started = start_resp.json()
+    assert started["requirement"]["status"] == "in_progress"
+    running_steps = [step for step in started["workflow_run"]["steps"] if step["status"] == "running"]
+    assert len(running_steps) == 1
+
+    pause_resp = synced_client.post(f"/api/requirements/{requirement_id}/pause")
+    assert pause_resp.status_code == 200
+    paused = pause_resp.json()
+    assert paused["requirement"]["status"] == "paused"
+    assert paused["workflow_run"]["status"] == "paused"
+    resumed_step = next(step for step in paused["workflow_run"]["steps"] if step["id"] == running_steps[0]["id"])
+    assert resumed_step["status"] == "ready"
+    assert resumed_step["compatibility_task_id"] is None
+
+    tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
+    assert tasks[-1].status == "cancelled"
+    assert tasks[-1].last_error_message == "Paused by user"
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="done")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        restart_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert restart_resp.status_code == 200
+    restarted = restart_resp.json()
+    assert restarted["requirement"]["status"] == "done"
+    assert restarted["workflow_run"]["status"] == "completed"
+
+    refreshed_tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
+    assert len(refreshed_tasks) >= 2
+    assert refreshed_tasks[-1].status == "completed"
+
+
+def test_create_requirement_normalizes_multi_project_target_path(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Cross-repo requirement",
+            "description_markdown": "Needs Growing plus Synapse root.",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+
+    assert create_resp.status_code == 201
+    requirement = create_resp.json()["requirement"]
+    assert requirement["target_project_path"] == (
+        "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
+        "/Users/cliff/workspace/agent/Synapse-Network"
+    )
 
 
 def test_list_requirements_score_sorting(synced_client):
