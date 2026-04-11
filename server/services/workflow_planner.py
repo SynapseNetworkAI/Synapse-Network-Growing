@@ -10,6 +10,7 @@ title, scope, depends_on, and done_when for each step.
 Mode 2 (phase-detect, fallback): agent returns 4 boolean flags and Python
 generates the fixed step set deterministically.
 """
+
 from __future__ import annotations
 
 import json

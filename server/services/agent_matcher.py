@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Skill-based agent matching service.
 
 Given a list of requested skills, score each agent by how many skills overlap

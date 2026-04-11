@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for requirement-first workflow orchestration."""
 from unittest.mock import MagicMock, patch
 

@@ -11,6 +11,7 @@ from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements
 from server.services.org_builder import build_org_tree
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -31,6 +32,10 @@ async def lifespan(app: FastAPI):
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
         app.state.copilot_runtime_monitor = monitor
+    elif config.ORCHESTRATION_BACKEND.lower() == "openai_responses" and config.OPENAI_RESPONSES_MONITOR_ENABLED:
+        monitor = OpenAIResponsesTaskMonitor(project_root=config.PROJECT_ROOT)
+        monitor.start()
+        app.state.openai_runtime_monitor = monitor
     try:
         yield
     finally:

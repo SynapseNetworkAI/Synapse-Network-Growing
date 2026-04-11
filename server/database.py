@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Database connection and table setup for Agentic Ops Dashboard."""
 import logging
 from sqlalchemy import (

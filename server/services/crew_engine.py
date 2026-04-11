@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Agent execution engine — assembles Persona + Skill + Context and calls LLM.
 
 Uses the LLM adapter layer to support multiple providers (OpenAI, Claude, Copilot).

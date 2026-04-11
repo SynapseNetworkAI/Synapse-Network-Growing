@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for /api/tasks endpoints."""
 from unittest.mock import patch, MagicMock
 from typing import Any, cast
@@ -105,7 +107,9 @@ def test_list_tasks(synced_client):
     synced_client.post("/api/tasks", json={"description": "t2", "agent_id": "growth_lead"})
     resp = synced_client.get("/api/tasks")
     assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    data = resp.json()
+    assert len(data["items"]) == 2
+    assert data["total"] == 2
 
 
 def test_list_tasks_orders_newest_first(synced_client):
@@ -115,30 +119,30 @@ def test_list_tasks_orders_newest_first(synced_client):
     resp = synced_client.get("/api/tasks")
 
     assert resp.status_code == 200
-    assert [task["id"] for task in resp.json()] == [second["id"], first["id"]]
+    assert [task["id"] for task in resp.json()["items"]] == [second["id"], first["id"]]
 
 
 def test_list_tasks_filter_by_status(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     resp = synced_client.get("/api/tasks?status=pending")
-    assert len(resp.json()) == 1
+    assert len(resp.json()["items"]) == 1
     resp = synced_client.get("/api/tasks?status=completed")
-    assert len(resp.json()) == 0
+    assert len(resp.json()["items"]) == 0
 
 
 def test_list_tasks_filter_by_agent(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     synced_client.post("/api/tasks", json={"description": "t2", "agent_id": "growth_lead"})
     resp = synced_client.get("/api/tasks?agent_id=dev_rel")
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["agent_id"] == "dev_rel"
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["items"][0]["agent_id"] == "dev_rel"
 
 
 def test_list_tasks_returns_derived_project_and_group(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     resp = synced_client.get("/api/tasks")
     assert resp.status_code == 200
-    task = resp.json()[0]
+    task = resp.json()["items"][0]
     assert task["project_id"] == "Synapse-Network-Growing"
     assert task["project_label"] == "Synapse-Network-Growing"
     assert task["agent_group"] == "content"
@@ -164,15 +168,15 @@ def test_list_tasks_filter_by_agent_group(synced_client):
     synced_client.post("/api/tasks", json={"description": "content", "agent_id": "content_writer"})
     resp = synced_client.get("/api/tasks?agent_group=optimization")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["agent_id"] == "seo_strategist"
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["items"][0]["agent_id"] == "seo_strategist"
 
 
 def test_list_tasks_filter_by_project(synced_client):
     synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
     resp = synced_client.get("/api/tasks?project_id=Synapse-Network-Growing")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
+    assert len(resp.json()["items"]) == 1
 
 
 def test_list_tasks_only_anomalies(synced_client):
@@ -184,8 +188,8 @@ def test_list_tasks_only_anomalies(synced_client):
         synced_client.post(f"/api/tasks/{failed['id']}/run")
     resp = synced_client.get("/api/tasks?only_anomalies=true")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
-    assert resp.json()[0]["status"] == "running"
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["items"][0]["status"] == "running"
 
 
 def test_get_task(synced_client):

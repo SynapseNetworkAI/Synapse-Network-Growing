@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Load project context files for agent execution."""
 import logging
 from pathlib import Path

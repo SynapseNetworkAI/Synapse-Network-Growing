@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tasks API router."""
 import json
 import logging

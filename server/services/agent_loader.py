@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Load agent metadata from the roles/ directory into the database.
 
 Auto-discovers roles by scanning roles/*/prompts/persona.md and reading

@@ -45,7 +45,9 @@ def setup_db():
         "server.services.copilot_sdk_monitor.SessionLocal", TestSession
     ), patch(
         "server.services.workflow_orchestrator.SessionLocal", TestSession
-    ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False):
+    ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
+        "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
+    ):
         yield
     with TEST_ENGINE.begin() as conn:
         conn.exec_driver_sql("PRAGMA foreign_keys=OFF")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for skill_loader, context_loader, crew_engine, task_runner, llm_adapter, and skills API."""
 import json
 import os

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import httpx
 from pydantic import BaseModel
@@ -19,9 +20,9 @@ JSON_ACCEPT_HEADER = "application/json"
 class StoredCopilotAuth(BaseModel):
     host: str = DEFAULT_GITHUB_HOST
     token: str
-    login: str | None = None
+    login: Optional[str] = None
     source: str
-    client_id: str | None = None
+    client_id: Optional[str] = None
 
 
 class CopilotAuthService:

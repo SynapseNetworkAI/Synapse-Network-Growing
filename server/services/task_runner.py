@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Async task dispatcher — runs CrewEngine in background threads."""
 import logging
 import threading

@@ -2,7 +2,7 @@
 id: taskboard-bugfix-log
 title: "TaskBoard / Approvals Bug 记录"
 created_at: 2026-04-08
-updated_at: 2026-04-09
+updated_at: 2026-04-11
 ---
 
 # TaskBoard / Approvals Bug 记录
@@ -27,3 +27,6 @@ updated_at: 2026-04-09
 | 16 | 2026-04-09 | server/services/task_runtime.py, copilot-sdk-runner/run_session.mjs | live smoke 中 `copilot_sdk` runtime 会在 60 秒后报 `Timeout after 60000ms waiting for session.idle`。根因是 Python 层外部 timeout 已放宽到配置值，但 Node runner 内部 `session.sendAndWait()` 仍使用 SDK 默认 60s。改为从后端显式传入 `timeoutMs`，让 runner 与 `COPILOT_SDK_TIMEOUT` 保持一致 | ✅ fixed |
 | 17 | 2026-04-09 | dashboard/vitest.config.ts | 引入 Playwright 后，Vitest 默认文件发现把 `tests/e2e` 和 `node_modules` 中的包自测一起扫进来，导致单测运行出现大量无关失败。改为显式 `include` 本仓库 `tests/**/*.test.ts(x)`，并排除 `tests/e2e/**` | ✅ fixed |
 | 18 | 2026-04-09 | tests/test_copilot_auth_api.py | Copilot auth 文件回退测试在本机已登录环境下会优先命中真实 `COPILOT_OAUTH_TOKEN` / `GITHUB_TOKEN`，导致临时目录 fixture 失效并出现不稳定失败。测试中显式 patch 配置 token 为空，确保只验证 `apps.json` / `oauth.json` 解析逻辑 | ✅ fixed |
+| 19 | 2026-04-11 17:51:39 +08 | server/config.py | 新增统一 runtime 配置解析时使用了 `str | None` 注解，但文件未启用 `from __future__ import annotations`，导致 Python 3.9 下导入配置直接抛 `TypeError`。补上 future import，恢复低版本解释器兼容 | ✅ fixed |
+| 20 | 2026-04-11 18:00:00 +08 | server/routers/requirements.py, server/services/copilot_auth.py, 多个 server/tests 模块 | 这轮自动化验证使用的可用环境是 Python 3.9，FastAPI / Pydantic 对 `str \| None` 这类新注解的运行期求值会失败。为导入链统一补上 `from __future__ import annotations`，并把框架/模型敏感位置改成 `Optional[...]`，恢复兼容测试执行 | ✅ fixed |
+| 21 | 2026-04-11 18:00:00 +08 | tests/test_tasks_api.py, tests/test_role_session_reuse.py | 两组旧测试与当前实现脱节：`/api/tasks` 已返回分页结构 `TaskPage`，而断言仍按数组读取；串行 requirement 测试仍用真实异步 dispatch，导致 SQLite in-memory 残留后台线程并出现 table locked。改为按 `items` 断言，并在相关用例中统一 patch 同步 dispatch、关闭 queue auto-advance | ✅ fixed |

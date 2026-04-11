@@ -14,6 +14,7 @@ from server.services.copilot_sdk_state import copilot_runtime_paths
 from server.services.context_loader import load_context
 from server.services.crew_engine import CrewEngine
 from server.services.copilot_sdk_bridge import CopilotSDKBridge
+from server.services.llm_adapter import OpenAIProvider
 from server.services.skill_loader import load_skill
 
 logger = logging.getLogger("ops-dashboard.task_runtime")
@@ -46,6 +47,13 @@ class RoleSessionInfo:
     """Tracks an active Copilot SDK session for a specific role (agent_id)."""
     session_id: str
     output_dir: Path
+    last_used_at: float
+
+
+@dataclass
+class OpenAIRoleSessionInfo:
+    """Tracks the latest OpenAI response chain head for a specific role."""
+    response_id: str
     last_used_at: float
 
 
@@ -435,6 +443,173 @@ def _extract_requirement_id(task_description: str) -> int:
 
 _copilot_sdk_runtime_instance: CopilotSDKTaskRuntime | None = None
 _copilot_sdk_runtime_lock = threading.Lock()
+_openai_responses_runtime_instance: "OpenAIResponsesTaskRuntime | None" = None
+_openai_responses_runtime_lock = threading.Lock()
+
+
+class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
+    def __init__(self, project_root: Path | None = None, provider: OpenAIProvider | None = None):
+        self.project_root = (project_root or config.PROJECT_ROOT).resolve()
+        self.prompt_engine = CrewEngine(self.project_root)
+        self.provider = provider or OpenAIProvider()
+        self._role_sessions: dict[str, OpenAIRoleSessionInfo] = {}
+        self._lock = threading.Lock()
+
+    def clear_role_sessions(self) -> None:
+        with self._lock:
+            cleared = list(self._role_sessions.keys())
+            self._role_sessions.clear()
+        if cleared:
+            logger.info("Cleared OpenAI role sessions for: %s", ", ".join(cleared))
+
+    def execute(
+        self,
+        persona: dict,
+        skill_name: str,
+        task_description: str,
+        output_dir: Path | None = None,
+        extra_context_files: list[str] | None = None,
+    ) -> TaskExecutionResult:
+        t0 = time.monotonic()
+        model = config.LLM_MODEL
+        agent_id = str(persona.get("role", persona.get("id", "unknown")))
+        instructions = self.prompt_engine._build_system_prompt(persona)
+        user_message = self.prompt_engine._build_user_message(skill_name, task_description, extra_context_files)
+
+        with self._lock:
+            existing = self._role_sessions.get(agent_id)
+        previous_response_id = existing.response_id if existing else None
+
+        try:
+            response = self.provider.create_response(
+                instructions=instructions,
+                user_input=user_message,
+                model=model,
+                temperature=config.LLM_TEMPERATURE,
+                timeout=config.LLM_TIMEOUT,
+                background=True,
+                previous_response_id=previous_response_id,
+            )
+        except Exception as exc:
+            elapsed = int((time.monotonic() - t0) * 1000)
+            logger.exception("OpenAI Responses runtime failed")
+            return TaskExecutionResult(
+                text="",
+                error=str(exc),
+                execution_time_ms=elapsed,
+                model=model,
+                runtime_backend="openai_responses",
+                events=[RuntimeEvent(event_type="runtime_failed", detail=str(exc))],
+            )
+
+        response_id = str(response.get("id") or "")
+        if not response_id:
+            elapsed = int((time.monotonic() - t0) * 1000)
+            error = "OpenAI Responses API did not return a response id"
+            return TaskExecutionResult(
+                text="",
+                error=error,
+                execution_time_ms=elapsed,
+                model=model,
+                runtime_backend="openai_responses",
+                events=[RuntimeEvent(event_type="runtime_failed", detail=error)],
+            )
+
+        with self._lock:
+            self._role_sessions[agent_id] = OpenAIRoleSessionInfo(
+                response_id=response_id,
+                last_used_at=time.time(),
+            )
+
+        metadata = {
+            "provider": "openai",
+            "backend": "openai_responses",
+            "model": model,
+            "response_id": response_id,
+            "previous_response_id": previous_response_id,
+            "conversation_id": self._conversation_id(response),
+            "status": str(response.get("status") or ""),
+        }
+        predicted_output = self._write_metadata(output_dir, metadata)
+
+        elapsed = int((time.monotonic() - t0) * 1000)
+        events = [
+            RuntimeEvent(event_type="runtime_started", detail=f"backend=openai_responses model={model}"),
+        ]
+        if previous_response_id:
+            events.append(
+                RuntimeEvent(
+                    event_type="runtime_session_resumed",
+                    detail=f"previous_response_id={previous_response_id} role={agent_id}",
+                )
+            )
+
+        status = str(response.get("status") or "")
+        if status == "completed":
+            text = self.provider.extract_response_text(response)
+            metadata["status"] = status
+            files = self._write_completed_output(output_dir, text, metadata)
+            return TaskExecutionResult(
+                text=text,
+                files=files,
+                execution_time_ms=elapsed,
+                model=model,
+                tokens_used=self.provider.extract_response_tokens(response),
+                runtime_backend="openai_responses",
+                runtime_session_id=response_id,
+                events=events,
+            )
+
+        if status in {"failed", "cancelled", "incomplete"}:
+            error = self.provider.extract_response_error(response) or f"OpenAI response ended with status '{status}'"
+            return TaskExecutionResult(
+                text="",
+                files=[predicted_output] if predicted_output else [],
+                error=error,
+                execution_time_ms=elapsed,
+                model=model,
+                runtime_backend="openai_responses",
+                runtime_session_id=response_id,
+                events=events + [RuntimeEvent(event_type="runtime_failed", detail=error)],
+            )
+
+        return TaskExecutionResult(
+            text="",
+            files=[predicted_output] if predicted_output else [],
+            execution_time_ms=elapsed,
+            model=model,
+            runtime_backend="openai_responses",
+            runtime_session_id=response_id,
+            events=events,
+            deferred=True,
+        )
+
+    @staticmethod
+    def _conversation_id(response: dict) -> str | None:
+        conversation = response.get("conversation")
+        if isinstance(conversation, dict):
+            conversation_id = conversation.get("id")
+            if conversation_id:
+                return str(conversation_id)
+        return None
+
+    @staticmethod
+    def _write_metadata(output_dir: Path | None, metadata: dict) -> Path | None:
+        if not output_dir:
+            return None
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        return output_dir / "output.md"
+
+    @staticmethod
+    def _write_completed_output(output_dir: Path | None, text: str, metadata: dict) -> list[Path]:
+        if not output_dir:
+            return []
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "output.md"
+        output_path.write_text(text, encoding="utf-8")
+        (output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        return [output_path]
 
 
 def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
@@ -447,9 +622,29 @@ def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
             if _copilot_sdk_runtime_instance is None:
                 _copilot_sdk_runtime_instance = CopilotSDKTaskRuntime(project_root=project_root)
             return _copilot_sdk_runtime_instance
+    if backend == "openai_responses":
+        global _openai_responses_runtime_instance
+        with _openai_responses_runtime_lock:
+            if _openai_responses_runtime_instance is None:
+                _openai_responses_runtime_instance = OpenAIResponsesTaskRuntime(project_root=project_root)
+            return _openai_responses_runtime_instance
     return LegacyTaskRuntime(project_root=project_root)
 
 
 def get_copilot_sdk_runtime() -> CopilotSDKTaskRuntime | None:
     """Return the singleton CopilotSDKTaskRuntime instance, or None if not active."""
     return _copilot_sdk_runtime_instance
+
+
+def get_openai_responses_runtime() -> OpenAIResponsesTaskRuntime | None:
+    """Return the singleton OpenAIResponsesTaskRuntime instance, or None if not active."""
+    return _openai_responses_runtime_instance
+
+
+def clear_runtime_session_caches() -> None:
+    runtime = get_copilot_sdk_runtime()
+    if runtime is not None:
+        runtime.clear_role_sessions()
+    openai_runtime = get_openai_responses_runtime()
+    if openai_runtime is not None:
+        openai_runtime.clear_role_sessions()

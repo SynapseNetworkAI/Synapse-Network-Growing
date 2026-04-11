@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -48,8 +49,8 @@ def _requirement_score(row: RequirementRow) -> float:
 
 @router.get("", response_model=list[RequirementOut])
 def list_requirements(
-    status: str | None = Query(None),
-    sort: str | None = Query(None, description="Sort mode: 'score' for priority+aging scoring, default is created_at desc"),
+    status: Optional[str] = Query(None),
+    sort: Optional[str] = Query(None, description="Sort mode: 'score' for priority+aging scoring, default is created_at desc"),
     db: Session = Depends(get_db),
 ):
     query = db.query(RequirementRow)

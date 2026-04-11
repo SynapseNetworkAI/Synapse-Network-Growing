@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LLM provider adapter — supports OpenAI, Anthropic Claude, and GitHub Copilot.
 
 Each provider implements the same interface:
@@ -50,8 +52,7 @@ class OpenAIProvider(LLMProvider):
         self.base_url = (config.LLM_BASE_URL if base_url is None else base_url).rstrip("/")
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
-        if not self.api_key:
-            raise RuntimeError("OPENAI_API_KEY not set. Configure the environment variable to enable LLM execution.")
+        self._require_api_key()
 
         resp = httpx.post(
             f"{self.base_url}/chat/completions",
@@ -77,6 +78,113 @@ class OpenAIProvider(LLMProvider):
         text = data["choices"][0]["message"]["content"]
         tokens = data.get("usage", {}).get("total_tokens", 0)
         return text, tokens
+
+    def create_response(
+        self,
+        *,
+        instructions: str,
+        user_input: str,
+        model: str,
+        temperature: float,
+        timeout: int,
+        background: bool,
+        previous_response_id: str | None = None,
+    ) -> dict:
+        self._require_api_key()
+        payload = {
+            "model": model,
+            "instructions": instructions,
+            "input": user_input,
+            "temperature": temperature,
+            "background": background,
+        }
+        if previous_response_id:
+            payload["previous_response_id"] = previous_response_id
+
+        resp = httpx.post(
+            f"{self.base_url}/responses",
+            json=payload,
+            headers=self._headers(),
+            timeout=timeout,
+        )
+        if resp.status_code not in {200, 201}:
+            raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
+        return resp.json()
+
+    def retrieve_response(self, response_id: str, timeout: int) -> dict:
+        self._require_api_key()
+        resp = httpx.get(
+            f"{self.base_url}/responses/{response_id}",
+            headers=self._headers(),
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
+        return resp.json()
+
+    def cancel_response(self, response_id: str, timeout: int) -> dict:
+        self._require_api_key()
+        resp = httpx.post(
+            f"{self.base_url}/responses/{response_id}/cancel",
+            headers=self._headers(),
+            timeout=timeout,
+        )
+        if resp.status_code not in {200, 202}:
+            raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
+        return resp.json()
+
+    def extract_response_text(self, data: dict) -> str:
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+
+        text_parts: list[str] = []
+        for item in data.get("output", []) or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []) or []:
+                if not isinstance(content, dict):
+                    continue
+                content_type = str(content.get("type") or "")
+                if content_type in {"output_text", "text"}:
+                    text = content.get("text")
+                    if isinstance(text, str) and text:
+                        text_parts.append(text)
+        return "\n".join(text_parts).strip()
+
+    def extract_response_tokens(self, data: dict) -> int:
+        usage = data.get("usage", {}) or {}
+        total_tokens = usage.get("total_tokens")
+        if total_tokens is not None:
+            return int(total_tokens)
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        return input_tokens + output_tokens
+
+    def extract_response_error(self, data: dict) -> str | None:
+        error = data.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if message:
+                return str(message)
+        incomplete = data.get("incomplete_details")
+        if isinstance(incomplete, dict):
+            reason = incomplete.get("reason")
+            if reason:
+                return f"Response incomplete: {reason}"
+        return None
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": JSON_CONTENT_TYPE,
+        }
+
+    def _require_api_key(self) -> None:
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY not set. Configure the environment variable to enable LLM execution.")
 
 
 class ClaudeProvider(LLMProvider):

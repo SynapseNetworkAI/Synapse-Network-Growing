@@ -32,6 +32,7 @@ from server.database import (
     WorkflowStepRow,
     utcnow,
 )
+from server import config
 from server.services.agents_memory_sync import (
     push_task_completed as _am_push_task_completed,
     push_task_failed as _am_push_task_failed,
@@ -71,12 +72,10 @@ _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
 
 
 def _clear_role_sessions() -> None:
-    """Clear Copilot SDK role session cache when a requirement reaches a terminal state."""
+    """Clear runtime role-session caches when a requirement reaches a terminal state."""
     try:
-        from server.services.task_runtime import get_copilot_sdk_runtime
-        runtime = get_copilot_sdk_runtime()
-        if runtime is not None:
-            runtime.clear_role_sessions()
+        from server.services.task_runtime import clear_runtime_session_caches
+        clear_runtime_session_caches()
     except Exception:
         _logger.debug("Failed to clear role sessions (non-critical)", exc_info=True)
 
@@ -773,7 +772,20 @@ def _pause_workflow_step(db: Session, step: WorkflowStepRow) -> None:
 
 
 def _terminate_task_runtime(task: TaskRow) -> None:
-    if str(task.runtime_backend or "") != "copilot_sdk":
+    runtime_backend = str(task.runtime_backend or "")
+    if runtime_backend == "openai_responses":
+        response_id = str(task.runtime_session_id or "")
+        if not response_id:
+            return
+        try:
+            from server.services.llm_adapter import OpenAIProvider
+
+            OpenAIProvider().cancel_response(response_id, timeout=config.LLM_TIMEOUT)
+        except Exception as exc:
+            _logger.warning("Failed to cancel OpenAI response %s for task #%s: %s", response_id, task.id, exc)
+        return
+
+    if runtime_backend != "copilot_sdk":
         return
 
     output_dir = task_output_dir(PROJECT_ROOT, str(task.agent_id), int(task.id))

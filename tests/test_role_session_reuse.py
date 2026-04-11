@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for role-based session reuse and serial requirement execution."""
 from unittest.mock import MagicMock, patch, call
 from pathlib import Path
@@ -198,7 +200,9 @@ class TestSerialRequirementExecution:
                     events=[], deferred=True,
                 )
 
-        with patch("server.services.task_runner.get_task_runtime", return_value=HangingRuntime()):
+        with patch("server.services.task_runner.get_task_runtime", return_value=HangingRuntime()), patch(
+            "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        ):
             start_a = synced_client.post(f"/api/requirements/{req_a_id}/start")
         assert start_a.status_code == 200
         assert start_a.json()["requirement"]["status"] == "in_progress"
@@ -229,6 +233,8 @@ class TestSerialRequirementExecution:
 
         with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
             "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        ), patch(
+            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
         ):
             start_a = synced_client.post(f"/api/requirements/{req_a_id}/start")
         assert start_a.json()["requirement"]["status"] == "done"
@@ -243,6 +249,8 @@ class TestSerialRequirementExecution:
 
         with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
             "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        ), patch(
+            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
         ):
             start_b = synced_client.post(f"/api/requirements/{req_b_id}/start")
         assert start_b.status_code == 200
@@ -277,6 +285,8 @@ class TestSessionCleanupOnCompletion:
 
         with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
             "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        ), patch(
+            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
         ), patch(
             "server.services.workflow_orchestrator._clear_role_sessions", wraps=lambda: call_log.append("cleared")
         ) as mock_clear:
