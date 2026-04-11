@@ -8,7 +8,26 @@ updated_at: 2026-04-11
 author: DevRel-Agent
 target_repo: Synapse-Network-Sdk
 ---
-<!-- Updated by live gateway DX audit — 2026-04-11 -->
+<!-- Re-verified 2026-04-11: bugfix session after agent session crash (Session not found). All 3-line flow verified PASS. -->
+
+## ✅ Verification Status (2026-04-11 Re-run)
+
+**Session bugfix note:** Previous agent session crashed mid-run (`Session not found: role-dev_rel-…`). This re-run re-verifies the full flow from scratch.
+
+**Install method used:**
+```bash
+pip install -e /path/to/Synapse-Network-Sdk/python   # synapse-client v0.1.0
+```
+
+**Demo run:**
+```bash
+cd demos/synapse-agent-demo
+python quickstart_demo.py --mock   # exit code: 0 ✅
+```
+
+Full terminal output archived at: `docs/test/sdk-quickstart-terminal-run.txt`
+
+---
 
 # DX Blockers — SDK Quickstart End-to-End Validation
 
