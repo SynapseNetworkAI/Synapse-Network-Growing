@@ -33,6 +33,8 @@ export default function RequirementPool() {
   const [showCreate, setShowCreate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [titleError, setTitleError] = useState(false)
+  const [depQuery, setDepQuery] = useState('')
+  const [depOpen, setDepOpen] = useState(false)
   const [form, setForm] = useState({
     title: '',
     description_markdown: '',
@@ -77,6 +79,8 @@ export default function RequirementPool() {
       })
       setShowCreate(false)
       setTitleError(false)
+      setDepQuery('')
+      setDepOpen(false)
       setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
       await loadRequirements()
       navigate(`/requirements/${created.requirement.id}`)
@@ -100,7 +104,7 @@ export default function RequirementPool() {
         <div className="flex items-center gap-3">
           <select
             data-testid="requirement-status-filter"
-            className="rounded border px-3 py-2 text-sm"
+            className="px-3 py-2 text-sm border rounded"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -114,7 +118,7 @@ export default function RequirementPool() {
           </select>
           <button
             data-testid="create-requirement-btn"
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
             onClick={() => setShowCreate((v) => !v)}
           >
             新建需求
@@ -123,7 +127,7 @@ export default function RequirementPool() {
       </div>
 
       {showCreate && (
-        <div data-testid="requirement-create-form" className="rounded-xl border bg-white p-5 shadow-sm space-y-3">
+        <div data-testid="requirement-create-form" className="p-5 space-y-3 bg-white border shadow-sm rounded-xl">
           <div>
             <input
               data-testid="requirement-title"
@@ -141,24 +145,28 @@ export default function RequirementPool() {
           </div>
           <textarea
             data-testid="requirement-description"
-            className="min-h-32 w-full rounded border px-3 py-2"
+            className="w-full px-3 py-2 border rounded min-h-32"
             placeholder="用 Markdown 描述需求、目标和约束"
             value={form.description_markdown}
             onChange={(e) => setForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
           />
-          <input
-            data-testid="requirement-target-project"
-            className="w-full rounded border px-3 py-2 text-sm"
-            placeholder="目标项目路径 (可选, 如 /Users/cliff/workspace/agent/Synapse-Network)"
-            value={form.target_project_path}
-            onChange={(e) => setForm((prev) => ({ ...prev, target_project_path: e.target.value }))}
-          />
+          <div className="space-y-1">
+            <div className="text-xs text-gray-500">目标项目路径（可选，每行一个路径）</div>
+            <textarea
+              data-testid="requirement-target-project"
+              className="w-full px-3 py-2 font-mono text-sm leading-relaxed border rounded"
+              rows={3}
+              placeholder={`/Users/cliff/workspace/agent/Synapse-Network\n/Users/cliff/workspace/agent/Synapse-Network-Growing`}
+              value={form.target_project_path}
+              onChange={(e) => setForm((prev) => ({ ...prev, target_project_path: e.target.value }))}
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="flex flex-col gap-1">
               <label className="text-xs text-gray-500">优先级</label>
               <select
                 data-testid="requirement-priority"
-                className="rounded border px-3 py-2 text-sm"
+                className="px-3 py-2 text-sm border rounded"
                 value={form.priority}
                 onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
               >
@@ -167,29 +175,77 @@ export default function RequirementPool() {
                 <option value="high">high</option>
               </select>
             </div>
-            <div className="flex flex-1 flex-col gap-1">
-              <label className="text-xs text-gray-500">前置依赖（勾选后等依赖完成才启动）</label>
-              <div data-testid="create-dependencies" className="max-h-28 flex-1 overflow-auto rounded border px-3 py-2 text-xs text-gray-600">
-              {requirements.length === 0 ? (
-                <div>暂无可选依赖</div>
-              ) : (
-                requirements.map((r) => (
-                  <label key={r.id} className="flex items-center gap-2 py-1">
-                    <input
-                      data-testid={`create-dependency-${r.id}`}
-                      type="checkbox"
-                      checked={form.depends_on_requirement_ids.includes(r.id)}
-                      onChange={() => setForm((prev) => ({
-                        ...prev,
-                        depends_on_requirement_ids: toggleDependency(prev.depends_on_requirement_ids, r.id),
-                      }))}
-                    />
-                    <span>{r.title}</span>
-                    <span className="text-gray-400">{STATUS_LABEL[r.status] || r.status}</span>
-                  </label>
-                ))
-              )}
-            </div>
+            <div className="flex flex-col flex-1 gap-1">
+              <div className="text-xs text-gray-500">前置依赖（选后等依赖完成才启动）</div>
+              <div data-testid="create-dependencies" className="relative">
+                {/* Selected chips */}
+                {form.depends_on_requirement_ids.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {form.depends_on_requirement_ids.map((rid) => {
+                      const r = requirements.find((x) => x.id === rid)
+                      return (
+                        <span key={rid} className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">
+                          <span className="max-w-[140px] truncate">{r?.title ?? `#${rid}`}</span>
+                          <button
+                            type="button"
+                            className="ml-0.5 text-blue-400 hover:text-blue-700 leading-none"
+                            onMouseDown={() => setForm((prev) => ({
+                              ...prev,
+                              depends_on_requirement_ids: prev.depends_on_requirement_ids.filter((v) => v !== rid),
+                            }))}
+                          >×</button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                {/* Search input */}
+                <input
+                  data-testid="create-dependency-search"
+                  className="w-full px-3 py-2 text-sm border rounded"
+                  placeholder="搜索需求名称…"
+                  value={depQuery}
+                  onFocus={() => setDepOpen(true)}
+                  onChange={(e) => { setDepQuery(e.target.value); setDepOpen(true) }}
+                  onBlur={() => setTimeout(() => setDepOpen(false), 150)}
+                />
+                {/* Dropdown list */}
+                {depOpen && (() => {
+                  const q = depQuery.toLowerCase()
+                  const filtered = requirements.filter((r) =>
+                    !q || r.title.toLowerCase().includes(q) || String(r.id).includes(q)
+                  )
+                  return (
+                    <div className="absolute z-20 w-full mt-1 overflow-auto bg-white border rounded-lg shadow-lg max-h-48">
+                      {filtered.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-gray-400">无匹配需求</div>
+                      ) : filtered.map((r) => {
+                        const selected = form.depends_on_requirement_ids.includes(r.id)
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            data-testid={`create-dependency-${r.id}`}
+                            className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition hover:bg-blue-50 ${
+                              selected ? 'bg-blue-50' : ''
+                            }`}
+                            onMouseDown={() => setForm((prev) => ({
+                              ...prev,
+                              depends_on_requirement_ids: toggleDependency(prev.depends_on_requirement_ids, r.id),
+                            }))}
+                          >
+                            <span className="flex-1 truncate">{r.title}</span>
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_CLASS[r.status] || ''}`}>
+                              {STATUS_LABEL[r.status] || r.status}
+                            </span>
+                            {selected && <span className="text-xs text-blue-600 shrink-0">✓</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
             <label className="flex items-center gap-2 py-2">
               <input
@@ -202,7 +258,7 @@ export default function RequirementPool() {
             </label>
             <button
               data-testid="submit-requirement-btn"
-              className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded hover:bg-black disabled:opacity-50"
               disabled={submitting}
               onClick={() => { handleCreate().catch(() => {}) }}
             >
@@ -214,7 +270,7 @@ export default function RequirementPool() {
 
       <div className="space-y-3">
         {requirements.length === 0 && (
-          <div data-testid="requirements-empty" className="rounded-xl border border-dashed bg-white p-6 text-sm text-gray-500">
+          <div data-testid="requirements-empty" className="p-6 text-sm text-gray-500 bg-white border border-dashed rounded-xl">
             还没有 requirement。先创建一条需求，再规划和启动 workflow。
           </div>
         )}
@@ -222,10 +278,10 @@ export default function RequirementPool() {
           <button
             key={requirement.id}
             data-testid={`requirement-card-${requirement.id}`}
-            className="w-full rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md"
+            className="w-full p-4 text-left transition bg-white border shadow-sm rounded-xl hover:border-blue-300 hover:shadow-md"
             onClick={() => navigate(`/requirements/${requirement.id}`)}
           >
-            <div className="mb-2 flex items-start justify-between gap-3">
+            <div className="flex items-start justify-between gap-3 mb-2">
               <div>
                 <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
                 <div className="mt-1 text-xs text-gray-500">Plan v{requirement.current_plan_version || 0}</div>
@@ -237,8 +293,8 @@ export default function RequirementPool() {
             {requirement.target_project_path && (
               <div className="mb-2 text-xs text-blue-700 truncate">{requirement.target_project_path}</div>
             )}
-            <div className="line-clamp-3 text-xs text-gray-600">{requirement.description_markdown}</div>
-            <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+            <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
+            <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
               <span>优先级: {requirement.priority}</span>
               <span>阻塞: {requirement.blocked_by_count}</span>
               <span>{formatTime(requirement.updated_at)}</span>

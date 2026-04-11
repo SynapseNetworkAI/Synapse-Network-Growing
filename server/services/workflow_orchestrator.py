@@ -74,7 +74,15 @@ def _clear_role_sessions() -> None:
 def _snapshot_file_changes(task: TaskRow, requirement: RequirementRow) -> None:
     """Capture `git diff HEAD` in the target project and save to the task output dir."""
     try:
-        target_path = str(requirement.target_project_path) if requirement.target_project_path else None
+        raw_path = str(requirement.target_project_path) if requirement.target_project_path else None
+        # Support multiple paths (newline-separated) — use the first valid directory
+        target_path: str | None = None
+        if raw_path:
+            for line in raw_path.splitlines():
+                candidate = line.strip()
+                if candidate and Path(candidate).is_dir():
+                    target_path = candidate
+                    break
         output_path = str(task.output_path) if task.output_path else None
         if not target_path or not output_path:
             return
