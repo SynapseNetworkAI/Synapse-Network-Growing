@@ -52,6 +52,7 @@ export default function RequirementDetail() {
   const [detail, setDetail] = useState<RequirementDetailType | null>(null)
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)
+  const [showPlan, setShowPlan] = useState(true)
   const [showRevise, setShowRevise] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [revisionForm, setRevisionForm] = useState({
@@ -280,6 +281,44 @@ export default function RequirementDetail() {
                 </div>
               )}
             </section>
+
+            {/* Plan section – implementation_plan artifact from the active run */}
+            {(() => {
+              const planArtifact = detail.artifacts
+                .filter((a) => a.artifact_type === 'implementation_plan')
+                .sort((a, b) => b.id - a.id)[0]
+              if (!planArtifact) return null
+              return (
+                <section className="border rounded-xl" data-testid="plan-panel">
+                  <button
+                    className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
+                    onClick={() => setShowPlan((v) => !v)}
+                  >
+                    <span className="flex items-center gap-2">
+                      执行计划
+                      {detail.workflow_run && (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
+                          Plan v{detail.workflow_run.plan_version}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-gray-400 text-xs">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
+                  </button>
+                  {showPlan && (
+                    <div className="border-t px-4 py-3">
+                      {planArtifact.content_summary && (
+                        <div className="mb-2 text-xs text-gray-500">{planArtifact.content_summary}</div>
+                      )}
+                      {planArtifact.human_readable_body ? (
+                        <Md>{planArtifact.human_readable_body}</Md>
+                      ) : (
+                        <div className="text-xs text-gray-400">计划内容暂无。</div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )
+            })()}
 
             <section className="p-4 border rounded-xl" data-testid="workflow-steps-panel">
               <div className="flex items-center justify-between mb-3">
