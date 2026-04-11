@@ -94,3 +94,74 @@ def test_start_requirement_revalidates_active_project_policy(synced_client, db_s
     start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
     assert start_resp.status_code == 400
     assert "not active" in start_resp.json()["detail"]
+
+
+def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path):
+    repo = tmp_path / "sandbox-app"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "AGENTS.md").write_text("# AGENTS\n", encoding="utf-8")
+    docs_dir = repo / "docs"
+    docs_dir.mkdir()
+    entrypoint = docs_dir / "README.md"
+    entrypoint.write_text("# Docs\n", encoding="utf-8")
+
+    resp = synced_client.post(
+        "/api/project-onboarding",
+        json={
+            "project_key": "sandbox-app",
+            "display_name": "Sandbox App",
+            "root_path": str(repo),
+            "docs_entrypoints": [str(entrypoint)],
+            "validation_commands": ["pytest -q"],
+            "agents_memory_namespace": "sandbox-app",
+            "auto_create_policy": True,
+            "allowed_write_globs": ["src/**"],
+            "forbidden_globs": [".git/**"],
+            "release_mode": "manual",
+            "requires_manual_approval": True,
+            "notes": "Sandbox onboarding",
+        },
+    )
+
+    assert resp.status_code == 201
+    payload = resp.json()
+    assert payload["readiness_status"] == "ready"
+    assert payload["readiness_score"] == 100
+    assert payload["policy_id"] is not None
+    assert payload["missing_items"] == []
+
+    policies = synced_client.get("/api/project-policies").json()
+    created_policy = next(item for item in policies if item["project_key"] == "sandbox-app")
+    assert created_policy["required_checks"] == ["pytest -q"]
+
+
+def test_project_onboarding_incomplete_project_surfaces_readiness_gaps(synced_client, tmp_path):
+    repo = tmp_path / "incomplete-app"
+    repo.mkdir()
+
+    resp = synced_client.post(
+        "/api/project-onboarding",
+        json={
+            "project_key": "incomplete-app",
+            "display_name": "Incomplete App",
+            "root_path": str(repo),
+            "docs_entrypoints": [str(repo / "docs" / "README.md")],
+            "validation_commands": [],
+            "agents_memory_namespace": "",
+            "auto_create_policy": False,
+            "allowed_write_globs": ["src/**"],
+            "forbidden_globs": [".git/**"],
+            "release_mode": "manual",
+            "requires_manual_approval": True,
+        },
+    )
+
+    assert resp.status_code == 201
+    payload = resp.json()
+    assert payload["readiness_status"] == "needs_setup"
+    assert payload["policy_id"] is None
+    assert "Git Repository" in payload["missing_items"]
+    assert "Docs Entrypoints" in payload["missing_items"]
+    assert "Validation Commands" in payload["missing_items"]
+    assert "Project Policy" in payload["missing_items"]

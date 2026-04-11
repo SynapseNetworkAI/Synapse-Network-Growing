@@ -228,6 +228,47 @@ class ProjectPolicyOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class ProjectReadinessItemOut(BaseModel):
+    key: str
+    label: str
+    status: str
+    message: str
+    details: list[str] = []
+
+
+class ProjectOnboardingCreate(BaseModel):
+    project_key: str
+    display_name: str
+    root_path: str
+    docs_entrypoints: list[str] = []
+    validation_commands: list[str] = []
+    agents_memory_namespace: Optional[str] = None
+    auto_create_policy: bool = True
+    allowed_write_globs: list[str] = ["**"]
+    forbidden_globs: list[str] = []
+    release_mode: str = "manual"
+    requires_manual_approval: bool = True
+    notes: Optional[str] = None
+
+
+class ProjectOnboardingOut(BaseModel):
+    id: int
+    project_key: str
+    display_name: str
+    root_path: str
+    docs_entrypoints: list[str]
+    validation_commands: list[str]
+    agents_memory_namespace: Optional[str] = None
+    policy_id: Optional[int] = None
+    readiness_status: str
+    readiness_score: int
+    readiness_items: list[ProjectReadinessItemOut] = []
+    missing_items: list[str] = []
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 # ── Requirements / Workflow ─────────────────────────────────
 
 class RequirementCreate(BaseModel):

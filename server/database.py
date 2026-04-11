@@ -180,6 +180,34 @@ class ProjectPolicyRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class ProjectOnboardingRow(Base):
+    __tablename__ = "project_onboardings"
+    __table_args__ = (
+        Index("project_onboardings_project_key_idx", "project_key"),
+        Index("project_onboardings_root_path_idx", "root_path"),
+        Index("project_onboardings_status_idx", "readiness_status"),
+        Index("project_onboardings_policy_idx", "policy_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_key = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False)
+    root_path = Column(Text, nullable=False)
+    docs_entrypoints_json = Column(Text, nullable=False, default="[]")
+    validation_commands_json = Column(Text, nullable=False, default="[]")
+    agents_memory_namespace = Column(Text)
+    policy_id = Column(Integer, ForeignKey("project_policies.id"))
+    readiness_status = Column(Text, nullable=False, default="needs_setup")
+    readiness_score = Column(Integer, nullable=False, default=0)
+    readiness_items_json = Column(Text, nullable=False, default="[]")
+    missing_items_json = Column(Text, nullable=False, default="[]")
+    notes = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    policy = relationship("ProjectPolicyRow")
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (

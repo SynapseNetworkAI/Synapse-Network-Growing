@@ -198,6 +198,32 @@ export interface ProjectPolicy {
   updated_at: string | null
 }
 
+export interface ProjectReadinessItem {
+  key: string
+  label: string
+  status: string
+  message: string
+  details: string[]
+}
+
+export interface ProjectOnboarding {
+  id: number
+  project_key: string
+  display_name: string
+  root_path: string
+  docs_entrypoints: string[]
+  validation_commands: string[]
+  agents_memory_namespace: string | null
+  policy_id: number | null
+  readiness_status: string
+  readiness_score: number
+  readiness_items: ProjectReadinessItem[]
+  missing_items: string[]
+  notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface Requirement {
   id: number
   title: string
@@ -392,6 +418,21 @@ export const api = {
 
   // Project policies
   getProjectPolicies: () => request<ProjectPolicy[]>('/project-policies'),
+  getProjectOnboardings: () => request<ProjectOnboarding[]>('/project-onboarding'),
+  createProjectOnboarding: (data: {
+    project_key: string
+    display_name: string
+    root_path: string
+    docs_entrypoints?: string[]
+    validation_commands?: string[]
+    agents_memory_namespace?: string | null
+    auto_create_policy?: boolean
+    allowed_write_globs?: string[]
+    forbidden_globs?: string[]
+    release_mode?: string
+    requires_manual_approval?: boolean
+    notes?: string | null
+  }) => request<ProjectOnboarding>('/project-onboarding', { method: 'POST', body: JSON.stringify(data) }),
   createProjectPolicy: (data: {
     project_key: string
     display_name: string
