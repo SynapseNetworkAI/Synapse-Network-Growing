@@ -134,6 +134,18 @@ function normalizeEvent(event, seq) {
   };
 }
 
+/**
+ * Returns true when the error is a Anthropic API rejection caused by orphaned
+ * tool_use blocks that have no matching tool_result response.  This happens
+ * when a session crashes mid-tool-execution and is later resumed — the stored
+ * conversation history contains the assistant's tool_use blocks but the
+ * corresponding tool_result blocks were never appended before the crash.
+ */
+function isToolUseMismatchError(error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("tool_use") && msg.includes("tool_result");
+}
+
 function createCommonSessionConfig(input, { includeModel }) {
   const config = {
     streaming: true,
@@ -529,11 +541,68 @@ async function runDetachedWorker(client, input) {
     }, 5000);
     heartbeatTimer.unref?.();
 
-    const finalAssistantMessage = await waitForFinalAssistantMessage(session, {
-      sendPrompt: input.prompt || undefined,
-      timeoutMs: typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : undefined,
-      alreadyIdle: Boolean(input.assumeAlreadyIdle),
-    });
+    let finalAssistantMessage;
+    try {
+      finalAssistantMessage = await waitForFinalAssistantMessage(session, {
+        sendPrompt: input.prompt || undefined,
+        timeoutMs: typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : undefined,
+        alreadyIdle: Boolean(input.assumeAlreadyIdle),
+      });
+    } catch (waitError) {
+      // When resuming a session that crashed mid-tool-execution, the stored
+      // conversation history contains orphaned tool_use blocks (no matching
+      // tool_result).  The Anthropic API rejects this with a 400 error.
+      // Recovery: discard the broken session and start a clean one.
+      if (input.action === "resume" && isToolUseMismatchError(waitError)) {
+        await recorder.recordSyntheticEvent(
+          "session.fallback",
+          "tool_use_result_mismatch: orphaned tool_use blocks → fresh session",
+        );
+        liveUnsubscribe();
+        liveUnsubscribe = () => {};
+        if (typeof session.disconnect === "function") {
+          await session.disconnect().catch(() => {});
+        }
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = undefined;
+
+        session = await client.createSession(createCommonSessionConfig(input, { includeModel: true }));
+        await recorder.recordSyntheticEvent("session.created", session.sessionId);
+
+        liveUnsubscribe = session.on((event) => {
+          if (event.type === "assistant.message_delta") {
+            content += event.data.deltaContent ?? "";
+          }
+          if (event.type === "assistant.message") {
+            content = event.data?.content ?? content;
+          }
+          if (event.type === "subagent.selected") {
+            selectedAgent = event.data.agentName;
+          }
+          if (event.type === "assistant.usage") {
+            tokensUsed = event.data?.totalTokens ?? tokensUsed ?? 0;
+          }
+          recorder.recordEvent(event);
+        });
+
+        heartbeatTimer = setInterval(() => {
+          recorder.heartbeat({
+            status: "running",
+            sessionId: session.sessionId,
+            selectedAgent,
+            tokensUsed,
+          });
+        }, 5000);
+        heartbeatTimer.unref?.();
+
+        finalAssistantMessage = await waitForFinalAssistantMessage(session, {
+          sendPrompt: input.prompt || undefined,
+          timeoutMs: typeof input.timeoutMs === "number" && input.timeoutMs > 0 ? input.timeoutMs : undefined,
+        });
+      } else {
+        throw waitError;
+      }
+    }
 
     const finalContent = finalAssistantMessage?.data?.content ?? content;
     await recorder.finalizeSuccess({

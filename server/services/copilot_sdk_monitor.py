@@ -18,7 +18,7 @@ from server.services.copilot_sdk_state import (
     seconds_since_timestamp,
     task_output_dir,
 )
-from server.services.task_runtime import CopilotSDKTaskRuntime, normalize_copilot_event_type
+from server.services.task_runtime import CopilotSDKTaskRuntime, get_copilot_sdk_runtime, normalize_copilot_event_type
 
 logger = logging.getLogger("ops-dashboard.copilot_sdk_monitor")
 
@@ -224,6 +224,20 @@ class CopilotSDKTaskMonitor:
         cast(Any, task).completed_at = utcnow()
         self._log(db, _task_id(task), "failed", error_message)
         logger.info("Copilot SDK task #%d failed via monitor: %s", _task_id(task), error_message)
+
+        # If the failure is caused by orphaned tool_use blocks (session crashed
+        # mid-tool-execution), the stored conversation is permanently broken.
+        # Clear the singleton role-session cache so the next dispatch starts a
+        # fresh session instead of trying to resume the corrupted one.
+        if "tool_use" in error_message and "tool_result" in error_message:
+            runtime = get_copilot_sdk_runtime()
+            if runtime is not None:
+                runtime.clear_role_sessions()
+                logger.warning(
+                    "Cleared role sessions after tool_use/tool_result mismatch on task #%d",
+                    _task_id(task),
+                )
+
         db.commit()
         self._sync_workflow_step(_task_id(task))
 
