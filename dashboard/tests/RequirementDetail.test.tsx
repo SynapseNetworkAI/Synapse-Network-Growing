@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import RequirementDetail from '../src/pages/RequirementDetail'
 
@@ -8,6 +8,7 @@ const mockApi = {
   getRequirements: vi.fn(),
   startRequirement: vi.fn(),
   pauseRequirement: vi.fn(),
+  publishRequirement: vi.fn(),
   reviseRequirement: vi.fn(),
 }
 
@@ -17,6 +18,7 @@ vi.mock('../src/api', () => ({
     getRequirements: (...args: unknown[]) => mockApi.getRequirements(...args),
     startRequirement: (...args: unknown[]) => mockApi.startRequirement(...args),
     pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
+    publishRequirement: (...args: unknown[]) => mockApi.publishRequirement(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
   },
 }))
@@ -139,6 +141,24 @@ const detail = {
       created_at: '2026-04-11T08:04:00Z',
     },
   ],
+  delivery_state: {
+    branch_name: 'ops/req-1-verification-contract-hardening',
+    branch_strategy: 'requirement_branch',
+    base_branch: 'main',
+    review_status: 'review_ready',
+    publish_status: 'review_ready',
+    release_mode: 'manual',
+    requires_manual_approval: true,
+    required_checks: ['pytest -q', 'npm run build'],
+    confirmed_checks: ['pytest -q'],
+    pending_checks: ['npm run build'],
+    publish_blockers: ['required check pending: npm run build'],
+    review_surface_summary: 'Requirement #1 is review-ready.',
+    rollback_hint_markdown: 'Revert the promoted change from `main`.',
+    review_ready_at: '2026-04-11T08:05:00Z',
+    published_at: null,
+    publish_note: null,
+  },
 }
 
 describe('RequirementDetail', () => {
@@ -147,6 +167,7 @@ describe('RequirementDetail', () => {
     mockApi.getRequirements.mockResolvedValue([detail.requirement])
     mockApi.startRequirement.mockResolvedValue(detail)
     mockApi.pauseRequirement.mockResolvedValue(detail)
+    mockApi.publishRequirement.mockResolvedValue(detail)
     mockApi.reviseRequirement.mockResolvedValue(detail)
   })
 
@@ -173,5 +194,17 @@ describe('RequirementDetail', () => {
     expect(bugPanel).toBeInTheDocument()
     expect(within(bugPanel).getAllByText('Validation failed after test run').length).toBeGreaterThan(0)
     expect(within(bugPanel).getByText(/Failed checks: validation_passed/)).toBeInTheDocument()
+
+    expect(screen.getByTestId('delivery-state-panel')).toBeInTheDocument()
+    expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
+    expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
+    expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('publish-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.publishRequirement).toHaveBeenCalledTimes(1)
+    })
+    expect(mockApi.publishRequirement.mock.calls[0]?.[0]).toBe(1)
   })
 })

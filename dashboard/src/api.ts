@@ -240,6 +240,25 @@ export interface RequirementAcceptanceCheck {
   updated_at: string | null
 }
 
+export interface DeliveryState {
+  branch_name: string | null
+  branch_strategy: string | null
+  base_branch: string | null
+  review_status: string
+  publish_status: string
+  release_mode: string | null
+  requires_manual_approval: boolean
+  required_checks: string[]
+  confirmed_checks: string[]
+  pending_checks: string[]
+  publish_blockers: string[]
+  review_surface_summary: string | null
+  rollback_hint_markdown: string | null
+  review_ready_at: string | null
+  published_at: string | null
+  publish_note: string | null
+}
+
 export interface WorkflowStep {
   id: number
   workflow_run_id: number
@@ -294,6 +313,7 @@ export interface RequirementDetail {
   dependencies: RequirementDependency[]
   acceptance_checks: RequirementAcceptanceCheck[]
   artifacts: Artifact[]
+  delivery_state: DeliveryState | null
 }
 
 export interface OrgNode {
@@ -416,6 +436,8 @@ export const api = {
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
   startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
   pauseRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/pause`, { method: 'POST' }),
+  publishRequirement: (id: number, data: { completed_checks?: string[]; note?: string | null }) =>
+    request<RequirementDetail>(`/requirements/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }),
   deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
   updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
     request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

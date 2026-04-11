@@ -40,12 +40,14 @@ from server.services.agents_memory_sync import (
 )
 from server.schemas import (
     ArtifactOut,
+    DeliveryStateOut,
     RequirementDependencyOut,
     RequirementAcceptanceCheckOut,
     RequirementCreate,
     RequirementDetailOut,
     RequirementOut,
     RequirementPatch,
+    RequirementPublishRequest,
     RequirementRevisionRequest,
     WorkflowRunOut,
     WorkflowStepOut,
@@ -278,6 +280,16 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     )
     workflow_run.planner_artifact_id = _as_int(plan_artifact.id)
 
+    delivery_contract_artifact = _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        workflow_run_id=workflow_run.id,
+        artifact_type="delivery_contract",
+        content_summary=f"Delivery contract v{workflow_run.plan_version}",
+        human_readable_body=_delivery_contract_markdown(planner_output.get("delivery_contract") or {}),
+        machine_readable_payload=planner_output.get("delivery_contract") or {},
+    )
+
     validation_plan_artifact = _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -294,6 +306,7 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     for step in steps_by_key.values():
         _bind_artifact(db, step.id, snapshot_artifact.id, "primary_spec", True)
         _bind_artifact(db, step.id, plan_artifact.id, "implementation_context", True)
+        _bind_artifact(db, step.id, delivery_contract_artifact.id, "delivery_contract", True)
         _bind_artifact(db, step.id, validation_plan_artifact.id, "validation_contract", True)
 
     requirement.current_plan_version = workflow_run.plan_version
@@ -369,9 +382,100 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         )
         workflow_run.status = "completed"
         workflow_run.completed_at = workflow_run.completed_at or utcnow()
+    if workflow_run is not None and _latest_artifact(
+        db,
+        requirement.id,
+        "delivery_state",
+        workflow_run_id=workflow_run.id,
+    ) is None:
+        delivery_contract = _delivery_contract_payload(db, requirement.id)
+        _record_delivery_state(
+            db,
+            requirement,
+            workflow_run,
+            publish_status="blocked" if str(delivery_contract.get("release_mode") or "manual") == "disabled" else "review_ready",
+        )
     requirement.status = "done"
     requirement.completed_at = requirement.completed_at or utcnow()
     _refresh_dependents_for_requirement(db, requirement.id)
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
+def publish_requirement(
+    db: Session,
+    requirement_id: int,
+    body: RequirementPublishRequest | None = None,
+) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+
+    workflow_run = _active_workflow_run(db, requirement)
+    delivery_contract = _delivery_contract_payload(db, requirement.id)
+    if not delivery_contract:
+        raise ValueError("Requirement has no delivery contract. Plan it first.")
+    if requirement.status != "done":
+        raise ValueError("Requirement must be done before publish can be promoted.")
+
+    validation_errors = _validation_gate_errors(db, requirement.id)
+    if validation_errors:
+        raise ValueError(
+            "Requirement cannot publish before validation passes: " + "; ".join(validation_errors)
+        )
+
+    release_mode = str(delivery_contract.get("release_mode") or "manual")
+    if release_mode == "disabled":
+        raise ValueError("Publish is disabled by project policy.")
+
+    completed_checks = []
+    for check in (body.completed_checks if body is not None else []):
+        value = str(check).strip()
+        if value and value not in completed_checks:
+            completed_checks.append(value)
+    required_checks = [str(item) for item in delivery_contract.get("required_checks") or [] if str(item).strip()]
+    missing_checks = [check for check in required_checks if check not in completed_checks]
+    if missing_checks:
+        raise ValueError(
+            "Publish blocked until required checks are confirmed: " + ", ".join(missing_checks)
+        )
+
+    latest_state = _latest_artifact(
+        db,
+        requirement.id,
+        "delivery_state",
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    )
+    latest_state_payload = _json_loads(getattr(latest_state, "machine_readable_payload", None), {})
+    if isinstance(latest_state_payload, dict) and latest_state_payload.get("publish_status") == "published":
+        return build_requirement_detail(db, requirement.id)
+
+    note = (body.note if body is not None else None) or ""
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        artifact_type="publish_record",
+        content_summary=f"Published requirement #{requirement.id}",
+        human_readable_body=_publish_record_markdown(requirement, delivery_contract, completed_checks, note),
+        machine_readable_payload={
+            "requirement_id": _as_int(requirement.id),
+            "workflow_run_id": _as_int(workflow_run.id) if workflow_run is not None else None,
+            "branch_name": delivery_contract.get("branch_name"),
+            "base_branch": delivery_contract.get("base_branch"),
+            "release_mode": release_mode,
+            "completed_checks": completed_checks,
+            "publish_note": note or None,
+            "published_at": utcnow().isoformat(),
+        },
+    )
+    _record_delivery_state(
+        db,
+        requirement,
+        workflow_run,
+        publish_status="published",
+        confirmed_checks=completed_checks,
+        publish_note=note or None,
+    )
     db.commit()
     return build_requirement_detail(db, requirement.id)
 
@@ -614,6 +718,7 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
         ],
         acceptance_checks=[RequirementAcceptanceCheckOut.model_validate(check) for check in checks],
         artifacts=[ArtifactOut.model_validate(artifact) for artifact in artifacts],
+        delivery_state=_build_delivery_state(db, requirement),
     )
 
 
@@ -995,6 +1100,10 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
             plan_md = _plan_artifact_to_markdown(artifact)
             if plan_md:
                 parts.append(f"\n## Implementation Plan\n{plan_md}")
+        elif artifact.artifact_type == "delivery_contract":
+            delivery_md = _delivery_contract_artifact_to_markdown(artifact)
+            if delivery_md:
+                parts.append(f"\n## Delivery Contract\n{delivery_md}")
         elif artifact.artifact_type == "validation_plan":
             validation_md = _validation_plan_artifact_to_markdown(artifact)
             if validation_md:
@@ -1049,6 +1158,13 @@ def _validation_plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
     if not isinstance(payload, dict):
         return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
     return _validation_plan_markdown(payload)
+
+
+def _delivery_contract_artifact_to_markdown(artifact: ArtifactRow) -> str:
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    if not isinstance(payload, dict):
+        return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
+    return _delivery_contract_markdown(payload)
 
 
 def _resolve_step_skill(db: Session, step: WorkflowStepRow) -> str:
@@ -1343,6 +1459,60 @@ def _finalize_requirement(
     workflow_run.completed_at = utcnow()
     requirement.status = "done"
     requirement.completed_at = utcnow()
+    delivery_contract = _delivery_contract_payload(db, requirement.id)
+    auto_publish_allowed = bool(delivery_contract.get("auto_publish_allowed"))
+    required_checks = [str(item) for item in delivery_contract.get("required_checks") or [] if str(item).strip()]
+    publish_status = "published" if auto_publish_allowed and not required_checks else (
+        "blocked" if str(delivery_contract.get("release_mode") or "manual") == "disabled" else "review_ready"
+    )
+    review_surface = _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        workflow_run_id=workflow_run.id,
+        artifact_type="review_surface",
+        content_summary=f"Review-ready bundle for requirement #{requirement.id}",
+        human_readable_body=_delivery_review_surface_summary(requirement, db),
+        machine_readable_payload={
+            "requirement_id": _as_int(requirement.id),
+            "workflow_run_id": _as_int(workflow_run.id),
+            "branch_name": delivery_contract.get("branch_name"),
+            "validation_checks": _validation_check_statuses(db, _as_int(requirement.id)),
+            "generated_at": utcnow().isoformat(),
+        },
+    )
+    _record_delivery_state(
+        db,
+        requirement,
+        workflow_run,
+        publish_status=publish_status,
+        confirmed_checks=required_checks if publish_status == "published" else [],
+        publish_note="auto-published by release gate" if publish_status == "published" else None,
+    )
+    if publish_status == "published":
+        _create_artifact(
+            db,
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            artifact_type="publish_record",
+            content_summary=f"Auto-published requirement #{requirement.id}",
+            human_readable_body=_publish_record_markdown(
+                requirement,
+                delivery_contract,
+                required_checks,
+                "auto-published by release gate",
+            ),
+            machine_readable_payload={
+                "requirement_id": _as_int(requirement.id),
+                "workflow_run_id": _as_int(workflow_run.id),
+                "branch_name": delivery_contract.get("branch_name"),
+                "base_branch": delivery_contract.get("base_branch"),
+                "release_mode": delivery_contract.get("release_mode"),
+                "completed_checks": required_checks,
+                "publish_note": "auto-published by release gate",
+                "published_at": utcnow().isoformat(),
+                "review_surface_artifact_id": _as_int(review_surface.id),
+            },
+        )
     _refresh_dependents_for_requirement(db, requirement.id)
     _clear_role_sessions()
     # Async push full requirement summary to Agents-Memory
@@ -1878,6 +2048,208 @@ def _build_bug_report_payload(
     }
 
 
+def _delivery_contract_payload(db: Session, requirement_id: int) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "delivery_contract")
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _delivery_contract_markdown(payload: dict[str, Any]) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+    lines = ["# Delivery Contract"]
+    summary = str(payload.get("summary_markdown") or "").strip()
+    if summary:
+        lines.extend(["", summary])
+    branch_name = str(payload.get("branch_name") or "").strip()
+    base_branch = str(payload.get("base_branch") or "").strip()
+    branch_strategy = str(payload.get("branch_strategy") or "").strip()
+    if branch_name or base_branch or branch_strategy:
+        lines.extend(["", "## Branch"])
+        if branch_name:
+            lines.append(f"- Branch: `{branch_name}`")
+        if base_branch:
+            lines.append(f"- Base branch: `{base_branch}`")
+        if branch_strategy:
+            lines.append(f"- Strategy: `{branch_strategy}`")
+    release_mode = str(payload.get("release_mode") or "").strip()
+    if release_mode:
+        lines.extend(["", "## Promotion"])
+        lines.append(f"- Release mode: `{release_mode}`")
+        lines.append(
+            f"- Manual approval: {'yes' if payload.get('requires_manual_approval') else 'no'}"
+        )
+    required_checks = [str(item) for item in payload.get("required_checks") or [] if str(item).strip()]
+    if required_checks:
+        lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
+    rollback_hint = str(payload.get("rollback_hint_markdown") or "").strip()
+    if rollback_hint:
+        lines.extend(["", "## Rollback", rollback_hint])
+    return "\n".join(lines)
+
+
+def _delivery_review_surface_summary(requirement: RequirementRow, db: Session) -> str:
+    check_lines = [
+        f"`{check['check_key']}`={check['status']}"
+        for check in _validation_check_statuses(db, _as_int(requirement.id))
+    ]
+    return (
+        f"Requirement #{requirement.id} is review-ready for `{requirement.title}`. "
+        f"Validation: {', '.join(check_lines) if check_lines else 'no checks recorded'}."
+    )
+
+
+def _delivery_state_payload(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    *,
+    publish_status: str,
+    confirmed_checks: list[str] | None = None,
+    publish_note: str | None = None,
+) -> dict[str, Any]:
+    contract = _delivery_contract_payload(db, _as_int(requirement.id))
+    required_checks = [str(item) for item in contract.get("required_checks") or [] if str(item).strip()]
+    confirmed = [str(item) for item in (confirmed_checks or []) if str(item).strip()]
+    pending = [check for check in required_checks if check not in confirmed]
+    blockers: list[str] = []
+    if str(contract.get("release_mode") or "manual") == "disabled":
+        blockers.append("publish disabled by project policy")
+    blockers.extend([f"required check pending: {check}" for check in pending])
+    return {
+        "branch_name": contract.get("branch_name"),
+        "branch_strategy": contract.get("branch_strategy"),
+        "base_branch": contract.get("base_branch"),
+        "review_status": "review_ready",
+        "publish_status": publish_status,
+        "release_mode": contract.get("release_mode"),
+        "requires_manual_approval": bool(contract.get("requires_manual_approval")),
+        "required_checks": required_checks,
+        "confirmed_checks": confirmed,
+        "pending_checks": pending,
+        "publish_blockers": blockers,
+        "review_surface_summary": _delivery_review_surface_summary(requirement, db),
+        "rollback_hint_markdown": contract.get("rollback_hint_markdown"),
+        "review_ready_at": utcnow().isoformat(),
+        "published_at": utcnow().isoformat() if publish_status == "published" else None,
+        "publish_note": publish_note,
+        "workflow_run_id": _as_int(workflow_run.id) if workflow_run is not None else None,
+    }
+
+
+def _delivery_state_markdown(payload: dict[str, Any]) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+    lines = ["# Delivery State", ""]
+    summary = str(payload.get("review_surface_summary") or "").strip()
+    if summary:
+        lines.append(summary)
+    lines.extend(
+        [
+            "",
+            f"- Review status: `{payload.get('review_status', 'unplanned')}`",
+            f"- Publish status: `{payload.get('publish_status', 'unplanned')}`",
+            f"- Release mode: `{payload.get('release_mode', '-')}`",
+        ]
+    )
+    required_checks = payload.get("required_checks") or []
+    if isinstance(required_checks, list) and required_checks:
+        lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
+    blockers = payload.get("publish_blockers") or []
+    if isinstance(blockers, list) and blockers:
+        lines.extend(["", "## Publish Blockers", *[f"- {item}" for item in blockers]])
+    rollback_hint = str(payload.get("rollback_hint_markdown") or "").strip()
+    if rollback_hint:
+        lines.extend(["", "## Rollback", rollback_hint])
+    return "\n".join(lines)
+
+
+def _record_delivery_state(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    *,
+    publish_status: str,
+    confirmed_checks: list[str] | None = None,
+    publish_note: str | None = None,
+) -> ArtifactRow:
+    payload = _delivery_state_payload(
+        db,
+        requirement,
+        workflow_run,
+        publish_status=publish_status,
+        confirmed_checks=confirmed_checks,
+        publish_note=publish_note,
+    )
+    summary_label = "Published" if publish_status == "published" else "Review-ready"
+    return _create_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        artifact_type="delivery_state",
+        content_summary=f"{summary_label} delivery state for requirement #{requirement.id}",
+        human_readable_body=_delivery_state_markdown(payload),
+        machine_readable_payload=payload,
+    )
+
+
+def _publish_record_markdown(
+    requirement: RequirementRow,
+    contract: dict[str, Any],
+    completed_checks: list[str],
+    note: str,
+) -> str:
+    lines = [
+        "# Publish Record",
+        "",
+        f"Requirement #{requirement.id} `{requirement.title}` was promoted for publish.",
+        f"- Branch: `{contract.get('branch_name') or '-'}`",
+        f"- Base branch: `{contract.get('base_branch') or '-'}`",
+        f"- Release mode: `{contract.get('release_mode') or '-'}`",
+    ]
+    if completed_checks:
+        lines.extend(["", "## Confirmed Checks", *[f"- `{item}`" for item in completed_checks]])
+    if note.strip():
+        lines.extend(["", "## Note", note.strip()])
+    return "\n".join(lines)
+
+
+def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryStateOut | None:
+    contract = _delivery_contract_payload(db, _as_int(requirement.id))
+    if not contract:
+        return None
+    latest_state = _latest_artifact(db, _as_int(requirement.id), "delivery_state")
+    payload = _json_loads(getattr(latest_state, "machine_readable_payload", None), {})
+    if not isinstance(payload, dict):
+        payload = _delivery_state_payload(
+            db,
+            requirement,
+            _active_workflow_run(db, requirement),
+            publish_status="unplanned",
+        )
+        payload["review_status"] = "planned"
+        payload["publish_status"] = "planned"
+        payload["review_ready_at"] = None
+    return DeliveryStateOut(
+        branch_name=str(payload.get("branch_name") or contract.get("branch_name") or "") or None,
+        branch_strategy=str(payload.get("branch_strategy") or contract.get("branch_strategy") or "") or None,
+        base_branch=str(payload.get("base_branch") or contract.get("base_branch") or "") or None,
+        review_status=str(payload.get("review_status") or "planned"),
+        publish_status=str(payload.get("publish_status") or "planned"),
+        release_mode=str(payload.get("release_mode") or contract.get("release_mode") or "manual"),
+        requires_manual_approval=bool(payload.get("requires_manual_approval", contract.get("requires_manual_approval"))),
+        required_checks=[str(item) for item in payload.get("required_checks") or contract.get("required_checks") or [] if str(item).strip()],
+        confirmed_checks=[str(item) for item in payload.get("confirmed_checks") or [] if str(item).strip()],
+        pending_checks=[str(item) for item in payload.get("pending_checks") or [] if str(item).strip()],
+        publish_blockers=[str(item) for item in payload.get("publish_blockers") or [] if str(item).strip()],
+        review_surface_summary=str(payload.get("review_surface_summary") or "") or None,
+        rollback_hint_markdown=str(payload.get("rollback_hint_markdown") or contract.get("rollback_hint_markdown") or "") or None,
+        review_ready_at=str(payload.get("review_ready_at") or "") or None,
+        published_at=str(payload.get("published_at") or "") or None,
+        publish_note=str(payload.get("publish_note") or "") or None,
+    )
+
+
 def _bind_artifact(db: Session, step_id: int, artifact_id: int, purpose: str, is_required: bool):
     existing = db.query(StepInputBindingRow).filter(
         StepInputBindingRow.step_id == step_id,
@@ -1926,6 +2298,11 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
         for line in str((planner_output.get("validation_plan") or {}).get("summary_markdown") or "").splitlines()
         if line.strip()
     ]
+    delivery_summary_lines = [
+        f"- {line}"
+        for line in str((planner_output.get("delivery_contract") or {}).get("summary_markdown") or "").splitlines()
+        if line.strip()
+    ]
     return "\n".join(
         [
             f"# Plan\n",
@@ -1934,6 +2311,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             f"- Implementer: {assignments.implementer_agent_id}",
             f"- Reviewer: {assignments.reviewer_agent_id}",
             f"- Tester: {assignments.tester_agent_id}",
+            "## Delivery Contract",
+            *(delivery_summary_lines or ["- Delivery contract will be generated for branch/review-ready/publish/rollback."]),
             "## Validation Contract",
             *(validation_summary_lines or ["- Validation contract will be generated for review/test/closeout."]),
             "## Steps",

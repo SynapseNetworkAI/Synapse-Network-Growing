@@ -14,6 +14,7 @@ from server.schemas import (
     RequirementDetailOut,
     RequirementOut,
     RequirementPatch,
+    RequirementPublishRequest,
     RequirementRevisionRequest,
 )
 from server.services.workflow_orchestrator import (
@@ -26,6 +27,7 @@ from server.services.workflow_orchestrator import (
     patch_requirement,
     pause_requirement,
     plan_requirement,
+    publish_requirement,
     revise_requirement,
     start_requirement,
     update_requirement_dependencies,
@@ -145,6 +147,18 @@ def start_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db
 def pause_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return pause_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/publish", response_model=RequirementDetailOut)
+def publish_requirement_endpoint(
+    requirement_id: int,
+    body: RequirementPublishRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return publish_requirement(db, requirement_id, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

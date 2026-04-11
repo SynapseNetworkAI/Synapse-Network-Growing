@@ -261,6 +261,11 @@ class RequirementPatch(BaseModel):
     target_project_path: Optional[str] = None
 
 
+class RequirementPublishRequest(BaseModel):
+    completed_checks: list[str] = []
+    note: Optional[str] = None
+
+
 class TaskPatch(BaseModel):
     description: Optional[str] = None
     priority: Optional[str] = None
@@ -306,6 +311,25 @@ class RequirementAcceptanceCheckOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class DeliveryStateOut(BaseModel):
+    branch_name: Optional[str] = None
+    branch_strategy: Optional[str] = None
+    base_branch: Optional[str] = None
+    review_status: str = "unplanned"
+    publish_status: str = "unplanned"
+    release_mode: Optional[str] = None
+    requires_manual_approval: bool = False
+    required_checks: list[str] = []
+    confirmed_checks: list[str] = []
+    pending_checks: list[str] = []
+    publish_blockers: list[str] = []
+    review_surface_summary: Optional[str] = None
+    rollback_hint_markdown: Optional[str] = None
+    review_ready_at: Optional[str] = None
+    published_at: Optional[str] = None
+    publish_note: Optional[str] = None
 
 
 class WorkflowStepOut(BaseModel):
@@ -372,6 +396,7 @@ class RequirementDetailOut(BaseModel):
     dependencies: list[RequirementDependencyOut] = []
     acceptance_checks: list[RequirementAcceptanceCheckOut] = []
     artifacts: list[ArtifactOut] = []
+    delivery_state: Optional[DeliveryStateOut] = None
 
 
 # ── Copilot Auth ─────────────────────────────────────────────

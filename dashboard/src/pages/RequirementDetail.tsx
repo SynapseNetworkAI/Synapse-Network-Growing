@@ -76,12 +76,15 @@ export default function RequirementDetail() {
   const [showPlan, setShowPlan] = useState(true)
   const [showRevise, setShowRevise] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [publishing, setPublishing] = useState(false)
   const [revisionForm, setRevisionForm] = useState({
     title: '',
     description_markdown: '',
     revision_note: '',
     depends_on_requirement_ids: [] as number[],
   })
+  const [publishChecks, setPublishChecks] = useState<string[]>([])
+  const [publishNote, setPublishNote] = useState('')
 
   const loadDetail = useCallback(async () => {
     const data = await api.getRequirement(requirementId)
@@ -102,6 +105,8 @@ export default function RequirementDetail() {
       depends_on_requirement_ids: detail.dependencies.map((d) => d.depends_on_requirement_id),
     })
     setShowRevise(false)
+    setPublishChecks(detail.delivery_state?.confirmed_checks || [])
+    setPublishNote(detail.delivery_state?.publish_note || '')
   }, [detail])
 
   // Poll while in_progress
@@ -139,6 +144,23 @@ export default function RequirementDetail() {
     }
   }
 
+  const togglePublishCheck = (check: string) => {
+    setPublishChecks((prev) => prev.includes(check) ? prev.filter((item) => item !== check) : [...prev, check])
+  }
+
+  const handlePublish = async () => {
+    setPublishing(true)
+    try {
+      const data = await api.publishRequirement(requirementId, {
+        completed_checks: publishChecks,
+        note: publishNote.trim() || null,
+      })
+      setDetail(data)
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   const toggleDependency = (values: number[], rid: number) =>
     values.includes(rid) ? values.filter((v) => v !== rid) : [...values, rid]
 
@@ -154,6 +176,7 @@ export default function RequirementDetail() {
   }
 
   const req = detail.requirement
+  const deliveryState = detail.delivery_state
   const targetProjectPaths = getTargetProjectPaths(req.target_project_path)
   const planArtifact = detail.artifacts
     .filter((a) => a.artifact_type === 'implementation_plan')
@@ -430,6 +453,85 @@ export default function RequirementDetail() {
           </div>
 
           <div className="space-y-4">
+            {deliveryState && (
+              <section className="p-4 border rounded-xl bg-amber-50" data-testid="delivery-state-panel">
+                <div className="mb-3 text-sm font-semibold">Delivery Gate</div>
+                <div className="grid gap-3 text-xs sm:grid-cols-2">
+                  <div className="p-3 border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Branch</div>
+                    <div className="space-y-1 text-gray-600">
+                      <div>{deliveryState.branch_name || '-'}</div>
+                      <div>base: {deliveryState.base_branch || '-'}</div>
+                      <div>strategy: {deliveryState.branch_strategy || '-'}</div>
+                    </div>
+                  </div>
+                  <div className="p-3 border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Release State</div>
+                    <div className="space-y-1 text-gray-600">
+                      <div>review: {deliveryState.review_status}</div>
+                      <div>publish: {deliveryState.publish_status}</div>
+                      <div>mode: {deliveryState.release_mode || '-'}</div>
+                    </div>
+                  </div>
+                </div>
+                {deliveryState.review_surface_summary && (
+                  <div className="mt-3 text-xs text-gray-700">{deliveryState.review_surface_summary}</div>
+                )}
+                {deliveryState.required_checks.length > 0 && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Required Checks Before Publish</div>
+                    <div className="space-y-2">
+                      {deliveryState.required_checks.map((check) => (
+                        <label key={check} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={publishChecks.includes(check)}
+                            onChange={() => togglePublishCheck(check)}
+                          />
+                          <span>{check}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {deliveryState.publish_blockers.length > 0 && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-rose-50 border-rose-100 text-rose-700">
+                    <div className="mb-1 font-medium">Publish Blockers</div>
+                    <div className="space-y-1">
+                      {deliveryState.publish_blockers.map((item) => (
+                        <div key={item}>{item}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {deliveryState.rollback_hint_markdown && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Rollback Hint</div>
+                    <Md>{deliveryState.rollback_hint_markdown}</Md>
+                  </div>
+                )}
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    data-testid="publish-note"
+                    className="w-full px-3 py-2 text-xs border rounded min-h-20"
+                    placeholder="记录这次 publish decision 的说明"
+                    value={publishNote}
+                    onChange={(e) => setPublishNote(e.target.value)}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      data-testid="publish-requirement-btn"
+                      className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded hover:bg-emerald-700 disabled:opacity-50"
+                      disabled={publishing || deliveryState.publish_status === 'published' || deliveryState.release_mode === 'disabled'}
+                      onClick={() => { handlePublish().catch(() => {}) }}
+                    >
+                      {deliveryState.publish_status === 'published' ? '已发布' : 'Promote To Publish'}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {validationPlanArtifact && (
               <section className="p-4 border rounded-xl bg-slate-50" data-testid="validation-contract-panel">
                 <div className="mb-3 text-sm font-semibold">Validation Contract</div>

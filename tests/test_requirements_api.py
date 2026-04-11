@@ -5,7 +5,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from server.database import (
-    ArtifactRow,
+    ProjectPolicyRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
     TaskRow,
@@ -114,6 +114,9 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     }
 
     artifact_types = [artifact["artifact_type"] for artifact in data["artifacts"]]
+    assert "delivery_contract" in artifact_types
+    assert "delivery_state" in artifact_types
+    assert "review_surface" in artifact_types
     assert "validation_plan" in artifact_types
     assert "bug_report" in artifact_types
     assert "validation_manifest" in artifact_types
@@ -139,6 +142,8 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     ).first()
     assert closeout is not None
     assert closeout.status == "completed"
+    assert data["delivery_state"]["publish_status"] == "review_ready"
+    assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
 
 
 def test_requirement_stays_blocked_until_dependencies_finish(synced_client):
@@ -329,6 +334,107 @@ def test_close_requirement_requires_passing_checks_and_creates_manifest(synced_c
     assert closed["requirement"]["status"] == "done"
     assert closed["requirement"]["completed_at"] is not None
     assert any(artifact["artifact_type"] == "validation_manifest" for artifact in closed["artifacts"])
+    assert any(artifact["artifact_type"] == "delivery_state" for artifact in closed["artifacts"])
+
+
+def test_delivery_state_stops_at_review_ready_when_publish_disabled(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+    project_policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.root_path == target_path).first()
+    if project_policy is None:
+        raise AssertionError("expected default project policy for target path")
+    project_policy.release_mode = "disabled"
+    project_policy.required_checks_json = "[]"
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Disabled publish gate",
+            "description_markdown": "Finish the work but stop at review-ready because publish is disabled.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "done"
+    assert detail["delivery_state"]["publish_status"] == "blocked"
+    assert "publish disabled by project policy" in detail["delivery_state"]["publish_blockers"]
+
+    publish_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/publish",
+        json={"completed_checks": [], "note": "try publish"},
+    )
+    assert publish_resp.status_code == 400
+    assert publish_resp.json()["detail"] == "Publish is disabled by project policy."
+
+
+def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    project_policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.root_path == target_path).first()
+    assert project_policy is not None
+    project_policy.release_mode = "manual"
+    project_policy.required_checks_json = json.dumps(["pytest -q", "npm run build"])
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Manual publish gate",
+            "description_markdown": "Promote only after required checks are confirmed.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    assert any(artifact["artifact_type"] == "delivery_contract" for artifact in plan_resp.json()["artifacts"])
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["delivery_state"]["publish_status"] == "review_ready"
+    assert sorted(detail["delivery_state"]["pending_checks"]) == ["npm run build", "pytest -q"]
+
+    blocked_publish = synced_client.post(
+        f"/api/requirements/{requirement_id}/publish",
+        json={"completed_checks": ["pytest -q"], "note": "not enough"},
+    )
+    assert blocked_publish.status_code == 400
+    assert "npm run build" in blocked_publish.json()["detail"]
+
+    publish_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/publish",
+        json={"completed_checks": ["pytest -q", "npm run build"], "note": "ship it"},
+    )
+    assert publish_resp.status_code == 200
+    published = publish_resp.json()
+    assert published["delivery_state"]["publish_status"] == "published"
+    assert published["delivery_state"]["pending_checks"] == []
+    assert sorted(published["delivery_state"]["confirmed_checks"]) == ["npm run build", "pytest -q"]
+    assert any(artifact["artifact_type"] == "publish_record" for artifact in published["artifacts"])
 
 
 def test_close_requirement_unblocks_dependents(synced_client, db_session):
