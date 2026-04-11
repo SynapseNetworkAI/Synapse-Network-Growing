@@ -24,6 +24,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         ],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 1.2,
+        "max_parallel_requirements": 1,
         "notes": "Control plane repo. Allow code and docs updates, but keep release decisions manual.",
     },
     {
@@ -35,6 +37,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "required_checks": ["npm test", "pytest"],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 1.4,
+        "max_parallel_requirements": 1,
         "notes": "Primary product repo. Human approval required before publish or merge.",
     },
     {
@@ -46,6 +50,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "required_checks": ["pytest"],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 1.0,
+        "max_parallel_requirements": 1,
         "notes": "Provider runtime repo. Keep operator in the loop for releases.",
     },
     {
@@ -57,6 +63,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "required_checks": ["cd python && pytest", "cd typescript && npm test"],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 1.1,
+        "max_parallel_requirements": 1,
         "notes": "SDK repo. Require package-level verification before release.",
     },
     {
@@ -68,6 +76,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "required_checks": ["python -m pytest -q"],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 0.9,
+        "max_parallel_requirements": 1,
         "notes": "Memory and standards repo. Keep profile and standards changes auditable.",
     },
     {
@@ -79,6 +89,8 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "required_checks": ["npm run test:unit", "npm run typecheck"],
         "release_mode": "manual",
         "requires_manual_approval": True,
+        "scheduler_weight": 1.0,
+        "max_parallel_requirements": 1,
         "notes": "Workflow orchestrator repo. Changes should stay reviewable and reproducible.",
     },
 ]
@@ -129,6 +141,8 @@ def ensure_default_project_policies(db: Session) -> None:
                 required_checks_json=_json_dump_list(policy["required_checks"]),
                 release_mode=policy["release_mode"],
                 requires_manual_approval=policy["requires_manual_approval"],
+                scheduler_weight=float(policy.get("scheduler_weight") or 1.0),
+                max_parallel_requirements=int(policy.get("max_parallel_requirements") or 1),
                 notes=policy["notes"],
             )
         )
@@ -149,6 +163,8 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
         "required_checks": _json_load_list(row.required_checks_json, []),
         "release_mode": str(row.release_mode),
         "requires_manual_approval": bool(row.requires_manual_approval),
+        "scheduler_weight": float(row.scheduler_weight or 1.0),
+        "max_parallel_requirements": int(row.max_parallel_requirements or 1),
         "notes": row.notes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -177,6 +193,8 @@ def create_project_policy(
     required_checks: list[str],
     release_mode: str,
     requires_manual_approval: bool,
+    scheduler_weight: float,
+    max_parallel_requirements: int,
     notes: str | None,
 ) -> ProjectPolicyRow:
     ensure_default_project_policies(db)
@@ -196,6 +214,8 @@ def create_project_policy(
         required_checks_json=_json_dump_list(_normalize_globs(required_checks, default=[])),
         release_mode=release_mode,
         requires_manual_approval=requires_manual_approval,
+        scheduler_weight=max(0.2, float(scheduler_weight or 1.0)),
+        max_parallel_requirements=max(1, int(max_parallel_requirements or 1)),
         notes=(notes or "").strip() or None,
     )
     db.add(row)
@@ -216,6 +236,8 @@ def update_project_policy(
     required_checks: list[str] | None = None,
     release_mode: str | None = None,
     requires_manual_approval: bool | None = None,
+    scheduler_weight: float | None = None,
+    max_parallel_requirements: int | None = None,
     notes: str | None = None,
 ) -> ProjectPolicyRow:
     if display_name is not None:
@@ -241,6 +263,10 @@ def update_project_policy(
         row.release_mode = release_mode
     if requires_manual_approval is not None:
         row.requires_manual_approval = requires_manual_approval
+    if scheduler_weight is not None:
+        row.scheduler_weight = max(0.2, float(scheduler_weight))
+    if max_parallel_requirements is not None:
+        row.max_parallel_requirements = max(1, int(max_parallel_requirements))
     if notes is not None:
         row.notes = notes.strip() or None
     db.commit()

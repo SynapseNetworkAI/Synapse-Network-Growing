@@ -36,6 +36,8 @@ const POLICIES = [
     required_checks: ['pytest -q', 'npm test'],
     release_mode: 'manual',
     requires_manual_approval: true,
+    scheduler_weight: 1.4,
+    max_parallel_requirements: 2,
     notes: 'Primary product repo.',
     created_at: '2026-04-11T10:00:00Z',
     updated_at: '2026-04-11T10:05:00Z',
@@ -101,6 +103,8 @@ describe('ProjectPolicies', () => {
     })
 
     fireEvent.change(screen.getByDisplayValue('Primary product repo.'), { target: { value: 'Updated notes' } })
+    fireEvent.change(screen.getByLabelText('调度权重'), { target: { value: '1.8' } })
+    fireEvent.change(screen.getByLabelText('项目并行槽位'), { target: { value: '3' } })
     fireEvent.click(screen.getByTestId('project-policy-save-1'))
 
     await waitFor(() => {
@@ -108,6 +112,8 @@ describe('ProjectPolicies', () => {
         notes: 'Updated notes',
         release_mode: 'manual',
         status: 'active',
+        scheduler_weight: 1.8,
+        max_parallel_requirements: 3,
       }))
     })
   })

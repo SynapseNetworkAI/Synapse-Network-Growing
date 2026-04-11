@@ -56,7 +56,7 @@ from server.config import PROJECT_ROOT
 from server.services.copilot_sdk_state import copilot_runtime_paths, load_runtime_state, save_runtime_state, task_output_dir
 from server.services.execution_resolver import suggest_task_execution
 from server.services.project_policy import project_policy_summary_markdown, resolve_project_policies_for_target
-from server.services.project_intelligence import build_requirement_score_breakdown, resolve_requirement_routing, serialize_requirement
+from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
 
@@ -590,13 +590,13 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         _normalize_target_project_path(requirement.target_project_path),
         require_active=bool(requirement.target_project_path),
     )
-    # ── Serial execution guard: only one requirement may be in_progress at a time ──
-    running_count = db.query(RequirementRow).filter(
-        RequirementRow.status == "in_progress",
-        RequirementRow.id != requirement_id,
-    ).count()
-    if running_count > 0:
-        raise ValueError("另一个需求正在执行中，请等待完成后再启动。")
+    if requirement.status == "in_progress":
+        return build_requirement_detail(db, requirement.id)
+    from server.services.portfolio_scheduler import validate_requirement_start_capacity
+
+    capacity_error = validate_requirement_start_capacity(db, requirement)
+    if capacity_error:
+        raise ValueError(capacity_error)
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
@@ -1589,85 +1589,34 @@ def _schedule_advance_queue() -> None:
 
 
 def advance_requirement_queue(db: Session) -> dict:
-    """Start the next highest-priority 'ready' requirement if nothing is in_progress.
+    """Run the portfolio scheduler and start every candidate that fits the current window."""
+    from server.services.portfolio_scheduler import execute_portfolio_schedule
 
-    Returns {"started": req_id} or {"skipped": reason}.
-    """
-    # Check if anything is already executing
-    active = db.query(RequirementRow).filter(
-        RequirementRow.status == "in_progress"
-    ).first()
-    if active:
-        return {"skipped": f"requirement #{active.id} already in_progress"}
+    result = execute_portfolio_schedule(db)
+    started_ids = list(result.get("started_ids") or [])
+    skip_reasons = list(result.get("skipped") or [])
 
-    # Halt if any requirement is paused — wait for user to resume or start a new task
-    paused = db.query(RequirementRow).filter(
-        RequirementRow.status == "paused"
-    ).first()
-    if paused:
-        return {"skipped": f"requirement #{paused.id} is paused; resume it or start a new task first"}
+    if started_ids:
+        result["started"] = started_ids[0]
+        result["skipped_reasons"] = skip_reasons
+        return result
 
-    # Find candidates: ready, unblocked, no workflow run yet
-    candidates = db.query(RequirementRow).filter(
-        RequirementRow.status == "ready",
-        RequirementRow.blocked_by_count == 0,
-        RequirementRow.active_workflow_run_id.is_(None),
-    ).all()
-
-    scored_candidates: list[tuple[RequirementRow, dict[str, Any]]] = []
-    skipped_not_ready: list[str] = []
-    for candidate in candidates:
-        score = build_requirement_score_breakdown(db, candidate)
-        routing = dict(score.get("routing_context") or {})
-        if candidate.target_project_path and not bool(routing.get("automation_ready")):
-            skipped_not_ready.append(
-                f"#{candidate.id}({routing.get('readiness_status') or 'unknown'})"
-            )
-            continue
-        scored_candidates.append((candidate, score))
-
-    best_requirement_score = max(
-        (float(item[1].get("total") or 0.0) for item in scored_candidates),
-        default=None,
+    delay_decision = next(
+        (
+            decision
+            for decision in result.get("decisions") or []
+            if str(decision.get("action") or "") in {"delay", "preempt_candidate"}
+        ),
+        None,
     )
-
-    from server.services.optimization_signals import auto_intake_optimization_signals
-
-    if not scored_candidates:
-        auto_intake_result = auto_intake_optimization_signals(
-            db,
-            min_score=60.0,
-            max_created=1,
-            auto_start=False,
-        )
-        if auto_intake_result.get("created"):
-            return advance_requirement_queue(db)
-        if skipped_not_ready:
-            return {"skipped": "no automation-ready requirements: " + ", ".join(skipped_not_ready)}
-        return {"skipped": "no ready requirements"}
-
-    auto_intake_result = auto_intake_optimization_signals(
-        db,
-        min_score=65.0,
-        max_created=1,
-        auto_start=False,
-        compare_with_requirement_score=best_requirement_score,
-    )
-    if auto_intake_result.get("created"):
-        return advance_requirement_queue(db)
-
-    scored_candidates.sort(key=lambda item: float(item[1].get("total") or 0.0), reverse=True)
-    next_req = scored_candidates[0][0]
-    req_id = _as_int(next_req.id)
-
-    _logger.info("Queue advance: starting requirement #%s '%s'", req_id, next_req.title[:60])
-    try:
-        plan_requirement(db, req_id)
-        start_requirement(db, req_id)
-        return {"started": req_id}
-    except Exception as exc:
-        _logger.warning("Queue advance failed for req #%s: %s", req_id, exc)
-        return {"skipped": str(exc)}
+    if skip_reasons:
+        result["skipped"] = skip_reasons[0]
+    elif delay_decision:
+        result["skipped"] = str(delay_decision.get("reason") or "no schedulable work")
+    else:
+        result["skipped"] = "no ready requirements"
+    result["skipped_reasons"] = skip_reasons
+    return result
 
 
 def _create_requirement_revision_request(

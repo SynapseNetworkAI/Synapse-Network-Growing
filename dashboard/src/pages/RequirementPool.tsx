@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, Requirement } from '../api'
+import { api, Requirement, SchedulerDecision, SchedulerPlan } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -63,9 +63,16 @@ function sortRequirements(requirements: Requirement[], sortMode: string) {
   })
 }
 
+function queueSkipMessage(value: string | string[] | undefined) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  return value[0] || ''
+}
+
 export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<Requirement[]>([])
+  const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [sortMode, setSortMode] = useState('score')
   const [actioningRequirementId, setActioningRequirementId] = useState<number | null>(null)
@@ -83,6 +90,7 @@ export default function RequirementPool() {
   const [showCreate, setShowCreate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [titleError, setTitleError] = useState(false)
+  const [queueMessage, setQueueMessage] = useState('')
   const [depQuery, setDepQuery] = useState('')
   const [depOpen, setDepOpen] = useState(false)
   const [form, setForm] = useState({
@@ -100,22 +108,36 @@ export default function RequirementPool() {
     setPage(1)
   }, [sortMode, statusFilter])
 
+  const loadScheduler = useCallback(async () => {
+    const data = await api.getRequirementScheduler()
+    setScheduler(data)
+  }, [])
+
+  const loadPool = useCallback(async () => {
+    await Promise.all([loadRequirements(), loadScheduler()])
+  }, [loadRequirements, loadScheduler])
+
   useEffect(() => {
-    loadRequirements().catch(() => {})
-  }, [loadRequirements])
+    loadPool().catch(() => {})
+  }, [loadPool])
 
   // Auto-advance queue on first load if nothing in_progress
   useEffect(() => {
-    api.advanceQueue().then(() => loadRequirements().catch(() => {})).catch(() => {})
-  }, [])
+    api.advanceQueue()
+      .then((result) => {
+        setQueueMessage(queueSkipMessage(result.skipped))
+        return loadPool()
+      })
+      .catch(() => {})
+  }, [loadPool])
 
   // Poll while any in_progress or ready (plan may be generating)
   useEffect(() => {
     const needsPoll = requirements.some((r) => r.status === 'in_progress' || (r.status === 'ready' && r.current_plan_version === 0))
     if (!needsPoll) return
-    const timer = setInterval(() => { loadRequirements().catch(() => {}) }, 3000)
+    const timer = setInterval(() => { loadPool().catch(() => {}) }, 3000)
     return () => clearInterval(timer)
-  }, [requirements, loadRequirements])
+  }, [requirements, loadPool])
 
   const handleCreate = async () => {
     if (!form.title.trim()) {
@@ -140,7 +162,7 @@ export default function RequirementPool() {
       setDepOpen(false)
       setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
       setPage(1)
-      await loadRequirements()
+      await loadPool()
       navigate(`/requirements/${created.requirement.id}`)
     } finally {
       setSubmitting(false)
@@ -160,7 +182,7 @@ export default function RequirementPool() {
       } else {
         await api.startRequirement(requirement.id)
       }
-      await loadRequirements()
+      await loadPool()
     } finally {
       setActioningRequirementId(null)
     }
@@ -187,7 +209,7 @@ export default function RequirementPool() {
         target_project_path: editingRequirement.target_project_path || undefined,
       })
       setEditingRequirement(null)
-      await loadRequirements()
+      await loadPool()
     } catch (error) {
       alert(error instanceof Error ? error.message : '保存失败')
     } finally {
@@ -204,7 +226,7 @@ export default function RequirementPool() {
       if (editingRequirement?.id === requirement.id) {
         setEditingRequirement(null)
       }
-      await loadRequirements()
+      await loadPool()
     } catch (error) {
       alert(error instanceof Error ? error.message : '删除失败')
     } finally {
@@ -212,7 +234,12 @@ export default function RequirementPool() {
     }
   }
 
-  const hasRunningRequirement = requirements.some((requirement) => requirement.status === 'in_progress')
+  const decisionByRequirementId = new Map<number, SchedulerDecision>()
+  ;(scheduler?.decisions || []).forEach((decision) => {
+    if (decision.requirement_id != null) {
+      decisionByRequirementId.set(decision.requirement_id, decision)
+    }
+  })
 
   return (
     <>
@@ -403,6 +430,66 @@ export default function RequirementPool() {
       )}
 
       <div className="space-y-3">
+        {scheduler && (
+          <section data-testid="scheduler-panel" className="rounded-2xl border border-slate-200 bg-slate-950 px-5 py-4 text-slate-100 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Multi-Project Scheduler</div>
+                <div className="mt-1 text-xs text-slate-300">
+                  全局槽位 {scheduler.active_count}/{scheduler.global_capacity}，当前可再启动 {scheduler.available_slots} 个 requirement。
+                </div>
+                {queueMessage && (
+                  <div className="mt-2 text-xs text-amber-300">最近一次队列推进: {queueMessage}</div>
+                )}
+              </div>
+              <button
+                data-testid="scheduler-advance-btn"
+                className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
+                onClick={() => {
+                  api.advanceQueue()
+                    .then((result) => {
+                      setQueueMessage(queueSkipMessage(result.skipped))
+                      return loadPool()
+                    })
+                    .catch(() => {})
+                }}
+              >
+                运行调度器
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {scheduler.project_states.map((project) => (
+                <div key={project.project_key} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs">
+                  <div className="font-medium text-slate-100">{project.display_name}</div>
+                  <div className="mt-1 text-slate-300">readiness: {project.readiness_status} ({project.readiness_score})</div>
+                  <div className="text-slate-300">slots: {project.active_count}/{project.max_parallel_requirements}</div>
+                  <div className="text-slate-300">queued: {project.queued_count} / weight x{project.scheduler_weight}</div>
+                </div>
+              ))}
+            </div>
+            {scheduler.decisions.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {scheduler.decisions.slice(0, 6).map((decision, index) => (
+                  <div
+                    key={`${decision.candidate_type}-${decision.requirement_id ?? decision.signal_id ?? index}`}
+                    className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-200"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium text-slate-100">{decision.title}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                        {decision.project_display_name} / {decision.action}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-slate-300">
+                      score {decision.score} (base {decision.base_score}){decision.template_key ? ` / template ${decision.template_key}` : ''}
+                    </div>
+                    <div className="mt-1 text-slate-400">{decision.reason || decision.reasons[0] || 'scheduler observed this candidate'}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
         {/* Queue status banner */}
         {!showCreate && (() => {
           const inProgress = requirements.filter((r) => r.status === 'in_progress')
@@ -420,7 +507,14 @@ export default function RequirementPool() {
               <span>队列中有 <span className="font-medium">{readyCount + plannedCount}</span> 个待执行需求</span>
               <button
                 className="ml-3 rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
-                onClick={() => api.advanceQueue().then(() => loadRequirements().catch(() => {})).catch(() => {})}
+                onClick={() => {
+                  api.advanceQueue()
+                    .then((result) => {
+                      setQueueMessage(queueSkipMessage(result.skipped))
+                      return loadPool()
+                    })
+                    .catch(() => {})
+                }}
               >启动下一个</button>
             </div>
           )
@@ -438,6 +532,10 @@ export default function RequirementPool() {
           const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
           const routingContext = requirement.routing_context
           const projectScorecards = routingContext?.project_scorecards || []
+          const schedulerDecision = decisionByRequirementId.get(requirement.id)
+          const startBlockedReason = !isRunning && schedulerDecision && schedulerDecision.action !== 'start'
+            ? (schedulerDecision.reason || schedulerDecision.reasons[0] || '')
+            : ''
           let toggleLabel = '启动'
           if (actioningRequirementId === requirement.id) {
             toggleLabel = '处理中…'
@@ -501,6 +599,24 @@ export default function RequirementPool() {
                     </div>
                   )}
                   <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
+                  {schedulerDecision && (
+                    <div
+                      className={`mt-2 rounded-md px-3 py-2 text-[11px] ${
+                        schedulerDecision.action === 'start'
+                          ? 'bg-blue-50 text-blue-800'
+                          : schedulerDecision.action === 'preempt_candidate'
+                            ? 'bg-rose-50 text-rose-800'
+                            : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <div className="font-medium">
+                        调度决策: {schedulerDecision.action} / score {schedulerDecision.score}
+                      </div>
+                      <div className="mt-1">
+                        {schedulerDecision.reason || schedulerDecision.reasons[0] || 'scheduler waiting'}
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                     <span>bug: {requirement.score_breakdown?.bug_pressure ?? 0}</span>
                     <span>delivery: {requirement.score_breakdown?.delivery_pressure ?? 0}</span>
@@ -553,7 +669,8 @@ export default function RequirementPool() {
                           ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                           : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
                       }`}
-                      disabled={isDeleted || actioningRequirementId === requirement.id || (!isRunning && hasRunningRequirement)}
+                      disabled={isDeleted || actioningRequirementId === requirement.id || (!isRunning && !!startBlockedReason)}
+                      title={startBlockedReason || undefined}
                       onClick={(event) => {
                         event.stopPropagation()
                         handleExecutionToggle(requirement).catch(() => {})

@@ -23,6 +23,8 @@ export default function ProjectPolicies() {
     status: string
     release_mode: string
     requires_manual_approval: boolean
+    scheduler_weight: string
+    max_parallel_requirements: string
     allowed_write_globs: string
     forbidden_globs: string
     required_checks: string
@@ -62,6 +64,8 @@ export default function ProjectPolicies() {
               status: policy.status,
               release_mode: policy.release_mode,
               requires_manual_approval: policy.requires_manual_approval,
+              scheduler_weight: String(policy.scheduler_weight ?? 1),
+              max_parallel_requirements: String(policy.max_parallel_requirements ?? 1),
               allowed_write_globs: policy.allowed_write_globs.join('\n'),
               forbidden_globs: policy.forbidden_globs.join('\n'),
               required_checks: policy.required_checks.join('\n'),
@@ -95,6 +99,7 @@ export default function ProjectPolicies() {
         <div>
           <h2 className="text-2xl font-bold">项目策略</h2>
           <p className="text-sm text-gray-500">先 onboarding 新项目，再为每个受管项目定义可写范围、禁止范围、必跑检查和发布模式。</p>
+          <p className="text-xs text-gray-400">P2 调度器会直接读取每个项目的 `scheduler weight` 和 `max parallel requirements` 进行跨项目编排。</p>
         </div>
         <button
           className="rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -297,6 +302,7 @@ export default function ProjectPolicies() {
                 <div className="text-right text-xs text-gray-500">
                   <div>更新时间: {formatTime(policy.updated_at)}</div>
                   <div>发布模式: {policy.release_mode}</div>
+                  <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位</div>
                 </div>
               </div>
 
@@ -339,6 +345,32 @@ export default function ProjectPolicies() {
                     <option value="manual">manual</option>
                     <option value="auto">auto</option>
                   </select>
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">调度权重</span>
+                  <input
+                    aria-label="调度权重"
+                    className="w-full rounded border px-3 py-2"
+                    type="number"
+                    min="0.2"
+                    max="3"
+                    step="0.1"
+                    value={draft.scheduler_weight}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, scheduler_weight: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">项目并行槽位</span>
+                  <input
+                    aria-label="项目并行槽位"
+                    className="w-full rounded border px-3 py-2"
+                    type="number"
+                    min="1"
+                    max="5"
+                    step="1"
+                    value={draft.max_parallel_requirements}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, max_parallel_requirements: e.target.value } }))}
+                  />
                 </label>
               </div>
 
@@ -401,6 +433,8 @@ export default function ProjectPolicies() {
                         status: draft.status,
                         release_mode: draft.release_mode,
                         requires_manual_approval: draft.requires_manual_approval,
+                        scheduler_weight: Number(draft.scheduler_weight || 1),
+                        max_parallel_requirements: Math.max(1, Number(draft.max_parallel_requirements || 1)),
                         allowed_write_globs: parseLines(draft.allowed_write_globs),
                         forbidden_globs: parseLines(draft.forbidden_globs),
                         required_checks: parseLines(draft.required_checks),

@@ -50,6 +50,8 @@ def create_project_policy_endpoint(body: ProjectPolicyCreate, db: Session = Depe
             required_checks=body.required_checks,
             release_mode=body.release_mode,
             requires_manual_approval=body.requires_manual_approval,
+            scheduler_weight=body.scheduler_weight,
+            max_parallel_requirements=body.max_parallel_requirements,
             notes=body.notes,
         )
     except ValueError as exc:
@@ -78,6 +80,8 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
             required_checks=body.required_checks,
             release_mode=body.release_mode,
             requires_manual_approval=body.requires_manual_approval,
+            scheduler_weight=body.scheduler_weight,
+            max_parallel_requirements=body.max_parallel_requirements,
             notes=body.notes,
         )
     except ValueError as exc:

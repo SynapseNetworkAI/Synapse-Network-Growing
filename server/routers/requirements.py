@@ -16,8 +16,10 @@ from server.schemas import (
     RequirementPatch,
     RequirementPublishRequest,
     RequirementRevisionRequest,
+    SchedulerPlanOut,
 )
 from server.services.project_intelligence import build_requirement_score_breakdown, serialize_requirement
+from server.services.portfolio_scheduler import build_portfolio_schedule
 from server.services.workflow_orchestrator import (
     _normalize_target_project_path,
     advance_requirement_queue,
@@ -92,6 +94,11 @@ def create_requirement_endpoint(body: RequirementCreate, db: Session = Depends(g
     if not body.description_markdown.strip():
         raise HTTPException(status_code=400, detail="description_markdown is required")
     return create_requirement(db, body)
+
+
+@router.get("/scheduler", response_model=SchedulerPlanOut)
+def get_requirement_scheduler(db: Session = Depends(get_db)):
+    return build_portfolio_schedule(db)
 
 
 @router.get("/{requirement_id}", response_model=RequirementDetailOut)

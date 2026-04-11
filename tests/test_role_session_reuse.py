@@ -210,7 +210,7 @@ class TestSerialRequirementExecution:
         # Try to start second requirement — should fail
         start_b = synced_client.post(f"/api/requirements/{req_b_id}/start")
         assert start_b.status_code == 400
-        assert "另一个需求正在执行中" in start_b.json()["detail"]
+        assert "调度槽位已满" in start_b.json()["detail"]
 
     def test_can_start_after_previous_completes(self, synced_client, db_session):
         class FakeRuntime:

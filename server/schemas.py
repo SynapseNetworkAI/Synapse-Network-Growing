@@ -197,6 +197,8 @@ class ProjectPolicyCreate(BaseModel):
     required_checks: list[str] = []
     release_mode: str = "manual"
     requires_manual_approval: bool = True
+    scheduler_weight: float = 1.0
+    max_parallel_requirements: int = 1
     notes: Optional[str] = None
 
 
@@ -209,6 +211,8 @@ class ProjectPolicyPatch(BaseModel):
     required_checks: Optional[list[str]] = None
     release_mode: Optional[str] = None
     requires_manual_approval: Optional[bool] = None
+    scheduler_weight: Optional[float] = None
+    max_parallel_requirements: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -223,6 +227,8 @@ class ProjectPolicyOut(BaseModel):
     required_checks: list[str]
     release_mode: str
     requires_manual_approval: bool
+    scheduler_weight: float = 1.0
+    max_parallel_requirements: int = 1
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -336,6 +342,49 @@ class OptimizationSignalAutoIntakeItemOut(BaseModel):
 
 class OptimizationSignalAutoIntakeResultOut(BaseModel):
     created: list[OptimizationSignalAutoIntakeItemOut] = []
+    skipped: list[str] = []
+
+
+class SchedulerProjectStateOut(BaseModel):
+    project_key: str
+    display_name: str
+    root_path: str
+    active_count: int = 0
+    queued_count: int = 0
+    max_parallel_requirements: int = 1
+    scheduler_weight: float = 1.0
+    readiness_status: str = "unknown"
+    readiness_score: int = 0
+
+
+class SchedulerDecisionOut(BaseModel):
+    candidate_type: str
+    action: str
+    requirement_id: Optional[int] = None
+    signal_id: Optional[int] = None
+    title: str
+    project_key: str = "org-ops"
+    project_display_name: str = "Org Ops"
+    score: float = 0.0
+    base_score: float = 0.0
+    scheduler_weight: float = 1.0
+    project_slot_available: bool = False
+    reason: str = ""
+    reasons: list[str] = []
+    template_key: Optional[str] = None
+    source: Optional[str] = None
+    preempt_requirement_id: Optional[int] = None
+
+
+class SchedulerPlanOut(BaseModel):
+    global_capacity: int
+    active_count: int
+    available_slots: int
+    generated_at: Optional[datetime] = None
+    project_states: list[SchedulerProjectStateOut] = []
+    decisions: list[SchedulerDecisionOut] = []
+    started_ids: list[int] = []
+    created_requirement_ids: list[int] = []
     skipped: list[str] = []
 
 

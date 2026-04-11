@@ -193,6 +193,8 @@ export interface ProjectPolicy {
   required_checks: string[]
   release_mode: string
   requires_manual_approval: boolean
+  scheduler_weight: number
+  max_parallel_requirements: number
   notes: string | null
   created_at: string | null
   updated_at: string | null
@@ -257,6 +259,55 @@ export interface OptimizationSignalAutoIntakeResult {
     score: number
   }>
   skipped: string[]
+}
+
+export interface SchedulerProjectState {
+  project_key: string
+  display_name: string
+  root_path: string
+  active_count: number
+  queued_count: number
+  max_parallel_requirements: number
+  scheduler_weight: number
+  readiness_status: string
+  readiness_score: number
+}
+
+export interface SchedulerDecision {
+  candidate_type: string
+  action: string
+  requirement_id?: number | null
+  signal_id?: number | null
+  title: string
+  project_key: string
+  project_display_name: string
+  score: number
+  base_score: number
+  scheduler_weight: number
+  project_slot_available: boolean
+  reason: string
+  reasons: string[]
+  template_key?: string | null
+  source?: string | null
+  preempt_requirement_id?: number | null
+}
+
+export interface SchedulerPlan {
+  global_capacity: number
+  active_count: number
+  available_slots: number
+  generated_at: string | null
+  project_states: SchedulerProjectState[]
+  decisions: SchedulerDecision[]
+  started_ids: number[]
+  created_requirement_ids: number[]
+  skipped: string[]
+}
+
+export type QueueAdvanceResult = Omit<SchedulerPlan, 'skipped'> & {
+  started?: number
+  skipped_reasons?: string[]
+  skipped?: string | string[]
 }
 
 export interface Requirement {
@@ -533,6 +584,8 @@ export const api = {
     required_checks?: string[]
     release_mode?: string
     requires_manual_approval?: boolean
+    scheduler_weight?: number
+    max_parallel_requirements?: number
     notes?: string | null
   }) => request<ProjectPolicy>('/project-policies', { method: 'POST', body: JSON.stringify(data) }),
   updateProjectPolicy: (id: number, data: {
@@ -544,6 +597,8 @@ export const api = {
     required_checks?: string[]
     release_mode?: string
     requires_manual_approval?: boolean
+    scheduler_weight?: number
+    max_parallel_requirements?: number
     notes?: string | null
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getOptimizationSignals: (status?: string, refresh?: boolean) => {
@@ -568,6 +623,7 @@ export const api = {
     const q = params.toString() ? `?${params.toString()}` : ''
     return request<Requirement[]>(`/requirements${q}`)
   },
+  getRequirementScheduler: () => request<SchedulerPlan>('/requirements/scheduler'),
   getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),
   createRequirement: (data: {
     title: string
@@ -588,7 +644,7 @@ export const api = {
   deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
   updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
     request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  advanceQueue: () => request<{ started?: number; skipped?: string }>('/requirements/queue/advance', { method: 'POST' }),
+  advanceQueue: () => request<QueueAdvanceResult>('/requirements/queue/advance', { method: 'POST' }),
   reviseRequirement: (id: number, data: {
     title?: string
     description_markdown: string

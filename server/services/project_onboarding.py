@@ -204,6 +204,8 @@ def create_project_onboarding(
             required_checks=validation_commands,
             release_mode=release_mode,
             requires_manual_approval=requires_manual_approval,
+            scheduler_weight=1.0,
+            max_parallel_requirements=1,
             notes=notes,
         )
 

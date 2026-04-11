@@ -176,6 +176,8 @@ class ProjectPolicyRow(Base):
     required_checks_json = Column(Text, nullable=False, default="[]")
     release_mode = Column(Text, nullable=False, default="manual")
     requires_manual_approval = Column(Boolean, nullable=False, default=True)
+    scheduler_weight = Column(Float, nullable=False, default=1.0)
+    max_parallel_requirements = Column(Integer, nullable=False, default=1)
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -463,6 +465,19 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN target_project_path TEXT"))
                 conn.commit()
+
+    if "project_policies" in tables:
+        existing = {c["name"] for c in insp.get_columns("project_policies")}
+        project_policy_cols = {
+            "scheduler_weight": "FLOAT DEFAULT 1.0",
+            "max_parallel_requirements": "INTEGER DEFAULT 1",
+        }
+        for col, col_type in project_policy_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to project_policies table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE project_policies ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}

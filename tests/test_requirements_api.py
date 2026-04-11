@@ -397,6 +397,69 @@ def test_queue_advance_prefers_automation_ready_projects(synced_client, db_sessi
     assert blocked_detail["requirement"]["routing_context"]["automation_ready"] is False
 
 
+def test_scheduler_endpoint_exposes_project_capacity_and_decisions(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "SDK scheduler candidate",
+            "description_markdown": "Improve the SDK onboarding flow.",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    scheduler_resp = synced_client.get("/api/requirements/scheduler")
+
+    assert scheduler_resp.status_code == 200
+    payload = scheduler_resp.json()
+    assert payload["global_capacity"] >= 1
+    sdk_state = next(item for item in payload["project_states"] if item["project_key"] == "synapse-network-sdk")
+    assert sdk_state["queued_count"] >= 1
+    decision = next(item for item in payload["decisions"] if item.get("requirement_id") == requirement_id)
+    assert decision["project_key"] == "synapse-network-sdk"
+    assert decision["action"] in {"start", "delay"}
+    assert decision["score"] >= decision["base_score"]
+
+
+def test_queue_advance_can_start_multiple_projects_in_same_window(synced_client):
+    sdk_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "SDK quality gate",
+            "description_markdown": "Improve SDK release validation.",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        },
+    )
+    memory_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Memory docs cleanup",
+            "description_markdown": "Improve Agents-Memory documentation automation.",
+            "target_project_path": "/Users/cliff/workspace/agent/Agents-Memory",
+        },
+    )
+    sdk_id = sdk_resp.json()["requirement"]["id"]
+    memory_id = memory_resp.json()["requirement"]["id"]
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        queue_resp = synced_client.post("/api/requirements/queue/advance")
+
+    assert queue_resp.status_code == 200
+    payload = queue_resp.json()
+    assert sorted(payload["started_ids"]) == sorted([sdk_id, memory_id])
+
+    sdk_detail = synced_client.get(f"/api/requirements/{sdk_id}").json()
+    memory_detail = synced_client.get(f"/api/requirements/{memory_id}").json()
+    assert sdk_detail["requirement"]["status"] == "in_progress"
+    assert memory_detail["requirement"]["status"] == "in_progress"
+
+
 def test_patch_requirement_rejects_blank_title(synced_client):
     create_resp = synced_client.post(
         "/api/requirements",
