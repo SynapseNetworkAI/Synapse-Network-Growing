@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 """Tests for requirement-first workflow orchestration."""
+import json
 from unittest.mock import MagicMock, patch
 
-from server.database import RequirementRow, TaskRow, WorkflowStepEventRow, WorkflowStepRow
+from server.database import (
+    ArtifactRow,
+    RequirementAcceptanceCheckRow,
+    RequirementRow,
+    TaskRow,
+    WorkflowRunRow,
+    WorkflowStepEventRow,
+    WorkflowStepRow,
+)
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import TaskExecutionResult
 
@@ -105,8 +114,15 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     }
 
     artifact_types = [artifact["artifact_type"] for artifact in data["artifacts"]]
+    assert "validation_plan" in artifact_types
     assert "bug_report" in artifact_types
     assert "validation_manifest" in artifact_types
+    bug_report = next(artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "bug_report")
+    bug_payload = json.loads(bug_report["machine_readable_payload"])
+    assert bug_payload["step_type"] == "test"
+    assert bug_payload["verification_type"] == "automated"
+    assert bug_payload["bugfix_owner_role"] == "implementer"
+    assert bug_payload["failed_checks"][0]["check_key"] == "validation_passed"
 
     requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     assert requirement is not None
@@ -269,7 +285,7 @@ def test_patch_requirement_rejects_blank_title(synced_client):
     assert patch_resp.status_code == 400
 
 
-def test_close_requirement_marks_done(synced_client):
+def test_close_requirement_requires_validation_contract(synced_client):
     create_resp = synced_client.post(
         "/api/requirements",
         json={"title": "Close me", "description_markdown": "Should close."},
@@ -277,13 +293,45 @@ def test_close_requirement_marks_done(synced_client):
     requirement_id = create_resp.json()["requirement"]["id"]
 
     close_resp = synced_client.post(f"/api/requirements/{requirement_id}/close")
+    assert close_resp.status_code == 400
+    assert "validation_plan artifact is missing" in close_resp.json()["detail"]
+
+
+def test_close_requirement_requires_passing_checks_and_creates_manifest(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Close me safely", "description_markdown": "Only close after checks pass."},
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    blocked_close = synced_client.post(f"/api/requirements/{requirement_id}/close")
+    assert blocked_close.status_code == 400
+    assert "check `review_passed` is pending" in blocked_close.json()["detail"]
+
+    checks = db_session.query(RequirementAcceptanceCheckRow).filter(
+        RequirementAcceptanceCheckRow.requirement_id == requirement_id
+    ).all()
+    for check in checks:
+        check.status = "passed"
+    workflow_run = db_session.query(WorkflowRunRow).filter(
+        WorkflowRunRow.requirement_id == requirement_id
+    ).first()
+    assert workflow_run is not None
+    workflow_run.status = "cancelled"
+    db_session.commit()
+
+    close_resp = synced_client.post(f"/api/requirements/{requirement_id}/close")
     assert close_resp.status_code == 200
     closed = close_resp.json()
     assert closed["requirement"]["status"] == "done"
     assert closed["requirement"]["completed_at"] is not None
+    assert any(artifact["artifact_type"] == "validation_manifest" for artifact in closed["artifacts"])
 
 
-def test_close_requirement_unblocks_dependents(synced_client):
+def test_close_requirement_unblocks_dependents(synced_client, db_session):
     blocker = synced_client.post(
         "/api/requirements",
         json={"title": "Blocker", "description_markdown": "Blocks others."},
@@ -301,7 +349,23 @@ def test_close_requirement_unblocks_dependents(synced_client):
     dependent_id = dependent["requirement"]["id"]
     assert dependent["requirement"]["status"] == "blocked"
 
-    synced_client.post(f"/api/requirements/{blocker_id}/close")
+    plan_resp = synced_client.post(f"/api/requirements/{blocker_id}/plan")
+    assert plan_resp.status_code == 200
+
+    checks = db_session.query(RequirementAcceptanceCheckRow).filter(
+        RequirementAcceptanceCheckRow.requirement_id == blocker_id
+    ).all()
+    for check in checks:
+        check.status = "passed"
+    workflow_run = db_session.query(WorkflowRunRow).filter(
+        WorkflowRunRow.requirement_id == blocker_id
+    ).first()
+    assert workflow_run is not None
+    workflow_run.status = "cancelled"
+    db_session.commit()
+
+    close_resp = synced_client.post(f"/api/requirements/{blocker_id}/close")
+    assert close_resp.status_code == 200
 
     refreshed = synced_client.get(f"/api/requirements/{dependent_id}").json()
     assert refreshed["requirement"]["status"] == "ready"

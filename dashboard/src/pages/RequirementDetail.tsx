@@ -56,6 +56,15 @@ function getTargetProjectPaths(value: string | null) {
   return value.split('\n').map((item) => item.trim()).filter(Boolean)
 }
 
+function parsePayload(raw: string | null) {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
 export default function RequirementDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -146,6 +155,23 @@ export default function RequirementDetail() {
 
   const req = detail.requirement
   const targetProjectPaths = getTargetProjectPaths(req.target_project_path)
+  const planArtifact = detail.artifacts
+    .filter((a) => a.artifact_type === 'implementation_plan')
+    .sort((a, b) => b.id - a.id)[0]
+  const validationPlanArtifact = detail.artifacts
+    .filter((a) => a.artifact_type === 'validation_plan')
+    .sort((a, b) => b.id - a.id)[0]
+  const validationPlan = parsePayload(validationPlanArtifact?.machine_readable_payload ?? null)
+  const validationSummary = typeof validationPlan?.summary_markdown === 'string' ? validationPlan.summary_markdown : ''
+  const validationGates = Array.isArray(validationPlan?.gates) ? validationPlan.gates : []
+  const manualChecks = Array.isArray(validationPlan?.manual_checks) ? validationPlan.manual_checks : []
+  const automatedChecks = Array.isArray(validationPlan?.automated_checks) ? validationPlan.automated_checks : []
+  const bugfixOwner = typeof validationPlan?.bugfix_owner_role === 'string' ? validationPlan.bugfix_owner_role : ''
+  const closeoutOwner = typeof validationPlan?.closeout_owner_role === 'string' ? validationPlan.closeout_owner_role : ''
+  const bugReports = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'bug_report')
+    .sort((a, b) => b.id - a.id)
+    .slice(0, 3)
 
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
@@ -300,42 +326,36 @@ export default function RequirementDetail() {
             </section>
 
             {/* Plan section – implementation_plan artifact from the active run */}
-            {(() => {
-              const planArtifact = detail.artifacts
-                .filter((a) => a.artifact_type === 'implementation_plan')
-                .sort((a, b) => b.id - a.id)[0]
-              if (!planArtifact) return null
-              return (
-                <section className="border rounded-xl" data-testid="plan-panel">
-                  <button
-                    className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
-                    onClick={() => setShowPlan((v) => !v)}
-                  >
-                    <span className="flex items-center gap-2">
-                      执行计划
-                      {detail.workflow_run && (
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
-                          Plan v{detail.workflow_run.plan_version}
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-xs text-gray-400">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
-                  </button>
-                  {showPlan && (
-                    <div className="px-4 py-3 border-t">
-                      {planArtifact.content_summary && (
-                        <div className="mb-2 text-xs text-gray-500">{planArtifact.content_summary}</div>
-                      )}
-                      {planArtifact.human_readable_body ? (
-                        <Md>{planArtifact.human_readable_body}</Md>
-                      ) : (
-                        <div className="text-xs text-gray-400">计划内容暂无。</div>
-                      )}
-                    </div>
-                  )}
-                </section>
-              )
-            })()}
+            {planArtifact && (
+              <section className="border rounded-xl" data-testid="plan-panel">
+                <button
+                  className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
+                  onClick={() => setShowPlan((v) => !v)}
+                >
+                  <span className="flex items-center gap-2">
+                    执行计划
+                    {detail.workflow_run && (
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
+                        Plan v{detail.workflow_run.plan_version}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs text-gray-400">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
+                </button>
+                {showPlan && (
+                  <div className="px-4 py-3 border-t">
+                    {planArtifact.content_summary && (
+                      <div className="mb-2 text-xs text-gray-500">{planArtifact.content_summary}</div>
+                    )}
+                    {planArtifact.human_readable_body ? (
+                      <Md>{planArtifact.human_readable_body}</Md>
+                    ) : (
+                      <div className="text-xs text-gray-400">计划内容暂无。</div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
 
             <section className="p-4 border rounded-xl" data-testid="workflow-steps-panel">
               <div className="flex items-center justify-between mb-3">
@@ -410,6 +430,70 @@ export default function RequirementDetail() {
           </div>
 
           <div className="space-y-4">
+            {validationPlanArtifact && (
+              <section className="p-4 border rounded-xl bg-slate-50" data-testid="validation-contract-panel">
+                <div className="mb-3 text-sm font-semibold">Validation Contract</div>
+                {validationSummary ? <Md>{validationSummary}</Md> : <div className="text-xs text-gray-500">暂无验证摘要。</div>}
+                <div className="grid gap-3 mt-3 sm:grid-cols-2">
+                  <div className="p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Manual Checks</div>
+                    {manualChecks.length === 0 ? (
+                      <div className="text-gray-500">无</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {manualChecks.map((check, idx) => {
+                          const item = check as Record<string, unknown>
+                          return (
+                            <div key={`${String(item.check_key)}-${idx}`}>
+                              <div className="font-medium text-gray-800">{String(item.check_key || '-')}</div>
+                              <div className="text-gray-500">{String(item.owner_role || '-')} · {String(item.method || '-')}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Automated Checks</div>
+                    {automatedChecks.length === 0 ? (
+                      <div className="text-gray-500">无</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {automatedChecks.map((check, idx) => {
+                          const item = check as Record<string, unknown>
+                          return (
+                            <div key={`${String(item.check_key)}-${idx}`}>
+                              <div className="font-medium text-gray-800">{String(item.check_key || '-')}</div>
+                              <div className="text-gray-500">{String(item.owner_role || '-')} · {String(item.method || '-')}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="grid gap-3 mt-3 sm:grid-cols-2">
+                  <div className="p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Close Gates</div>
+                    <div className="space-y-1 text-gray-600">
+                      {validationGates.length === 0 ? (
+                        <div>暂无</div>
+                      ) : (
+                        validationGates.map((gate, idx) => <div key={`${String(gate)}-${idx}`}>{String(gate)}</div>)
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Ownership</div>
+                    <div className="space-y-1 text-gray-600">
+                      <div>Bugfix: {bugfixOwner || '-'}</div>
+                      <div>Closeout: {closeoutOwner || '-'}</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
             <section className="p-4 border rounded-xl" data-testid="acceptance-checks-panel">
               <div className="mb-3 text-sm font-semibold">Acceptance Checks</div>
               <div className="space-y-2">
@@ -418,13 +502,39 @@ export default function RequirementDetail() {
                     <div className="font-medium text-gray-900">{check.check_key}</div>
                     <div className="mt-1 text-gray-600">{check.description}</div>
                     <div className="flex items-center justify-between mt-2 text-gray-500">
-                      <span>{check.owner_role}</span>
+                      <span>{check.owner_role} · {check.check_type}</span>
                       <span>{check.status}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </section>
+
+            {bugReports.length > 0 && (
+              <section className="p-4 border rounded-xl" data-testid="bug-reports-panel">
+                <div className="mb-3 text-sm font-semibold">Recent Bug Reports</div>
+                <div className="space-y-2">
+                  {bugReports.map((artifact) => {
+                    const payload = parsePayload(artifact.machine_readable_payload)
+                    const failedChecks = Array.isArray(payload?.failed_checks) ? payload.failed_checks : []
+                    return (
+                      <div key={artifact.id} className="p-3 text-xs rounded-lg bg-rose-50 border border-rose-100">
+                        <div className="font-medium text-gray-900">{artifact.content_summary || `Bug #${artifact.id}`}</div>
+                        <div className="mt-1 text-gray-600">
+                          {typeof payload?.step_type === 'string' ? `${payload.step_type} · ` : ''}
+                          {typeof payload?.verification_type === 'string' ? `${payload.verification_type} verification` : 'verification failure'}
+                        </div>
+                        {failedChecks.length > 0 && (
+                          <div className="mt-2 text-rose-700">
+                            Failed checks: {failedChecks.map((item) => String((item as Record<string, unknown>).check_key || '-')).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
 
             <section className="p-4 border rounded-xl" data-testid="artifacts-panel">
               <div className="mb-3 text-sm font-semibold">Artifacts</div>

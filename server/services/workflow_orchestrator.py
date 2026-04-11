@@ -278,12 +278,23 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     )
     workflow_run.planner_artifact_id = _as_int(plan_artifact.id)
 
+    validation_plan_artifact = _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        workflow_run_id=workflow_run.id,
+        artifact_type="validation_plan",
+        content_summary=f"Validation contract v{workflow_run.plan_version}",
+        human_readable_body=_validation_plan_markdown(planner_output.get("validation_plan") or {}),
+        machine_readable_payload=planner_output.get("validation_plan") or {},
+    )
+
     _create_acceptance_checks(db, requirement.id, planner_output)
     steps_by_key = _create_workflow_steps(db, requirement, workflow_run, planner_output, assignments)
     _create_step_dependencies(db, steps_by_key, planner_output)
     for step in steps_by_key.values():
         _bind_artifact(db, step.id, snapshot_artifact.id, "primary_spec", True)
         _bind_artifact(db, step.id, plan_artifact.id, "implementation_context", True)
+        _bind_artifact(db, step.id, validation_plan_artifact.id, "validation_contract", True)
 
     requirement.current_plan_version = workflow_run.plan_version
     requirement.planned_roles_json = json.dumps(planner_output.get("required_roles", []))
@@ -334,13 +345,28 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     if requirement.status == "done":
         return build_requirement_detail(db, requirement.id)
     workflow_run = _active_workflow_run(db, requirement)
+    validation_errors = _validation_gate_errors(db, requirement.id)
+    if validation_errors:
+        raise ValueError(
+            "Requirement cannot close before validation passes: " + "; ".join(validation_errors)
+        )
     if workflow_run is not None and workflow_run.status not in {"completed", "cancelled", "failed"}:
-        for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).all():
-            if step.status in TERMINAL_STEP_STATUSES:
-                continue
-            step.status = "cancelled"
-            step.completed_at = step.completed_at or utcnow()
-            _record_step_event(db, step.id, "status_change", "cancelled (manual close)")
+        raise ValueError("Requirement cannot close while workflow execution is still active.")
+    if workflow_run is not None and _latest_artifact(
+        db,
+        requirement.id,
+        "validation_manifest",
+        workflow_run_id=workflow_run.id,
+    ) is None:
+        _create_artifact(
+            db,
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            artifact_type="validation_manifest",
+            content_summary=f"Manual closeout for requirement #{requirement.id}",
+            human_readable_body=_manual_closeout_markdown(requirement, db),
+            machine_readable_payload=_manual_closeout_payload(db, requirement, workflow_run),
+        )
         workflow_run.status = "completed"
         workflow_run.completed_at = workflow_run.completed_at or utcnow()
     requirement.status = "done"
@@ -662,6 +688,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.completed_at = task.completed_at or utcnow()
         _record_step_event(db, step.id, "status_change", f"failed ({task.status})")
         error_text = task.last_error_message or task.output_content or "Workflow step failed"
+        bug_report_payload = _build_bug_report_payload(db, requirement, run, step, task, error_text)
         error_artifact = _create_artifact(
             db,
             requirement_id=step.requirement_id,
@@ -671,12 +698,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
             artifact_type="bug_report",
             content_summary=error_text[:200],
             human_readable_body=error_text,
-            machine_readable_payload={
-                "task_id": task.id,
-                "step_id": step.id,
-                "status": task.status,
-                "error": error_text,
-            },
+            machine_readable_payload=bug_report_payload,
         )
         _mark_step_targets_failed(db, step, error_artifact)
         _am_push_task_failed(task, step, requirement)
@@ -973,6 +995,10 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
             plan_md = _plan_artifact_to_markdown(artifact)
             if plan_md:
                 parts.append(f"\n## Implementation Plan\n{plan_md}")
+        elif artifact.artifact_type == "validation_plan":
+            validation_md = _validation_plan_artifact_to_markdown(artifact)
+            if validation_md:
+                parts.append(f"\n## Validation Contract\n{validation_md}")
         elif artifact.human_readable_body:
             parts.append(f"\n## {artifact.artifact_type}: {artifact.content_summary}")
             parts.append(artifact.human_readable_body[:3000])
@@ -1016,6 +1042,13 @@ def _plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
         lines.append(f"\n### Risks\n{risks}")
 
     return "\n".join(lines)
+
+
+def _validation_plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    if not isinstance(payload, dict):
+        return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
+    return _validation_plan_markdown(payload)
 
 
 def _resolve_step_skill(db: Session, step: WorkflowStepRow) -> str:
@@ -1289,12 +1322,8 @@ def _auto_complete_closeout(db: Session, requirement: RequirementRow, workflow_r
         producer_step_id=step.id,
         artifact_type="validation_manifest",
         content_summary=f"Closeout for requirement #{requirement.id}",
-        human_readable_body=f"# Closeout\n\nRequirement {requirement.title} has passed validation and is ready to close.",
-        machine_readable_payload={
-            "requirement_id": requirement.id,
-            "workflow_run_id": workflow_run.id,
-            "status": "completed",
-        },
+        human_readable_body=_manual_closeout_markdown(requirement, db),
+        machine_readable_payload=_manual_closeout_payload(db, requirement, workflow_run),
     )
     step.status = "completed"
     step.started_at = step.started_at or utcnow()
@@ -1636,6 +1665,219 @@ def _create_artifact(
     return artifact
 
 
+def _latest_artifact(
+    db: Session,
+    requirement_id: int,
+    artifact_type: str,
+    *,
+    workflow_run_id: int | None = None,
+) -> ArtifactRow | None:
+    query = db.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == artifact_type,
+    )
+    if workflow_run_id is not None:
+        query = query.filter(ArtifactRow.workflow_run_id == workflow_run_id)
+    return query.order_by(ArtifactRow.id.desc()).first()
+
+
+def _validation_plan_payload(db: Session, requirement_id: int) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "validation_plan")
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _validation_plan_check_specs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for group_name in ("manual_checks", "automated_checks"):
+        entries = payload.get(group_name) or []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, dict):
+                checks.append(entry)
+    return checks
+
+
+def _validation_plan_markdown(payload: dict[str, Any]) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+
+    lines = ["# Validation Contract"]
+    summary = str(payload.get("summary_markdown") or "").strip()
+    if summary:
+        lines.extend(["", summary])
+
+    gates = [str(item) for item in payload.get("gates") or [] if str(item).strip()]
+    if gates:
+        lines.extend(["", "## Close Gate", *[f"- `{gate}` must pass before closeout." for gate in gates]])
+
+    manual_checks = payload.get("manual_checks") or []
+    if isinstance(manual_checks, list) and manual_checks:
+        lines.extend(["", "## Manual Checks"])
+        for check in manual_checks:
+            if not isinstance(check, dict):
+                continue
+            lines.append(
+                f"- `{check.get('check_key', '')}` via `{check.get('method', 'manual_review')}` "
+                f"owned by `{check.get('owner_role', 'reviewer')}`."
+            )
+
+    automated_checks = payload.get("automated_checks") or []
+    if isinstance(automated_checks, list) and automated_checks:
+        lines.extend(["", "## Automated Checks"])
+        for check in automated_checks:
+            if not isinstance(check, dict):
+                continue
+            lines.append(
+                f"- `{check.get('check_key', '')}` via `{check.get('method', 'agent_validation')}` "
+                f"owned by `{check.get('owner_role', 'tester')}`."
+            )
+
+    bugfix_owner = str(payload.get("bugfix_owner_role") or "").strip()
+    closeout_owner = str(payload.get("closeout_owner_role") or "").strip()
+    if bugfix_owner or closeout_owner:
+        lines.extend(["", "## Ownership"])
+        if bugfix_owner:
+            lines.append(f"- Bugfix owner: `{bugfix_owner}`")
+        if closeout_owner:
+            lines.append(f"- Closeout owner: `{closeout_owner}`")
+
+    bugfix_loop = payload.get("bugfix_loop") or {}
+    if isinstance(bugfix_loop, dict):
+        loop_summary = str(bugfix_loop.get("summary_markdown") or "").strip()
+        if loop_summary:
+            lines.extend(["", "## Bugfix Loop", loop_summary])
+
+    return "\n".join(lines)
+
+
+def _validation_check_statuses(db: Session, requirement_id: int) -> list[dict[str, Any]]:
+    checks = db.query(RequirementAcceptanceCheckRow).filter(
+        RequirementAcceptanceCheckRow.requirement_id == requirement_id
+    ).order_by(RequirementAcceptanceCheckRow.id.asc()).all()
+    return [
+        {
+            "check_key": str(check.check_key),
+            "description": str(check.description),
+            "check_type": str(check.check_type),
+            "owner_role": str(check.owner_role),
+            "status": str(check.status),
+            "verified_by_step_id": cast(Any, check).verified_by_step_id,
+            "evidence_artifact_id": cast(Any, check).evidence_artifact_id,
+        }
+        for check in checks
+    ]
+
+
+def _validation_gate_errors(db: Session, requirement_id: int) -> list[str]:
+    payload = _validation_plan_payload(db, requirement_id)
+    if not payload:
+        return ["validation_plan artifact is missing"]
+
+    contract_checks = _validation_plan_check_specs(payload)
+    if not contract_checks:
+        return ["validation contract declares no blocking checks"]
+
+    checks_by_key = {
+        str(check.check_key): check
+        for check in db.query(RequirementAcceptanceCheckRow).filter(
+            RequirementAcceptanceCheckRow.requirement_id == requirement_id
+        ).all()
+    }
+    errors: list[str] = []
+    for spec in contract_checks:
+        check_key = str(spec.get("check_key") or "").strip()
+        if not check_key:
+            continue
+        check = checks_by_key.get(check_key)
+        if check is None:
+            errors.append(f"missing acceptance check `{check_key}`")
+            continue
+        if check.status != "passed":
+            errors.append(f"check `{check_key}` is {check.status}")
+    return errors
+
+
+def _manual_closeout_markdown(requirement: RequirementRow, db: Session) -> str:
+    lines = [
+        "# Closeout",
+        "",
+        f"Requirement {requirement.title} has satisfied the validation contract and is ready to close.",
+    ]
+    for check in _validation_check_statuses(db, _as_int(requirement.id)):
+        lines.append(f"- `{check['check_key']}` ({check['owner_role']}) -> `{check['status']}`")
+    return "\n".join(lines)
+
+
+def _manual_closeout_payload(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+) -> dict[str, Any]:
+    return {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id) if workflow_run is not None else None,
+        "status": "completed",
+        "validation_contract": _validation_plan_payload(db, _as_int(requirement.id)),
+        "check_statuses": _validation_check_statuses(db, _as_int(requirement.id)),
+        "closed_at": utcnow().isoformat(),
+    }
+
+
+def _build_bug_report_payload(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    step: WorkflowStepRow,
+    task: TaskRow,
+    error_text: str,
+) -> dict[str, Any]:
+    validation_plan = _validation_plan_payload(db, _as_int(requirement.id))
+    checks_by_key = {
+        str(check.check_key): check
+        for check in db.query(RequirementAcceptanceCheckRow).filter(
+            RequirementAcceptanceCheckRow.requirement_id == requirement.id
+        ).all()
+    }
+    failed_checks: list[dict[str, Any]] = []
+    for target in _json_loads(step.validation_targets_json, []):
+        if not isinstance(target, dict):
+            continue
+        check_key = str(target.get("check_key") or "").strip()
+        if not check_key:
+            continue
+        check = checks_by_key.get(check_key)
+        failed_checks.append(
+            {
+                "check_key": check_key,
+                "method": str(target.get("method") or ""),
+                "step_type": str(step.step_type),
+                "owner_role": str(getattr(check, "owner_role", "") or ""),
+                "check_type": str(getattr(check, "check_type", "") or ""),
+                "status": str(getattr(check, "status", "pending") or "pending"),
+            }
+        )
+
+    return {
+        "requirement_id": _as_int(requirement.id),
+        "requirement_title": str(requirement.title),
+        "workflow_run_id": _as_int(workflow_run.id) if workflow_run is not None else None,
+        "task_id": _as_int(task.id),
+        "step_id": _as_int(step.id),
+        "step_key": str(step.step_key),
+        "step_type": str(step.step_type),
+        "verification_type": "manual" if step.step_type == "review" else "automated",
+        "bugfix_owner_role": str(validation_plan.get("bugfix_owner_role") or "implementer"),
+        "target_project_path": _normalize_target_project_path(requirement.target_project_path),
+        "validation_targets": _json_loads(step.validation_targets_json, []),
+        "failed_checks": failed_checks,
+        "error": error_text,
+        "status": str(task.status),
+        "recorded_at": utcnow().isoformat(),
+    }
+
+
 def _bind_artifact(db: Session, step_id: int, artifact_id: int, purpose: str, is_required: bool):
     existing = db.query(StepInputBindingRow).filter(
         StepInputBindingRow.step_id == step_id,
@@ -1679,6 +1921,11 @@ def _load_full_persona(agent_id: str) -> dict:
 
 
 def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments) -> str:
+    validation_summary_lines = [
+        f"- {line}"
+        for line in str((planner_output.get("validation_plan") or {}).get("summary_markdown") or "").splitlines()
+        if line.strip()
+    ]
     return "\n".join(
         [
             f"# Plan\n",
@@ -1687,6 +1934,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             f"- Implementer: {assignments.implementer_agent_id}",
             f"- Reviewer: {assignments.reviewer_agent_id}",
             f"- Tester: {assignments.tester_agent_id}",
+            "## Validation Contract",
+            *(validation_summary_lines or ["- Validation contract will be generated for review/test/closeout."]),
             "## Steps",
             *[
                 f"- {step.get('step_key')}: {step.get('title')}"
@@ -1720,10 +1969,7 @@ def _active_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRu
 
 
 def _all_checks_passed(db: Session, requirement_id: int) -> bool:
-    checks = db.query(RequirementAcceptanceCheckRow).filter(
-        RequirementAcceptanceCheckRow.requirement_id == requirement_id
-    ).all()
-    return bool(checks) and all(check.status == "passed" for check in checks)
+    return not _validation_gate_errors(db, requirement_id)
 
 
 def _json_dumps(payload: Any) -> str:

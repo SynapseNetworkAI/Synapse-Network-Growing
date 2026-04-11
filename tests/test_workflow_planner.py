@@ -232,8 +232,12 @@ class TestBuildPlannerOutput:
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.2"
+        assert output["schema_version"] == "1.3"
         assert output["detected_phases"]["design"] is True
+        assert output["validation_plan"]["bugfix_owner_role"] == "implementer"
+        assert output["validation_plan"]["closeout_owner_role"] == "tester"
+        assert output["validation_plan"]["manual_checks"][0]["check_key"] == "review_passed"
+        assert output["validation_plan"]["automated_checks"][0]["check_key"] == "validation_passed"
 
         # Review should depend on the last impl step (test_impl)
         review_step = next(s for s in output["workflow_steps"] if s["step_key"] == "review")
