@@ -18,6 +18,7 @@ export default function OptimizationSignals() {
   const [signals, setSignals] = useState<OptimizationSignal[]>([])
   const [status, setStatus] = useState('open')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [actioningId, setActioningId] = useState<number | null>(null)
   const [autoIntaking, setAutoIntaking] = useState(false)
@@ -28,11 +29,16 @@ export default function OptimizationSignals() {
     } else {
       setLoading(true)
     }
+    setError('')
     try {
       const data = refresh
         ? await api.refreshOptimizationSignals()
         : await api.getOptimizationSignals(status || undefined)
       setSignals(status ? data.filter((signal) => signal.status === status) : data)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法加载优化信号'
+      setSignals([])
+      setError(message)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -96,6 +102,12 @@ export default function OptimizationSignals() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div data-testid="optimization-signals-error" className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {signals.length === 0 && (
         <div className="rounded-xl border bg-white p-6 text-sm text-gray-500">当前没有可见优化信号。</div>

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -70,6 +71,25 @@ DELETED_STEP_STATUSES = {"deleted"}
 DELETED_TASK_STATUSES = {"deleted"}
 PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
 PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
+MAX_BUGFIX_BRANCH_DEPTH = 5
+REPEATED_ERROR_CIRCUIT_BREAKER_THRESHOLD = 3
+CIRCUIT_BREAKER_REQUIREMENT_SOURCE = "bugfix_circuit_breaker"
+INFRA_INCIDENT_ERROR_MARKERS = (
+    "session not found",
+    "session.resume failed",
+    "copilot sdk",
+    "timeout",
+    "timed out",
+    "orphaned dispatch",
+    "tool_use",
+    "tool_result",
+    "not authorized",
+    "unauthorized",
+    "permission",
+    "rate limit",
+    "connection refused",
+    "failed to connect",
+)
 
 import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
@@ -154,6 +174,112 @@ def _record_step_event(db: Session, step_id: int, event_type: str, detail: str |
     db.add(WorkflowStepEventRow(step_id=step_id, event_type=event_type, detail=detail))
 
 
+def _normalize_error_text(error_text: str) -> str:
+    normalized = re.sub(r"\d{4,}", "<num>", error_text.strip().lower())
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized[:1000]
+
+
+def _error_fingerprint(error_text: str) -> str:
+    normalized = _normalize_error_text(error_text)
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
+def _root_failure_step_id(db: Session, step: WorkflowStepRow) -> int:
+    current = step
+    visited: set[int] = set()
+    while current.branch_from_step_id:
+        current_id = _as_int(current.id)
+        if current_id in visited:
+            break
+        visited.add(current_id)
+        parent = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == current.branch_from_step_id).first()
+        if parent is None:
+            break
+        current = parent
+    return _as_int(current.id)
+
+
+def _step_root_failure_step_id(db: Session, step_id: int | None) -> int | None:
+    if step_id is None:
+        return None
+    step = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == step_id).first()
+    if step is None:
+        return None
+    return _root_failure_step_id(db, step)
+
+
+def _bugfix_branch_depth(db: Session, workflow_run_id: int, failed_step: WorkflowStepRow) -> int:
+    root_step_id = _root_failure_step_id(db, failed_step)
+    depth = 0
+    bugfix_steps = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run_id,
+        WorkflowStepRow.step_type == "bugfix",
+    ).all()
+    for step in bugfix_steps:
+        if _step_root_failure_step_id(db, cast(Any, step).id) == root_step_id:
+            depth += 1
+    return depth
+
+
+def _repeated_error_count(
+    db: Session,
+    requirement_id: int,
+    workflow_run_id: int | None,
+    root_failure_step_id: int,
+    error_fingerprint: str,
+) -> int:
+    query = db.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "bug_report",
+    )
+    if workflow_run_id is not None:
+        query = query.filter(ArtifactRow.workflow_run_id == workflow_run_id)
+    artifacts = query.order_by(ArtifactRow.id.desc()).limit(20).all()
+    count = 0
+    for artifact in artifacts:
+        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("root_failure_step_id") != root_failure_step_id:
+            continue
+        if payload.get("error_fingerprint") != error_fingerprint:
+            continue
+        count += 1
+    return count
+
+
+def _bugfix_circuit_breaker_reason(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    failed_step: WorkflowStepRow,
+    error_text: str,
+) -> str | None:
+    root_step_id = _root_failure_step_id(db, failed_step)
+    candidate_depth = _bugfix_branch_depth(db, _as_int(workflow_run.id), failed_step) + 1
+    if candidate_depth > MAX_BUGFIX_BRANCH_DEPTH:
+        return (
+            f"Bugfix loop depth exceeded for root step #{root_step_id}: "
+            f"attempted branch depth {candidate_depth} > max {MAX_BUGFIX_BRANCH_DEPTH}."
+        )
+
+    fingerprint = _error_fingerprint(error_text)
+    repeated_count = _repeated_error_count(
+        db,
+        _as_int(requirement.id),
+        _as_int(workflow_run.id),
+        root_step_id,
+        fingerprint,
+    )
+    if repeated_count >= REPEATED_ERROR_CIRCUIT_BREAKER_THRESHOLD:
+        return (
+            "Repeated identical failure detected for bugfix loop "
+            f"(root step #{root_step_id}, count={repeated_count}, fingerprint={fingerprint[:12]})."
+        )
+    return None
+
+
 def _populate_handoff_summary(step: WorkflowStepRow, task: TaskRow):
     output = (task.output_content or "").strip()
     if not output:
@@ -181,6 +307,169 @@ def _normalize_target_project_path(raw_path: str | None) -> str | None:
     if not lines:
         return None
     return "\n".join(lines)
+
+
+def _merge_target_project_paths(*raw_paths: str | None) -> str | None:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for raw_path in raw_paths:
+        normalized = _normalize_target_project_path(raw_path)
+        if not normalized:
+            continue
+        for candidate in normalized.splitlines():
+            item = candidate.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            merged.append(item)
+    if not merged:
+        return None
+    return "\n".join(merged)
+
+
+def _is_infra_incident_error(error_text: str) -> bool:
+    normalized = _normalize_error_text(error_text)
+    return any(marker in normalized for marker in INFRA_INCIDENT_ERROR_MARKERS)
+
+
+def _ensure_requirement_from_followup(
+    db: Session,
+    *,
+    title: str,
+    description_markdown: str,
+    priority: str,
+    source_ref: str,
+    target_project_path: str | None,
+    template_payload: dict[str, Any],
+) -> tuple[int, bool]:
+    existing = db.query(RequirementRow).filter(RequirementRow.source_ref == source_ref).first()
+    if existing is not None:
+        return _as_int(existing.id), False
+    detail = create_requirement(
+        db,
+        RequirementCreate(
+            title=title,
+            description_markdown=description_markdown,
+            priority=priority,
+            source=CIRCUIT_BREAKER_REQUIREMENT_SOURCE,
+            source_ref=source_ref,
+            target_project_path=target_project_path,
+            auto_start=False,
+            template_payload=template_payload,
+        ),
+    )
+    return _as_int(detail.requirement.id), True
+
+
+def _create_circuit_breaker_followup_requirements(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    failed_step: WorkflowStepRow,
+    error_text: str,
+    reason: str,
+    linked_bug_report_artifact_id: int,
+) -> list[dict[str, Any]]:
+    base_ref = f"bugfix-circuit-breaker:{_as_int(requirement.id)}:{_as_int(workflow_run.id)}:{_as_int(failed_step.id)}"
+    operator_target = _merge_target_project_paths(requirement.target_project_path, PRIMARY_GROWING_PROJECT)
+    shared_payload = {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id),
+        "failed_step_id": _as_int(failed_step.id),
+        "linked_bug_report_artifact_id": linked_bug_report_artifact_id,
+        "circuit_breaker_reason": reason,
+        "last_error": error_text,
+    }
+
+    operator_title = f"Operator Review: Requirement #{requirement.id} circuit breaker"
+    operator_description = "\n".join(
+        [
+            f"# Operator Review For Requirement #{requirement.id}",
+            "",
+            f"Original requirement: `{requirement.title}`",
+            f"Workflow run: `{workflow_run.id}` / failed step: `{failed_step.step_type}` #{failed_step.id}",
+            "",
+            "## Why this was escalated",
+            reason,
+            "",
+            "## Last observed error",
+            f"```text\n{error_text}\n```",
+            "",
+            "## Operator tasks",
+            "1. Confirm whether this is a product requirement issue or a harness/runtime issue.",
+            "2. Decide whether the original requirement should be revised, retried, or split.",
+            "3. Review any linked infra incident requirement before resuming automation.",
+        ]
+    )
+    operator_id, operator_created = _ensure_requirement_from_followup(
+        db,
+        title=operator_title,
+        description_markdown=operator_description,
+        priority="high",
+        source_ref=f"{base_ref}:operator-review",
+        target_project_path=operator_target,
+        template_payload={
+            **shared_payload,
+            "followup_kind": "operator_review",
+            "owner_role": "operator",
+        },
+    )
+    items = [
+        {
+            "kind": "operator_review",
+            "requirement_id": operator_id,
+            "source_ref": f"{base_ref}:operator-review",
+            "created": operator_created,
+        }
+    ]
+
+    if _is_infra_incident_error(error_text):
+        incident_title = f"Infra Incident: runtime failure behind requirement #{requirement.id}"
+        incident_description = "\n".join(
+            [
+                f"# Infra Incident From Requirement #{requirement.id}",
+                "",
+                f"Original requirement: `{requirement.title}`",
+                f"Failed step: `{failed_step.step_type}` #{failed_step.id}",
+                "",
+                "This looks like a harness/runtime reliability failure rather than a normal product bugfix.",
+                "",
+                "## Circuit breaker reason",
+                reason,
+                "",
+                "## Last observed error",
+                f"```text\n{error_text}\n```",
+                "",
+                "## Expected outcome",
+                "1. Restore runtime/session health.",
+                "2. Add or improve recovery / cache invalidation / observability so the same failure does not recur.",
+                "3. Only then decide whether the original requirement can be resumed.",
+            ]
+        )
+        incident_id, incident_created = _ensure_requirement_from_followup(
+            db,
+            title=incident_title,
+            description_markdown=incident_description,
+            priority="high",
+            source_ref=f"{base_ref}:infra-incident",
+            target_project_path=PRIMARY_GROWING_PROJECT,
+            template_payload={
+                **shared_payload,
+                "followup_kind": "infra_incident",
+                "owner_role": "platform",
+            },
+        )
+        items.append(
+            {
+                "kind": "infra_incident",
+                "requirement_id": incident_id,
+                "source_ref": f"{base_ref}:infra-incident",
+                "created": incident_created,
+            }
+        )
+
+    return items
 
 
 def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetailOut:
@@ -231,6 +520,15 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     db.commit()
 
     detail = build_requirement_detail(db, requirement.id)
+    _logger.info(
+        "event=requirement_created requirement_id=%s source=%s priority=%s routing_mode=%s target_paths=%s auto_start=%s",
+        requirement.id,
+        requirement.source,
+        requirement.priority,
+        routing_context.get("routing_mode") or "unknown",
+        len(str(requirement.target_project_path or "").splitlines()) if requirement.target_project_path else 0,
+        body.auto_start,
+    )
     if body.auto_start and requirement.blocked_by_count == 0:
         req_id = _as_int(requirement.id)
 
@@ -346,6 +644,13 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement.active_workflow_run_id = _as_int(workflow_run.id)
     requirement.status = "ready"
     db.commit()
+    _logger.info(
+        "event=requirement_planned requirement_id=%s plan_version=%s steps=%s acceptance_checks=%s",
+        requirement.id,
+        workflow_run.plan_version,
+        len(planner_output.get("workflow_steps") or []),
+        len(planner_output.get("acceptance_checks") or []),
+    )
     return build_requirement_detail(db, requirement.id)
 
 
@@ -431,6 +736,7 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement.completed_at = requirement.completed_at or utcnow()
     _refresh_dependents_for_requirement(db, requirement.id)
     db.commit()
+    _logger.info("event=requirement_closed requirement_id=%s manual=true", requirement.id)
     return build_requirement_detail(db, requirement.id)
 
 
@@ -509,6 +815,12 @@ def publish_requirement(
         publish_note=note or None,
     )
     db.commit()
+    _logger.info(
+        "event=requirement_published requirement_id=%s release_mode=%s confirmed_checks=%s",
+        requirement.id,
+        release_mode,
+        len(completed_checks),
+    )
     return build_requirement_detail(db, requirement.id)
 
 
@@ -518,6 +830,7 @@ def delete_requirement(db: Session, requirement_id: int) -> RequirementDetailOut
         return build_requirement_detail(db, requirement.id)
     _soft_delete_requirement_tree(db, requirement, visited=set())
     db.commit()
+    _logger.info("event=requirement_deleted requirement_id=%s", requirement.id)
     return build_requirement_detail(db, requirement.id)
 
 
@@ -579,6 +892,12 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     _refresh_requirement_dependency_state(db, requirement)
     _refresh_dependents_for_requirement(db, requirement.id)
     db.commit()
+    _logger.info(
+        "event=requirement_revised requirement_id=%s had_active_run=%s dependency_count=%s",
+        requirement.id,
+        active_run is not None,
+        len(body.depends_on_requirement_ids or []),
+    )
     return build_requirement_detail(db, requirement.id)
 
 
@@ -617,6 +936,12 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
 
     _dispatch_next_step_for_requirement(requirement.id)
     db.expire_all()
+    _logger.info(
+        "event=requirement_started requirement_id=%s workflow_run_id=%s plan_version=%s",
+        requirement.id,
+        workflow_run.id,
+        workflow_run.plan_version,
+    )
 
     fresh_db = SessionLocal()
     try:
@@ -629,14 +954,14 @@ def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     _ensure_requirement_not_deleted(requirement)
     workflow_run = _active_workflow_run(db, requirement)
-    if workflow_run is None or requirement.status != "in_progress":
+    if workflow_run is None:
         raise ValueError("Requirement is not currently running.")
 
     running_steps = db.query(WorkflowStepRow).filter(
         WorkflowStepRow.workflow_run_id == workflow_run.id,
         WorkflowStepRow.status.in_(tuple(RUNNING_STEP_STATUSES)),
     ).all()
-    if not running_steps:
+    if not running_steps and requirement.status != "in_progress" and workflow_run.status != "running":
         raise ValueError("Requirement has no running workflow step to pause.")
 
     for step in running_steps:
@@ -650,6 +975,7 @@ def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement.completed_at = None
     _clear_role_sessions()
     db.commit()
+    _logger.info("event=requirement_paused requirement_id=%s running_steps=%s", requirement.id, len(running_steps))
     return build_requirement_detail(db, requirement.id)
 
 
@@ -843,8 +1169,20 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         if failure_route == "requirement_revision":
             _create_requirement_revision_request(db, requirement, run, step, error_artifact, error_text)
         elif step.step_type in {"implementation", "review", "test", "bugfix"}:
-            _create_bugfix_branch(db, requirement, run, step, error_artifact)
-            should_dispatch_next = True
+            circuit_breaker_reason = _bugfix_circuit_breaker_reason(db, requirement, run, step, error_text)
+            if circuit_breaker_reason:
+                _trip_bugfix_circuit_breaker(
+                    db,
+                    requirement,
+                    run,
+                    step,
+                    error_artifact,
+                    error_text,
+                    circuit_breaker_reason,
+                )
+            else:
+                _create_bugfix_branch(db, requirement, run, step, error_artifact)
+                should_dispatch_next = True
         else:
             run.status = "failed"
             requirement.status = "needs_revision"
@@ -1016,6 +1354,8 @@ def _create_workflow_steps(
     assignments: WorkflowRoleAssignments,
 ) -> dict[str, WorkflowStepRow]:
     role_agent_map = {
+        "researcher": assignments.researcher_agent_id,
+        "synthesizer": assignments.synthesizer_agent_id,
         "implementer": assignments.implementer_agent_id,
         "reviewer": assignments.reviewer_agent_id,
         "tester": assignments.tester_agent_id,
@@ -1218,6 +1558,8 @@ def _dependencies_satisfied(db: Session, step_id: int) -> bool:
 
 def _create_step_completion_artifact(db: Session, step: WorkflowStepRow, task: TaskRow) -> ArtifactRow:
     artifact_type = {
+        "research": "research_report",
+        "synthesis": "synthesis_report",
         "implementation": "step_output",
         "bugfix": "step_output",
         "review": "review_report",
@@ -1256,6 +1598,8 @@ def _bind_output_to_followup_steps(db: Session, step: WorkflowStepRow, artifact:
         WorkflowStepDependencyRow.depends_on_step_id == step.id
     ).all()
     purpose = {
+        "research": "research_context",
+        "synthesis": "implementation_context",
         "implementation": "implementation_context",
         "bugfix": "bugfix_context",
         "review": "review_context",
@@ -1440,6 +1784,71 @@ def _create_bugfix_branch(
     requirement.status = "in_progress"
 
 
+def _trip_bugfix_circuit_breaker(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    failed_step: WorkflowStepRow,
+    error_artifact: ArtifactRow,
+    error_text: str,
+    reason: str,
+) -> None:
+    root_step_id = _root_failure_step_id(db, failed_step)
+    fingerprint = _error_fingerprint(error_text)
+    followup_items = _create_circuit_breaker_followup_requirements(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        failed_step=failed_step,
+        error_text=error_text,
+        reason=reason,
+        linked_bug_report_artifact_id=_as_int(error_artifact.id),
+    )
+    payload = {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id),
+        "failed_step_id": _as_int(failed_step.id),
+        "root_failure_step_id": root_step_id,
+        "error_fingerprint": fingerprint,
+        "reason": reason,
+        "triggered_at": utcnow().isoformat(),
+        "linked_bug_report_artifact_id": _as_int(error_artifact.id),
+        "followup_requirements": followup_items,
+    }
+    _create_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(failed_step.id),
+        producer_step_id=_as_int(failed_step.id),
+        artifact_type="bugfix_circuit_breaker",
+        content_summary=reason[:200],
+        human_readable_body="\n".join(
+            [
+                "# Bugfix Loop Circuit Breaker",
+                "",
+                reason,
+                "",
+                f"Last error: {error_text}",
+            ]
+        ),
+        machine_readable_payload=payload,
+    )
+    _record_step_event(db, _as_int(failed_step.id), "circuit_breaker", reason)
+    workflow_run.status = "failed"
+    workflow_run.completed_at = utcnow()
+    requirement.status = "needs_revision"
+    requirement.completed_at = None
+    _clear_role_sessions()
+    _logger.warning(
+        "event=bugfix_loop_circuit_breaker requirement_id=%s workflow_run_id=%s step_id=%s reason=%s",
+        requirement.id,
+        workflow_run.id,
+        failed_step.id,
+        reason,
+    )
+
+
 def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: WorkflowRunRow):
     if requirement.status == "needs_revision":
         workflow_run.status = "cancelled"
@@ -1599,6 +2008,14 @@ def advance_requirement_queue(db: Session) -> dict:
     if started_ids:
         result["started"] = started_ids[0]
         result["skipped_reasons"] = skip_reasons
+        _logger.info(
+            "event=requirement_queue_advanced started=%s created_requirements=%s rebalanced=%s preempted=%s skipped=%s",
+            len(started_ids),
+            len(result.get("created_requirement_ids") or []),
+            len(result.get("rebalanced_ids") or []),
+            len(result.get("preempted_ids") or []),
+            len(skip_reasons),
+        )
         return result
 
     delay_decision = next(
@@ -1616,6 +2033,14 @@ def advance_requirement_queue(db: Session) -> dict:
     else:
         result["skipped"] = "no ready requirements"
     result["skipped_reasons"] = skip_reasons
+    _logger.info(
+        "event=requirement_queue_idle started=0 created_requirements=%s rebalanced=%s preempted=%s skipped=%s reason=%s",
+        len(result.get("created_requirement_ids") or []),
+        len(result.get("rebalanced_ids") or []),
+        len(result.get("preempted_ids") or []),
+        len(skip_reasons),
+        result.get("skipped"),
+    )
     return result
 
 
@@ -2023,6 +2448,8 @@ def _build_bug_report_payload(
     error_text: str,
 ) -> dict[str, Any]:
     validation_plan = _validation_plan_payload(db, _as_int(requirement.id))
+    root_failure_step_id = _root_failure_step_id(db, step)
+    error_fingerprint = _error_fingerprint(error_text)
     checks_by_key = {
         str(check.check_key): check
         for check in db.query(RequirementAcceptanceCheckRow).filter(
@@ -2058,6 +2485,9 @@ def _build_bug_report_payload(
         "step_type": str(step.step_type),
         "verification_type": "manual" if step.step_type == "review" else "automated",
         "bugfix_owner_role": str(validation_plan.get("bugfix_owner_role") or "implementer"),
+        "root_failure_step_id": root_failure_step_id,
+        "bugfix_depth": _bugfix_branch_depth(db, _as_int(workflow_run.id), step) if workflow_run is not None else 0,
+        "error_fingerprint": error_fingerprint,
         "target_project_path": _normalize_target_project_path(requirement.target_project_path),
         "validation_targets": _json_loads(step.validation_targets_json, []),
         "failed_checks": failed_checks,
@@ -2329,6 +2759,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             f"# Plan\n",
             f"## Goal\n\n{planner_output.get('goal_summary', '')}",
             "## Role Assignments",
+            f"- Researcher: {assignments.researcher_agent_id}",
+            f"- Synthesizer: {assignments.synthesizer_agent_id}",
             f"- Implementer: {assignments.implementer_agent_id}",
             f"- Reviewer: {assignments.reviewer_agent_id}",
             f"- Tester: {assignments.tester_agent_id}",

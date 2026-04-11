@@ -545,13 +545,27 @@ describe('RequirementPool', () => {
     render(<MemoryRouter><RequirementPool /></MemoryRouter>)
 
     await waitFor(() => {
-      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, 'score')
+      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, 'score', undefined)
     })
 
     fireEvent.change(screen.getByTestId('requirement-sort-mode'), { target: { value: 'updated' } })
 
     await waitFor(() => {
-      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, undefined)
+      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, undefined, undefined)
+    })
+  })
+
+  it('sends requirement search query to backend', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-search')).toBeDefined()
+    })
+
+    fireEvent.change(screen.getByTestId('requirement-search'), { target: { value: 'session not found' } })
+
+    await waitFor(() => {
+      expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, 'score', 'session not found')
     })
   })
 

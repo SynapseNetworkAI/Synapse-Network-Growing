@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,6 +15,8 @@ from server.services.optimization_templates import build_template_instance, temp
 from server.services.portfolio_scheduler import build_portfolio_schedule
 from server.services.project_intelligence import build_project_catalog
 from server.services.workflow_orchestrator import create_requirement
+
+logger = logging.getLogger("ops-dashboard.company_review")
 
 
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -710,6 +713,14 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
     db.add(row)
     db.commit()
     db.refresh(row)
+    logger.info(
+        "event=company_review_refreshed review_id=%s cycle=%s bundle_items=%s recommendations=%s incidents=%s",
+        row.id,
+        row.cycle_label,
+        len(payload.get("next_cycle_requirement_bundle") or []),
+        len(payload.get("next_cycle_recommendations") or []),
+        len(payload.get("incidents") or []),
+    )
     return row
 
 
@@ -815,6 +826,15 @@ def materialize_company_review_bundle(
             "requirement_id": int(detail.requirement.id),
             "source_ref": review_source_ref,
         })
+
+    logger.info(
+        "event=company_review_bundle_materialized review_id=%s created=%s reused=%s skipped=%s auto_start=%s",
+        review_id,
+        len(created_requirement_ids),
+        len(reused_requirement_ids),
+        len(skipped_bundle_item_keys),
+        auto_start,
+    )
 
     return CompanyReviewBundleMaterializeResultOut(
         review_id=int(review_id),

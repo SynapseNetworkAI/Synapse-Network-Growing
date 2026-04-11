@@ -1,13 +1,16 @@
 """Requirements and workflow orchestration API."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server.database import RequirementRow, get_db
+from server.logging_utils import timed_operation
 from server.schemas import (
     RequirementCreate,
     RequirementDependencyUpdate,
@@ -18,7 +21,7 @@ from server.schemas import (
     RequirementRevisionRequest,
     SchedulerPlanOut,
 )
-from server.services.project_intelligence import build_requirement_score_breakdown, serialize_requirement
+from server.services.project_intelligence import build_requirement_serialization_context, serialize_requirement
 from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
 from server.services.workflow_orchestrator import (
     _normalize_target_project_path,
@@ -37,6 +40,7 @@ from server.services.workflow_orchestrator import (
 )
 
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
+logger = logging.getLogger("ops-dashboard.requirements")
 
 _DEFAULT_STATUS_SORT_RANK = {"in_progress": 0, "deleted": 2}
 
@@ -54,35 +58,66 @@ def _requirement_default_sort_key(row: RequirementRow) -> tuple[int, float, int]
 def list_requirements(
     status: Optional[str] = Query(None),
     sort: Optional[str] = Query(None, description="Sort mode: 'score' for priority+aging scoring, default is created_at desc"),
+    search: Optional[str] = Query(None, description="Search by requirement id, title, description, source ref, or target path"),
     db: Session = Depends(get_db),
 ):
-    query = db.query(RequirementRow)
-    if status:
-        query = query.filter(RequirementRow.status == status)
-    rows = query.all()
-    changed = False
-    for row in rows:
-        normalized_target = _normalize_target_project_path(row.target_project_path)
-        if normalized_target != row.target_project_path:
-            row.target_project_path = normalized_target
-            changed = True
-    score_map = {
-        int(row.id): build_requirement_score_breakdown(db, row)
-        for row in rows
-    }
-    if sort == "score":
-        rows.sort(
-            key=lambda row: (
-                _DEFAULT_STATUS_SORT_RANK.get(str(row.status), 1),
-                -(float(score_map[int(row.id)].get("total") or 0.0)),
-                -(int(row.id or 0)),
+    with timed_operation(
+        logger,
+        "requirements_list",
+        status_filter=status or "all",
+        sort=sort or "default",
+        search=search or "",
+        slow_ms=1200,
+    ) as op:
+        query = db.query(RequirementRow)
+        if status:
+            query = query.filter(RequirementRow.status == status)
+        if search:
+            raw = search.strip()
+            pattern = f"%{raw}%"
+            conditions = [
+                RequirementRow.title.ilike(pattern),
+                RequirementRow.description_markdown.ilike(pattern),
+                RequirementRow.source_ref.ilike(pattern),
+                RequirementRow.target_project_path.ilike(pattern),
+            ]
+            if raw.isdigit():
+                conditions.append(RequirementRow.id == int(raw))
+            query = query.filter(or_(*conditions))
+        rows = query.all()
+        changed = False
+        for row in rows:
+            normalized_target = _normalize_target_project_path(row.target_project_path)
+            if normalized_target != row.target_project_path:
+                row.target_project_path = normalized_target
+                changed = True
+        score_map, stored_routing, project_catalog, signal_contexts = build_requirement_serialization_context(db, rows)
+        if sort == "score":
+            rows.sort(
+                key=lambda row: (
+                    _DEFAULT_STATUS_SORT_RANK.get(str(row.status), 1),
+                    -(float(score_map[int(row.id)].get("total") or 0.0)),
+                    -(int(row.id or 0)),
+                )
             )
-        )
-    else:
-        rows.sort(key=_requirement_default_sort_key)
-    if changed:
-        db.commit()
-    return [RequirementOut(**serialize_requirement(db, row)) for row in rows]
+        else:
+            rows.sort(key=_requirement_default_sort_key)
+        if changed:
+            db.commit()
+        op["count"] = len(rows)
+        return [
+            RequirementOut(
+                **serialize_requirement(
+                    db,
+                    row,
+                    score=score_map.get(int(row.id)),
+                    stored_routing=stored_routing.get(int(row.id)),
+                    project_catalog=project_catalog,
+                    signal_contexts=signal_contexts,
+                )
+            )
+            for row in rows
+        ]
 
 
 @router.post("", response_model=RequirementDetailOut, status_code=201)

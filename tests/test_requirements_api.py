@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import server.services.project_intelligence as project_intelligence
 from server.database import (
     ArtifactRow,
     ProjectOnboardingRow,
@@ -15,6 +16,7 @@ from server.database import (
     WorkflowStepEventRow,
     WorkflowStepRow,
 )
+from server.services.workflow_orchestrator import MAX_BUGFIX_BRANCH_DEPTH
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import TaskExecutionResult
 
@@ -66,6 +68,8 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     planned = plan_resp.json()
     assert planned["requirement"]["current_plan_version"] == 1
     assert [step["step_type"] for step in planned["workflow_run"]["steps"]] == [
+        "research",
+        "synthesis",
         "implementation",
         "review",
         "test",
@@ -76,6 +80,10 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
 
     class FakeRuntime:
         def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:research]" in task_description:
+                return _runtime_result(text="Research report ready for synthesis.")
+            if "[workflow_step:synthesis]" in task_description:
+                return _runtime_result(text="Synthesis report ready for implementation.")
             if "[workflow_step:implementation]" in task_description:
                 return _runtime_result(text="Implementation output ready for review.")
             if "[workflow_step:review]" in task_description:
@@ -100,6 +108,7 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert data["workflow_run"]["status"] == "completed"
 
     step_types = [step["step_type"] for step in data["workflow_run"]["steps"]]
+    assert step_types[:3] == ["research", "synthesis", "implementation"]
     assert step_types.count("bugfix") == 1
     assert step_types.count("review") == 2
     assert step_types.count("test") == 2
@@ -134,9 +143,9 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert requirement.status == "done"
 
     tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
-    assert len(tasks) == 6
+    assert len(tasks) == 8
     assert sum(1 for task in tasks if task.status == "failed") == 1
-    assert sum(1 for task in tasks if task.status == "completed") == 5
+    assert sum(1 for task in tasks if task.status == "completed") == 7
 
     closeout = db_session.query(WorkflowStepRow).filter(
         WorkflowStepRow.requirement_id == requirement_id,
@@ -146,6 +155,138 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert closeout.status == "completed"
     assert data["delivery_state"]["publish_status"] == "review_ready"
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
+
+
+def test_requirement_bugfix_loop_circuit_breaks_on_repeated_identical_errors(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Stop repeated session resume loop",
+            "description_markdown": "Circuit break when the same bugfix error repeats.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    repeated_error = (
+        "Request session.resume failed with message: "
+        "Session not found: role-seo_strategist-1775919011484-1"
+    )
+
+    class FakeRuntime:
+        def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:research]" in task_description:
+                return _runtime_result(text="Research output ready.")
+            if "[workflow_step:synthesis]" in task_description:
+                return _runtime_result(text="Synthesis output ready.")
+            if "[workflow_step:review]" in task_description or "[workflow_step:test]" in task_description:
+                return _runtime_result(text="not reached")
+            if "[workflow_step:implementation]" in task_description or "[workflow_step:bugfix]" in task_description:
+                return _runtime_result(error=repeated_error)
+            return _runtime_result(text="noop")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    data = start_resp.json()
+    assert data["requirement"]["status"] == "needs_revision"
+    assert data["workflow_run"]["status"] == "cancelled"
+
+    bugfix_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "bugfix"]
+    assert len(bugfix_steps) == 2
+    assert all(step["status"] == "failed" for step in bugfix_steps)
+
+    breaker_artifact = next(
+        artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "bugfix_circuit_breaker"
+    )
+    breaker_payload = json.loads(breaker_artifact["machine_readable_payload"])
+    assert "Repeated identical failure detected" in breaker_payload["reason"]
+    assert breaker_payload["failed_step_id"] == bugfix_steps[-1]["id"]
+    assert {item["kind"] for item in breaker_payload["followup_requirements"]} == {"operator_review", "infra_incident"}
+
+    tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
+    assert len(tasks) == 5
+    assert sum(1 for task in tasks if task.status == "completed") == 2
+    assert sum(1 for task in tasks if task.status == "failed") == 3
+    followups = db_session.query(RequirementRow).filter(
+        RequirementRow.source == "bugfix_circuit_breaker"
+    ).order_by(RequirementRow.id.asc()).all()
+    assert len(followups) == 2
+    assert followups[0].title.startswith("Operator Review:")
+    assert followups[1].title.startswith("Infra Incident:")
+    assert "/Users/cliff/workspace/agent/Synapse-Network-Growing" in str(followups[1].target_project_path)
+
+
+def test_requirement_bugfix_loop_circuit_breaks_on_depth_limit(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Stop deep bugfix chains",
+            "description_markdown": "Circuit break when bugfix depth grows too large.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    error_messages = iter(
+        [
+            "Validation failed: branch alpha",
+            "Validation failed: branch beta",
+            "Validation failed: branch gamma",
+            "Validation failed: branch delta",
+            "Validation failed: branch epsilon",
+            "Validation failed: branch zeta",
+        ]
+    )
+
+    class FakeRuntime:
+        def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:research]" in task_description:
+                return _runtime_result(text="Research report complete.")
+            if "[workflow_step:synthesis]" in task_description:
+                return _runtime_result(text="Synthesis report complete.")
+            if "[workflow_step:implementation]" in task_description:
+                return _runtime_result(text="Implementation complete.")
+            if "[workflow_step:review]" in task_description:
+                return _runtime_result(text="Review complete.")
+            if "[workflow_step:bugfix]" in task_description:
+                return _runtime_result(text="Bugfix applied.")
+            if "[workflow_step:test]" in task_description:
+                return _runtime_result(error=next(error_messages))
+            return _runtime_result(text="noop")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    data = start_resp.json()
+    assert data["requirement"]["status"] == "needs_revision"
+    assert data["workflow_run"]["status"] == "cancelled"
+
+    bugfix_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "bugfix"]
+    assert len(bugfix_steps) == MAX_BUGFIX_BRANCH_DEPTH
+
+    breaker_artifact = next(
+        artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "bugfix_circuit_breaker"
+    )
+    breaker_payload = json.loads(breaker_artifact["machine_readable_payload"])
+    assert "Bugfix loop depth exceeded" in breaker_payload["reason"]
+    assert [item["kind"] for item in breaker_payload["followup_requirements"]] == ["operator_review"]
+
+    followups = db_session.query(RequirementRow).filter(
+        RequirementRow.source == "bugfix_circuit_breaker"
+    ).order_by(RequirementRow.id.asc()).all()
+    assert len(followups) == 1
+    assert followups[0].title.startswith("Operator Review:")
 
 
 def test_requirement_stays_blocked_until_dependencies_finish(synced_client):
@@ -904,6 +1045,40 @@ def test_list_requirements_default_sorting_prioritizes_running_and_pushes_delete
     assert ready_id in ids[1:-1]
 
 
+def test_list_requirements_search_filters_by_title_source_and_project_path(synced_client):
+    first = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Harness circuit breaker review",
+            "description_markdown": "Investigate dead-loop incident and operator review follow-up.",
+            "priority": "high",
+            "source_ref": "bugfix-circuit-breaker:operator-review:40:29:2020",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    ).json()["requirement"]
+    synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "SDK landing polish",
+            "description_markdown": "Unrelated requirement.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        },
+    )
+
+    by_title = synced_client.get("/api/requirements", params={"search": "circuit breaker"})
+    assert by_title.status_code == 200
+    assert [item["id"] for item in by_title.json()] == [first["id"]]
+
+    by_source_ref = synced_client.get("/api/requirements", params={"search": "operator-review:40"})
+    assert by_source_ref.status_code == 200
+    assert [item["id"] for item in by_source_ref.json()] == [first["id"]]
+
+    by_project_path = synced_client.get("/api/requirements", params={"search": "Synapse-Network-Growing"})
+    assert by_project_path.status_code == 200
+    assert [item["id"] for item in by_project_path.json()] == [first["id"]]
+
+
 def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -962,6 +1137,54 @@ def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, 
     refreshed_tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
     assert len(refreshed_tasks) >= 2
     assert refreshed_tasks[-1].status == "completed"
+
+
+def test_pause_requirement_handles_state_drift_without_running_step(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Pause drifted requirement",
+            "description_markdown": "Pause should still work when the requirement status drifts.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement_id).first()
+    step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.status == "running",
+    ).first()
+    task = db_session.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
+    assert requirement is not None
+    assert workflow_run is not None
+    assert step is not None
+    assert task is not None
+
+    step.status = "ready"
+    step.compatibility_task_id = None
+    step.runtime_backend = ""
+    step.runtime_session_id = None
+    task.status = "cancelled"
+    task.last_error_message = "reset for drift test"
+    db_session.commit()
+
+    pause_resp = synced_client.post(f"/api/requirements/{requirement_id}/pause")
+    assert pause_resp.status_code == 200
+    paused = pause_resp.json()
+    assert paused["requirement"]["status"] == "paused"
+    assert paused["workflow_run"]["status"] == "paused"
 
 
 def test_create_requirement_normalizes_multi_project_target_path(synced_client):
@@ -1027,3 +1250,31 @@ def test_workflow_step_events_recorded(synced_client, db_session):
     assert len(events) > 0
     event_types = {e.event_type for e in events}
     assert "status_change" in event_types
+
+
+def test_requirements_list_reuses_project_catalog_context(synced_client, monkeypatch):
+    for idx in range(2):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": f"Catalog reuse {idx}",
+                "description_markdown": "Check score-sorted requirement listing.",
+                "priority": "normal",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            },
+        )
+        assert create_resp.status_code == 201
+
+    real_build_project_catalog = project_intelligence.build_project_catalog
+    call_count = {"count": 0}
+
+    def wrapped_build_project_catalog(db):
+        call_count["count"] += 1
+        return real_build_project_catalog(db)
+
+    monkeypatch.setattr(project_intelligence, "build_project_catalog", wrapped_build_project_catalog)
+
+    resp = synced_client.get("/api/requirements?sort=score")
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 2
+    assert call_count["count"] == 1

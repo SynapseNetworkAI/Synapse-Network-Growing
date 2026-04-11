@@ -110,4 +110,14 @@ describe('OptimizationSignals', () => {
       expect(mockApi.createRequirementFromSignal).toHaveBeenCalledWith(1, {})
     })
   })
+
+  it('shows an error state when the backend request times out', async () => {
+    mockApi.getOptimizationSignals.mockRejectedValueOnce(new Error('Request timed out after 12s'))
+
+    render(<MemoryRouter><OptimizationSignals /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('optimization-signals-error')).toHaveTextContent('Request timed out after 12s')
+    })
+  })
 })

@@ -1,12 +1,14 @@
 """Optimization signals API."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.database import get_db
+from server.logging_utils import timed_operation
 from server.schemas import (
     OptimizationSignalAutoIntakeRequest,
     OptimizationSignalAutoIntakeResultOut,
@@ -34,6 +36,7 @@ from server.services.workflow_orchestrator import create_requirement
 
 
 router = APIRouter(prefix="/api/optimization-signals", tags=["optimization-signals"])
+logger = logging.getLogger("ops-dashboard.optimization_signals_api")
 
 
 @router.get("/templates", response_model=list[OptimizationRequirementTemplateOut])
@@ -47,17 +50,22 @@ def list_optimization_signals_endpoint(
     refresh: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    rows = refresh_optimization_signals(db) if refresh else list_optimization_signals(db, status=status)
-    if status:
-        rows = [row for row in rows if row.status == status]
-    project_map = _project_map(db)
-    return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in rows]
+    with timed_operation(logger, "optimization_signals_list", status_filter=status or "all", refresh=refresh, slow_ms=1000) as op:
+        rows = refresh_optimization_signals(db) if refresh else list_optimization_signals(db, status=status)
+        if status:
+            rows = [row for row in rows if row.status == status]
+        project_map = _project_map(db)
+        op["count"] = len(rows)
+        return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in rows]
 
 
 @router.post("/refresh", response_model=list[OptimizationSignalOut])
 def refresh_optimization_signals_endpoint(db: Session = Depends(get_db)):
-    project_map = _project_map(db)
-    return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in refresh_optimization_signals(db)]
+    with timed_operation(logger, "optimization_signals_refresh_endpoint", slow_ms=1000) as op:
+        project_map = _project_map(db)
+        rows = refresh_optimization_signals(db)
+        op["count"] = len(rows)
+        return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in rows]
 
 
 @router.post("/auto-intake", response_model=OptimizationSignalAutoIntakeResultOut)

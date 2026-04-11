@@ -1,3 +1,39 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --ops-bg: #eef2f7;
+  --ops-surface: rgba(255, 255, 255, 0.72);
+  --ops-panel: rgba(255, 255, 255, 0.9);
+  --ops-text: #0f172a;
+  --ops-muted: #64748b;
+  --ops-border: rgba(255, 255, 255, 0.82);
+  --ops-accent: #4061ff;
+  --ops-accent-2: #20c997;
+  --ops-nav: rgba(10, 18, 36, 0.92);
+}
+
+html {
+  background: var(--ops-bg);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(64, 97, 255, 0.16), transparent 25%),
+    linear-gradient(180deg, #f6f8fc 0%, #eef2f7 100%);
+  color: var(--ops-text);
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(64, 97, 255, 0.18);
+}

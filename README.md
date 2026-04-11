@@ -28,6 +28,18 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 - **编排与优化层**: `Synapse-Network-Growing`
   负责需求池、Agent 组织、执行编排、跨项目协同、优化闭环与可视化控制面。
 
+## 🧭 系统设计原则
+
+后续设计与实现必须遵守 [系统设计原则](docs/design-docs/system-design-principles.md)。
+
+当前最重要的硬约束是：
+
+1. 把模型当不稳定部件，不当同事。
+2. 错误路径按主路径设计，不能依赖无限重试。
+3. verification 必须独立于 implementation。
+4. 多代理的重点是隔离不确定性，不是堆 worker 数量。
+5. runtime / subagent 必须有生命周期、cleanup、abort 传播与可追踪 transcript。
+
 ## 🏢 AI 时代公司架构映射
 
 围绕 AI-native company 的五层模型，这个仓库当前承担的是下面几层能力：
@@ -135,11 +147,13 @@ agent-browser open http://127.0.0.1:9700/tasks
 ## Key Docs
 
 1. `docs/phase2-plan.md` - Phase 2 dashboard implementation baseline
-2. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
-3. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
-4. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
-5. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
-6. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
+2. `docs/ops-console-usage.md` - 控制台页面用途、后端接口映射与 `/requirements` 空白排查
+3. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
+4. `docs/design-docs/company-ops-latest-architecture.md` - 最新模块交互、signal 来源、日志与数据库策略
+5. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
+6. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
+7. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
+8. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

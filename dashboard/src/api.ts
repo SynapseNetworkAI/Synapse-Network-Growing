@@ -1,14 +1,30 @@
 const BASE = '/api'
+const REQUEST_TIMEOUT_MS = 12000
 
 export interface ApiError extends Error {
   detail?: unknown
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      const timeoutError = new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`) as ApiError
+      timeoutError.detail = { message: 'request_timeout', timeout_ms: REQUEST_TIMEOUT_MS }
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     const detail = body.detail
@@ -762,10 +778,11 @@ export const api = {
     request<RequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
   // Requirements
-  getRequirements: (status?: string, sort?: string) => {
+  getRequirements: (status?: string, sort?: string, search?: string) => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
     if (sort) params.set('sort', sort)
+    if (search) params.set('search', search)
     const q = params.toString() ? `?${params.toString()}` : ''
     return request<Requirement[]>(`/requirements${q}`)
   },

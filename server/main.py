@@ -1,5 +1,7 @@
 """FastAPI main application for Agentic Ops Dashboard."""
 import logging
+import time
+import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,26 +9,36 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
+from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review
 from server.services.org_builder import build_org_tree
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
-# ── Logging ───────────────────────────────────────────────────
-logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
+setup_ops_logging(
+    log_level=config.LOG_LEVEL,
+    log_dir=config.LOG_DIR,
+    log_file=config.LOG_FILE,
+    max_bytes=config.LOG_MAX_BYTES,
+    backup_count=config.LOG_BACKUP_COUNT,
 )
 logger = logging.getLogger("ops-dashboard")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting Ops Dashboard (env=%s, port=%s)", config.ENV, config.PORT)
+    log_event(
+        logger,
+        "service_starting",
+        env=config.ENV,
+        port=config.PORT,
+        db_path=config.DB_PATH,
+        orchestration_backend=config.ORCHESTRATION_BACKEND,
+        log_file=f"{config.LOG_DIR}/{config.LOG_FILE}",
+    )
     init_db()
-    logger.info("Database initialized")
+    log_event(logger, "database_initialized", db_path=config.DB_PATH)
     monitor = None
     if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
@@ -41,7 +53,7 @@ async def lifespan(app: FastAPI):
     finally:
         if monitor is not None:
             monitor.stop()
-        logger.info("Shutting down")
+        log_event(logger, "service_stopped")
 
 
 app = FastAPI(title="Synapse Agentic Ops Dashboard", version="0.1.0", lifespan=lifespan)
@@ -68,9 +80,40 @@ app.include_router(company_review.router)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.debug("%s %s", request.method, request.url.path)
-    response = await call_next(request)
-    logger.debug("%s %s → %s", request.method, request.url.path, response.status_code)
+    request_id = uuid.uuid4().hex[:12]
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        log_event(
+            logger,
+            "http_request",
+            level=logging.ERROR,
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            query=str(request.url.query or ""),
+            status=500,
+            duration_ms=duration_ms,
+            error_type=exc.__class__.__name__,
+            error=str(exc),
+        )
+        raise
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    level = logging.WARNING if duration_ms >= 2000 else logging.INFO
+    log_event(
+        logger,
+        "http_request",
+        level=level,
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        query=str(request.url.query or ""),
+        status=response.status_code,
+        duration_ms=duration_ms,
+    )
+    response.headers["X-Request-ID"] = request_id
     return response
 
 

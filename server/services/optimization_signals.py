@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,8 @@ from server.schemas import RequirementCreate
 from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.project_intelligence import build_project_catalog
 from server.services.workflow_orchestrator import create_requirement
+
+logger = logging.getLogger("ops-dashboard.optimization_signals")
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -539,19 +542,36 @@ def optimization_signal_to_dict(
 def refresh_optimization_signals(db: Session) -> list[OptimizationSignalRow]:
     project_map = _project_map(db)
     seen_keys: set[str] = set()
-    for payload in (
-        _summarize_bug_signals(db, project_map)
-        + _summarize_delivery_blockers(db, project_map)
-        + _summarize_manual_overrides(db, project_map)
-    ):
+    sources = {
+        "bug_reports": 0,
+        "delivery_blockers": 0,
+        "manual_overrides": 0,
+    }
+    bug_signals = _summarize_bug_signals(db, project_map)
+    delivery_signals = _summarize_delivery_blockers(db, project_map)
+    manual_override_signals = _summarize_manual_overrides(db, project_map)
+    sources["bug_reports"] = len(bug_signals)
+    sources["delivery_blockers"] = len(delivery_signals)
+    sources["manual_overrides"] = len(manual_override_signals)
+    for payload in bug_signals + delivery_signals + manual_override_signals:
         seen_keys.add(str(payload["dedupe_key"]))
         _upsert_signal(db, payload)
 
+    resolved = 0
     for row in db.query(OptimizationSignalRow).all():
         if row.dedupe_key in seen_keys or row.status in {"converted", "dismissed"}:
             continue
         row.status = "resolved"
+        resolved += 1
     db.commit()
+    logger.info(
+        "event=optimization_signals_refresh bug_reports=%s delivery_blockers=%s manual_overrides=%s active=%s resolved=%s",
+        sources["bug_reports"],
+        sources["delivery_blockers"],
+        sources["manual_overrides"],
+        len(seen_keys),
+        resolved,
+    )
     return list_optimization_signals(db)
 
 
@@ -627,6 +647,14 @@ def create_requirement_from_signal(
     row.converted_requirement_id = int(detail.requirement.id)
     db.commit()
     db.refresh(row)
+    logger.info(
+        "event=optimization_signal_converted signal_id=%s signal_type=%s requirement_id=%s project_key=%s priority=%s",
+        row.id,
+        row.signal_type,
+        row.converted_requirement_id,
+        row.project_key or "org-ops",
+        priority,
+    )
     return row, detail
 
 
@@ -677,6 +705,14 @@ def auto_intake_optimization_signals(
         if len(created) >= limit:
             break
 
+    logger.info(
+        "event=optimization_signal_auto_intake created=%s skipped=%s min_score=%s max_created=%s compare_with_requirement_score=%s",
+        len(created),
+        len(skipped),
+        round(min_score, 2),
+        limit,
+        compare_with_requirement_score,
+    )
     return {
         "created": created,
         "skipped": skipped,

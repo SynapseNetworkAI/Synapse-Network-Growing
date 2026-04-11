@@ -229,12 +229,16 @@ class CopilotSDKTaskMonitor:
         # mid-tool-execution), the stored conversation is permanently broken.
         # Clear the singleton role-session cache so the next dispatch starts a
         # fresh session instead of trying to resume the corrupted one.
-        if "tool_use" in error_message and "tool_result" in error_message:
+        if (
+            ("tool_use" in error_message and "tool_result" in error_message)
+            or "session not found" in error_message.lower()
+            or "session.resume failed" in error_message.lower()
+        ):
             runtime = get_copilot_sdk_runtime()
             if runtime is not None:
                 runtime.clear_role_sessions()
                 logger.warning(
-                    "Cleared role sessions after tool_use/tool_result mismatch on task #%d",
+                    "Cleared role sessions after unrecoverable Copilot SDK failure on task #%d",
                     _task_id(task),
                 )
 

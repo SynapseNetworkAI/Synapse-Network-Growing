@@ -40,6 +40,10 @@ PORT = int(os.environ.get("OPS_PORT", "9600"))
 WORKERS = int(os.environ.get("OPS_WORKERS", "1" if ENV == "local" else "4"))
 LOG_LEVEL = os.environ.get("OPS_LOG_LEVEL", "debug" if ENV == "local" else "info")
 RELOAD = ENV == "local"
+LOG_DIR = os.environ.get("OPS_LOG_DIR", str(PROJECT_ROOT / "server" / "logs"))
+LOG_FILE = os.environ.get("OPS_LOG_FILE", "ops-dashboard.log")
+LOG_MAX_BYTES = int(os.environ.get("OPS_LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.environ.get("OPS_LOG_BACKUP_COUNT", "5"))
 
 # ── Database ──────────────────────────────────────────────────
 DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))

@@ -75,6 +75,7 @@ export default function RequirementPool() {
   const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [sortMode, setSortMode] = useState('score')
+  const [searchQuery, setSearchQuery] = useState('')
   const [actioningRequirementId, setActioningRequirementId] = useState<number | null>(null)
   const [editingRequirement, setEditingRequirement] = useState<{
     id: number
@@ -103,10 +104,14 @@ export default function RequirementPool() {
   })
 
   const loadRequirements = useCallback(async () => {
-    const data = await api.getRequirements(statusFilter || undefined, sortMode === 'score' ? 'score' : undefined)
+    const data = await api.getRequirements(
+      statusFilter || undefined,
+      sortMode === 'score' ? 'score' : undefined,
+      searchQuery.trim() || undefined,
+    )
     setRequirements(sortRequirements(data, sortMode))
     setPage(1)
-  }, [sortMode, statusFilter])
+  }, [searchQuery, sortMode, statusFilter])
 
   const loadScheduler = useCallback(async () => {
     const data = await api.getRequirementScheduler()
@@ -275,6 +280,13 @@ export default function RequirementPool() {
             <option value="score">智能排序</option>
             <option value="updated">最近更新</option>
           </select>
+          <input
+            data-testid="requirement-search"
+            className="w-52 px-3 py-2 text-sm border rounded"
+            placeholder="搜索需求 / 项目 / ID"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
           <button
             data-testid="create-requirement-btn"
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
@@ -544,7 +556,9 @@ export default function RequirementPool() {
         })()}
         {requirements.length === 0 && (
           <div data-testid="requirements-empty" className="p-6 text-sm text-gray-500 bg-white border border-dashed rounded-xl">
-            还没有 requirement。先创建一条需求，再规划和启动 workflow。
+            {searchQuery.trim()
+              ? `没有匹配“${searchQuery.trim()}”的 requirement。`
+              : '还没有 requirement。先创建一条需求，再规划和启动 workflow。'}
           </div>
         )}
         {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {

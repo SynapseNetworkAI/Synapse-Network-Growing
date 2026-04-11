@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
 from server.database import AgentRow, TaskRow
+from server.services.copilot_sdk_state import seconds_since_timestamp
 from server.services.task_runtime import TaskExecutionResult
 
 
@@ -64,6 +65,12 @@ def test_create_task_invalid_priority(synced_client):
         "priority": "ultra",
     })
     assert resp.status_code == 400
+
+
+def test_seconds_since_timestamp_accepts_naive_iso_datetime():
+    age = seconds_since_timestamp("2026-04-11T22:57:25.123456")
+    assert age is not None
+    assert age >= 0
 
 
 def test_suggest_execution_returns_best_agent_and_skill(synced_client):
@@ -621,3 +628,47 @@ def test_copilot_monitor_resumes_stale_task(synced_client, db_session, tmp_path)
     assert resumed_payload["action"] == "resume"
     assert resumed_payload["sessionId"] == "session-stale-789"
     assert resumed_payload["assumeAlreadyIdle"] is True
+
+
+def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client, db_session, tmp_path):
+    import json
+
+    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Fail detached task",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).runtime_backend = "copilot_sdk"
+    cast(Any, row).runtime_session_id = "role-seo_strategist-1775919011484-1"
+    db_session.commit()
+
+    output_dir = task_output_dir(tmp_path, "content_writer", task_id)
+    paths = copilot_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["state"].write_text(json.dumps({
+        "sessionId": "role-seo_strategist-1775919011484-1",
+        "status": "failed",
+        "error": (
+            "Request session.resume failed with message: "
+            "Session not found: role-seo_strategist-1775919011484-1"
+        ),
+    }), encoding="utf-8")
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    runtime = MagicMock()
+    monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    with patch("server.services.copilot_sdk_monitor.get_copilot_sdk_runtime", return_value=runtime):
+        monitor.poll_once()
+
+    runtime.clear_role_sessions.assert_called_once()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "failed"

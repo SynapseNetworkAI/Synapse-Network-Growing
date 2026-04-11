@@ -102,6 +102,8 @@ def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | N
 
 @dataclass(frozen=True)
 class WorkflowRoleAssignments:
+    researcher_agent_id: str
+    synthesizer_agent_id: str
     implementer_agent_id: str
     reviewer_agent_id: str
     tester_agent_id: str
@@ -167,6 +169,68 @@ def _project_file_scope(target_project_path: str | None, *, write: bool = True) 
 def _review_file_scope(target_project_path: str | None) -> dict:
     """Reviewers/testers can read the project but only write to roles/docs."""
     return _project_file_scope(target_project_path, write=False)
+
+
+def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
+    project_note = f"\nTarget project: {target_path}" if target_path else ""
+    return [
+        {
+            "step_key": "research",
+            "step_type": "research",
+            "title": f"Research requirement context: {requirement.title}",
+            "assigned_role": "researcher",
+            "depends_on": [],
+            "required_artifacts": [
+                {"artifact_type": "requirement_snapshot", "purpose": "primary_spec", "required": True},
+                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
+            ],
+            "file_scope": _review_file_scope(target_path),
+            "expected_outputs": [
+                {"artifact_type": "research_report", "description": "Research findings, constraints, existing code paths, and risks."},
+            ],
+            "validation_targets": [],
+            "done_when_markdown": (
+                "Research output identifies relevant code paths, project constraints, likely risks, and concrete implementation options. "
+                "Do not modify production code in this step."
+                f"{project_note}"
+            ),
+            "failure_policy": {"on_failure": "requirement_revision", "max_retries": 0},
+        },
+        {
+            "step_key": "synthesis",
+            "step_type": "synthesis",
+            "title": f"Synthesize execution plan: {requirement.title}",
+            "assigned_role": "synthesizer",
+            "depends_on": ["research"],
+            "required_artifacts": [
+                {"artifact_type": "research_report", "purpose": "research_context", "required": True},
+                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
+            ],
+            "file_scope": _review_file_scope(target_path),
+            "expected_outputs": [
+                {"artifact_type": "synthesis_report", "description": "Execution strategy, change plan, and verification outline."},
+            ],
+            "validation_targets": [],
+            "done_when_markdown": (
+                "Synthesis output turns research findings into a concrete execution plan with files, sequencing, and verification intent. "
+                "Do not modify production code in this step."
+                f"{project_note}"
+            ),
+            "failure_policy": {"on_failure": "requirement_revision", "max_retries": 0},
+        },
+    ]
+
+
+def _prepend_context_steps(workflow_steps: list[dict[str, Any]], requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
+    context_steps = _build_research_and_synthesis_steps(requirement, target_path)
+    for step in workflow_steps:
+        key = str(step.get("step_key") or "")
+        if key in {"research", "synthesis"}:
+            continue
+        depends_on = list(step.get("depends_on") or [])
+        if not depends_on:
+            step["depends_on"] = ["synthesis"]
+    return context_steps + workflow_steps
 
 
 def _scope_to_file_scope(scope: str, target_path: str | None) -> dict:
@@ -385,14 +449,22 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     suggestion = suggest_task_execution(db=db, description=description)
     implementer_agent_id = suggestion.agent_id or _first_agent_id(db)
+    researcher_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "seo_strategist", "growth_lead"])
+    synthesizer_agent_id = _pick_agent_id(
+        db,
+        exclude={implementer_agent_id, researcher_agent_id},
+        preferred=["growth_lead", "dev_rel", "launch_strategist"],
+    )
     reviewer_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "growth_lead"])
     tester_agent_id = _pick_agent_id(
         db,
-        exclude={implementer_agent_id, reviewer_agent_id},
+        exclude={implementer_agent_id, reviewer_agent_id, researcher_agent_id, synthesizer_agent_id},
         preferred=["cro_optimizer", "seo_strategist", "dev_rel"],
     )
 
     assignments = WorkflowRoleAssignments(
+        researcher_agent_id=researcher_agent_id,
+        synthesizer_agent_id=synthesizer_agent_id,
         implementer_agent_id=implementer_agent_id,
         reviewer_agent_id=reviewer_agent_id,
         tester_agent_id=tester_agent_id,
@@ -419,10 +491,13 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "test_impl": phases.test_impl,
         }
 
+    # Introduce explicit research + synthesis before implementation begins.
+    workflow_steps = _prepend_context_steps(impl_steps, requirement, target_path)
+
     # The last implementation step key — review depends on it
     last_impl_key = impl_keys[-1] if impl_keys else "implementation"
 
-    workflow_steps = impl_steps + [
+    workflow_steps = workflow_steps + [
         {
             "step_key": "review",
             "step_type": "review",
@@ -542,7 +617,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     ]
 
     planner_output = {
-        "schema_version": "1.5",
+        "schema_version": "1.6",
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
@@ -558,15 +633,16 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "requirement_template": template_payload,
         "detected_phases": detected_phases_dict,
         "acceptance_checks": acceptance_checks,
-        "required_roles": ["implementer", "reviewer", "tester"],
-        "known_risks_markdown": "- Requirement may need iterative bugfix if validation fails.\n- File scope is constrained by target_project_path and project policy.\n- Queue priority now considers project readiness, bug pressure, and delivery friction.",
+        "required_roles": ["researcher", "synthesizer", "implementer", "reviewer", "tester"],
+        "known_risks_markdown": "- Requirement may need iterative bugfix if validation fails.\n- File scope is constrained by target_project_path and project policy.\n- Queue priority now considers project readiness, bug pressure, and delivery friction.\n- Research and synthesis must isolate uncertainty before implementation starts.",
         "open_questions_markdown": "- No open questions generated by smart planner.",
         "global_constraints_markdown": "- Keep changes minimal and traceable.\n- Persist all key outputs as artifacts.",
         "workflow_steps": workflow_steps,
         "delivery_contract": delivery_contract,
         "validation_plan": {
             "summary_markdown": (
-                "Reviewer owns the manual review gate, tester owns automated validation and closeout, "
+                "Researcher explores current state, synthesizer compresses that into an execution plan, "
+                "reviewer owns the manual review gate, tester owns automated validation and closeout, "
                 "and implementer owns bugfix execution when any verification fails."
             ),
             "closeout_owner_role": "tester",
@@ -584,10 +660,12 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         },
         "extensions": {
             "planning_mode": planning_mode,
-            "role_assignments": {
-                "implementer_agent_id": implementer_agent_id,
-                "reviewer_agent_id": reviewer_agent_id,
-                "tester_agent_id": tester_agent_id,
+                "role_assignments": {
+                    "researcher_agent_id": researcher_agent_id,
+                    "synthesizer_agent_id": synthesizer_agent_id,
+                    "implementer_agent_id": implementer_agent_id,
+                    "reviewer_agent_id": reviewer_agent_id,
+                    "tester_agent_id": tester_agent_id,
             }
         },
     }

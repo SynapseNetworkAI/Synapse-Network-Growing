@@ -222,7 +222,8 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
-        # Should have design, frontend_impl, backend_impl, test_impl + review + test + closeout
+        # Should have research, synthesis, implementation sub-steps + review + test + closeout
+        assert step_keys[:2] == ["research", "synthesis"]
         assert "design" in step_keys
         assert "frontend_impl" in step_keys
         assert "backend_impl" in step_keys
@@ -233,7 +234,7 @@ class TestBuildPlannerOutput:
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.5"
+        assert output["schema_version"] == "1.6"
         assert output["detected_phases"]["design"] is True
         assert output["project_intelligence"]["routing_mode"] == "explicit"
         assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
@@ -245,10 +246,14 @@ class TestBuildPlannerOutput:
         assert output["delivery_contract"]["branch_name"].startswith(f"ops/req-{req.id}-")
         assert output["delivery_contract"]["release_mode"] == "manual"
         assert output["delivery_contract"]["required_checks"]
+        assert output["extensions"]["role_assignments"]["researcher_agent_id"]
+        assert output["extensions"]["role_assignments"]["synthesizer_agent_id"]
 
         # Review should depend on the last impl step (test_impl)
         review_step = next(s for s in output["workflow_steps"] if s["step_key"] == "review")
         assert review_step["depends_on"] == ["test_impl"]
+        first_impl = next(s for s in output["workflow_steps"] if s["step_key"] == "design")
+        assert first_impl["depends_on"] == ["synthesis"]
 
     def test_plan_without_target_project_path(self, synced_client, db_session):
         req = RequirementRow(
@@ -263,7 +268,8 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
-        # Should fall back to single implementation step
+        # Should fall back to research + synthesis + single implementation step
+        assert step_keys[:3] == ["research", "synthesis", "implementation"]
         assert "implementation" in step_keys
         assert "design" not in step_keys
         assert output["target_project_path"] is None
@@ -282,7 +288,7 @@ class TestBuildPlannerOutput:
             output, _ = build_planner_output(db_session, req)
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
-        assert step_keys == ["frontend_impl", "backend_impl", "review", "test", "closeout"]
+        assert step_keys == ["research", "synthesis", "frontend_impl", "backend_impl", "review", "test", "closeout"]
 
     def test_policy_augments_file_scope(self, synced_client, db_session):
         db_session.add(
@@ -414,7 +420,8 @@ class TestRequirementApiWithProjectPath:
         steps = plan_resp.json()["workflow_run"]["steps"]
         step_keys = [s["step_key"] for s in steps]
 
-        # All implementation sub-steps + review + test + closeout
+        # All context + implementation sub-steps + review + test + closeout
+        assert step_keys[:2] == ["research", "synthesis"]
         assert "design" in step_keys
         assert "frontend_impl" in step_keys
         assert "backend_impl" in step_keys
@@ -449,3 +456,5 @@ class TestRequirementApiWithProjectPath:
         impl_steps = [s for s in steps if s["step_type"] == "implementation"]
         assert len(impl_steps) == 1
         assert impl_steps[0]["step_key"] == "implementation"
+        all_step_keys = [s["step_key"] for s in steps]
+        assert all_step_keys[:3] == ["research", "synthesis", "implementation"]
