@@ -514,6 +514,66 @@ export interface OrgTree {
   root: OrgNode
 }
 
+export interface OperatingReviewPortfolioSummary {
+  active_requirements: number
+  open_signals: number
+  approval_required_decisions: number
+  rebalance_opportunities: number
+  projects_over_budget: number
+  blocked_publish_projects: number
+}
+
+export interface OperatingReviewProjectHighlight {
+  project_key: string
+  display_name: string
+  readiness_status: string
+  readiness_score: number
+  active_count: number
+  queued_count: number
+  bug_report_count: number
+  blocked_publish_count: number
+  scheduler_weight: number
+  autonomy_mode: string
+  budget_used: number
+  budget_remaining: number
+}
+
+export interface OperatingReviewItem {
+  item_key: string
+  title: string
+  severity: string
+  summary: string
+  project_key?: string | null
+  recommendation?: string | null
+}
+
+export interface OperatingReviewRecommendation {
+  candidate_type: string
+  title: string
+  project_key: string
+  project_display_name: string
+  action: string
+  score: number
+  budget_cost: number
+  source_ref?: string | null
+  rationale: string
+}
+
+export interface CompanyOperatingReview {
+  id: number
+  cycle_label: string
+  title: string
+  summary_markdown: string
+  portfolio_summary: OperatingReviewPortfolioSummary
+  project_highlights: OperatingReviewProjectHighlight[]
+  bottlenecks: OperatingReviewItem[]
+  incidents: OperatingReviewItem[]
+  next_cycle_recommendations: OperatingReviewRecommendation[]
+  source_snapshot: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
 // API functions
 export const api = {
   // Agents
@@ -523,6 +583,8 @@ export const api = {
 
   // Org tree
   getOrgTree: () => request<OrgTree>('/org'),
+  getCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review'),
+  refreshCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review/refresh', { method: 'POST' }),
 
   // Tasks
   getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean; search?: string; page?: number; page_size?: number }) => {

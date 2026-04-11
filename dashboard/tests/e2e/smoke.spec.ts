@@ -329,6 +329,75 @@ const orgTree = {
   },
 }
 
+const companyReview = {
+  id: 11,
+  cycle_label: '2026-W15',
+  title: 'Company Operating Review',
+  summary_markdown: 'Cycle focus: release blockers.\n\nRecommended next move: SDK critical release blocker.',
+  portfolio_summary: {
+    active_requirements: 2,
+    open_signals: 3,
+    approval_required_decisions: 1,
+    rebalance_opportunities: 1,
+    projects_over_budget: 0,
+    blocked_publish_projects: 1,
+  },
+  project_highlights: [
+    {
+      project_key: 'synapse-network-sdk',
+      display_name: 'Synapse-Network-Sdk',
+      readiness_status: 'ready',
+      readiness_score: 100,
+      active_count: 0,
+      queued_count: 2,
+      bug_report_count: 1,
+      blocked_publish_count: 1,
+      scheduler_weight: 1.1,
+      autonomy_mode: 'execute_autonomously',
+      budget_used: 24,
+      budget_remaining: 71,
+    },
+  ],
+  bottlenecks: [
+    {
+      item_key: 'blocked-publish:synapse-network-sdk',
+      title: 'Synapse-Network-Sdk publish gate is blocked',
+      severity: 'high',
+      summary: 'One publish blocker remains open.',
+      project_key: 'synapse-network-sdk',
+      recommendation: 'Prioritize release blocker cleanup.',
+    },
+  ],
+  incidents: [
+    {
+      item_key: 'signal:7',
+      title: 'SDK critical release blocker',
+      severity: 'high',
+      summary: 'The SDK release is blocked by failing checks.',
+      project_key: 'synapse-network-sdk',
+      recommendation: 'Convert to a release bottleneck requirement.',
+    },
+  ],
+  next_cycle_recommendations: [
+    {
+      candidate_type: 'signal',
+      title: 'SDK critical release blocker',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      action: 'intake',
+      score: 88,
+      budget_cost: 26,
+      source_ref: 'signal:7',
+      rationale: 'Top-ranked release bottleneck across the portfolio.',
+    },
+  ],
+  source_snapshot: {
+    scheduler_generated_at: '2026-04-11T13:00:00Z',
+  },
+  created_at: '2026-04-11T13:00:00Z',
+  updated_at: '2026-04-11T13:05:00Z',
+}
+
 test.beforeEach(async ({ page }) => {
   let nextTaskId = 30
   let tasks: Task[] = [completedTask, failedTask]
@@ -841,6 +910,8 @@ test.beforeEach(async ({ page }) => {
 
     if (method === 'GET' && path === '/api/org') return json(route, orgTree)
     if (method === 'GET' && path === '/api/dashboard/stats') return json(route, buildStats())
+    if (method === 'GET' && path === '/api/company-review') return json(route, companyReview)
+    if (method === 'POST' && path === '/api/company-review/refresh') return json(route, companyReview)
     if (method === 'GET' && path === '/api/agents') return json(route, agents)
     if (method === 'POST' && path === '/api/agents/sync') return json(route, agents)
     if (method === 'GET' && path === '/api/skills') return json(route, skills)

@@ -187,6 +187,66 @@ class DashboardStats(BaseModel):
     approval_pending: int
 
 
+class OperatingReviewPortfolioSummaryOut(BaseModel):
+    active_requirements: int = 0
+    open_signals: int = 0
+    approval_required_decisions: int = 0
+    rebalance_opportunities: int = 0
+    projects_over_budget: int = 0
+    blocked_publish_projects: int = 0
+
+
+class OperatingReviewProjectHighlightOut(BaseModel):
+    project_key: str
+    display_name: str
+    readiness_status: str
+    readiness_score: int
+    active_count: int = 0
+    queued_count: int = 0
+    bug_report_count: int = 0
+    blocked_publish_count: int = 0
+    scheduler_weight: float = 1.0
+    autonomy_mode: str = "recommend"
+    budget_used: int = 0
+    budget_remaining: int = 0
+
+
+class OperatingReviewItemOut(BaseModel):
+    item_key: str
+    title: str
+    severity: str = "medium"
+    summary: str
+    project_key: Optional[str] = None
+    recommendation: Optional[str] = None
+
+
+class OperatingReviewRecommendationOut(BaseModel):
+    candidate_type: str
+    title: str
+    project_key: str
+    project_display_name: str
+    action: str
+    score: float = 0.0
+    budget_cost: int = 0
+    source_ref: Optional[str] = None
+    rationale: str
+
+
+class CompanyOperatingReviewOut(BaseModel):
+    id: int
+    cycle_label: str
+    title: str
+    summary_markdown: str
+    portfolio_summary: OperatingReviewPortfolioSummaryOut
+    project_highlights: list[OperatingReviewProjectHighlightOut] = []
+    bottlenecks: list[OperatingReviewItemOut] = []
+    incidents: list[OperatingReviewItemOut] = []
+    next_cycle_recommendations: list[OperatingReviewRecommendationOut] = []
+    source_snapshot: dict[str, object] = {}
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class ProjectPolicyCreate(BaseModel):
     project_key: str
     display_name: str

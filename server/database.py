@@ -246,6 +246,22 @@ class OptimizationSignalRow(Base):
     converted_requirement = relationship("RequirementRow")
 
 
+class CompanyOperatingReviewRow(Base):
+    __tablename__ = "company_operating_reviews"
+    __table_args__ = (
+        Index("company_operating_reviews_cycle_idx", "cycle_label"),
+        Index("company_operating_reviews_created_idx", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cycle_label = Column(Text, nullable=False)
+    title = Column(Text, nullable=False, default="Company Operating Review")
+    summary_markdown = Column(Text, nullable=False, default="")
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -486,6 +502,9 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE project_policies ADD COLUMN {col} {col_type}"))
                     conn.commit()
+
+    if "company_operating_reviews" not in tables:
+        logger.info("Migrating: company_operating_reviews table will be created via metadata")
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}
