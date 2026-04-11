@@ -270,7 +270,7 @@ source: roles/dev_rel/contents/blog_mcp_budgeted_tool_use.md
 | Platform | URL | Status | Tags |
 |----------|-----|:------:|------|
 | **Substack** | {substack_url} | {status(substack_url)} | Engineering section |
-| **Dev.to** | {devto_url} | {status(devto_url)} | #ai #machinelearning #python #web3 |
+| **Dev.to** | {devto_url} | {status(devto_url)} | #aiagents #mcp #web3 #developertools |
 | **Hashnode** | {hashnode_url} | {status(hashnode_url)} | #ai-agents #mcp #web3 #python #micropayments |
 
 ## Canonical URL
@@ -287,7 +287,7 @@ above to prevent duplicate content penalties.
 | Platform | Tags |
 |----------|------|
 | Substack | Engineering section (no hashtags on Substack) |
-| Dev.to | `ai`, `machinelearning`, `python`, `web3` |
+| Dev.to | `aiagents`, `mcp`, `web3`, `developertools` |
 | Hashnode | `ai-agents`, `mcp`, `web3`, `python`, `micropayments` |
 
 ## Cover Image
