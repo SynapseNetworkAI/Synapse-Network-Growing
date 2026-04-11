@@ -234,7 +234,7 @@ class TestBuildPlannerOutput:
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.6"
+        assert output["schema_version"] == "1.7"
         assert output["detected_phases"]["design"] is True
         assert output["project_intelligence"]["routing_mode"] == "explicit"
         assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
@@ -249,6 +249,7 @@ class TestBuildPlannerOutput:
         assert output["delivery_contract"]["required_capabilities"] == ["git_push", "publish"]
         assert output["delivery_contract"]["auto_publish_allowed"] is False
         assert output["execution_controls"]["capability_matrix"]["shell_access"] is True
+        assert output["context_governance"]["default_limits"]["block_on_stale_memory"] is True
         assert output["extensions"]["role_assignments"]["researcher_agent_id"]
         assert output["extensions"]["role_assignments"]["synthesizer_agent_id"]
 
@@ -259,6 +260,8 @@ class TestBuildPlannerOutput:
         assert first_impl["depends_on"] == ["synthesis"]
         assert first_impl["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
         assert first_impl["approval_policy"]["deny_execution"] is False
+        assert first_impl["context_policy"]["max_prompt_chars"] >= 12000
+        assert first_impl["context_policy"]["block_on_stale_memory"] is True
 
     def test_plan_without_target_project_path(self, synced_client, db_session):
         req = RequirementRow(

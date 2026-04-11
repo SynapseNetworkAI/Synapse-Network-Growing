@@ -8,7 +8,7 @@ import re
 import signal
 import subprocess
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -54,7 +54,13 @@ from server.schemas import (
     WorkflowStepOut,
 )
 from server.config import PROJECT_ROOT
-from server.services.copilot_sdk_state import copilot_runtime_paths, load_runtime_state, save_runtime_state, task_output_dir
+from server.services.copilot_sdk_state import (
+    copilot_runtime_paths,
+    load_runtime_state,
+    parse_runtime_timestamp,
+    save_runtime_state,
+    task_output_dir,
+)
 from server.services.execution_resolver import suggest_task_execution
 from server.services.project_policy import project_policy_summary_markdown, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
@@ -1285,6 +1291,52 @@ def _interrupt_step_for_policy(
     return True
 
 
+def _interrupt_step_for_stale_context(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    context_snapshot: dict[str, Any],
+) -> bool:
+    context_policy = dict(context_snapshot.get("context_policy") or {})
+    if not bool(context_policy.get("block_on_stale_memory", True)):
+        return False
+    if str(context_snapshot.get("verification_status") or "fresh") == "fresh":
+        return False
+
+    reason = "; ".join(str(item) for item in context_snapshot.get("stale_findings") or [] if str(item).strip()) or "stale memory verification failed"
+    existing = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.step_id == step.id,
+        ApprovalRequestRow.approval_type == "stale_memory_review",
+        ApprovalRequestRow.status == "pending",
+    ).first()
+    if existing is None:
+        db.add(
+            ApprovalRequestRow(
+                requirement_id=requirement.id,
+                workflow_run_id=workflow_run.id,
+                step_id=step.id,
+                approval_type="stale_memory_review",
+                status="pending",
+                reviewer="operator",
+                comment=reason,
+            )
+        )
+    step.status = "blocked"
+    workflow_run.status = "paused"
+    requirement.status = "blocked"
+    _record_step_event(db, step.id, "stale_memory_blocked", reason)
+    _logger.warning(
+        "event=stale_memory_blocked requirement_id=%s workflow_run_id=%s step_id=%s reason=%s",
+        requirement.id,
+        workflow_run.id,
+        step.id,
+        reason,
+    )
+    return True
+
+
 def _dispatch_next_step_for_requirement(requirement_id: int):
     db = SessionLocal()
     try:
@@ -1322,6 +1374,10 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
         for step in steps:
             if step.status != "ready":
                 continue
+            context_snapshot = _materialize_step_context(db, step)
+            if _interrupt_step_for_stale_context(db, requirement, workflow_run, step, context_snapshot):
+                db.commit()
+                return
             if _interrupt_step_for_policy(db, requirement, workflow_run, step):
                 db.commit()
                 return
@@ -1331,7 +1387,7 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
                 db.commit()
                 return
 
-            task, persona, skill_name = _prepare_step_task(db, step)
+            task, persona, skill_name = _prepare_step_task(db, step, prepared_description=str(context_snapshot.get("prompt") or ""))
             step.status = "running"
             step.started_at = step.started_at or utcnow()
             step.compatibility_task_id = _as_int(task.id)
@@ -1468,6 +1524,7 @@ def _create_workflow_steps(
             assigned_workflow_role=assigned_role,
             context_scope="verification" if str(step_packet.get("step_type")) in {"review", "test", "closeout"} else "step_private",
             done_when_markdown=str(step_packet.get("done_when_markdown") or ""),
+            context_policy_json=json.dumps(step_packet.get("context_policy") or {}),
             file_scope_json=json.dumps(step_packet.get("file_scope") or {}),
             validation_targets_json=json.dumps(step_packet.get("validation_targets") or []),
             failure_policy_json=json.dumps(step_packet.get("failure_policy") or {}),
@@ -1496,7 +1553,7 @@ def _create_step_dependencies(db: Session, steps_by_key: dict[str, WorkflowStepR
     db.flush()
 
 
-def _prepare_step_task(db: Session, step: WorkflowStepRow) -> tuple[TaskRow, dict, str]:
+def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_description: str | None = None) -> tuple[TaskRow, dict, str]:
     if step.compatibility_task_id:
         task = db.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
         if task is not None:
@@ -1509,7 +1566,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow) -> tuple[TaskRow, dic
         raise ValueError(f"Assigned agent '{step.assigned_agent_id}' not found for step {step.step_key}")
 
     project_id, agent_group = task_metadata_for_agent(str(agent.group))
-    description = _step_task_description(db, step)
+    description = prepared_description or _step_task_description(db, step)
     suggestion = suggest_task_execution(db, description=description, preferred_agent_id=str(agent.id))
     skill_name = suggestion.skill_name or "content-strategy"
     task = TaskRow(
@@ -1532,7 +1589,225 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow) -> tuple[TaskRow, dic
     return task, persona, skill_name
 
 
+def _truncate_text(value: str, limit: int) -> str:
+    text = str(value or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    head = max(0, limit - 80)
+    return text[:head].rstrip() + f"\n\n[truncated {len(text) - head} chars]"
+
+
+def _format_artifact_for_context(artifact: ArtifactRow) -> tuple[str, str]:
+    if artifact.artifact_type == "implementation_plan":
+        return "Implementation Plan", _plan_artifact_to_markdown(artifact)
+    if artifact.artifact_type == "delivery_contract":
+        return "Delivery Contract", _delivery_contract_artifact_to_markdown(artifact)
+    if artifact.artifact_type == "validation_plan":
+        return "Validation Contract", _validation_plan_artifact_to_markdown(artifact)
+    title = f"{artifact.artifact_type}: {artifact.content_summary or ''}".strip(": ").strip()
+    body = str(artifact.human_readable_body or artifact.content_summary or "").strip()
+    return title or artifact.artifact_type, body
+
+
+def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
+    requirement = _require_requirement(db, step.requirement_id)
+    target_path = _normalize_target_project_path(getattr(requirement, "target_project_path", None))
+    context_policy = _json_loads(getattr(step, "context_policy_json", None), {})
+    max_artifact_body_chars = int(context_policy.get("max_artifact_body_chars") or 2200)
+    max_handoff_chars = int(context_policy.get("max_handoff_chars") or 1200)
+
+    sections: list[dict[str, Any]] = [
+        {
+            "kind": "base",
+            "title": "Step",
+            "body": "\n".join([
+                f"[workflow_step:{step.step_type}] {step.title}",
+                f"Requirement #{requirement.id}: {requirement.title}",
+                str(requirement.description_markdown or "").strip(),
+            ]).strip(),
+        }
+    ]
+    if target_path:
+        project_lines = [f"Target project path: {target_path}"]
+        project_lines.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
+        project_policy_summary = project_policy_summary_markdown(db, target_path)
+        if project_policy_summary:
+            project_lines.append(project_policy_summary)
+        sections.append({"kind": "project", "title": "Project Context", "body": "\n".join(project_lines)})
+
+    approval_policy = _json_loads(getattr(step, "approval_policy_json", None), {})
+    capability_lines = _approval_policy_markdown_lines(approval_policy)
+    if capability_lines:
+        sections.append({"kind": "capability", "title": "Capability Contract", "body": "\n".join(capability_lines)})
+
+    sections.append({"kind": "done_when", "title": "Done When", "body": str(step.done_when_markdown or "").strip()})
+
+    deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
+    for dep in deps:
+        pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
+        if pred and pred.handoff_summary_markdown:
+            sections.append(
+                {
+                    "kind": "handoff",
+                    "title": f"Prior Step: {pred.title}",
+                    "body": _truncate_text(str(pred.handoff_summary_markdown), max_handoff_chars),
+                }
+            )
+
+    binding_summaries: list[dict[str, Any]] = []
+    bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
+    for binding in bindings:
+        artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
+        if not artifact:
+            continue
+        title, body = _format_artifact_for_context(artifact)
+        binding_summaries.append(
+            {
+                "artifact_id": _as_int(artifact.id),
+                "artifact_type": str(artifact.artifact_type),
+                "title": title,
+                "body": _truncate_text(body, max_artifact_body_chars),
+                "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+                "workflow_run_id": int(artifact.workflow_run_id) if artifact.workflow_run_id is not None else None,
+            }
+        )
+        sections.append({"kind": "artifact", "title": title, "body": _truncate_text(body, max_artifact_body_chars)})
+
+    raw_prompt = "\n\n".join(
+        f"## {section['title']}\n{section['body']}".strip()
+        for section in sections
+        if str(section.get("body") or "").strip()
+    ).strip()
+
+    max_prompt_chars = int(context_policy.get("max_prompt_chars") or 12000)
+    compact_after_chars = int(context_policy.get("compact_after_chars") or max_prompt_chars)
+    compacted = len(raw_prompt) > compact_after_chars
+    final_prompt = raw_prompt
+    if compacted:
+        compact_header = [
+            "## Context Compact Summary",
+            f"- Raw prompt chars: {len(raw_prompt)}",
+            f"- Compacted to stay under budget `{max_prompt_chars}`.",
+        ]
+        compact_sections: list[str] = []
+        for section in sections:
+            body = str(section.get("body") or "").strip()
+            if not body:
+                continue
+            compact_sections.append(f"### {section['title']}\n{_truncate_text(body, max(400, max_prompt_chars // max(1, len(sections) + 2)))}")
+        final_prompt = "\n\n".join(compact_header + compact_sections)
+        if len(final_prompt) > max_prompt_chars:
+            final_prompt = _truncate_text(final_prompt, max_prompt_chars)
+
+    stale_after_minutes = max(1, int(context_policy.get("stale_after_minutes") or 30))
+    cutoff = utcnow() - timedelta(minutes=stale_after_minutes)
+    stale_sensitive_types = {
+        str(item).strip()
+        for item in context_policy.get("stale_sensitive_artifact_types") or []
+        if str(item).strip()
+    }
+    stale_findings: list[str] = []
+    for binding in binding_summaries:
+        artifact_type = str(binding.get("artifact_type") or "")
+        created_at = parse_runtime_timestamp(str(binding.get("created_at") or ""))
+        workflow_run_id = int(binding.get("workflow_run_id") or 0)
+        if workflow_run_id and workflow_run_id != int(step.workflow_run_id):
+            stale_findings.append(f"{artifact_type} comes from workflow run #{workflow_run_id}, not the active run #{step.workflow_run_id}")
+            continue
+        if artifact_type in stale_sensitive_types and created_at is not None and created_at < cutoff:
+            stale_findings.append(
+                f"{artifact_type} is older than stale-memory threshold ({stale_after_minutes} min)"
+            )
+    requirement_updated_at = getattr(requirement, "updated_at", None)
+    workflow_run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == step.workflow_run_id).first()
+    freshness_anchor = getattr(workflow_run, "created_at", None)
+    if (
+        requirement_updated_at is not None
+        and freshness_anchor is not None
+        and requirement_updated_at > freshness_anchor + timedelta(seconds=60)
+    ):
+        for binding in binding_summaries:
+            artifact_type = str(binding.get("artifact_type") or "")
+            created_at = parse_runtime_timestamp(str(binding.get("created_at") or ""))
+            if artifact_type in stale_sensitive_types and created_at is not None and created_at < requirement_updated_at:
+                stale_findings.append(
+                    f"{artifact_type} predates the latest requirement update at {requirement_updated_at.isoformat()}"
+                )
+
+    verification_status = "fresh" if not stale_findings else "stale"
+    return {
+        "requirement": requirement,
+        "context_policy": context_policy,
+        "raw_prompt": raw_prompt,
+        "prompt": final_prompt,
+        "raw_chars": len(raw_prompt),
+        "final_chars": len(final_prompt),
+        "compacted": compacted,
+        "sections": sections,
+        "binding_summaries": binding_summaries,
+        "verification_status": verification_status,
+        "stale_findings": list(dict.fromkeys(stale_findings)),
+    }
+
+
+def _materialize_step_context(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
+    snapshot = _step_context_snapshot(db, step)
+    payload = {
+        "step_id": _as_int(step.id),
+        "step_key": str(step.step_key),
+        "step_type": str(step.step_type),
+        "context_policy": snapshot["context_policy"],
+        "raw_chars": snapshot["raw_chars"],
+        "final_chars": snapshot["final_chars"],
+        "compacted": snapshot["compacted"],
+        "section_count": len(snapshot["sections"]),
+        "binding_summaries": snapshot["binding_summaries"],
+    }
+    if snapshot["compacted"]:
+        _create_artifact(
+            db,
+            requirement_id=step.requirement_id,
+            workflow_run_id=step.workflow_run_id,
+            step_id=step.id,
+            producer_step_id=step.id,
+            artifact_type="context_compaction",
+            content_summary=f"context compacted for step {step.step_key}",
+            human_readable_body=snapshot["prompt"],
+            machine_readable_payload=payload,
+        )
+    _create_artifact(
+        db,
+        requirement_id=step.requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="stale_memory_verification",
+        content_summary=f"{snapshot['verification_status']} context verification for step {step.step_key}",
+        human_readable_body="\n".join(
+            [
+                f"Verification status: {snapshot['verification_status']}",
+                *(f"- {item}" for item in snapshot["stale_findings"]),
+            ]
+        ).strip(),
+        machine_readable_payload={
+            **payload,
+            "verification_status": snapshot["verification_status"],
+            "stale_findings": snapshot["stale_findings"],
+        },
+    )
+    return snapshot
+
+
 def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
+    snapshot = _step_context_snapshot(db, step)
+    lines = [snapshot["prompt"]]
+    if snapshot["verification_status"] != "fresh":
+        lines.extend([
+            "",
+            "## Stale Memory Verification",
+            *(f"- {item}" for item in snapshot["stale_findings"]),
+        ])
+    return "\n".join(lines)
     requirement = _require_requirement(db, step.requirement_id)
     parts = [
         f"[workflow_step:{step.step_type}] {step.title}",
@@ -2945,6 +3220,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
         for key in ("shell_access", "git_read", "git_write", "git_push", "network_access", "publish")
         if key in capability_matrix
     )
+    context_governance = planner_output.get("context_governance") or {}
+    context_summary = str(context_governance.get("summary_markdown") or "").strip()
     return "\n".join(
         [
             f"# Plan\n",
@@ -2959,6 +3236,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             *( [f"- {line}" for line in intelligence_summary.splitlines() if line.strip()] or ["- No project routing intelligence was attached."] ),
             "## Capability Matrix",
             *( [f"- {capability_summary}"] if capability_summary else ["- No explicit capability matrix attached."] ),
+            "## Context Governance",
+            *( [f"- {line}" for line in context_summary.splitlines() if line.strip()] or ["- No explicit context governance attached."] ),
             "## Delivery Contract",
             *(delivery_summary_lines or ["- Delivery contract will be generated for branch/review-ready/publish/rollback."]),
             "## Validation Contract",

@@ -77,4 +77,49 @@
 
 1. `research + synthesis` 已落地。
 2. capability matrix + interrupt policy 已落地到 `project policy -> planner -> workflow step -> delivery contract` 链路。
-3. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
+3. `context budget + compact + stale memory verify` 已落地到 `planner -> workflow step -> orchestrator -> artifacts -> requirement detail` 链路。
+4. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
+
+## 11. Context Governance 落地要求
+
+为了保证第 6 条原则不是停留在口号层，后续所有 workflow / runtime 设计都要满足下面这些实现要求。
+
+### 11.1 每个 workflow step 都必须声明 context policy
+
+至少应显式声明：
+
+1. `max_prompt_chars`
+2. `compact_after_chars`
+3. `max_artifact_body_chars`
+4. `max_handoff_chars`
+5. `stale_after_minutes`
+6. `stale_sensitive_artifact_types`
+7. `block_on_stale_memory`
+
+不允许再使用“默认把所有 artifact 和历史描述拼进 prompt”这种隐式上下文策略。
+
+### 11.2 Compact 必须是确定性的
+
+1. compact 的输入来源、截断规则和摘要结构必须可复盘。
+2. compact 不是任意删减，而是按照 requirement / policy / handoff / artifact 分层收敛。
+3. compact 结果必须留下 artifact 证据，便于 operator 追查“为什么这次 agent 看到的是这一版上下文”。
+
+### 11.3 Stale Memory Verify 必须先于 dispatch
+
+1. stale memory verification 必须发生在 step dispatch 前，而不是失败后补做。
+2. 发现陈旧上下文时，默认先阻断 step，再转 operator review。
+3. `implementation`、`review`、`test` 这类关键阶段默认应开启 `block_on_stale_memory`。
+
+### 11.4 Context Governance 必须可见
+
+1. requirement detail 必须能看到当前 step 的 context policy。
+2. requirement detail 必须能看到最近一次 `context_compaction` 的结果。
+3. requirement detail 必须能看到最近一次 `stale_memory_verification` 的状态与发现。
+
+### 11.5 后续能力不得绕开这套治理
+
+后续新增的 runtime、subagent、memory、scheduler、signal、incident 模块：
+
+1. 不得绕开 step-level context policy。
+2. 不得绕过 compact artifact。
+3. 不得省略 stale memory verification。

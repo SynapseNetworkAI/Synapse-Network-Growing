@@ -234,16 +234,35 @@ npm run dev
 1. 看当前 requirement 的状态、依赖、目标项目。
 2. 看 workflow run 和 step 执行情况。
 3. 看 validation plan、manual checks、automated checks。
-4. 看 artifacts，包括 implementation plan、validation plan、bug report。
-5. 发起修订。
-6. 在满足 release gate 时执行 publish。
+4. 看 Context Governance，包括当前 step 的 context policy、最近一次 compaction 和 stale memory verification。
+5. 看 artifacts，包括 implementation plan、validation plan、bug report、context_compaction、stale_memory_verification。
+6. 发起修订。
+7. 在满足 release gate 时执行 publish。
 
 ### 正确使用方式
 
 1. 先确认 requirement 本身描述是对的。
 2. 再看 workflow 是否合理。
-3. 再看 validation contract 是否覆盖关键风险。
-4. 最后再做 publish，而不是跳过验证直接关单。
+3. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
+4. 再看 validation contract 是否覆盖关键风险。
+5. 最后再做 publish，而不是跳过验证直接关单。
+
+### 当 requirement 被 stale memory 阻断时怎么办
+
+如果详情页里看到：
+
+1. `stale_memory_verification.status = stale`
+2. 当前 step 状态是 `blocked`
+3. requirement 状态变成 `blocked`
+
+说明系统判断当前上下文已经不可靠，主动拦住了继续执行。
+
+推荐处理顺序：
+
+1. 先看 `stale_memory_verification` 里的 findings，确认是哪个 artifact 或 handoff 失效。
+2. 如有必要，先 revise requirement 或重新生成 plan。
+3. 确认最新 plan / policy / requirement 内容已经稳定后，再重新 start。
+4. 不要直接忽略这个阻断继续硬跑，否则很容易把旧记忆当成当前事实。
 
 ## 3.4 优化信号 `/optimization-signals`
 

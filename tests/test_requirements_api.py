@@ -926,6 +926,95 @@ def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access
     ).first()
     assert interrupt_artifact is not None
     assert "shell_access disabled" in (interrupt_artifact.human_readable_body or "")
+    stale_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "stale_memory_verification",
+    ).first()
+    assert stale_artifact is not None
+
+
+def test_start_requirement_blocks_when_context_is_stale(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Stale context check",
+            "description_markdown": "Implement a targeted backend change.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    stale_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "implementation_plan",
+    ).first()
+    assert stale_artifact is not None
+    foreign_run = WorkflowRunRow(
+        requirement_id=requirement_id,
+        plan_version=99,
+        status="completed",
+        triggered_by="test",
+    )
+    db_session.add(foreign_run)
+    db_session.flush()
+    stale_artifact.workflow_run_id = foreign_run.id
+    db_session.commit()
+
+    start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "blocked"
+    assert detail["workflow_run"]["status"] == "paused"
+
+    stale_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "stale_memory_verification",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert stale_artifact is not None
+    payload = json.loads(stale_artifact.machine_readable_payload or "{}")
+    assert payload["verification_status"] == "stale"
+    assert payload["stale_findings"]
+
+
+def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+    huge_description = "Large context block.\n" + ("x" * 16000)
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Large context compaction",
+            "description_markdown": huge_description,
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    compaction_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "context_compaction",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert compaction_artifact is not None
+    payload = json.loads(compaction_artifact.machine_readable_payload or "{}")
+    assert payload["compacted"] is True
+    assert payload["raw_chars"] > payload["final_chars"]
 
 
 def test_close_requirement_unblocks_dependents(synced_client, db_session):

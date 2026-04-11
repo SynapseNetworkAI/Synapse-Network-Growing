@@ -486,6 +486,7 @@ export interface WorkflowStep {
   retry_count: number
   handoff_summary_markdown: string | null
   done_when_markdown: string
+  context_policy_json: string | null
   started_at: string | null
   completed_at: string | null
 }

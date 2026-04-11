@@ -731,6 +731,7 @@ class WorkflowStepOut(BaseModel):
     retry_count: int = 0
     handoff_summary_markdown: Optional[str] = None
     done_when_markdown: str = ""
+    context_policy_json: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 

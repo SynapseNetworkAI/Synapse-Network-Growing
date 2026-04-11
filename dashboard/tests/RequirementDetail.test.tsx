@@ -52,7 +52,34 @@ const detail = {
     completed_at: null,
     created_at: '2026-04-11T08:00:00Z',
     updated_at: '2026-04-11T08:05:00Z',
-    steps: [],
+    steps: [
+      {
+        id: 21,
+        workflow_run_id: 3,
+        requirement_id: 1,
+        step_key: 'implementation',
+        step_type: 'implementation',
+        title: 'Implement requirement',
+        status: 'running',
+        sequence_no: 30,
+        assigned_agent_id: 'dev_rel',
+        assigned_workflow_role: 'implementer',
+        branch_from_step_id: null,
+        compatibility_task_id: null,
+        retry_count: 0,
+        handoff_summary_markdown: null,
+        done_when_markdown: 'Implementation output is ready for review.',
+        context_policy_json: JSON.stringify({
+          max_prompt_chars: 14000,
+          compact_after_chars: 11000,
+          max_artifact_body_chars: 2600,
+          max_handoff_chars: 1200,
+          stale_after_minutes: 30,
+        }),
+        started_at: '2026-04-11T08:00:00Z',
+        completed_at: null,
+      },
+    ],
   },
   dependencies: [],
   acceptance_checks: [
@@ -140,6 +167,40 @@ const detail = {
       }),
       created_at: '2026-04-11T08:04:00Z',
     },
+    {
+      id: 14,
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 21,
+      producer_step_id: 21,
+      artifact_type: 'context_compaction',
+      path: null,
+      content_summary: 'context compacted for step implementation',
+      human_readable_body: '## Context Compact Summary',
+      machine_readable_payload: JSON.stringify({
+        raw_chars: 18200,
+        final_chars: 10800,
+        section_count: 6,
+        compacted: true,
+      }),
+      created_at: '2026-04-11T08:01:00Z',
+    },
+    {
+      id: 15,
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 21,
+      producer_step_id: 21,
+      artifact_type: 'stale_memory_verification',
+      path: null,
+      content_summary: 'fresh context verification for step implementation',
+      human_readable_body: 'Verification status: fresh',
+      machine_readable_payload: JSON.stringify({
+        verification_status: 'fresh',
+        stale_findings: [],
+      }),
+      created_at: '2026-04-11T08:01:00Z',
+    },
   ],
   delivery_state: {
     branch_name: 'ops/req-1-verification-contract-hardening',
@@ -196,6 +257,9 @@ describe('RequirementDetail', () => {
     expect(within(bugPanel).getByText(/Failed checks: validation_passed/)).toBeInTheDocument()
 
     expect(screen.getByTestId('delivery-state-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('context-governance-panel')).toBeInTheDocument()
+    expect(screen.getByText('Latest Compaction')).toBeInTheDocument()
+    expect(screen.getByText(/status: fresh/)).toBeInTheDocument()
     expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
     expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
     expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()

@@ -325,6 +325,7 @@ class WorkflowStepRow(Base):
     context_scope = Column(Text, nullable=False, default="step_private")
     handoff_summary_markdown = Column(Text)
     done_when_markdown = Column(Text, nullable=False, default="")
+    context_policy_json = Column(Text, nullable=False, default="{}")
     file_scope_json = Column(Text, nullable=False, default="{}")
     validation_targets_json = Column(Text, nullable=False, default="[]")
     failure_policy_json = Column(Text, nullable=False, default="{}")
@@ -505,6 +506,19 @@ def _migrate(engine_):
                 logger.info("Migrating: adding '%s' column to project_policies table", col)
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE project_policies ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+
+    if "workflow_steps" in tables:
+        existing = {c["name"] for c in insp.get_columns("workflow_steps")}
+        workflow_step_cols = {
+            "compatibility_task_id": "INTEGER",
+            "context_policy_json": "TEXT DEFAULT '{}'",
+        }
+        for col, col_type in workflow_step_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to workflow_steps table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE workflow_steps ADD COLUMN {col} {col_type}"))
                     conn.commit()
 
     if "company_operating_reviews" not in tables:

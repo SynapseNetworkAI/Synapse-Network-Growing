@@ -434,6 +434,39 @@ def _step_approval_policy(step: dict[str, Any], execution_controls: dict[str, An
     }
 
 
+def _context_policy_for_step(step_type: str) -> dict[str, Any]:
+    step_type = str(step_type or "")
+    base = {
+        "max_prompt_chars": 12000,
+        "compact_after_chars": 9000,
+        "max_artifact_body_chars": 2200,
+        "max_handoff_chars": 1200,
+        "stale_after_minutes": 30,
+        "stale_sensitive_artifact_types": [
+            "requirement_snapshot",
+            "research_report",
+            "synthesis_report",
+            "implementation_plan",
+            "validation_plan",
+            "delivery_contract",
+        ],
+        "block_on_stale_memory": True,
+    }
+    if step_type in {"review", "test", "closeout"}:
+        base["max_prompt_chars"] = 10000
+        base["compact_after_chars"] = 7500
+        base["max_artifact_body_chars"] = 1800
+    if step_type in {"implementation", "bugfix"}:
+        base["max_prompt_chars"] = 14000
+        base["compact_after_chars"] = 11000
+        base["max_artifact_body_chars"] = 2600
+    if step_type in {"research", "synthesis"}:
+        base["max_prompt_chars"] = 13000
+        base["compact_after_chars"] = 9500
+        base["max_artifact_body_chars"] = 2400
+    return base
+
+
 def _latest_requirement_template_payload(db: Session, requirement_id: int) -> dict[str, Any]:
     artifact = db.query(ArtifactRow).filter(
         ArtifactRow.requirement_id == requirement_id,
@@ -628,6 +661,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             write=step.get("step_type") == "implementation",
         )
         step["approval_policy"] = _step_approval_policy(step, execution_controls)
+        step["context_policy"] = _context_policy_for_step(str(step.get("step_type") or ""))
 
     review_check = {
         "check_key": "review_passed",
@@ -678,12 +712,19 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     ]
 
     planner_output = {
-        "schema_version": "1.6",
+        "schema_version": "1.7",
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
         "project_policies": project_policies,
         "execution_controls": execution_controls,
+        "context_governance": {
+            "summary_markdown": (
+                "Every workflow step now carries an explicit context budget, deterministic compaction threshold, "
+                "and stale-memory verification rule before dispatch."
+            ),
+            "default_limits": _context_policy_for_step("implementation"),
+        },
         "project_intelligence": {
             "routing_mode": routing_context.get("routing_mode"),
             "readiness_status": routing_context.get("readiness_status"),

@@ -26,6 +26,7 @@
 3. verification 独立于 implementation
 4. 多代理用于隔离不确定性
 5. runtime / subagent 必须有生命周期与 cleanup
+6. 上下文必须按 budget / compact / stale verify 治理
 
 ## 1.2 新增的执行约束层
 
@@ -77,6 +78,83 @@
 3. 如果某个 step 所需能力被 policy 禁用，dispatch 前会生成 `capability_interrupt` artifact
 4. 触发 `capability_denied` 时，workflow 会按 interrupt policy 自动 `pause / block`
 5. delivery contract 的 auto publish 只会在 `git_push + publish` 都允许、且不要求 operator confirmation 时开启
+
+## 1.3 新增的上下文治理层
+
+在 capability / interrupt 之后，当前系统又新增了一层显式的 context governance。
+
+这一层的目标不是“让 prompt 更漂亮”，而是约束：
+
+1. 每个 workflow step 最多能看到多少上下文
+2. 什么时候必须 compact
+3. 哪些 artifact 需要做 stale verify
+4. 发现陈旧上下文时是否阻断 dispatch
+
+### step-level context policy
+
+现在 planner 会为每个 step 输出独立的 `context_policy`，当前统一字段为：
+
+1. `max_prompt_chars`
+2. `compact_after_chars`
+3. `max_artifact_body_chars`
+4. `max_handoff_chars`
+5. `stale_after_minutes`
+6. `stale_sensitive_artifact_types`
+7. `block_on_stale_memory`
+
+这些策略会持久化到 `workflow_steps.context_policy_json`，不再依赖隐式默认行为。
+
+### deterministic compaction
+
+dispatch 前，orchestrator 会按固定顺序构造 step context：
+
+1. requirement summary
+2. target project + project policy summary
+3. capability contract
+4. done_when
+5. predecessor handoff
+6. bound artifacts
+
+如果上下文超过预算：
+
+1. 先按 handoff / artifact 的上限截断
+2. 再生成结构化 compact 结果
+3. 仍超限时再收敛到 `max_prompt_chars`
+
+整个过程会生成 `context_compaction` artifact，记录：
+
+1. `raw_chars`
+2. `final_chars`
+3. `compacted`
+4. `binding_summaries`
+5. `section_summaries`
+
+### stale memory verification
+
+dispatch 前还会生成 `stale_memory_verification` artifact。
+
+当前会重点检查：
+
+1. 关键 artifact 是否属于当前 workflow run
+2. stale-sensitive artifact 是否超过允许时间窗口
+3. requirement 是否在 workflow 创建后发生了需要重新审视的大幅更新
+
+如果当前 step 的 policy 指定 `block_on_stale_memory = true` 且验证结果不是 `fresh`，系统会：
+
+1. 阻断该 step dispatch
+2. 创建或复用 `stale_memory_review` approval
+3. 将 workflow 暂停
+4. 将 requirement 标为 `blocked`
+
+### UI 与 operator 可见性
+
+`/requirements/:id` 详情页现在新增了 `Context Governance` 面板，可直接查看：
+
+1. 当前 step 的 context policy
+2. 最近一次 compaction 结果
+3. 最近一次 stale memory verification 状态
+
+这样 operator 不再需要靠猜测判断“agent 到底看到了什么上下文”。
 
 ## 2. 当前推荐的数据库策略
 

@@ -189,6 +189,17 @@ export default function RequirementDetail() {
     .filter((artifact) => artifact.artifact_type === 'bug_report')
     .sort((a, b) => b.id - a.id)
     .slice(0, 3)
+  const latestContextCompaction = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'context_compaction')
+    .sort((a, b) => b.id - a.id)[0]
+  const latestStaleMemoryVerification = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'stale_memory_verification')
+    .sort((a, b) => b.id - a.id)[0]
+  const contextCompactionPayload = parsePayload(latestContextCompaction?.machine_readable_payload ?? null)
+  const staleMemoryPayload = parsePayload(latestStaleMemoryVerification?.machine_readable_payload ?? null)
+  const activeContextStep = (detail.workflow_run?.steps || []).find((step) => step.status !== 'completed' && step.status !== 'deleted')
+    || detail.workflow_run?.steps?.[0]
+  const activeContextPolicy = parsePayload(activeContextStep?.context_policy_json ?? null)
 
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
@@ -587,6 +598,52 @@ export default function RequirementDetail() {
                     </div>
                   </div>
                 </div>
+              </section>
+            )}
+
+            {(latestContextCompaction || latestStaleMemoryVerification || activeContextPolicy) && (
+              <section className="p-4 border rounded-xl bg-slate-50" data-testid="context-governance-panel">
+                <div className="mb-3 text-sm font-semibold">Context Governance</div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {activeContextPolicy && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Step Context Policy</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>max prompt: {String(activeContextPolicy.max_prompt_chars ?? '-')}</div>
+                        <div>compact after: {String(activeContextPolicy.compact_after_chars ?? '-')}</div>
+                        <div>artifact chars: {String(activeContextPolicy.max_artifact_body_chars ?? '-')}</div>
+                        <div>handoff chars: {String(activeContextPolicy.max_handoff_chars ?? '-')}</div>
+                        <div>stale after: {String(activeContextPolicy.stale_after_minutes ?? '-')} min</div>
+                      </div>
+                    </div>
+                  )}
+                  {latestContextCompaction && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Latest Compaction</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>raw chars: {String(contextCompactionPayload?.raw_chars ?? '-')}</div>
+                        <div>final chars: {String(contextCompactionPayload?.final_chars ?? '-')}</div>
+                        <div>sections: {String(contextCompactionPayload?.section_count ?? '-')}</div>
+                        <div>compacted: {String(contextCompactionPayload?.compacted ?? true)}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {latestStaleMemoryVerification && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Stale Memory Verification</div>
+                    <div className="text-gray-600">
+                      status: {String(staleMemoryPayload?.verification_status ?? 'unknown')}
+                    </div>
+                    {Array.isArray(staleMemoryPayload?.stale_findings) && staleMemoryPayload.stale_findings.length > 0 && (
+                      <div className="mt-2 space-y-1 text-amber-700">
+                        {staleMemoryPayload.stale_findings.map((item, idx) => (
+                          <div key={`${String(item)}-${idx}`}>{String(item)}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             )}
 
