@@ -13,6 +13,7 @@ const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
   failed: 'bg-red-100 text-red-700',
+  deleted: 'bg-zinc-200 text-zinc-700',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -23,6 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
   completed: '已完成',
   rejected: '已拒绝',
   failed: '失败',
+  deleted: '已删除',
 }
 
 function Md({ children }: Readonly<{ children: string }>) {

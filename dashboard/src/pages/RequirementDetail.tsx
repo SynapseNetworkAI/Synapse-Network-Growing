@@ -11,6 +11,7 @@ const STATUS_LABEL: Record<string, string> = {
   done: '已完成',
   needs_revision: '需修订',
   blocked: '阻塞',
+  deleted: '已删除',
 }
 
 const STATUS_CLASS: Record<string, string> = {
@@ -21,6 +22,7 @@ const STATUS_CLASS: Record<string, string> = {
   done: 'bg-green-100 text-green-700',
   needs_revision: 'bg-amber-100 text-amber-700',
   blocked: 'bg-red-100 text-red-700',
+  deleted: 'bg-zinc-200 text-zinc-700',
 }
 
 const STEP_STATUS_CLASS: Record<string, string> = {
@@ -32,6 +34,7 @@ const STEP_STATUS_CLASS: Record<string, string> = {
   completed: 'bg-green-100 text-green-700',
   failed: 'bg-red-100 text-red-700',
   blocked: 'bg-gray-200 text-gray-500',
+  deleted: 'bg-zinc-200 text-zinc-700',
 }
 
 function Md({ children }: Readonly<{ children: string }>) {
@@ -130,7 +133,7 @@ export default function RequirementDetail() {
   const toggleDependency = (values: number[], rid: number) =>
     values.includes(rid) ? values.filter((v) => v !== rid) : [...values, rid]
 
-  const revisionDependencyCandidates = requirements.filter((r) => r.id !== requirementId)
+  const revisionDependencyCandidates = requirements.filter((r) => r.id !== requirementId && r.status !== 'deleted')
 
   if (!detail) {
     return (
@@ -170,7 +173,7 @@ export default function RequirementDetail() {
             <button
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!detail.workflow_run || req.status === 'blocked' || req.status === 'done'}
+              disabled={!detail.workflow_run || req.status === 'blocked' || req.status === 'done' || req.status === 'deleted'}
               onClick={() => {
                 if (req.status === 'in_progress') {
                   handlePause().catch(() => {})
@@ -183,7 +186,8 @@ export default function RequirementDetail() {
             </button>
             <button
               data-testid="toggle-revise-btn"
-              className="px-3 py-2 text-sm border rounded hover:bg-gray-50"
+              className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={req.status === 'deleted'}
               onClick={() => setShowRevise((v) => !v)}
             >
               提交修订

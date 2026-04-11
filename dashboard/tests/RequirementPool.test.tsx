@@ -10,6 +10,7 @@ const mockApi = {
   planRequirement: vi.fn(),
   startRequirement: vi.fn(),
   pauseRequirement: vi.fn(),
+  deleteRequirement: vi.fn(),
   advanceQueue: vi.fn(),
   reviseRequirement: vi.fn(),
 }
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
     planRequirement: (...args: unknown[]) => mockApi.planRequirement(...args),
     startRequirement: (...args: unknown[]) => mockApi.startRequirement(...args),
     pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
+    deleteRequirement: (...args: unknown[]) => mockApi.deleteRequirement(...args),
     advanceQueue: (...args: unknown[]) => mockApi.advanceQueue(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
   },
@@ -67,6 +69,12 @@ const PAUSED_REQUIREMENT = {
   ...REQUIREMENT,
   status: 'paused',
   updated_at: '2026-04-10T00:00:12Z',
+}
+
+const DELETED_REQUIREMENT = {
+  ...REQUIREMENT,
+  status: 'deleted',
+  updated_at: '2026-04-10T00:00:15Z',
 }
 
 const DETAIL = {
@@ -208,8 +216,10 @@ describe('RequirementPool', () => {
     mockApi.planRequirement.mockResolvedValue(DETAIL)
     mockApi.startRequirement.mockResolvedValue(DETAIL)
     mockApi.pauseRequirement.mockResolvedValue({ ...DETAIL, requirement: PAUSED_REQUIREMENT })
+    mockApi.deleteRequirement.mockResolvedValue({ ...DETAIL, requirement: DELETED_REQUIREMENT })
     mockApi.advanceQueue.mockResolvedValue({ skipped: 'no ready requirements' })
     mockApi.reviseRequirement.mockResolvedValue(DETAIL)
+    vi.stubGlobal('confirm', vi.fn(() => true))
   })
 
   it('renders requirement list', async () => {
@@ -270,13 +280,34 @@ describe('RequirementPool', () => {
     })
   })
 
-  it('includes paused status filter and renders both target projects', async () => {
+  it('includes deleted status filter and renders both target projects', async () => {
     render(<MemoryRouter><RequirementPool /></MemoryRouter>)
 
     await waitFor(() => {
       expect(screen.getByRole('option', { name: '已暂停' })).toBeDefined()
+      expect(screen.getByRole('option', { name: '已删除' })).toBeDefined()
       expect(screen.getByText('/Users/cliff/workspace/agent/Synapse-Network-Growing')).toBeDefined()
       expect(screen.getByText('/Users/cliff/workspace/agent/Synapse-Network')).toBeDefined()
+    })
+  })
+
+  it('soft deletes a requirement from the pool', async () => {
+    mockApi.getRequirements
+      .mockResolvedValueOnce([REQUIREMENT, BLOCKER])
+      .mockResolvedValueOnce([REQUIREMENT, BLOCKER])
+      .mockResolvedValueOnce([DELETED_REQUIREMENT, BLOCKER])
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-delete-1')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('requirement-delete-1'))
+
+    await waitFor(() => {
+      expect(mockApi.deleteRequirement).toHaveBeenCalledWith(1)
+      expect(screen.getByText('已删除')).toBeDefined()
     })
   })
 

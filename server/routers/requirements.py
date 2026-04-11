@@ -21,6 +21,7 @@ from server.services.workflow_orchestrator import (
     build_requirement_detail,
     close_requirement,
     create_requirement,
+    delete_requirement,
     patch_requirement,
     pause_requirement,
     plan_requirement,
@@ -32,7 +33,7 @@ from server.services.workflow_orchestrator import (
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
 
 _PRIORITY_SCORE = {"high": 30, "normal": 10, "low": 0}
-_STATUS_PENALTY = {"done": -100, "blocked": -20, "needs_revision": -10}
+_STATUS_PENALTY = {"done": -100, "blocked": -20, "needs_revision": -10, "deleted": -200}
 
 
 def _requirement_score(row: RequirementRow) -> float:
@@ -101,6 +102,14 @@ def patch_requirement_endpoint(requirement_id: int, body: RequirementPatch, db: 
 def close_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return close_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/{requirement_id}", response_model=RequirementDetailOut)
+def delete_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return delete_requirement(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

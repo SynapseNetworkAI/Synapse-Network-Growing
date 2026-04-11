@@ -9,6 +9,7 @@ const STATUS_LABEL: Record<string, string> = {
   done: '已完成',
   needs_revision: '需修订',
   blocked: '阻塞',
+  deleted: '已删除',
 }
 
 const STATUS_CLASS: Record<string, string> = {
@@ -19,6 +20,7 @@ const STATUS_CLASS: Record<string, string> = {
   done: 'bg-green-100 text-green-700',
   needs_revision: 'bg-amber-100 text-amber-700',
   blocked: 'bg-red-100 text-red-700',
+  deleted: 'bg-zinc-200 text-zinc-700',
 }
 
 function formatTime(value: string | null) {
@@ -45,6 +47,7 @@ export default function RequirementPool() {
     target_project_path: string
   } | null>(null)
   const [editRequirementSaving, setEditRequirementSaving] = useState(false)
+  const [deleteRequirementSavingId, setDeleteRequirementSavingId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 10
   const [showCreate, setShowCreate] = useState(false)
@@ -168,6 +171,23 @@ export default function RequirementPool() {
     }
   }
 
+  const handleDeleteRequirement = async (requirement: Requirement) => {
+    const confirmed = window.confirm(`确认逻辑删除需求「${requirement.title}」吗？这会把关联 workflow 和下游依赖需求一起标记为已删除。`)
+    if (!confirmed) return
+    setDeleteRequirementSavingId(requirement.id)
+    try {
+      await api.deleteRequirement(requirement.id)
+      if (editingRequirement?.id === requirement.id) {
+        setEditingRequirement(null)
+      }
+      await loadRequirements()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '删除失败')
+    } finally {
+      setDeleteRequirementSavingId(null)
+    }
+  }
+
   const hasRunningRequirement = requirements.some((requirement) => requirement.status === 'in_progress')
 
   return (
@@ -193,6 +213,7 @@ export default function RequirementPool() {
             <option value="done">已完成</option>
             <option value="blocked">阻塞</option>
             <option value="needs_revision">需修订</option>
+            <option value="deleted">已删除</option>
           </select>
           <button
             data-testid="create-requirement-btn"
@@ -291,7 +312,9 @@ export default function RequirementPool() {
                 {depOpen && (() => {
                   const q = depQuery.toLowerCase()
                   const filtered = requirements.filter((r) =>
+                    r.status !== 'deleted' && (
                     !q || r.title.toLowerCase().includes(q) || String(r.id).includes(q)
+                    )
                   )
                   return (
                     <div className="absolute z-20 w-full mt-1 overflow-auto bg-white border rounded-lg shadow-lg max-h-48">
@@ -378,6 +401,7 @@ export default function RequirementPool() {
         {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
           const showToggle = requirement.status === 'in_progress' || ((requirement.status === 'ready' || requirement.status === 'paused') && requirement.current_plan_version > 0)
           const isRunning = requirement.status === 'in_progress'
+          const isDeleted = requirement.status === 'deleted'
           const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
           let toggleLabel = '启动'
           if (actioningRequirementId === requirement.id) {
@@ -424,12 +448,25 @@ export default function RequirementPool() {
                     type="button"
                     data-testid={`requirement-edit-${requirement.id}`}
                     className="rounded-lg px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
+                    disabled={isDeleted}
                     onClick={(event) => {
                       event.stopPropagation()
                       handleOpenEditRequirement(requirement)
                     }}
                   >
                     编辑
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`requirement-delete-${requirement.id}`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 transition disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isDeleted || deleteRequirementSavingId === requirement.id}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDeleteRequirement(requirement).catch(() => {})
+                    }}
+                  >
+                    {deleteRequirementSavingId === requirement.id ? '删除中…' : '删除'}
                   </button>
                   {showToggle && (
                     <button
@@ -440,7 +477,7 @@ export default function RequirementPool() {
                           ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
                           : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
                       }`}
-                      disabled={actioningRequirementId === requirement.id || (!isRunning && hasRunningRequirement)}
+                      disabled={isDeleted || actioningRequirementId === requirement.id || (!isRunning && hasRunningRequirement)}
                       onClick={(event) => {
                         event.stopPropagation()
                         handleExecutionToggle(requirement).catch(() => {})

@@ -59,6 +59,10 @@ from server.services.workflow_planner import WorkflowRoleAssignments, build_plan
 RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
 SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
+DELETED_REQUIREMENT_STATUSES = {"deleted"}
+DELETED_WORKFLOW_STATUSES = {"deleted"}
+DELETED_STEP_STATUSES = {"deleted"}
+DELETED_TASK_STATUSES = {"deleted"}
 PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
 PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
 
@@ -216,6 +220,7 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
 
 def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
@@ -276,6 +281,7 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
 
 def update_requirement_dependencies(db: Session, requirement_id: int, dependency_ids: list[int]) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     if requirement.active_workflow_run_id and requirement.status == "in_progress":
         raise ValueError("Cannot edit dependencies while a workflow run is in progress.")
     _replace_dependencies(db, requirement.id, dependency_ids)
@@ -287,6 +293,7 @@ def update_requirement_dependencies(db: Session, requirement_id: int, dependency
 
 def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     if requirement.status == "in_progress":
         raise ValueError("Cannot edit a requirement that is currently in progress.")
     if body.title is not None:
@@ -309,6 +316,7 @@ def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) 
 
 def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     if requirement.status == "done":
         return build_requirement_detail(db, requirement.id)
     workflow_run = _active_workflow_run(db, requirement)
@@ -328,8 +336,18 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     return build_requirement_detail(db, requirement.id)
 
 
+def delete_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    if requirement.status == "deleted":
+        return build_requirement_detail(db, requirement.id)
+    _soft_delete_requirement_tree(db, requirement, visited=set())
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
 def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisionRequest) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     active_run = _active_workflow_run(db, requirement)
     previous_title = requirement.title
     previous_description = requirement.description_markdown
@@ -390,6 +408,7 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
 
 def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     # ── Serial execution guard: only one requirement may be in_progress at a time ──
     running_count = db.query(RequirementRow).filter(
         RequirementRow.status == "in_progress",
@@ -422,6 +441,7 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
 
 def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
     workflow_run = _active_workflow_run(db, requirement)
     if workflow_run is None or requirement.status != "in_progress":
         raise ValueError("Requirement is not currently running.")
@@ -566,6 +586,12 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
 
     run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == step.workflow_run_id).first()
     requirement = _require_requirement(db, step.requirement_id)
+    if (
+        step.status in DELETED_STEP_STATUSES
+        or requirement.status in DELETED_REQUIREMENT_STATUSES
+        or (run is not None and run.status in DELETED_WORKFLOW_STATUSES)
+    ):
+        return
     should_dispatch_next = False
 
     if task.status == "running":
@@ -651,8 +677,12 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
     db = SessionLocal()
     try:
         requirement = _require_requirement(db, requirement_id)
+        if requirement.status in DELETED_REQUIREMENT_STATUSES:
+            return
         workflow_run = _active_workflow_run(db, requirement)
         if workflow_run is None:
+            return
+        if workflow_run.status in DELETED_WORKFLOW_STATUSES:
             return
         if db.query(WorkflowStepRow).filter(
             WorkflowStepRow.workflow_run_id == workflow_run.id,
@@ -1390,6 +1420,8 @@ def _replace_dependencies(db: Session, requirement_id: int, dependency_ids: list
         dependency = db.query(RequirementRow).filter(RequirementRow.id == dep_int).first()
         if dependency is None:
             raise ValueError(f"Dependency requirement #{dep_int} not found.")
+        if dependency.status == "deleted":
+            raise ValueError(f"Dependency requirement #{dep_int} has been deleted.")
         if _dependency_creates_cycle(db, requirement_id, dep_int):
             raise ValueError(f"Dependency on requirement #{dep_int} would create a cycle.")
         seen.add(dep_int)
@@ -1433,6 +1465,8 @@ def _dependency_creates_cycle(db: Session, requirement_id: int, dependency_id: i
 
 
 def _refresh_requirement_dependency_state(db: Session, requirement: RequirementRow):
+    if requirement.status == "deleted":
+        return
     dependency_rows = db.query(RequirementDependencyRow).filter(
         RequirementDependencyRow.requirement_id == requirement.id
     ).all()
@@ -1459,9 +1493,75 @@ def _refresh_dependents_for_requirement(db: Session, requirement_id: int):
     ).all()
     for dep in dependent_rows:
         dependent = db.query(RequirementRow).filter(RequirementRow.id == dep.requirement_id).first()
-        if dependent is None or dependent.status == "done":
+        if dependent is None or dependent.status in {"done", "deleted"}:
             continue
         _refresh_requirement_dependency_state(db, dependent)
+
+
+def _soft_delete_requirement_tree(db: Session, requirement: RequirementRow, visited: set[int]) -> None:
+    requirement_id = _as_int(requirement.id)
+    if requirement_id in visited:
+        return
+    visited.add(requirement_id)
+
+    deleted_at = utcnow()
+
+    workflow_runs = db.query(WorkflowRunRow).filter(
+        WorkflowRunRow.requirement_id == requirement_id
+    ).all()
+    for workflow_run in workflow_runs:
+        steps = db.query(WorkflowStepRow).filter(
+            WorkflowStepRow.workflow_run_id == workflow_run.id
+        ).all()
+        for step in steps:
+            task = None
+            if step.compatibility_task_id:
+                task = db.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
+            if task is not None and str(task.status) not in DELETED_TASK_STATUSES:
+                if str(task.status) == "running":
+                    _terminate_task_runtime(task)
+                cast(Any, task).status = "deleted"
+                cast(Any, task).last_error_message = "Requirement deleted"
+                cast(Any, task).completed_at = cast(Any, task).completed_at or deleted_at
+                db.add(TaskLogRow(task_id=task.id, event_type="deleted", detail=f"Requirement #{requirement_id} deleted"))
+            if step.status not in DELETED_STEP_STATUSES:
+                step.status = "deleted"
+                step.completed_at = step.completed_at or deleted_at
+                _record_step_event(db, step.id, "status_change", "deleted (requirement removed)")
+        workflow_run.status = "deleted"
+        workflow_run.completed_at = workflow_run.completed_at or deleted_at
+
+    for approval in db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement_id
+    ).all():
+        if approval.status == "deleted":
+            continue
+        approval.status = "deleted"
+        approval.reviewer = approval.reviewer or "system"
+        approval.decided_at = approval.decided_at or deleted_at
+        approval.comment = approval.comment or "Requirement deleted"
+
+    for check in db.query(RequirementAcceptanceCheckRow).filter(
+        RequirementAcceptanceCheckRow.requirement_id == requirement_id
+    ).all():
+        check.status = "deleted"
+        check.updated_at = deleted_at
+
+    requirement.status = "deleted"
+    requirement.completed_at = requirement.completed_at or deleted_at
+    requirement.started_at = None
+    requirement.blocked_by_count = 0
+
+    dependent_rows = db.query(RequirementDependencyRow).filter(
+        RequirementDependencyRow.depends_on_requirement_id == requirement_id
+    ).all()
+    for dep in dependent_rows:
+        dependent = db.query(RequirementRow).filter(RequirementRow.id == dep.requirement_id).first()
+        if dependent is None:
+            continue
+        _soft_delete_requirement_tree(db, dependent, visited)
+
+    _clear_role_sessions()
 
 
 def _create_artifact(
@@ -1564,6 +1664,11 @@ def _require_requirement(db: Session, requirement_id: int) -> RequirementRow:
     if normalized_target != requirement.target_project_path:
         requirement.target_project_path = normalized_target
     return requirement
+
+
+def _ensure_requirement_not_deleted(requirement: RequirementRow) -> None:
+    if requirement.status == "deleted":
+        raise ValueError("Requirement has been deleted.")
 
 
 def _active_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRunRow | None:

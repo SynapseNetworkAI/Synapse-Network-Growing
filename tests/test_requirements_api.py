@@ -306,6 +306,88 @@ def test_close_requirement_unblocks_dependents(synced_client):
     assert refreshed["requirement"]["blocked_by_count"] == 0
 
 
+def test_delete_requirement_soft_deletes_workflow_and_dependents(synced_client, db_session):
+    blocker_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Delete blocker",
+            "description_markdown": "Delete this requirement and cascade downstream.",
+            "priority": "high",
+        },
+    )
+    blocker_id = blocker_resp.json()["requirement"]["id"]
+
+    dependent_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Delete dependent",
+            "description_markdown": "Should be deleted together with the blocker.",
+            "depends_on_requirement_ids": [blocker_id],
+        },
+    )
+    dependent_id = dependent_resp.json()["requirement"]["id"]
+    assert dependent_resp.json()["requirement"]["status"] == "blocked"
+
+    synced_client.post(f"/api/requirements/{blocker_id}/plan")
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result()
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{blocker_id}/start")
+
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "in_progress"
+
+    delete_resp = synced_client.delete(f"/api/requirements/{blocker_id}")
+    assert delete_resp.status_code == 200
+    deleted = delete_resp.json()
+    assert deleted["requirement"]["status"] == "deleted"
+    assert deleted["workflow_run"]["status"] == "deleted"
+    assert all(step["status"] == "deleted" for step in deleted["workflow_run"]["steps"])
+
+    dependent = synced_client.get(f"/api/requirements/{dependent_id}").json()
+    assert dependent["requirement"]["status"] == "deleted"
+
+    blocker_row = db_session.query(RequirementRow).filter(RequirementRow.id == blocker_id).first()
+    dependent_row = db_session.query(RequirementRow).filter(RequirementRow.id == dependent_id).first()
+    assert blocker_row is not None and blocker_row.status == "deleted"
+    assert dependent_row is not None and dependent_row.status == "deleted"
+
+    tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
+    assert len(tasks) >= 1
+    assert all(task.status == "deleted" for task in tasks)
+
+    steps = db_session.query(WorkflowStepRow).filter(WorkflowStepRow.requirement_id == blocker_id).all()
+    assert len(steps) >= 1
+    assert all(step.status == "deleted" for step in steps)
+
+    advance_resp = synced_client.post("/api/requirements/queue/advance")
+    assert advance_resp.status_code == 200
+    assert advance_resp.json()["skipped"] == "no ready requirements"
+
+
+def test_list_requirements_can_filter_deleted(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={"title": "Delete me", "description_markdown": "Soft delete filter coverage."},
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    delete_resp = synced_client.delete(f"/api/requirements/{requirement_id}")
+    assert delete_resp.status_code == 200
+
+    filtered = synced_client.get("/api/requirements?status=deleted")
+    assert filtered.status_code == 200
+    payload = filtered.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == requirement_id
+    assert payload[0]["status"] == "deleted"
+
+
 def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
