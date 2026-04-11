@@ -9,6 +9,7 @@ author: DevRel-Agent
 target_repo: Synapse-Network-Sdk
 ---
 <!-- Re-verified 2026-04-11: bugfix session after agent session crash (Session not found). All 3-line flow verified PASS. -->
+<!-- Re-verified 2026-04-11 (current session): mock gateway PASS ✅ | live dev key: budget exceeded as expected | DX Blocker #7 added -->
 
 ## ✅ Verification Status (2026-04-11 Re-run)
 
@@ -162,6 +163,27 @@ print(result.charged_usdc)
 
 ---
 
+---
+
+## 🟡 Warning #7 — Opaque "Budget Exceeded" Error on Live Dev Key
+
+**Friction:** When a developer runs `full_auth_flow.py --dev-key` against the live gateway, authentication succeeds through all 5 steps, but invoke fails with:
+
+```
+⛔  Budget exceeded: Owner billing cycle spend limit does not allow this invocation
+```
+
+**Reality:** The Hardhat default key (`0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266`) has no USDC deposited on the live gateway. The error message is technically correct but gives no actionable guidance.
+
+**Verified Behavior (live gateway test, 2026-04-11):**
+- Steps 1–5 (wallet auth, JWT, credential, SynapseClient, discovery): ✅ All PASS
+- Step 6 (invoke): ⛔ Budget exceeded — expected, no USDC in dev wallet
+
+**Fix Applied (this repo):** `full_auth_flow.py` already catches `BudgetExceededError` gracefully.  
+**Required Action (SDK + Gateway):** Improve error message to include: _"Your wallet has insufficient USDC balance. Please deposit funds at [link] before invoking paid services."_
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | Status | Fix Location |
@@ -172,3 +194,4 @@ print(result.charged_usdc)
 | 4 | 🟡 Warning | `synapse-cli` CLI not defined | ⚠️ Open | SDK `pyproject.toml` scripts |
 | 5 | 🟡 Warning | No API key provisioning guide | ✅ Fixed | Added `full_auth_flow.py` demo |
 | 6 | 🔴 Blocker | `result.costUsdc` field bug (should be `charged_usdc`) | ✅ Fixed | `quickstart_demo.py` patched |
+| 7 | 🟡 Warning | Opaque "Budget exceeded" error on live dev key (no USDC deposited) | ⚠️ Open | SDK/Gateway: improve error message |
