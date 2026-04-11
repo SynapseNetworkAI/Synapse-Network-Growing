@@ -1,0 +1,16 @@
+{
+  "action": "resume",
+  "status": "completed",
+  "sessionId": "role-cro_optimizer-1775836759216-1",
+  "model": null,
+  "selectedAgent": "db-analyst",
+  "tokensUsed": 0,
+  "startedAt": "2026-04-10T16:03:35.806Z",
+  "heartbeatAt": "2026-04-10T16:07:14.035Z",
+  "updatedAt": "2026-04-10T16:07:14.035Z",
+  "lastSeq": 388,
+  "lastEventType": "session.idle",
+  "finishedAt": "2026-04-10T16:07:14.035Z",
+  "executionTimeMs": 218228,
+  "error": null
+}

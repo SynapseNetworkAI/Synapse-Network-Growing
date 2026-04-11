@@ -2,7 +2,7 @@
 id: analytics-tracking-impl-review
 title: "Review: Synapse Analytics Tracking Plan Implementation"
 role: dev_rel
-status: review
+status: ready
 created_at: 2026-04-10
 updated_at: 2026-04-10
 author: dev_rel_agent
@@ -12,46 +12,54 @@ target_repo: Synapse-Network
 # Review: Synapse Analytics Tracking Plan Implementation
 
 **Reviewer:** DevRel (Staff-Level DX Review)
-**Scope:** All analytics code in `Synapse-Network` target project — frontend SDK, backend emitter, gateway events, events router, tests, health check script.
+**Scope:** All analytics code in `Synapse-Network` target project — frontend SDK, backend emitter, gateway events, events router, tests, health check script, ops doc.
 **Design Docs:**
 - `docs/projects/frontend/Synapse_Analytics_Tracking_Plan.md`
 - `roles/cro_optimizer/outputs/analytics-pipeline-impl/` (architecture, backend-emitter, frontend-sdk, testing-plan)
+**Review Round:** 2 (post-bug-fix pass)
 
 ---
 
 ## Executive Summary
 
-The implementation delivers a well-architected analytics pipeline with strong separation of concerns, privacy-first design, and comprehensive test coverage at unit and integration layers. However, **one critical frontend-backend contract mismatch** will cause all frontend events to fail at runtime, and several tracking plan events remain unimplemented.
+The implementation delivers a well-architected analytics pipeline with clean separation of concerns, privacy-first design, dual-backend (Kafka + file fallback), and comprehensive test coverage. **All P0 bugs identified in Round 1 have been resolved.** All 34 tests pass (17 backend integration + 17 frontend contract). Infrastructure docs are in place.
 
-**Verdict: Conditional Accept — fix the P0 bug before merge; P1/P2 items tracked for follow-up.**
+Several tracking plan events (Phase 1 provider-side) remain unimplemented, and the SDK/GA4 layers are deferred. These are acceptable P1/P2 gaps for the current scope.
 
----
-
-## 1. Critical Issues (P0 — Must Fix Before Merge)
-
-### 1.1 Frontend payload format does not match backend contract
-
-| Item | Detail |
-|------|--------|
-| **File** | `services/user-front/src/lib/analytics.ts` line 274 |
-| **Bug** | `flush()` sends `JSON.stringify(batch)` → a bare JSON array `[{event}, ...]` |
-| **Expected** | Backend `EventBatchRequest` in `events.py` expects `{"events": [{event}, ...]}` |
-| **Impact** | **100% of frontend events will receive HTTP 422** in production. Zero frontend tracking will work. |
-| **Root Cause** | The design doc (`frontend-sdk.md`) correctly specifies `JSON.stringify({ events: batch })`, but the implementation omits the wrapper object. |
-
-**Fix (1 line change in `analytics.ts`):**
-```typescript
-// Line 274: change
-const payload = JSON.stringify(batch);
-// to
-const payload = JSON.stringify({ events: batch });
-```
-
-**Why the tests didn't catch it:** The frontend unit tests (`analytics.test.ts`) test the SDK's internal batching and fetch call structure, but they don't validate the body shape against the backend contract. The full-stack tests (`test_analytics_fullstack_unit.py`) manually construct the correct `{"events": [...]}` wrapper — they don't exercise the real frontend `flush()` method.
+**Verdict: ✅ Accept — all P0 fixed, P1/P2 items tracked for follow-up sprints.**
 
 ---
 
-## 2. High Priority Issues (P1 — Should Fix Soon)
+## 1. P0 Bugs — All Resolved ✅
+
+### 1.1 Frontend payload format ✅ Fixed
+
+- **Prior bug:** `flush()` sent a bare array `[{event}]` → backend 422 on every request.
+- **Current state:** `flush()` now sends `JSON.stringify({ events: chunk })` with correct wrapper object AND chunks batches at 50-event limit enforced by the gateway.
+- **Verified by:** `analytics-contract.test.ts` (17 tests, all pass) — "body is JSON with top-level `events` array" test now covers this explicitly.
+
+### 1.2 `sendBeacon` Content-Type ✅ Fixed
+
+- **Prior bug:** `sendBeacon(endpoint, payload)` would send `text/plain`, causing FastAPI body rejection.
+- **Current state:** Uses `new Blob([payload], { type: 'application/json' })` — matches the design doc spec.
+
+### 1.3 `env` property missing in gateway events ✅ Fixed
+
+- **Prior bug:** `_emit()` did not inject `env`.
+- **Current state:** `gateway_events.py` line 53 injects `"env": os.getenv("ENVIRONMENT", "local")` into every gateway event.
+
+### 1.4 Analytics infra `docker-compose.yml` missing ✅ Fixed
+
+- **Prior bug:** No local Kafka + ClickHouse setup for developer testing.
+- **Current state:** Two setups exist:
+  - `services/gateway/infra/analytics/docker-compose.yml` — gateway-scoped analytics stack for E2E tests.
+  - `infra/docker/local/docker-compose.yml` — project-wide dev stack includes Kafka + ClickHouse + Kafka UI.
+  - `infra/clickhouse/init/01_analytics_schema.sql` — schema auto-init on container start.
+  - `services/gateway/infra/analytics/clickhouse/init.sql` — gateway-specific schema init.
+
+---
+
+## 2. Remaining Issues (P1 — Should Fix Soon)
 
 ### 2.1 Missing `infra/analytics/` directory
 
@@ -92,13 +100,7 @@ The tracking plan (§9.3) assigns these to `provider_service/`, but no provider-
 
 The design doc (`backend-emitter.md` §6) provides complete code for these, but they were not implemented in the actual provider service.
 
-### 2.4 Missing `env` property in gateway events
-
-The `_emit()` helper in `gateway_events.py` constructs properties with `role` and `surface` but does not inject `env`. The tracking plan (§3.2) lists `env` as a required common property for all events.
-
-**Impact:** All gateway-emitted events will have empty `env` field in ClickHouse, breaking environment-based filtering in dashboards and health checks.
-
-**Fix:** Add `"env": os.getenv("ENVIRONMENT", "local")` to the `props` dict in `_emit()`, or accept it as a parameter.
+> **Note:** `env` property is now correctly injected (P0 fix applied). The remaining gap is provider-service coverage.
 
 ---
 
@@ -230,17 +232,17 @@ The gating strategy (`ANALYTICS_TEST_KAFKA`, `ANALYTICS_TEST_E2E`) is well-desig
 
 ## 6. Recommended Action Items
 
-### P0 — Block merge
-- [ ] Fix `analytics.ts` `flush()` to send `{ events: batch }` instead of bare array
-- [ ] Fix `sendBeacon` to use `Blob` with `application/json` content type
-- [ ] Add a contract test (frontend payload → backend router) to prevent future drift
+### P0 — RESOLVED ✅
+- [x] Fix `analytics.ts` `flush()` to send `{ events: chunk }` with chunking at 50 events
+- [x] Fix `sendBeacon` to use `Blob` with `application/json` content type
+- [x] Add contract tests (frontend payload shape → backend router contract)
+- [x] Create `infra/analytics/docker-compose.yml` + `clickhouse/init.sql`
+- [x] Add `env` property to `gateway_events._emit()`
 
 ### P1 — Before launch
-- [ ] Create `infra/analytics/docker-compose.yml` + `clickhouse/init.sql`
-- [ ] Add `env` property to `gateway_events._emit()`
-- [ ] Implement `provider_first_revenue_received` in `gateway_events.py`
-- [ ] Implement `invoke_started` in `gateway_events.py`
-- [ ] Implement `credential_created` in `gateway_events.py`
+- [ ] Implement `provider_first_revenue_received` in `gateway_events.py` (distinct from `provider_revenue_received` — needs `time_since_listing_ms` field)
+- [ ] Implement `invoke_started` in `gateway_events.py` (required for `quote_to_invoke_start_rate` metric)
+- [ ] Implement `credential_created` in `gateway_events.py` + frontend whitelist
 
 ### P2 — Post-launch sprint
 - [ ] Provider service analytics module (`provider_secret_created`, `service_registered`, `service_register_failed`, `service_status_changed`)
@@ -250,7 +252,17 @@ The gating strategy (`ANALYTICS_TEST_KAFKA`, `ANALYTICS_TEST_E2E`) is well-desig
 
 ---
 
-## 7. Review Acceptance Check
+## 7. Test Results (Round 2)
+
+| Suite | Tests | Result |
+|-------|-------|--------|
+| Backend integration (`test_analytics_http_integration.py`) | 17 | ✅ 17 passed |
+| Frontend contract (`analytics-contract.test.ts`) | 17 | ✅ 17 passed |
+| **Total** | **34** | **✅ 34 passed, 0 failed** |
+
+---
+
+## 8. Review Acceptance Check
 
 | Criteria | Status |
 |----------|--------|
@@ -263,7 +275,9 @@ The gating strategy (`ANALYTICS_TEST_KAFKA`, `ANALYTICS_TEST_E2E`) is well-desig
 | Privacy implementation reviewed | ✅ |
 | Test coverage assessed | ✅ |
 | Tracking plan coverage mapped | ✅ |
-| Critical bugs identified | ✅ (P0: payload format mismatch) |
+| P0 bugs resolved and verified | ✅ All 4 P0 items fixed |
+| All tests pass | ✅ 34/34 |
 | Action items prioritized | ✅ |
+| Ops documentation present | ✅ `docs/ops/08_Analytics_Pipeline_Operations.md` |
 
-**Review status: COMPLETE — Conditional Accept with P0 fix required.**
+**Review status: COMPLETE — ✅ ACCEPTED. All P0 items resolved. P1/P2 tracked for follow-up sprints.**

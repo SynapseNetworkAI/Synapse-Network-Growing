@@ -1,0 +1,16 @@
+{
+  "action": "start",
+  "status": "completed",
+  "sessionId": "role-dev_rel-1775837490755-2",
+  "model": "claude-sonnet-4.6",
+  "selectedAgent": "db-analyst",
+  "tokensUsed": 0,
+  "startedAt": "2026-04-10T16:11:30.799Z",
+  "heartbeatAt": "2026-04-10T16:14:38.395Z",
+  "updatedAt": "2026-04-10T16:14:38.395Z",
+  "lastSeq": 369,
+  "lastEventType": "session.idle",
+  "finishedAt": "2026-04-10T16:14:38.395Z",
+  "executionTimeMs": 187595,
+  "error": null
+}
