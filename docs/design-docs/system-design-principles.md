@@ -78,7 +78,8 @@
 1. `research + synthesis` 已落地。
 2. capability matrix + interrupt policy 已落地到 `project policy -> planner -> workflow step -> delivery contract` 链路。
 3. `context budget + compact + stale memory verify` 已落地到 `planner -> workflow step -> orchestrator -> artifacts -> requirement detail` 链路。
-4. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
+4. `runtime / subagent lifecycle` 已落地到 `task logs -> runtime state -> workflow artifacts -> requirement detail` 链路。
+5. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
 
 ## 11. Context Governance 落地要求
 
@@ -123,3 +124,32 @@
 1. 不得绕开 step-level context policy。
 2. 不得绕过 compact artifact。
 3. 不得省略 stale memory verification。
+
+## 12. Runtime / Subagent Lifecycle 落地要求
+
+为了保证第 5 条原则可执行，运行期治理必须满足下面这些要求。
+
+### 12.1 生命周期必须有结构化证据
+
+每个 workflow step 对应的 runtime，至少要能记录这些阶段：
+
+1. `dispatch_requested`
+2. `running`
+3. `waiting_approval`
+4. `completed`
+5. `failed`
+6. `paused`
+
+这些状态不能只存在于日志字符串里，必须沉淀成 artifact。
+
+### 12.2 Telemetry 必须汇总 subagent 事件
+
+1. runtime backend / session id / selected agent 必须可见。
+2. subagent 的 selected / started / completed / failed 计数必须可追踪。
+3. 最近 runtime event 必须可回放到 requirement 详情页和后续 incident / signal 流程。
+
+### 12.3 Cleanup 与 abort propagation 必须可复盘
+
+1. pause / cancel / abort 时，要能看到 cleanup 何时被请求。
+2. 如果 runtime backend 支持外部 state，state snapshot 也应进入 telemetry。
+3. operator 需要能从 artifact 判断“这次是正常结束，还是被中断收口”。

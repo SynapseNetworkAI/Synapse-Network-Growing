@@ -201,6 +201,52 @@ const detail = {
       }),
       created_at: '2026-04-11T08:01:00Z',
     },
+    {
+      id: 16,
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 21,
+      producer_step_id: 21,
+      artifact_type: 'runtime_lifecycle',
+      path: null,
+      content_summary: 'running runtime lifecycle for step implementation',
+      human_readable_body: '# Runtime Lifecycle',
+      machine_readable_payload: JSON.stringify({
+        phase: 'running',
+        task_status: 'running',
+        step_status: 'running',
+        runtime_backend: 'copilot_sdk',
+        runtime_session_id: 'session-running-123',
+        runtime_selected_agent: 'editor',
+      }),
+      created_at: '2026-04-11T08:02:00Z',
+    },
+    {
+      id: 17,
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 21,
+      producer_step_id: 21,
+      artifact_type: 'runtime_telemetry',
+      path: null,
+      content_summary: 'running runtime telemetry for step implementation',
+      human_readable_body: '# Runtime Telemetry',
+      machine_readable_payload: JSON.stringify({
+        runtime_event_cursor: 6,
+        transcript_available: false,
+        subagent_counts: {
+          selected: 1,
+          started: 1,
+          completed: 0,
+          failed: 0,
+        },
+        recent_events: [
+          { event_type: 'runtime_session_created', detail: 'session=session-running-123' },
+          { event_type: 'subagent_started', detail: 'editor' },
+        ],
+      }),
+      created_at: '2026-04-11T08:02:00Z',
+    },
   ],
   delivery_state: {
     branch_name: 'ops/req-1-verification-contract-hardening',
@@ -258,8 +304,14 @@ describe('RequirementDetail', () => {
 
     expect(screen.getByTestId('delivery-state-panel')).toBeInTheDocument()
     expect(screen.getByTestId('context-governance-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('runtime-lifecycle-panel')).toBeInTheDocument()
     expect(screen.getByText('Latest Compaction')).toBeInTheDocument()
     expect(screen.getByText(/status: fresh/)).toBeInTheDocument()
+    expect(screen.getByText(/phase: running/)).toBeInTheDocument()
+    expect(screen.getByText(/selected agent: editor/)).toBeInTheDocument()
+    expect(screen.getByText(/subagents:/)).toBeInTheDocument()
+    expect(screen.getByText(/subagent_started/)).toBeInTheDocument()
+    expect(screen.getAllByText(/editor/).length).toBeGreaterThan(0)
     expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
     expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
     expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()

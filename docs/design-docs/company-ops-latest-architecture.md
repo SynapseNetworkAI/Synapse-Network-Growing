@@ -156,6 +156,77 @@ dispatch 前还会生成 `stale_memory_verification` artifact。
 
 这样 operator 不再需要靠猜测判断“agent 到底看到了什么上下文”。
 
+## 1.4 新增的 runtime lifecycle / telemetry 层
+
+在 context governance 之后，当前 requirement workflow 又新增了一层运行期治理。
+
+目标是把 runtime / subagent 的生命周期从“散落在 task logs 和 monitor 里”提升成可复盘的 workflow artifact。
+
+### 当前新增的 artifact
+
+现在每个进入 dispatch 的 workflow step，都会开始产出两类 artifact：
+
+1. `runtime_lifecycle`
+2. `runtime_telemetry`
+
+### runtime_lifecycle
+
+用于记录 step 对应 runtime 的状态切换，当前已覆盖：
+
+1. `dispatch_requested`
+2. `running`
+3. `waiting_approval`
+4. `completed`
+5. `failed`
+6. `paused`
+
+artifact payload 会记录：
+
+1. `runtime_backend`
+2. `runtime_session_id`
+3. `runtime_selected_agent`
+4. `task_status`
+5. `step_status`
+6. `skill_name`
+7. `started_at / completed_at`
+8. `last_error_message`
+
+### runtime_telemetry
+
+用于汇总运行期证据，当前会聚合：
+
+1. `task_logs` 中的 runtime/subagent/tool/permission/user_input 事件
+2. subagent 的 selected / started / completed / failed 计数
+3. runtime session state snapshot
+4. transcript 是否已经产生
+
+这样 requirement 详情页、incident 分析、optimization signal 都可以读同一份结构化 telemetry，而不必各自重新解析日志。
+
+### 运行期状态来源
+
+当前这层治理使用三类来源：
+
+1. `TaskRow` 上的 backend / session / selected_agent / status
+2. `TaskLogRow` 中的 runtime / subagent 事件
+3. Copilot SDK detached runtime 的 state file
+
+其中：
+
+1. task runner 负责写原始 task log
+2. monitor 负责持续同步 detached runtime state
+3. workflow orchestrator 负责把它们归档成 requirement-level artifact
+
+### UI 与 operator 可见性
+
+`/requirements/:id` 详情页现在新增了 `Runtime Lifecycle` 面板，可查看：
+
+1. 最新 lifecycle snapshot
+2. telemetry summary
+3. recent runtime events
+4. subagent 计数
+
+这一步的意义是：operator 终于能直接回答“这个 requirement 现在到底卡在 runtime 的哪一层”，而不是同时翻 task logs、session state 和 workflow 状态。
+
 ## 2. 当前推荐的数据库策略
 
 ## 2.1 是否要立刻换成更强的数据库

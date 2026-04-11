@@ -1118,6 +1118,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.runtime_session_id = task.runtime_session_id
         step.runtime_backend = task.runtime_backend or ""
         step.started_at = step.started_at or task.started_at or utcnow()
+        _record_runtime_lifecycle_artifacts(db, step, task, phase="running")
         _record_step_event(db, step.id, "status_change", "running")
         db.commit()
         return
@@ -1128,6 +1129,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.runtime_backend = task.runtime_backend or ""
         step.started_at = step.started_at or task.started_at or utcnow()
         run.status = "running"
+        _record_runtime_lifecycle_artifacts(db, step, task, phase="waiting_approval")
         _record_step_event(db, step.id, "status_change", "waiting_approval")
         db.commit()
         return
@@ -1139,6 +1141,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.started_at = step.started_at or task.started_at or utcnow()
         step.completed_at = task.completed_at or utcnow()
         _populate_handoff_summary(step, task)
+        _record_runtime_lifecycle_artifacts(db, step, task, phase="completed")
         _record_step_event(db, step.id, "status_change", "completed")
         artifact = _create_step_completion_artifact(db, step, task)
         _mark_step_targets_passed(db, step, artifact)
@@ -1155,6 +1158,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         step.status = "failed"
         step.started_at = step.started_at or task.started_at or utcnow()
         step.completed_at = task.completed_at or utcnow()
+        _record_runtime_lifecycle_artifacts(db, step, task, phase="failed")
         _record_step_event(db, step.id, "status_change", f"failed ({task.status})")
         error_text = task.last_error_message or task.output_content or "Workflow step failed"
         bug_report_payload = _build_bug_report_payload(db, requirement, run, step, task, error_text)
@@ -1393,6 +1397,7 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             step.compatibility_task_id = _as_int(task.id)
             workflow_run.status = "running"
             requirement.status = "in_progress"
+            _record_runtime_lifecycle_artifacts(db, step, task, phase="dispatch_requested")
             _record_step_event(db, step.id, "status_change", f"running (task={task.id})")
             db.commit()
 
@@ -1432,7 +1437,9 @@ def _pause_workflow_step(db: Session, step: WorkflowStepRow) -> None:
         _terminate_task_runtime(task)
         cast(Any, task).status = "cancelled"
         cast(Any, task).last_error_message = "Paused by user"
+        cast(Any, task).completed_at = utcnow()
         db.add(TaskLogRow(task_id=task.id, event_type="paused", detail="Requirement paused by user"))
+        _record_runtime_lifecycle_artifacts(db, step, task, phase="paused", note="Requirement paused by user")
 
     step.status = "ready"
     step.runtime_session_id = None
@@ -1478,6 +1485,8 @@ def _terminate_task_runtime(task: TaskRow) -> None:
     state["status"] = "paused"
     state["updatedAt"] = utcnow().isoformat()
     state["pausedAt"] = utcnow().isoformat()
+    state["cleanupRequestedAt"] = utcnow().isoformat()
+    state["abortPropagation"] = "manual_pause"
     save_runtime_state(paths["state"], state)
 
 
@@ -2028,6 +2037,260 @@ def _create_step_completion_artifact(db: Session, step: WorkflowStepRow, task: T
         content_summary=(body or task.last_error_message or step.title)[:200],
         human_readable_body=body,
         machine_readable_payload=payload,
+    )
+
+
+def _runtime_lifecycle_phase_for_task(task: TaskRow) -> str:
+    status = str(task.status or "")
+    return {
+        "running": "running",
+        "pending_approval": "waiting_approval",
+        "completed": "completed",
+        "failed": "failed",
+        "rejected": "failed",
+        "cancelled": "paused",
+    }.get(status, status or "unknown")
+
+
+def _runtime_output_dir(task: TaskRow) -> Path:
+    return task_output_dir(PROJECT_ROOT, str(task.agent_id), int(task.id))
+
+
+def _runtime_state_snapshot(task: TaskRow) -> dict[str, Any]:
+    if str(task.runtime_backend or "") != "copilot_sdk":
+        return {}
+    paths = copilot_runtime_paths(_runtime_output_dir(task))
+    state = load_runtime_state(paths["state"]) or {}
+    return {
+        "status": str(state.get("status") or ""),
+        "session_id": str(state.get("sessionId") or task.runtime_session_id or ""),
+        "selected_agent": str(state.get("selectedAgent") or task.runtime_selected_agent or ""),
+        "heartbeat_at": str(state.get("heartbeatAt") or ""),
+        "updated_at": str(state.get("updatedAt") or ""),
+        "resume_requested_at": str(state.get("resumeRequestedAt") or ""),
+        "last_event_type": str(state.get("lastEventType") or ""),
+        "worker_pid": int(state.get("workerPid") or 0),
+    }
+
+
+def _runtime_telemetry_logs(db: Session, task_id: int) -> list[TaskLogRow]:
+    logs = db.query(TaskLogRow).filter(TaskLogRow.task_id == task_id).order_by(TaskLogRow.id.asc()).all()
+    return [
+        log
+        for log in logs
+        if (
+            str(log.event_type).startswith("runtime_")
+            or str(log.event_type).startswith("subagent_")
+            or str(log.event_type).startswith("assistant_")
+            or str(log.event_type).startswith("tool_")
+            or str(log.event_type).startswith("permission_")
+            or str(log.event_type).startswith("user_input_")
+            or str(log.event_type).startswith("elicitation_")
+            or str(log.event_type) in {"crew_started", "approval_requested", "completed", "failed", "paused", "started", "created"}
+        )
+    ]
+
+
+def _runtime_telemetry_payload(db: Session, step: WorkflowStepRow, task: TaskRow, *, phase: str) -> dict[str, Any]:
+    logs = _runtime_telemetry_logs(db, int(task.id))
+    event_counts: dict[str, int] = {}
+    subagent_counts = {"selected": 0, "started": 0, "completed": 0, "failed": 0}
+    recent_events: list[dict[str, Any]] = []
+    recent_subagents: list[dict[str, Any]] = []
+    for log in logs:
+        event_type = str(log.event_type or "")
+        event_counts[event_type] = event_counts.get(event_type, 0) + 1
+        detail = str(log.detail or "")
+        if event_type.startswith("subagent_"):
+            name = event_type.split("_", 1)[1]
+            if name in subagent_counts:
+                subagent_counts[name] += 1
+            recent_subagents.append(
+                {
+                    "event_type": event_type,
+                    "detail": detail or None,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                }
+            )
+        recent_events.append(
+            {
+                "event_type": event_type,
+                "detail": detail or None,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+        )
+
+    runtime_state = _runtime_state_snapshot(task)
+    return {
+        "requirement_id": _as_int(step.requirement_id),
+        "workflow_run_id": _as_int(step.workflow_run_id),
+        "step_id": _as_int(step.id),
+        "step_key": str(step.step_key),
+        "step_type": str(step.step_type),
+        "task_id": _as_int(task.id),
+        "phase": phase,
+        "runtime_backend": str(task.runtime_backend or ""),
+        "runtime_session_id": str(task.runtime_session_id or ""),
+        "runtime_selected_agent": str(task.runtime_selected_agent or ""),
+        "runtime_event_cursor": int(getattr(task, "runtime_event_cursor", 0) or 0),
+        "event_counts": event_counts,
+        "subagent_counts": subagent_counts,
+        "recent_events": recent_events[-12:],
+        "recent_subagents": recent_subagents[-6:],
+        "runtime_state": runtime_state,
+        "transcript_available": bool(task.output_content or task.output_path),
+    }
+
+
+def _runtime_lifecycle_payload(step: WorkflowStepRow, task: TaskRow, *, phase: str, note: str | None = None) -> dict[str, Any]:
+    return {
+        "requirement_id": _as_int(step.requirement_id),
+        "workflow_run_id": _as_int(step.workflow_run_id),
+        "step_id": _as_int(step.id),
+        "step_key": str(step.step_key),
+        "step_type": str(step.step_type),
+        "task_id": _as_int(task.id),
+        "phase": phase,
+        "task_status": str(task.status or ""),
+        "step_status": str(step.status or ""),
+        "runtime_backend": str(task.runtime_backend or ""),
+        "runtime_session_id": str(task.runtime_session_id or ""),
+        "runtime_selected_agent": str(task.runtime_selected_agent or ""),
+        "agent_id": str(task.agent_id or ""),
+        "skill_name": str(task.skill_name or ""),
+        "requires_approval": bool(task.requires_approval),
+        "output_path": str(task.output_path or "") or None,
+        "last_error_message": str(task.last_error_message or "") or None,
+        "note": note,
+        "task_created_at": task.created_at.isoformat() if task.created_at else None,
+        "task_started_at": task.started_at.isoformat() if task.started_at else None,
+        "task_completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "step_started_at": step.started_at.isoformat() if step.started_at else None,
+        "step_completed_at": step.completed_at.isoformat() if step.completed_at else None,
+        "execution_time_ms": int(task.execution_time_ms or 0) or None,
+    }
+
+
+def _runtime_lifecycle_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Runtime Lifecycle",
+        "",
+        f"- Phase: `{payload.get('phase') or '-'}`",
+        f"- Task status: `{payload.get('task_status') or '-'}`",
+        f"- Step status: `{payload.get('step_status') or '-'}`",
+        f"- Backend: `{payload.get('runtime_backend') or '-'}`",
+        f"- Session: `{payload.get('runtime_session_id') or '-'}`",
+        f"- Selected agent: `{payload.get('runtime_selected_agent') or '-'}`",
+        f"- Skill: `{payload.get('skill_name') or '-'}`",
+    ]
+    if payload.get("last_error_message"):
+        lines.append(f"- Last error: {payload.get('last_error_message')}")
+    if payload.get("note"):
+        lines.append(f"- Note: {payload.get('note')}")
+    return "\n".join(lines)
+
+
+def _runtime_telemetry_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Runtime Telemetry",
+        "",
+        f"- Backend: `{payload.get('runtime_backend') or '-'}`",
+        f"- Session: `{payload.get('runtime_session_id') or '-'}`",
+        f"- Transcript available: {'yes' if payload.get('transcript_available') else 'no'}",
+    ]
+    subagent_counts = payload.get("subagent_counts") or {}
+    if isinstance(subagent_counts, dict):
+        lines.append(
+            "- Subagents: "
+            + ", ".join(
+                f"{key}={int(subagent_counts.get(key) or 0)}"
+                for key in ("selected", "started", "completed", "failed")
+            )
+        )
+    recent_events = payload.get("recent_events") or []
+    if isinstance(recent_events, list) and recent_events:
+        lines.extend(["", "## Recent Runtime Events"])
+        for item in recent_events[-5:]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- `{item.get('event_type', '-')}`"
+                + (f": {item.get('detail')}" if item.get("detail") else "")
+            )
+    return "\n".join(lines)
+
+
+def _create_or_update_artifact(
+    db: Session,
+    *,
+    requirement_id: int,
+    artifact_type: str,
+    workflow_run_id: int | None = None,
+    step_id: int | None = None,
+    producer_step_id: int | None = None,
+    path: str | None = None,
+    content_summary: str | None = None,
+    human_readable_body: str | None = None,
+    machine_readable_payload: dict | list | str | None = None,
+) -> ArtifactRow:
+    payload_text = _json_dumps(machine_readable_payload) if machine_readable_payload is not None else None
+    checksum = hashlib.sha1((payload_text or human_readable_body or content_summary or "").encode("utf-8")).hexdigest()
+    latest = db.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == artifact_type,
+        ArtifactRow.workflow_run_id == workflow_run_id,
+        ArtifactRow.step_id == step_id,
+    ).order_by(ArtifactRow.id.desc()).first()
+    if latest is not None and str(latest.checksum or "") == checksum:
+        return latest
+    return _create_artifact(
+        db,
+        requirement_id=requirement_id,
+        artifact_type=artifact_type,
+        workflow_run_id=workflow_run_id,
+        step_id=step_id,
+        producer_step_id=producer_step_id,
+        path=path,
+        content_summary=content_summary,
+        human_readable_body=human_readable_body,
+        machine_readable_payload=machine_readable_payload,
+    )
+
+
+def _record_runtime_lifecycle_artifacts(
+    db: Session,
+    step: WorkflowStepRow,
+    task: TaskRow,
+    *,
+    phase: str | None = None,
+    note: str | None = None,
+) -> None:
+    resolved_phase = phase or _runtime_lifecycle_phase_for_task(task)
+    lifecycle_payload = _runtime_lifecycle_payload(step, task, phase=resolved_phase, note=note)
+    telemetry_payload = _runtime_telemetry_payload(db, step, task, phase=resolved_phase)
+    _create_or_update_artifact(
+        db,
+        requirement_id=step.requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="runtime_lifecycle",
+        path=str(task.output_path or "") or None,
+        content_summary=f"{resolved_phase} runtime lifecycle for step {step.step_key}",
+        human_readable_body=_runtime_lifecycle_markdown(lifecycle_payload),
+        machine_readable_payload=lifecycle_payload,
+    )
+    _create_or_update_artifact(
+        db,
+        requirement_id=step.requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="runtime_telemetry",
+        path=str(task.output_path or "") or None,
+        content_summary=f"{resolved_phase} runtime telemetry for step {step.step_key}",
+        human_readable_body=_runtime_telemetry_markdown(telemetry_payload),
+        machine_readable_payload=telemetry_payload,
     )
 
 

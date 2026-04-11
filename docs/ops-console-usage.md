@@ -235,17 +235,48 @@ npm run dev
 2. 看 workflow run 和 step 执行情况。
 3. 看 validation plan、manual checks、automated checks。
 4. 看 Context Governance，包括当前 step 的 context policy、最近一次 compaction 和 stale memory verification。
-5. 看 artifacts，包括 implementation plan、validation plan、bug report、context_compaction、stale_memory_verification。
-6. 发起修订。
-7. 在满足 release gate 时执行 publish。
+5. 看 Runtime Lifecycle，包括 runtime backend / session / selected agent、recent runtime events、subagent 计数。
+6. 看 artifacts，包括 implementation plan、validation plan、bug report、context_compaction、stale_memory_verification、runtime_lifecycle、runtime_telemetry。
+7. 发起修订。
+8. 在满足 release gate 时执行 publish。
 
 ### 正确使用方式
 
 1. 先确认 requirement 本身描述是对的。
 2. 再看 workflow 是否合理。
 3. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
-4. 再看 validation contract 是否覆盖关键风险。
-5. 最后再做 publish，而不是跳过验证直接关单。
+4. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死，也没有停在异常状态。
+5. 再看 validation contract 是否覆盖关键风险。
+6. 最后再做 publish，而不是跳过验证直接关单。
+
+### Runtime Lifecycle 面板怎么用
+
+这个面板主要回答 3 个问题：
+
+1. 当前 step 的 runtime 现在在哪个阶段
+2. 它到底跑在哪个 backend / session / selected agent 上
+3. 最近是哪些 runtime / subagent 事件导致它变成现在这个状态
+
+如果你看到：
+
+1. `phase = dispatch_requested`
+2. 很久没有进入 `running`
+
+优先怀疑 dispatch / runtime bridge。
+
+如果你看到：
+
+1. `phase = running`
+2. recent events 长时间只有 resume / heartbeat，没有 completed
+
+优先怀疑 session 卡住、tool 卡死或 worker 无法收口。
+
+如果你看到：
+
+1. `phase = paused`
+2. runtime state 里出现 cleanup / abort 相关信息
+
+说明 requirement 是被系统或 operator 主动收口，而不是正常完成。
 
 ### 当 requirement 被 stale memory 阻断时怎么办
 

@@ -195,8 +195,16 @@ export default function RequirementDetail() {
   const latestStaleMemoryVerification = detail.artifacts
     .filter((artifact) => artifact.artifact_type === 'stale_memory_verification')
     .sort((a, b) => b.id - a.id)[0]
+  const latestRuntimeLifecycle = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'runtime_lifecycle')
+    .sort((a, b) => b.id - a.id)[0]
+  const latestRuntimeTelemetry = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'runtime_telemetry')
+    .sort((a, b) => b.id - a.id)[0]
   const contextCompactionPayload = parsePayload(latestContextCompaction?.machine_readable_payload ?? null)
   const staleMemoryPayload = parsePayload(latestStaleMemoryVerification?.machine_readable_payload ?? null)
+  const runtimeLifecyclePayload = parsePayload(latestRuntimeLifecycle?.machine_readable_payload ?? null)
+  const runtimeTelemetryPayload = parsePayload(latestRuntimeTelemetry?.machine_readable_payload ?? null)
   const activeContextStep = (detail.workflow_run?.steps || []).find((step) => step.status !== 'completed' && step.status !== 'deleted')
     || detail.workflow_run?.steps?.[0]
   const activeContextPolicy = parsePayload(activeContextStep?.context_policy_json ?? null)
@@ -642,6 +650,63 @@ export default function RequirementDetail() {
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {(latestRuntimeLifecycle || latestRuntimeTelemetry) && (
+              <section className="p-4 border rounded-xl bg-slate-50" data-testid="runtime-lifecycle-panel">
+                <div className="mb-3 text-sm font-semibold">Runtime Lifecycle</div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {latestRuntimeLifecycle && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Latest Lifecycle Snapshot</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>phase: {String(runtimeLifecyclePayload?.phase ?? '-')}</div>
+                        <div>task status: {String(runtimeLifecyclePayload?.task_status ?? '-')}</div>
+                        <div>step status: {String(runtimeLifecyclePayload?.step_status ?? '-')}</div>
+                        <div>backend: {String(runtimeLifecyclePayload?.runtime_backend ?? '-')}</div>
+                        <div>session: {String(runtimeLifecyclePayload?.runtime_session_id ?? '-')}</div>
+                        <div>selected agent: {String(runtimeLifecyclePayload?.runtime_selected_agent ?? '-')}</div>
+                      </div>
+                    </div>
+                  )}
+                  {latestRuntimeTelemetry && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Telemetry Summary</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>cursor: {String(runtimeTelemetryPayload?.runtime_event_cursor ?? '-')}</div>
+                        <div>transcript: {String(runtimeTelemetryPayload?.transcript_available ?? false)}</div>
+                        <div>
+                          subagents:
+                          {' '}
+                          selected {String((runtimeTelemetryPayload?.subagent_counts as Record<string, unknown> | undefined)?.selected ?? 0)}
+                          {' / '}
+                          started {String((runtimeTelemetryPayload?.subagent_counts as Record<string, unknown> | undefined)?.started ?? 0)}
+                          {' / '}
+                          completed {String((runtimeTelemetryPayload?.subagent_counts as Record<string, unknown> | undefined)?.completed ?? 0)}
+                          {' / '}
+                          failed {String((runtimeTelemetryPayload?.subagent_counts as Record<string, unknown> | undefined)?.failed ?? 0)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {Array.isArray(runtimeTelemetryPayload?.recent_events) && runtimeTelemetryPayload.recent_events.length > 0 && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Recent Runtime Events</div>
+                    <div className="space-y-1 text-gray-600">
+                      {runtimeTelemetryPayload.recent_events.map((item, idx) => {
+                        const event = item as Record<string, unknown>
+                        return (
+                          <div key={`${String(event.event_type)}-${idx}`}>
+                            <span className="font-medium text-gray-800">{String(event.event_type || '-')}</span>
+                            {event.detail ? ` · ${String(event.detail)}` : ''}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </section>

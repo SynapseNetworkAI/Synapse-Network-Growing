@@ -18,22 +18,22 @@ from server.database import (
 )
 from server.services.workflow_orchestrator import MAX_BUGFIX_BRANCH_DEPTH
 from server.services.task_runner import _run_task_sync
-from server.services.task_runtime import TaskExecutionResult
+from server.services.task_runtime import RuntimeEvent, TaskExecutionResult
 
 
-def _runtime_result(*, text: str = "", error: str | None = None, execution_time_ms: int = 5):
+def _runtime_result(*, text: str = "", error: str | None = None, execution_time_ms: int = 5, events=None):
     return TaskExecutionResult(
         text=text,
         files=[],
         error=error,
         execution_time_ms=execution_time_ms,
         runtime_backend="legacy",
-        events=[],
+        events=events or [],
         deferred=False,
     )
 
 
-def _deferred_runtime_result(*, session_id: str = "session-running-123", execution_time_ms: int = 5):
+def _deferred_runtime_result(*, session_id: str = "session-running-123", execution_time_ms: int = 5, events=None):
     return TaskExecutionResult(
         text="",
         files=[],
@@ -41,7 +41,7 @@ def _deferred_runtime_result(*, session_id: str = "session-running-123", executi
         execution_time_ms=execution_time_ms,
         runtime_backend="copilot_sdk",
         runtime_session_id=session_id,
-        events=[],
+        events=events or [],
         deferred=True,
     )
 
@@ -1279,6 +1279,71 @@ def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, 
     refreshed_tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
     assert len(refreshed_tasks) >= 2
     assert refreshed_tasks[-1].status == "completed"
+
+    lifecycle_artifacts = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "runtime_lifecycle",
+    ).order_by(ArtifactRow.id.asc()).all()
+    lifecycle_phases = [json.loads(artifact.machine_readable_payload)["phase"] for artifact in lifecycle_artifacts]
+    assert "dispatch_requested" in lifecycle_phases
+    assert "running" in lifecycle_phases
+    assert "paused" in lifecycle_phases
+    assert "completed" in lifecycle_phases
+
+
+def test_start_requirement_records_runtime_telemetry_artifacts(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Runtime telemetry requirement",
+            "description_markdown": "Capture runtime lifecycle and subagent telemetry.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class DeferredRuntime:
+        def execute(self, **_kwargs):
+            return _deferred_runtime_result(
+                session_id="runtime-session-123",
+                events=[
+                    RuntimeEvent(event_type="runtime_session_created", detail="session=runtime-session-123"),
+                    RuntimeEvent(event_type="subagent_selected", detail="editor"),
+                    RuntimeEvent(event_type="subagent_started", detail="editor"),
+                ],
+            )
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    data = start_resp.json()
+    assert data["requirement"]["status"] == "in_progress"
+
+    lifecycle_artifact = sorted(
+        [artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "runtime_lifecycle"],
+        key=lambda artifact: artifact["id"],
+        reverse=True,
+    )[0]
+    lifecycle_payload = json.loads(lifecycle_artifact["machine_readable_payload"])
+    assert lifecycle_payload["phase"] == "running"
+    assert lifecycle_payload["runtime_backend"] == "copilot_sdk"
+    assert lifecycle_payload["runtime_session_id"] == "runtime-session-123"
+
+    telemetry_artifact = sorted(
+        [artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "runtime_telemetry"],
+        key=lambda artifact: artifact["id"],
+        reverse=True,
+    )[0]
+    telemetry_payload = json.loads(telemetry_artifact["machine_readable_payload"])
+    assert telemetry_payload["runtime_event_cursor"] == 0
+    assert telemetry_payload["event_counts"]["runtime_session_created"] == 1
+    assert telemetry_payload["event_counts"]["subagent_started"] == 1
+    assert telemetry_payload["subagent_counts"]["selected"] == 1
+    assert telemetry_payload["subagent_counts"]["started"] == 1
 
 
 def test_pause_requirement_handles_state_drift_without_running_step(synced_client, db_session):
