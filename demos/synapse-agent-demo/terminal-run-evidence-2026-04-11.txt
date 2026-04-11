@@ -1,0 +1,40 @@
+=== three_line_demo.py (AgentWallet hero API) ===
+$ python demos/synapse-agent-demo/three_line_demo.py
+
+✅  SUCCEEDED  |  charged: $0.01 USDC  |  remaining: $4.99 USDC
+    response: {"price_usd": 3241.55, "pair": "ETH/USD", "source": "Synapse Mock"}
+
+=== quickstart_demo.py --mock (full narrative demo) ===
+$ python demos/synapse-agent-demo/quickstart_demo.py --mock
+🔧  Starting in-process mock gateway …
+
+============================================================
+  Synapse Network — Agent Quickstart Demo
+============================================================
+
+[1/3] Connecting to gateway: http://127.0.0.1:18765
+      ✅  SynapseClient ready  |  budget ceiling: $5.00 USDC
+
+[2/3] Discovering services via MCP search query …
+      ✅  Found: 'Market Sentiment API'
+          serviceId : svc_demo_market_sentiment
+          price     : $0.05 USDC/call
+          status    : online
+
+[3/3] Invoking service & deducting USDC …
+      ✅  Invocation SUCCEEDED
+          invocationId : 2fce24f20b2b4fdfa3b1ecc47152bbe8
+          cost paid    : $0.05 USDC
+          status       : SUCCEEDED
+          response     : {"ticker": "AAPL", "sentiment_score": 0.82, "label": "BULLISH", "source": "Synapse Mock Gateway"}
+
+      💰  Remaining budget (simulated): $4.95 USDC
+
+============================================================
+  Task Complete. Machine-to-Machine payments — unlocked.
+============================================================
+
+
+=== AgentWallet import validation ===
+$ python -c "from synapse_client import AgentWallet; wallet = AgentWallet.connect(budget=5.0); print('OK — budget:', wallet.budget_usdc)"
+OK — budget: 5.0

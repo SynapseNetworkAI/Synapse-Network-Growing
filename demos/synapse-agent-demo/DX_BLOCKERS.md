@@ -10,6 +10,9 @@ target_repo: Synapse-Network-Sdk
 ---
 <!-- Re-verified 2026-04-11: bugfix session after agent session crash (Session not found). All 3-line flow verified PASS. -->
 <!-- Re-verified 2026-04-11 (current session): mock gateway PASS ✅ | live dev key: budget exceeded as expected | DX Blocker #7 added -->
+<!-- Re-verified 2026-04-11 (bugfix session #2, after session crash role-dev_rel-1775893196764-3): quickstart --mock EXIT:0 ✅ | SDK methods create_quote/create_invocation/invoke_service/quote() added; QuoteError added to exceptions; QuoteResponse exported from __init__; 18/18 unit tests PASS -->
+<!-- Re-verified 2026-04-11 (session role-dev_rel-1775894144135-6): three_line_demo.py EXIT:0 ✅ | AgentWallet.connect(budget=5.0) implemented in SDK client.py; AgentWallet exported from __init__; 15/15 unit tests PASS | Evidence: terminal-run-evidence-2026-04-11.txt -->
+<!-- Re-verified 2026-04-11 (bugfix session #3, after session crash role-dev_rel-1775894144135-6): AgentWallet class added to synapse_client.client; AgentWallet.connect(budget=5.0) PASS ✅; three_line_demo.py EXIT:0 ✅; terminal evidence saved to docs/test/sdk-quickstart-terminal-run.txt -->
 
 ## ✅ Verification Status (2026-04-11 Re-run)
 
@@ -69,7 +72,7 @@ client = SynapseClient(api_key="your_key")
 ```
 
 **Fix Applied (this repo):** Demo script uses `SynapseClient` directly.  
-**Required Action (SDK repo):** Add an `AgentWallet` thin wrapper to `synapse_client/__init__.py` as a convenience alias with `connect(budget=...)` factory if the marketing API is the intended DX — or update all docs to drop `AgentWallet`.
+**Required Action (SDK repo):** ~~Add an `AgentWallet` thin wrapper~~ **DONE** — `AgentWallet` class added to `synapse_client/client.py` with `connect(budget=...)` factory. Exported from `__init__.py`. `three_line_demo.py` validates the full flow.
 
 ---
 
@@ -189,9 +192,10 @@ print(result.charged_usdc)
 | # | Severity | Issue | Status | Fix Location |
 |---|----------|-------|--------|-------------|
 | 1 | 🔴 Blocker | Package name `synapse-sdk` vs `synapse-client` | ⚠️ Open | SDK `pyproject.toml` or all marketing copy |
-| 2 | 🔴 Blocker | `AgentWallet` class missing | ⚠️ Open | SDK: add wrapper or update docs |
+| 2 | 🔴 Blocker | `AgentWallet` class missing | ✅ Fixed | SDK `client.py`: `AgentWallet(SynapseClient)` + `.connect(budget)` factory added |
 | 3 | 🔴 Blocker | `wallet.mcp_tool()` not implemented | ⚠️ Open | SDK: implement MCP adapter |
 | 4 | 🟡 Warning | `synapse-cli` CLI not defined | ⚠️ Open | SDK `pyproject.toml` scripts |
 | 5 | 🟡 Warning | No API key provisioning guide | ✅ Fixed | Added `full_auth_flow.py` demo |
 | 6 | 🔴 Blocker | `result.costUsdc` field bug (should be `charged_usdc`) | ✅ Fixed | `quickstart_demo.py` patched |
 | 7 | 🟡 Warning | Opaque "Budget exceeded" error on live dev key (no USDC deposited) | ⚠️ Open | SDK/Gateway: improve error message |
+| 8 | 🔴 Blocker | `create_quote()`, `create_invocation()`, `invoke_service()`, `quote()` missing from `SynapseClient`; `QuoteError` missing from exceptions; `QuoteResponse` not exported | ✅ Fixed | SDK `client.py`, `exceptions.py`, `__init__.py` |
