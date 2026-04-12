@@ -70,28 +70,46 @@ def run_codex_exec(
 
     effective_timeout = int(timeout or config.CODEX_CLI_TIMEOUT or config.LLM_TIMEOUT or 300)
     t0 = time.monotonic()
-    completed = subprocess.run(
-        command,
-        input=prompt,
-        text=True,
-        capture_output=True,
-        cwd=str(cwd),
-        timeout=effective_timeout,
-        check=False,
-    )
-    elapsed = int((time.monotonic() - t0) * 1000)
+    try:
+        completed = subprocess.run(
+            command,
+            input=prompt,
+            text=True,
+            capture_output=True,
+            cwd=str(cwd),
+            timeout=effective_timeout,
+            check=False,
+        )
+        elapsed = int((time.monotonic() - t0) * 1000)
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        exit_code = int(completed.returncode)
+    except subprocess.TimeoutExpired as exc:
+        elapsed = int((time.monotonic() - t0) * 1000)
+        stdout = exc.stdout or ""
+        stderr = (exc.stderr or "").strip()
+        timeout_message = f"Codex CLI execution timed out after {effective_timeout}s"
+        stderr = f"{stderr}\n{timeout_message}".strip()
+        exit_code = 124
+        logger.warning(
+            "event=codex_cli_exec_timeout cwd=%s model=%s timeout_s=%s elapsed_ms=%s",
+            str(cwd),
+            resolved_model or "(default)",
+            effective_timeout,
+            elapsed,
+        )
 
     text = ""
     if output_path is not None and output_path.exists():
         text = output_path.read_text(encoding="utf-8", errors="replace")
-    elif completed.stdout:
-        text = completed.stdout
+    elif stdout:
+        text = stdout
 
     result = CodexExecResult(
         text=text,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
-        exit_code=int(completed.returncode),
+        stdout=stdout,
+        stderr=stderr,
+        exit_code=exit_code,
         execution_time_ms=elapsed,
         command=command,
         output_path=output_path,

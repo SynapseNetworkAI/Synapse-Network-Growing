@@ -111,6 +111,68 @@ def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _workflow_run_has_running_steps(db: Session, workflow_run_id: int) -> bool:
+    return (
+        db.query(WorkflowStepRow)
+        .filter(
+            WorkflowStepRow.workflow_run_id == workflow_run_id,
+            WorkflowStepRow.status.in_(tuple(RUNNING_STEP_STATUSES)),
+        )
+        .count()
+        > 0
+    )
+
+
+def _select_preferred_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRunRow | None:
+    runs = (
+        db.query(WorkflowRunRow)
+        .filter(WorkflowRunRow.requirement_id == requirement.id)
+        .order_by(WorkflowRunRow.plan_version.desc(), WorkflowRunRow.id.desc())
+        .all()
+    )
+    if not runs:
+        return None
+
+    live_runs = [run for run in runs if _workflow_run_has_running_steps(db, _as_int(run.id))]
+    if live_runs:
+        return live_runs[0]
+
+    if requirement.active_workflow_run_id:
+        active = next((run for run in runs if _as_int(run.id) == _as_int(requirement.active_workflow_run_id)), None)
+        if active is not None and str(active.status) not in {"completed", "cancelled", "failed", "deleted"}:
+            return active
+
+    for status in ("running", "paused", "pending"):
+        for run in runs:
+            if str(run.status) == status:
+                return run
+
+    return runs[0]
+
+
+def _reconcile_active_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRunRow | None:
+    run = _select_preferred_workflow_run(db, requirement)
+    if run is None:
+        return None
+
+    if requirement.active_workflow_run_id != _as_int(run.id):
+        requirement.active_workflow_run_id = _as_int(run.id)
+
+    has_running_steps = _workflow_run_has_running_steps(db, _as_int(run.id))
+    run_status = str(run.status or "")
+    if has_running_steps and requirement.status not in {"in_progress", "paused", "blocked", "deleted"}:
+        requirement.status = "in_progress"
+        requirement.started_at = requirement.started_at or utcnow()
+    elif run_status == "paused" and requirement.status == "in_progress":
+        requirement.status = "paused"
+        requirement.completed_at = None
+    elif run_status == "pending" and not has_running_steps and requirement.status == "in_progress":
+        requirement.status = "ready"
+        requirement.started_at = None
+
+    return run
+
+
 def _clear_role_sessions() -> None:
     """Clear runtime role-session caches when a requirement reaches a terminal state."""
     try:
@@ -569,6 +631,7 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
 def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     _ensure_requirement_not_deleted(requirement)
+    _reconcile_active_workflow_run(db, requirement)
     project_policies = resolve_project_policies_for_target(
         db,
         _normalize_target_project_path(requirement.target_project_path),
@@ -581,6 +644,12 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         return build_requirement_detail(db, requirement.id)
 
     planner_output, assignments = build_planner_output(db, requirement)
+    db.refresh(requirement)
+    _reconcile_active_workflow_run(db, requirement)
+    if requirement.current_plan_version > 0 and requirement.active_workflow_run_id:
+        db.rollback()
+        requirement = _require_requirement(db, requirement_id)
+        return build_requirement_detail(db, requirement.id)
     snapshot_artifact = _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -920,6 +989,7 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
 def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement = _require_requirement(db, requirement_id)
     _ensure_requirement_not_deleted(requirement)
+    _reconcile_active_workflow_run(db, requirement)
     resolve_project_policies_for_target(
         db,
         _normalize_target_project_path(requirement.target_project_path),
@@ -3565,11 +3635,7 @@ def _ensure_requirement_not_deleted(requirement: RequirementRow) -> None:
 
 
 def _active_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRunRow | None:
-    if requirement.active_workflow_run_id:
-        run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
-        if run is not None:
-            return run
-    return db.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement.id).order_by(WorkflowRunRow.id.desc()).first()
+    return _reconcile_active_workflow_run(db, requirement)
 
 
 def _all_checks_passed(db: Session, requirement_id: int) -> bool:

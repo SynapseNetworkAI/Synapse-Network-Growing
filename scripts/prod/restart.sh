@@ -17,7 +17,7 @@ PORT=${OPS_PORT:-9600}
 WORKERS=${OPS_WORKERS:-4}
 
 if [[ "${OPS_PRESERVE_RUNTIME_ENV:-0}" != "1" ]]; then
-  for key in ORCHESTRATION_BACKEND LLM_PROVIDER LLM_EXECUTION_MODE COPILOT_SDK_MODEL; do
+  for key in ORCHESTRATION_BACKEND LLM_PROVIDER LLM_MODEL LLM_EXECUTION_MODE COPILOT_SDK_MODEL CODEX_CLI_MODEL; do
     if [[ -n "${!key:-}" ]]; then
       echo "[$(date '+%H:%M:%S')] Clearing inherited $key so backend selection falls back to repo config (.env)."
       unset "$key"

@@ -90,6 +90,7 @@ OPENAI_RESPONSES_POLL_INTERVAL_SEC = float(os.environ.get("OPENAI_RESPONSES_POLL
 CODEX_CLI_BIN = os.environ.get("CODEX_CLI_BIN", "codex").strip() or "codex"
 CODEX_CLI_MODEL = os.environ.get("CODEX_CLI_MODEL", "").strip()
 CODEX_CLI_TIMEOUT = int(os.environ.get("CODEX_CLI_TIMEOUT", str(LLM_TIMEOUT)))
+CODEX_CLI_TASK_TIMEOUT = int(os.environ.get("CODEX_CLI_TASK_TIMEOUT", str(max(CODEX_CLI_TIMEOUT, 1200))))
 CODEX_CLI_SANDBOX = os.environ.get("CODEX_CLI_SANDBOX", "workspace-write").strip() or "workspace-write"
 CODEX_CLI_FULL_AUTO = os.environ.get("CODEX_CLI_FULL_AUTO", "true").lower() in {"1", "true", "yes", "on"}
 CODEX_CLI_SKIP_GIT_REPO_CHECK = os.environ.get("CODEX_CLI_SKIP_GIT_REPO_CHECK", "false").lower() in {"1", "true", "yes", "on"}

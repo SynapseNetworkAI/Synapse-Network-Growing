@@ -148,6 +148,7 @@ def test_full_plan_uses_openai_responses_style_call(monkeypatch):
     provider.extract_response_tokens.return_value = 42
     provider.extract_response_error.return_value = None
 
+    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "openai_responses")
     monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
     with patch("server.services.workflow_planner.get_provider", return_value=provider):

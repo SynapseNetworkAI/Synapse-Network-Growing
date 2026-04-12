@@ -1657,3 +1657,53 @@ def test_requirement_scheduler_reuses_project_catalog_context(synced_client, mon
     resp = synced_client.get("/api/requirements/scheduler")
     assert resp.status_code == 200
     assert call_count["count"] == 1
+
+
+def test_requirement_detail_reconciles_active_workflow_run_to_live_run(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Workflow run repair",
+            "description_markdown": "Prefer the workflow run that actually owns the running step.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+
+    running_run = WorkflowRunRow(requirement_id=requirement_id, plan_version=1, status="running", triggered_by="user")
+    pending_run = WorkflowRunRow(requirement_id=requirement_id, plan_version=1, status="pending", triggered_by="user")
+    db_session.add_all([running_run, pending_run])
+    db_session.flush()
+    db_session.add(
+        WorkflowStepRow(
+            workflow_run_id=running_run.id,
+            requirement_id=requirement_id,
+            step_key="research",
+            step_type="research",
+            title="Research context",
+            status="running",
+            sequence_no=10,
+            context_scope="project",
+            done_when_markdown="done",
+            file_scope_json="{}",
+            validation_targets_json="[]",
+            failure_policy_json="{}",
+            approval_policy_json="{}",
+            runtime_backend="codex_cli",
+            retry_count=0,
+            context_policy_json="{}",
+        )
+    )
+    requirement.current_plan_version = 1
+    requirement.status = "in_progress"
+    requirement.active_workflow_run_id = pending_run.id
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["requirement"]["active_workflow_run_id"] == running_run.id
+    assert payload["workflow_run"]["id"] == running_run.id
+    assert payload["workflow_run"]["status"] == "running"

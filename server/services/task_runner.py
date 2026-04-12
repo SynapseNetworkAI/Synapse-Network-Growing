@@ -76,6 +76,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             "runtime_submitted",
             f"backend={ORCHESTRATION_BACKEND} agent={role_id} skill={skill_name}",
         )
+        cast(Any, task).runtime_backend = ORCHESTRATION_BACKEND
         db.commit()
 
         # Parse context_files from task (JSON list stored as text)

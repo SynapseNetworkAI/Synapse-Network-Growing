@@ -229,7 +229,7 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             cwd=cwd,
             output_path=output_path,
             model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
-            timeout=config.CODEX_CLI_TIMEOUT,
+            timeout=config.CODEX_CLI_TASK_TIMEOUT,
             add_dirs=_dedupe_paths(add_dirs),
         )
         metadata = {

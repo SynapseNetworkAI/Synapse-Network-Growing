@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 from server import config
-from server.services.codex_cli import CodexExecResult
+from server.services.codex_cli import CodexExecResult, run_codex_exec
 from server.services.llm_adapter import CodexCLIProvider
 from server.services.task_runtime import CodexCLITaskRuntime, get_task_runtime
 
@@ -69,3 +70,26 @@ def test_get_task_runtime_returns_codex_cli_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "ORCHESTRATION_BACKEND", "codex_cli")
     runtime = get_task_runtime(project_root=tmp_path)
     assert isinstance(runtime, CodexCLITaskRuntime)
+
+
+def test_codex_cli_timeout_returns_structured_error(tmp_path):
+    output_path = tmp_path / "out.md"
+    timeout_error = subprocess.TimeoutExpired(
+        cmd=["codex", "exec"],
+        timeout=45,
+        output="partial stdout",
+        stderr="partial stderr",
+    )
+
+    with patch("server.services.codex_cli.subprocess.run", side_effect=timeout_error):
+        result = run_codex_exec(
+            prompt="do work",
+            cwd=tmp_path,
+            output_path=output_path,
+            model="gpt-5-codex",
+            timeout=45,
+        )
+
+    assert result.exit_code == 124
+    assert "timed out after 45s" in result.stderr
+    assert "partial stdout" in result.stdout
