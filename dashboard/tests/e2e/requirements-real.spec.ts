@@ -1,9 +1,6 @@
 import { expect, test } from '@playwright/test'
 
 test('runs requirement workflow against the real backend and captures evidence', async ({ page, request }) => {
-  const syncResp = await request.post('/api/agents/sync')
-  expect(syncResp.ok()).toBeTruthy()
-
   await page.goto('/requirements')
 
   await expect(page.getByTestId('requirements-page')).toBeVisible()

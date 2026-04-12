@@ -112,7 +112,6 @@ CREATE TABLE task_logs (
 |------|------|------|
 | GET | `/api/agents` | 全部 Agent 列表 |
 | GET | `/api/agents/{id}` | Agent 详情 + 任务统计 |
-| POST | `/api/agents/sync` | 从 `roles/` 目录同步 Agent 到 DB |
 
 ### Tasks
 

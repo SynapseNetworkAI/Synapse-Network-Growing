@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import AgentRow, ArtifactRow, RequirementRow
 from server.services.acceptance import acceptance_contract_for_requirement
+from server.services.agent_loader import ensure_agents_loaded
 from server.services.execution_resolver import suggest_task_execution
 from server.services.llm_adapter import get_provider
 from server.services.project_intelligence import resolve_requirement_routing
@@ -1248,13 +1249,15 @@ def _build_implementation_steps(
 # ---------------------------------------------------------------------------
 
 def _first_agent_id(db: Session) -> str:
-    agent = db.query(AgentRow).order_by(AgentRow.id.asc()).first()
+    rows = ensure_agents_loaded(db)
+    agent = rows[0] if rows else None
     if not agent:
-        raise ValueError("No agents are available. Sync agents first.")
+        raise ValueError("No agents are available.")
     return str(agent.id)
 
 
 def _pick_agent_id(db: Session, exclude: set[str], preferred: list[str]) -> str:
+    ensure_agents_loaded(db)
     for preferred_id in preferred:
         if preferred_id in exclude:
             continue

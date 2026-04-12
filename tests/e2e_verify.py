@@ -29,10 +29,10 @@ check("Skills API", len(skills) > 30, f"{len(skills)} skills loaded")
 check("Skills: seo-audit", "seo-audit" in skills)
 check("Skills: copywriting", "copywriting" in skills)
 
-# 3. Sync agents
-r = httpx.post(f"{BASE}/api/agents/sync")
+# 3. List agents (auto-loaded from roles/)
+r = httpx.get(f"{BASE}/api/agents")
 agents = r.json()
-check("Agents sync", len(agents) >= 6, f"{len(agents)} agents")
+check("Agents auto-load", len(agents) >= 6, f"{len(agents)} agents")
 
 # 4. Create task with skill
 r = httpx.post(f"{BASE}/api/tasks", json={

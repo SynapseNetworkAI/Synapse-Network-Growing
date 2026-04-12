@@ -783,12 +783,10 @@ export const api = {
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
-  syncAgents: () => request<Agent[]>('/agents/sync', { method: 'POST' }),
 
   // Org tree
   getOrgTree: () => request<OrgTree>('/org'),
   getCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review'),
-  refreshCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review/refresh', { method: 'POST' }),
   materializeCompanyReviewBundle: (reviewId: number, data?: { bundle_item_keys?: string[]; auto_start?: boolean }) =>
     request<CompanyReviewBundleMaterializeResult>(`/company-review/${reviewId}/materialize-bundle`, {
       method: 'POST',

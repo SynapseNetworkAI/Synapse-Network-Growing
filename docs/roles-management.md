@@ -15,7 +15,7 @@ Synapse-Network-Growing 的组织架构 **由 `roles/` 目录驱动**。
 ```
 新建角色 → roles/<role_id>/prompts/persona.md
     ↓
-Dashboard 点击"同步 Roles"（或调用 POST /api/agents/sync）
+系统在读取 Agent / Dashboard 统计 / 执行调度时自动加载 roles
     ↓
 自动读取 persona.md 的 YAML frontmatter
     ↓
@@ -108,19 +108,7 @@ You are an experienced B2B partnership manager specializing in developer ecosyst
 EOF
 ```
 
-### Step 3: 同步到 Dashboard
-
-**方式 A: Dashboard UI**
-
-点击"组织架构"页面的 **同步 Roles** 按钮。
-
-**方式 B: API**
-
-```bash
-curl -X POST http://localhost:9600/api/agents/sync
-```
-
-### Step 4: 验证
+### Step 3: 验证
 
 ```bash
 curl http://localhost:9600/api/agents/partnership_manager | python -m json.tool
@@ -128,7 +116,7 @@ curl http://localhost:9600/api/agents/partnership_manager | python -m json.tool
 
 应返回新角色的完整信息。
 
-### Step 5: （可选）更新 AGENTS.md
+### Step 4: （可选）更新 AGENTS.md
 
 在 `AGENTS.md` 的"组织架构与角色边界"章节中添加该角色的描述，保持文档与文件系统一致。
 
@@ -173,5 +161,5 @@ Dashboard "组织架构"页面          → 可视化展示（展示层）
 
 四层保持一致的方式：
 1. **新建角色** → 先建 `roles/<id>/prompts/persona.md`（必须），再补 `AGENTS.md`（推荐）
-2. **同步** → Dashboard 点"同步 Roles" 或 `POST /api/agents/sync`
+2. **自动加载** → 重启服务或重新打开相关页面，系统会自动把 `roles/` 目录同步到 Agent 数据表
 3. **验证** → `python scripts/verify_frontmatter.py` 检查格式合规性

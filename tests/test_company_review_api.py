@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
+from server.services.company_review import refresh_company_operating_review
 
 
 def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(synced_client, db_session):
@@ -221,12 +222,10 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
 
 
 def test_company_review_refresh_persists_new_snapshot(synced_client, db_session):
-    first = synced_client.post("/api/company-review/refresh")
-    second = synced_client.post("/api/company-review/refresh")
+    first = refresh_company_operating_review(db_session)
+    second = refresh_company_operating_review(db_session)
 
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert second.json()["id"] > first.json()["id"]
+    assert second.id > first.id
 
     rows = db_session.query(CompanyOperatingReviewRow).order_by(CompanyOperatingReviewRow.id.asc()).all()
     assert len(rows) >= 2
@@ -284,9 +283,7 @@ def test_company_review_materialize_bundle_creates_and_reuses_requirements(synce
     )
     db_session.commit()
 
-    review_resp = synced_client.post("/api/company-review/refresh")
-    assert review_resp.status_code == 200
-    review = review_resp.json()
+    review = synced_client.get("/api/company-review").json()
     assert any(
         str(item.get("source_ref") or "").startswith("incident:")
         for item in review["next_cycle_requirement_bundle"]

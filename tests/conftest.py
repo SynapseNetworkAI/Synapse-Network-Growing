@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from server.database import Base, get_db, SessionLocal as _ProdSession
 from server.main import app
+from server.services.agent_loader import ensure_agents_loaded
 
 # In-memory SQLite for tests — StaticPool ensures all connections share one DB
 TEST_ENGINE = create_engine(
@@ -76,6 +77,9 @@ def client():
 
 @pytest.fixture
 def synced_client(client):
-    """Client with agents already synced."""
-    client.post("/api/agents/sync")
+    """Client with agents already loaded."""
+    db = TestSession()
+    ensure_agents_loaded(db)
+    db.commit()
+    db.close()
     return client

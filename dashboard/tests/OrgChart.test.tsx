@@ -12,11 +12,9 @@ vi.mock('../src/api', async () => {
       getOrgTree: vi.fn(),
       getStats: vi.fn(),
       getCompanyOperatingReview: vi.fn(),
-      refreshCompanyOperatingReview: vi.fn(),
       materializeCompanyReviewBundle: vi.fn(),
       getRecurringWorkflows: vi.fn(),
       runRecurringWorkflow: vi.fn(),
-      syncAgents: vi.fn(),
     },
   }
 })
@@ -405,7 +403,6 @@ describe('OrgChart', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.getCompanyOperatingReview).mockResolvedValue(mockReview)
-    vi.mocked(api.refreshCompanyOperatingReview).mockResolvedValue(mockReview)
     vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     vi.mocked(api.runRecurringWorkflow).mockResolvedValue({
       workflow_key: 'dispatcher_loop',
@@ -516,42 +513,16 @@ describe('OrgChart', () => {
     expect(screen.getByTestId('detail-seo_strategist')).toHaveTextContent('SEO Strategist')
   })
 
-  it('sync button reloads roles', async () => {
+  it('explains that roles and review are managed automatically', async () => {
     vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
     vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
-    vi.mocked(api.syncAgents).mockResolvedValue([])
     renderOrgChart()
 
     await waitFor(() => {
-      expect(screen.getByTestId('orgchart-page')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('同步 Roles'))
-    await waitFor(() => {
-      expect(api.syncAgents).toHaveBeenCalled()
-    })
-  })
-
-  it('refreshes the operating review', async () => {
-    vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
-    vi.mocked(api.getStats).mockResolvedValue(mockStats)
-    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
-    vi.mocked(api.refreshCompanyOperatingReview).mockResolvedValue({
-      ...mockReview,
-      id: 2,
-      summary_markdown: 'Cycle focus: budget pressure.',
-    })
-    renderOrgChart()
-
-    await waitFor(() => {
-      expect(screen.getByTestId('company-review-panel')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByTestId('refresh-company-review'))
-    await waitFor(() => {
-      expect(api.refreshCompanyOperatingReview).toHaveBeenCalled()
-      expect(screen.getByText(/Cycle focus: budget pressure/)).toBeInTheDocument()
+      expect(screen.getByText(/Roles 自动从/)).toBeInTheDocument()
+      expect(screen.queryByText('同步 Roles')).not.toBeInTheDocument()
+      expect(screen.queryByText('刷新 Review')).not.toBeInTheDocument()
     })
   })
 

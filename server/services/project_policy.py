@@ -330,6 +330,10 @@ def ensure_default_project_policies(db: Session) -> None:
         db.commit()
 
 
+def _visible_policy_query(db: Session):
+    return db.query(ProjectPolicyRow).filter(ProjectPolicyRow.status != "deleted")
+
+
 def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
     return {
         "id": int(row.id),
@@ -363,12 +367,12 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
 
 def list_project_policies(db: Session) -> list[ProjectPolicyRow]:
     ensure_default_project_policies(db)
-    return db.query(ProjectPolicyRow).order_by(ProjectPolicyRow.display_name.asc()).all()
+    return _visible_policy_query(db).order_by(ProjectPolicyRow.display_name.asc()).all()
 
 
 def get_project_policy(db: Session, policy_id: int) -> ProjectPolicyRow | None:
     ensure_default_project_policies(db)
-    return db.query(ProjectPolicyRow).filter(ProjectPolicyRow.id == policy_id).first()
+    return _visible_policy_query(db).filter(ProjectPolicyRow.id == policy_id).first()
 
 
 def create_project_policy(
@@ -501,9 +505,6 @@ def update_project_policy(
 
 def delete_project_policy(db: Session, row: ProjectPolicyRow) -> None:
     default_project_keys = {str(item.get("project_key") or "") for item in DEFAULT_PROJECT_POLICIES}
-    if str(row.project_key or "") in default_project_keys:
-        raise ValueError("Default managed project policies cannot be deleted. Disable them instead.")
-
     normalized_root = _normalize_root_path(str(row.root_path or ""))
     active_requirements = [
         requirement
@@ -524,6 +525,11 @@ def delete_project_policy(db: Session, row: ProjectPolicyRow) -> None:
     onboardings = db.query(ProjectOnboardingRow).filter(ProjectOnboardingRow.policy_id == row.id).all()
     for onboarding in onboardings:
         onboarding.policy_id = None
+
+    if str(row.project_key or "") in default_project_keys:
+        row.status = "deleted"
+        db.commit()
+        return
 
     db.delete(row)
     db.commit()
@@ -547,7 +553,7 @@ def _match_policy_for_path(db: Session, target_path: str) -> ProjectPolicyRow | 
     ensure_default_project_policies(db)
     normalized = _normalize_root_path(target_path)
     best: ProjectPolicyRow | None = None
-    for row in db.query(ProjectPolicyRow).all():
+    for row in _visible_policy_query(db).all():
         root = _normalize_root_path(str(row.root_path))
         try:
             Path(normalized).relative_to(root)

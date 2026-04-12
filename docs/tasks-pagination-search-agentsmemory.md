@@ -4,6 +4,7 @@ title: "Tasks 分页搜索 & Agents-Memory 接入方案"
 version: "1.0"
 status: proposed
 created_at: 2026-04-11
+updated_at: 2026-04-12
 author: CTO
 ---
 
@@ -350,6 +351,13 @@ useEffect(() => {
 
 当前 Agents-Memory 的内容来自手动 `amem ingest` 或 CLI 命令。Synapse-Network-Growing 每天产生大量需求执行记录和任务输出，这些内容天然是工程决策和错误记录的最佳来源。将其自动同步到 Agents-Memory，可让知识层持续积累，后续搜索和 wiki-compile 都能沉淀为工程智慧。
 
+2026-04-12 起，落盘模型调整为三路分流：
+- 项目文档 onboarding → `wiki`
+- 失败任务 → `errors`
+- 完成任务 / 完成 requirement → `workflow records`
+
+这样可以保留执行证据，同时避免把完成记录误计入错误统计。
+
 ### 7.2 写入时机
 
 | 事件 | 触发位置 | 写入内容 |
@@ -374,7 +382,9 @@ Content-Type: application/json
 }
 ```
 
-响应：`{"ingested": true, "id": "ERR-20260411-001"}`
+响应：
+- `error_record` → `{"ingested": true, "id": "ERR-20260411-001", "storage_kind": "error"}`
+- `task_completion` / `requirement_completion` → `{"ingested": true, "id": "TASK-42", "storage_kind": "workflow"}`
 
 ### 7.4 写入内容格式
 
@@ -661,6 +671,13 @@ requirement.target_project_path → Path(...).name
   None → "synapse-network-growing"（当前系统自身）
 ```
 
+发送到 Agents-Memory 前会再做 slug 归一化，统一转成小写 kebab-case：
+
+```
+Synapse-Network → "synapse-network"
+Synapse-Network-Growing → "synapse-network-growing"
+```
+
 若该项目尚未在 Agents-Memory 注册，ingest 仍会成功（记录会被创建，但在项目列表中不可见，需手动 `amem bootstrap` 注册）。
 
 ### 7.8 实施计划（P2 追加）
@@ -679,13 +696,14 @@ requirement.target_project_path → Path(...).name
   _finalize_requirement()
     └─ push_requirement_completed()
          └─ POST /api/ingest (source_type=requirement_completion)
-              └─ Agents-Memory errors/ 目录存档
+              └─ Agents-Memory memory/workflow_records/ 目录存档
 
 任务完成
   _sync_workflow_for_task_db()  [task.status == "completed"]
     ├─ _snapshot_file_changes()   ← 已有
     └─ push_task_completed()
          └─ POST /api/ingest (source_type=task_completion)
+              └─ Agents-Memory memory/workflow_records/ 目录存档
 
 任务失败
   _sync_workflow_for_task_db()  [task.status == "failed"]

@@ -1,14 +1,8 @@
 """Tests for /api/agents endpoints."""
 
 
-def test_list_agents_empty(client):
+def test_list_agents_auto_loads_roles(client):
     resp = client.get("/api/agents")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_sync_agents(client):
-    resp = client.post("/api/agents/sync")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 6
@@ -24,14 +18,14 @@ def test_sync_agents(client):
     assert dev_rel["role_contract"]["acceptance_ownership"]
 
 
-def test_sync_agents_idempotent(client):
-    client.post("/api/agents/sync")
-    resp = client.post("/api/agents/sync")
+def test_list_agents_is_idempotent(client):
+    client.get("/api/agents")
+    resp = client.get("/api/agents")
     assert resp.status_code == 200
     assert len(resp.json()) == 6
 
 
-def test_list_agents_after_sync(synced_client):
+def test_list_agents_after_auto_load(synced_client):
     resp = synced_client.get("/api/agents")
     assert resp.status_code == 200
     assert len(resp.json()) == 6

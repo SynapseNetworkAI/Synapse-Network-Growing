@@ -80,15 +80,16 @@ Company Review
 1. `GET /api/org`
 2. `GET /api/dashboard/stats`
 3. `GET /api/company-review`
-4. `POST /api/company-review/refresh`
-5. `POST /api/company-review/{id}/materialize-bundle`
+4. `POST /api/company-review/{id}/materialize-bundle`
+5. `GET /api/recurring-workflows`
+6. `POST /api/recurring-workflows/{workflow_key}/run`
 
 ### 你能做什么
 
 1. 看组织图和 Agent 分组。
 2. 看任务、审批、活跃 requirement 等统计。
 3. 看 incidents、next-cycle recommendations、requirement bundle。
-4. 刷新 company review。
+4. 运行 daily / weekly ritual。
 5. 把下一周期推荐 bundle 直接 materialize 成真实 requirement。
 
 ### 推荐使用方式
@@ -97,7 +98,8 @@ Company Review
 2. 再看 `Incidents`，按 `incident_family / incident_code / recovery_status` 识别当前 portfolio 最危险的问题类型。
 3. 再看 `Next Cycle Recommendations`，确认最值得优先处理的是 requirement、signal 还是 incident。
 4. 最后看 `Next Cycle Requirement Bundle` 和 `Operator Review Package`。
-5. 确认后点 `生成 Bundle`，把推荐项放进需求池。
+5. 如需更新 review，运行 `weekly_operating_review` ritual，而不是手动刷新单独快照。
+6. 确认后点 `生成 Bundle`，把推荐项放进需求池。
 
 ## 2.2 需求池 `/requirements`
 

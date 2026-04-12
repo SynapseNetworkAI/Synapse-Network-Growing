@@ -9,8 +9,10 @@ it appears automatically.
 import json
 import yaml
 from pathlib import Path
+from sqlalchemy.orm import Session
 
 from server.config import ROLES_DIR
+from server.database import AgentRow
 
 
 def _parse_frontmatter(filepath: Path) -> dict | None:
@@ -75,3 +77,32 @@ def discover_agents() -> list[dict]:
         })
 
     return agents
+
+
+def sync_agents_to_db(db: Session) -> list[AgentRow]:
+    """Upsert discovered roles into the agents table."""
+    rows: list[AgentRow] = []
+    for data in discover_agents():
+        existing = db.query(AgentRow).filter(AgentRow.id == data["id"]).first()
+        if existing:
+            for key, value in data.items():
+                setattr(existing, key, value)
+            row = existing
+        else:
+            row = AgentRow(**data)
+            db.add(row)
+        db.flush()
+        rows.append(row)
+    return rows
+
+
+def ensure_agents_loaded(db: Session) -> list[AgentRow]:
+    """Ensure the agents table reflects the current roles/ directory."""
+    existing = db.query(AgentRow).order_by(AgentRow.id.asc()).all()
+    if existing:
+        return existing
+    rows = sync_agents_to_db(db)
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+    return rows

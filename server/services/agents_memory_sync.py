@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,8 @@ def _project_name(target_project_path: str | None) -> str:
     if not target_project_path:
         return "synapse-network-growing"
     name = Path(target_project_path).name
-    return name or "synapse-network-growing"
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "-", name.strip().lower()).strip("-")
+    return normalized or "synapse-network-growing"
 
 
 # ── Public push functions ────────────────────────────────────────────────────

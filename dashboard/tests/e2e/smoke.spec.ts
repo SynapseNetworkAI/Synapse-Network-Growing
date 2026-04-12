@@ -955,9 +955,7 @@ test.beforeEach(async ({ page }) => {
     if (method === 'GET' && path === '/api/org') return json(route, orgTree)
     if (method === 'GET' && path === '/api/dashboard/stats') return json(route, buildStats())
     if (method === 'GET' && path === '/api/company-review') return json(route, companyReview)
-    if (method === 'POST' && path === '/api/company-review/refresh') return json(route, companyReview)
     if (method === 'GET' && path === '/api/agents') return json(route, agents)
-    if (method === 'POST' && path === '/api/agents/sync') return json(route, agents)
     if (method === 'GET' && path === '/api/skills') return json(route, skills)
     if (await handleRequirementRoutes(route, method, path, postData)) return
     if (await handleTaskRoutes(route, url, method, path, postData)) return

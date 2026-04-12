@@ -157,14 +157,15 @@ def test_project_policy_can_be_deleted_when_unreferenced(synced_client):
     assert all(item["project_key"] != "throwaway-app" for item in remaining)
 
 
-def test_default_project_policy_cannot_be_deleted(synced_client):
+def test_default_project_policy_can_be_soft_deleted_and_stays_hidden(synced_client):
     policies = synced_client.get("/api/project-policies").json()
     policy = next(item for item in policies if item["project_key"] == "synapse-network")
 
     delete_resp = synced_client.delete(f"/api/project-policies/{policy['id']}")
 
-    assert delete_resp.status_code == 400
-    assert "cannot be deleted" in delete_resp.json()["detail"]
+    assert delete_resp.status_code == 204
+    remaining = synced_client.get("/api/project-policies").json()
+    assert all(item["project_key"] != "synapse-network" for item in remaining)
 
 
 def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(synced_client):

@@ -28,6 +28,7 @@ from server.schemas import (
 )
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
+from server.services.agent_loader import ensure_agents_loaded
 from server.services.execution_resolver import suggest_task_execution
 
 logger = logging.getLogger("ops-dashboard.tasks")
@@ -383,6 +384,7 @@ def suggest_execution(body: TaskExecutionSuggestionRequest, db: Session = Depend
 def create_task(body: TaskCreate, db: Session = Depends(get_db)):
     if body.priority not in ("low", "normal", "high"):
         raise HTTPException(status_code=400, detail="priority must be low|normal|high")
+    ensure_agents_loaded(db)
 
     resolved_agent_id = body.agent_id
     resolved_skill_name = body.skill_name

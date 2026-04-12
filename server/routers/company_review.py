@@ -17,7 +17,6 @@ from server.services.company_review import (
     company_review_to_dict,
     latest_company_operating_review,
     materialize_company_review_bundle,
-    refresh_company_operating_review,
 )
 
 router = APIRouter(prefix="/api/company-review", tags=["company-review"])
@@ -28,12 +27,6 @@ logger = logging.getLogger("ops-dashboard.company_review_api")
 def get_company_operating_review(db: Session = Depends(get_db)):
     with timed_operation(logger, "company_review_get", slow_ms=1000):
         return CompanyOperatingReviewOut(**company_review_to_dict(latest_company_operating_review(db)))
-
-
-@router.post("/refresh", response_model=CompanyOperatingReviewOut)
-def refresh_company_review_endpoint(db: Session = Depends(get_db)):
-    with timed_operation(logger, "company_review_refresh", slow_ms=1200):
-        return CompanyOperatingReviewOut(**company_review_to_dict(refresh_company_operating_review(db)))
 
 
 @router.post("/{review_id}/materialize-bundle", response_model=CompanyReviewBundleMaterializeResultOut)

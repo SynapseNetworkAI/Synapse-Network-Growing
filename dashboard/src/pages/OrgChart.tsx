@@ -50,7 +50,6 @@ export default function OrgChart() {
   const [rituals, setRituals] = useState<RecurringWorkflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [refreshingReview, setRefreshingReview] = useState(false)
   const [materializingBundle, setMaterializingBundle] = useState(false)
   const [bundleResult, setBundleResult] = useState<CompanyReviewBundleMaterializeResult | null>(null)
   const [ritualRunning, setRitualRunning] = useState<Record<string, boolean>>({})
@@ -82,22 +81,6 @@ export default function OrgChart() {
   }
 
   useEffect(() => { load() }, [])
-
-  const handleSync = async () => {
-    await api.syncAgents()
-    await load()
-  }
-
-  const handleRefreshReview = async () => {
-    setRefreshingReview(true)
-    try {
-      const companyReview = await api.refreshCompanyOperatingReview()
-      setReview(companyReview)
-      setBundleResult(null)
-    } finally {
-      setRefreshingReview(false)
-    }
-  }
 
   const handleMaterializeBundle = async () => {
     if (!review) return
@@ -196,7 +179,7 @@ export default function OrgChart() {
     return (
       <div data-testid="orgchart-empty" className="py-20 text-center">
         <p className="mb-4 text-gray-500">暂无组织数据</p>
-        <button onClick={handleSync} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">同步 Roles</button>
+        <button onClick={() => { load().catch(() => {}) }} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">重新加载</button>
       </div>
     )
   }
@@ -226,18 +209,7 @@ export default function OrgChart() {
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">全局组织架构</h2>
-        <div className="flex items-center gap-2">
-          <button
-            data-testid="refresh-company-review"
-            onClick={() => { handleRefreshReview().catch(() => {}) }}
-            className="px-4 py-2 text-sm text-slate-700 bg-slate-100 rounded hover:bg-slate-200"
-          >
-            {refreshingReview ? '刷新 Review…' : '刷新 Review'}
-          </button>
-          <button onClick={handleSync} className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700">
-            同步 Roles
-          </button>
-        </div>
+        <div className="text-sm text-slate-500">Roles 自动从 `roles/` 目录加载，Review 通过 ritual 运行更新。</div>
       </div>
 
       {review && (

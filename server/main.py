@@ -12,6 +12,7 @@ from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows
+from server.services.agent_loader import ensure_agents_loaded
 from server.services.org_builder import build_org_tree
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
@@ -120,6 +121,7 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/api/dashboard/stats", response_model=DashboardStats)
 def dashboard_stats(db: Session = Depends(get_db)):
+    ensure_agents_loaded(db)
     return DashboardStats(
         agent_count=db.query(AgentRow).count(),
         task_total=db.query(TaskRow).count(),

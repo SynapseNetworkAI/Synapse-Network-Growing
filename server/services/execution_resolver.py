@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from server.database import AgentRow
 from server.schemas import TaskExecutionCandidate, TaskExecutionSuggestion
+from server.services.agent_loader import ensure_agents_loaded
 from server.services.skill_loader import list_skills, load_skill_metadata
 
 AUTO_SELECTION_THRESHOLD = 0.72
@@ -115,7 +116,7 @@ def suggest_task_execution(
     limit: int = 3,
 ) -> TaskExecutionSuggestion:
     description_tokens = _tokenize(description)
-    agents = db.query(AgentRow).order_by(AgentRow.id.asc()).all()
+    agents = ensure_agents_loaded(db)
     available_skills = set(list_skills())
     candidates: list[tuple[float, TaskExecutionCandidate]] = []
 

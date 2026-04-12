@@ -55,6 +55,7 @@ from server.schemas import (
     WorkflowStepOut,
 )
 from server.config import PROJECT_ROOT
+from server.services.agent_loader import ensure_agents_loaded
 from server.services.incidents import list_requirement_incidents
 from server.services.copilot_sdk_state import (
     copilot_runtime_paths,
@@ -5149,13 +5150,15 @@ def _as_int(value: Any) -> int:
 
 
 def _fallback_agent_id(db: Session) -> str:
-    agent = db.query(AgentRow).order_by(AgentRow.id.asc()).first()
+    rows = ensure_agents_loaded(db)
+    agent = rows[0] if rows else None
     if agent is None:
         raise ValueError("No agents available")
     return str(agent.id)
 
 
 def _secondary_agent_id(db: Session, exclude: set[str]) -> str:
+    ensure_agents_loaded(db)
     for preferred_id in ["dev_rel", "cro_optimizer", "seo_strategist", "growth_lead", "content_writer", "launch_strategist"]:
         if preferred_id in exclude:
             continue
