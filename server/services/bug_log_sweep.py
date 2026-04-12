@@ -1,6 +1,7 @@
 """Recurring bug log sweep helpers."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,15 @@ from server.services.bug_intake import intake_bug
 
 _MAX_LOG_LINES = 200
 _MAX_LOG_CANDIDATES = 20
+_MAX_TRACEBACK_CAPTURE_LINES = 10
+_LOG_LINE_RE = re.compile(
+    r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(?P<level>[A-Z]+)\] (?P<logger>[^:]+): (?P<message>.*)$"
+)
+_UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
+_HEX_ID_RE = re.compile(r"\b[a-f0-9]{12,}\b", re.IGNORECASE)
+_DIGIT_RUN_RE = re.compile(r"\b\d{3,}\b")
+_REQUEST_ID_RE = re.compile(r"\b(request_id|task_id|bug_id|signal_id|requirement_id|workflow_run_id)=\S+")
+_AUTOBUG_TAG_RE = re.compile(r"\bAUTOBUG-[A-Z-]+-\d{8}-\d+\b")
 
 
 def _guess_project_key_from_text(text: str) -> str | None:
@@ -45,6 +55,53 @@ def _iter_log_paths() -> list[Path]:
     return paths[:3]
 
 
+def _looks_like_log_line(line: str) -> bool:
+    return bool(_LOG_LINE_RE.match(line.strip()))
+
+
+def _normalize_log_message(message: str) -> str:
+    normalized = str(message or "").strip()
+    normalized = _REQUEST_ID_RE.sub(r"\1=<id>", normalized)
+    normalized = _AUTOBUG_TAG_RE.sub(lambda match: re.sub(r"\d", "#", match.group(0)), normalized)
+    normalized = _UUID_RE.sub("<uuid>", normalized)
+    normalized = _HEX_ID_RE.sub("<hex>", normalized)
+    normalized = _DIGIT_RUN_RE.sub("#", normalized)
+    return " ".join(normalized.split())
+
+
+def _extract_stack_trace(lines: list[str], start_index: int) -> tuple[str, int]:
+    captured: list[str] = []
+    index = start_index
+    while index < len(lines):
+        line = lines[index]
+        if _looks_like_log_line(line):
+            break
+        stripped = line.rstrip()
+        if not stripped:
+            if captured:
+                break
+            index += 1
+            continue
+        captured.append(stripped)
+        index += 1
+        if len(captured) >= _MAX_TRACEBACK_CAPTURE_LINES:
+            break
+    return "\n".join(captured), index
+
+
+def _error_title_for_message(stack_trace: str) -> str:
+    if stack_trace:
+        lines = [line.strip() for line in stack_trace.splitlines() if line.strip()]
+        if lines:
+            tail = lines[-1]
+            if ":" in tail:
+                return tail.split(":", 1)[0].strip() or "Runtime traceback detected"
+            if "Error" in tail or "Exception" in tail:
+                return tail
+        return "Runtime traceback detected"
+    return "Runtime log error"
+
+
 def _runtime_log_candidates() -> list[dict[str, object]]:
     candidates: list[dict[str, object]] = []
     for path in _iter_log_paths():
@@ -52,29 +109,43 @@ def _runtime_log_candidates() -> list[dict[str, object]]:
             lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()[-_MAX_LOG_LINES:]
         except Exception:
             continue
-        for line in lines:
-            if "[ERROR]" not in line:
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            match = _LOG_LINE_RE.match(line)
+            if not match or match.group("level") != "ERROR":
+                index += 1
                 continue
-            project_key = _guess_project_key_from_text(line)
-            title = "Runtime log error"
-            if "Traceback" in line:
-                title = "Runtime traceback detected"
+            message = str(match.group("message") or "").strip()
+            logger_name = str(match.group("logger") or "").strip()
+            stack_trace, next_index = _extract_stack_trace(lines, index + 1)
+            joined = "\n".join(filter(None, [line, stack_trace]))
+            project_key = _guess_project_key_from_text(joined)
+            normalized_message = _normalize_log_message(message)
+            normalized_stack = _normalize_log_message(stack_trace)
+            title = _error_title_for_message(stack_trace)
             candidates.append(
                 {
                     "source_key": "runtime_log_error",
                     "project_key": project_key,
                     "title": title,
-                    "summary": line[-400:],
+                    "summary": normalized_message[:400] or line[-400:],
                     "severity": "high",
-                    "fingerprint": line[-220:],
+                    "fingerprint": f"{title}|{normalized_message}|{normalized_stack[:240]}",
                     "source_ref": f"log:{path.name}",
                     "environment": config.ENV,
                     "log_excerpt": line[-500:],
-                    "metadata": {"log_file": path.name},
+                    "stack_trace": stack_trace or None,
+                    "metadata": {
+                        "log_file": path.name,
+                        "logger_name": logger_name,
+                        "normalized_message": normalized_message,
+                    },
                 }
             )
             if len(candidates) >= _MAX_LOG_CANDIDATES:
                 return candidates
+            index = next_index
     return candidates
 
 

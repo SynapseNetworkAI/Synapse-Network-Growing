@@ -232,3 +232,4 @@ file-changes.json
 
 # Agent runtime task output directories (keep named deliverables under outputs/)
 roles/*/outputs/task-*/
+runtime/

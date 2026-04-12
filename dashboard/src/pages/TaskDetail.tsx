@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges, AgentsMemoryResult, agentsMemoryApi } from '../api'
+import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges, TaskOutputFile, AgentsMemoryResult, agentsMemoryApi } from '../api'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
@@ -99,6 +99,10 @@ function getTaskErrorSummary(task: Task) {
   return ''
 }
 
+function formatInt(value: number | null | undefined) {
+  return new Intl.NumberFormat('zh-CN').format(value || 0)
+}
+
 // ── Diff viewer ─────────────────────────────────────────────────────────────
 
 function DiffLine({ line }: Readonly<{ line: string }>) {
@@ -157,6 +161,45 @@ function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () =
   )
 }
 
+function OutputFileModal({
+  file,
+  onClose,
+}: Readonly<{ file: TaskOutputFile; onClose: () => void }>) {
+  const isMarkdown = file.content_type === 'text/markdown' || file.file_name.endsWith('.md')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <dialog
+        open
+        className="relative w-[90vw] max-w-5xl max-h-[85vh] flex flex-col rounded-xl bg-white shadow-2xl m-0 p-0 border-0"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50 rounded-t-xl">
+          <div className="min-w-0">
+            <span className="block font-mono text-sm font-semibold text-gray-800 truncate">{file.file_name}</span>
+            <span className="text-xs text-gray-500">
+              {formatInt(file.size_bytes)} bytes
+              {file.truncated ? ' · 已截断显示' : ''}
+            </span>
+          </div>
+          <button className="p-1 ml-4 text-gray-400 rounded shrink-0 hover:bg-gray-200 hover:text-gray-700" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto rounded-b-xl bg-gray-50">
+          {isMarkdown ? (
+            <div className="p-4">
+              <Md>{file.content}</Md>
+            </div>
+          ) : (
+            <pre className="p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-700">{file.content}</pre>
+          )}
+        </div>
+      </dialog>
+    </div>
+  )
+}
+
 export default function TaskDetail() {
   const { id } = useParams<{ id: string }>()
   const taskId = Number(id)
@@ -166,6 +209,8 @@ export default function TaskDetail() {
   const [history, setHistory] = useState<TaskHistoryItem[]>([])
   const [fileChanges, setFileChanges] = useState<TaskFileChanges | null>(null)
   const [selectedDiff, setSelectedDiff] = useState<FileChange | null>(null)
+  const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
+  const [outputFileError, setOutputFileError] = useState<string | null>(null)
   const [memoryResults, setMemoryResults] = useState<AgentsMemoryResult[]>([])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const logsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -237,11 +282,24 @@ export default function TaskDetail() {
   const assistantMessages = assistantOutputs.map((log) => log.detail?.trim() || '').filter(Boolean)
   const shouldShowOutputContent = !isDuplicateOutput(task.output_content, assistantMessages)
   const errorSummary = getTaskErrorSummary(task)
+  const totalTokensUsed = history.length > 0 ? history.reduce((sum, item) => sum + (item.tokens_used || 0), 0) : task.tokens_used
+  const totalBudgetCost = history.length > 0 ? history.reduce((sum, item) => sum + (item.budget_cost_points || 0), 0) : task.budget_cost_points
+
+  async function openOutputFile(fileName: string) {
+    setOutputFileError(null)
+    try {
+      const result = await api.getTaskOutputFile(taskId, fileName)
+      setSelectedOutputFile(result)
+    } catch (error) {
+      setOutputFileError(error instanceof Error ? error.message : '读取产出文件失败')
+    }
+  }
 
   return (
     <div data-testid="task-detail-page" className="space-y-6">
       {/* Diff modal */}
       {selectedDiff && <DiffModal file={selectedDiff} onClose={() => setSelectedDiff(null)} />}
+      {selectedOutputFile && <OutputFileModal file={selectedOutputFile} onClose={() => setSelectedOutputFile(null)} />}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <Link to="/tasks" className="text-blue-600 hover:underline">任务看板</Link>
@@ -256,6 +314,19 @@ export default function TaskDetail() {
         )}
         <span className="font-medium text-gray-900">Task #{task.id}</span>
       </div>
+
+      {/* Linked requirement */}
+      {task.requirement_title && (
+        <div className="p-5 bg-white border shadow-sm rounded-xl">
+          <h3 className="mb-2 text-sm font-bold text-gray-500">关联需求</h3>
+          <Link
+            to={`/requirements/${task.requirement_id}`}
+            className="block p-3 text-sm text-blue-800 transition border rounded bg-blue-50 hover:bg-blue-100"
+          >
+            📋 #{task.requirement_id} {task.requirement_title}
+          </Link>
+        </div>
+      )}
 
       {/* Header card */}
       <div className="p-6 bg-white border shadow-sm rounded-2xl">
@@ -315,6 +386,9 @@ export default function TaskDetail() {
               ⏱ {task.status === 'running' ? `已运行 ${executionTimeLabel}` : `耗时 ${executionTimeLabel}`}
             </span>
           )}
+          <span data-testid={`tokens-used-${task.id}`}>本次 tokens: {formatInt(task.tokens_used)}</span>
+          <span data-testid={`tokens-total-${task.id}`}>累计 tokens: {formatInt(totalTokensUsed)}</span>
+          <span>预算点数: {formatInt(totalBudgetCost)}</span>
           <span>创建: {formatTime(task.created_at)}</span>
           <span>开始: {formatTime(task.started_at)}</span>
           <span>完成: {formatTime(task.completed_at)}</span>
@@ -328,46 +402,6 @@ export default function TaskDetail() {
           <Md>{task.description}</Md>
         </div>
       </div>
-
-      {/* Linked requirement */}
-      {task.requirement_title && (
-        <div className="p-5 bg-white border shadow-sm rounded-xl">
-          <h3 className="mb-2 text-sm font-bold text-gray-500">关联需求</h3>
-          <Link
-            to={`/requirements/${task.requirement_id}`}
-            className="block p-3 text-sm text-blue-800 transition border rounded bg-blue-50 hover:bg-blue-100"
-          >
-            📋 #{task.requirement_id} {task.requirement_title}
-          </Link>
-        </div>
-      )}
-
-      {/* File changes (git diff) */}
-      {fileChanges && fileChanges.changed_files.length > 0 && (
-        <div className="p-5 bg-white border shadow-sm rounded-xl">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-bold text-gray-500">文件改动</h3>
-            <span className="text-xs text-gray-400">
-              {fileChanges.source === 'snapshot' ? '📸 快照' : '⚡ 实时'}
-              {fileChanges.target_project_path && ` · ${fileChanges.target_project_path.split('/').slice(-2).join('/')}`}
-            </span>
-          </div>
-          <ul className="space-y-1">
-            {fileChanges.changed_files.map((f) => (
-              <li key={f.filename}>
-                <button
-                  className="flex items-center w-full gap-2 px-3 py-2 text-left transition border border-transparent rounded-lg hover:bg-gray-50 hover:border-gray-200"
-                  onClick={() => setSelectedDiff(f)}
-                >
-                  <span className="flex-1 font-mono text-xs text-gray-700 truncate">📄 {f.filename}</span>
-                  <span className="text-xs text-green-600 shrink-0">+{f.additions}</span>
-                  <span className="text-xs text-red-500 shrink-0">-{f.deletions}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Agents-Memory related records */}
       {memoryResults.length > 0 && (
@@ -416,9 +450,17 @@ export default function TaskDetail() {
           <h3 className="mb-2 text-sm font-bold text-gray-500">产出文件</h3>
           <ul className="p-3 space-y-1 text-sm border rounded bg-gray-50">
             {task.output_files.map((file) => (
-              <li key={file} className="font-mono text-xs text-gray-700 truncate">📄 {file}</li>
+              <li key={file}>
+                <button
+                  className="w-full px-2 py-1 font-mono text-xs text-left text-blue-700 transition rounded hover:bg-blue-50"
+                  onClick={() => openOutputFile(file)}
+                >
+                  📄 {file}
+                </button>
+              </li>
             ))}
           </ul>
+          {outputFileError && <p className="mt-2 text-xs text-red-600">{outputFileError}</p>}
         </div>
       )}
 
@@ -440,13 +482,37 @@ export default function TaskDetail() {
         </div>
       )}
 
-      {/* Copilot output */}
+      {/* Agent output */}
       <div className="p-5 bg-white border shadow-sm rounded-xl" data-testid={`runtime-events-${task.id}`}>
-        <h3 className="mb-2 text-sm font-bold text-gray-500">Copilot 输出</h3>
+        <h3 className="mb-2 text-sm font-bold text-gray-500">Agent 输出</h3>
         <div className="p-3 border rounded bg-gray-50">
+          {fileChanges && fileChanges.changed_files.length > 0 && (
+            <div className="pb-3 mb-3 border-b border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">变更文件</p>
+                <span className="text-xs text-gray-400">
+                  {fileChanges.source === 'snapshot' ? '📸 快照' : '⚡ 实时'}
+                  {fileChanges.target_project_path && ` · ${fileChanges.target_project_path.split('/').slice(-2).join('/')}`}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {fileChanges.changed_files.map((file) => (
+                  <button
+                    key={file.filename}
+                    className="flex items-center w-full gap-2 px-3 py-2 text-left transition border border-transparent rounded-lg bg-white hover:bg-gray-50 hover:border-gray-200"
+                    onClick={() => setSelectedDiff(file)}
+                  >
+                    <span className="flex-1 font-mono text-xs text-gray-700 truncate">📄 {file.filename}</span>
+                    <span className="text-xs text-green-600 shrink-0">+{file.additions}</span>
+                    <span className="text-xs text-red-500 shrink-0">-{file.deletions}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {assistantOutputs.length === 0 ? (
             <p className="text-sm text-gray-400">
-              {task.status === 'running' ? 'Copilot 正在执行，等待 assistant_output...' : '暂无 assistant_output'}
+              {task.status === 'running' ? 'Agent 正在执行，等待输出...' : '暂无 agent 输出'}
             </p>
           ) : (
             <div className="space-y-2">

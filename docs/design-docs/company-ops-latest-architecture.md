@@ -47,6 +47,26 @@
 
 这样设计的目的，是把“系统自身错误发现”与“生产日志中心上报”统一收口到同一条 bug intake contract，而不是拆成两套 backlog。
 
+### bug dedupe / evidence contract
+
+为了避免同一类错误不断生成新的 bug requirement，当前 bug intake 增加了两层去重：
+
+1. `bug_records` 层：
+   1. runtime log 不再直接拿原始 error 尾行做 fingerprint
+   2. fingerprint 改为基于归一化后的 message + stack snippet
+   3. 归一化时会去掉时间戳、长数字、request id、uuid 等易漂移字段
+2. `requirement materialization` 层：
+   1. 若存在同类活跃 `bug_intake` requirement，则新 bug 会复用已有 requirement
+   2. 复用范围按 `title + target project overlap + bug signature/fingerprint` 判定
+
+为了控制 token 和 backlog 体积，bug evidence 现在默认只保留：
+
+1. 最新 error 行
+2. 5～10 行高信号异常栈摘要
+3. 代表性 metadata
+
+而不是整段长日志或完整 traceback 全量塞进 requirement。
+
 ## 1.0 Runtime Backend Matrix
 
 当前系统已经不再把 planner 和 execution runtime 硬绑在单一供应商上，而是按 `ORCHESTRATION_BACKEND` 选择实际运行路径。
@@ -153,6 +173,16 @@ monitor 当前会：
 2. 运行超时或长期无 heartbeat -> terminate current pid
 3. 如果已有 `thread_id` 且未超过 `resume_max_attempts` -> 自动 `resume`
 4. 如果没有 `thread_id` 或 resume 已耗尽 -> pause requirement，进入人工/incident 路径
+
+### anti-loop guardrails
+
+当前自动执行的兜底原则是“允许恢复，不允许无限重试”：
+
+1. `codex_cli` session 恢复受 `resume_max_attempts` 限制
+2. workflow step 受 `max_attempts / max_runtime_seconds / budget_cap` 约束
+3. repeated error fingerprint 会进入 circuit-breaker / pause / incident follow-up
+4. bug backlog materialization 会复用同类活跃 requirement，避免同类 bug 无限重复入池
+5. 高风险 bug 与昂贵分支仍需要 approval gate，不会在失败链上无限自动放大
 
 ### prompt contract
 

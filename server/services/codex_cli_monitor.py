@@ -18,7 +18,7 @@ from server.services.codex_cli import (
     terminate_pid,
     _parse_codex_exec_stdout,
 )
-from server.services.codex_session_registry import update_session_state
+from server.services.codex_session_registry import update_session_state, validate_codex_session_registry
 from server.services.copilot_sdk_state import read_text_if_exists, seconds_since_timestamp, task_output_dir
 
 logger = logging.getLogger("ops-dashboard.codex_cli_monitor")
@@ -370,3 +370,11 @@ class CodexCLITaskMonitor:
             sync_workflow_for_task(task_id)
         except Exception:
             logger.exception("Failed to sync workflow step for task #%d", task_id)
+
+    def validate_registry(self) -> dict[str, Any]:
+        """Expose session registry diagnostics for downstream tooling/tests."""
+        db = self.session_factory()
+        try:
+            return validate_codex_session_registry(db, project_root=self.project_root)
+        finally:
+            db.close()

@@ -139,6 +139,14 @@ export interface TaskFileChanges {
   error?: string
 }
 
+export interface TaskOutputFile {
+  file_name: string
+  content: string
+  size_bytes: number
+  truncated: boolean
+  content_type: string
+}
+
 export interface TaskPage {
   items: Task[]
   total: number
@@ -880,6 +888,8 @@ export const api = {
   getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
   getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
   getTaskFileChanges: (id: number) => request<TaskFileChanges>(`/tasks/${id}/file-changes`),
+  getTaskOutputFile: (id: number, fileName: string) =>
+    request<TaskOutputFile>(`/tasks/${id}/output-files/${encodeURIComponent(fileName)}`),
 
   // Approvals
   getApprovals: (status?: string) => {

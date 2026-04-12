@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,8 +15,10 @@ from server.services.bug_sources import get_bug_source_definition
 
 _MAX_EVIDENCE_ITEMS = 5
 _MAX_EXCERPT_LENGTH = 500
+_MAX_STACK_TRACE_LINES = 8
 _SEVERITY_RANK = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 _SEVERITY_BASE_SCORE = {"low": 5.0, "normal": 15.0, "high": 35.0, "critical": 50.0}
+_TRACEBACK_HEADER_RE = re.compile(r"^Traceback \(most recent call last\):$")
 
 
 def _utcnow() -> datetime:
@@ -37,6 +40,21 @@ def _json_dumps(value: Any) -> str:
 
 def _clean_text(value: str | None) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+def _trim_stack_trace(value: str | None) -> str:
+    lines = [line.rstrip() for line in str(value or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    if len(lines) <= _MAX_STACK_TRACE_LINES:
+        return "\n".join(lines)
+    head = lines[:4]
+    tail = lines[-3:]
+    trimmed = [*head]
+    if lines[0] != "Traceback (most recent call last):" and _TRACEBACK_HEADER_RE.match(lines[0]) is None:
+        trimmed = lines[:5]
+        tail = lines[-2:]
+    return "\n".join([*trimmed, "...", *tail])
 
 
 def _normalize_severity(value: str | None) -> str:
@@ -173,7 +191,7 @@ def _build_bug_key(source_key: str, scope: str, fingerprint: str) -> str:
 
 def _build_evidence_entry(body: BugIntakeRequest, fingerprint: str) -> dict[str, object]:
     log_excerpt = str(body.log_excerpt or "").strip()
-    stack_trace = str(body.stack_trace or "").strip()
+    stack_trace = _trim_stack_trace(body.stack_trace)
     return {
         "captured_at": _utcnow().isoformat(),
         "source_ref": str(body.source_ref or "").strip() or None,

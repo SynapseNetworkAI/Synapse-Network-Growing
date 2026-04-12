@@ -827,6 +827,73 @@ def test_requirement_source_intake_materializes_bug_backlog(synced_client, db_se
     assert bug_row.status == "converted"
 
 
+def test_requirement_source_intake_reuses_similar_active_bug_requirement(synced_client, db_session):
+    existing = RequirementRow(
+        title="Bug Fix: Runtime log error",
+        description_markdown="Bug Intake: Runtime log error\n\nAUTOBUG-LIVE-VERIFY-########-#### gateway readiness live verification failure",
+        status="pending_approval",
+        priority="high",
+        source="bug_intake",
+        source_ref="bug-intake:1",
+        current_plan_version=1,
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        intake_metadata_json=json.dumps(
+            {
+                "source_key": "bug_intake",
+                "bug_signature": "autobug-live-verify-########-#### gateway readiness live verification failure",
+            }
+        ),
+    )
+    db_session.add(existing)
+    db_session.flush()
+
+    bug_row = BugRecordRow(
+        bug_key="runtime_log_error::synapse-network::fp-livecheck",
+        source_key="runtime_log_error",
+        source_kind="runtime_log",
+        status="open",
+        title="Runtime log error",
+        summary="AUTOBUG-LIVE-VERIFY-20260412-1940 gateway readiness live verification failure",
+        severity="high",
+        fingerprint="fp-livecheck",
+        project_key="synapse-network",
+        project_root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        source_ref="log:ops-dashboard.log",
+        occurrence_count=4,
+        evidence_json=json.dumps(
+            [
+                {
+                    "log_excerpt": "2026-04-12 20:33:42 [ERROR] ops-dashboard.livecheck: AUTOBUG-LIVE-VERIFY-20260412-1940 gateway readiness live verification failure",
+                    "summary": "AUTOBUG-LIVE-VERIFY-20260412-1940 gateway readiness live verification failure",
+                }
+            ]
+        ),
+        metadata_json=json.dumps({}),
+        scorecard_json=json.dumps(
+            {
+                "total": 79.0,
+                "priority": "high",
+                "auto_intake_eligible": True,
+                "blocker_flags": [],
+            }
+        ),
+    )
+    db_session.add(bug_row)
+    db_session.commit()
+
+    response = synced_client.post(
+        "/api/requirements/intake",
+        json={"source_key": "bug_intake", "refresh": False, "auto_start": False, "min_score": 60, "max_created": 1},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["created_requirement_ids"] == []
+    assert payload["reused_requirement_ids"] == [int(existing.id)]
+    db_session.refresh(bug_row)
+    assert bug_row.converted_requirement_id == existing.id
+    assert bug_row.status == "converted"
+
+
 def test_bug_intake_requirement_plan_includes_bug_validation_contract(synced_client, db_session):
     bug_row = BugRecordRow(
         bug_key="manual_bug_report::synapse-network-bugtest::fp_bugplan",

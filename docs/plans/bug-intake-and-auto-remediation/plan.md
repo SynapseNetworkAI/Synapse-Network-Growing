@@ -93,6 +93,8 @@
 7. 推荐采用混合模式：
    1. 本地 `bug_log_sweep` 负责控制平面、自身 runtime、task failure
    2. 外部日志中心适配器负责业务服务与生产级集中日志
+8. runtime log fingerprint 必须基于归一化 message + stack snippet，而不是原始 error 行全文
+9. bug evidence 默认只保留 5～10 行高信号异常栈，避免 requirement 被长 traceback 撑爆
 
 ### P1-R2 Bug Backlog In Requirement Sources
 
@@ -144,6 +146,7 @@
 2. requirement 自动绑定目标项目、source ref、approval contract
 3. incident 或 workflow-blocking bug 默认进入高优先级
 4. `bug_log_sweep` recurring workflow 在 intake 后自动调用 bug backlog materialization
+5. 若已有同类活跃 `bug_intake` requirement，则复用而不是再创建一条新 requirement
 
 ### P2-R2 Bug COO Dashboard
 

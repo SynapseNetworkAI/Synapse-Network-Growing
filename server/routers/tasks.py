@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import mimetypes
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +88,16 @@ def _list_output_files(row: TaskRow) -> list[str] | None:
         return files if files else None
     except OSError:
         return None
+
+
+def _task_output_dir(row: TaskRow) -> Path | None:
+    output_path = _as_text(row.output_path)
+    if not output_path:
+        return None
+    output_dir = Path(output_path).parent
+    if not output_dir.is_dir():
+        return None
+    return output_dir
 
 
 def _task_to_out(row: TaskRow) -> TaskOut:
@@ -604,6 +615,38 @@ def _get_target_project_path(row: TaskRow) -> str | None:
     return str(req.target_project_path) if req.target_project_path else None
 
 
+def _read_task_output_file(row: TaskRow, file_name: str, max_chars: int = 120_000) -> dict[str, Any]:
+    output_dir = _task_output_dir(row)
+    if output_dir is None:
+        raise HTTPException(status_code=404, detail="Task output directory not found")
+
+    target = (output_dir / file_name).resolve()
+    try:
+        target.relative_to(output_dir.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid output file path") from exc
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Task output file not found")
+
+    raw = target.read_text(encoding="utf-8", errors="replace")
+    truncated = len(raw) > max_chars
+    content = raw[:max_chars]
+    guessed_type = mimetypes.guess_type(target.name)[0] or "text/plain"
+    if target.suffix.lower() in {".md", ".markdown"}:
+        guessed_type = "text/markdown"
+    elif target.suffix.lower() in {".json", ".jsonl"}:
+        guessed_type = "application/json"
+
+    return {
+        "file_name": file_name,
+        "content": content,
+        "size_bytes": target.stat().st_size,
+        "truncated": truncated,
+        "content_type": guessed_type,
+    }
+
+
 @router.get("/{task_id}/file-changes")
 def get_task_file_changes(task_id: int, db: Session = Depends(get_db)):
     """Return git diff for files changed by this task in the target project."""
@@ -638,3 +681,11 @@ def get_task_file_changes(task_id: int, db: Session = Depends(get_db)):
     except Exception as exc:
         logger.warning("Git diff failed for task %s: %s", task_id, exc)
         return {"changed_files": [], "target_project_path": target_path, "source": "live", "error": str(exc)}
+
+
+@router.get("/{task_id}/output-files/{file_name:path}")
+def get_task_output_file(task_id: int, file_name: str, db: Session = Depends(get_db)):
+    row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
+    return _read_task_output_file(row, file_name)

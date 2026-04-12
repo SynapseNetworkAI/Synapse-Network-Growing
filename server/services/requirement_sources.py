@@ -23,6 +23,18 @@ DEFAULT_INTAKE_CONFIDENCE_BY_SOURCE = {
 }
 
 FOLLOWUP_SOURCES = {"bugfix_circuit_breaker"}
+ACTIVE_BUG_REQUIREMENT_STATUSES = {
+    "draft",
+    "pending_approval",
+    "approved",
+    "planning",
+    "plan_failed",
+    "ready",
+    "in_progress",
+    "blocked",
+    "paused",
+    "needs_revision",
+}
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -271,7 +283,63 @@ def _bug_description_markdown(row: BugRecordRow) -> str:
             lines.append(f"- environment: `{latest.get('environment')}`")
         if latest.get("log_excerpt"):
             lines.extend(["", "```text", str(latest.get("log_excerpt")), "```"])
+        if latest.get("stack_trace"):
+            lines.extend(["", "## Stack Snippet", "", "```text", str(latest.get("stack_trace")), "```"])
     return "\n".join(lines)
+
+
+def _normalize_bug_signature(value: str | None) -> str:
+    text = " ".join(str(value or "").strip().lower().split())
+    if not text:
+        return ""
+    text = "".join("#" if ch.isdigit() else ch for ch in text)
+    return text[:220]
+
+
+def _bug_signature(row: BugRecordRow) -> str:
+    evidence = list(_json_loads(getattr(row, "evidence_json", None), []))
+    latest = dict(evidence[0]) if evidence else {}
+    return _normalize_bug_signature(
+        latest.get("summary")
+        or latest.get("log_excerpt")
+        or getattr(row, "summary", None)
+        or getattr(row, "title", None)
+    )
+
+
+def _target_project_path_set(value: str | None) -> set[str]:
+    return {item.strip() for item in str(value or "").splitlines() if item.strip()}
+
+
+def _find_reusable_bug_requirement(db: Session, row: BugRecordRow) -> RequirementRow | None:
+    target_paths = _target_project_path_set(_bug_target_project_path(db, row))
+    bug_fingerprint = str(getattr(row, "fingerprint", "") or "").strip()
+    bug_signature = _bug_signature(row)
+    rows = (
+        db.query(RequirementRow)
+        .filter(
+            RequirementRow.source == "bug_intake",
+            RequirementRow.title == f"Bug Fix: {row.title}",
+            RequirementRow.status.in_(tuple(ACTIVE_BUG_REQUIREMENT_STATUSES)),
+        )
+        .order_by(RequirementRow.id.desc())
+        .all()
+    )
+    for requirement in rows:
+        metadata = requirement_intake_metadata_for_requirement(requirement)
+        existing_target_paths = _target_project_path_set(getattr(requirement, "target_project_path", None))
+        if target_paths and existing_target_paths and not (target_paths & existing_target_paths):
+            continue
+        existing_fingerprint = str(metadata.get("bug_fingerprint") or "").strip()
+        if bug_fingerprint and existing_fingerprint and existing_fingerprint == bug_fingerprint:
+            return requirement
+        existing_signature = _normalize_bug_signature(str(metadata.get("bug_signature") or ""))
+        if bug_signature and existing_signature and existing_signature == bug_signature:
+            return requirement
+        description_signature = _normalize_bug_signature(getattr(requirement, "description_markdown", None))
+        if bug_signature and description_signature and bug_signature in description_signature:
+            return requirement
+    return None
 
 
 def materialize_bug_backlog(
@@ -350,6 +418,24 @@ def materialize_bug_backlog(
                 }
             )
             continue
+        reusable = _find_reusable_bug_requirement(db, row)
+        if reusable is not None:
+            row.converted_requirement_id = int(reusable.id)
+            row.status = "converted"
+            db.add(row)
+            db.commit()
+            reused_requirement_ids.append(int(reusable.id))
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "deduped_to_active_requirement",
+                    "action": "reuse_existing",
+                    "bug_id": bug_id,
+                    "requirement_id": int(reusable.id),
+                    "source_ref": source_ref,
+                }
+            )
+            continue
 
         confidence = round(max(0.6, min(0.98, total / 100.0)), 2)
         body = RequirementCreate(
@@ -368,6 +454,8 @@ def materialize_bug_backlog(
                     "registry_hint": "bug_intake",
                     "trigger": "bug_backlog_materialize",
                     "bug_id": bug_id,
+                    "bug_fingerprint": str(getattr(row, "fingerprint", "") or "").strip() or None,
+                    "bug_signature": _bug_signature(row) or None,
                     "scorecard_priority": str(scorecard.get("priority") or _bug_priority(row)),
                     "blocker_flags": _bug_blocker_flags(row),
                     "affected_project_keys": _bug_affected_project_keys(row),

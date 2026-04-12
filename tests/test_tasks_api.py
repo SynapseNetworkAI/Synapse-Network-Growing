@@ -218,6 +218,26 @@ def test_get_task_not_found(synced_client):
     assert resp.status_code == 404
 
 
+def test_get_task_output_file_returns_preview(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+    output_dir = tmp_path / "task-outputs"
+    output_dir.mkdir()
+    output_file = output_dir / "output.md"
+    output_file.write_text("# Result\n\nhello", encoding="utf-8")
+
+    row = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    row.output_path = str(output_file)
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/tasks/{task_id}/output-files/output.md")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["file_name"] == "output.md"
+    assert "hello" in data["content"]
+    assert data["content_type"] == "text/markdown"
+
+
 def test_run_task_no_approval(synced_client):
     create = synced_client.post("/api/tasks", json={
         "description": "auto task",

@@ -289,3 +289,40 @@ def test_bug_log_sweep_materializes_runtime_and_failure_candidates(synced_client
     rows = db_session.query(BugRecordRow).all()
     assert len(rows) >= 3
     assert {"runtime_log_error", "task_failure", "workflow_incident"} <= {row.source_key for row in rows}
+
+
+def test_bug_log_sweep_groups_traceback_and_keeps_stack_snippet(synced_client, db_session, tmp_path):
+    log_dir = Path(tmp_path) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "ops-dashboard.log").write_text(
+        "\n".join(
+            [
+                "2026-04-12 10:00:00 [ERROR] ops-dashboard.livecheck: AUTOBUG-LIVE-VERIFY-20260412-1940 gateway readiness live verification failure",
+                "Traceback (most recent call last):",
+                '  File "/app/livecheck.py", line 10, in verify',
+                '    raise RuntimeError(\"gateway readiness live verification failure\")',
+                "RuntimeError: gateway readiness live verification failure",
+                "2026-04-12 10:00:01 [ERROR] ops-dashboard.livecheck: AUTOBUG-LIVE-VERIFY-20260412-1940 gateway readiness live verification failure",
+                "Traceback (most recent call last):",
+                '  File "/app/livecheck.py", line 10, in verify',
+                '    raise RuntimeError(\"gateway readiness live verification failure\")',
+                "RuntimeError: gateway readiness live verification failure",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("server.services.bug_log_sweep.config.LOG_DIR", str(log_dir)), patch(
+        "server.services.bug_log_sweep.config.LOG_FILE",
+        "ops-dashboard.log",
+    ):
+        response = synced_client.post("/api/recurring-workflows/bug_log_sweep/run", json={})
+
+    assert response.status_code == 200
+    rows = db_session.query(BugRecordRow).filter(BugRecordRow.source_key == "runtime_log_error").all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.occurrence_count == 2
+    evidence = json.loads(row.evidence_json)
+    assert "Traceback" in str(evidence[0]["stack_trace"])
+    assert len(str(evidence[0]["stack_trace"]).splitlines()) <= 8

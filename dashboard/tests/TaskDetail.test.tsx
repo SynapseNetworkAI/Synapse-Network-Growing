@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import TaskDetail from '../src/pages/TaskDetail'
 
@@ -8,6 +8,7 @@ const mockApi = {
   getTaskLogs: vi.fn(),
   getTaskHistory: vi.fn(),
   getTaskFileChanges: vi.fn(),
+  getTaskOutputFile: vi.fn(),
 }
 
 const mockAgentsMemory = {
@@ -20,6 +21,7 @@ vi.mock('../src/api', () => ({
     getTaskLogs: (...args: unknown[]) => mockApi.getTaskLogs(...args),
     getTaskHistory: (...args: unknown[]) => mockApi.getTaskHistory(...args),
     getTaskFileChanges: (...args: unknown[]) => mockApi.getTaskFileChanges(...args),
+    getTaskOutputFile: (...args: unknown[]) => mockApi.getTaskOutputFile(...args),
   },
   agentsMemoryApi: {
     search: (...args: unknown[]) => mockAgentsMemory.search(...args),
@@ -44,17 +46,21 @@ const taskPage = {
       retry_of_task_id: null,
       attempt_no: 1,
       last_error_message: null,
-      runtime_backend: 'copilot_sdk',
+      runtime_backend: 'codex_cli',
+      runtime_provider: 'codex',
+      runtime_model: 'gpt-5-codex',
       runtime_session_id: 'task-1775725256108',
       runtime_selected_agent: 'editor',
       output_path: null,
       output_content: '**Synapse Network: Launch Teaser for AI Agent Developers**',
       execution_time_ms: 42852,
+      tokens_used: 3210,
+      budget_cost_points: 17,
       requirement_id: 12,
       requirement_title: 'Launch teaser polishing',
       workflow_step_type: 'review',
       workflow_step_title: 'Review output',
-      output_files: [],
+      output_files: ['output.md', 'metadata.json'],
       created_at: '2026-04-09T09:00:56.097007',
       started_at: '2026-04-09T09:00:56.102651',
       completed_at: '2026-04-09T09:01:38.985111',
@@ -101,7 +107,11 @@ describe('TaskDetail', () => {
         agent_id: 'content_writer',
         skill_name: 'copywriting',
         last_error_message: null,
-        runtime_backend: 'copilot_sdk',
+        runtime_backend: 'codex_cli',
+        runtime_provider: 'codex',
+        runtime_model: 'gpt-5-codex',
+        tokens_used: 3210,
+        budget_cost_points: 17,
         created_at: '2026-04-09T09:00:56.097007',
         started_at: '2026-04-09T09:00:56.102651',
         completed_at: '2026-04-09T09:01:38.985111',
@@ -119,6 +129,13 @@ describe('TaskDetail', () => {
       target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
       source: 'snapshot',
       captured_at: '2026-04-09T09:01:39Z',
+    })
+    mockApi.getTaskOutputFile.mockResolvedValue({
+      file_name: 'output.md',
+      content: '# Launch teaser\\n\\nThree bullets.',
+      size_bytes: 42,
+      truncated: false,
+      content_type: 'text/markdown',
     })
     mockAgentsMemory.search.mockResolvedValue({
       query: 'launch teaser',
@@ -148,14 +165,24 @@ describe('TaskDetail', () => {
     expect(mockApi.getTaskFileChanges).toHaveBeenCalledWith(18)
     expect(mockAgentsMemory.search).toHaveBeenCalled()
 
-    expect(screen.getByTestId('runtime-backend-18')).toHaveTextContent('copilot_sdk')
+    expect(screen.getByText('关联需求')).toBeInTheDocument()
+    expect(screen.getByTestId('runtime-backend-18')).toHaveTextContent('codex_cli')
     expect(screen.getByTestId('runtime-agent-18')).toHaveTextContent('editor')
     expect(screen.getByTestId('runtime-session-18')).toHaveTextContent('task-1775725256108')
+    expect(screen.getByTestId('tokens-used-18')).toHaveTextContent('3,210')
+    expect(screen.getByTestId('tokens-total-18')).toHaveTextContent('3,210')
     expect(screen.getByText('Review')).toBeInTheDocument()
     expect(screen.getByText(/工作流步骤：Review output/)).toBeInTheDocument()
     expect(screen.getByText(/这是验证阶段任务/)).toBeInTheDocument()
     expect(screen.getByText('📋 #12 Launch teaser polishing')).toBeInTheDocument()
     expect(screen.getByText(/dashboard\/src\/pages\/Home\.tsx/)).toBeInTheDocument()
+    expect(screen.getByText('Agent 输出')).toBeInTheDocument()
+    expect(screen.getByText('📄 output.md')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('📄 output.md'))
+    await waitFor(() => {
+      expect(mockApi.getTaskOutputFile).toHaveBeenCalledWith(18, 'output.md')
+    })
+    expect(screen.getByText((content) => content.includes('Three bullets.'))).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByTestId('memory-section')).toHaveTextContent('Launch Playbook')
     })
