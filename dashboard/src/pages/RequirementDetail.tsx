@@ -37,6 +37,19 @@ const STEP_STATUS_CLASS: Record<string, string> = {
   deleted: 'bg-zinc-200 text-zinc-700',
 }
 
+function getRequirementDisplayState(requirement: Requirement) {
+  if (requirement.status === 'ready' && requirement.current_plan_version === 0 && !requirement.active_workflow_run_id) {
+    return {
+      label: '待规划',
+      className: STATUS_CLASS.draft,
+    }
+  }
+  return {
+    label: STATUS_LABEL[requirement.status] || requirement.status,
+    className: STATUS_CLASS[requirement.status] || STATUS_CLASS.draft,
+  }
+}
+
 function Md({ children }: Readonly<{ children: string }>) {
   return (
     <div className="prose-sm prose max-w-none prose-p:my-1 prose-ul:my-1 prose-headings:mb-2">
@@ -170,6 +183,7 @@ export default function RequirementDetail() {
   }
 
   const req = detail.requirement
+  const displayState = getRequirementDisplayState(req)
   const deliveryState = detail.delivery_state
   const targetProjectPaths = getTargetProjectPaths(req.target_project_path)
   const planArtifact = detail.artifacts
@@ -224,8 +238,8 @@ export default function RequirementDetail() {
           <div>
             <h2 className="text-xl font-bold">{req.title}</h2>
             <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500">
-              <span className={`rounded-full px-2 py-1 font-medium ${STATUS_CLASS[req.status] || STATUS_CLASS.draft}`}>
-                {STATUS_LABEL[req.status] || req.status}
+              <span className={`rounded-full px-2 py-1 font-medium ${displayState.className}`}>
+                {displayState.label}
               </span>
               <span>Priority: {req.priority}</span>
               <span>Plan v{req.current_plan_version}</span>
@@ -235,7 +249,7 @@ export default function RequirementDetail() {
             <button
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!detail.workflow_run || req.status === 'blocked' || req.status === 'done' || req.status === 'deleted'}
+              disabled={req.status === 'blocked' || req.status === 'done' || req.status === 'deleted'}
               onClick={() => {
                 if (req.status === 'in_progress') {
                   handlePause().catch(() => {})
@@ -260,6 +274,12 @@ export default function RequirementDetail() {
         {req.blocked_by_count > 0 && (
           <div data-testid="blocked-banner" className="px-4 py-3 text-sm text-red-700 border border-red-200 rounded-xl bg-red-50">
             当前需求被 {req.blocked_by_count} 个未完成依赖阻塞，需等待上游 requirement 完成后再规划执行。
+          </div>
+        )}
+
+        {req.current_plan_version === 0 && req.status === 'ready' && (
+          <div data-testid="planning-banner" className="px-4 py-3 text-sm text-sky-700 border border-sky-200 rounded-xl bg-sky-50">
+            当前需求尚未生成 workflow plan。点击“启动执行”时，系统会先自动规划，再进入执行。
           </div>
         )}
 

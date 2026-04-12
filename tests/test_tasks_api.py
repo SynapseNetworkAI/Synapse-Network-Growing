@@ -672,3 +672,95 @@ def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client
     runtime.clear_role_sessions.assert_called_once()
     task = synced_client.get(f"/api/tasks/{task_id}").json()
     assert task["status"] == "failed"
+
+
+def test_copilot_monitor_alerts_and_pauses_on_authorization_error(synced_client, db_session, tmp_path):
+    import json
+
+    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Authorization guarded task",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).runtime_backend = "copilot_sdk"
+    cast(Any, row).runtime_session_id = "role-content_writer-authorization-1"
+    db_session.commit()
+
+    output_dir = task_output_dir(tmp_path, "content_writer", task_id)
+    paths = copilot_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["state"].write_text(json.dumps({
+        "sessionId": "role-content_writer-authorization-1",
+        "status": "failed",
+        "error": (
+            "You are not authorized to use this Copilot feature, "
+            "it requires an enterprise or organization policy to be enabled."
+        ),
+    }), encoding="utf-8")
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    with patch("server.services.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
+        monitor.poll_once()
+
+    mock_alert.assert_called_once()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "cancelled"
+    assert "not authorized to use this copilot feature" in str(task["last_error_message"]).lower()
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_auth_alert" in event_types
+    assert "paused" in event_types
+
+
+def test_copilot_monitor_tolerates_state_file_with_trailing_brace(synced_client, db_session, tmp_path):
+    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Authorization guarded task with malformed state file",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).runtime_backend = "copilot_sdk"
+    cast(Any, row).runtime_session_id = "role-content_writer-authorization-2"
+    db_session.commit()
+
+    output_dir = task_output_dir(tmp_path, "content_writer", task_id)
+    paths = copilot_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["state"].write_text(
+        (
+            '{\n'
+            '  "sessionId": "role-content_writer-authorization-2",\n'
+            '  "status": "failed",\n'
+            '  "error": "You are not authorized to use this Copilot feature, it requires an enterprise or organization policy to be enabled."\n'
+            '}}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    with patch("server.services.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
+        monitor.poll_once()
+
+    mock_alert.assert_called_once()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "cancelled"

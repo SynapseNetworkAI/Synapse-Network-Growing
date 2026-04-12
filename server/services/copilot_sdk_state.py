@@ -31,10 +31,25 @@ def copilot_runtime_paths(output_dir: Path) -> dict[str, Path]:
 def load_runtime_state(path: Path) -> dict | None:
     if not path.exists():
         return None
+    text: str
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        text = path.read_text(encoding="utf-8")
+    except OSError:
         return None
+    try:
+        return json.loads(text)
+    except (OSError, json.JSONDecodeError):
+        try:
+            decoder = json.JSONDecoder()
+            payload, end = decoder.raw_decode(text)
+        except json.JSONDecodeError:
+            return None
+        trailing = text[end:].strip()
+        if trailing and set(trailing) != {"}"}:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
 
 
 def save_runtime_state(path: Path, state: dict) -> None:

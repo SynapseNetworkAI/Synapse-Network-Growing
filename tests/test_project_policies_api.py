@@ -114,6 +114,111 @@ def test_project_policy_can_be_created(synced_client):
     assert created["portfolio_budget_points"] == 120
 
 
+def test_project_policy_can_be_deleted_when_unreferenced(synced_client):
+    create_resp = synced_client.post(
+        "/api/project-policies",
+        json={
+            "project_key": "throwaway-app",
+            "display_name": "Throwaway App",
+            "root_path": "/tmp/throwaway-app",
+            "allowed_write_globs": ["src/**"],
+            "forbidden_globs": ["secrets/**"],
+            "required_checks": ["pytest -q"],
+            "release_mode": "manual",
+            "requires_manual_approval": True,
+            "autonomy_mode": "recommend",
+            "allow_rebalance": True,
+            "allow_preemption": False,
+            "capability_matrix": {
+                "shell_access": True,
+                "git_read": True,
+                "git_write": True,
+                "git_push": False,
+                "network_access": False,
+                "publish": False,
+            },
+            "interrupt_policy": {
+                "operator_confirmation_actions": ["git_push", "publish"],
+                "auto_pause_on_events": ["capability_denied"],
+                "auto_abort_on_events": ["forbidden_write"],
+            },
+            "scheduler_weight": 1.0,
+            "max_parallel_requirements": 1,
+            "portfolio_budget_points": 100,
+            "notes": "Delete me.",
+        },
+    )
+    policy_id = create_resp.json()["id"]
+
+    delete_resp = synced_client.delete(f"/api/project-policies/{policy_id}")
+
+    assert delete_resp.status_code == 204
+    remaining = synced_client.get("/api/project-policies").json()
+    assert all(item["project_key"] != "throwaway-app" for item in remaining)
+
+
+def test_default_project_policy_cannot_be_deleted(synced_client):
+    policies = synced_client.get("/api/project-policies").json()
+    policy = next(item for item in policies if item["project_key"] == "synapse-network")
+
+    delete_resp = synced_client.delete(f"/api/project-policies/{policy['id']}")
+
+    assert delete_resp.status_code == 400
+    assert "cannot be deleted" in delete_resp.json()["detail"]
+
+
+def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(synced_client):
+    create_resp = synced_client.post(
+        "/api/project-policies",
+        json={
+            "project_key": "linked-app",
+            "display_name": "Linked App",
+            "root_path": "/tmp/linked-app",
+            "allowed_write_globs": ["src/**"],
+            "forbidden_globs": ["secrets/**"],
+            "required_checks": ["pytest -q"],
+            "release_mode": "manual",
+            "requires_manual_approval": True,
+            "autonomy_mode": "recommend",
+            "allow_rebalance": True,
+            "allow_preemption": False,
+            "capability_matrix": {
+                "shell_access": True,
+                "git_read": True,
+                "git_write": True,
+                "git_push": False,
+                "network_access": False,
+                "publish": False,
+            },
+            "interrupt_policy": {
+                "operator_confirmation_actions": ["git_push", "publish"],
+                "auto_pause_on_events": ["capability_denied"],
+                "auto_abort_on_events": ["forbidden_write"],
+            },
+            "scheduler_weight": 1.0,
+            "max_parallel_requirements": 1,
+            "portfolio_budget_points": 100,
+            "notes": "Referenced policy.",
+        },
+    )
+    policy_id = create_resp.json()["id"]
+
+    requirement_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Linked requirement",
+            "description_markdown": "Uses the linked project policy.",
+            "target_project_path": "/tmp/linked-app",
+        },
+    )
+    assert requirement_resp.status_code == 201
+
+    delete_resp = synced_client.delete(f"/api/project-policies/{policy_id}")
+
+    assert delete_resp.status_code == 400
+    assert "active requirements" in delete_resp.json()["detail"]
+
+
 def test_planning_requires_registered_project_policy(synced_client):
     create_resp = synced_client.post(
         "/api/requirements",

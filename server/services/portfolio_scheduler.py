@@ -192,7 +192,6 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
     refresh_optimization_signals(db)
 
     running_requirements = db.query(RequirementRow).filter(RequirementRow.status == "in_progress").all()
-    paused_requirements = db.query(RequirementRow).filter(RequirementRow.status == "paused").all()
     ready_requirements = db.query(RequirementRow).filter(
         RequirementRow.status == "ready",
         RequirementRow.blocked_by_count == 0,
@@ -209,13 +208,6 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         key = str(decision["project_key"])
         project_active_counts[key] = project_active_counts.get(key, 0) + 1
         project_budget_usage[key] = project_budget_usage.get(key, 0) + int(decision.get("budget_cost") or 0)
-
-    for req in paused_requirements:
-        score = build_requirement_score_breakdown(db, req)
-        context = _project_context_for_requirement(req, score, policy_by_root, project_catalog)
-        key = str(context["project_key"])
-        project_active_counts[key] = project_active_counts.get(key, 0) + 1
-        project_budget_usage[key] = project_budget_usage.get(key, 0) + _budget_cost(float(score.get("total") or 0.0), _latest_template_key(db, int(req.id)))
 
     requirement_candidates: list[dict[str, Any]] = []
     for requirement in ready_requirements:

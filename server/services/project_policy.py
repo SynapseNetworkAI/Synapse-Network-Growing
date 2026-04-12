@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ProjectPolicyRow
+from server.database import ProjectOnboardingRow, ProjectPolicyRow, RequirementRow
 
 CAPABILITY_KEYS = (
     "shell_access",
@@ -497,6 +497,36 @@ def update_project_policy(
     db.commit()
     db.refresh(row)
     return row
+
+
+def delete_project_policy(db: Session, row: ProjectPolicyRow) -> None:
+    default_project_keys = {str(item.get("project_key") or "") for item in DEFAULT_PROJECT_POLICIES}
+    if str(row.project_key or "") in default_project_keys:
+        raise ValueError("Default managed project policies cannot be deleted. Disable them instead.")
+
+    normalized_root = _normalize_root_path(str(row.root_path or ""))
+    active_requirements = [
+        requirement
+        for requirement in db.query(RequirementRow).all()
+        if str(requirement.status or "") != "deleted"
+        and normalized_root in _split_target_paths(getattr(requirement, "target_project_path", None))
+    ]
+    if active_requirements:
+        requirement_titles = ", ".join(
+            f"#{int(requirement.id)} {str(requirement.title or '').strip()}"
+            for requirement in active_requirements[:3]
+        )
+        raise ValueError(
+            "Project policy is still referenced by active requirements: "
+            f"{requirement_titles or 'unknown requirements'}."
+        )
+
+    onboardings = db.query(ProjectOnboardingRow).filter(ProjectOnboardingRow.policy_id == row.id).all()
+    for onboarding in onboardings:
+        onboarding.policy_id = None
+
+    db.delete(row)
+    db.commit()
 
 
 def _split_target_paths(target_project_path: str | None) -> list[str]:

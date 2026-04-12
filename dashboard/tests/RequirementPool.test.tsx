@@ -6,6 +6,7 @@ import RequirementPool from '../src/pages/RequirementPool'
 const mockApi = {
   getRequirements: vi.fn(),
   getRequirementScheduler: vi.fn(),
+  getProjectPolicies: vi.fn(),
   rebalanceRequirementScheduler: vi.fn(),
   getRequirement: vi.fn(),
   createRequirement: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('../src/api', () => ({
   api: {
     getRequirements: (...args: unknown[]) => mockApi.getRequirements(...args),
     getRequirementScheduler: (...args: unknown[]) => mockApi.getRequirementScheduler(...args),
+    getProjectPolicies: (...args: unknown[]) => mockApi.getProjectPolicies(...args),
     rebalanceRequirementScheduler: (...args: unknown[]) => mockApi.rebalanceRequirementScheduler(...args),
     getRequirement: (...args: unknown[]) => mockApi.getRequirement(...args),
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
@@ -181,6 +183,14 @@ const READY_REQUIREMENT = {
     delivery_pressure: 0,
     automation_gap: 8,
   },
+}
+
+const UNPLANNED_REQUIREMENT = {
+  ...READY_REQUIREMENT,
+  id: 5,
+  title: 'Incident recovery follow-up',
+  current_plan_version: 0,
+  active_workflow_run_id: null,
 }
 
 const DETAIL = {
@@ -406,11 +416,83 @@ const SCHEDULER_PLAN = {
   skipped: [],
 }
 
+const PROJECT_POLICIES = [
+  {
+    id: 1,
+    project_key: 'synapse-network-growing',
+    display_name: 'Synapse-Network-Growing',
+    root_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+    status: 'active',
+    allowed_write_globs: ['**'],
+    forbidden_globs: ['.git/**'],
+    required_checks: ['pytest -q'],
+    release_mode: 'manual',
+    requires_manual_approval: true,
+    autonomy_mode: 'execute_autonomously',
+    allow_rebalance: true,
+    allow_preemption: true,
+    capability_matrix: {
+      shell_access: true,
+      git_read: true,
+      git_write: true,
+      git_push: false,
+      network_access: true,
+      publish: false,
+    },
+    interrupt_policy: {
+      operator_confirmation_actions: ['git_push', 'publish'],
+      auto_pause_on_events: ['capability_denied'],
+      auto_abort_on_events: ['forbidden_write'],
+    },
+    scheduler_weight: 1.2,
+    max_parallel_requirements: 1,
+    portfolio_budget_points: 140,
+    notes: 'Control plane repo.',
+    created_at: '2026-04-10T00:00:00Z',
+    updated_at: '2026-04-10T00:00:00Z',
+  },
+  {
+    id: 2,
+    project_key: 'synapse-network',
+    display_name: 'Synapse-Network',
+    root_path: '/Users/cliff/workspace/agent/Synapse-Network',
+    status: 'active',
+    allowed_write_globs: ['**'],
+    forbidden_globs: ['.git/**'],
+    required_checks: ['pytest -q'],
+    release_mode: 'manual',
+    requires_manual_approval: true,
+    autonomy_mode: 'execute_with_approval',
+    allow_rebalance: true,
+    allow_preemption: false,
+    capability_matrix: {
+      shell_access: true,
+      git_read: true,
+      git_write: true,
+      git_push: false,
+      network_access: false,
+      publish: false,
+    },
+    interrupt_policy: {
+      operator_confirmation_actions: ['git_push', 'publish'],
+      auto_pause_on_events: ['capability_denied'],
+      auto_abort_on_events: ['forbidden_write'],
+    },
+    scheduler_weight: 1.4,
+    max_parallel_requirements: 1,
+    portfolio_budget_points: 130,
+    notes: 'Primary product repo.',
+    created_at: '2026-04-10T00:00:00Z',
+    updated_at: '2026-04-10T00:00:00Z',
+  },
+]
+
 describe('RequirementPool', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.getRequirements.mockResolvedValue([REQUIREMENT, BLOCKER])
     mockApi.getRequirementScheduler.mockResolvedValue(SCHEDULER_PLAN)
+    mockApi.getProjectPolicies.mockResolvedValue(PROJECT_POLICIES)
     mockApi.rebalanceRequirementScheduler.mockResolvedValue(SCHEDULER_PLAN)
     mockApi.getRequirement.mockResolvedValue(DETAIL)
     mockApi.createRequirement.mockResolvedValue(DETAIL)
@@ -466,6 +548,27 @@ describe('RequirementPool', () => {
         depends_on_requirement_ids: [2],
         auto_start: true,
       })
+    })
+  })
+
+  it('creates a requirement from selected managed project policies', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-1')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('create-requirement-btn'))
+    fireEvent.change(screen.getByTestId('requirement-title'), { target: { value: 'Managed requirement' } })
+    fireEvent.change(screen.getByTestId('requirement-description'), { target: { value: 'Use managed projects.' } })
+    fireEvent.click(screen.getByTestId('requirement-target-policy-1'))
+    fireEvent.click(screen.getByTestId('requirement-target-policy-2'))
+    fireEvent.click(screen.getByTestId('submit-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.createRequirement).toHaveBeenCalledWith(expect.objectContaining({
+        target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network',
+      }))
     })
   })
 
@@ -566,6 +669,25 @@ describe('RequirementPool', () => {
 
     await waitFor(() => {
       expect(mockApi.getRequirements).toHaveBeenCalledWith(undefined, 'score', 'session not found')
+    })
+  })
+
+  it('shows pending-planning requirements as 待规划 and allows direct start', async () => {
+    mockApi.getRequirements.mockResolvedValue([UNPLANNED_REQUIREMENT])
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-5')).toBeDefined()
+    })
+
+    expect(screen.getByText('待规划')).toBeDefined()
+    expect(screen.getByText('待生成 workflow plan')).toBeDefined()
+
+    fireEvent.click(screen.getByTestId('requirement-toggle-5'))
+
+    await waitFor(() => {
+      expect(mockApi.startRequirement).toHaveBeenCalledWith(5)
     })
   })
 

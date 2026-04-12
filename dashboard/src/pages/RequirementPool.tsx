@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, Requirement, SchedulerDecision, SchedulerPlan } from '../api'
+import { api, ProjectPolicy, Requirement, SchedulerDecision, SchedulerPlan } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -24,6 +24,19 @@ const STATUS_CLASS: Record<string, string> = {
   deleted: 'bg-zinc-200 text-zinc-700',
 }
 
+function getRequirementDisplayState(requirement: Requirement) {
+  if (requirement.status === 'ready' && requirement.current_plan_version === 0 && !requirement.active_workflow_run_id) {
+    return {
+      label: '待规划',
+      className: STATUS_CLASS.draft,
+    }
+  }
+  return {
+    label: STATUS_LABEL[requirement.status] || requirement.status,
+    className: STATUS_CLASS[requirement.status] || STATUS_CLASS.draft,
+  }
+}
+
 function formatTime(value: string | null) {
   if (!value) return '-'
   const d = new Date(value.endsWith('Z') ? value : value + 'Z')
@@ -33,6 +46,18 @@ function formatTime(value: string | null) {
 function getTargetProjectPaths(value: string | null) {
   if (!value) return []
   return value.split('\n').map((item) => item.trim()).filter(Boolean)
+}
+
+function setTargetProjectPaths(currentValue: string, projectPath: string, enabled: boolean) {
+  const current = getTargetProjectPaths(currentValue)
+  const next = enabled
+    ? [...current, projectPath]
+    : current.filter((item) => item !== projectPath)
+  return Array.from(new Set(next)).join('\n')
+}
+
+function policySelected(targetProjectPath: string, projectPath: string) {
+  return getTargetProjectPaths(targetProjectPath).includes(projectPath)
 }
 
 function getRequirementSortRank(requirement: Requirement) {
@@ -72,6 +97,7 @@ function queueSkipMessage(value: string | string[] | undefined) {
 export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<Requirement[]>([])
+  const [projectPolicies, setProjectPolicies] = useState<ProjectPolicy[]>([])
   const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [sortMode, setSortMode] = useState('score')
@@ -118,9 +144,14 @@ export default function RequirementPool() {
     setScheduler(data)
   }, [])
 
+  const loadProjectPolicies = useCallback(async () => {
+    const data = await api.getProjectPolicies()
+    setProjectPolicies(data)
+  }, [])
+
   const loadPool = useCallback(async () => {
-    await Promise.all([loadRequirements(), loadScheduler()])
-  }, [loadRequirements, loadScheduler])
+    await Promise.all([loadRequirements(), loadScheduler(), loadProjectPolicies()])
+  }, [loadProjectPolicies, loadRequirements, loadScheduler])
 
   useEffect(() => {
     loadPool().catch(() => {})
@@ -239,6 +270,10 @@ export default function RequirementPool() {
     }
   }
 
+  const managedProjectPolicies = projectPolicies
+    .filter((policy) => policy.status === 'active')
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+
   const decisionByRequirementId = new Map<number, SchedulerDecision>()
   ;(scheduler?.decisions || []).forEach((decision) => {
     if (decision.requirement_id != null) {
@@ -322,7 +357,42 @@ export default function RequirementPool() {
             onChange={(e) => setForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
           />
           <div className="space-y-1">
-            <div className="text-xs text-gray-500">目标项目路径（可选，每行一个路径；留空时会按项目 readiness 和语义自动路由）</div>
+            <div className="text-xs text-gray-500">目标项目（推荐直接关联项目策略；留空时会按项目 readiness 和语义自动路由）</div>
+            {managedProjectPolicies.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 text-xs font-medium text-slate-700">受管项目策略</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {managedProjectPolicies.map((policy) => {
+                    const selected = policySelected(form.target_project_path, policy.root_path)
+                    return (
+                      <label
+                        key={`create-policy-${policy.id}`}
+                        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                          selected
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      >
+                        <input
+                          data-testid={`requirement-target-policy-${policy.id}`}
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(e) => setForm((prev) => ({
+                            ...prev,
+                            target_project_path: setTargetProjectPaths(prev.target_project_path, policy.root_path, e.target.checked),
+                          }))}
+                        />
+                        <span>
+                          <span className="block font-medium">{policy.display_name}</span>
+                          <span className="block font-mono text-[11px] text-slate-500">{policy.root_path}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="text-[11px] text-gray-400">高级模式：仍可手动补充或调整多项目路径，每行一个路径。</div>
             <textarea
               data-testid="requirement-target-project"
               className="w-full px-3 py-2 font-mono text-sm leading-relaxed border rounded"
@@ -562,9 +632,10 @@ export default function RequirementPool() {
           </div>
         )}
         {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
-          const showToggle = requirement.status === 'in_progress' || ((requirement.status === 'ready' || requirement.status === 'paused') && requirement.current_plan_version > 0)
+          const showToggle = requirement.status === 'in_progress' || requirement.status === 'ready' || requirement.status === 'paused'
           const isRunning = requirement.status === 'in_progress'
           const isDeleted = requirement.status === 'deleted'
+          const displayState = getRequirementDisplayState(requirement)
           const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
           const routingContext = requirement.routing_context
           const projectScorecards = routingContext?.project_scorecards || []
@@ -591,9 +662,11 @@ export default function RequirementPool() {
                   className="flex-1 text-left"
                   onClick={() => navigate(`/requirements/${requirement.id}`)}
                 >
-                  <div className="mb-2">
-                    <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
-                    <div className="mt-1 text-xs text-gray-500">Plan v{requirement.current_plan_version || 0}</div>
+                    <div className="mb-2">
+                      <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {requirement.current_plan_version > 0 ? `Plan v${requirement.current_plan_version}` : '待生成 workflow plan'}
+                    </div>
                   </div>
                   {targetProjectPaths.length > 0 && (
                     <div className="mb-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -716,8 +789,8 @@ export default function RequirementPool() {
                       {toggleLabel}
                     </button>
                   )}
-                  <span className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_CLASS[requirement.status] || STATUS_CLASS.draft}`}>
-                    {STATUS_LABEL[requirement.status] || requirement.status}
+                  <span className={`rounded-full px-2 py-1 text-xs font-medium ${displayState.className}`}>
+                    {displayState.label}
                   </span>
                 </div>
               </div>
@@ -796,7 +869,41 @@ export default function RequirementPool() {
             </select>
           </div>
           <div className="space-y-1">
-            <label className="text-xs text-gray-500">目标项目路径（每行一个）</label>
+            <label className="text-xs text-gray-500">目标项目（优先关联项目策略；高级模式可继续手动编辑路径）</label>
+            {managedProjectPolicies.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 text-xs font-medium text-slate-700">受管项目策略</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {managedProjectPolicies.map((policy) => {
+                    const selected = policySelected(editingRequirement.target_project_path, policy.root_path)
+                    return (
+                      <label
+                        key={`edit-policy-${policy.id}`}
+                        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                          selected
+                            ? 'border-blue-300 bg-blue-50 text-blue-900'
+                            : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      >
+                        <input
+                          data-testid={`edit-requirement-target-policy-${policy.id}`}
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(e) => setEditingRequirement({
+                            ...editingRequirement,
+                            target_project_path: setTargetProjectPaths(editingRequirement.target_project_path, policy.root_path, e.target.checked),
+                          })}
+                        />
+                        <span>
+                          <span className="block font-medium">{policy.display_name}</span>
+                          <span className="block font-mono text-[11px] text-slate-500">{policy.root_path}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <textarea
               data-testid="edit-requirement-target"
               className="w-full border rounded px-3 py-2 text-sm font-mono min-h-[64px] resize-y"

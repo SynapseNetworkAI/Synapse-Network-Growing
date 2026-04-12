@@ -144,6 +144,29 @@ Systematic inspection entry point:
 agent-browser open http://127.0.0.1:9700/tasks
 ```
 
+## Runtime Config
+
+If you are using OpenAI instead of Copilot, keep the runtime configuration aligned around these four keys:
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_EXECUTION_MODE=session
+ORCHESTRATION_BACKEND=openai_responses
+```
+
+You also need a valid `OPENAI_API_KEY`. If `ORCHESTRATION_BACKEND` is left at `copilot_sdk`, the backend will keep dispatching Copilot workers even if the provider text says `openai`.
+
+Runtime auth guard alerting:
+
+```env
+OPS_RUNTIME_AUTH_ALERTS_ENABLED=true
+OPS_LARK_BOT_WEBHOOK_URL=...
+OPS_LARK_BOT_KEYWORD=告警
+```
+
+When Copilot SDK returns an explicit enterprise-policy / authorization error, the system now sends a Lark alert and pauses the task + parent requirement instead of continuing into a misleading failure loop.
+
 ## Key Docs
 
 1. `docs/phase2-plan.md` - Phase 2 dashboard implementation baseline

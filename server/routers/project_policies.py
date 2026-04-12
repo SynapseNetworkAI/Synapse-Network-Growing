@@ -8,6 +8,7 @@ from server.database import get_db
 from server.schemas import ProjectPolicyCreate, ProjectPolicyOut, ProjectPolicyPatch
 from server.services.project_policy import (
     create_project_policy,
+    delete_project_policy,
     get_project_policy,
     list_project_policies,
     project_policy_to_dict,
@@ -103,3 +104,14 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ProjectPolicyOut(**project_policy_to_dict(updated))
+
+
+@router.delete("/{policy_id}", status_code=204)
+def delete_project_policy_endpoint(policy_id: int, db: Session = Depends(get_db)):
+    row = get_project_policy(db, policy_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Project policy not found.")
+    try:
+        delete_project_policy(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

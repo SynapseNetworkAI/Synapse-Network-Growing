@@ -19,8 +19,17 @@ from server.services.copilot_sdk_state import (
     task_output_dir,
 )
 from server.services.task_runtime import CopilotSDKTaskRuntime, get_copilot_sdk_runtime, normalize_copilot_event_type
+from server.services.alerting import send_lark_text_alert
 
 logger = logging.getLogger("ops-dashboard.copilot_sdk_monitor")
+
+
+def _is_copilot_authorization_error(message: str) -> bool:
+    text = message.strip().lower()
+    return (
+        "not authorized to use this copilot feature" in text
+        or "requires an enterprise or organization policy to be enabled" in text
+    )
 
 
 def _task_id(task: TaskRow) -> int:
@@ -218,6 +227,11 @@ class CopilotSDKTaskMonitor:
     def _fail_task(self, db, task: TaskRow, state: dict, paths: dict[str, Path]) -> None:
         error_message = str(state.get("error") or "Copilot SDK session failed")
         output_text = read_text_if_exists(paths["output"]) or ""
+
+        if config.RUNTIME_AUTH_ALERTS_ENABLED and _is_copilot_authorization_error(error_message):
+            self._alert_and_pause_for_runtime_auth(db, task, error_message)
+            return
+
         cast(Any, task).status = "failed"
         cast(Any, task).last_error_message = error_message
         cast(Any, task).output_content = output_text or f"[ERROR] {error_message}"
@@ -244,6 +258,41 @@ class CopilotSDKTaskMonitor:
 
         db.commit()
         self._sync_workflow_step(_task_id(task))
+
+    def _alert_and_pause_for_runtime_auth(self, db, task: TaskRow, error_message: str) -> None:
+        from server.services.workflow_orchestrator import pause_task
+
+        requirement_id = _task_int(task, "requirement_id")
+        alert_text = (
+            f"告警\n"
+            f"Copilot runtime authorization blocked task execution.\n"
+            f"task_id={_task_id(task)}\n"
+            f"requirement_id={requirement_id or '-'}\n"
+            f"agent_id={_task_str(task, 'agent_id') or '-'}\n"
+            f"skill={_task_str(task, 'skill_name') or '-'}\n"
+            f"runtime_backend={_task_str(task, 'runtime_backend') or 'copilot_sdk'}\n"
+            f"error={error_message}"
+        )
+        sent, detail = send_lark_text_alert(alert_text)
+        db.add(
+            TaskLogRow(
+                task_id=_task_id(task),
+                event_type="runtime_auth_alert",
+                detail="sent" if sent else f"failed: {detail or 'unknown error'}",
+            )
+        )
+        logger.warning(
+            "Copilot SDK task #%d hit authorization guard; lark_alert_sent=%s detail=%s",
+            _task_id(task),
+            sent,
+            (detail or "")[:300],
+        )
+        pause_task(
+            db,
+            _task_id(task),
+            reason=error_message,
+            event_detail="Paused after Copilot runtime authorization guard",
+        )
 
     def _resume_stale_task(self, db, task: TaskRow, state: dict, output_dir: Path, paths: dict[str, Path]) -> None:
         heartbeat_age = seconds_since_timestamp(state.get("heartbeatAt") or state.get("updatedAt"))

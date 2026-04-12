@@ -838,6 +838,7 @@ export const api = {
     portfolio_budget_points?: number
     notes?: string | null
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteProjectPolicy: (id: number) => request<void>(`/project-policies/${id}`, { method: 'DELETE' }),
   getOptimizationSignals: (status?: string, refresh?: boolean) => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)

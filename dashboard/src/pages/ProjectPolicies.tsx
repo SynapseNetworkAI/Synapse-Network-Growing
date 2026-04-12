@@ -43,7 +43,10 @@ export default function ProjectPolicies() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const [onboardingSaving, setOnboardingSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ tone: 'info' | 'success' | 'error'; title: string; detail: string } | null>(null)
+  const [deleteDialog, setDeleteDialog] = useState<{ id: number; displayName: string } | null>(null)
   const [drafts, setDrafts] = useState<Record<number, {
     display_name: string
     root_path: string
@@ -135,6 +138,12 @@ export default function ProjectPolicies() {
     loadPolicies().catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (!feedback) return
+    const timer = window.setTimeout(() => setFeedback(null), 4200)
+    return () => window.clearTimeout(timer)
+  }, [feedback])
+
   const toggleInterruptValue = (
     policyId: number,
     groupKey: 'operator_confirmation_actions' | 'auto_pause_on_events' | 'auto_abort_on_events',
@@ -170,6 +179,33 @@ export default function ProjectPolicies() {
 
   return (
     <div data-testid="project-policies-page" className="space-y-6">
+      {feedback && (
+        <div
+          data-testid="project-policies-feedback"
+          className={`sticky top-4 z-20 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur ${
+            feedback.tone === 'error'
+              ? 'border-rose-200 bg-rose-50/95 text-rose-900'
+              : feedback.tone === 'success'
+                ? 'border-emerald-200 bg-emerald-50/95 text-emerald-900'
+                : 'border-sky-200 bg-sky-50/95 text-sky-900'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-sm font-semibold">{feedback.title}</div>
+              <div className="mt-1 text-sm opacity-80">{feedback.detail}</div>
+            </div>
+            <button
+              type="button"
+              className="rounded-full px-2 py-1 text-xs font-medium opacity-70 hover:bg-black/5 hover:opacity-100"
+              onClick={() => setFeedback(null)}
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">项目策略</h2>
@@ -314,7 +350,11 @@ export default function ProjectPolicies() {
                 })
                 await loadPolicies()
               } catch (err) {
-                alert(err instanceof Error ? err.message : '项目 onboarding 失败')
+                setFeedback({
+                  tone: 'error',
+                  title: '项目接入失败',
+                  detail: err instanceof Error ? err.message : '项目 onboarding 失败',
+                })
               } finally {
                 setOnboardingSaving(false)
               }
@@ -374,12 +414,78 @@ export default function ProjectPolicies() {
                   <h3 className="text-lg font-semibold text-gray-900">{policy.display_name}</h3>
                   <p className="font-mono text-xs text-gray-500">{policy.project_key}</p>
                 </div>
-                <div className="text-right text-xs text-gray-500">
-                  <div>更新时间: {formatTime(policy.updated_at)}</div>
-                  <div>发布模式: {policy.release_mode}</div>
-                  <div>自治: {policy.autonomy_mode}</div>
-                  <div>能力: shell {policy.capability_matrix.shell_access ? 'on' : 'off'} / git_write {policy.capability_matrix.git_write ? 'on' : 'off'} / push {policy.capability_matrix.git_push ? 'on' : 'off'} / publish {policy.capability_matrix.publish ? 'on' : 'off'}</div>
-                  <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位 / budget {policy.portfolio_budget_points}</div>
+                <div className="flex items-start gap-4">
+                  <div className="text-right text-xs text-gray-500">
+                    <div>更新时间: {formatTime(policy.updated_at)}</div>
+                    <div>发布模式: {policy.release_mode}</div>
+                    <div>自治: {policy.autonomy_mode}</div>
+                    <div>能力: shell {policy.capability_matrix.shell_access ? 'on' : 'off'} / git_write {policy.capability_matrix.git_write ? 'on' : 'off'} / push {policy.capability_matrix.git_push ? 'on' : 'off'} / publish {policy.capability_matrix.publish ? 'on' : 'off'}</div>
+                    <div>调度: x{policy.scheduler_weight} / {policy.max_parallel_requirements} 槽位 / budget {policy.portfolio_budget_points}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    {deleteDialog?.id === policy.id ? (
+                      <div
+                        data-testid="project-policy-delete-dialog"
+                        className="max-w-[280px] rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-right shadow-sm"
+                      >
+                        <div className="text-xs font-semibold text-rose-900">确认删除 {policy.display_name}？</div>
+                        <div className="mt-1 text-xs leading-5 text-rose-700">
+                          如果仍有 requirement 或 onboarding 绑定这个策略，系统会保留它并给出原因。
+                        </div>
+                        <div className="mt-3 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                            onClick={() => setDeleteDialog(null)}
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="project-policy-delete-confirm"
+                            className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                            onClick={async () => {
+                              const target = deleteDialog
+                              if (!target) return
+                              setDeletingId(target.id)
+                              setDeleteDialog(null)
+                              try {
+                                await api.deleteProjectPolicy(target.id)
+                                setFeedback({
+                                  tone: 'success',
+                                  title: '策略已删除',
+                                  detail: `${target.displayName} 已从受管项目列表中移除。`,
+                                })
+                                await loadPolicies()
+                              } catch (err) {
+                                setFeedback({
+                                  tone: 'error',
+                                  title: '暂时无法删除',
+                                  detail: err instanceof Error ? err.message : '删除项目策略失败',
+                                })
+                              } finally {
+                                setDeletingId(null)
+                              }
+                            }}
+                          >
+                            {deletingId === policy.id ? '删除中…' : '确认删除'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`project-policy-delete-${policy.id}`}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={deletingId === policy.id}
+                        onClick={() => {
+                          setDeleteDialog({ id: policy.id, displayName: policy.display_name })
+                        }}
+                      >
+                        {deletingId === policy.id ? '删除中…' : '删除策略'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -618,7 +724,11 @@ export default function ProjectPolicies() {
                       })
                       await loadPolicies()
                     } catch (err) {
-                      alert(err instanceof Error ? err.message : '保存项目策略失败')
+                      setFeedback({
+                        tone: 'error',
+                        title: '保存失败',
+                        detail: err instanceof Error ? err.message : '保存项目策略失败',
+                      })
                     } finally {
                       setSavingId(null)
                     }

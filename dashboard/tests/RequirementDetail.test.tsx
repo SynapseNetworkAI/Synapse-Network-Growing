@@ -347,4 +347,39 @@ describe('RequirementDetail', () => {
     })
     expect(mockApi.publishRequirement.mock.calls[0]?.[0]).toBe(1)
   })
+
+  it('allows starting an unplanned requirement and labels it as pending planning', async () => {
+    const unplannedDetail = {
+      ...detail,
+      requirement: {
+        ...detail.requirement,
+        status: 'ready',
+        current_plan_version: 0,
+        active_workflow_run_id: null,
+      },
+      workflow_run: null,
+    }
+    mockApi.getRequirement.mockResolvedValueOnce(unplannedDetail)
+    mockApi.startRequirement.mockResolvedValueOnce(detail)
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    expect(screen.getByText('待规划')).toBeInTheDocument()
+    expect(screen.getByTestId('planning-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('start-requirement-btn')).not.toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('start-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.startRequirement).toHaveBeenCalledWith(1)
+    })
+  })
 })
