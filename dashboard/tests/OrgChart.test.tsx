@@ -49,6 +49,11 @@ const mockReview: CompanyOperatingReview = {
     escalations: 2,
     downgrades: 3,
     human_gate_hotspots: 2,
+    open_bug_pressure: 3,
+    unresolved_critical_bugs: 1,
+    bug_requirements_created: 2,
+    recurring_bug_fingerprint_count: 2,
+    cross_project_bug_recoveries: 1,
     tier_mix: {
       mini: 4,
       standard: 9,
@@ -74,6 +79,10 @@ const mockReview: CompanyOperatingReview = {
       prompt_cache_saved_chars: 4200,
       escalations: 1,
       downgrades: 2,
+      open_bug_count: 2,
+      critical_bug_count: 1,
+      converted_bug_count: 1,
+      recurring_bug_count: 2,
       tier_mix: {
         mini: 1,
         standard: 4,
@@ -105,6 +114,55 @@ const mockReview: CompanyOperatingReview = {
       recovery_status: 'bugfix_loop_active',
       requirement_id: 40,
       source_ref: 'incident:bug_report:7',
+    },
+  ],
+  recurring_bug_fingerprints: [
+    {
+      bug_id: 7,
+      bug_key: 'delivery_blocker_bug::synapse-network-sdk::fp-release-blocker',
+      title: 'SDK release blocker keeps failing',
+      severity: 'critical',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      fingerprint: 'fp-release-blocker',
+      occurrence_count: 5,
+      score_total: 96,
+      source_key: 'delivery_blocker_bug',
+      converted_requirement_id: null,
+      last_seen_at: '2026-04-11T12:00:00Z',
+    },
+    {
+      bug_id: 8,
+      bug_key: 'workflow_incident::synapse-network-sdk::fp-runtime-chain',
+      title: 'Runtime chain desync',
+      severity: 'high',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      fingerprint: 'fp-runtime-chain',
+      occurrence_count: 3,
+      score_total: 84,
+      source_key: 'workflow_incident',
+      converted_requirement_id: 40,
+      last_seen_at: '2026-04-11T12:10:00Z',
+    },
+  ],
+  cross_project_bug_recoveries: [
+    {
+      item_key: 'cross-project-bug:9',
+      title: 'Provider auth desync',
+      severity: 'high',
+      summary: 'Bug affects 2 projects: Synapse-Network, Synapse-Network-Provider. Occurrences: 4.',
+      project_key: 'multi-project',
+      project_display_name: 'Multiple Projects',
+      recommendation: 'Coordinate a cross-project remediation and validate the recovery path across all affected repositories.',
+      incident_family: 'cross_project_bug_recovery',
+      incident_code: 'fp-provider-auth-desync',
+      recovery_status: 'requirement_created',
+      requirement_id: 51,
+      source_ref: 'bug-intake:9',
+      affected_project_keys: ['synapse-network', 'synapse-network-provider'],
+      affected_project_display_names: ['Synapse-Network', 'Synapse-Network-Provider'],
+      score_total: 91,
     },
   ],
   human_gate_hotspots: [
@@ -236,6 +294,13 @@ const mockReview: CompanyOperatingReview = {
   },
   source_snapshot: {
     scheduler_generated_at: '2026-04-11T13:00:00Z',
+    bug_backlog_summary: {
+      open_bug_pressure: 3,
+      unresolved_critical_bugs: 1,
+      bug_requirements_created: 2,
+      recurring_bug_fingerprint_count: 2,
+      cross_project_bug_recoveries: 1,
+    },
     workflow_rituals: {
       morning_intake_sweep: { operator_attention_count: 2, requires_operator_review: true },
       dispatcher_loop: { stuck_requirement_count: 1, approval_reminder_count: 1 },
@@ -415,15 +480,23 @@ describe('OrgChart', () => {
     expect(screen.getByTestId('ritual-weekly_operating_review')).toHaveTextContent('automation: 2')
     expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('automated_validation_failure')
     expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('requirement #40')
+    expect(screen.getByTestId('company-review-bug-backlog')).toHaveTextContent('SDK release blocker keeps failing')
+    expect(screen.getByTestId('company-review-bug-backlog')).toHaveTextContent('fp-release-blocker')
+    expect(screen.getByTestId('company-review-cross-project-bugs')).toHaveTextContent('Provider auth desync')
+    expect(screen.getByTestId('company-review-cross-project-bugs')).toHaveTextContent('Synapse-Network-Provider')
     expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('approval_required')
     expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('needs operator approval')
     expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('max_tier')
     expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('count: 2')
     expect(screen.getByTestId('company-review-automation-candidates')).toHaveTextContent('publish_automation')
+    expect(screen.getByText('open bugs')).toBeInTheDocument()
+    expect(screen.getByText('critical bugs')).toBeInTheDocument()
+    expect(screen.getByText('cross-project bugs')).toBeInTheDocument()
     expect(screen.getByText('completion %')).toBeInTheDocument()
     expect(screen.getByText('Prompt Cache')).toBeInTheDocument()
     expect(screen.getByText(/saved chars: 9200/)).toBeInTheDocument()
     expect(screen.getByText(/deduped bindings: 7/)).toBeInTheDocument()
+    expect(screen.getByText(/converted bug reqs: 1/)).toBeInTheDocument()
     expect(screen.getByText(/escalations: 2/)).toBeInTheDocument()
     expect(screen.getByText(/tier mix: mini 1 \/ std 4 \/ max 1/i)).toBeInTheDocument()
   })

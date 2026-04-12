@@ -810,6 +810,69 @@ class TestBuildPlannerOutput:
         assert any(target["check_key"] == "rollback_path_documented" for target in review_step["validation_targets"])
         assert any(target["check_key"] == "release_blocker_removed" for target in test_step["validation_targets"])
 
+    def test_bug_intake_requirements_gain_bug_validation_contract(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Bug Fix: Gateway readiness 500",
+            description_markdown="Fix repeated readiness failures and bind the fix to bug evidence.",
+            source="bug_intake",
+            source_ref="bug-intake:42",
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        )
+        db_session.add(req)
+        db_session.commit()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": True}):
+            output, _ = build_planner_output(db_session, req)
+
+        acceptance_keys = {item["check_key"] for item in output["acceptance_checks"]}
+        assert {
+            "review_passed",
+            "validation_passed",
+            "root_cause_documented",
+            "bug_evidence_bound",
+            "fix_applied",
+            "regression_guard_added",
+            "bug_verification_passed",
+        } <= acceptance_keys
+        assert "bug-derived requirements" in output["validation_plan"]["summary_markdown"]
+        review_step = next(step for step in output["workflow_steps"] if step["step_key"] == "review")
+        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
+        assert any(target["check_key"] == "root_cause_documented" for target in review_step["validation_targets"])
+        assert any(target["check_key"] == "bug_evidence_bound" for target in review_step["validation_targets"])
+        assert any(target["check_key"] == "fix_applied" for target in test_step["validation_targets"])
+        assert any(target["check_key"] == "regression_guard_added" for target in test_step["validation_targets"])
+        assert any(target["check_key"] == "bug_verification_passed" for target in test_step["validation_targets"])
+
+    def test_cross_project_bug_requirements_gain_cross_project_recovery_check(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Bug Fix: Provider auth desync",
+            description_markdown="Fix a failure path that crosses product and provider runtime.",
+            source="bug_intake",
+            source_ref="bug-intake:77",
+            target_project_path=(
+                "/Users/cliff/workspace/agent/Synapse-Network\n"
+                "/Users/cliff/workspace/agent/Synapse-Network-Provider"
+            ),
+            intake_metadata_json=json.dumps(
+                {
+                    "source_key": "bug_intake",
+                    "cross_project_recovery": True,
+                    "affected_project_keys": ["synapse-network", "synapse-network-provider"],
+                }
+            ),
+        )
+        db_session.add(req)
+        db_session.commit()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": True}):
+            output, _ = build_planner_output(db_session, req)
+
+        acceptance_keys = {item["check_key"] for item in output["acceptance_checks"]}
+        assert "cross_project_recovery_verified" in acceptance_keys
+        assert "Cross-project bug recovery" in output["validation_plan"]["summary_markdown"]
+        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
+        assert any(target["check_key"] == "cross_project_recovery_verified" for target in test_step["validation_targets"])
+
 
 # ---------------------------------------------------------------------------
 # API integration: create requirement with target_project_path

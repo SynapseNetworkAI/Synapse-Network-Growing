@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from collections import defaultdict
 
-from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowStepRow
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals, refresh_optimization_signals
@@ -42,6 +42,14 @@ def _cycle_label(now: datetime | None = None) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
+def _ensure_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _cycle_summary_markdown(
     portfolio_summary: dict[str, Any],
     bottlenecks: list[dict[str, Any]],
@@ -57,7 +65,8 @@ def _cycle_summary_markdown(
         f"Completion rate: {portfolio_summary['completion_rate']}%, "
         f"budget spent: {portfolio_summary['budget_spent_points']} pts, "
         f"prompt cache saved chars: {portfolio_summary['prompt_cache_saved_chars']}, "
-        f"human gate hotspots: {portfolio_summary['human_gate_hotspots']}.\n\n"
+        f"human gate hotspots: {portfolio_summary['human_gate_hotspots']}, "
+        f"open bug pressure: {portfolio_summary['open_bug_pressure']}.\n\n"
         f"Recommended next move: {lead_recommendation}."
     )
 
@@ -186,6 +195,156 @@ def _project_display_for_keys(project_keys: list[str], project_catalog: dict[str
         if str(project.get("project_key") or "") == project_key:
             return project_key, str(project.get("display_name") or project_key)
     return project_key, project_key
+
+
+def _bug_backlog_summary(
+    db: Session,
+    *,
+    project_catalog: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    rows = db.query(BugRecordRow).all()
+    open_rows = [row for row in rows if str(getattr(row, "status", "") or "") == "open"]
+    converted_rows = [row for row in rows if str(getattr(row, "status", "") or "") == "converted"]
+
+    per_project: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "open_bug_count": 0,
+            "critical_bug_count": 0,
+            "converted_bug_count": 0,
+            "recurring_bug_count": 0,
+        }
+    )
+    recurring_items: list[dict[str, Any]] = []
+
+    for row in open_rows:
+        scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
+        total = float(scorecard.get("total") or 0.0)
+        project_key = str(getattr(row, "project_key", "") or "").strip()
+        project_display_name = None
+        if project_key:
+            project_display_name = next(
+                (
+                    str(project.get("display_name") or project_key)
+                    for project in project_catalog.values()
+                    if str(project.get("project_key") or "") == project_key
+                ),
+                project_key,
+            )
+        severity = str(getattr(row, "severity", "") or "normal").strip().lower()
+        occurrence_count = int(getattr(row, "occurrence_count", 0) or 0)
+        if project_key:
+            per_project[project_key]["open_bug_count"] += 1
+            if severity == "critical":
+                per_project[project_key]["critical_bug_count"] += 1
+            if occurrence_count >= 2:
+                per_project[project_key]["recurring_bug_count"] += 1
+        recurring_items.append(
+            {
+                "bug_id": int(row.id),
+                "bug_key": str(row.bug_key),
+                "title": str(row.title),
+                "severity": severity,
+                "project_key": project_key or None,
+                "project_display_name": project_display_name,
+                "fingerprint": str(getattr(row, "fingerprint", "") or ""),
+                "occurrence_count": occurrence_count,
+                "score_total": round(total, 1),
+                "source_key": str(getattr(row, "source_key", "") or ""),
+                "converted_requirement_id": int(row.converted_requirement_id) if row.converted_requirement_id is not None else None,
+                "last_seen_at": (
+                    _ensure_utc(getattr(row, "last_seen_at", None)).isoformat()
+                    if _ensure_utc(getattr(row, "last_seen_at", None))
+                    else None
+                ),
+            }
+        )
+
+    for row in converted_rows:
+        project_key = str(getattr(row, "project_key", "") or "").strip()
+        if project_key:
+            per_project[project_key]["converted_bug_count"] += 1
+
+    recurring_items.sort(
+        key=lambda item: (
+            _SEVERITY_RANK.get(str(item.get("severity") or "medium"), 99),
+            -int(item.get("occurrence_count") or 0),
+            -float(item.get("score_total") or 0.0),
+            str(item.get("title") or ""),
+        )
+    )
+    summary = {
+        "open_bug_pressure": len(open_rows),
+        "unresolved_critical_bugs": sum(1 for row in open_rows if str(getattr(row, "severity", "") or "").strip().lower() == "critical"),
+        "bug_requirements_created": len(converted_rows),
+        "recurring_bug_fingerprint_count": sum(1 for row in open_rows if int(getattr(row, "occurrence_count", 0) or 0) >= 2),
+    }
+    return summary, recurring_items[:8], dict(per_project)
+
+
+def _cross_project_bug_recoveries(
+    db: Session,
+    *,
+    project_catalog: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for row in db.query(BugRecordRow).all():
+        metadata = _json_loads(getattr(row, "metadata_json", None), {})
+        project_keys: list[str] = []
+        primary_key = str(getattr(row, "project_key", "") or "").strip()
+        if primary_key:
+            project_keys.append(primary_key)
+        if isinstance(metadata, dict):
+            for item in list(metadata.get("affected_project_keys") or []):
+                value = str(item or "").strip()
+                if value and value not in project_keys:
+                    project_keys.append(value)
+        if len(project_keys) <= 1:
+            continue
+        project_display_names: list[str] = []
+        for key in project_keys:
+            display = next(
+                (
+                    str(project.get("display_name") or key)
+                    for project in project_catalog.values()
+                    if str(project.get("project_key") or "") == key
+                ),
+                key,
+            )
+            project_display_names.append(display)
+        scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
+        status = str(getattr(row, "status", "") or "open")
+        recovery_status = "requirement_created" if status == "converted" and row.converted_requirement_id is not None else ("recovery_open" if status == "open" else status)
+        items.append(
+            {
+                "item_key": f"cross-project-bug:{int(row.id)}",
+                "title": str(getattr(row, "title", "") or ""),
+                "severity": str(getattr(row, "severity", "") or "medium"),
+                "summary": (
+                    f"Bug affects {len(project_keys)} projects: {', '.join(project_display_names)}. "
+                    f"Occurrences: {int(getattr(row, 'occurrence_count', 0) or 0)}."
+                ),
+                "project_key": "multi-project",
+                "project_display_name": "Multiple Projects",
+                "recommendation": "Coordinate a cross-project remediation and validate the recovery path across all affected repositories.",
+                "incident_family": "cross_project_bug_recovery",
+                "incident_code": str(getattr(row, "fingerprint", "") or ""),
+                "recovery_status": recovery_status,
+                "requirement_id": int(row.converted_requirement_id) if row.converted_requirement_id is not None else None,
+                "source_ref": f"bug-intake:{int(row.id)}",
+                "affected_project_keys": project_keys,
+                "affected_project_display_names": project_display_names,
+                "score_total": round(float(scorecard.get("total") or 0.0), 1),
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            _SEVERITY_RANK.get(str(item.get("severity") or "medium"), 99),
+            0 if str(item.get("recovery_status") or "") == "recovery_open" else 1,
+            -len(list(item.get("affected_project_keys") or [])),
+            str(item.get("title") or ""),
+        )
+    )
+    return items[:6]
 
 
 def _gate_recommendation(approval_type: str, approval_scope: str, *, step_type: str) -> tuple[str, str]:
@@ -379,6 +538,10 @@ def _project_highlights(project_catalog: dict[str, dict[str, Any]], scheduler_pl
             "escalations": int(runtime_metrics.get("escalations") or 0),
             "downgrades": int(runtime_metrics.get("downgrades") or 0),
             "tier_mix": dict(runtime_metrics.get("tier_mix") or {"mini": 0, "standard": 0, "max": 0}),
+            "open_bug_count": int(project.get("open_bug_count") or 0),
+            "critical_bug_count": int(project.get("critical_bug_count") or 0),
+            "converted_bug_count": int(project.get("converted_bug_count") or 0),
+            "recurring_bug_count": int(project.get("recurring_bug_count") or 0),
         })
     highlights.sort(
         key=lambda item: (
@@ -1135,9 +1298,22 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         project_catalog=project_catalog,
         requirements=requirements,
     )
+    bug_summary, recurring_bug_fingerprints, per_project_bug_metrics = _bug_backlog_summary(
+        db,
+        project_catalog=project_catalog,
+    )
+    cross_project_bug_recoveries = _cross_project_bug_recoveries(
+        db,
+        project_catalog=project_catalog,
+    )
     for project in project_catalog.values():
         project_key = str(project.get("project_key") or "")
         project["runtime_metrics"] = per_project_runtime_metrics.get(project_key, _empty_runtime_metric_bucket())
+        bug_metrics = per_project_bug_metrics.get(project_key, {})
+        project["open_bug_count"] = int(bug_metrics.get("open_bug_count") or 0)
+        project["critical_bug_count"] = int(bug_metrics.get("critical_bug_count") or 0)
+        project["converted_bug_count"] = int(bug_metrics.get("converted_bug_count") or 0)
+        project["recurring_bug_count"] = int(bug_metrics.get("recurring_bug_count") or 0)
     requirement_total = sum(1 for row in requirements.values() if str(row.status or "") != "deleted")
     completion_rate = round(
         (int(runtime_metrics.get("completed_requirements") or 0) / requirement_total) * 100,
@@ -1177,6 +1353,11 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         "downgrades": int(runtime_metrics.get("downgrades") or 0),
         "tier_mix": dict(runtime_metrics.get("tier_mix") or {"mini": 0, "standard": 0, "max": 0}),
         "human_gate_hotspots": len(human_gate_hotspots),
+        "open_bug_pressure": int(bug_summary.get("open_bug_pressure") or 0),
+        "unresolved_critical_bugs": int(bug_summary.get("unresolved_critical_bugs") or 0),
+        "bug_requirements_created": int(bug_summary.get("bug_requirements_created") or 0),
+        "recurring_bug_fingerprint_count": int(bug_summary.get("recurring_bug_fingerprint_count") or 0),
+        "cross_project_bug_recoveries": len(cross_project_bug_recoveries),
     }
     project_highlights = _project_highlights(project_catalog, scheduler_plan)
     bottlenecks = _bottlenecks(project_catalog, scheduler_plan)
@@ -1230,6 +1411,8 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         "project_highlights": project_highlights,
         "bottlenecks": bottlenecks,
         "incidents": incidents,
+        "recurring_bug_fingerprints": recurring_bug_fingerprints,
+        "cross_project_bug_recoveries": cross_project_bug_recoveries,
         "human_gate_hotspots": human_gate_hotspots,
         "automation_candidates": automation_candidates,
         "next_cycle_recommendations": next_cycle_recommendations,
@@ -1244,6 +1427,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
             "rebalanced_ids": list(scheduler_plan.get("rebalanced_ids") or []),
             "runtime_metrics": runtime_metrics,
             "workflow_rituals": workflow_rituals,
+            "bug_backlog_summary": bug_summary,
         },
     }
 
@@ -1264,6 +1448,8 @@ def company_review_to_dict(row: CompanyOperatingReviewRow) -> dict[str, Any]:
         "project_highlights": list(payload.get("project_highlights") or []),
         "bottlenecks": list(payload.get("bottlenecks") or []),
         "incidents": list(payload.get("incidents") or []),
+        "recurring_bug_fingerprints": list(payload.get("recurring_bug_fingerprints") or []),
+        "cross_project_bug_recoveries": list(payload.get("cross_project_bug_recoveries") or []),
         "human_gate_hotspots": list(payload.get("human_gate_hotspots") or []),
         "automation_candidates": list(payload.get("automation_candidates") or []),
         "next_cycle_recommendations": list(payload.get("next_cycle_recommendations") or []),
@@ -1293,6 +1479,8 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
                 "project_highlights": payload["project_highlights"],
                 "bottlenecks": payload["bottlenecks"],
                 "incidents": payload["incidents"],
+                "recurring_bug_fingerprints": payload["recurring_bug_fingerprints"],
+                "cross_project_bug_recoveries": payload["cross_project_bug_recoveries"],
                 "human_gate_hotspots": payload["human_gate_hotspots"],
                 "automation_candidates": payload["automation_candidates"],
                 "next_cycle_recommendations": payload["next_cycle_recommendations"],

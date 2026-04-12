@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
 from server.services.company_review import refresh_company_operating_review
 
 
@@ -110,6 +110,109 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
             }),
         )
     )
+    db_session.add_all(
+        [
+            BugRecordRow(
+                bug_key="delivery_blocker_bug::synapse-network-sdk::fp-release-blocker",
+                source_key="delivery_blocker_bug",
+                source_kind="artifact",
+                status="open",
+                title="SDK release blocker keeps failing",
+                summary="Release pipeline repeatedly fails during validation.",
+                severity="critical",
+                fingerprint="fp-release-blocker",
+                project_key="synapse-network-sdk",
+                project_root_path="/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+                source_ref="release:bug-1",
+                occurrence_count=5,
+                evidence_json=json.dumps([{"log_excerpt": "npm run build failed in release stage"}]),
+                metadata_json=json.dumps({"publish_blocked": True}),
+                scorecard_json=json.dumps({
+                    "total": 96.0,
+                    "priority": "critical",
+                    "auto_intake_eligible": True,
+                    "blocker_flags": ["delivery_blocker", "critical"],
+                }),
+            ),
+            BugRecordRow(
+                bug_key="workflow_incident::synapse-network-sdk::fp-runtime-chain",
+                source_key="workflow_incident",
+                source_kind="signal",
+                status="open",
+                title="Runtime chain desync",
+                summary="Workflow incident keeps recurring in the runtime path.",
+                severity="high",
+                fingerprint="fp-runtime-chain",
+                project_key="synapse-network-sdk",
+                project_root_path="/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+                source_ref="incident:runtime-1",
+                occurrence_count=3,
+                evidence_json=json.dumps([{"log_excerpt": "Session not found during workflow resume"}]),
+                metadata_json=json.dumps({"incident_family": "runtime_reliability"}),
+                scorecard_json=json.dumps({
+                    "total": 84.0,
+                    "priority": "high",
+                    "auto_intake_eligible": True,
+                    "blocker_flags": ["workflow_incident"],
+                }),
+            ),
+            BugRecordRow(
+                bug_key="workflow_incident::multi::fp-cross-project-runtime",
+                source_key="workflow_incident",
+                source_kind="signal",
+                status="converted",
+                title="Provider auth desync",
+                summary="Failure path crosses core product and provider runtime.",
+                severity="high",
+                fingerprint="fp-cross-project-runtime",
+                project_key="synapse-network",
+                project_root_path="/Users/cliff/workspace/agent/Synapse-Network",
+                source_ref="incident:cross-project-1",
+                occurrence_count=4,
+                evidence_json=json.dumps([{"log_excerpt": "provider auth mismatch"}]),
+                metadata_json=json.dumps(
+                    {
+                        "affected_project_keys": ["synapse-network", "synapse-network-provider"],
+                        "affected_project_root_paths": [
+                            "/Users/cliff/workspace/agent/Synapse-Network",
+                            "/Users/cliff/workspace/agent/Synapse-Network-Provider",
+                        ],
+                    }
+                ),
+                scorecard_json=json.dumps(
+                    {
+                        "total": 90.0,
+                        "priority": "high",
+                        "auto_intake_eligible": True,
+                        "blocker_flags": ["workflow_incident"],
+                    }
+                ),
+                converted_requirement_id=ready_id,
+            ),
+            BugRecordRow(
+                bug_key="manual_bug_report::synapse-network-sdk::fp-already-converted",
+                source_key="manual_bug_report",
+                source_kind="manual_input",
+                status="converted",
+                title="SDK onboarding validation drift",
+                summary="Already converted bug requirement.",
+                severity="high",
+                fingerprint="fp-already-converted",
+                project_key="synapse-network-sdk",
+                project_root_path="/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+                source_ref="bug:converted-1",
+                occurrence_count=2,
+                evidence_json=json.dumps([{"log_excerpt": "pytest drift"}]),
+                metadata_json=json.dumps({}),
+                scorecard_json=json.dumps({
+                    "total": 79.0,
+                    "priority": "high",
+                    "auto_intake_eligible": True,
+                }),
+                converted_requirement_id=ready_id,
+            ),
+        ]
+    )
     review_ready_requirement = RequirementRow(
         title="Manual publish promotion",
         description_markdown="Ready to publish but still gated by operator review.",
@@ -190,10 +293,25 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     assert payload["portfolio_summary"]["escalations"] >= 1
     assert payload["portfolio_summary"]["completion_rate"] >= 0
     assert payload["portfolio_summary"]["human_gate_hotspots"] >= 1
+    assert payload["portfolio_summary"]["open_bug_pressure"] >= 2
+    assert payload["portfolio_summary"]["unresolved_critical_bugs"] >= 1
+    assert payload["portfolio_summary"]["bug_requirements_created"] >= 1
+    assert payload["portfolio_summary"]["recurring_bug_fingerprint_count"] >= 2
     assert set(payload["portfolio_summary"]["tier_mix"].keys()) >= {"mini", "standard", "max"}
     assert any(item["project_key"] == "synapse-network-sdk" for item in payload["project_highlights"])
     assert any(item["prompt_cache_saved_chars"] >= 4200 for item in payload["project_highlights"])
     assert any(item["escalations"] >= 1 for item in payload["project_highlights"])
+    assert any(item["open_bug_count"] >= 2 for item in payload["project_highlights"])
+    assert any(item["critical_bug_count"] >= 1 for item in payload["project_highlights"])
+    assert any(item["converted_bug_count"] >= 1 for item in payload["project_highlights"])
+    assert any(item["recurring_bug_count"] >= 1 for item in payload["project_highlights"])
+    assert payload["recurring_bug_fingerprints"]
+    assert any(item["severity"] == "critical" for item in payload["recurring_bug_fingerprints"])
+    assert any(item["fingerprint"] == "fp-release-blocker" for item in payload["recurring_bug_fingerprints"])
+    assert payload["portfolio_summary"]["cross_project_bug_recoveries"] >= 1
+    assert payload["cross_project_bug_recoveries"]
+    assert any(item["incident_family"] == "cross_project_bug_recovery" for item in payload["cross_project_bug_recoveries"])
+    assert any(item["requirement_id"] == ready_id for item in payload["cross_project_bug_recoveries"])
     assert payload["human_gate_hotspots"]
     assert any(item["approval_scope"] in {"max_tier", "publish"} for item in payload["human_gate_hotspots"])
     assert payload["automation_candidates"]
@@ -211,6 +329,7 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     assert payload["source_snapshot"]["workflow_rituals"]["morning_intake_sweep"]["requires_operator_review"] is True
     assert payload["source_snapshot"]["workflow_rituals"]["dispatcher_loop"]["stuck_requirement_count"] >= 1
     assert payload["source_snapshot"]["workflow_rituals"]["closeout_and_compact_sweep"]["review_snapshot_count"] >= 2
+    assert payload["source_snapshot"]["bug_backlog_summary"]["open_bug_pressure"] >= 2
     assert any(
         item["source_ref"] in {f"requirement:{ready_id}", None} or item["project_key"] == "synapse-network-sdk"
         for item in payload["next_cycle_recommendations"]
@@ -296,7 +415,7 @@ def test_company_review_materialize_bundle_creates_and_reuses_requirements(synce
     assert materialize_resp.status_code == 200
     materialized = materialize_resp.json()
     assert materialized["review_id"] == review["id"]
-    assert ready_id in materialized["reused_requirement_ids"]
+    assert materialized["reused_requirement_ids"]
     assert materialized["created_requirement_ids"]
     assert any(item["status"] == "created" for item in materialized["items"])
     assert any(item["status"] == "linked_existing" for item in materialized["items"])

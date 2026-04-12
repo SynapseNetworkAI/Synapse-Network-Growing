@@ -280,6 +280,42 @@ class OptimizationSignalRow(Base):
     converted_requirement = relationship("RequirementRow")
 
 
+class BugRecordRow(Base):
+    __tablename__ = "bug_records"
+    __table_args__ = (
+        Index("bug_records_bug_key_idx", "bug_key", unique=True),
+        Index("bug_records_status_idx", "status"),
+        Index("bug_records_project_idx", "project_key"),
+        Index("bug_records_severity_idx", "severity"),
+        Index("bug_records_source_idx", "source_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    bug_key = Column(Text, nullable=False)
+    source_key = Column(Text, nullable=False)
+    source_kind = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="open")
+    title = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False, default="")
+    severity = Column(Text, nullable=False, default="normal")
+    fingerprint = Column(Text, nullable=False)
+    project_key = Column(Text)
+    project_root_path = Column(Text)
+    source_ref = Column(Text)
+    environment = Column(Text)
+    occurrence_count = Column(Integer, nullable=False, default=1)
+    evidence_json = Column(Text, nullable=False, default="[]")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    scorecard_json = Column(Text, nullable=False, default="{}")
+    converted_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    first_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    converted_requirement = relationship("RequirementRow")
+
+
 class CompanyOperatingReviewRow(Base):
     __tablename__ = "company_operating_reviews"
     __table_args__ = (
@@ -623,6 +659,17 @@ def _migrate(engine_):
 
     if "company_operating_reviews" not in tables:
         logger.info("Migrating: company_operating_reviews table will be created via metadata")
+
+    if "bug_records" not in tables:
+        logger.info("Migrating: creating 'bug_records' table")
+        BugRecordRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("bug_records")}
+        if "scorecard_json" not in existing:
+            logger.info("Migrating: adding 'scorecard_json' column to bug_records table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE bug_records ADD COLUMN scorecard_json TEXT DEFAULT '{}'"))
+                conn.commit()
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}

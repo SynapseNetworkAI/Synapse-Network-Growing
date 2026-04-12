@@ -102,6 +102,15 @@ Rules:
 - If the work is simple, return a single implementation step.
 """
 
+
+def _json_loads(raw: str | None, default: Any) -> Any:
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return default
+
 # ---------------------------------------------------------------------------
 # Mode 1: Full-plan (agent decides everything)
 # ---------------------------------------------------------------------------
@@ -832,6 +841,81 @@ def _latest_requirement_template_payload(db: Session, requirement_id: int) -> di
     return payload if isinstance(payload, dict) else {}
 
 
+def _is_bug_validation_requirement(requirement: RequirementRow | None) -> bool:
+    if requirement is None:
+        return False
+    source = str(getattr(requirement, "source", "") or "").strip().lower()
+    source_ref = str(getattr(requirement, "source_ref", "") or "").strip().lower()
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    return source == "bug_intake" or source_ref.startswith("bug-intake:") or title.startswith("bug fix:")
+
+
+def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> list[dict[str, Any]]:
+    if not _is_bug_validation_requirement(requirement):
+        return []
+    checks = [
+        {
+            "check_key": "root_cause_documented",
+            "description": "Review confirms the bug root cause and remediation scope are documented.",
+            "check_type": "manual_review",
+            "owner_role": "reviewer",
+            "success_criteria_markdown": "Review artifact explains the root cause, blast radius, and chosen remediation path.",
+            "validation_step_key": "review",
+            "verification_type": "manual",
+        },
+        {
+            "check_key": "bug_evidence_bound",
+            "description": "Review confirms the fix is explicitly tied to the original bug evidence or a reproducible failing path.",
+            "check_type": "manual_review",
+            "owner_role": "reviewer",
+            "success_criteria_markdown": "Review surface links the change to bug evidence, fingerprint, or a reproducible failure path.",
+            "validation_step_key": "review",
+            "verification_type": "manual",
+        },
+        {
+            "check_key": "fix_applied",
+            "description": "Validation confirms the requirement produced a real project change for the target bug surface.",
+            "check_type": "repo_file_changes",
+            "owner_role": "tester",
+            "success_criteria_markdown": "Validation shows file-change evidence for the project affected by the bug.",
+            "validation_step_key": "test",
+            "verification_type": "automated",
+        },
+        {
+            "check_key": "regression_guard_added",
+            "description": "Validation confirms a regression guard or equivalent repeatable verification was added.",
+            "check_type": "content_assertion",
+            "owner_role": "tester",
+            "success_criteria_markdown": "Automated validation demonstrates repeatable regression coverage or an equivalent guard exists.",
+            "validation_step_key": "test",
+            "verification_type": "automated",
+        },
+        {
+            "check_key": "bug_verification_passed",
+            "description": "Validation confirms the original bug no longer reproduces or the failure path is now explicitly bounded.",
+            "check_type": "content_assertion",
+            "owner_role": "tester",
+            "success_criteria_markdown": "Automated validation shows the bug is resolved, bounded, or escalated with an explicit guardrail.",
+            "validation_step_key": "test",
+            "verification_type": "automated",
+        },
+    ]
+    intake = _json_loads(getattr(requirement, "intake_metadata_json", None), {}) if requirement is not None else {}
+    if bool((intake or {}).get("cross_project_recovery")):
+        checks.append(
+            {
+                "check_key": "cross_project_recovery_verified",
+                "description": "Validation confirms all affected projects now have an explicit fix or bounded recovery path.",
+                "check_type": "content_assertion",
+                "owner_role": "tester",
+                "success_criteria_markdown": "Automated validation shows the multi-project failure path is closed across all affected projects.",
+                "validation_step_key": "test",
+                "verification_type": "automated",
+            }
+        )
+    return checks
+
+
 def _template_acceptance_checks(template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     raw = template_payload.get("acceptance_checks") or []
     return [dict(item) for item in raw if isinstance(item, dict)]
@@ -1073,7 +1157,8 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "success_criteria_markdown": "Tester validates the produced artifacts and confirms all acceptance targets are satisfied.",
     }
     default_checks = [review_check, validation_check]
-    acceptance_checks = _merge_acceptance_checks(default_checks, template_checks)
+    bug_checks = _bug_validation_acceptance_checks(requirement)
+    acceptance_checks = _merge_acceptance_checks(default_checks, bug_checks + template_checks)
     _apply_template_targets_to_steps(workflow_steps, acceptance_checks)
     manual_checks = [
         {
@@ -1162,9 +1247,22 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "delivery_contract": delivery_contract,
         "validation_plan": {
             "summary_markdown": (
-                "Researcher explores current state, synthesizer compresses that into an execution plan, "
-                "reviewer owns the manual review gate, tester owns automated validation and closeout, "
-                "and implementer owns bugfix execution when any verification fails."
+                (
+                    "Researcher explores current state, synthesizer compresses that into an execution plan, "
+                    "reviewer owns the manual review gate, tester owns automated validation and closeout, "
+                    "and implementer owns bugfix execution when any verification fails."
+                )
+                + (
+                    " For bug-derived requirements, review must document root cause and evidence binding, "
+                    "while validation must prove a real fix, regression guard, and bug verification pass."
+                    if _is_bug_validation_requirement(requirement)
+                    else ""
+                )
+                + (
+                    " Cross-project bug recovery also requires validation to show the failure path is closed across every affected project."
+                    if bool(_json_loads(getattr(requirement, "intake_metadata_json", None), {}).get("cross_project_recovery"))
+                    else ""
+                )
             ),
             "acceptance_owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
             "review_owner_role": str(acceptance_contract.get("review_owner_role") or "reviewer"),

@@ -589,6 +589,11 @@ export interface OperatingReviewPortfolioSummary {
   downgrades: number
   tier_mix: Record<string, number>
   human_gate_hotspots: number
+  open_bug_pressure: number
+  unresolved_critical_bugs: number
+  bug_requirements_created: number
+  recurring_bug_fingerprint_count: number
+  cross_project_bug_recoveries: number
 }
 
 export interface OperatingReviewProjectHighlight {
@@ -610,6 +615,43 @@ export interface OperatingReviewProjectHighlight {
   escalations: number
   downgrades: number
   tier_mix: Record<string, number>
+  open_bug_count: number
+  critical_bug_count: number
+  converted_bug_count: number
+  recurring_bug_count: number
+}
+
+export interface OperatingReviewBugFingerprint {
+  bug_id: number
+  bug_key: string
+  title: string
+  severity: string
+  project_key?: string | null
+  project_display_name?: string | null
+  fingerprint: string
+  occurrence_count: number
+  score_total: number
+  source_key: string
+  converted_requirement_id?: number | null
+  last_seen_at?: string | null
+}
+
+export interface OperatingReviewCrossProjectBugRecovery {
+  item_key: string
+  title: string
+  severity: string
+  summary: string
+  project_key?: string | null
+  project_display_name?: string | null
+  recommendation?: string | null
+  incident_family?: string | null
+  incident_code?: string | null
+  recovery_status?: string | null
+  requirement_id?: number | null
+  source_ref?: string | null
+  affected_project_keys: string[]
+  affected_project_display_names: string[]
+  score_total: number
 }
 
 export interface OperatingReviewItem {
@@ -720,6 +762,8 @@ export interface CompanyOperatingReview {
   project_highlights: OperatingReviewProjectHighlight[]
   bottlenecks: OperatingReviewItem[]
   incidents: OperatingReviewItem[]
+  recurring_bug_fingerprints: OperatingReviewBugFingerprint[]
+  cross_project_bug_recoveries: OperatingReviewCrossProjectBugRecovery[]
   human_gate_hotspots: OperatingReviewGateHotspot[]
   automation_candidates: OperatingReviewAutomationCandidate[]
   next_cycle_recommendations: OperatingReviewRecommendation[]

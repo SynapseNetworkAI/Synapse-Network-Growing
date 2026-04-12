@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, utcnow
+from server.services.bug_log_sweep import run_bug_log_sweep
 from server.services.company_review import company_review_to_dict, latest_company_operating_review, refresh_company_operating_review
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals
@@ -38,13 +39,25 @@ def _ensure_utc(value: datetime | None) -> datetime | None:
 
 BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     {
+        "workflow_key": "bug_log_sweep",
+        "display_name": "Bug Log Sweep",
+        "description": "Sweep runtime logs and failed executions into bug backlog records, then auto-materialize high-value bugs.",
+        "trigger_type": "scheduled",
+        "owner_role": "runtime_reliability_engineer",
+        "schedule": {"cadence": "hourly", "interval_hours": 4},
+        "input_query": {"sources": ["runtime_log_error", "task_failure", "workflow_incident"]},
+        "output_action": {"kind": "update_bug_backlog", "auto_materialize_high_value_bugs": True},
+        "escalation_rule": {"on_new_critical_bug": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "materialized_requirement_ids"},
+    },
+    {
         "workflow_key": "morning_intake_sweep",
         "display_name": "Morning Intake Sweep",
         "description": "Refresh intake sources and create high-confidence backlog candidates.",
         "trigger_type": "scheduled",
         "owner_role": "ops_intake_manager",
         "schedule": {"cadence": "daily", "window": "morning", "suggested_local_time": "09:00"},
-        "input_query": {"sources": ["optimization_signal", "company_review_bundle", "automation_candidate"], "refresh": True},
+        "input_query": {"sources": ["optimization_signal", "company_review_bundle", "automation_candidate", "bug_intake"], "refresh": True},
         "output_action": {"kind": "create_requirements", "auto_start": False, "max_created": 2},
         "escalation_rule": {"on_failure": "notify_portfolio_operator", "on_empty": "no_op"},
         "validation_signal": {"success_metric": "created_requirement_ids", "min_expected": 0},
@@ -708,6 +721,25 @@ def run_recurring_workflow(
         result = {
             **queue_result,
             **follow_through,
+        }
+    elif workflow_key == "bug_log_sweep":
+        sweep_result = run_bug_log_sweep(db)
+        materialize_result = intake_requirement_sources(
+            db,
+            source_key="bug_intake",
+            refresh=False,
+            auto_start=auto_start,
+            min_score=max(float(intake_min_score), 70.0),
+            max_created=max(1, min(int(intake_max_created or 2), 5)),
+        )
+        result = {
+            **sweep_result,
+            "auto_materialize_enabled": True,
+            "materialized_requirement_ids": list(materialize_result.get("created_requirement_ids") or []),
+            "reused_requirement_ids": list(materialize_result.get("reused_requirement_ids") or []),
+            "skipped_materializations": list(materialize_result.get("skipped") or []),
+            "materialization_items": list(materialize_result.get("items") or []),
+            "requires_operator_review": bool(materialize_result.get("created_requirement_ids") or materialize_result.get("reused_requirement_ids")),
         }
     elif workflow_key == "closeout_and_compact_sweep":
         result = _closeout_and_compact_sweep(

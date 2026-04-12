@@ -7,7 +7,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import CompanyOperatingReviewRow, OptimizationSignalRow, RequirementRow
+from server.database import BugRecordRow, CompanyOperatingReviewRow, OptimizationSignalRow, ProjectPolicyRow, RequirementRow
+from server.schemas import RequirementCreate
 from server.schemas import OptimizationSignalAutoIntakeRequest
 
 
@@ -16,6 +17,7 @@ DEFAULT_INTAKE_CONFIDENCE_BY_SOURCE = {
     "optimization_signal": 0.85,
     "company_review_bundle": 0.75,
     "automation_candidate": 0.8,
+    "bug_intake": 0.9,
     "optimization_template": 0.7,
     "bugfix_circuit_breaker": 0.95,
 }
@@ -62,6 +64,7 @@ def normalize_requirement_intake_metadata(
             "optimization_signal": "auto_or_operator_intake_from_runtime_signal",
             "company_review_bundle": "materialized_from_company_review_bundle",
             "automation_candidate": "materialized_from_company_review_automation_candidate",
+            "bug_intake": "materialized_from_bug_backlog",
             "optimization_template": "operator_created_from_template",
             "incident_followup": "auto_created_from_incident_followup",
         }.get(source_key, "source_driven_requirement")
@@ -78,9 +81,21 @@ def normalize_requirement_intake_metadata(
         "source_ref": str(source_ref or "").strip() or None,
         "intake_reason": intake_reason,
         "confidence": round(confidence, 2),
-        "intake_mode": str(raw.get("intake_mode") or ("automatic" if source_key in {"optimization_signal", "incident_followup"} else "operator")),
+        "intake_mode": str(raw.get("intake_mode") or ("automatic" if source_key in {"optimization_signal", "incident_followup", "bug_intake"} else "operator")),
     }
-    for key in ("upstream_status", "trigger", "registry_hint", "bundle_item_key", "signal_id", "review_id"):
+    for key in (
+        "upstream_status",
+        "trigger",
+        "registry_hint",
+        "bundle_item_key",
+        "signal_id",
+        "review_id",
+        "bug_id",
+        "scorecard_priority",
+        "blocker_flags",
+        "affected_project_keys",
+        "cross_project_recovery",
+    ):
         value = raw.get(key)
         if value is not None:
             normalized[key] = value
@@ -101,6 +116,295 @@ def _latest_review_payload(db: Session) -> tuple[CompanyOperatingReviewRow | Non
     return row, payload
 
 
+def _bug_score_total(row: BugRecordRow) -> float:
+    payload = _json_loads(getattr(row, "scorecard_json", None), {})
+    try:
+        return float(payload.get("total") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _bug_auto_intake_eligible(row: BugRecordRow) -> bool:
+    payload = _json_loads(getattr(row, "scorecard_json", None), {})
+    return bool(payload.get("auto_intake_eligible", False))
+
+
+def _bug_priority(row: BugRecordRow) -> str:
+    payload = _json_loads(getattr(row, "scorecard_json", None), {})
+    priority = str(payload.get("priority") or row.severity or "normal").strip().lower()
+    if priority == "critical":
+        return "high"
+    if priority in {"high", "normal", "low"}:
+        return priority
+    return "normal"
+
+
+def _bug_target_project_path(db: Session, row: BugRecordRow) -> str | None:
+    root = str(getattr(row, "project_root_path", "") or "").strip()
+    metadata = _json_loads(getattr(row, "metadata_json", None), {})
+    roots: list[str] = []
+    raw_paths = list(metadata.get("affected_project_root_paths") or []) if isinstance(metadata, dict) else []
+    for item in raw_paths:
+        value = str(item or "").strip()
+        if value and value not in roots:
+            roots.append(value)
+    raw_keys = list(metadata.get("affected_project_keys") or []) if isinstance(metadata, dict) else []
+    for item in raw_keys:
+        project_key = str(item or "").strip().lower()
+        if not project_key:
+            continue
+        policy = db.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == project_key).first()
+        root_path = str(getattr(policy, "root_path", "") or "").strip()
+        if root_path and root_path not in roots:
+            roots.append(root_path)
+    if root and root not in roots:
+        roots.insert(0, root)
+    if roots:
+        return "\n".join(roots)
+    project_key = str(getattr(row, "project_key", "") or "").strip().lower()
+    if not project_key:
+        return None
+    policy = db.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == project_key).first()
+    return str(getattr(policy, "root_path", "") or "").strip() or None
+
+
+def _bug_affected_project_keys(row: BugRecordRow) -> list[str]:
+    metadata = _json_loads(getattr(row, "metadata_json", None), {})
+    project_keys: list[str] = []
+    primary = str(getattr(row, "project_key", "") or "").strip()
+    if primary:
+        project_keys.append(primary)
+    if isinstance(metadata, dict):
+        for item in list(metadata.get("affected_project_keys") or []):
+            value = str(item or "").strip()
+            if value and value not in project_keys:
+                project_keys.append(value)
+    return project_keys
+
+
+def _bug_is_cross_project(row: BugRecordRow, db: Session) -> bool:
+    target = _bug_target_project_path(db, row)
+    if target:
+        paths = [item.strip() for item in str(target).splitlines() if item.strip()]
+        if len(paths) > 1:
+            return True
+    return len(_bug_affected_project_keys(row)) > 1
+
+
+def _bug_blocker_flags(row: BugRecordRow) -> list[str]:
+    payload = _json_loads(getattr(row, "scorecard_json", None), {})
+    return [str(item).strip() for item in list(payload.get("blocker_flags") or []) if str(item).strip()]
+
+
+def _bug_requires_human_approval(row: BugRecordRow) -> bool:
+    severity = str(getattr(row, "severity", "") or "").strip().lower()
+    if severity == "critical":
+        return True
+    source_key = str(getattr(row, "source_key", "") or "").strip().lower()
+    if source_key in {"workflow_incident", "delivery_blocker_bug"}:
+        return True
+    blocker_flags = set(_bug_blocker_flags(row))
+    return bool(blocker_flags & {"delivery_blocker", "workflow_incident", "critical", "explicit_blocker"})
+
+
+def _bug_is_high_value(row: BugRecordRow, *, min_score: float) -> bool:
+    priority = str(_json_loads(getattr(row, "scorecard_json", None), {}).get("priority") or "").strip().lower()
+    if priority in {"high", "critical"}:
+        return True
+    return _bug_score_total(row) >= float(min_score)
+
+
+def _bug_approval_contract(db: Session, row: BugRecordRow) -> dict[str, object]:
+    requires_human = _bug_requires_human_approval(row) or _bug_is_cross_project(row, db)
+    if requires_human:
+        return {
+            "approval_mode": "manual_required",
+            "required_approver_roles": ["request_owner", "reviewer", "tester", "operator"],
+            "fallback_reviewer": "operator",
+            "auto_approve": {
+                "enabled": False,
+                "max_priority": "normal",
+                "max_complexity_tier": "standard",
+                "single_project_only": True,
+                "allow_incident_recovery": False,
+            },
+        }
+    return {
+        "approval_mode": "auto_or_human",
+        "required_approver_roles": ["request_owner", "reviewer", "tester"],
+        "fallback_reviewer": "operator",
+        "auto_approve": {
+            "enabled": True,
+            "max_priority": "high",
+            "max_complexity_tier": "standard",
+            "single_project_only": True,
+            "allow_incident_recovery": False,
+        },
+    }
+
+
+def _bug_description_markdown(row: BugRecordRow) -> str:
+    scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
+    evidence = list(_json_loads(getattr(row, "evidence_json", None), []))
+    latest = dict(evidence[0]) if evidence else {}
+    lines = [
+        f"# Bug Intake: {row.title}",
+        "",
+        f"- source: `{row.source_key}`",
+        f"- severity: `{row.severity}`",
+        f"- occurrence_count: `{int(row.occurrence_count or 0)}`",
+        f"- priority: `{scorecard.get('priority') or _bug_priority(row)}`",
+        f"- total_score: `{scorecard.get('total') or 0}`",
+        "",
+        "## Summary",
+        str(row.summary or "").strip() or "Bug backlog item created from automated intake.",
+    ]
+    blockers = list(scorecard.get("blocker_flags") or [])
+    if blockers:
+        lines.extend(["", "## Blockers"])
+        lines.extend(f"- `{item}`" for item in blockers)
+    if latest:
+        lines.extend(["", "## Latest Evidence"])
+        if latest.get("source_ref"):
+            lines.append(f"- source_ref: `{latest.get('source_ref')}`")
+        if latest.get("environment"):
+            lines.append(f"- environment: `{latest.get('environment')}`")
+        if latest.get("log_excerpt"):
+            lines.extend(["", "```text", str(latest.get("log_excerpt")), "```"])
+    return "\n".join(lines)
+
+
+def materialize_bug_backlog(
+    db: Session,
+    *,
+    refresh: bool = True,
+    auto_start: bool = False,
+    min_score: float = 60.0,
+    max_created: int = 1,
+) -> dict[str, Any]:
+    from server.services.bug_log_sweep import run_bug_log_sweep
+    from server.services.workflow_orchestrator import create_requirement
+
+    if refresh:
+        run_bug_log_sweep(db)
+
+    rows = (
+        db.query(BugRecordRow)
+        .filter(BugRecordRow.status == "open")
+        .order_by(BugRecordRow.last_seen_at.desc(), BugRecordRow.id.desc())
+        .all()
+    )
+    rows.sort(key=lambda row: (-_bug_score_total(row), -(int(getattr(row, "id", 0) or 0))))
+
+    created_requirement_ids: list[int] = []
+    reused_requirement_ids: list[int] = []
+    skipped: list[str] = []
+    items: list[dict[str, Any]] = []
+    limit = max(1, min(int(max_created or 1), 10))
+
+    for row in rows:
+        bug_id = int(row.id)
+        scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
+        total = _bug_score_total(row)
+        if not _bug_auto_intake_eligible(row):
+            skipped.append(f"bug #{bug_id} not auto-intake eligible")
+            continue
+        if not _bug_is_high_value(row, min_score=min_score):
+            skipped.append(f"bug #{bug_id} not high value enough")
+            continue
+        if total < float(min_score):
+            skipped.append(f"bug #{bug_id} below threshold")
+            continue
+
+        source_ref = f"bug-intake:{bug_id}"
+        if row.converted_requirement_id is not None:
+            existing = db.query(RequirementRow).filter(RequirementRow.id == int(row.converted_requirement_id)).first()
+            if existing is not None:
+                reused_requirement_ids.append(int(existing.id))
+                items.append(
+                    {
+                        "source_key": "bug_intake",
+                        "status": "linked_existing",
+                        "action": "reuse_existing",
+                        "bug_id": bug_id,
+                        "requirement_id": int(existing.id),
+                        "source_ref": source_ref,
+                    }
+                )
+                continue
+        existing = db.query(RequirementRow).filter(RequirementRow.source_ref == source_ref).first()
+        if existing is not None:
+            row.converted_requirement_id = int(existing.id)
+            row.status = "converted"
+            db.add(row)
+            db.commit()
+            reused_requirement_ids.append(int(existing.id))
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "already_exists",
+                    "action": "reuse_existing",
+                    "bug_id": bug_id,
+                    "requirement_id": int(existing.id),
+                    "source_ref": source_ref,
+                }
+            )
+            continue
+
+        confidence = round(max(0.6, min(0.98, total / 100.0)), 2)
+        body = RequirementCreate(
+            title=f"Bug Fix: {row.title}",
+            description_markdown=_bug_description_markdown(row),
+            priority=_bug_priority(row),
+            source="bug_intake",
+            source_ref=source_ref,
+            intake_metadata=normalize_requirement_intake_metadata(
+                "bug_intake",
+                source_ref,
+                {
+                    "intake_reason": "materialized_from_bug_backlog",
+                    "confidence": confidence,
+                    "intake_mode": "automatic" if auto_start else "operator",
+                    "registry_hint": "bug_intake",
+                    "trigger": "bug_backlog_materialize",
+                    "bug_id": bug_id,
+                    "scorecard_priority": str(scorecard.get("priority") or _bug_priority(row)),
+                    "blocker_flags": _bug_blocker_flags(row),
+                    "affected_project_keys": _bug_affected_project_keys(row),
+                    "cross_project_recovery": _bug_is_cross_project(row, db),
+                },
+            ),
+            target_project_path=_bug_target_project_path(db, row),
+            auto_start=auto_start,
+            approval_contract=_bug_approval_contract(db, row),
+        )
+        detail = create_requirement(db, body)
+        row.converted_requirement_id = int(detail.requirement.id)
+        row.status = "converted"
+        db.add(row)
+        db.commit()
+        created_requirement_ids.append(int(detail.requirement.id))
+        items.append(
+            {
+                "source_key": "bug_intake",
+                "status": "created",
+                "action": "create_requirement",
+                "bug_id": bug_id,
+                "requirement_id": int(detail.requirement.id),
+                "source_ref": source_ref,
+            }
+        )
+        if len(created_requirement_ids) >= limit:
+            break
+
+    return {
+        "created_requirement_ids": created_requirement_ids,
+        "reused_requirement_ids": sorted(set(reused_requirement_ids)),
+        "skipped": skipped,
+        "items": items,
+    }
+
+
 def list_requirement_source_registry(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     recent_cutoff = now - timedelta(days=7)
@@ -115,6 +419,7 @@ def list_requirement_source_registry(db: Session) -> dict[str, Any]:
     latest_review, latest_review_payload = _latest_review_payload(db)
     bundle_items = list(latest_review_payload.get("next_cycle_requirement_bundle") or [])
     automation_candidates = list(latest_review_payload.get("automation_candidates") or [])
+    open_bug_candidates = db.query(BugRecordRow).filter(BugRecordRow.status == "open").count()
 
     registry_definitions = [
         {
@@ -148,6 +453,14 @@ def list_requirement_source_registry(db: Session) -> dict[str, Any]:
             "source_types": ["automation_candidate"],
             "intake_supported": True,
             "open_candidate_count": len(automation_candidates),
+        },
+        {
+            "source_key": "bug_intake",
+            "display_name": "Bug Backlog",
+            "description": "High-value bugs materialized from bug intake, log sweep, and incident evidence.",
+            "source_types": ["bug_intake"],
+            "intake_supported": True,
+            "open_candidate_count": int(open_bug_candidates),
         },
         {
             "source_key": "incident_followup",
@@ -225,8 +538,8 @@ def intake_requirement_sources(
     )
 
     requested = str(source_key or "all").strip() or "all"
-    if requested not in {"all", "optimization_signal", "company_review_bundle", "automation_candidate"}:
-        raise ValueError("source_key must be one of: all, optimization_signal, company_review_bundle, automation_candidate")
+    if requested not in {"all", "optimization_signal", "company_review_bundle", "automation_candidate", "bug_intake"}:
+        raise ValueError("source_key must be one of: all, optimization_signal, company_review_bundle, automation_candidate, bug_intake")
 
     items: list[dict[str, Any]] = []
     executed_sources: list[str] = []
@@ -308,6 +621,30 @@ def intake_requirement_sources(
                 "reused_requirement_ids": list(materialize_result.reused_requirement_ids),
                 "skipped": list(materialize_result.skipped_bundle_item_keys),
                 "details": materialize_result.model_dump(),
+            }
+        )
+
+    if requested in {"all", "bug_intake"}:
+        materialize_result = materialize_bug_backlog(
+            db,
+            refresh=refresh,
+            auto_start=auto_start,
+            min_score=min_score,
+            max_created=max_created,
+        )
+        executed_sources.append("bug_intake")
+        created_requirement_ids.extend(list(materialize_result.get("created_requirement_ids") or []))
+        reused_requirement_ids.extend(list(materialize_result.get("reused_requirement_ids") or []))
+        skipped.extend(list(materialize_result.get("skipped") or []))
+        items.append(
+            {
+                "source_key": "bug_intake",
+                "action": "materialize_bug_backlog",
+                "status": "completed",
+                "created_requirement_ids": list(materialize_result.get("created_requirement_ids") or []),
+                "reused_requirement_ids": list(materialize_result.get("reused_requirement_ids") or []),
+                "skipped": list(materialize_result.get("skipped") or []),
+                "details": materialize_result,
             }
         )
 

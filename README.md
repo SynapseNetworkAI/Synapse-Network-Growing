@@ -195,6 +195,7 @@ When Copilot SDK returns an explicit enterprise-policy / authorization error, th
 7. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
 8. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
 9. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
+10. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

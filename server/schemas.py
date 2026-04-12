@@ -215,6 +215,11 @@ class OperatingReviewPortfolioSummaryOut(BaseModel):
     downgrades: int = 0
     tier_mix: dict[str, int] = {}
     human_gate_hotspots: int = 0
+    open_bug_pressure: int = 0
+    unresolved_critical_bugs: int = 0
+    bug_requirements_created: int = 0
+    recurring_bug_fingerprint_count: int = 0
+    cross_project_bug_recoveries: int = 0
 
 
 class OperatingReviewProjectHighlightOut(BaseModel):
@@ -236,6 +241,43 @@ class OperatingReviewProjectHighlightOut(BaseModel):
     escalations: int = 0
     downgrades: int = 0
     tier_mix: dict[str, int] = {}
+    open_bug_count: int = 0
+    critical_bug_count: int = 0
+    converted_bug_count: int = 0
+    recurring_bug_count: int = 0
+
+
+class OperatingReviewBugFingerprintOut(BaseModel):
+    bug_id: int
+    bug_key: str
+    title: str
+    severity: str = "medium"
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    fingerprint: str
+    occurrence_count: int = 0
+    score_total: float = 0.0
+    source_key: str
+    converted_requirement_id: Optional[int] = None
+    last_seen_at: Optional[str] = None
+
+
+class OperatingReviewCrossProjectBugRecoveryOut(BaseModel):
+    item_key: str
+    title: str
+    severity: str = "medium"
+    summary: str
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    recommendation: Optional[str] = None
+    incident_family: Optional[str] = None
+    incident_code: Optional[str] = None
+    recovery_status: Optional[str] = None
+    requirement_id: Optional[int] = None
+    source_ref: Optional[str] = None
+    affected_project_keys: list[str] = []
+    affected_project_display_names: list[str] = []
+    score_total: float = 0.0
 
 
 class OperatingReviewItemOut(BaseModel):
@@ -346,6 +388,8 @@ class CompanyOperatingReviewOut(BaseModel):
     project_highlights: list[OperatingReviewProjectHighlightOut] = []
     bottlenecks: list[OperatingReviewItemOut] = []
     incidents: list[OperatingReviewItemOut] = []
+    recurring_bug_fingerprints: list[OperatingReviewBugFingerprintOut] = []
+    cross_project_bug_recoveries: list[OperatingReviewCrossProjectBugRecoveryOut] = []
     human_gate_hotspots: list[OperatingReviewGateHotspotOut] = []
     automation_candidates: list[OperatingReviewAutomationCandidateOut] = []
     next_cycle_recommendations: list[OperatingReviewRecommendationOut] = []
@@ -966,6 +1010,74 @@ class RequirementSourceIntakeResultOut(BaseModel):
     reused_requirement_ids: list[int] = []
     skipped: list[str] = []
     items: list[RequirementSourceIntakeItemOut] = []
+
+
+class BugSourceRegistryItemOut(BaseModel):
+    source_key: str
+    display_name: str
+    source_kind: str
+    ingest_mode: str
+    project_resolution_rule: str
+    severity_mapping: dict[str, object] = {}
+    dedupe_scope: str
+    auto_requirement_policy: dict[str, object] = {}
+    sample_evidence_types: list[str] = []
+    notes: Optional[str] = None
+    observed_open_count: int = 0
+
+
+class BugSourceRegistryOut(BaseModel):
+    generated_at: Optional[datetime] = None
+    total_sources: int = 0
+    total_open_candidates: int = 0
+    sources: list[BugSourceRegistryItemOut] = []
+
+
+class BugIntakeRequest(BaseModel):
+    source_key: str
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    title: str
+    summary: str = ""
+    severity: str = "normal"
+    fingerprint: Optional[str] = None
+    source_ref: Optional[str] = None
+    environment: Optional[str] = None
+    log_excerpt: Optional[str] = None
+    stack_trace: Optional[str] = None
+    metadata: dict[str, object] = {}
+
+
+class BugRecordOut(BaseModel):
+    id: int
+    bug_key: str
+    source_key: str
+    source_kind: str
+    status: str
+    title: str
+    summary: str
+    severity: str
+    fingerprint: str
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    source_ref: Optional[str] = None
+    environment: Optional[str] = None
+    occurrence_count: int = 1
+    evidence: list[dict[str, object]] = []
+    metadata: dict[str, object] = {}
+    scorecard: dict[str, object] = {}
+    converted_requirement_id: Optional[int] = None
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class BugIntakeResultOut(BaseModel):
+    result: str
+    bug: BugRecordOut
 
 
 class RecurringWorkflowOut(BaseModel):

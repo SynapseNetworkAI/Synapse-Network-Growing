@@ -204,6 +204,11 @@ export default function OrgChart() {
               ['escalations', review.portfolio_summary.escalations],
               ['downgrades', review.portfolio_summary.downgrades],
               ['human gates', review.portfolio_summary.human_gate_hotspots],
+              ['open bugs', review.portfolio_summary.open_bug_pressure],
+              ['critical bugs', review.portfolio_summary.unresolved_critical_bugs],
+              ['bug reqs', review.portfolio_summary.bug_requirements_created],
+              ['recurring fps', review.portfolio_summary.recurring_bug_fingerprint_count],
+              ['cross-project bugs', review.portfolio_summary.cross_project_bug_recoveries],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div className="text-lg font-semibold text-slate-900">{value}</div>
@@ -301,7 +306,7 @@ export default function OrgChart() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 xl:grid-cols-3">
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Top Bottlenecks</h4>
               <div className="mt-3 space-y-2">
@@ -369,6 +374,51 @@ export default function OrgChart() {
                 ))}
               </div>
             </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">Recurring Bug Fingerprints</h4>
+              <div data-testid="company-review-bug-backlog" className="mt-3 space-y-2">
+                {review.recurring_bug_fingerprints.map((item) => (
+                  <div key={item.bug_key} className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-3 text-sm text-orange-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{item.title}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${severityTone(item.severity)}`}>{item.severity}</span>
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 font-mono text-[11px] text-orange-800">{item.fingerprint}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-orange-800">
+                      {item.project_display_name || item.project_key || 'Org Ops'} / source {item.source_key} / score {item.score_total}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-orange-700">
+                      <span>occurrences: {item.occurrence_count}</span>
+                      {item.converted_requirement_id && <span>converted requirement #{item.converted_requirement_id}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <h4 className="text-sm font-semibold text-slate-900">Cross-Project Bug Recovery</h4>
+            <div data-testid="company-review-cross-project-bugs" className="mt-3 grid gap-3 xl:grid-cols-2">
+              {review.cross_project_bug_recoveries.map((item) => (
+                <div key={item.item_key} className="rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-3 py-3 text-sm text-fuchsia-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium">{item.title}</div>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${severityTone(item.severity)}`}>{item.severity}</span>
+                    {item.recovery_status && (
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-fuchsia-800">{item.recovery_status}</span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-fuchsia-800">{item.summary}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-fuchsia-700">
+                    <span>{item.affected_project_display_names.join(' / ')}</span>
+                    <span>score: {item.score_total}</span>
+                    {item.requirement_id && <span>requirement #{item.requirement_id}</span>}
+                  </div>
+                  {item.recommendation && <div className="mt-2 text-xs text-fuchsia-700">建议: {item.recommendation}</div>}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 xl:grid-cols-2">
@@ -432,6 +482,9 @@ export default function OrgChart() {
                   <div>runtime budget spent: {item.budget_spent_points}</div>
                   <div>prompt cache saved: {item.prompt_cache_saved_chars}</div>
                   <div>adaptation up/down: {item.escalations} / {item.downgrades}</div>
+                  <div>open / critical bugs: {item.open_bug_count} / {item.critical_bug_count}</div>
+                  <div>converted bug reqs: {item.converted_bug_count}</div>
+                  <div>recurring bug fps: {item.recurring_bug_count}</div>
                   <div>tier mix: mini {item.tier_mix.mini ?? 0} / std {item.tier_mix.standard ?? 0} / max {item.tier_mix.max ?? 0}</div>
                 </div>
               ))}

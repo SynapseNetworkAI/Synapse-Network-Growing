@@ -12,6 +12,7 @@ def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_
     items = response.json()
     workflow_keys = {item["workflow_key"] for item in items}
     assert {
+        "bug_log_sweep",
         "morning_intake_sweep",
         "dispatcher_loop",
         "closeout_and_compact_sweep",
@@ -23,6 +24,44 @@ def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_
     morning = next(item for item in items if item["workflow_key"] == "morning_intake_sweep")
     assert morning["owner_role"] == "ops_intake_manager"
     assert morning["trigger_type"] == "scheduled"
+
+
+def test_run_bug_log_sweep_workflow_updates_bug_backlog(synced_client):
+    with patch(
+        "server.services.recurring_workflows.run_bug_log_sweep",
+        return_value={
+            "created_bug_ids": [4, 5],
+            "updated_bug_ids": [2],
+            "deduped_bug_ids": [1],
+            "source_counts": {"runtime_log_error": 2, "task_failure": 1, "workflow_incident": 1},
+            "total_candidates": 4,
+            "intake_results": [],
+        },
+    ) as mock_run, patch(
+        "server.services.recurring_workflows.intake_requirement_sources",
+        return_value={
+            "executed_sources": ["bug_intake"],
+            "created_requirement_ids": [21],
+            "reused_requirement_ids": [11],
+            "skipped": ["bug #8 below threshold"],
+            "items": [{"source_key": "bug_intake", "action": "materialize_bug_backlog"}],
+        },
+    ) as mock_intake:
+        response = synced_client.post("/api/recurring-workflows/bug_log_sweep/run", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_key"] == "bug_log_sweep"
+    assert payload["result"]["created_bug_ids"] == [4, 5]
+    assert payload["result"]["materialized_requirement_ids"] == [21]
+    assert payload["result"]["reused_requirement_ids"] == [11]
+    assert payload["result"]["requires_operator_review"] is True
+    assert payload["result"]["source_counts"]["runtime_log_error"] == 2
+    assert payload["result"]["total_candidates"] == 4
+    assert mock_run.call_count == 1
+    assert mock_intake.call_count == 1
+    assert mock_intake.call_args.kwargs["source_key"] == "bug_intake"
+    assert mock_intake.call_args.kwargs["refresh"] is False
 
 
 def test_run_morning_intake_workflow_uses_unified_intake(synced_client):

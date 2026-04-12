@@ -971,6 +971,267 @@ Signal service 会按这些信息聚合：
 
 1. `signal_type = bug_report`
 
+## 4.1B Bug Source Registry
+
+为了把系统 bug 稳定地接入需求池，系统现在增加了独立的 `bug source registry`。
+
+当前内置来源：
+
+1. `manual_bug_report`
+2. `runtime_log_error`
+3. `workflow_incident`
+4. `task_failure`
+5. `delivery_blocker_bug`
+
+当前入口：
+
+1. `GET /api/bugs/sources`
+
+这一层的职责不是直接修 bug，而是先把 bug 来源标准化成统一 contract，明确：
+
+1. source kind
+2. ingest mode
+3. project resolution rule
+4. severity mapping
+5. dedupe scope
+6. auto-requirement policy
+
+当前 registry 也会汇总实时观察值，例如：
+
+1. `bug_report` artifacts 数量
+2. `workflow_incident` open signals
+3. failed / rejected tasks
+4. delivery blockers
+
+后续 `P0-R2 Bug Intake API` 会在这层 registry 之上继续补真正的 bug ingest 与 materialization。
+
+## 4.1C Bug Intake API
+
+当前已经在 source registry 之上新增统一入口：
+
+1. `POST /api/bugs/intake`
+
+它的职责不是直接创建 requirement，而是先把 bug 归一化成稳定 backlog record。
+
+当前 intake contract 固定字段为：
+
+1. `source_key`
+2. `project_key`
+3. `project_root_path`
+4. `title`
+5. `summary`
+6. `severity`
+7. `fingerprint`
+8. `source_ref`
+9. `environment`
+10. `log_excerpt`
+11. `stack_trace`
+12. `metadata`
+
+当前行为：
+
+1. 先按 source registry 校验 `source_key`
+2. 如果未显式给出 `fingerprint`，系统会从 `title / summary / log_excerpt / stack_trace / metadata` 派生稳定 fingerprint
+3. 按 `source_key + project scope + fingerprint` 生成 `bug_key`
+4. 写入 `bug_records`
+5. 如果重复上报同一 bug：
+   1. 递增 `occurrence_count`
+   2. 更新 `last_seen_at`
+   3. 保留 representative evidence 样本
+   4. 自动提升严重级别，但不会被较低级别覆盖
+
+这一层给后续几件事提供底座：
+
+1. `P0-R3` 的 dedupe and severity scoring
+2. `P1-R1` 的日志巡检写回
+3. `P1-R2` 的 bug backlog requirement source
+4. `P2-R1` 的高价值 bug 自动 materialize
+
+### intake 评分层
+
+当前 `bug_records` 已经不是单纯的去重桶，而是会持久化 `scorecard`。
+
+当前 scorecard 至少包含：
+
+1. `severity_score`
+2. `recurrence_score`
+3. `freshness_score`
+4. `blocker_score`
+5. `blocker_flags`
+6. `total`
+7. `priority`
+8. `auto_intake_eligible`
+9. `intake_reason`
+10. `scored_at`
+
+当前规则：
+
+1. recurrence 来自 `occurrence_count`
+2. freshness 来自 `last_seen_at`
+3. blocker 由 `delivery_blocker_bug / workflow_incident / critical severity / blocker metadata` 提升
+4. 重复上报时不会被低严重级别覆盖，只会向上提升
+
+这一步的价值是：
+
+1. 后续 recurring log sweep 可以直接写回同一套评分模型
+2. `requirements/intake` 可以按 `auto_intake_eligible` 稳定 materialize
+3. company review 可以直接读取 bug pressure，而不用临时重算
+
+### bug log sweep workflow
+
+当前 recurring workflow 已新增：
+
+1. `bug_log_sweep`
+
+这条 workflow 当前会做 deterministic sweep：
+
+1. 扫 `server/logs/ops-dashboard.log*` 中最近的 `ERROR` 行
+2. 扫最近 failed/rejected tasks
+3. 扫 open `workflow_incident` optimization signals
+
+然后统一走：
+
+1. `BugIntakeRequest`
+2. `intake_bug()`
+3. `bug_records`
+
+这一步现在分成两层：
+
+1. dedupe
+2. severity / freshness / blocker scoring
+3. `auto_intake_eligible`
+4. 对高价值 bug 自动 materialize 成 requirement backlog
+
+也就是说，`bug_log_sweep` 现在不只是“扫出 bug”，而是会把满足阈值的高价值 bug 直接推进到 requirement pool。
+
+### bug backlog requirement source
+
+当前 `requirements/sources` 已经新增：
+
+1. `bug_intake`
+
+它的职责是把已经沉淀到 `bug_records` 的高价值 bug 稳定回流成 requirement backlog。
+
+当前规则：
+
+1. source registry 会显示 open `bug_records` 数量
+2. `/api/requirements/intake` 已支持 `source_key=bug_intake`
+3. 只有 `auto_intake_eligible=true` 且分数高于阈值的 bug 会被 materialize
+4. 已经绑定 requirement 的 bug 不会重复创建，而是复用既有 requirement
+5. materialize 后会回写：
+   1. `bug_records.converted_requirement_id`
+   2. `bug_records.status = converted`
+
+生成 requirement 时，系统会自动补：
+
+1. `source = bug_intake`
+2. `source_ref = bug-intake:{bug_id}`
+3. `intake_metadata.registry_hint = bug_intake`
+4. `intake_metadata.trigger = bug_backlog_materialize`
+5. `intake_metadata.scorecard_priority`
+6. `intake_metadata.blocker_flags`
+7. `target_project_path` 优先取 bug 自带项目根路径，否则从 project policy 解析
+8. `approval_contract`
+
+approval contract 规则：
+
+1. `workflow_incident` / `delivery_blocker_bug` / `critical` bug 默认 `manual_required`
+2. 其它高价值 bug 默认 `auto_or_human`
+3. incident 或 workflow-blocking bug 默认高优 requirement，并保留人工审批
+
+### bug COO dashboard
+
+当前 `company review` 和首页 COO dashboard 已经纳入 bug 经营指标：
+
+1. `portfolio_summary`
+   1. `open_bug_pressure`
+   2. `unresolved_critical_bugs`
+   3. `bug_requirements_created`
+   4. `recurring_bug_fingerprint_count`
+2. `project_highlights`
+   1. `open_bug_count`
+   2. `critical_bug_count`
+   3. `converted_bug_count`
+   4. `recurring_bug_count`
+3. `recurring_bug_fingerprints`
+   1. 直接展示最值得关注的 recurring fingerprints
+   2. 携带 `severity / occurrence_count / score_total / converted_requirement_id`
+
+这让 operator 在首页就能看到：
+
+1. bug backlog 压力
+2. 哪些 fingerprint 在重复复发
+3. bug 是否已经成功转成 requirement backlog
+
+### cross-project bug recovery loop
+
+当前 bug intake 已支持跨项目恢复链：
+
+1. `bug_records.metadata`
+   1. `affected_project_keys`
+   2. `affected_project_root_paths`
+2. materialize bug backlog 时：
+   1. requirement 的 `target_project_path` 会变成多行多项目路径
+   2. `intake_metadata.cross_project_recovery = true`
+   3. `approval_contract` 默认转为 `manual_required`
+3. planner 会额外补：
+   1. `cross_project_recovery_verified`
+   2. validation summary 中明确要求跨项目失败路径关闭
+
+company review 现已显示：
+
+1. `portfolio_summary.cross_project_bug_recoveries`
+2. `cross_project_bug_recoveries`
+   1. 哪些 bug 影响多个项目
+   2. 当前 recovery status
+   3. 是否已经转成 requirement
+
+### bug validation contract
+
+当前 bug-derived requirements 已经不允许只交设计或文档。
+
+当 requirement 来源满足以下任一条件时：
+
+1. `source = bug_intake`
+2. `source_ref` 以 `bug-intake:` 开头
+3. title 以 `Bug Fix:` 开头
+
+planner 会自动补 bug-specific acceptance checks：
+
+1. `root_cause_documented`
+2. `bug_evidence_bound`
+3. `fix_applied`
+4. `regression_guard_added`
+5. `bug_verification_passed`
+
+它们会和基础 gate 一起进入统一 validation contract：
+
+1. `review_passed`
+2. `validation_passed`
+
+角色分工：
+
+1. reviewer 负责：
+   1. `root_cause_documented`
+   2. `bug_evidence_bound`
+2. tester 负责：
+   1. `fix_applied`
+   2. `regression_guard_added`
+   3. `bug_verification_passed`
+
+其中：
+
+1. `fix_applied` 使用 `repo_file_changes`
+2. 其余 bug-specific automated checks 使用 `content_assertion`
+
+这保证 bug backlog requirement 至少满足：
+
+1. 根因被说清楚
+2. 修复和原始 bug 证据绑定
+3. 确实改到了目标项目
+4. 有回归防护
+5. 有 bug 已被验证修复的证据
+
 ## 4.2 `delivery_blocker`
 
 来源：

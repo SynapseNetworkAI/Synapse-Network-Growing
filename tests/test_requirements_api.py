@@ -12,6 +12,7 @@ import server.services.workflow_orchestrator as workflow_orchestrator
 from server.database import (
     ApprovalRequestRow,
     ArtifactRow,
+    BugRecordRow,
     CompanyOperatingReviewRow,
     OptimizationSignalRow,
     ProjectOnboardingRow,
@@ -465,6 +466,25 @@ def test_requirement_source_registry_lists_sources_and_counts(synced_client, db_
         )
     )
     db_session.add(
+        BugRecordRow(
+            bug_key="manual_bug_report::synapse-network::fp_bug1",
+            source_key="manual_bug_report",
+            source_kind="manual_input",
+            status="open",
+            title="Gateway readiness failure",
+            summary="Readiness endpoint returns 500.",
+            severity="high",
+            fingerprint="fp_bug1",
+            project_key="synapse-network",
+            project_root_path="/Users/cliff/workspace/agent/Synapse-Network",
+            source_ref="bug:1",
+            occurrence_count=3,
+            evidence_json="[]",
+            metadata_json="{}",
+            scorecard_json=json.dumps({"total": 82.0, "priority": "high", "auto_intake_eligible": True}),
+        )
+    )
+    db_session.add(
         CompanyOperatingReviewRow(
             cycle_label="2026-W15",
             title="Weekly review",
@@ -508,6 +528,8 @@ def test_requirement_source_registry_lists_sources_and_counts(synced_client, db_
     assert by_key["automation_candidate"]["open_candidate_count"] == 1
     assert by_key["automation_candidate"]["intake_supported"] is True
     assert by_key["automation_candidate"]["latest_review_id"] is not None
+    assert by_key["bug_intake"]["open_candidate_count"] == 1
+    assert by_key["bug_intake"]["intake_supported"] is True
 
 
 def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
@@ -548,6 +570,14 @@ def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
                 "items": [],
             },
         ),
+    ), patch(
+        "server.services.requirement_sources.materialize_bug_backlog",
+        return_value={
+            "created_requirement_ids": [101],
+            "reused_requirement_ids": [102],
+            "skipped": ["bug #5 below threshold"],
+            "items": [],
+        },
     ):
         response = synced_client.post(
             "/api/requirements/intake",
@@ -562,14 +592,16 @@ def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["executed_sources"] == ["optimization_signal", "company_review_bundle", "automation_candidate"]
-    assert data["created_requirement_ids"] == [71, 81, 91]
-    assert data["reused_requirement_ids"] == [82, 92]
+    assert data["executed_sources"] == ["optimization_signal", "company_review_bundle", "automation_candidate", "bug_intake"]
+    assert data["created_requirement_ids"] == [71, 81, 91, 101]
+    assert data["reused_requirement_ids"] == [82, 92, 102]
     assert "signal #8 below threshold" in data["skipped"]
+    assert "bug #5 below threshold" in data["skipped"]
     by_source = {item["source_key"]: item for item in data["items"]}
     assert by_source["optimization_signal"]["created_requirement_ids"] == [71]
     assert by_source["company_review_bundle"]["created_requirement_ids"] == [81]
     assert by_source["automation_candidate"]["created_requirement_ids"] == [91]
+    assert by_source["bug_intake"]["created_requirement_ids"] == [101]
 
 
 def test_requirement_intake_metadata_roundtrips(synced_client):
@@ -646,6 +678,267 @@ def test_requirement_source_intake_materializes_automation_candidates_from_compa
     assert payload["source"] == "automation_candidate"
     assert payload["intake_metadata"]["source_key"] == "automation_candidate"
     assert payload["intake_metadata"]["trigger"] == "company_review_materialize_automation_candidate"
+
+
+def test_requirement_source_intake_materializes_bug_backlog(synced_client, db_session):
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="synapse-network-bugtest",
+            display_name="Synapse Network Bug Test",
+            root_path="/Users/cliff/workspace/agent/Synapse-Network",
+            status="active",
+            allowed_write_globs_json='["**"]',
+            forbidden_globs_json='[".git/**"]',
+            required_checks_json="[]",
+            release_mode="manual",
+            requires_manual_approval=True,
+        )
+    )
+    bug_row = BugRecordRow(
+        bug_key="manual_bug_report::synapse-network-bugtest::fp_bugx",
+        source_key="manual_bug_report",
+        source_kind="manual_input",
+        status="open",
+        title="Gateway readiness 500",
+        summary="Readiness endpoint returns 500 for healthy traffic.",
+        severity="high",
+        fingerprint="fp_bugx",
+        project_key="synapse-network-bugtest",
+        project_root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        source_ref="sentry:bugx",
+        occurrence_count=4,
+        evidence_json=json.dumps(
+            [
+                {
+                    "source_ref": "sentry:bugx",
+                    "environment": "prod",
+                    "log_excerpt": "GET /readyz -> 500",
+                }
+            ]
+        ),
+        metadata_json=json.dumps({"component": "gateway"}),
+        scorecard_json=json.dumps(
+            {
+                "total": 86.0,
+                "priority": "high",
+                "auto_intake_eligible": True,
+                "blocker_flags": ["explicit_blocker"],
+            }
+        ),
+    )
+    db_session.add(bug_row)
+    db_session.flush()
+    bug_id = int(bug_row.id)
+    db_session.commit()
+
+    response = synced_client.post(
+        "/api/requirements/intake",
+        json={
+            "source_key": "bug_intake",
+            "refresh": False,
+            "auto_start": False,
+            "min_score": 60,
+            "max_created": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["executed_sources"] == ["bug_intake"]
+    assert len(data["created_requirement_ids"]) == 1
+    requirement_id = data["created_requirement_ids"][0]
+
+    detail = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert detail.status_code == 200
+    payload = detail.json()["requirement"]
+    assert payload["source"] == "bug_intake"
+    assert payload["source_ref"] == f"bug-intake:{bug_id}"
+    assert payload["intake_metadata"]["source_key"] == "bug_intake"
+    assert payload["intake_metadata"]["trigger"] == "bug_backlog_materialize"
+    assert payload["intake_metadata"]["scorecard_priority"] == "high"
+    assert "explicit_blocker" in payload["intake_metadata"]["blocker_flags"]
+    assert "/Users/cliff/workspace/agent/Synapse-Network" in str(payload["target_project_path"])
+    assert payload["approval_contract"]["approval_mode"] == "manual_required"
+    assert "operator" in payload["approval_contract"]["required_approver_roles"]
+    assert payload["approval_status"] == "pending_approval"
+
+    bug_row = db_session.query(BugRecordRow).filter(BugRecordRow.id == bug_id).first()
+    assert bug_row.converted_requirement_id == requirement_id
+    assert bug_row.status == "converted"
+
+
+def test_bug_intake_requirement_plan_includes_bug_validation_contract(synced_client, db_session):
+    bug_row = BugRecordRow(
+        bug_key="manual_bug_report::synapse-network-bugtest::fp_bugplan",
+        source_key="manual_bug_report",
+        source_kind="manual_input",
+        status="open",
+        title="Gateway readiness 500",
+        summary="Readiness endpoint returns 500 for healthy traffic.",
+        severity="high",
+        fingerprint="fp_bugplan",
+        project_key="synapse-network-growing",
+        project_root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        source_ref="sentry:bugplan",
+        occurrence_count=2,
+        evidence_json=json.dumps(
+            [
+                {
+                    "source_ref": "sentry:bugplan",
+                    "environment": "prod",
+                    "log_excerpt": "GET /readyz -> 500",
+                }
+            ]
+        ),
+        metadata_json=json.dumps({"component": "ops-dashboard"}),
+        scorecard_json=json.dumps(
+            {
+                "total": 78.0,
+                "priority": "high",
+                "auto_intake_eligible": True,
+            }
+        ),
+    )
+    db_session.add(bug_row)
+    db_session.flush()
+    bug_id = int(bug_row.id)
+    db_session.commit()
+
+    intake_resp = synced_client.post(
+        "/api/requirements/intake",
+        json={
+            "source_key": "bug_intake",
+            "refresh": False,
+            "auto_start": False,
+            "min_score": 60,
+            "max_created": 1,
+        },
+    )
+    assert intake_resp.status_code == 200
+    requirement_id = intake_resp.json()["created_requirement_ids"][0]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement bug fix",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Bug fix is implemented.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    assert plan_resp.status_code == 200
+    data = plan_resp.json()
+    acceptance_keys = {item["check_key"] for item in data["acceptance_checks"]}
+    assert {
+        "root_cause_documented",
+        "bug_evidence_bound",
+        "fix_applied",
+        "regression_guard_added",
+        "bug_verification_passed",
+    } <= acceptance_keys
+    validation_artifact = next(
+        artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "validation_plan"
+    )
+    validation_payload = json.loads(validation_artifact["machine_readable_payload"])
+    automated_keys = {item["check_key"] for item in validation_payload["automated_checks"]}
+    assert {"fix_applied", "regression_guard_added", "bug_verification_passed"} <= automated_keys
+    assert "bug-derived requirements" in validation_payload["summary_markdown"]
+    assert data["requirement"]["source_ref"] == f"bug-intake:{bug_id}"
+
+
+def test_cross_project_bug_backlog_materializes_multi_project_requirement(synced_client, db_session):
+    db_session.add_all(
+        [
+            ProjectPolicyRow(
+                project_key="synapse-network",
+                display_name="Synapse Network",
+                root_path="/Users/cliff/workspace/agent/Synapse-Network",
+                status="active",
+                allowed_write_globs_json='["**"]',
+                forbidden_globs_json='[".git/**"]',
+                required_checks_json="[]",
+                release_mode="manual",
+                requires_manual_approval=True,
+            ),
+            ProjectPolicyRow(
+                project_key="synapse-network-provider",
+                display_name="Synapse Network Provider",
+                root_path="/Users/cliff/workspace/agent/Synapse-Network-Provider",
+                status="active",
+                allowed_write_globs_json='["**"]',
+                forbidden_globs_json='[".git/**"]',
+                required_checks_json="[]",
+                release_mode="manual",
+                requires_manual_approval=True,
+            ),
+        ]
+    )
+    bug_row = BugRecordRow(
+        bug_key="workflow_incident::multi::fp-cross-project",
+        source_key="workflow_incident",
+        source_kind="signal",
+        status="open",
+        title="Provider auth desync",
+        summary="Failure path crosses core product and provider runtime.",
+        severity="high",
+        fingerprint="fp-cross-project",
+        project_key="synapse-network",
+        project_root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        source_ref="incident:auth-desync",
+        occurrence_count=4,
+        evidence_json=json.dumps([{"log_excerpt": "provider auth mismatch"}]),
+        metadata_json=json.dumps(
+            {
+                "affected_project_keys": ["synapse-network", "synapse-network-provider"],
+                "affected_project_root_paths": [
+                    "/Users/cliff/workspace/agent/Synapse-Network",
+                    "/Users/cliff/workspace/agent/Synapse-Network-Provider",
+                ],
+            }
+        ),
+        scorecard_json=json.dumps(
+            {
+                "total": 88.0,
+                "priority": "high",
+                "auto_intake_eligible": True,
+                "blocker_flags": ["workflow_incident"],
+            }
+        ),
+    )
+    db_session.add(bug_row)
+    db_session.commit()
+
+    response = synced_client.post(
+        "/api/requirements/intake",
+        json={"source_key": "bug_intake", "refresh": False, "auto_start": False, "min_score": 60, "max_created": 1},
+    )
+    assert response.status_code == 200
+    requirement_id = response.json()["created_requirement_ids"][0]
+
+    detail = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert detail.status_code == 200
+    payload = detail.json()["requirement"]
+    assert payload["target_project_path"].splitlines() == [
+        "/Users/cliff/workspace/agent/Synapse-Network",
+        "/Users/cliff/workspace/agent/Synapse-Network-Provider",
+    ]
+    assert payload["intake_metadata"]["cross_project_recovery"] is True
+    assert payload["intake_metadata"]["affected_project_keys"] == [
+        "synapse-network",
+        "synapse-network-provider",
+    ]
+    assert payload["approval_contract"]["approval_mode"] == "manual_required"
 
 
 def test_requirement_keeps_target_project_order_and_records_dynamic_project_change_summary(synced_client, db_session):
