@@ -13,6 +13,40 @@
 5. project policy / onboarding / budget / rebalance
 6. 结果回流到 signal、company review 和下一周期 bundle
 
+## 1.0A Bug Detection Topology
+
+当前 bug 自动发现采用混合拓扑，而不是只依赖单一路径：
+
+1. 内置 `bug_log_sweep`
+2. 外部日志中心适配器
+3. runtime / task / incident 内部证据回流
+
+具体分工：
+
+1. `bug_log_sweep`
+   1. 扫描 `/Users/cliff/workspace/agent/Synapse-Network-Growing/server/logs/ops-dashboard.log*`
+   2. 扫描失败或 rejected 的 task
+   3. 扫描 open 的 `workflow_incident`
+   4. 统一写入 `bug_records`
+2. 外部日志中心适配器
+   1. 暴露 `POST /api/bugs/intake/log-center`
+   2. 接收来自 Loki / ELK / Datadog / Sentry / 自建日志中心的错误事件
+   3. 统一归一为 `external_log_center_error`
+   4. 同样写入 `bug_records`
+
+当前内置调度器会在服务启动后自动启动 `bug_log_sweep` 的后台轮询器：
+
+1. 默认本地开启，生产默认关闭
+2. 默认每 5 分钟运行一次
+3. 配置键：
+   1. `OPS_BUG_LOG_SWEEP_SCHEDULER_ENABLED`
+   2. `OPS_BUG_LOG_SWEEP_INTERVAL_MINUTES`
+   3. `OPS_BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS`
+   4. `OPS_BUG_LOG_SWEEP_MIN_SCORE`
+   5. `OPS_BUG_LOG_SWEEP_MAX_CREATED`
+
+这样设计的目的，是把“系统自身错误发现”与“生产日志中心上报”统一收口到同一条 bug intake contract，而不是拆成两套 backlog。
+
 ## 1.0 Runtime Backend Matrix
 
 当前系统已经不再把 planner 和 execution runtime 硬绑在单一供应商上，而是按 `ORCHESTRATION_BACKEND` 选择实际运行路径。

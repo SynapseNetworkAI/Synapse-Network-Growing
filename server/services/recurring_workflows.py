@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, utcnow
 from server.services.bug_log_sweep import run_bug_log_sweep
 from server.services.company_review import company_review_to_dict, latest_company_operating_review, refresh_company_operating_review
@@ -44,7 +45,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "description": "Sweep runtime logs and failed executions into bug backlog records, then auto-materialize high-value bugs.",
         "trigger_type": "scheduled",
         "owner_role": "runtime_reliability_engineer",
-        "schedule": {"cadence": "hourly", "interval_hours": 4},
+        "schedule": {"cadence": "interval", "interval_minutes": config.BUG_LOG_SWEEP_INTERVAL_MINUTES},
         "input_query": {"sources": ["runtime_log_error", "task_failure", "workflow_incident"]},
         "output_action": {"kind": "update_bug_backlog", "auto_materialize_high_value_bugs": True},
         "escalation_rule": {"on_new_critical_bug": "notify_portfolio_operator"},

@@ -313,6 +313,28 @@ const mockReview: CompanyOperatingReview = {
 
 const mockRecurringWorkflows: RecurringWorkflow[] = [
   {
+    id: 0,
+    workflow_key: 'bug_log_sweep',
+    display_name: 'Bug Log Sweep',
+    description: 'Sweep runtime logs and auto-materialize high-value bugs.',
+    status: 'active',
+    trigger_type: 'scheduled',
+    owner_role: 'runtime_reliability_engineer',
+    schedule: { cadence: 'interval', interval_minutes: 5 },
+    input_query: {},
+    output_action: {},
+    escalation_rule: {},
+    validation_signal: {},
+    is_builtin: true,
+    last_run_at: '2026-04-11T08:55:00Z',
+    last_result: {
+      created_bug_ids: [7, 8],
+      materialized_requirement_ids: [40],
+    },
+    created_at: '2026-04-11T08:00:00Z',
+    updated_at: '2026-04-11T08:55:00Z',
+  },
+  {
     id: 1,
     workflow_key: 'morning_intake_sweep',
     display_name: 'Morning Intake Sweep',
@@ -474,6 +496,8 @@ describe('OrgChart', () => {
     expect(screen.getByTestId('operator-rituals-panel')).toHaveTextContent('Daily / Weekly Ritual Board')
     expect(screen.getByTestId('operator-priority-panel')).toHaveTextContent('Today Priorities')
     expect(screen.getByTestId('weekly-coo-package-panel')).toHaveTextContent('Weekly COO Review')
+    expect(screen.getByTestId('ritual-bug_log_sweep')).toHaveTextContent('new bugs: 2')
+    expect(screen.getByTestId('ritual-bug_log_sweep')).toHaveTextContent('converted to reqs: 1')
     expect(screen.getByTestId('ritual-morning_intake_sweep')).toHaveTextContent('operator attention: 2')
     expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups: 1')
     expect(screen.getByTestId('ritual-closeout_and_compact_sweep')).toHaveTextContent('snapshots: 2')

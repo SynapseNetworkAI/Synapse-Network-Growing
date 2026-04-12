@@ -13,6 +13,7 @@ from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs
 from server.services.agent_loader import ensure_agents_loaded
+from server.services.bug_log_scheduler import BugLogSweepScheduler
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     init_db()
     log_event(logger, "database_initialized", db_path=config.DB_PATH)
     monitor = None
+    bug_scheduler = None
     if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
@@ -48,9 +50,15 @@ async def lifespan(app: FastAPI):
         monitor = OpenAIResponsesTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
         app.state.openai_runtime_monitor = monitor
+    if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
+        bug_scheduler = BugLogSweepScheduler()
+        bug_scheduler.start()
+        app.state.bug_log_scheduler = bug_scheduler
     try:
         yield
     finally:
+        if bug_scheduler is not None:
+            bug_scheduler.stop()
         if monitor is not None:
             monitor.stop()
         log_event(logger, "service_stopped")

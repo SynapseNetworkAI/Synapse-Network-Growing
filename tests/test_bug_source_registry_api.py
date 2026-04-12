@@ -179,6 +179,48 @@ def test_bug_intake_rejects_unknown_source(synced_client):
     assert "Unknown bug source" in response.json()["detail"]
 
 
+def test_external_log_center_batch_intake_creates_and_updates_bug_records(synced_client, db_session):
+    response = synced_client.post(
+        "/api/bugs/intake/log-center",
+        json={
+            "source_system": "loki",
+            "events": [
+                {
+                    "project_key": "synapse-network",
+                    "service_name": "gateway",
+                    "title": "Gateway 500 spike",
+                    "message": "GET /readyz returned 500 repeatedly",
+                    "severity": "error",
+                    "fingerprint": "gateway-500-readyz",
+                    "source_ref": "loki:evt-1",
+                    "environment": "prod",
+                    "metadata": {"cluster": "prod-a"},
+                },
+                {
+                    "project_key": "synapse-network",
+                    "service_name": "gateway",
+                    "message": "GET /readyz returned 500 repeatedly",
+                    "severity": "fatal",
+                    "fingerprint": "gateway-500-readyz",
+                    "source_ref": "loki:evt-2",
+                    "environment": "prod",
+                    "metadata": {"cluster": "prod-a"},
+                },
+            ],
+        },
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["source_system"] == "loki"
+    assert payload["accepted_count"] == 2
+    assert len(payload["created_bug_ids"]) == 1
+    assert len(payload["updated_bug_ids"]) == 1
+    rows = db_session.query(BugRecordRow).all()
+    assert len(rows) == 1
+    assert rows[0].source_key == "external_log_center_error"
+    assert rows[0].severity == "critical"
+
+
 def test_bug_intake_scores_blocking_delivery_bug(synced_client):
     response = synced_client.post(
         "/api/bugs/intake",

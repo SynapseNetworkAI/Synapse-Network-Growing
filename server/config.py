@@ -47,6 +47,16 @@ LOG_BACKUP_COUNT = int(os.environ.get("OPS_LOG_BACKUP_COUNT", "5"))
 LARK_BOT_WEBHOOK_URL = os.environ.get("OPS_LARK_BOT_WEBHOOK_URL", "").strip()
 LARK_BOT_KEYWORD = os.environ.get("OPS_LARK_BOT_KEYWORD", "告警").strip() or "告警"
 RUNTIME_AUTH_ALERTS_ENABLED = os.environ.get("OPS_RUNTIME_AUTH_ALERTS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+BUG_LOG_SWEEP_SCHEDULER_ENABLED = os.environ.get(
+    "OPS_BUG_LOG_SWEEP_SCHEDULER_ENABLED",
+    "true" if ENV == "local" else "false",
+).lower() in {"1", "true", "yes", "on"}
+BUG_LOG_SWEEP_INTERVAL_MINUTES = max(1, int(os.environ.get("OPS_BUG_LOG_SWEEP_INTERVAL_MINUTES", "5")))
+BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS", "15")))
+BUG_LOG_SWEEP_AUTO_START = os.environ.get("OPS_BUG_LOG_SWEEP_AUTO_START", "false").lower() in {"1", "true", "yes", "on"}
+BUG_LOG_SWEEP_MIN_SCORE = float(os.environ.get("OPS_BUG_LOG_SWEEP_MIN_SCORE", "70"))
+BUG_LOG_SWEEP_MAX_CREATED = max(1, int(os.environ.get("OPS_BUG_LOG_SWEEP_MAX_CREATED", "3")))
+BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS = max(5, int(os.environ.get("OPS_BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS", "30")))
 
 # ── Database ──────────────────────────────────────────────────
 DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))

@@ -76,6 +76,8 @@
 目标：
 
 1. 把日志监控做成 recurring workflow，而不是 ad-hoc 排查
+2. 让 bug sweep 真正定时运行，而不是只保留手动 run 入口
+3. 为外部日志中心保留统一 ingest 入口
 
 实现：
 
@@ -86,6 +88,11 @@
    3. runtime failure logs
 3. 先做 deterministic prefilter，再做必要的模型归一化
 4. 将新发现问题写入 bug registry
+5. 新增内置后台调度器，默认按 `OPS_BUG_LOG_SWEEP_INTERVAL_MINUTES` 每 5 分钟运行一次
+6. 新增 `POST /api/bugs/intake/log-center`，作为外部日志中心 / Sentry / Loki / ELK 的统一适配入口
+7. 推荐采用混合模式：
+   1. 本地 `bug_log_sweep` 负责控制平面、自身 runtime、task failure
+   2. 外部日志中心适配器负责业务服务与生产级集中日志
 
 ### P1-R2 Bug Backlog In Requirement Sources
 

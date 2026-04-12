@@ -8,8 +8,15 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.logging_utils import timed_operation
-from server.schemas import BugIntakeRequest, BugIntakeResultOut, BugSourceRegistryOut
+from server.schemas import (
+    BugIntakeRequest,
+    BugIntakeResultOut,
+    BugSourceRegistryOut,
+    ExternalLogCenterBatchRequest,
+    ExternalLogCenterBatchResultOut,
+)
 from server.services.bug_intake import intake_bug
+from server.services.external_bug_adapter import intake_external_log_center_batch
 from server.services.bug_sources import list_bug_source_registry
 
 router = APIRouter(prefix="/api/bugs", tags=["bugs"])
@@ -27,5 +34,20 @@ def intake_bug_endpoint(body: BugIntakeRequest, db: Session = Depends(get_db)):
     try:
         with timed_operation(logger, "bug_intake_post", source_key=body.source_key, slow_ms=1000):
             return BugIntakeResultOut(**intake_bug(db, body))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/intake/log-center", response_model=ExternalLogCenterBatchResultOut, status_code=201)
+def intake_log_center_endpoint(body: ExternalLogCenterBatchRequest, db: Session = Depends(get_db)):
+    try:
+        with timed_operation(
+            logger,
+            "bug_log_center_intake_post",
+            source_system=body.source_system,
+            event_count=len(body.events or []),
+            slow_ms=1000,
+        ):
+            return ExternalLogCenterBatchResultOut(**intake_external_log_center_batch(db, body))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

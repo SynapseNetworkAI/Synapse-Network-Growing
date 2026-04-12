@@ -1080,6 +1080,35 @@ class BugIntakeResultOut(BaseModel):
     bug: BugRecordOut
 
 
+class ExternalLogCenterEventRequest(BaseModel):
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    service_name: Optional[str] = None
+    title: Optional[str] = None
+    message: str
+    severity: str = "high"
+    fingerprint: Optional[str] = None
+    source_ref: Optional[str] = None
+    environment: Optional[str] = None
+    log_excerpt: Optional[str] = None
+    stack_trace: Optional[str] = None
+    metadata: dict[str, object] = {}
+
+
+class ExternalLogCenterBatchRequest(BaseModel):
+    source_system: str = "log_center"
+    events: list[ExternalLogCenterEventRequest] = []
+
+
+class ExternalLogCenterBatchResultOut(BaseModel):
+    source_system: str
+    accepted_count: int = 0
+    created_bug_ids: list[int] = []
+    updated_bug_ids: list[int] = []
+    deduped_bug_ids: list[int] = []
+    results: list[BugIntakeResultOut] = []
+
+
 class RecurringWorkflowOut(BaseModel):
     id: int
     workflow_key: str

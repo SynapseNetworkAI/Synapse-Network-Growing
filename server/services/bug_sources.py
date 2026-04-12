@@ -21,6 +21,26 @@ def _json_loads(raw: str | None, default: Any) -> Any:
 
 _BUILTIN_BUG_SOURCE_REGISTRY: list[dict[str, Any]] = [
     {
+        "source_key": "external_log_center_error",
+        "display_name": "External Log Center Error",
+        "source_kind": "centralized_logs",
+        "ingest_mode": "push_api",
+        "project_resolution_rule": "prefer_event_project_metadata_then_service_mapping",
+        "severity_mapping": {
+            "critical": "production_wide_outage_or_cross_project_blocker",
+            "high": "repeated_error_burst_or_core_flow_breakage",
+            "normal": "single_service_error_candidate",
+        },
+        "dedupe_scope": "project_key + fingerprint + source_ref",
+        "auto_requirement_policy": {
+            "allowed": True,
+            "default_priority": "high",
+            "requires_scoring": True,
+        },
+        "sample_evidence_types": ["log_center_event", "stack_trace", "alert_metadata"],
+        "notes": "External logging platforms or alerting systems can push normalized errors here.",
+    },
+    {
         "source_key": "manual_bug_report",
         "display_name": "Manual Bug Report",
         "source_kind": "manual_input",
@@ -135,6 +155,12 @@ def _count_manual_bug_reports(db: Session) -> int:
     return db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "bug_report").count()
 
 
+def _count_external_log_center_errors(db: Session) -> int:
+    from server.database import BugRecordRow
+
+    return db.query(BugRecordRow).filter(BugRecordRow.source_key == "external_log_center_error", BugRecordRow.status == "open").count()
+
+
 def _count_runtime_log_errors(db: Session) -> int:
     return db.query(TaskRow).filter(TaskRow.status.in_(("failed", "rejected"))).count()
 
@@ -163,6 +189,7 @@ def _count_delivery_blockers(db: Session) -> int:
 def list_bug_source_registry(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     observed_count_by_source = {
+        "external_log_center_error": _count_external_log_center_errors(db),
         "manual_bug_report": _count_manual_bug_reports(db),
         "runtime_log_error": _count_runtime_log_errors(db),
         "workflow_incident": _count_workflow_incidents(db),

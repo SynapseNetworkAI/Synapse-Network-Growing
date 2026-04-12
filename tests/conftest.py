@@ -50,6 +50,8 @@ def setup_db():
         "server.services.workflow_orchestrator._schedule_advance_queue", lambda: None
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
         "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
+    ), patch(
+        "server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False
     ):
         yield
     with TEST_ENGINE.begin() as conn:

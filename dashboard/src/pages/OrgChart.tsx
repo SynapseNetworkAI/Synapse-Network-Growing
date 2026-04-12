@@ -563,8 +563,9 @@ export default function OrgChart() {
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
+            ritualByKey.bug_log_sweep,
             ritualByKey.morning_intake_sweep,
             ritualByKey.dispatcher_loop,
             ritualByKey.closeout_and_compact_sweep,
@@ -594,6 +595,12 @@ export default function OrgChart() {
                     <>
                       <div>created: {Array.isArray(result.created_requirement_ids) ? result.created_requirement_ids.length : 0}</div>
                       <div>operator attention: {Array.isArray(result.operator_attention_items) ? result.operator_attention_items.length : 0}</div>
+                    </>
+                  )}
+                  {ritual.workflow_key === 'bug_log_sweep' && (
+                    <>
+                      <div>new bugs: {Array.isArray(result.created_bug_ids) ? result.created_bug_ids.length : 0}</div>
+                      <div>converted to reqs: {Array.isArray(result.materialized_requirement_ids) ? result.materialized_requirement_ids.length : 0}</div>
                     </>
                   )}
                   {ritual.workflow_key === 'dispatcher_loop' && (
