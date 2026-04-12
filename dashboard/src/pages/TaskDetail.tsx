@@ -118,11 +118,11 @@ function DiffLine({ line }: Readonly<{ line: string }>) {
 function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () => void }>) {
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-      <dialog
-        open
-        className="relative w-[90vw] max-w-4xl max-h-[85vh] flex flex-col rounded-xl bg-white shadow-2xl m-0 p-0 border-0"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative flex max-h-[85vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >
@@ -156,7 +156,7 @@ function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () =
             <p className="p-4 text-sm text-gray-400">无 diff 内容</p>
           )}
         </div>
-      </dialog>
+      </div>
     </div>
   )
 }
@@ -167,10 +167,11 @@ function OutputFileModal({
 }: Readonly<{ file: TaskOutputFile; onClose: () => void }>) {
   const isMarkdown = file.content_type === 'text/markdown' || file.file_name.endsWith('.md')
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <dialog
-        open
-        className="relative w-[90vw] max-w-5xl max-h-[85vh] flex flex-col rounded-xl bg-white shadow-2xl m-0 p-0 border-0"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative flex max-h-[85vh] w-[90vw] max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >
@@ -195,7 +196,7 @@ function OutputFileModal({
             <pre className="p-4 font-mono text-xs leading-5 whitespace-pre-wrap text-slate-700">{file.content}</pre>
           )}
         </div>
-      </dialog>
+      </div>
     </div>
   )
 }
@@ -211,6 +212,12 @@ export default function TaskDetail() {
   const [selectedDiff, setSelectedDiff] = useState<FileChange | null>(null)
   const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
   const [outputFileError, setOutputFileError] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editForm, setEditForm] = useState({
+    description: '',
+    priority: 'normal',
+  })
   const [memoryResults, setMemoryResults] = useState<AgentsMemoryResult[]>([])
   const [nowMs, setNowMs] = useState(() => Date.now())
   const logsPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -241,6 +248,14 @@ export default function TaskDetail() {
       .then((r) => setMemoryResults(r.results))
       .catch(() => {})
   }, [task?.description])
+
+  useEffect(() => {
+    if (!task) return
+    setEditForm({
+      description: task.description,
+      priority: task.priority,
+    })
+  }, [task])
 
   // Poll task + logs while running
   useEffect(() => {
@@ -292,6 +307,20 @@ export default function TaskDetail() {
       setSelectedOutputFile(result)
     } catch (error) {
       setOutputFileError(error instanceof Error ? error.message : '读取产出文件失败')
+    }
+  }
+
+  async function saveTaskEdit() {
+    setSavingEdit(true)
+    try {
+      const updated = await api.updateTask(taskId, {
+        description: editForm.description.trim(),
+        priority: editForm.priority,
+      })
+      setTask(updated)
+      setIsEditing(false)
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -376,6 +405,33 @@ export default function TaskDetail() {
               </p>
             )}
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              data-testid="toggle-edit-task-btn"
+              className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={task.status === 'running' || task.status === 'deleted' || savingEdit}
+              onClick={() => {
+                if (isEditing) {
+                  setIsEditing(false)
+                  setEditForm({ description: task.description, priority: task.priority })
+                  return
+                }
+                setIsEditing(true)
+              }}
+            >
+              {isEditing ? '取消编辑' : '编辑任务'}
+            </button>
+            {isEditing && (
+              <button
+                data-testid="save-task-btn"
+                className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded hover:bg-emerald-700 disabled:opacity-50"
+                disabled={savingEdit || !editForm.description.trim()}
+                onClick={() => { saveTaskEdit().catch(() => {}) }}
+              >
+                保存
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Metadata */}
@@ -398,9 +454,33 @@ export default function TaskDetail() {
       {/* Task description */}
       <div className="p-5 bg-white border shadow-sm rounded-xl">
         <h3 className="mb-2 text-sm font-bold text-gray-500">任务描述</h3>
-        <div className="p-3 border rounded bg-gray-50">
-          <Md>{task.description}</Md>
-        </div>
+        {isEditing ? (
+          <div className="space-y-3">
+            <label className="space-y-1 text-xs text-gray-600">
+              <span className="block font-medium text-gray-700">优先级</span>
+              <select
+                data-testid="edit-task-priority"
+                className="w-full px-3 py-2 text-sm border rounded"
+                value={editForm.priority}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, priority: e.target.value }))}
+              >
+                <option value="low">low</option>
+                <option value="normal">normal</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+            <textarea
+              data-testid="edit-task-description"
+              className="w-full px-3 py-2 text-sm border rounded min-h-40"
+              value={editForm.description}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+            />
+          </div>
+        ) : (
+          <div className="p-3 border rounded bg-gray-50">
+            <Md>{task.description}</Md>
+          </div>
+        )}
       </div>
 
       {/* Agents-Memory related records */}

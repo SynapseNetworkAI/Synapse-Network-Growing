@@ -17,6 +17,13 @@ const navItems = [
   { to: '/approvals', label: '审批中心' },
 ]
 
+const requirementSubNavItems = [
+  { to: '/requirements?bucket=running', label: '运行中' },
+  { to: '/requirements?bucket=pending', label: '待审批' },
+  { to: '/requirements?bucket=closed', label: '已结束' },
+  { to: '/requirements?bucket=deleted', label: '废弃/删除' },
+]
+
 const routeBriefs = [
   {
     match: (pathname: string) => pathname === '/',
@@ -83,6 +90,7 @@ function getRouteBrief(pathname: string) {
 export default function App() {
   const location = useLocation()
   const brief = getRouteBrief(location.pathname)
+  const requirementsNavActive = location.pathname.startsWith('/requirements')
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(64,97,255,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(32,201,151,0.14),_transparent_24%),linear-gradient(180deg,_#f6f8fc_0%,_#eef2f7_100%)] text-slate-900">
@@ -99,19 +107,41 @@ export default function App() {
           <div className="mt-5 text-[11px] uppercase tracking-[0.22em] text-slate-400">Workspace</div>
           <nav className="mt-3 space-y-1.5">
             {navItems.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  `block rounded-2xl px-4 py-3 text-sm transition ${
-                    isActive
-                      ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
-                      : 'text-slate-300 hover:bg-white/6 hover:text-white'
-                  }`
-                }
-              >
-                {n.label}
-              </NavLink>
+              <div key={n.to}>
+                <NavLink
+                  to={n.to}
+                  end={n.to !== '/requirements'}
+                  className={({ isActive }) =>
+                    `block rounded-2xl px-4 py-3 text-sm transition ${
+                      isActive || (n.to === '/requirements' && requirementsNavActive)
+                        ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
+                        : 'text-slate-300 hover:bg-white/6 hover:text-white'
+                    }`
+                  }
+                >
+                  {n.label}
+                </NavLink>
+                {n.to === '/requirements' && requirementsNavActive && (
+                  <div className="mt-1 ml-3 space-y-1 border-l border-white/10 pl-3">
+                    {requirementSubNavItems.map((sub) => {
+                      const subActive = `${location.pathname}${location.search}` === sub.to
+                      return (
+                        <NavLink
+                          key={sub.to}
+                          to={sub.to}
+                          className={`block rounded-xl px-3 py-2 text-xs transition ${
+                            subActive
+                              ? 'bg-white/10 text-white'
+                              : 'text-slate-400 hover:bg-white/6 hover:text-white'
+                          }`}
+                        >
+                          {sub.label}
+                        </NavLink>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             ))}
           </nav>
 
@@ -131,9 +161,12 @@ export default function App() {
                 <NavLink
                   key={n.to}
                   to={n.to}
+                  end={n.to !== '/requirements'}
                   className={({ isActive }) =>
                     `rounded-xl px-3 py-2 text-sm transition ${
-                      isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      isActive || (n.to === '/requirements' && requirementsNavActive)
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
                     }`
                   }
                 >
@@ -141,6 +174,24 @@ export default function App() {
                 </NavLink>
               ))}
             </div>
+            {requirementsNavActive && (
+              <div className="mt-2 flex min-w-max items-center gap-2 border-t border-slate-200 pt-2">
+                {requirementSubNavItems.map((sub) => {
+                  const subActive = `${location.pathname}${location.search}` === sub.to
+                  return (
+                    <NavLink
+                      key={sub.to}
+                      to={sub.to}
+                      className={`rounded-xl px-3 py-1.5 text-xs transition ${
+                        subActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {sub.label}
+                    </NavLink>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           <header className="rounded-[30px] border border-white/80 bg-white/72 px-5 py-5 shadow-[0_18px_60px_rgba(148,163,184,0.16)] backdrop-blur md:px-7 md:py-6">

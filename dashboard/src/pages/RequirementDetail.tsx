@@ -94,10 +94,18 @@ export default function RequirementDetail() {
   const [expandedStepId, setExpandedStepId] = useState<number | null>(null)
   const [showPlan, setShowPlan] = useState(true)
   const [showRevise, setShowRevise] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description_markdown: '',
+    priority: 'normal',
+    target_project_path: '',
+  })
   const [revisionForm, setRevisionForm] = useState({
     title: '',
     description_markdown: '',
@@ -119,6 +127,12 @@ export default function RequirementDetail() {
 
   useEffect(() => {
     if (!detail) return
+    setEditForm({
+      title: detail.requirement.title,
+      description_markdown: detail.requirement.description_markdown,
+      priority: detail.requirement.priority,
+      target_project_path: detail.requirement.target_project_path || '',
+    })
     setRevisionForm({
       title: detail.requirement.title,
       description_markdown: detail.requirement.description_markdown,
@@ -165,6 +179,22 @@ export default function RequirementDetail() {
     }
   }
 
+  const handleSaveEdit = async () => {
+    setSavingEdit(true)
+    try {
+      const data = await api.updateRequirement(requirementId, {
+        title: editForm.title.trim(),
+        description_markdown: editForm.description_markdown.trim(),
+        priority: editForm.priority,
+        target_project_path: editForm.target_project_path.trim(),
+      })
+      setDetail(data)
+      setIsEditing(false)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   const togglePublishCheck = (check: string) => {
     setPublishChecks((prev) => prev.includes(check) ? prev.filter((item) => item !== check) : [...prev, check])
   }
@@ -188,7 +218,7 @@ export default function RequirementDetail() {
       const data = await api.decideRequirementApproval(requirementId, {
         action,
         reviewer: 'cto',
-        comment: approvalComment.trim() || null,
+        comment: approvalComment.trim() || '',
       })
       setApprovalComment('')
       setDetail(data)
@@ -261,6 +291,7 @@ export default function RequirementDetail() {
 
   const canStartRequirement = !['blocked', 'done', 'deleted', 'planning', 'plan_failed'].includes(req.status)
     && ['approved', 'waived'].includes(req.approval_status)
+  const canEditRequirement = !['in_progress', 'deleted'].includes(req.status)
 
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
@@ -288,6 +319,36 @@ export default function RequirementDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              data-testid="toggle-edit-requirement-btn"
+              className="px-3 py-2 text-sm border rounded hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canEditRequirement || savingEdit}
+              onClick={() => {
+                if (isEditing) {
+                  setIsEditing(false)
+                  setEditForm({
+                    title: req.title,
+                    description_markdown: req.description_markdown,
+                    priority: req.priority,
+                    target_project_path: req.target_project_path || '',
+                  })
+                  return
+                }
+                setIsEditing(true)
+              }}
+            >
+              {isEditing ? '取消编辑' : '编辑需求'}
+            </button>
+            {isEditing && (
+              <button
+                data-testid="save-requirement-btn"
+                className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded hover:bg-emerald-700 disabled:opacity-50"
+                disabled={savingEdit || !editForm.title.trim() || !editForm.description_markdown.trim()}
+                onClick={() => { handleSaveEdit().catch(() => {}) }}
+              >
+                保存
+              </button>
+            )}
             <button
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -337,6 +398,68 @@ export default function RequirementDetail() {
             当前需求审批状态为 {approvalLabel}。审批通过或豁免后，系统会自动生成计划，再进入自动执行。
           </div>
         )}
+
+        <section className="p-4 border rounded-xl bg-slate-50" data-testid="requirement-approval-panel">
+          <div className="mb-3 text-sm font-semibold">Execution Approval</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
+              <div className="mb-2 font-medium text-gray-900">Approval Status</div>
+              <div>status: {approvalLabel}</div>
+              <div>mode: {String(req.approval_contract?.approval_mode || '-')}</div>
+              <div>requested at: {req.approval_requested_at || '-'}</div>
+              <div>approved at: {req.approved_at || '-'}</div>
+            </div>
+            <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
+              <div className="mb-2 font-medium text-gray-900">Required Roles</div>
+              {Array.isArray(req.approval_contract?.required_approver_roles) && req.approval_contract.required_approver_roles.length > 0 ? (
+                <div className="space-y-1">
+                  {(req.approval_contract.required_approver_roles as string[]).map((role) => (
+                    <div key={role}>{role}</div>
+                  ))}
+                </div>
+              ) : (
+                <div>-</div>
+              )}
+            </div>
+          </div>
+          {req.approval_status === 'pending_approval' && (
+            <div className="mt-3 rounded-lg border bg-white p-3">
+              <input
+                data-testid="requirement-approval-comment"
+                className="mb-2 w-full rounded border px-3 py-2 text-sm"
+                placeholder="审批意见（可选）"
+                value={approvalComment}
+                onChange={(e) => setApprovalComment(e.target.value)}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  data-testid="approve-requirement-btn"
+                  className="rounded bg-green-600 px-4 py-2 text-xs text-white hover:bg-green-700 disabled:opacity-50"
+                  disabled={decidingApproval}
+                  onClick={() => { handleApprovalDecision('approve').catch(() => {}) }}
+                >
+                  批准执行
+                </button>
+                <button
+                  data-testid="waive-requirement-btn"
+                  className="rounded bg-slate-700 px-4 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
+                  disabled={decidingApproval}
+                  onClick={() => { handleApprovalDecision('waive').catch(() => {}) }}
+                >
+                  豁免审批
+                </button>
+                <button
+                  data-testid="reject-requirement-btn"
+                  className="rounded bg-red-600 px-4 py-2 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                  disabled={decidingApproval}
+                  onClick={() => { handleApprovalDecision('reject').catch(() => {}) }}
+                >
+                  拒绝
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
 
         {showRevise && (
           <section data-testid="requirement-revision-form" className="p-4 space-y-3 border shadow-sm rounded-xl bg-amber-50">
@@ -399,7 +522,48 @@ export default function RequirementDetail() {
           <div className="space-y-4">
             <section className="p-4 border rounded-xl bg-slate-50">
               <div className="mb-2 text-sm font-semibold">需求说明</div>
-              <Md>{req.description_markdown}</Md>
+              {isEditing ? (
+                <div className="space-y-3">
+                  <input
+                    data-testid="edit-requirement-title"
+                    className="w-full px-3 py-2 text-sm border rounded"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
+                  />
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1 text-xs text-gray-600">
+                      <span className="block font-medium text-gray-700">优先级</span>
+                      <select
+                        data-testid="edit-requirement-priority"
+                        className="w-full px-3 py-2 text-sm border rounded"
+                        value={editForm.priority}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, priority: e.target.value }))}
+                      >
+                        <option value="low">low</option>
+                        <option value="normal">normal</option>
+                        <option value="high">high</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-xs text-gray-600">
+                      <span className="block font-medium text-gray-700">目标项目路径</span>
+                      <textarea
+                        data-testid="edit-requirement-target-project-path"
+                        className="w-full px-3 py-2 text-sm border rounded min-h-24"
+                        value={editForm.target_project_path}
+                        onChange={(e) => setEditForm((prev) => ({ ...prev, target_project_path: e.target.value }))}
+                      />
+                    </label>
+                  </div>
+                  <textarea
+                    data-testid="edit-requirement-description"
+                    className="w-full px-3 py-2 text-sm border rounded min-h-48"
+                    value={editForm.description_markdown}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
+                  />
+                </div>
+              ) : (
+                <Md>{req.description_markdown}</Md>
+              )}
               {targetProjectPaths.length > 0 && (
                 <div className="mt-2 rounded bg-blue-50 px-3 py-2 text-xs text-blue-800" data-testid="target-project-path">
                   <div className="mb-1 font-medium">目标项目:</div>
@@ -407,68 +571,6 @@ export default function RequirementDetail() {
                     {targetProjectPaths.map((projectPath) => (
                       <div key={projectPath} className="break-all">{projectPath}</div>
                     ))}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="p-4 border rounded-xl bg-slate-50" data-testid="requirement-approval-panel">
-              <div className="mb-3 text-sm font-semibold">Execution Approval</div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
-                  <div className="mb-2 font-medium text-gray-900">Approval Status</div>
-                  <div>status: {approvalLabel}</div>
-                  <div>mode: {String(req.approval_contract?.approval_mode || '-')}</div>
-                  <div>requested at: {req.approval_requested_at || '-'}</div>
-                  <div>approved at: {req.approved_at || '-'}</div>
-                </div>
-                <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
-                  <div className="mb-2 font-medium text-gray-900">Required Roles</div>
-                  {Array.isArray(req.approval_contract?.required_approver_roles) && req.approval_contract.required_approver_roles.length > 0 ? (
-                    <div className="space-y-1">
-                      {(req.approval_contract.required_approver_roles as string[]).map((role) => (
-                        <div key={role}>{role}</div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div>-</div>
-                  )}
-                </div>
-              </div>
-              {req.approval_status === 'pending_approval' && (
-                <div className="mt-3 rounded-lg border bg-white p-3">
-                  <input
-                    data-testid="requirement-approval-comment"
-                    className="mb-2 w-full rounded border px-3 py-2 text-sm"
-                    placeholder="审批意见（可选）"
-                    value={approvalComment}
-                    onChange={(e) => setApprovalComment(e.target.value)}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      data-testid="approve-requirement-btn"
-                      className="rounded bg-green-600 px-4 py-2 text-xs text-white hover:bg-green-700 disabled:opacity-50"
-                      disabled={decidingApproval}
-                      onClick={() => { handleApprovalDecision('approve').catch(() => {}) }}
-                    >
-                      批准执行
-                    </button>
-                    <button
-                      data-testid="waive-requirement-btn"
-                      className="rounded bg-slate-700 px-4 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
-                      disabled={decidingApproval}
-                      onClick={() => { handleApprovalDecision('waive').catch(() => {}) }}
-                    >
-                      豁免审批
-                    </button>
-                    <button
-                      data-testid="reject-requirement-btn"
-                      className="rounded bg-red-600 px-4 py-2 text-xs text-white hover:bg-red-700 disabled:opacity-50"
-                      disabled={decidingApproval}
-                      onClick={() => { handleApprovalDecision('reject').catch(() => {}) }}
-                    >
-                      拒绝
-                    </button>
                   </div>
                 </div>
               )}

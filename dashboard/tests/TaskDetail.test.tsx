@@ -9,6 +9,7 @@ const mockApi = {
   getTaskHistory: vi.fn(),
   getTaskFileChanges: vi.fn(),
   getTaskOutputFile: vi.fn(),
+  updateTask: vi.fn(),
 }
 
 const mockAgentsMemory = {
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
     getTaskHistory: (...args: unknown[]) => mockApi.getTaskHistory(...args),
     getTaskFileChanges: (...args: unknown[]) => mockApi.getTaskFileChanges(...args),
     getTaskOutputFile: (...args: unknown[]) => mockApi.getTaskOutputFile(...args),
+    updateTask: (...args: unknown[]) => mockApi.updateTask(...args),
   },
   agentsMemoryApi: {
     search: (...args: unknown[]) => mockAgentsMemory.search(...args),
@@ -137,6 +139,7 @@ describe('TaskDetail', () => {
       truncated: false,
       content_type: 'text/markdown',
     })
+    mockApi.updateTask.mockResolvedValue(taskPage.items[0])
     mockAgentsMemory.search.mockResolvedValue({
       query: 'launch teaser',
       total: 1,
@@ -185,6 +188,26 @@ describe('TaskDetail', () => {
     expect(screen.getByText((content) => content.includes('Three bullets.'))).toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByTestId('memory-section')).toHaveTextContent('Launch Playbook')
+    })
+  })
+
+  it('allows editing and saving task detail', async () => {
+    renderTaskDetail()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-detail-page')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('toggle-edit-task-btn'))
+    fireEvent.change(screen.getByTestId('edit-task-priority'), { target: { value: 'normal' } })
+    fireEvent.change(screen.getByTestId('edit-task-description'), { target: { value: 'Edited task detail body' } })
+    fireEvent.click(screen.getByTestId('save-task-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.updateTask).toHaveBeenCalledWith(18, {
+        description: 'Edited task detail body',
+        priority: 'normal',
+      })
     })
   })
 })

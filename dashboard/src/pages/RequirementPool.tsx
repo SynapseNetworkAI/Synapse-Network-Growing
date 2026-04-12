@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ProjectPolicy, Requirement, SchedulerDecision, SchedulerPlan } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -108,6 +108,7 @@ function queueSkipMessage(value: string | string[] | undefined) {
 
 export default function RequirementPool() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const PAGE_SIZE = 10
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [projectPolicies, setProjectPolicies] = useState<ProjectPolicy[]>([])
@@ -141,9 +142,11 @@ export default function RequirementPool() {
     auto_start: true,
   })
 
+  const navBucket = searchParams.get('bucket') || ''
+
   const loadRequirements = useCallback(async () => {
     const data = await api.getRequirements(
-      statusFilter || undefined,
+      undefined,
       sortMode === 'score' ? 'score' : undefined,
       searchQuery.trim() || undefined,
     )
@@ -153,7 +156,7 @@ export default function RequirementPool() {
       const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
       return Math.min(currentPage, totalPages)
     })
-  }, [PAGE_SIZE, searchQuery, sortMode, statusFilter])
+  }, [PAGE_SIZE, searchQuery, sortMode])
 
   const loadScheduler = useCallback(async () => {
     const data = await api.getRequirementScheduler()
@@ -175,7 +178,32 @@ export default function RequirementPool() {
 
   useEffect(() => {
     setPage(1)
-  }, [statusFilter, sortMode, searchQuery])
+  }, [statusFilter, sortMode, searchQuery, navBucket])
+
+  const visibleRequirements = useMemo(() => {
+    return requirements.filter((requirement) => {
+      if (navBucket === 'running') {
+        return requirement.status === 'in_progress' || requirement.status === 'planning'
+      }
+      if (navBucket === 'pending') {
+        return requirement.approval_status === 'pending_approval' && requirement.status !== 'deleted'
+      }
+      if (navBucket === 'closed') {
+        return ['done', 'needs_revision', 'plan_failed'].includes(requirement.status)
+          || requirement.approval_status === 'rejected'
+      }
+      if (navBucket === 'deleted') {
+        return requirement.status === 'deleted'
+      }
+      if (!statusFilter) return true
+      return requirement.status === statusFilter
+    })
+  }, [navBucket, requirements, statusFilter])
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(visibleRequirements.length / PAGE_SIZE))
+    setPage((currentPage) => Math.min(currentPage, totalPages))
+  }, [PAGE_SIZE, visibleRequirements.length])
 
   // Auto-advance queue on first load if nothing in_progress
   useEffect(() => {
@@ -532,7 +560,7 @@ export default function RequirementPool() {
       )}
 
       <div className="space-y-3">
-        {scheduler && (
+        {scheduler && !navBucket && (
           <section data-testid="scheduler-panel" className="rounded-2xl border border-slate-200 bg-slate-950 px-5 py-4 text-slate-100 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -650,14 +678,14 @@ export default function RequirementPool() {
           )
           return null
         })()}
-        {requirements.length === 0 && (
+        {visibleRequirements.length === 0 && (
           <div data-testid="requirements-empty" className="p-6 text-sm text-gray-500 bg-white border border-dashed rounded-xl">
             {searchQuery.trim()
               ? `没有匹配“${searchQuery.trim()}”的 requirement。`
               : '还没有 requirement。先创建一条需求，再规划和启动 workflow。'}
           </div>
         )}
-        {requirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
+        {visibleRequirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
           const showToggle = requirement.status === 'in_progress' || requirement.status === 'ready' || requirement.status === 'paused'
           const isRunning = requirement.status === 'in_progress'
           const isDeleted = requirement.status === 'deleted'
@@ -846,13 +874,13 @@ export default function RequirementPool() {
         })}
 
         {/* Pagination */}
-        {requirements.length > PAGE_SIZE && (() => {
-          const totalPages = Math.ceil(requirements.length / PAGE_SIZE)
+        {visibleRequirements.length > PAGE_SIZE && (() => {
+          const totalPages = Math.ceil(visibleRequirements.length / PAGE_SIZE)
           const start = (page - 1) * PAGE_SIZE + 1
-          const end = Math.min(page * PAGE_SIZE, requirements.length)
+          const end = Math.min(page * PAGE_SIZE, visibleRequirements.length)
           return (
             <div data-testid="requirements-pagination" className="flex items-center justify-between pt-1 text-xs text-gray-500">
-              <span>{start}–{end} / {requirements.length} 条需求</span>
+              <span>{start}–{end} / {visibleRequirements.length} 条需求</span>
               <div className="flex items-center gap-1">
                 <button
                   className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"

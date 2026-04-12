@@ -716,7 +716,7 @@ class RequirementPatch(BaseModel):
 class RequirementApprovalDecisionRequest(BaseModel):
     action: str  # approve | reject | waive
     reviewer: str = "operator"
-    comment: str = ""
+    comment: Optional[str] = None
 
 
 class RequirementPublishRequest(BaseModel):

@@ -341,6 +341,26 @@ def test_requirement_approval_auto_triggers_planning(synced_client, db_session):
     assert payload["workflow_run"]["plan_version"] == 1
 
 
+def test_requirement_approval_accepts_null_comment(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approval null comment compatibility",
+            "description_markdown": "Requirement approval should accept a null comment payload.",
+            "approval_contract": {"approval_mode": "manual_required"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    approve_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/approval/decide",
+        json={"action": "approve", "reviewer": "cto", "comment": None},
+    )
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["requirement"]["approval_status"] == "approved"
+
+
 def test_requirement_approval_sets_plan_failed_when_auto_planning_fails(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",

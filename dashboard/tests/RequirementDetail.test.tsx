@@ -11,6 +11,7 @@ const mockApi = {
   publishRequirement: vi.fn(),
   reviseRequirement: vi.fn(),
   decideRequirementApproval: vi.fn(),
+  updateRequirement: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
     publishRequirement: (...args: unknown[]) => mockApi.publishRequirement(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
     decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
+    updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
   },
 }))
 
@@ -347,6 +349,7 @@ describe('RequirementDetail', () => {
         approved_at: '2026-04-11T08:06:00Z',
       },
     })
+    mockApi.updateRequirement.mockResolvedValue(detail)
   })
 
   it('renders validation contract and bug report context', async () => {
@@ -430,6 +433,28 @@ describe('RequirementDetail', () => {
     })
   })
 
+  it('sends empty string when approving without comment', async () => {
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    fireEvent.click(screen.getByTestId('approve-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.decideRequirementApproval).toHaveBeenCalledWith(1, {
+        action: 'approve',
+        reviewer: 'cto',
+        comment: '',
+      })
+    })
+  })
+
   it('shows automatic planning state after approval and disables direct start', async () => {
     const planningDetail = {
       ...detail,
@@ -458,5 +483,41 @@ describe('RequirementDetail', () => {
     expect(screen.getByText('规划中')).toBeInTheDocument()
     expect(screen.getByTestId('planning-banner')).toBeInTheDocument()
     expect(screen.getByTestId('start-requirement-btn')).toBeDisabled()
+  })
+
+  it('allows editing requirement content and saving', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...detail,
+      requirement: {
+        ...detail.requirement,
+        status: 'paused',
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
+    fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Edited requirement title' } })
+    fireEvent.change(screen.getByTestId('edit-requirement-priority'), { target: { value: 'normal' } })
+    fireEvent.change(screen.getByTestId('edit-requirement-target-project-path'), { target: { value: '/tmp/project-a\n/tmp/project-b' } })
+    fireEvent.change(screen.getByTestId('edit-requirement-description'), { target: { value: 'Edited requirement body' } })
+    fireEvent.click(screen.getByTestId('save-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.updateRequirement).toHaveBeenCalledWith(1, {
+        title: 'Edited requirement title',
+        description_markdown: 'Edited requirement body',
+        priority: 'normal',
+        target_project_path: '/tmp/project-a\n/tmp/project-b',
+      })
+    })
   })
 })

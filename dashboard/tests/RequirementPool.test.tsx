@@ -734,6 +734,20 @@ describe('RequirementPool', () => {
     expect(screen.queryByTestId('requirement-toggle-5')).toBeNull()
   })
 
+  it('filters requirement cards by left-nav bucket query', async () => {
+    mockApi.getRequirements.mockResolvedValue([REQUIREMENT, PENDING_APPROVAL_REQUIREMENT, DELETED_REQUIREMENT, READY_REQUIREMENT])
+
+    render(<MemoryRouter initialEntries={['/requirements?bucket=pending']}><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-6')).toBeDefined()
+    })
+
+    expect(screen.queryByTestId('requirement-card-1')).toBeNull()
+    expect(screen.queryByTestId('requirement-card-3')).toBeNull()
+    expect(screen.queryByTestId('requirement-card-4')).toBeNull()
+  })
+
   it('keeps the current pagination page after reloading pool data', async () => {
     const pagedRequirements = Array.from({ length: 11 }, (_, index) =>
       makeRequirement(index + 10, `Requirement ${index + 1}`),
