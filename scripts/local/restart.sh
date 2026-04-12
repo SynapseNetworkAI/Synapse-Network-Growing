@@ -35,8 +35,15 @@ sleep 1
 echo "[$(date '+%H:%M:%S')] Restarting Ops Dashboard (local) on port $PORT ..."
 echo "[$(date '+%H:%M:%S')] Project root: $PROJECT_ROOT"
 echo "[$(date '+%H:%M:%S')] Python: $(which python)"
+RELOAD_EXCLUDES=(
+  "--reload-exclude" "runtime/*"
+  "--reload-exclude" "server/logs/*"
+  "--reload-exclude" "server/ops.db*"
+  "--reload-exclude" "roles/*/outputs/*"
+)
 exec uvicorn server.main:app \
   --host 127.0.0.1 \
   --port "$PORT" \
   --reload \
-  --log-level debug
+  --log-level debug \
+  "${RELOAD_EXCLUDES[@]}"

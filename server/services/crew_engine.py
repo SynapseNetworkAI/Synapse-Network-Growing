@@ -126,11 +126,19 @@ class CrewEngine:
             parts.append(ctx)
 
         # Skill instructions
-        try:
-            skill_text = load_skill(skill_name)
-            parts.append(f"## Skill Instructions\n{skill_text}")
-        except FileNotFoundError:
-            logger.warning("Skill '%s' not found, proceeding without it", skill_name)
+        normalized_skill = str(skill_name or "").strip()
+        if normalized_skill and normalized_skill != "__direct_execution__":
+            try:
+                skill_text = load_skill(normalized_skill)
+                parts.append(f"## Skill Instructions\n{skill_text}")
+            except FileNotFoundError:
+                logger.warning("Skill '%s' not found, proceeding without it", normalized_skill)
+        elif normalized_skill == "__direct_execution__":
+            parts.append(
+                "## Skill Instructions\n"
+                "Use direct engineering execution mode. Read the task packet carefully, make the minimal necessary "
+                "code or configuration changes in the target repository, and verify the result with focused checks."
+            )
 
         # Task
         parts.append(f"## Task\n{task_description}")

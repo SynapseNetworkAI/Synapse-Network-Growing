@@ -2208,6 +2208,120 @@ def test_start_requirement_handles_mixed_datetime_freshness_checks(synced_client
     assert detail["workflow_run"]["status"] in {"pending", "running"}
 
 
+def test_start_requirement_allows_resume_when_snapshot_and_plan_are_old(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Resume with old planning artifacts",
+            "description_markdown": "Ensure paused requirements do not fail stale-memory checks purely by age.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    artifacts = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type.in_(("requirement_snapshot", "implementation_plan")),
+    ).all()
+    assert artifacts
+    old_time = utcnow() - timedelta(hours=2)
+    for artifact in artifacts:
+        artifact.created_at = old_time
+    db_session.commit()
+
+    start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] != "blocked"
+    assert not any(item["incident_code"] == "stale_memory_blocked" for item in detail["incidents"])
+
+
+def test_implementation_context_omits_prior_synthesis_handoff(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Implementation should ignore stale synthesis blocker prose",
+            "description_markdown": "Ensure implementation relies on structured plan instead of prior blocker handoff text.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
+    assert workflow_run is not None
+
+    steps = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id
+    ).order_by(WorkflowStepRow.sequence_no.asc()).all()
+    synthesis_step = next(step for step in steps if step.step_type == "synthesis")
+    implementation_step = next(step for step in steps if step.step_type == "implementation")
+    synthesis_step.handoff_summary_markdown = (
+        "**Summary:** Need more environment data before implementing.\n\n"
+        "- **Blockers:** Waiting for runtime `/readiness` payload."
+    )
+    db_session.commit()
+
+    snapshot = workflow_orchestrator._step_context_snapshot(db_session, implementation_step)
+    prompt = str(snapshot["prompt"])
+    assert "Prior Step: Synthesize plan" not in prompt
+    assert "Need more environment data before implementing." not in prompt
+    assert "Implementation Plan" in prompt
+
+
+def test_implementation_context_includes_research_file_hints(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Implementation should receive research file hints",
+            "description_markdown": "Ensure implementation prompt inherits the relevant file shortlist from research evidence.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
+    assert workflow_run is not None
+
+    steps = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id
+    ).order_by(WorkflowStepRow.sequence_no.asc()).all()
+    implementation_step = next(step for step in steps if step.step_type == "implementation")
+
+    research_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "research_report",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert research_artifact is not None
+    research_artifact.human_readable_body = (
+        "Investigate `services/gateway/src/app.py:32-111` and "
+        "`services/gateway/tests/unit/test_gateway_readiness_endpoint_unit.py:74-133` first."
+    )
+    db_session.commit()
+
+    snapshot = workflow_orchestrator._step_context_snapshot(db_session, implementation_step)
+    prompt = str(snapshot["prompt"])
+    assert "Suggested File Scope" in prompt
+    assert "services/gateway/src/app.py" in prompt
+    assert "services/gateway/tests/unit/test_gateway_readiness_endpoint_unit.py" in prompt
+
+
 def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(synced_client, db_session):
     target_path = "/Users/cliff/workspace/agent/Synapse-Network"
     synced_client.get("/api/project-policies")
@@ -2342,6 +2456,143 @@ def test_step_context_records_prompt_cache_dedupe_for_duplicate_bindings(synced_
     assert payload["cache_applied"] is True
     assert payload["total_binding_count"] > payload["unique_binding_count"]
     assert payload["deduped_binding_count"] >= 1
+
+
+def test_research_context_skips_heavy_contract_bindings(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Research context stays lean",
+            "description_markdown": "Investigate a bug without preloading implementation and delivery contracts.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    research_step = (
+        db_session.query(WorkflowStepRow)
+        .filter(
+            WorkflowStepRow.workflow_run_id == requirement.active_workflow_run_id,
+            WorkflowStepRow.step_type == "research",
+        )
+        .first()
+    )
+    assert research_step is not None
+
+    snapshot = workflow_orchestrator._step_context_snapshot(db_session, research_step)
+    prompt = snapshot["prompt"]
+    assert "## Implementation Plan" not in prompt
+    assert "## Delivery Contract" not in prompt
+    assert "## Validation Contract" not in prompt
+    assert "## Execution Guidance" in prompt
+    assert "Limit exploration to the highest-signal files only" in prompt
+
+
+def test_implementation_context_skips_delivery_and_validation_contracts(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Implementation context stays lean",
+            "description_markdown": "Keep implementation focused on change execution rather than review contracts.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    implementation_step = (
+        db_session.query(WorkflowStepRow)
+        .filter(
+            WorkflowStepRow.workflow_run_id == requirement.active_workflow_run_id,
+            WorkflowStepRow.step_type == "implementation",
+        )
+        .order_by(WorkflowStepRow.sequence_no.asc())
+        .first()
+    )
+    assert implementation_step is not None
+
+    snapshot = workflow_orchestrator._step_context_snapshot(db_session, implementation_step)
+    prompt = snapshot["prompt"]
+    assert "## Delivery Contract" not in prompt
+    assert "## Validation Contract" not in prompt
+    assert "## Execution Guidance" in prompt
+    assert "Keep changes tightly scoped to the target project" in prompt
+
+
+def test_bug_intake_steps_use_engineering_direct_execution_contract(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Bug Fix: Gateway readiness blocker",
+            "description_markdown": "Investigate and fix the readiness blocker in the gateway.",
+            "source": "bug_intake",
+            "source_ref": "bug-intake:999",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "fix_gateway",
+                        "title": "Fix gateway readiness handling",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Gateway readiness no longer reports the blocker when the service is healthy.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
+    assert workflow_run is not None
+
+    synthesis_step = (
+        db_session.query(WorkflowStepRow)
+        .filter(
+            WorkflowStepRow.workflow_run_id == workflow_run.id,
+            WorkflowStepRow.step_type == "synthesis",
+        )
+        .first()
+    )
+    implementation_step = (
+        db_session.query(WorkflowStepRow)
+        .filter(
+            WorkflowStepRow.workflow_run_id == workflow_run.id,
+            WorkflowStepRow.step_type == "implementation",
+        )
+        .first()
+    )
+    assert synthesis_step is not None
+    assert implementation_step is not None
+
+    assert workflow_orchestrator._resolve_step_skill(db_session, synthesis_step) == "__direct_execution__"
+    task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, implementation_step)
+    assert task.skill_name == "__direct_execution__"
+    assert skill_name == "__direct_execution__"
+    assert persona["display_name"] == "Engineering Executor"
+    assert "engineering execution mode" in persona["body"].lower()
 
 
 def test_standard_step_skips_operator_confirmation_on_start(synced_client, db_session):

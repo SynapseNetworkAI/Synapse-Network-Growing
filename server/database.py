@@ -359,6 +359,32 @@ class RecurringWorkflowRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class CodexSessionRow(Base):
+    __tablename__ = "codex_sessions"
+    __table_args__ = (
+        Index("codex_sessions_session_key_idx", "session_key", unique=True),
+        Index("codex_sessions_thread_id_idx", "thread_id"),
+        Index("codex_sessions_scope_idx", "role_key", "project_root", "requirement_id"),
+        Index("codex_sessions_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_key = Column(Text, nullable=False)
+    role_key = Column(Text, nullable=False)
+    project_root = Column(Text, nullable=False)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
+    current_task_id = Column(Integer, ForeignKey("tasks.id"))
+    thread_id = Column(Text)
+    status = Column(Text, nullable=False, default="active")
+    last_used_at = Column(DateTime, nullable=False, default=utcnow)
+    last_heartbeat_at = Column(DateTime)
+    resume_count = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -670,6 +696,10 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE bug_records ADD COLUMN scorecard_json TEXT DEFAULT '{}'"))
                 conn.commit()
+
+    if "codex_sessions" not in tables:
+        logger.info("Migrating: creating 'codex_sessions' table")
+        CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}

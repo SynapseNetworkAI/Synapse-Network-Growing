@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 from server import config
-from server.services.codex_cli import CodexExecResult, run_codex_exec
+from server.services.codex_cli import CodexAsyncExecResult, CodexExecResult, run_codex_exec
 from server.services.llm_adapter import CodexCLIProvider
-from server.services.task_runtime import CodexCLITaskRuntime, get_task_runtime, resolve_runtime_selection
+from server.services.task_runtime import (
+    CodexCLITaskRuntime,
+    _codex_workdirs,
+    get_task_runtime,
+    resolve_runtime_selection,
+)
 
 
 def test_resolve_orchestration_backend_for_codex_provider():
@@ -38,21 +44,21 @@ def test_codex_cli_provider_uses_codex_exec(tmp_path):
 def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
     runtime = CodexCLITaskRuntime(project_root=tmp_path)
 
-    def _fake_run_codex_exec(*, output_path: Path | None = None, **kwargs):
-        assert output_path is not None
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text("# Done\nUpdated project", encoding="utf-8")
-        return CodexExecResult(
-            text="# Done\nUpdated project",
-            stdout="",
-            stderr="",
-            exit_code=0,
-            execution_time_ms=18,
-            command=["codex", "exec"],
-            output_path=output_path,
+    def _fake_start_codex_exec_async(*, output_dir: Path, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return CodexAsyncExecResult(
+            command=["codex", "exec", "--json"],
+            output_path=output_dir / "output.md",
+            stdout_path=output_dir / "codex.stdout.jsonl",
+            stderr_path=output_dir / "codex.stderr.log",
+            state_path=output_dir / "codex.state.json",
+            metadata_path=output_dir / "metadata.json",
+            prompt_path=output_dir / "prompt.md",
+            pid=12345,
+            thread_id="thread-async-1",
         )
 
-    with patch("server.services.task_runtime.run_codex_exec", side_effect=_fake_run_codex_exec):
+    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={"role": "content_writer", "display_name": "Writer", "goal": "Write", "body": ""},
             skill_name="copywriting",
@@ -62,8 +68,43 @@ def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
 
     assert result.runtime_backend == "codex_cli"
     assert result.error is None
-    assert "# Done" in result.text
+    assert result.deferred is True
+    assert result.runtime_session_id == "thread-async-1"
     assert result.files
+
+
+def test_codex_cli_workdirs_accept_target_project_marker(tmp_path):
+    product_repo = tmp_path / "product"
+    product_repo.mkdir()
+    output_dir = tmp_path / "roles" / "dev_rel" / "outputs" / "task-2"
+
+    cwd, add_dirs = _codex_workdirs(
+        "## Step\nTarget project: "
+        + str(product_repo)
+        + "\nMore context here",
+        tmp_path,
+        output_dir,
+    )
+
+    assert cwd == product_repo.resolve()
+    assert tmp_path.resolve() in add_dirs
+
+
+def test_codex_cli_workdirs_accept_target_project_marker_with_context_prefix(tmp_path):
+    product_repo = tmp_path / "product"
+    product_repo.mkdir()
+    output_dir = tmp_path / "roles" / "dev_rel" / "outputs" / "task-7"
+
+    cwd, add_dirs = _codex_workdirs(
+        "- Project Context: Target project path: "
+        + str(product_repo)
+        + "\n- Capability Contract: git_write=yes",
+        tmp_path,
+        output_dir,
+    )
+
+    assert cwd == product_repo.resolve()
+    assert tmp_path.resolve() in add_dirs
 
 
 def test_get_task_runtime_returns_codex_cli_runtime(monkeypatch, tmp_path):
@@ -129,3 +170,97 @@ def test_codex_cli_timeout_returns_structured_error(tmp_path):
     assert result.exit_code == 124
     assert "timed out after 45s" in result.stderr
     assert "partial stdout" in result.stdout
+
+
+def test_codex_cli_parses_jsonl_thread_and_final_message(tmp_path):
+    with patch("server.services.codex_cli.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["codex", "exec"],
+            returncode=0,
+            stdout="\n".join(
+                [
+                    '{"type":"thread.started","thread_id":"thread-123"}',
+                    '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}',
+                ]
+            ),
+            stderr="",
+        )
+        result = run_codex_exec(
+            prompt="do work",
+            cwd=tmp_path,
+            output_path=None,
+            model="gpt-5-codex",
+            timeout=45,
+        )
+
+    assert result.exit_code == 0
+    assert result.thread_id == "thread-123"
+    assert result.text == "done"
+    assert result.json_event_count == 2
+
+
+def test_codex_cli_task_runtime_uses_compact_prompt_packet(tmp_path):
+    runtime = CodexCLITaskRuntime(project_root=tmp_path)
+    captured: dict[str, str] = {}
+
+    def _fake_start_codex_exec_async(*, prompt: str, output_dir: Path, **kwargs):
+        captured["prompt"] = prompt
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return CodexAsyncExecResult(
+            command=["codex", "exec", "--json"],
+            output_path=output_dir / "output.md",
+            stdout_path=output_dir / "codex.stdout.jsonl",
+            stderr_path=output_dir / "codex.stderr.log",
+            state_path=output_dir / "codex.state.json",
+            metadata_path=output_dir / "metadata.json",
+            prompt_path=output_dir / "prompt.md",
+            pid=222,
+            thread_id="thread-compact",
+        )
+
+    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+        result = runtime.execute(
+            persona={
+                "role": "developer",
+                "display_name": "Developer",
+                "goal": "Fix the gateway",
+                "body": "Long persona guidance that should be compacted for codex runtime.",
+            },
+            skill_name="__direct_execution__",
+            task_description="\n".join(
+                [
+                    "## Step",
+                    "[workflow_step:implementation] Fix gateway readiness",
+                    "Requirement #3: Repair readiness endpoint",
+                    "",
+                    "## Project Context",
+                    "Target project path: /Users/cliff/workspace/agent/Synapse-Network",
+                    "IMPORTANT: Write actual source code files in the target project, not just documentation.",
+                    "",
+                    "## Capability Contract",
+                    "- git_write: allowed",
+                    "",
+                    "## Suggested File Scope",
+                    "- services/gateway/src/app.py",
+                    "- services/gateway/tests/unit/test_gateway_readiness_endpoint_unit.py",
+                    "",
+                    "## Done When",
+                    "Endpoint works and tests pass.",
+                    "",
+                    "## Validation Contract",
+                    "Run focused gateway readiness checks.",
+                ]
+            ),
+            output_dir=tmp_path / "roles" / "developer" / "outputs" / "task-compact",
+        )
+
+    prompt = captured["prompt"]
+    assert "# Goal" in prompt
+    assert "# Context" in prompt
+    assert result.deferred is True
+    assert result.runtime_session_id == "thread-compact"
+    assert "# Constraints" in prompt
+    assert "# Done When" in prompt
+    assert "services/gateway/src/app.py" in prompt
+    assert "## Skill Instructions" not in prompt
+    assert result.runtime_session_id == "thread-compact"

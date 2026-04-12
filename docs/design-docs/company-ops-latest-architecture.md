@@ -87,7 +87,86 @@
 1. planner full-plan 会通过 `CodexCLIProvider` 调 `codex exec`
 2. task runtime 会通过 `CodexCLITaskRuntime` 调 `codex exec`
 3. task 执行会把 `cwd / add_dirs / command / exit_code / stderr` 写入 `metadata.json`
-4. 这是同步 backend，不依赖 detached monitor
+4. execution 已升级成 detached backend，并由独立 monitor 负责状态同步与 resume recovery
+
+## 1.0B Codex Session Reuse And Recovery Contract
+
+当前 `codex_cli` 不再把 session 复用理解成“每个 role 永远固定一个 thread”。
+
+系统采用的是 scoped session reuse：
+
+1. 复用范围 = `role_key + primary_project_root + requirement lineage`
+2. 只有在同一角色、同一主项目、同一 requirement 链内，才允许复用已有 Codex thread
+3. 跨项目、跨 requirement、长时间 idle、或已进入异常状态的 thread 不会继续复用
+
+这样做的原因是：
+
+1. 避免不同需求互相污染上下文
+2. 避免旧仓库状态和旧文件范围残留到新任务
+3. 避免单个坏 session 拖垮整条角色链
+
+### session registry
+
+当前新增了 `codex_sessions` 注册表，用于持久化：
+
+1. `session_key`
+2. `role_key`
+3. `project_root`
+4. `requirement_id`
+5. `workflow_run_id`
+6. `current_task_id`
+7. `thread_id`
+8. `status`
+9. `last_used_at`
+10. `last_heartbeat_at`
+11. `resume_count`
+
+session registry 的职责是：
+
+1. 给下一步任务提供可复用 thread
+2. 给 monitor 提供 heartbeat / resume / stale 判定依据
+3. 给 incident / telemetry / company review 提供运行时证据
+
+### detached execution + monitor
+
+当前 `codex_cli` 的 task execution 已改成 detached 模式：
+
+1. task runtime 使用 `codex exec` 或 `codex exec resume`
+2. 通过 `subprocess.Popen` 启动后台子进程
+3. `stdout/stderr/state/output/prompt` 都落到 task output dir
+4. task 先进入 `running`
+5. 独立的 `CodexCLITaskMonitor` 轮询 task 状态并收口
+
+monitor 当前会：
+
+1. 解析 `--json` 事件流，提取 `thread_id`
+2. 根据 `pid / state file / output.md / stdout.jsonl` 判断是否完成
+3. 更新 `runtime_session_id`
+4. 在 timeout 或长期无进展时尝试 `codex exec resume <thread_id>`
+5. resume 达到上限或没有可恢复 thread 时，暂停 task/requirement
+
+### timeout / stall fallback
+
+当前 fallback 顺序是：
+
+1. 正常完成 -> task completed
+2. 运行超时或长期无 heartbeat -> terminate current pid
+3. 如果已有 `thread_id` 且未超过 `resume_max_attempts` -> 自动 `resume`
+4. 如果没有 `thread_id` 或 resume 已耗尽 -> pause requirement，进入人工/incident 路径
+
+### prompt contract
+
+为了降低 token 和 CLI 上下文体积，`codex_cli` 的 task prompt 统一收敛成 Markdown packet：
+
+1. `Role`
+2. `Goal`
+3. `Context`
+4. `Constraints`
+5. `Done When`
+6. `Execution Rules`
+
+不再把完整 requirement / 全量 artifact / 大段 boilerplate 直接塞给 Codex。  
+planner 只有在 full-plan 结构化输出时才要求 strict JSON；普通 task execution 统一走精简 Markdown。
 
 推荐配置键：
 
@@ -1550,3 +1629,43 @@ requirement 支持：
    3. 关键聚合物化
 
 如果这些做完后仍然因为并发、锁竞争、后台线程和多用户访问带来压力，再进入 PostgreSQL 是顺理成章的下一步。
+
+## 7. Codex CLI Runtime Contract
+
+当前 `codex_cli` 运行时采用的是非交互 `exec` 模式，不是 TUI 会话模式。
+
+服务和 Codex CLI 的通讯机制是：
+
+1. Synapse 生成一个精简 Markdown task packet。
+2. 用 stdin 把 task packet 发送给 `codex exec -`。
+3. 运行参数固定在低摩擦自动执行模式：
+   1. `--full-auto`
+   2. `--json`
+   3. `--output-last-message`
+   4. `-C <working-root>`
+   5. 必要时追加 `--add-dir <path>`
+4. Codex 在 stdout 输出 JSONL 事件，服务解析其中的：
+   1. `thread.started`
+   2. `item.completed`
+5. 最终消息也会通过 `--output-last-message` 落到输出文件。
+
+这意味着当前系统已经具备：
+
+1. `runtime_session_id` 可记录 Codex thread id
+2. 超时时尽量保留 stdout / stderr / thread id
+3. 任务输出与运行元数据都能回写到 task output 目录
+
+当前 prompt 也已经做了瘦身，只保留 4 类核心信息：
+
+1. `Goal`
+2. `Context`
+3. `Constraints`
+4. `Done When`
+
+并优先注入 `Suggested File Scope`，避免 Codex 在大仓里做无边界探索。
+
+下一步更稳的增强方向是：
+
+1. 为 codex thread 增加 monitor / heartbeat
+2. timeout 后用 `codex exec resume <thread_id>` 做恢复
+3. 把运行中 JSONL 事件持续回写到 task logs，而不是只在完成后统一入库

@@ -51,6 +51,8 @@ def setup_db():
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
         "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
     ), patch(
+        "server.main.config.CODEX_CLI_MONITOR_ENABLED", False
+    ), patch(
         "server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False
     ):
         yield

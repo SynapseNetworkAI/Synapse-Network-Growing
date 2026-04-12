@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from server import config
-from server.services.codex_cli import run_codex_exec
+from server.services.codex_cli import run_codex_exec, start_codex_exec_async
 from server.services.copilot_sdk_state import copilot_runtime_paths
 from server.services.context_loader import load_context
 from server.services.crew_engine import CrewEngine
@@ -21,6 +21,18 @@ from server.services.skill_loader import load_skill
 
 logger = logging.getLogger("ops-dashboard.task_runtime")
 _E2E_REQUIREMENT_TEST_ATTEMPTS: dict[int, int] = {}
+_CODEX_SECTION_TITLES = {
+    "step",
+    "project context",
+    "capability contract",
+    "done when",
+    "execution guidance",
+    "suggested file scope",
+    "implementation plan",
+    "validation contract",
+    "delivery contract",
+    "stale memory verification",
+}
 
 
 @dataclass
@@ -43,6 +55,7 @@ class TaskExecutionResult:
     runtime_selected_agent: str | None = None
     events: list[RuntimeEvent] = field(default_factory=list)
     deferred: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -87,10 +100,15 @@ def _extract_target_directories(task_description: str, project_root: Path) -> li
     lines = [line.strip() for line in str(task_description or "").splitlines()]
     candidates: list[Path] = []
     capture = False
+    inline_target_pattern = re.compile(
+        r"(?:^|.*?)(?:\*\*)?Target project(?: path)?:(?:\*\*)?\s*(.+)$",
+        re.IGNORECASE,
+    )
     for line in lines:
-        if line.startswith("Target project path:"):
+        matched_inline = inline_target_pattern.match(line)
+        if matched_inline is not None:
             capture = True
-            suffix = line.split("Target project path:", 1)[1].strip()
+            suffix = matched_inline.group(1).strip()
             if suffix:
                 maybe = _normalize_target_path_token(suffix)
                 if maybe is not None:
@@ -141,6 +159,93 @@ def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
         seen.add(key)
         result.append(path.resolve())
     return result
+
+
+def _truncate_for_codex(text: str, limit: int) -> str:
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _compact_persona_for_codex(persona: dict[str, Any]) -> str:
+    display_name = str(persona.get("display_name") or persona.get("role") or "Agent").strip()
+    goal = str(persona.get("goal") or "").strip()
+    body = _truncate_for_codex(str(persona.get("body") or "").strip(), config.CODEX_CLI_PERSONA_CHAR_LIMIT)
+    lines = [f"{display_name}"]
+    if goal:
+        lines.append(f"Goal: {goal}")
+    if body:
+        lines.append(body)
+    return "\n".join(lines).strip()
+
+
+def _parse_markdown_sections(markdown: str) -> list[tuple[str, str]]:
+    sections: list[tuple[str, str]] = []
+    current_title = ""
+    current_lines: list[str] = []
+    for raw_line in str(markdown or "").splitlines():
+        if raw_line.startswith("## "):
+            if current_title:
+                sections.append((current_title, "\n".join(current_lines).strip()))
+            current_title = raw_line[3:].strip()
+            current_lines = []
+            continue
+        current_lines.append(raw_line)
+    if current_title:
+        sections.append((current_title, "\n".join(current_lines).strip()))
+    return sections
+
+
+def _compact_codex_task_packet(task_description: str) -> str:
+    section_char_limit = int(config.CODEX_CLI_SECTION_CHAR_LIMIT)
+    prompt_char_limit = int(config.CODEX_CLI_PROMPT_CHAR_LIMIT)
+    sections = _parse_markdown_sections(task_description)
+
+    goal = ""
+    context_blocks: list[str] = []
+    constraint_blocks: list[str] = []
+    done_when = ""
+
+    for title, body in sections:
+        title_key = str(title or "").strip().lower()
+        body_text = str(body or "").strip()
+        if not body_text:
+            continue
+        if title_key == "step" and not goal:
+            lines = [line.strip() for line in body_text.splitlines() if line.strip()]
+            goal = _truncate_for_codex("\n".join(lines[:3]), section_char_limit)
+            continue
+        if title_key in {"project context", "suggested file scope", "implementation plan"}:
+            context_blocks.append(f"### {title}\n{_truncate_for_codex(body_text, section_char_limit)}")
+            continue
+        if title_key in {"capability contract", "execution guidance", "validation contract", "delivery contract", "stale memory verification"}:
+            constraint_blocks.append(f"### {title}\n{_truncate_for_codex(body_text, section_char_limit)}")
+            continue
+        if title_key == "done when" and not done_when:
+            done_when = _truncate_for_codex(body_text, section_char_limit)
+
+    if not goal:
+        goal = _truncate_for_codex(str(task_description or "").strip(), section_char_limit)
+
+    parts = ["# Goal", goal]
+    if context_blocks:
+        parts.extend(["", "# Context", "\n\n".join(context_blocks[:3])])
+    if constraint_blocks:
+        parts.extend(["", "# Constraints", "\n\n".join(constraint_blocks[:4])])
+    if done_when:
+        parts.extend(["", "# Done When", done_when])
+    parts.extend(
+        [
+            "",
+            "# Execution Rules",
+            "- Start with Suggested File Scope and only widen search if blocked.",
+            "- Prefer changing source code in the target project over writing extra docs.",
+            "- Keep edits minimal and verify the changed behavior before finishing.",
+        ]
+    )
+    compact = "\n".join(parts).strip()
+    return _truncate_for_codex(compact, prompt_char_limit)
 
 
 def normalize_copilot_event_type(event_type: str) -> str:
@@ -289,6 +394,7 @@ class BaseTaskRuntime:
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         raise NotImplementedError
 
@@ -305,6 +411,7 @@ class LegacyTaskRuntime(BaseTaskRuntime):
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         result = self.engine.execute(
             persona=persona,
@@ -341,32 +448,35 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         selected_model = runtime_selection.model if runtime_selection else (config.CODEX_CLI_MODEL or config.LLM_MODEL)
         selected_timeout = int(runtime_selection.timeout_seconds or config.CODEX_CLI_TASK_TIMEOUT) if runtime_selection else config.CODEX_CLI_TASK_TIMEOUT
-        instructions = self.prompt_engine._build_system_prompt(persona)
-        user_message = self.prompt_engine._build_user_message(skill_name, task_description, extra_context_files)
+        instructions = _compact_persona_for_codex(persona)
+        task_packet = _compact_codex_task_packet(task_description)
         prompt = "\n\n".join(
             [
                 "# Role",
                 instructions,
                 "# Task Packet",
-                user_message,
+                task_packet,
                 "# Output Contract",
                 "Do the work directly in the target repository when appropriate. Return a concise final report of what changed, what was verified, and any remaining blockers.",
             ]
         )
         resolved_output_dir = (output_dir or (self.project_root / "runtime" / f"codex-task-{int(time.time() * 1000)}")).resolve()
-        output_path = resolved_output_dir / "output.md"
         cwd, add_dirs = _codex_workdirs(task_description, self.project_root, resolved_output_dir)
-        result = run_codex_exec(
+        resume_thread_id = str((session_hint or {}).get("thread_id") or "").strip() or None
+        session_key = str((session_hint or {}).get("session_key") or "").strip() or None
+        launched = start_codex_exec_async(
             prompt=prompt,
             cwd=cwd,
-            output_path=output_path,
+            output_dir=resolved_output_dir,
             model=selected_model,
-            timeout=selected_timeout,
             add_dirs=_dedupe_paths(add_dirs),
+            resume_thread_id=resume_thread_id,
+            append_logs=bool(resume_thread_id),
         )
         metadata = {
             "provider": "codex",
@@ -374,36 +484,41 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             "model": selected_model,
             "cwd": str(cwd),
             "add_dirs": [str(path) for path in _dedupe_paths(add_dirs)],
-            "command": result.command,
-            "stdout": result.stdout[-4000:],
-            "stderr": result.stderr[-4000:],
-            "exit_code": result.exit_code,
+            "command": launched.command,
+            "thread_id": launched.thread_id,
+            "json_event_count": 0,
+            "prompt_chars": len(prompt),
+            "timeout_seconds": selected_timeout,
+            "pid": launched.pid,
+            "state_path": str(launched.state_path),
+            "stdout_path": str(launched.stdout_path),
+            "stderr_path": str(launched.stderr_path),
+            "prompt_path": str(launched.prompt_path),
+            "session_key": session_key or "",
+            "resume_thread_id": resume_thread_id or "",
+            "resume_count": int((session_hint or {}).get("resume_count") or 0),
         }
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
         (resolved_output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
         elapsed = int((time.monotonic() - t0) * 1000)
-        if result.exit_code != 0:
-            error = (result.stderr or result.stdout or result.text or "Codex CLI execution failed").strip()
-            return TaskExecutionResult(
-                text=result.text,
-                files=[output_path] if output_path.exists() else [],
-                error=error[:4000],
-                execution_time_ms=elapsed,
-                model=selected_model,
-                runtime_backend="codex_cli",
-                runtime_provider="codex",
-                events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli model={selected_model} cwd={cwd}")],
-            )
-
         return TaskExecutionResult(
-            text=result.text,
-            files=[output_path] if output_path.exists() else [],
+            text="",
+            files=[launched.output_path],
             execution_time_ms=elapsed,
             model=selected_model,
             runtime_backend="codex_cli",
             runtime_provider="codex",
-            events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli model={selected_model} cwd={cwd}")],
+            runtime_session_id=launched.thread_id,
+            events=[
+                RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli model={selected_model} cwd={cwd}"),
+                RuntimeEvent(
+                    event_type="runtime_session_resumed" if resume_thread_id else "runtime_session_created",
+                    detail=f"thread={resume_thread_id or 'pending-discovery'}",
+                ),
+            ],
+            deferred=True,
+            metadata=metadata,
         )
 
 
@@ -431,6 +546,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         model = runtime_selection.model if runtime_selection else config.COPILOT_SDK_MODEL
@@ -703,6 +819,7 @@ class E2ETaskRuntime(BaseTaskRuntime):
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         del persona, output_dir, extra_context_files, runtime_selection
         requirement_id = _extract_requirement_id(task_description)
@@ -770,6 +887,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
         runtime_selection: RuntimeSelection | None = None,
+        session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         model = runtime_selection.model if runtime_selection else config.LLM_MODEL

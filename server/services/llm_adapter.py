@@ -328,10 +328,11 @@ class CodexCLIProvider(LLMProvider):
         del temperature
         prompt = "\n\n".join(
             [
-                "# System Instructions",
-                system,
-                "# User Request",
-                user,
+                "# Goal",
+                user[:4000].strip(),
+                "# Constraints",
+                system[:2200].strip(),
+                "# Done When",
                 "Return only the final answer content with no surrounding commentary.",
             ]
         )

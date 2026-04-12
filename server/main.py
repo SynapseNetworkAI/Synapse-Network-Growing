@@ -14,6 +14,7 @@ from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs
 from server.services.agent_loader import ensure_agents_loaded
 from server.services.bug_log_scheduler import BugLogSweepScheduler
+from server.services.codex_cli_monitor import CodexCLITaskMonitor
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
@@ -46,6 +47,10 @@ async def lifespan(app: FastAPI):
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
         app.state.copilot_runtime_monitor = monitor
+    elif config.ORCHESTRATION_BACKEND.lower() == "codex_cli" and config.CODEX_CLI_MONITOR_ENABLED:
+        monitor = CodexCLITaskMonitor(project_root=config.PROJECT_ROOT)
+        monitor.start()
+        app.state.codex_runtime_monitor = monitor
     elif config.ORCHESTRATION_BACKEND.lower() == "openai_responses" and config.OPENAI_RESPONSES_MONITOR_ENABLED:
         monitor = OpenAIResponsesTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()

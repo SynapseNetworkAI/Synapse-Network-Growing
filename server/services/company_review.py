@@ -125,6 +125,7 @@ def _aggregate_runtime_metrics(
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     overall = _empty_runtime_metric_bucket()
     per_project: dict[str, dict[str, Any]] = defaultdict(_empty_runtime_metric_bucket)
+    requirement_by_task_id: dict[int, RequirementRow] = {}
 
     scoped_requirements = [req for req in requirements.values() if str(req.status or "") != "deleted"]
     for requirement in scoped_requirements:
@@ -134,9 +135,14 @@ def _aggregate_runtime_metrics(
             if str(requirement.status or "") == "done":
                 per_project[project_key]["completed_requirements"] += 1
 
+    for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.compatibility_task_id.isnot(None)).all():
+        task_id = int(step.compatibility_task_id or 0)
+        requirement = requirements.get(int(step.requirement_id or 0))
+        if task_id > 0 and requirement is not None:
+            requirement_by_task_id[task_id] = requirement
+
     for task in db.query(TaskRow).all():
-        requirement_id = int(task.requirement_id or 0)
-        requirement = requirements.get(requirement_id)
+        requirement = requirement_by_task_id.get(int(task.id or 0))
         if requirement is None:
             continue
         budget_cost = int(task.budget_cost_points or 0)

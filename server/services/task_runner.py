@@ -9,8 +9,10 @@ from typing import Any, cast
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND, E2E_SYNC_DISPATCH
 from server.services.copilot_sdk_state import task_output_dir
+from server.services.codex_session_registry import find_reusable_session, upsert_session_launch
 from server.services.task_runtime import (
     RuntimeEvent,
+    _codex_workdirs,
     estimate_runtime_budget_points,
     get_task_runtime,
     resolve_runtime_selection,
@@ -108,6 +110,31 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
 
         # Parse context_files from task (JSON list stored as text)
         extra_files = _load_task_context_files(task)
+        session_hint: dict[str, Any] | None = None
+        if selection.backend == "codex_cli":
+            requirement_id = None
+            workflow_run_id = None
+            if task.workflow_steps:
+                first_step = task.workflow_steps[0]
+                requirement_id = int(getattr(cast(Any, first_step), "requirement_id", 0) or 0) or None
+                workflow_run_id = int(getattr(cast(Any, first_step), "workflow_run_id", 0) or 0) or None
+            cwd, _ = _codex_workdirs(_task_str(task, "description") or "", PROJECT_ROOT, output_dir)
+            reusable = find_reusable_session(
+                db,
+                role_key=str(role_id),
+                project_root=str(cwd),
+                requirement_id=requirement_id,
+            )
+            session_hint = {
+                "role_key": str(role_id),
+                "project_root": str(cwd),
+                "requirement_id": requirement_id,
+                "workflow_run_id": workflow_run_id,
+            }
+            if reusable is not None:
+                session_hint["session_key"] = reusable.session_key
+                session_hint["thread_id"] = str(reusable.thread_id or "")
+                session_hint["resume_count"] = int(reusable.resume_count or 0)
 
         runtime = get_task_runtime(PROJECT_ROOT, backend=selection.backend)
         result = runtime.execute(
@@ -117,6 +144,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             output_dir=output_dir,
             extra_context_files=extra_files,
             runtime_selection=selection,
+            session_hint=session_hint,
         )
 
         cast(Any, task).runtime_backend = result.runtime_backend
@@ -132,6 +160,19 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         cast(Any, task).runtime_session_id = result.runtime_session_id
         cast(Any, task).runtime_selected_agent = result.runtime_selected_agent
         _persist_runtime_events(db, task_id, result.events)
+        if selection.backend == "codex_cli" and session_hint is not None:
+            upsert_session_launch(
+                db,
+                role_key=str(session_hint.get("role_key") or role_id),
+                project_root=str(session_hint.get("project_root") or PROJECT_ROOT),
+                requirement_id=session_hint.get("requirement_id"),
+                workflow_run_id=session_hint.get("workflow_run_id"),
+                task_id=task_id,
+                thread_id=result.runtime_session_id,
+                status="active" if result.deferred else ("completed" if not result.error else "failed"),
+                resume_count=int((result.metadata or {}).get("resume_count") or 0),
+                metadata=result.metadata or {},
+            )
 
         # Write results back to DB
         cast(Any, task).output_content = result.text

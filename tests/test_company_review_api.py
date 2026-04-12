@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.company_review import refresh_company_operating_review
 
 
@@ -24,6 +24,59 @@ def test_company_review_refresh_serializes_workflow_ritual_datetimes(synced_clie
     review = refresh_company_operating_review(db_session)
     payload = json.loads(review.payload_json)
     assert payload["source_snapshot"]["workflow_rituals"]["morning_intake_sweep"]["last_run_at"] is not None
+
+
+def test_company_review_refresh_maps_runtime_metrics_via_workflow_step_task_link(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Gateway bug follow-up",
+        description_markdown="Fix runtime bug",
+        status="done",
+        priority="high",
+        source="bug_intake",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+
+    run = WorkflowRunRow(
+        requirement_id=requirement.id,
+        plan_version=1,
+        status="completed",
+        triggered_by="system",
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    task = TaskRow(
+        description="Implement bug fix",
+        agent_id="seo_strategist",
+        status="completed",
+        runtime_backend="codex_cli",
+        runtime_model="gpt-5-codex",
+        tokens_used=321,
+        budget_cost_points=17,
+    )
+    db_session.add(task)
+    db_session.flush()
+
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implement fix",
+        status="completed",
+        sequence_no=1,
+        compatibility_task_id=task.id,
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    review = refresh_company_operating_review(db_session)
+    payload = json.loads(review.payload_json)
+    assert payload["portfolio_summary"]["budget_spent_points"] >= 17
+    assert payload["portfolio_summary"]["tokens_used"] >= 321
 
 
 def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(synced_client, db_session):

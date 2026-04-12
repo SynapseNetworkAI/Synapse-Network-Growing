@@ -2659,7 +2659,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
         task = db.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
         if task is not None:
             skill_name = _resolve_step_skill(db, step)
-            persona = _load_full_persona(step.assigned_agent_id or "")
+            persona = _execution_persona_for_step(db, step)
             return task, persona, skill_name
 
     agent = db.query(AgentRow).filter(AgentRow.id == step.assigned_agent_id).first()
@@ -2669,7 +2669,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
     project_id, agent_group = task_metadata_for_agent(str(agent.group))
     description = prepared_description or _step_task_description(db, step)
     suggestion = suggest_task_execution(db, description=description, preferred_agent_id=str(agent.id))
-    skill_name = suggestion.skill_name or "content-strategy"
+    skill_name = _resolve_step_skill(db, step, prepared_description=description) or suggestion.skill_name or "content-strategy"
     from server.services.task_runtime import resolve_runtime_selection
 
     selection = resolve_runtime_selection(
@@ -2694,7 +2694,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
     db.flush()
     db.add(TaskLogRow(task_id=task.id, event_type="created", detail=description))
     db.add(TaskLogRow(task_id=task.id, event_type="started", detail=f"workflow_step={step.id} skill={skill_name}"))
-    persona = _load_full_persona(str(agent.id))
+    persona = _execution_persona_for_step(db, step)
     return task, persona, skill_name
 
 
@@ -2826,6 +2826,134 @@ def _prompt_cache_profile_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _binding_relevant_for_step(step: WorkflowStepRow, binding: StepInputBindingRow, artifact: ArtifactRow) -> bool:
+    step_type = str(step.step_type or "").strip().lower()
+    purpose = str(getattr(binding, "purpose", "") or "").strip().lower()
+    artifact_type = str(artifact.artifact_type or "").strip().lower()
+
+    if step_type == "research":
+        if purpose in {"delivery_contract", "validation_contract", "review_context", "test_context"}:
+            return False
+        if artifact_type in {"implementation_plan", "delivery_contract", "validation_plan", "review_report", "test_report"}:
+            return False
+    elif step_type == "synthesis":
+        if purpose in {"delivery_contract", "validation_contract", "review_context", "test_context"}:
+            return False
+        if artifact_type in {"implementation_plan", "delivery_contract", "validation_plan", "review_report", "test_report"}:
+            return False
+    elif step_type in {"implementation", "bugfix"}:
+        if purpose in {"delivery_contract", "validation_contract", "review_context", "test_context"}:
+            return False
+        if artifact_type in {"delivery_contract", "validation_plan", "review_report", "test_report"}:
+            return False
+    if step_type == "synthesis" and artifact_type == "research_report":
+        return False
+    if step_type in {"implementation", "bugfix"} and artifact_type == "synthesis_report":
+        return False
+
+    return True
+
+
+def _step_execution_guidance(step: WorkflowStepRow) -> str:
+    step_type = str(step.step_type or "").strip().lower()
+    if step_type == "research":
+        return "\n".join(
+            [
+                "- Limit exploration to the highest-signal files only; avoid broad repo surveys.",
+                "- Stop once you have a plausible root cause, 3-6 relevant files, and concrete implementation options.",
+                "- Do not edit production code in this step.",
+            ]
+        )
+    if step_type == "synthesis":
+        return "\n".join(
+            [
+                "- Build the execution plan from the research findings; do not re-scan large unrelated parts of the repo.",
+                "- Only inspect extra files when they are strictly needed to finalize sequencing or validation.",
+                "- Do not edit production code in this step.",
+            ]
+        )
+    if step_type in {"implementation", "bugfix"}:
+        return "\n".join(
+            [
+                "- Keep changes tightly scoped to the target project and files already identified by research/synthesis unless new evidence requires expansion.",
+                "- Prefer minimal diffs that directly satisfy the stated goal and validation contract.",
+            ]
+        )
+    return ""
+
+
+def _step_includes_predecessor_handoff(step: WorkflowStepRow) -> bool:
+    step_type = str(step.step_type or "").strip().lower()
+    if step_type in {"implementation", "bugfix"}:
+        return False
+    return True
+
+
+def _normalize_file_hint(path_hint: str) -> str | None:
+    value = str(path_hint or "").strip().strip("`").strip()
+    if not value:
+        return None
+    value = value.split("#L", 1)[0]
+    if ":" in value:
+        prefix, suffix = value.rsplit(":", 1)
+        if suffix.isdigit() or ("-" in suffix and suffix.replace("-", "").isdigit()):
+            value = prefix
+    value = value.strip()
+    if "/" not in value:
+        return None
+    return value or None
+
+
+def _extract_file_hints_from_text(markdown: str, *, limit: int = 6) -> list[str]:
+    text = str(markdown or "")
+    hints: list[str] = []
+    seen: set[str] = set()
+    for match in re.findall(r"`([^`]+)`", text):
+        normalized = _normalize_file_hint(match)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        hints.append(normalized)
+        if len(hints) >= limit:
+            return hints
+    for match in re.findall(r"\b[\w./-]+\.[A-Za-z0-9_]+\b", text):
+        normalized = _normalize_file_hint(match)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        hints.append(normalized)
+        if len(hints) >= limit:
+            return hints
+    return hints
+
+
+def _step_relevant_file_hints(db: Session, step: WorkflowStepRow, *, limit: int = 6) -> list[str]:
+    step_type = str(step.step_type or "").strip().lower()
+    if step_type not in {"implementation", "bugfix", "review", "test"}:
+        return []
+    requirement_id = _as_int(step.requirement_id)
+    artifact_types = ["research_report", "synthesis_report", "implementation_plan"]
+    hints: list[str] = []
+    seen: set[str] = set()
+    for artifact_type in artifact_types:
+        artifact = _latest_artifact(db, requirement_id, artifact_type)
+        if not artifact:
+            continue
+        bodies = [
+            str(getattr(artifact, "human_readable_body", "") or ""),
+            str(getattr(artifact, "content_summary", "") or ""),
+        ]
+        for body in bodies:
+            for hint in _extract_file_hints_from_text(body, limit=limit):
+                if hint in seen:
+                    continue
+                seen.add(hint)
+                hints.append(hint)
+                if len(hints) >= limit:
+                    return hints
+    return hints
+
+
 def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
     requirement = _require_requirement(db, step.requirement_id)
     target_path = _effective_target_project_path(db, requirement, step_type=str(step.step_type or ""))
@@ -2858,18 +2986,31 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
         sections.append({"kind": "capability", "title": "Capability Contract", "body": "\n".join(capability_lines)})
 
     sections.append({"kind": "done_when", "title": "Done When", "body": str(step.done_when_markdown or "").strip()})
+    execution_guidance = _step_execution_guidance(step)
+    if execution_guidance:
+        sections.append({"kind": "guidance", "title": "Execution Guidance", "body": execution_guidance})
+    relevant_files = _step_relevant_file_hints(db, step)
+    if relevant_files:
+        sections.append(
+            {
+                "kind": "file_hints",
+                "title": "Suggested File Scope",
+                "body": "\n".join(f"- {path}" for path in relevant_files),
+            }
+        )
 
-    deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
-    for dep in deps:
-        pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
-        if pred and pred.handoff_summary_markdown:
-            sections.append(
-                {
-                    "kind": "handoff",
-                    "title": f"Prior Step: {pred.title}",
-                    "body": _truncate_text(str(pred.handoff_summary_markdown), max_handoff_chars),
-                }
-            )
+    if _step_includes_predecessor_handoff(step):
+        deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
+        for dep in deps:
+            pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
+            if pred and pred.handoff_summary_markdown:
+                sections.append(
+                    {
+                        "kind": "handoff",
+                        "title": f"Prior Step: {pred.title}",
+                        "body": _truncate_text(str(pred.handoff_summary_markdown), max_handoff_chars),
+                    }
+                )
 
     binding_summaries: list[dict[str, Any]] = []
     seen_binding_keys: set[str] = set()
@@ -2879,6 +3020,8 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
     for binding in bindings:
         artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
         if not artifact:
+            continue
+        if not _binding_relevant_for_step(step, binding, artifact):
             continue
         title, body = _format_artifact_for_context(artifact)
         truncated_body = _truncate_text(body, max_artifact_body_chars)
@@ -2968,6 +3111,10 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
         for item in context_policy.get("stale_sensitive_artifact_types") or []
         if str(item).strip()
     }
+    lineage_only_types = {
+        "requirement_snapshot",
+        "implementation_plan",
+    }
     stale_findings: list[str] = []
     for binding in binding_summaries:
         artifact_type = str(binding.get("artifact_type") or "")
@@ -2975,6 +3122,8 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
         workflow_run_id = int(binding.get("workflow_run_id") or 0)
         if workflow_run_id and workflow_run_id != int(step.workflow_run_id):
             stale_findings.append(f"{artifact_type} comes from workflow run #{workflow_run_id}, not the active run #{step.workflow_run_id}")
+            continue
+        if artifact_type in lineage_only_types:
             continue
         if artifact_type in stale_sensitive_types and created_at is not None and cutoff is not None and created_at < cutoff:
             stale_findings.append(
@@ -3116,13 +3265,18 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
         parts.append("\n## Capability Contract")
         parts.extend(capability_lines)
     parts.append(f"\n## Done When\n{step.done_when_markdown}")
+    relevant_files = _step_relevant_file_hints(db, step)
+    if relevant_files:
+        parts.append("\n## Suggested File Scope")
+        parts.extend(f"- {path}" for path in relevant_files)
 
     # Include handoff summaries from completed predecessor steps (Markdown, not raw JSON)
-    deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
-    for dep in deps:
-        pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
-        if pred and pred.handoff_summary_markdown:
-            parts.append(f"\n## Prior Step: {pred.title}\n{pred.handoff_summary_markdown}")
+    if _step_includes_predecessor_handoff(step):
+        deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
+        for dep in deps:
+            pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
+            if pred and pred.handoff_summary_markdown:
+                parts.append(f"\n## Prior Step: {pred.title}\n{pred.handoff_summary_markdown}")
 
     # Include bound input artifacts — convert plan JSONs to concise Markdown summaries
     bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
@@ -3287,10 +3441,66 @@ def _delivery_contract_artifact_to_markdown(artifact: ArtifactRow) -> str:
     return _delivery_contract_markdown(payload)
 
 
-def _resolve_step_skill(db: Session, step: WorkflowStepRow) -> str:
-    description = _step_task_description(db, step)
+def _resolve_step_skill(db: Session, step: WorkflowStepRow, *, prepared_description: str | None = None) -> str:
+    if _step_prefers_engineering_contract(db, step):
+        return "__direct_execution__"
+    description = prepared_description or _step_task_description(db, step)
     suggestion = suggest_task_execution(db, description=description, preferred_agent_id=step.assigned_agent_id)
     return suggestion.skill_name or "content-strategy"
+
+
+def _step_prefers_engineering_contract(db: Session, step: WorkflowStepRow) -> bool:
+    requirement = _require_requirement(db, step.requirement_id)
+    step_type = str(step.step_type or "").strip().lower()
+    done_when = str(step.done_when_markdown or "").strip().lower()
+    title = str(requirement.title or "").strip().lower()
+    source = str(requirement.source or "").strip().lower()
+    if "scope: only produce documentation" in done_when:
+        return False
+    if step_type in {"implementation", "bugfix", "review", "test", "closeout"}:
+        return True
+    if source in {"bug_intake", "bugfix_circuit_breaker"}:
+        return step_type in {"research", "synthesis"}
+    if title.startswith("bug fix:") or title.startswith("incident recovery:") or title.startswith("infra incident:"):
+        return step_type in {"research", "synthesis"}
+    return False
+
+
+def _engineering_execution_persona(step: WorkflowStepRow) -> dict[str, Any]:
+    role_id = str(step.assigned_agent_id or "engineering_executor")
+    step_type = str(step.step_type or "").strip().lower()
+    goal = {
+        "research": "Investigate the codebase like a senior software engineer and isolate the likely root cause quickly.",
+        "synthesis": "Turn the current research into a concrete implementation and verification plan for engineers.",
+        "implementation": "Implement the smallest safe code change that fixes the issue and keeps verification in view.",
+        "bugfix": "Apply a focused fix for the failed validation path and preserve the delivery contract.",
+        "review": "Review the code and verification evidence like a pragmatic engineering reviewer.",
+        "test": "Run targeted technical validation and confirm the failure path is closed.",
+        "closeout": "Summarize the engineering outcome, changed files, and validation evidence succinctly.",
+    }.get(step_type, "Execute this software delivery step like a pragmatic senior engineer.")
+    body = "\n".join(
+        [
+            "You are operating in engineering execution mode.",
+            "Ignore any growth, SEO, launch, or marketing framing that may come from the stored role assignment.",
+            "Prioritize repository evidence, minimal diffs, concrete verification, and closing the stated software issue.",
+            "When the step allows edits, make real source-code or test changes in the target project instead of only producing documentation.",
+            "When the step is research or synthesis, avoid broad repo tours and stop once you have enough evidence to move the workflow forward.",
+        ]
+    )
+    return {
+        "role": role_id,
+        "id": role_id,
+        "display_name": "Engineering Executor",
+        "goal": goal,
+        "skills": [],
+        "body": body,
+    }
+
+
+def _execution_persona_for_step(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
+    if _step_prefers_engineering_contract(db, step):
+        return _engineering_execution_persona(step)
+    return _load_full_persona(step.assigned_agent_id or "")
 
 
 def _dependencies_satisfied(db: Session, step_id: int) -> bool:
