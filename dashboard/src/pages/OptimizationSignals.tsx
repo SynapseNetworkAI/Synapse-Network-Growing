@@ -15,8 +15,10 @@ const severityClass: Record<string, string> = {
 
 export default function OptimizationSignals() {
   const navigate = useNavigate()
+  const PAGE_SIZE = 10
   const [signals, setSignals] = useState<OptimizationSignal[]>([])
   const [status, setStatus] = useState('open')
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -34,7 +36,12 @@ export default function OptimizationSignals() {
       const data = refresh
         ? await api.refreshOptimizationSignals()
         : await api.getOptimizationSignals(status || undefined)
-      setSignals(status ? data.filter((signal) => signal.status === status) : data)
+      const nextSignals = status ? data.filter((signal) => signal.status === status) : data
+      setSignals(nextSignals)
+      setPage((currentPage) => {
+        const totalPages = Math.max(1, Math.ceil(nextSignals.length / PAGE_SIZE))
+        return Math.min(currentPage, totalPages)
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : '无法加载优化信号'
       setSignals([])
@@ -48,6 +55,13 @@ export default function OptimizationSignals() {
   useEffect(() => {
     load().catch(() => {})
   }, [status])
+
+  useEffect(() => {
+    setPage(1)
+  }, [status])
+
+  const totalPages = Math.max(1, Math.ceil(signals.length / PAGE_SIZE))
+  const pagedSignals = signals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   if (loading) {
     return <div data-testid="optimization-signals-loading" className="rounded-xl border bg-white p-6 text-sm text-gray-500">正在加载优化信号…</div>
@@ -114,7 +128,7 @@ export default function OptimizationSignals() {
       )}
 
       <div className="grid gap-4">
-        {signals.map((signal) => (
+        {pagedSignals.map((signal) => (
           <div key={signal.id} data-testid={`optimization-signal-card-${signal.id}`} className="rounded-xl border bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -209,6 +223,33 @@ export default function OptimizationSignals() {
           </div>
         ))}
       </div>
+
+      {signals.length > PAGE_SIZE && (
+        <div data-testid="optimization-signals-pagination" className="flex items-center justify-between pt-1 text-xs text-gray-500">
+          <span>{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, signals.length)} / {signals.length} 条信号</span>
+          <div className="flex items-center gap-1">
+            <button
+              className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
+              disabled={page === 1}
+              onClick={() => setPage((currentPage) => currentPage - 1)}
+            >‹ 上一页</button>
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+              <button
+                key={pageNumber}
+                className={`rounded border px-2.5 py-1 ${
+                  pageNumber === page ? 'border-blue-600 bg-blue-600 text-white' : 'hover:bg-gray-50'
+                }`}
+                onClick={() => setPage(pageNumber)}
+              >{pageNumber}</button>
+            ))}
+            <button
+              className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
+              disabled={page === totalPages}
+              onClick={() => setPage((currentPage) => currentPage + 1)}
+            >下一页 ›</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

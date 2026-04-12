@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import OptimizationSignals from '../src/pages/OptimizationSignals'
 
@@ -63,6 +63,18 @@ const SIGNALS = [
   },
 ]
 
+function makeSignal(id: number) {
+  return {
+    ...SIGNALS[0],
+    id,
+    title: `Signal ${id}`,
+    dedupe_key: `signal-${id}`,
+    latest_evidence_at: `2026-04-11T12:${String(id).padStart(2, '0')}:00Z`,
+    created_at: `2026-04-11T12:${String(id).padStart(2, '0')}:00Z`,
+    updated_at: `2026-04-11T12:${String(id).padStart(2, '0')}:00Z`,
+  }
+}
+
 describe('OptimizationSignals', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -124,6 +136,34 @@ describe('OptimizationSignals', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('optimization-signals-error')).toHaveTextContent('Request timed out after 12s')
+    })
+  })
+
+  it('paginates optimization signals and keeps the current page after refresh', async () => {
+    const manySignals = Array.from({ length: 11 }, (_, index) => makeSignal(index + 1))
+    mockApi.getOptimizationSignals.mockResolvedValue(manySignals)
+    mockApi.refreshOptimizationSignals.mockResolvedValue(manySignals)
+
+    render(<MemoryRouter><OptimizationSignals /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('optimization-signals-pagination')).toBeInTheDocument()
+    })
+
+    const pagination = screen.getByTestId('optimization-signals-pagination')
+    fireEvent.click(within(pagination).getByRole('button', { name: '2' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('11–11 / 11 条信号')).toBeInTheDocument()
+      expect(screen.getByTestId('optimization-signal-card-11')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('optimization-signal-refresh'))
+
+    await waitFor(() => {
+      expect(mockApi.refreshOptimizationSignals).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('11–11 / 11 条信号')).toBeInTheDocument()
+      expect(screen.getByTestId('optimization-signal-card-11')).toBeInTheDocument()
     })
   })
 })
