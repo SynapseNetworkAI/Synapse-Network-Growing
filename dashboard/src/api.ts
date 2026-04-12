@@ -73,6 +73,8 @@ export interface Task {
   execution_time_ms: number | null
   requirement_id: number | null
   requirement_title: string | null
+  workflow_step_type: string | null
+  workflow_step_title: string | null
   output_files: string[] | null
   created_at: string
   started_at: string | null

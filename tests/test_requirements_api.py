@@ -3,10 +3,12 @@ from __future__ import annotations
 """Tests for requirement-first workflow orchestration."""
 from datetime import timedelta
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import server.services.project_intelligence as project_intelligence
 import server.services.portfolio_scheduler as portfolio_scheduler
+import server.services.workflow_orchestrator as workflow_orchestrator
 from server.database import (
     ArtifactRow,
     ProjectOnboardingRow,
@@ -157,6 +159,91 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert closeout.status == "completed"
     assert data["delivery_state"]["publish_status"] == "review_ready"
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
+
+
+def test_code_requirement_prefers_synapse_repo_and_requires_code_delivery_evidence(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Defect Reduction: Synapse-Network API regression",
+            "description_markdown": "修复 Synapse-Network API 缺陷，补回归测试，并验证真实代码已经落到产品仓库。",
+            "priority": "high",
+            "target_project_path": (
+                "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
+                "/Users/cliff/workspace/agent/Synapse-Network"
+            ),
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    class FakeRuntime:
+        def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:research]" in task_description:
+                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network" in task_description
+                return _runtime_result(text="Research report ready.")
+            if "[workflow_step:synthesis]" in task_description:
+                return _runtime_result(text="Synthesis report ready.")
+            if "[workflow_step:implementation]" in task_description:
+                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network" in task_description
+                return _runtime_result(text="Implemented API fix in Synapse-Network.")
+            if "[workflow_step:review]" in task_description:
+                return _runtime_result(text="Review passed.")
+            if "[workflow_step:test]" in task_description:
+                return _runtime_result(text="Validation passed with regression coverage.")
+            return _runtime_result(text="noop")
+
+    def _write_code_snapshot(_db, task, _requirement, step=None):
+        if not task.output_path:
+            task.output_path = f"/tmp/req-{requirement_id}-task-{task.id}/output.md"
+        output_path = Path(str(task.output_path or ""))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        (output_path.parent / "file-changes.json").write_text(
+            json.dumps(
+                {
+                    "changed_files": [
+                        {
+                            "filename": "server/routes/requirements.py",
+                            "additions": 12,
+                            "deletions": 1,
+                            "patch": "@@\n+code\n",
+                        }
+                    ],
+                    "target_project_path": workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                    "all_target_project_paths": [
+                        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                        workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                    ],
+                    "source": "snapshot",
+                    "task_id": int(task.id),
+                    "step_id": int(step.id) if step is not None else None,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ), patch(
+        "server.services.workflow_orchestrator._snapshot_file_changes", side_effect=_write_code_snapshot
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    data = start_resp.json()
+    assert data["requirement"]["status"] == "done"
+    check_statuses = {check["check_key"]: check["status"] for check in data["acceptance_checks"]}
+    assert check_statuses["code_delivery_completed"] == "passed"
+    assert data["requirement"]["target_project_path"].splitlines()[0] == workflow_orchestrator.PRIMARY_GROWING_PROJECT
+    latest_test_artifact = next(
+        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "test_report"
+    )
+    payload = json.loads(latest_test_artifact["machine_readable_payload"])
+    assert payload["runtime_backend"] == "legacy"
 
 
 def test_requirement_bugfix_loop_circuit_breaks_on_repeated_identical_errors(synced_client, db_session):
@@ -397,6 +484,68 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
 
     replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert replan_resp.status_code == 200
+
+
+def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Restartable backend requirement",
+            "description_markdown": "Ship a concrete backend fix with validation.",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    first_run_id = plan_resp.json()["workflow_run"]["id"]
+
+    class RevisionRuntime:
+        def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:review]" in task_description:
+                return _runtime_result(error="Requirement issue: needs revision after first review.")
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "needs_revision"
+    assert start_resp.json()["workflow_run"]["id"] == first_run_id
+
+    revise_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/revise",
+        json={
+            "title": "Restartable backend requirement",
+            "description_markdown": "Ship a concrete backend fix with validation after revision.",
+            "revision_note": "Clarified execution requirements and validation steps.",
+        },
+    )
+    assert revise_resp.status_code == 200
+    revised = revise_resp.json()
+    assert revised["requirement"]["status"] == "ready"
+    assert revised["requirement"]["current_plan_version"] == 0
+    assert revised["requirement"]["active_workflow_run_id"] is None
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="completed")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        restart_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert restart_resp.status_code == 200
+    payload = restart_resp.json()
+    assert payload["requirement"]["status"] == "done"
+    assert payload["workflow_run"]["id"] != first_run_id
+    assert payload["workflow_run"]["plan_version"] == 1
 
 
 def test_start_requirement_auto_plans_unplanned_requirement(synced_client):

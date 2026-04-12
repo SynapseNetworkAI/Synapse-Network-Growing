@@ -95,9 +95,13 @@ def _task_to_out(row: TaskRow) -> TaskOut:
     # Resolve requirement via workflow_steps relationship
     requirement_id = None
     requirement_title = None
+    workflow_step_type = None
+    workflow_step_title = None
     if row.workflow_steps:
         step = row.workflow_steps[0]
         requirement_id = _as_int(step.requirement_id)
+        workflow_step_type = _as_text(step.step_type)
+        workflow_step_title = _as_text(step.title)
         if step.requirement:
             requirement_title = _as_text(step.requirement.title)
 
@@ -126,6 +130,8 @@ def _task_to_out(row: TaskRow) -> TaskOut:
         execution_time_ms=_as_int(row.execution_time_ms),
         requirement_id=requirement_id,
         requirement_title=requirement_title,
+        workflow_step_type=workflow_step_type,
+        workflow_step_title=workflow_step_title,
         output_files=output_files,
         created_at=cast(Any, row.created_at),
         started_at=cast(Any, row.started_at),

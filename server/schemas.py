@@ -56,6 +56,8 @@ class TaskOut(BaseModel):
     execution_time_ms: Optional[int] = None
     requirement_id: Optional[int] = None
     requirement_title: Optional[str] = None
+    workflow_step_type: Optional[str] = None
+    workflow_step_title: Optional[str] = None
     output_files: Optional[list[str]] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None

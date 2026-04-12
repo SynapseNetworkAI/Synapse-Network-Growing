@@ -431,6 +431,72 @@ class TestBuildPlannerOutput:
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
         assert step_keys == ["research", "synthesis", "frontend_impl", "backend_impl", "review", "test", "closeout"]
 
+    def test_docs_only_requirement_does_not_require_product_code(self, synced_client, db_session):
+        req = RequirementRow(
+            title="[ContentWriter] Welcome 邮件序列",
+            description_markdown="为开发者编写三封 onboarding 邮件文案，并输出到 markdown 文档。",
+            target_project_path=(
+                "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
+                "/Users/cliff/workspace/agent/Synapse-Network"
+            ),
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        assert output["delivery_expectation"]["docs_only"] is True
+        assert output["delivery_expectation"]["requires_product_code"] is False
+        assert not any(check["check_key"] == "code_delivery_completed" for check in output["acceptance_checks"])
+        assert output["target_project_path"].splitlines()[0] == "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+
+    def test_code_requirement_reorders_primary_target_and_rejects_docs_only_plan(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Defect Reduction: Synapse-Network bugfix",
+            description_markdown="修复 Synapse-Network API 缺陷并补回归测试，最终要修改产品代码并完成验证。",
+            target_project_path=(
+                "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
+                "/Users/cliff/workspace/agent/Synapse-Network"
+            ),
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": True, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        assert output["extensions"]["planning_mode"] == "phase_detect"
+        assert output["delivery_expectation"]["requires_product_code"] is True
+        assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
+        assert any(check["check_key"] == "code_delivery_completed" for check in output["acceptance_checks"])
+        automated = {check["check_key"]: check for check in output["validation_plan"]["automated_checks"]}
+        assert automated["code_delivery_completed"]["method"] == "repo_file_changes"
+        assert automated["code_delivery_completed"]["required_target_path"] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
+
+    def test_manual_product_requirement_requires_code_delivery_when_target_points_to_product_repo(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Gateway readiness hardening",
+            description_markdown="补齐 readiness 观测和验证闭环，交付到目标产品仓库。",
+            source="manual",
+            target_project_path=(
+                "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
+                "/Users/cliff/workspace/agent/Synapse-Network"
+            ),
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": True}):
+            output, _ = build_planner_output(db_session, req)
+
+        assert output["delivery_expectation"]["docs_only"] is False
+        assert output["delivery_expectation"]["requires_product_code"] is True
+        assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
+        automated = {check["check_key"]: check for check in output["validation_plan"]["automated_checks"]}
+        assert automated["code_delivery_completed"]["method"] == "repo_file_changes"
+        assert automated["code_delivery_completed"]["required_target_path"] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
+
     def test_policy_augments_file_scope(self, synced_client, db_session):
         db_session.add(
             ProjectPolicyRow(
@@ -503,7 +569,11 @@ class TestBuildPlannerOutput:
             output, _ = build_planner_output(db_session, req)
 
         research_step = next(s for s in output["workflow_steps"] if s["step_key"] == "research")
-        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        implementation_step = next(
+            s
+            for s in output["workflow_steps"]
+            if s["step_type"] == "implementation" and s["step_key"] not in {"research", "synthesis"}
+        )
         assert research_step["approval_policy"]["deny_execution"] is True
         assert "shell_access disabled by project capability matrix" in research_step["approval_policy"]["deny_reasons"]
         assert implementation_step["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]

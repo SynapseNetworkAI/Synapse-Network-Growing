@@ -147,12 +147,20 @@ def _select_preferred_workflow_run(db: Session, requirement: RequirementRow) -> 
             if str(run.status) == status:
                 return run
 
-    return runs[0]
+    if str(requirement.status or "") in {"done", "needs_revision"}:
+        for status in ("completed", "failed", "cancelled"):
+            for run in runs:
+                if str(run.status) == status:
+                    return run
+
+    return None
 
 
 def _reconcile_active_workflow_run(db: Session, requirement: RequirementRow) -> WorkflowRunRow | None:
     run = _select_preferred_workflow_run(db, requirement)
     if run is None:
+        if requirement.active_workflow_run_id is not None:
+            requirement.active_workflow_run_id = None
         return None
 
     if requirement.active_workflow_run_id != _as_int(run.id):
@@ -182,18 +190,14 @@ def _clear_role_sessions() -> None:
         _logger.debug("Failed to clear role sessions (non-critical)", exc_info=True)
 
 
-def _snapshot_file_changes(task: TaskRow, requirement: RequirementRow) -> None:
+def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementRow, step: WorkflowStepRow | None = None) -> None:
     """Capture `git diff HEAD` in the target project and save to the task output dir."""
     try:
-        raw_path = str(requirement.target_project_path) if requirement.target_project_path else None
-        # Support multiple paths (newline-separated) — use the first valid directory
-        target_path: str | None = None
-        if raw_path:
-            for line in raw_path.splitlines():
-                candidate = line.strip()
-                if candidate and Path(candidate).is_dir():
-                    target_path = candidate
-                    break
+        target_path = _primary_target_directory(
+            db,
+            requirement,
+            step_type=str(step.step_type or "") if step is not None else None,
+        )
         output_path = str(task.output_path) if task.output_path else None
         if not target_path or not output_path:
             return
@@ -231,9 +235,17 @@ def _snapshot_file_changes(task: TaskRow, requirement: RequirementRow) -> None:
         snapshot = {
             "changed_files": changed_files,
             "target_project_path": target_path,
+            "all_target_project_paths": _split_target_project_paths(
+                _effective_target_project_path(
+                    db,
+                    requirement,
+                    step_type=str(step.step_type or "") if step is not None else None,
+                )
+            ),
             "source": "snapshot",
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "task_id": int(task.id),
+            "step_id": int(step.id) if step is not None else None,
         }
         output_dir = Path(output_path).parent
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -387,6 +399,13 @@ def _normalize_target_project_path(raw_path: str | None) -> str | None:
     return "\n".join(lines)
 
 
+def _split_target_project_paths(raw_path: str | None) -> list[str]:
+    normalized = _normalize_target_project_path(raw_path)
+    if not normalized:
+        return []
+    return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
 def _merge_target_project_paths(*raw_paths: str | None) -> str | None:
     merged: list[str] = []
     seen: set[str] = set()
@@ -403,6 +422,99 @@ def _merge_target_project_paths(*raw_paths: str | None) -> str | None:
     if not merged:
         return None
     return "\n".join(merged)
+
+
+def _implementation_plan_payload(db: Session, requirement_id: int) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "implementation_plan")
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _delivery_expectation_payload(db: Session, requirement_id: int) -> dict[str, Any]:
+    payload = _implementation_plan_payload(db, requirement_id)
+    expectation = payload.get("delivery_expectation") or {}
+    return expectation if isinstance(expectation, dict) else {}
+
+
+def _effective_target_project_path(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    step_type: str | None = None,
+) -> str | None:
+    plan_payload = _implementation_plan_payload(db, _as_int(requirement.id))
+    preferred = _normalize_target_project_path(str(plan_payload.get("target_project_path") or "") or None)
+    if preferred:
+        return preferred
+    return _normalize_target_project_path(getattr(requirement, "target_project_path", None))
+
+
+def _primary_target_directory(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    step_type: str | None = None,
+) -> str | None:
+    target_path = _effective_target_project_path(db, requirement, step_type=step_type)
+    paths = _split_target_project_paths(target_path)
+    return paths[0] if paths else None
+
+
+def _is_code_change_file(filename: str) -> bool:
+    normalized = str(filename or "").strip().lstrip("./")
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if lowered.endswith((".md", ".txt", ".rst", ".adoc")):
+        return False
+    if lowered == "readme" or lowered == "readme.md" or lowered == "changelog.md":
+        return False
+    if lowered.startswith(("docs/", "roles/", "campaigns/", "demos/")):
+        return False
+    return True
+
+
+def _load_task_file_changes(task: TaskRow) -> dict[str, Any]:
+    output_path = str(task.output_path or "").strip()
+    if not output_path:
+        return {}
+    cache_file = Path(output_path).parent / "file-changes.json"
+    if not cache_file.exists():
+        return {}
+    try:
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _repo_file_changes_check_error(
+    *,
+    step: WorkflowStepRow,
+    task: TaskRow | None,
+    spec: dict[str, Any],
+    artifact: ArtifactRow,
+) -> str | None:
+    if task is None:
+        return "repo_file_changes check has no task context"
+    payload = _load_task_file_changes(task)
+    if not payload:
+        return "repo_file_changes evidence is missing"
+    required_target = str(spec.get("required_target_path") or "").strip()
+    actual_target = str(payload.get("target_project_path") or "").strip()
+    if required_target and actual_target and actual_target != required_target:
+        return f"repo_file_changes captured `{actual_target}` but expected `{required_target}`"
+    changed_files = payload.get("changed_files") or []
+    if not isinstance(changed_files, list):
+        return "repo_file_changes evidence is malformed"
+    code_files = [
+        str(item.get("filename") or "").strip()
+        for item in changed_files
+        if isinstance(item, dict) and _is_code_change_file(str(item.get("filename") or ""))
+    ]
+    if not code_files:
+        return "validation found no source-code or test-file changes in the primary target repository"
+    return None
 
 
 def _is_infra_incident_error(error_text: str) -> bool:
@@ -955,6 +1067,8 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     requirement.description_markdown = body.description_markdown.strip()
     requirement.source_ref = body.source_ref
     requirement.active_workflow_run_id = None
+    requirement.current_plan_version = 0
+    requirement.planned_roles_json = None
     requirement.started_at = None
     requirement.completed_at = None
     requirement.status = "ready"
@@ -1001,7 +1115,26 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
 
-    if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
+    active_workflow_run = None
+    if requirement.active_workflow_run_id is not None:
+        active_workflow_run = (
+            db.query(WorkflowRunRow)
+            .filter(WorkflowRunRow.id == requirement.active_workflow_run_id)
+            .first()
+        )
+        if active_workflow_run is None or str(active_workflow_run.status or "") in {
+            "completed",
+            "cancelled",
+            "failed",
+            "deleted",
+        }:
+            requirement.active_workflow_run_id = None
+            active_workflow_run = None
+            if requirement.status in {"in_progress", "paused", "needs_revision"}:
+                requirement.status = "ready"
+            db.flush()
+
+    if int(requirement.current_plan_version or 0) == 0 or active_workflow_run is None:
         plan_requirement(db, requirement_id)
         requirement = _require_requirement(db, requirement_id)
 
@@ -1237,15 +1370,51 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         _record_runtime_lifecycle_artifacts(db, step, task, phase="completed")
         _record_step_event(db, step.id, "status_change", "completed")
         artifact = _create_step_completion_artifact(db, step, task)
-        _mark_step_targets_passed(db, step, artifact)
-        _bind_output_to_followup_steps(db, step, artifact)
         # Snapshot git diff now, before the next step is dispatched
-        _snapshot_file_changes(task, requirement)
-        _am_push_task_completed(task, step, requirement)
-        if step.step_type == "closeout":
-            _finalize_requirement(db, requirement, run, step, artifact)
+        _snapshot_file_changes(db, task, requirement, step)
+        target_failures = _mark_step_targets_passed(db, requirement, step, artifact, task=task)
+        if target_failures:
+            step.status = "failed"
+            _record_step_event(db, step.id, "validation_failed", "; ".join(target_failures))
+            error_text = "; ".join(target_failures)
+            bug_report_payload = _build_bug_report_payload(db, requirement, run, step, task, error_text)
+            error_artifact = _create_artifact(
+                db,
+                requirement_id=step.requirement_id,
+                workflow_run_id=step.workflow_run_id,
+                step_id=step.id,
+                producer_step_id=step.id,
+                artifact_type="bug_report",
+                content_summary=error_text[:200],
+                human_readable_body=error_text,
+                machine_readable_payload=bug_report_payload,
+            )
+            _am_push_task_failed(task, step, requirement)
+            if step.step_type in {"implementation", "review", "test", "bugfix"}:
+                circuit_breaker_reason = _bugfix_circuit_breaker_reason(db, requirement, run, step, error_text)
+                if circuit_breaker_reason:
+                    _trip_bugfix_circuit_breaker(
+                        db,
+                        requirement,
+                        run,
+                        step,
+                        error_artifact,
+                        error_text,
+                        circuit_breaker_reason,
+                    )
+                else:
+                    _create_bugfix_branch(db, requirement, run, step, error_artifact)
+                    should_dispatch_next = True
+            else:
+                run.status = "failed"
+                requirement.status = "needs_revision"
         else:
-            should_dispatch_next = True
+            _bind_output_to_followup_steps(db, step, artifact)
+            _am_push_task_completed(task, step, requirement)
+            if step.step_type == "closeout":
+                _finalize_requirement(db, requirement, run, step, artifact)
+            else:
+                should_dispatch_next = True
 
     elif task.status in {"failed", "rejected"}:
         step.status = "failed"
@@ -1728,7 +1897,7 @@ def _format_artifact_for_context(artifact: ArtifactRow) -> tuple[str, str]:
 
 def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
     requirement = _require_requirement(db, step.requirement_id)
-    target_path = _normalize_target_project_path(getattr(requirement, "target_project_path", None))
+    target_path = _effective_target_project_path(db, requirement, step_type=str(step.step_type or ""))
     context_policy = _json_loads(getattr(step, "context_policy_json", None), {})
     max_artifact_body_chars = int(context_policy.get("max_artifact_body_chars") or 2200)
     max_handoff_chars = int(context_policy.get("max_handoff_chars") or 1200)
@@ -1922,7 +2091,7 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
         f"Requirement #{requirement.id}: {requirement.title}",
         requirement.description_markdown,
     ]
-    target_path = _normalize_target_project_path(getattr(requirement, "target_project_path", None))
+    target_path = _effective_target_project_path(db, requirement, step_type=str(step.step_type or ""))
     if target_path:
         parts.append(f"Target project path: {target_path}")
         parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
@@ -2410,10 +2579,18 @@ def _bind_output_to_followup_steps(db: Session, step: WorkflowStepRow, artifact:
         _bind_artifact(db, dep.step_id, artifact.id, purpose, True)
 
 
-def _mark_step_targets_passed(db: Session, step: WorkflowStepRow, artifact: ArtifactRow):
+def _mark_step_targets_passed(
+    db: Session,
+    requirement: RequirementRow,
+    step: WorkflowStepRow,
+    artifact: ArtifactRow,
+    *,
+    task: TaskRow | None = None,
+) -> list[str]:
     targets = _json_loads(step.validation_targets_json, [])
     if not isinstance(targets, list):
-        return
+        return []
+    failures: list[str] = []
     for target in targets:
         check_key = str((target or {}).get("check_key") or "")
         if not check_key:
@@ -2424,9 +2601,24 @@ def _mark_step_targets_passed(db: Session, step: WorkflowStepRow, artifact: Arti
         ).first()
         if check is None:
             continue
+        failure_reason: str | None = None
+        if str(getattr(check, "check_type", "") or "") == "repo_file_changes":
+            failure_reason = _repo_file_changes_check_error(
+                step=step,
+                task=task,
+                spec=target if isinstance(target, dict) else {},
+                artifact=artifact,
+            )
+        if failure_reason:
+            check.status = "failed"
+            check.verified_by_step_id = step.id
+            check.evidence_artifact_id = artifact.id
+            failures.append(f"check `{check_key}` failed: {failure_reason}")
+            continue
         check.status = "passed"
         check.verified_by_step_id = step.id
         check.evidence_artifact_id = artifact.id
+    return failures
 
 
 def _mark_step_targets_failed(db: Session, step: WorkflowStepRow, artifact: ArtifactRow):
@@ -2685,6 +2877,32 @@ def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: 
 
 
 def _auto_complete_closeout(db: Session, requirement: RequirementRow, workflow_run: WorkflowRunRow, step: WorkflowStepRow):
+    validation_errors = _validation_gate_errors(db, _as_int(requirement.id))
+    if validation_errors:
+        step.status = "blocked"
+        step.started_at = step.started_at or utcnow()
+        step.completed_at = None
+        workflow_run.status = "paused"
+        requirement.status = "blocked"
+        requirement.completed_at = None
+        reason = "; ".join(validation_errors)
+        _record_step_event(db, _as_int(step.id), "closeout_blocked", reason)
+        _create_or_update_artifact(
+            db,
+            requirement_id=_as_int(requirement.id),
+            workflow_run_id=_as_int(workflow_run.id),
+            step_id=_as_int(step.id),
+            producer_step_id=_as_int(step.id),
+            artifact_type="validation_manifest",
+            content_summary=f"Closeout blocked for requirement #{requirement.id}",
+            human_readable_body="# Closeout Blocked\n\n" + reason,
+            machine_readable_payload={
+                **_manual_closeout_payload(db, requirement, workflow_run),
+                "status": "blocked",
+                "validation_errors": validation_errors,
+            },
+        )
+        return
     artifact = _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -2709,7 +2927,7 @@ def _finalize_requirement(
     step: WorkflowStepRow,
     artifact: ArtifactRow,
 ):
-    _mark_step_targets_passed(db, step, artifact)
+    _mark_step_targets_passed(db, requirement, step, artifact)
     workflow_run.status = "completed"
     workflow_run.completed_at = utcnow()
     requirement.status = "done"
@@ -3295,7 +3513,7 @@ def _build_bug_report_payload(
         "root_failure_step_id": root_failure_step_id,
         "bugfix_depth": _bugfix_branch_depth(db, _as_int(workflow_run.id), step) if workflow_run is not None else 0,
         "error_fingerprint": error_fingerprint,
-        "target_project_path": _normalize_target_project_path(requirement.target_project_path),
+        "target_project_path": _effective_target_project_path(db, requirement, step_type=str(step.step_type or "")),
         "validation_targets": _json_loads(step.validation_targets_json, []),
         "failed_checks": failed_checks,
         "error": error_text,

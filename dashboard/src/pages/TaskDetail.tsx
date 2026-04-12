@@ -23,6 +23,16 @@ const STATUS_LABEL: Record<string, string> = {
   deleted: '已删除',
 }
 
+const STEP_TYPE_LABEL: Record<string, string> = {
+  research: 'Research',
+  synthesis: 'Synthesis',
+  implementation: 'Implementation',
+  review: 'Review',
+  test: 'Validation',
+  closeout: 'Closeout',
+  bugfix: 'Bugfix',
+}
+
 function Md({ children }: Readonly<{ children: string }>) {
   return (
     <div className="prose prose-sm max-w-none prose-headings:text-base prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
@@ -258,6 +268,11 @@ export default function TaskDetail() {
               <span className="font-mono text-xs text-gray-400">#{task.id}</span>
               {task.project_label && <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700">{task.project_label}</span>}
               {task.agent_group && <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{task.agent_group}</span>}
+              {task.workflow_step_type && (
+                <span className="text-xs px-2 py-0.5 rounded bg-violet-50 text-violet-700">
+                  {STEP_TYPE_LABEL[task.workflow_step_type] || task.workflow_step_type}
+                </span>
+              )}
               {task.skill_name && (
                 <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" data-testid={`skill-badge-${task.id}`}>
                   🛠 {task.skill_name}
@@ -276,6 +291,14 @@ export default function TaskDetail() {
             </div>
             <h2 className="mt-2 text-lg font-semibold" data-testid={`task-detail-${task.id}`}>{task.description.split('\n')[0]}</h2>
             <p className="mt-1 text-sm text-gray-500">Agent: @{task.agent_id}</p>
+            {task.workflow_step_title && (
+              <p className="mt-1 text-sm text-gray-500">
+                工作流步骤：{task.workflow_step_title}
+                {task.workflow_step_type === 'review' || task.workflow_step_type === 'test'
+                  ? '。这是验证阶段任务，主要职责是评审或验证已有实现，不直接承担代码实现。'
+                  : null}
+              </p>
+            )}
             {task.runtime_session_id && (
               <p className="mt-1 font-mono text-xs text-gray-400" data-testid={`runtime-session-${task.id}`}>
                 Session: {task.runtime_session_id}

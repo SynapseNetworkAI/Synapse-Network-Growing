@@ -25,7 +25,11 @@ if [[ "${OPS_PRESERVE_RUNTIME_ENV:-0}" != "1" ]]; then
 fi
 
 echo "[$(date '+%H:%M:%S')] Stopping existing uvicorn on port $PORT ..."
-lsof -ti:"$PORT" | xargs kill -9 2>/dev/null || true
+EXISTING_PIDS="$(lsof -ti:"$PORT" 2>/dev/null || true)"
+if [[ -n "$EXISTING_PIDS" ]]; then
+  # `xargs kill` exits non-zero on macOS when stdin is empty; guard it explicitly.
+  echo "$EXISTING_PIDS" | xargs kill -9 2>/dev/null || true
+fi
 sleep 1
 
 echo "[$(date '+%H:%M:%S')] Restarting Ops Dashboard (local) on port $PORT ..."

@@ -52,6 +52,8 @@ const taskPage = {
       execution_time_ms: 42852,
       requirement_id: 12,
       requirement_title: 'Launch teaser polishing',
+      workflow_step_type: 'review',
+      workflow_step_title: 'Review output',
       output_files: [],
       created_at: '2026-04-09T09:00:56.097007',
       started_at: '2026-04-09T09:00:56.102651',
@@ -149,6 +151,9 @@ describe('TaskDetail', () => {
     expect(screen.getByTestId('runtime-backend-18')).toHaveTextContent('copilot_sdk')
     expect(screen.getByTestId('runtime-agent-18')).toHaveTextContent('editor')
     expect(screen.getByTestId('runtime-session-18')).toHaveTextContent('task-1775725256108')
+    expect(screen.getByText('Review')).toBeInTheDocument()
+    expect(screen.getByText(/工作流步骤：Review output/)).toBeInTheDocument()
+    expect(screen.getByText(/这是验证阶段任务/)).toBeInTheDocument()
     expect(screen.getByText('📋 #12 Launch teaser polishing')).toBeInTheDocument()
     expect(screen.getByText(/dashboard\/src\/pages\/Home\.tsx/)).toBeInTheDocument()
     await waitFor(() => {

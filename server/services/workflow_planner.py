@@ -38,6 +38,9 @@ from server.services.project_policy import (
 
 logger = logging.getLogger("ops-dashboard.workflow_planner")
 
+PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
+
 _RELEASE_MODE_RANK = {"disabled": 0, "manual": 1, "auto": 2}
 _FULL_PLAN_DISABLED_UNTIL: datetime | None = None
 _FULL_PLAN_DISABLED_REASON: str = ""
@@ -79,6 +82,14 @@ Rules:
 - Use terse titles, avoid repeating the full requirement title in every step.
 - If the work is simple, return a single implementation step.
 """
+_DOCS_ONLY_HINTS = re.compile(
+    r"博客|blog post|newsletter|邮件|email|文案|copywriting|copy deck|social platform|社交平台|账号注册|资料完善|发布文案|product hunt|hacker news|substack|hashnode|dev\\.to|community post|announcement",
+    re.IGNORECASE,
+)
+_CODE_DELIVERY_HINTS = re.compile(
+    r"代码|实现|implement|frontend|backend|api|sdk|server|service|endpoint|database|migration|bugfix|defect|incident|reliability|regression|pytest|vitest|e2e|test|fix|修复",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Mode 1: Full-plan (agent decides everything)
@@ -94,7 +105,60 @@ class _AgentStep:
     done_when: str
 
 
-def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | None:
+def _split_target_paths(raw_path: str | None) -> list[str]:
+    if not raw_path:
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for raw in str(raw_path).splitlines():
+        path = raw.strip()
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        paths.append(path)
+    return paths
+
+
+def _is_docs_only_requirement(requirement: RequirementRow) -> bool:
+    text = "\n".join([str(getattr(requirement, "title", "") or ""), str(getattr(requirement, "description_markdown", "") or "")])
+    if _CODE_DELIVERY_HINTS.search(text):
+        return False
+    return bool(_DOCS_ONLY_HINTS.search(text))
+
+
+def _requires_product_code_delivery(requirement: RequirementRow, target_path: str | None) -> bool:
+    if _is_docs_only_requirement(requirement):
+        return False
+    source = str(getattr(requirement, "source", "") or "").strip().lower()
+    target_paths = _split_target_paths(target_path)
+    targets_product_repo = any(path != PRIMARY_GROWING_PROJECT for path in target_paths)
+    if _CODE_DELIVERY_HINTS.search(
+        "\n".join([str(getattr(requirement, "title", "") or ""), str(getattr(requirement, "description_markdown", "") or "")])
+    ):
+        return True
+    if targets_product_repo:
+        return True
+    if source in {"optimization_signal", "bugfix_circuit_breaker"}:
+        return True
+    return source not in {"", "manual"} and targets_product_repo
+
+
+def _ordered_target_project_path(target_path: str | None, *, require_product_code: bool) -> str | None:
+    paths = _split_target_paths(target_path)
+    if not paths:
+        return None
+    if require_product_code and PRIMARY_SYNAPSE_PROJECT in paths:
+        paths = [PRIMARY_SYNAPSE_PROJECT] + [path for path in paths if path != PRIMARY_SYNAPSE_PROJECT]
+    return "\n".join(paths)
+
+
+def _agent_plan_supports_code_delivery(agent_steps: list[_AgentStep], *, require_product_code: bool) -> bool:
+    if not require_product_code:
+        return True
+    return any(step.scope in {"infrastructure", "backend", "frontend", "test"} for step in agent_steps)
+
+
+def _plan_with_agent(text: str, target_path: str | None, *, require_product_code: bool = False) -> list[_AgentStep] | None:
     """Pass the requirement directly to the agent; it decides the step plan."""
     global _FULL_PLAN_DISABLED_REASON, _FULL_PLAN_DISABLED_UNTIL
     if _FULL_PLAN_DISABLED_UNTIL is not None and datetime.now(timezone.utc) < _FULL_PLAN_DISABLED_UNTIL:
@@ -111,6 +175,11 @@ def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | N
         prompt = text[:4000]
         if target_path:
             prompt = f"Target project path: {target_path}\n\n{prompt}"
+        if require_product_code:
+            prompt += (
+                "\n\nThis requirement must end with actual source code changes in the primary product repository "
+                "plus validation evidence. Documentation-only or copy-only plans are invalid."
+            )
         user_prompt = (
             f"{prompt}\n\n"
             "Return only JSON matching the required schema."
@@ -416,6 +485,8 @@ def _build_steps_from_agent_plan(
     requirement: RequirementRow,
     agent_steps: list[_AgentStep],
     target_path: str | None,
+    *,
+    require_product_code: bool,
 ) -> tuple[list[dict], list[str]]:
     """Convert agent-produced _AgentStep list to workflow step dicts."""
     result: list[dict] = []
@@ -423,10 +494,18 @@ def _build_steps_from_agent_plan(
     project_note = f"\nTarget project: {target_path}" if target_path else ""
 
     for step in agent_steps:
-        scope_constraint = _SCOPE_CONSTRAINTS.get(step.scope, "")
+        step_scope = step.scope
+        if require_product_code and step_scope == "docs":
+            step_scope = "backend"
+        scope_constraint = _SCOPE_CONSTRAINTS.get(step_scope, "")
         done_when = step.done_when
         if scope_constraint and "SCOPE:" not in done_when:
             done_when = f"{scope_constraint}\n\n{done_when}"
+        if require_product_code and "actual source code" not in done_when.lower():
+            done_when = (
+                "Deliver actual source code changes in the target product repository and capture validation-ready implementation evidence.\n\n"
+                + done_when
+            )
         done_when += project_note
 
         result.append({
@@ -439,7 +518,7 @@ def _build_steps_from_agent_plan(
                 {"artifact_type": "requirement_snapshot", "purpose": "primary_spec", "required": True},
                 {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
             ],
-            "file_scope": _scope_to_file_scope(step.scope, target_path),
+            "file_scope": _scope_to_file_scope(step_scope, target_path),
             "expected_outputs": [
                 {"artifact_type": "step_output", "description": f"{step.title} — implementation output."},
             ],
@@ -663,6 +742,8 @@ def _apply_template_targets_to_steps(workflow_steps: list[dict[str, Any]], templ
 def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict, WorkflowRoleAssignments]:
     description = f"{requirement.title}\n\n{requirement.description_markdown}"
     target_path = getattr(requirement, "target_project_path", None)
+    require_product_code = _requires_product_code_delivery(requirement, target_path)
+    target_path = _ordered_target_project_path(target_path, require_product_code=require_product_code)
     project_policies = [project_policy_to_dict(row) for row in resolve_project_policies_for_target(db, target_path, require_active=False)]
     execution_controls = aggregate_execution_controls(project_policies)
     template_payload = _latest_requirement_template_payload(db, int(requirement.id))
@@ -700,13 +781,26 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     # Mode 1: try agent full-plan first
     planning_mode = "full_plan"
-    agent_steps = _plan_with_agent(description, target_path)
+    agent_steps = _plan_with_agent(description, target_path, require_product_code=require_product_code)
     if agent_steps:
-        impl_steps, impl_keys = _build_steps_from_agent_plan(requirement, agent_steps, target_path)
-        detected_phases_dict: dict[str, Any] = {
-            s.step_key: s.scope for s in agent_steps
-        }
-    else:
+        if not _agent_plan_supports_code_delivery(agent_steps, require_product_code=require_product_code):
+            logger.info("Agent full-plan returned docs-only plan for code-required requirement #%s; falling back", requirement.id)
+            agent_steps = None
+        else:
+            impl_steps, impl_keys = _build_steps_from_agent_plan(
+                requirement,
+                agent_steps,
+                target_path,
+                require_product_code=require_product_code,
+            )
+            detected_phases_dict: dict[str, Any] = {
+                "design": any(s.step_key == "design" or s.scope == "docs" for s in agent_steps),
+                "frontend": any(s.scope == "frontend" for s in agent_steps),
+                "backend": any(s.scope in {"backend", "infrastructure"} for s in agent_steps),
+                "test_impl": any(s.scope == "test" for s in agent_steps),
+                "agent_plan_scopes": {s.step_key: s.scope for s in agent_steps},
+            }
+    if not agent_steps:
         # Mode 2: fall back to 4-boolean phase detection
         planning_mode = "phase_detect"
         phases = _detect_phases_with_agent(description)
@@ -785,8 +879,6 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         },
     ]
 
-    _apply_template_targets_to_steps(workflow_steps, template_checks)
-
     for step in workflow_steps:
         step["file_scope"] = apply_project_policies_to_scope(
             db,
@@ -811,7 +903,21 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "owner_role": "tester",
         "success_criteria_markdown": "Tester validates the produced artifacts and confirms all acceptance targets are satisfied.",
     }
-    acceptance_checks = _merge_acceptance_checks([review_check, validation_check], template_checks)
+    default_checks = [review_check, validation_check]
+    if require_product_code:
+        default_checks.append(
+            {
+                "check_key": "code_delivery_completed",
+                "description": "Implementation produces source-code changes in the primary product repository, not only documentation.",
+                "check_type": "repo_file_changes",
+                "owner_role": "tester",
+                "success_criteria_markdown": "Validation confirms at least one non-doc source or test file changed in the primary delivery repository.",
+                "validation_step_key": "test",
+                "required_target_path": target_path.splitlines()[0] if target_path else None,
+            }
+        )
+    acceptance_checks = _merge_acceptance_checks(default_checks, template_checks)
+    _apply_template_targets_to_steps(workflow_steps, acceptance_checks)
     manual_checks = [
         {
             "check_key": str(check["check_key"]),
@@ -835,11 +941,12 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "owner_role": str(check.get("owner_role") or "tester"),
             "check_type": str(check.get("check_type") or "content_assertion"),
             "verification_type": "automated",
-            "method": "agent_validation",
+            "method": "repo_file_changes" if str(check.get("check_type") or "") == "repo_file_changes" else "agent_validation",
             "step_key": str(check.get("validation_step_key") or "test"),
             "step_type": "test",
             "blocking": True,
             "required_artifact_type": "test_report",
+            "required_target_path": str(check.get("required_target_path") or "") or None,
         }
         for check in acceptance_checks
         if str(check.get("check_type") or "") != "manual_review"
@@ -850,6 +957,12 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
+        "delivery_expectation": {
+            "docs_only": _is_docs_only_requirement(requirement),
+            "requires_product_code": require_product_code,
+            "primary_target_path": target_path.splitlines()[0] if target_path else None,
+            "all_target_paths": _split_target_paths(target_path),
+        },
         "project_policies": project_policies,
         "execution_controls": execution_controls,
         "context_governance": {
@@ -921,9 +1034,17 @@ def _build_implementation_steps(
     """Return (step_dicts, ordered_step_keys) for implementation sub-phases."""
     title = requirement.title
     project_note = f"\nTarget project: {target_path}" if target_path else ""
+    require_product_code = _requires_product_code_delivery(requirement, target_path)
 
     if not phases.has_sub_steps:
         # Fallback: single implementation step (backward compatible)
+        done_when = f"Implementation output is produced and ready for independent review.{project_note}"
+        if require_product_code:
+            done_when = (
+                "Actual source code and/or automated test files are modified in the target product repository, "
+                "with implementation evidence ready for independent review."
+                f"{project_note}"
+            )
         return [
             {
                 "step_key": "implementation",
@@ -940,7 +1061,7 @@ def _build_implementation_steps(
                     {"artifact_type": "step_output", "description": "Implementation result and execution output."},
                 ],
                 "validation_targets": [],
-                "done_when_markdown": f"Implementation output is produced and ready for independent review.{project_note}",
+                "done_when_markdown": done_when,
                 "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
             },
         ], ["implementation"]
