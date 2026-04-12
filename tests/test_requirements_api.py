@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Tests for requirement-first workflow orchestration."""
+from datetime import timedelta
 import json
 from unittest.mock import MagicMock, patch
 
@@ -395,6 +396,113 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
 
     replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert replan_resp.status_code == 200
+
+
+def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Auto-plan on start",
+            "description_markdown": "Start should create the plan before execution.",
+            "priority": "high",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    payload = start_resp.json()
+    assert payload["requirement"]["current_plan_version"] == 1
+    assert payload["workflow_run"] is not None
+    assert payload["workflow_run"]["plan_version"] == 1
+    assert payload["requirement"]["status"] == "done"
+    assert [step["step_type"] for step in payload["workflow_run"]["steps"]] == [
+        "research",
+        "synthesis",
+        "implementation",
+        "review",
+        "test",
+        "closeout",
+    ]
+
+
+def test_start_requirement_stays_ready_when_no_step_dispatch_happens(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Do not fake running state",
+            "description_markdown": "Starting a requirement should not mark it in progress unless a step is actually dispatched.",
+            "priority": "high",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    with patch("server.services.workflow_orchestrator._dispatch_next_step_for_requirement", return_value=None):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    payload = start_resp.json()
+    assert payload["requirement"]["status"] == "ready"
+    assert payload["workflow_run"]["status"] == "pending"
+    assert all(step["status"] == "pending" for step in payload["workflow_run"]["steps"])
+
+
+def test_paused_requirement_does_not_consume_project_capacity(synced_client, db_session):
+    db_session.add(
+        RequirementRow(
+            title="Paused incident investigation",
+            description_markdown="Paused work should not occupy a live project slot.",
+            status="paused",
+            priority="normal",
+            source="manual",
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+            current_plan_version=1,
+        )
+    )
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Start after paused requirement",
+            "description_markdown": "A paused requirement should not block a new start in the same project.",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    scheduler_resp = synced_client.get("/api/requirements/scheduler")
+    assert scheduler_resp.status_code == 200
+    network_state = next(
+        item for item in scheduler_resp.json()["project_states"] if item["project_key"] == "synapse-network"
+    )
+    assert network_state["active_count"] == 0
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "done"
 
 
 def test_patch_requirement_updates_fields(synced_client):
@@ -982,6 +1090,38 @@ def test_start_requirement_blocks_when_context_is_stale(synced_client, db_sessio
     payload = json.loads(stale_artifact.machine_readable_payload or "{}")
     assert payload["verification_status"] == "stale"
     assert payload["stale_findings"]
+
+
+def test_start_requirement_handles_mixed_datetime_freshness_checks(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Mixed datetime freshness guard",
+            "description_markdown": "Re-run planning after a requirement update without crashing stale-memory checks.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
+    assert requirement is not None
+    assert workflow_run is not None
+    assert workflow_run.created_at is not None
+
+    requirement.updated_at = workflow_run.created_at + timedelta(minutes=5)
+    db_session.commit()
+
+    start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "in_progress"
+    assert detail["workflow_run"]["status"] in {"pending", "running"}
 
 
 def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(synced_client, db_session):

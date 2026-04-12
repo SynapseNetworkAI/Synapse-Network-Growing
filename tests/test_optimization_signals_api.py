@@ -95,6 +95,57 @@ def test_refresh_optimization_signals_deduplicates_bug_reports_and_collects_sour
     assert by_type["workflow_incident"]["recovery_status"] == "replan_required"
 
 
+def test_refresh_optimization_signals_keeps_raw_occurrences_but_deduplicates_repeated_evidence(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network"
+    req1 = RequirementRow(
+        title="Req one",
+        description_markdown="First requirement",
+        status="done",
+        priority="high",
+        source="manual",
+        target_project_path=target_path,
+        current_plan_version=1,
+    )
+    req2 = RequirementRow(
+        title="Req two",
+        description_markdown="Second requirement",
+        status="done",
+        priority="normal",
+        source="manual",
+        target_project_path=target_path,
+        current_plan_version=1,
+    )
+    db_session.add_all([req1, req2])
+    db_session.flush()
+    duplicate_payload = json.dumps({
+        "step_type": "research",
+        "failed_checks": [{"check_key": "runtime_session_available"}],
+    })
+    db_session.add_all([
+        ArtifactRow(
+            requirement_id=req1.id,
+            artifact_type="bug_report",
+            content_summary="Request session.resume failed with message: Session not found",
+            machine_readable_payload=duplicate_payload,
+        ),
+        ArtifactRow(
+            requirement_id=req2.id,
+            artifact_type="bug_report",
+            content_summary="Request session.resume failed with message: Session not found",
+            machine_readable_payload=duplicate_payload,
+        ),
+    ])
+    db_session.commit()
+
+    resp = synced_client.post("/api/optimization-signals/refresh")
+
+    assert resp.status_code == 200
+    bug_signal = next(item for item in resp.json() if item["signal_type"] == "bug_report")
+    assert bug_signal["occurrence_count"] == 2
+    assert len(bug_signal["evidence"]) == 1
+    assert bug_signal["evidence"][0]["content_summary"] == "Request session.resume failed with message: Session not found"
+
+
 def test_create_requirement_from_optimization_signal_marks_signal_converted(synced_client, db_session):
     target_path = "/Users/cliff/workspace/agent/Synapse-Network-Sdk"
     requirement = RequirementRow(

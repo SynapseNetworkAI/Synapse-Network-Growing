@@ -183,7 +183,7 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
         {
             "step_key": "research",
             "step_type": "research",
-            "title": f"Research requirement context: {requirement.title}",
+            "title": "Research context",
             "assigned_role": "researcher",
             "depends_on": [],
             "required_artifacts": [
@@ -205,7 +205,7 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
         {
             "step_key": "synthesis",
             "step_type": "synthesis",
-            "title": f"Synthesize execution plan: {requirement.title}",
+            "title": "Synthesize plan",
             "assigned_role": "synthesizer",
             "depends_on": ["research"],
             "required_artifacts": [
@@ -594,7 +594,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         {
             "step_key": "review",
             "step_type": "review",
-            "title": f"Review requirement output: {requirement.title}",
+            "title": "Review output",
             "assigned_role": "reviewer",
             "depends_on": [last_impl_key],
             "required_artifacts": [
@@ -613,7 +613,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         {
             "step_key": "test",
             "step_type": "test",
-            "title": f"Validate requirement output: {requirement.title}",
+            "title": "Validate output",
             "assigned_role": "tester",
             "depends_on": ["review"],
             "required_artifacts": [
@@ -633,7 +633,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         {
             "step_key": "closeout",
             "step_type": "closeout",
-            "title": f"Close requirement: {requirement.title}",
+            "title": "Close requirement",
             "assigned_role": "tester",
             "depends_on": ["test"],
             "required_artifacts": [
@@ -794,7 +794,7 @@ def _build_implementation_steps(
             {
                 "step_key": "implementation",
                 "step_type": "implementation",
-                "title": f"Implement requirement: {title}",
+                "title": "Implement requirement",
                 "assigned_role": "implementer",
                 "depends_on": [],
                 "required_artifacts": [
@@ -821,7 +821,7 @@ def _build_implementation_steps(
         steps.append({
             "step_key": key,
             "step_type": "implementation",
-            "title": f"Design architecture: {title}",
+            "title": "Design architecture",
             "assigned_role": "implementer",
             "depends_on": [prev_key] if prev_key else [],
             "required_artifacts": [
@@ -844,7 +844,7 @@ def _build_implementation_steps(
         steps.append({
             "step_key": key,
             "step_type": "implementation",
-            "title": f"Frontend implementation: {title}",
+            "title": "Frontend implementation",
             "assigned_role": "implementer",
             "depends_on": [prev_key] if prev_key else [],
             "required_artifacts": [
@@ -867,7 +867,7 @@ def _build_implementation_steps(
         steps.append({
             "step_key": key,
             "step_type": "implementation",
-            "title": f"Backend implementation: {title}",
+            "title": "Backend implementation",
             "assigned_role": "implementer",
             "depends_on": [prev_key] if prev_key else [],
             "required_artifacts": [
@@ -890,7 +890,7 @@ def _build_implementation_steps(
         steps.append({
             "step_key": key,
             "step_type": "implementation",
-            "title": f"Test implementation: {title}",
+            "title": "Test implementation",
             "assigned_role": "implementer",
             "depends_on": [prev_key] if prev_key else [],
             "required_artifacts": [

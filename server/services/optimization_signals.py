@@ -146,6 +146,7 @@ _SIGNAL_COST = {
     "workflow_incident": 8.0,
 }
 _SEVERITY_RISK = {"high": 20.0, "medium": 12.0, "low": 6.0}
+_MAX_STORED_EVIDENCE_ITEMS = 8
 
 
 def _signal_score_metadata(total: float, *, automation_ready: bool, status: str, confidence: float) -> dict[str, Any]:
@@ -176,6 +177,78 @@ def _signal_score_metadata(total: float, *, automation_ready: bool, status: str,
         "intake_recommendation": intake_recommendation,
         "recommended_priority": recommended_priority,
     }
+
+
+def _evidence_dedupe_key(evidence: dict[str, Any]) -> str:
+    if "blocker" in evidence:
+        payload = {
+            "kind": "delivery_blocker",
+            "blocker": str(evidence.get("blocker") or "").strip(),
+            "publish_status": str(evidence.get("publish_status") or "").strip(),
+        }
+    elif "incident_code" in evidence:
+        payload = {
+            "kind": "workflow_incident",
+            "incident_family": str(evidence.get("incident_family") or "").strip(),
+            "incident_code": str(evidence.get("incident_code") or "").strip(),
+            "recovery_status": str(evidence.get("recovery_status") or "").strip(),
+            "summary": str(evidence.get("summary") or "").strip(),
+        }
+    elif "failed_checks" in evidence or "step_type" in evidence:
+        payload = {
+            "kind": "bug_report",
+            "step_type": str(evidence.get("step_type") or "").strip(),
+            "failed_checks": sorted(str(item).strip() for item in evidence.get("failed_checks") or [] if str(item).strip()),
+            "content_summary": str(evidence.get("content_summary") or "").strip(),
+        }
+    elif "approval_request_id" in evidence:
+        payload = {
+            "kind": "approval_request",
+            "approval_type": str(evidence.get("approval_type") or "").strip(),
+            "status": str(evidence.get("status") or "").strip(),
+            "reviewer": str(evidence.get("reviewer") or "").strip(),
+            "comment": str(evidence.get("comment") or "").strip(),
+        }
+    elif "approval_id" in evidence:
+        payload = {
+            "kind": "approval",
+            "task_description": str(evidence.get("task_description") or "").strip(),
+            "status": str(evidence.get("status") or "").strip(),
+            "reviewer": str(evidence.get("reviewer") or "").strip(),
+            "comment": str(evidence.get("comment") or "").strip(),
+        }
+    else:
+        payload = {
+            key: value
+            for key, value in evidence.items()
+            if key not in {
+                "artifact_id",
+                "requirement_id",
+                "approval_request_id",
+                "approval_id",
+                "task_id",
+                "incident_key",
+                "source_artifact_id",
+                "created_at",
+                "decided_at",
+                "occurred_at",
+            }
+        }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _record_signal_evidence(signal: dict[str, Any], evidence: dict[str, Any], occurred_at: Any) -> None:
+    signal["occurrence_count"] = int(signal.get("occurrence_count") or 0) + 1
+    seen = signal.setdefault("_seen_evidence_keys", set())
+    evidence_key = _evidence_dedupe_key(evidence)
+    evidence_items = signal.setdefault("evidence", [])
+    if evidence_key not in seen and len(evidence_items) < _MAX_STORED_EVIDENCE_ITEMS:
+        evidence_items.append(evidence)
+        seen.add(evidence_key)
+
+    current_latest = _parse_utc_datetime(signal.get("latest_evidence_at")) or datetime.fromtimestamp(0, timezone.utc)
+    incoming_latest = _parse_utc_datetime(occurred_at) or datetime.fromtimestamp(0, timezone.utc)
+    signal["latest_evidence_at"] = max(current_latest, incoming_latest)
 
 
 def build_optimization_signal_score_breakdown(
@@ -285,15 +358,12 @@ def _summarize_bug_signals(db: Session, project_map: dict[str, dict[str, Any]]) 
                     "project_root_path": project.get("root_path"),
                     "routing_target_path": project.get("root_path"),
                     "evidence": [],
+                    "occurrence_count": 0,
                     "latest_evidence_at": artifact.created_at,
                 }
                 groups[key] = signal
-            signal["evidence"].append(evidence)
-            signal["latest_evidence_at"] = max(
-                signal.get("latest_evidence_at") or artifact.created_at,
-                artifact.created_at,
-            )
-            if len(signal["evidence"]) >= 3:
+            _record_signal_evidence(signal, evidence, artifact.created_at)
+            if int(signal.get("occurrence_count") or 0) >= 3:
                 signal["severity"] = "high"
                 signal["confidence"] = 0.93
     return list(groups.values())
@@ -340,14 +410,11 @@ def _summarize_delivery_blockers(db: Session, project_map: dict[str, dict[str, A
                         "project_root_path": project.get("root_path"),
                         "routing_target_path": project.get("root_path"),
                         "evidence": [],
+                        "occurrence_count": 0,
                         "latest_evidence_at": artifact.created_at,
                     }
                     groups[key] = signal
-                signal["evidence"].append(evidence)
-                signal["latest_evidence_at"] = max(
-                    signal.get("latest_evidence_at") or artifact.created_at,
-                    artifact.created_at,
-                )
+                _record_signal_evidence(signal, evidence, artifact.created_at)
     return list(groups.values())
 
 
@@ -377,10 +444,12 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                     "project_root_path": project.get("root_path"),
                     "routing_target_path": project.get("root_path"),
                     "evidence": [],
+                    "occurrence_count": 0,
                     "latest_evidence_at": approval.decided_at or approval.created_at,
                 }
                 grouped[key] = signal
-            signal["evidence"].append(
+            _record_signal_evidence(
+                signal,
                 {
                     "approval_request_id": int(approval.id),
                     "requirement_id": int(requirement.id),
@@ -390,10 +459,7 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                     "comment": approval.comment,
                     "created_at": approval.created_at.isoformat() if approval.created_at else None,
                     "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
-                }
-            )
-            signal["latest_evidence_at"] = max(
-                signal.get("latest_evidence_at") or approval.created_at,
+                },
                 approval.decided_at or approval.created_at,
             )
 
@@ -420,10 +486,12 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                 "project_root_path": project.get("root_path"),
                 "routing_target_path": project.get("root_path"),
                 "evidence": [],
+                "occurrence_count": 0,
                 "latest_evidence_at": approval.decided_at or approval.created_at,
             }
             grouped[key] = signal
-        signal["evidence"].append(
+        _record_signal_evidence(
+            signal,
             {
                 "approval_id": int(approval.id),
                 "task_id": int(task.id),
@@ -433,13 +501,10 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                 "comment": approval.comment,
                 "created_at": approval.created_at.isoformat() if approval.created_at else None,
                 "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
-            }
-        )
-        signal["latest_evidence_at"] = max(
-            signal.get("latest_evidence_at") or approval.created_at,
+            },
             approval.decided_at or approval.created_at,
         )
-        if len(signal["evidence"]) >= 3:
+        if int(signal.get("occurrence_count") or 0) >= 3:
             signal["severity"] = "high"
             signal["confidence"] = 0.82
 
@@ -492,6 +557,7 @@ def _summarize_workflow_incidents(db: Session, project_map: dict[str, dict[str, 
                 "project_root_path": project.get("root_path"),
                 "routing_target_path": project.get("root_path"),
                 "evidence": [],
+                "occurrence_count": 0,
                 "latest_evidence_at": None,
                 "incident_family": str(incident.get("incident_family") or ""),
                 "incident_code": incident_code,
@@ -499,14 +565,10 @@ def _summarize_workflow_incidents(db: Session, project_map: dict[str, dict[str, 
                 "recovery_narrative": str(incident.get("summary") or ""),
             }
             groups[key] = signal
-        signal["evidence"].append(evidence)
+        _record_signal_evidence(signal, evidence, incident.get("occurred_at"))
         signal["severity"] = max(
             [str(signal.get("severity") or "low"), str(incident.get("severity") or "low")],
             key=_severity_rank,
-        )
-        signal["latest_evidence_at"] = max(
-            _parse_utc_datetime(signal.get("latest_evidence_at")) or datetime.fromtimestamp(0, timezone.utc),
-            _parse_utc_datetime(incident.get("occurred_at")) or datetime.fromtimestamp(0, timezone.utc),
         )
         if recovery_status in {"operator_review_required", "runtime_recovery_required", "replan_required"}:
             signal["confidence"] = 0.94
@@ -530,7 +592,7 @@ def _upsert_signal(db: Session, payload: dict[str, Any]) -> OptimizationSignalRo
             project_root_path=payload.get("project_root_path"),
             routing_target_path=payload.get("routing_target_path"),
             evidence_json=_json_dumps(payload.get("evidence") or []),
-            occurrence_count=len(payload.get("evidence") or []),
+            occurrence_count=int(payload.get("occurrence_count") or len(payload.get("evidence") or [])),
             latest_evidence_at=latest_evidence_at,
         )
         db.add(row)
@@ -550,7 +612,7 @@ def _upsert_signal(db: Session, payload: dict[str, Any]) -> OptimizationSignalRo
     row.project_root_path = payload.get("project_root_path")
     row.routing_target_path = payload.get("routing_target_path")
     row.evidence_json = _json_dumps(payload.get("evidence") or [])
-    row.occurrence_count = len(payload.get("evidence") or [])
+    row.occurrence_count = int(payload.get("occurrence_count") or len(payload.get("evidence") or []))
     row.latest_evidence_at = latest_evidence_at
     return row
 

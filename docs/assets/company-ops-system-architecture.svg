@@ -1,0 +1,67 @@
+<svg width="1800" height="1380" viewBox="0 0 1800 1380" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1800" height="1380" rx="40" fill="#F6F1E7"/>
+  <rect x="36" y="36" width="1728" height="1308" rx="30" fill="#FFFCF6" stroke="#DDCFB6" stroke-width="3"/>
+
+  <text x="82" y="110" fill="#2C251C" font-size="44" font-family="Arial, Helvetica, sans-serif" font-weight="700">Synapse Company Ops System Architecture</text>
+  <text x="82" y="154" fill="#7A6A59" font-size="24" font-family="Arial, Helvetica, sans-serif">Agent decides execution content. Harness decides policy, context, safety, recovery, and closeout.</text>
+
+  <rect x="90" y="220" width="1620" height="150" rx="24" fill="#E7F1FF" stroke="#7EA9D7" stroke-width="3"/>
+  <text x="130" y="280" fill="#1F3E5A" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">1. Portfolio Discovery</text>
+  <text x="130" y="324" fill="#4A6D8D" font-size="24" font-family="Arial, Helvetica, sans-serif">Company Review → Optimization Signals → Requirement Pool</text>
+  <text x="130" y="356" fill="#4A6D8D" font-size="20" font-family="Arial, Helvetica, sans-serif">Choose what matters now, rank it, and turn it into governed work.</text>
+
+  <rect x="90" y="430" width="1020" height="220" rx="24" fill="#EEF4FF" stroke="#9CB0E8" stroke-width="3"/>
+  <text x="130" y="490" fill="#263B63" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">2. Planning Layer</text>
+  <text x="130" y="536" fill="#5B6E98" font-size="24" font-family="Arial, Helvetica, sans-serif">Planner prefers agent full-plan.</text>
+  <text x="130" y="570" fill="#5B6E98" font-size="24" font-family="Arial, Helvetica, sans-serif">Fallback is deterministic phase-detect.</text>
+  <text x="130" y="604" fill="#5B6E98" font-size="24" font-family="Arial, Helvetica, sans-serif">Research → Synthesis are always explicit before implementation.</text>
+  <text x="130" y="636" fill="#5B6E98" font-size="20" font-family="Arial, Helvetica, sans-serif">Outputs: workflow steps, validation contract, delivery contract, context policy.</text>
+
+  <rect x="1150" y="430" width="560" height="220" rx="24" fill="#EAF7EE" stroke="#85BF99" stroke-width="3"/>
+  <text x="1190" y="490" fill="#234936" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">3. Policy Guardrails</text>
+  <text x="1190" y="536" fill="#547261" font-size="24" font-family="Arial, Helvetica, sans-serif">Project Policies</text>
+  <text x="1190" y="570" fill="#547261" font-size="24" font-family="Arial, Helvetica, sans-serif">Capability Matrix</text>
+  <text x="1190" y="604" fill="#547261" font-size="24" font-family="Arial, Helvetica, sans-serif">Interrupt Policy / Budget / Release Mode</text>
+  <text x="1190" y="636" fill="#547261" font-size="20" font-family="Arial, Helvetica, sans-serif">Harness decides what the agent may do, pause, or publish.</text>
+
+  <rect x="90" y="710" width="1620" height="240" rx="24" fill="#1E2535"/>
+  <text x="130" y="776" fill="#F7F3EA" font-size="36" font-family="Arial, Helvetica, sans-serif" font-weight="700">4. Workflow Execution Layer</text>
+  <text x="130" y="826" fill="#BEC8D8" font-size="24" font-family="Arial, Helvetica, sans-serif">Workflow Orchestrator dispatches steps and owns pause / resume / bugfix loop / closeout.</text>
+  <text x="130" y="860" fill="#BEC8D8" font-size="24" font-family="Arial, Helvetica, sans-serif">Runtime backends execute tasks and subagents, but do not own the final truth.</text>
+  <text x="130" y="894" fill="#BEC8D8" font-size="24" font-family="Arial, Helvetica, sans-serif">Artifacts &amp; Telemetry persist the evidence that validation, incident handling, and company review will later read.</text>
+  <text x="130" y="928" fill="#BEC8D8" font-size="20" font-family="Arial, Helvetica, sans-serif">Key artifacts: requirement_snapshot, implementation_plan, validation_plan, context_compaction, stale_memory_verification, runtime_lifecycle, runtime_telemetry.</text>
+
+  <rect x="90" y="1010" width="780" height="250" rx="24" fill="#FFF1F1" stroke="#DB8E96" stroke-width="3"/>
+  <text x="130" y="1072" fill="#6B2A33" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">5. Recovery &amp; Incident Layer</text>
+  <text x="130" y="1118" fill="#87535B" font-size="24" font-family="Arial, Helvetica, sans-serif">Incident taxonomy classifies failures.</text>
+  <text x="130" y="1152" fill="#87535B" font-size="24" font-family="Arial, Helvetica, sans-serif">Recovery narrative explains what happened and what to do next.</text>
+  <text x="130" y="1186" fill="#87535B" font-size="24" font-family="Arial, Helvetica, sans-serif">Circuit breaker can generate operator-review and infra-incident follow-up requirements.</text>
+
+  <rect x="930" y="1010" width="780" height="250" rx="24" fill="#EEF8F0" stroke="#89C59F" stroke-width="3"/>
+  <text x="970" y="1072" fill="#254A36" font-size="34" font-family="Arial, Helvetica, sans-serif" font-weight="700">6. Validation &amp; Portfolio Feedback</text>
+  <text x="970" y="1118" fill="#567260" font-size="24" font-family="Arial, Helvetica, sans-serif">Review / test / publish gates read artifacts, not runtime self-report.</text>
+  <text x="970" y="1152" fill="#567260" font-size="24" font-family="Arial, Helvetica, sans-serif">Results flow back into signals, incidents, company review, and next-cycle bundle.</text>
+  <text x="970" y="1186" fill="#567260" font-size="24" font-family="Arial, Helvetica, sans-serif">Operator approvals sit on risky boundaries, not on every normal execution step.</text>
+
+  <rect x="1270" y="235" width="390" height="100" rx="18" fill="#FFF8E7" stroke="#D7B75E" stroke-width="3"/>
+  <text x="1302" y="275" fill="#6E5617" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="700">Agents-Memory</text>
+  <text x="1302" y="307" fill="#8A7445" font-size="18" font-family="Arial, Helvetica, sans-serif">Provides long-lived context and constraints.</text>
+
+  <path d="M900 370V410" stroke="#7EA9D7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 410L888 391" stroke="#7EA9D7" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 410L912 391" stroke="#7EA9D7" stroke-width="6" stroke-linecap="round"/>
+
+  <path d="M1110 540H1140" stroke="#88A7E6" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 650V690" stroke="#6076B6" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 690L888 671" stroke="#6076B6" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 690L912 671" stroke="#6076B6" stroke-width="6" stroke-linecap="round"/>
+
+  <path d="M900 950V990" stroke="#7E8B9E" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 990L888 971" stroke="#7E8B9E" stroke-width="6" stroke-linecap="round"/>
+  <path d="M900 990L912 971" stroke="#7E8B9E" stroke-width="6" stroke-linecap="round"/>
+
+  <path d="M870 1135H930" stroke="#C1A15A" stroke-width="6" stroke-linecap="round"/>
+  <path d="M1465 335V408" stroke="#D0B36C" stroke-width="6" stroke-linecap="round"/>
+  <path d="M1465 408L1453 389" stroke="#D0B36C" stroke-width="6" stroke-linecap="round"/>
+  <path d="M1465 408L1477 389" stroke="#D0B36C" stroke-width="6" stroke-linecap="round"/>
+</svg>

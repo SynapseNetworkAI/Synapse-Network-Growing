@@ -103,6 +103,14 @@ import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
 
 
+def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _clear_role_sessions() -> None:
     """Clear runtime role-session caches when a requirement reaches a terminal state."""
     try:
@@ -919,14 +927,14 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     )
     if requirement.status == "in_progress":
         return build_requirement_detail(db, requirement.id)
-    from server.services.portfolio_scheduler import validate_requirement_start_capacity
-
-    capacity_error = validate_requirement_start_capacity(db, requirement)
-    if capacity_error:
-        raise ValueError(capacity_error)
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
+
+    if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
+        plan_requirement(db, requirement_id)
+        requirement = _require_requirement(db, requirement_id)
+
     workflow_run = _active_workflow_run(db, requirement)
     if workflow_run is None:
         raise ValueError("Requirement has no active workflow run. Plan it first.")
@@ -934,12 +942,18 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     if workflow_run.status == "completed":
         return build_requirement_detail(db, requirement.id)
 
-    requirement.status = "in_progress"
-    if workflow_run.started_at is None:
-        workflow_run.started_at = utcnow()
-    workflow_run.status = "running"
-    if requirement.started_at is None:
-        requirement.started_at = utcnow()
+    from server.services.portfolio_scheduler import validate_requirement_start_capacity
+
+    capacity_error = validate_requirement_start_capacity(db, requirement)
+    if capacity_error:
+        raise ValueError(capacity_error)
+
+    workflow_run.completed_at = None
+    if workflow_run.status == "paused":
+        workflow_run.status = "pending"
+    if requirement.status == "paused":
+        requirement.status = "ready"
+    requirement.completed_at = None
     db.commit()
 
     _dispatch_next_step_for_requirement(requirement.id)
@@ -987,7 +1001,13 @@ def pause_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     return build_requirement_detail(db, requirement.id)
 
 
-def pause_task(db: Session, task_id: int) -> TaskRow:
+def pause_task(
+    db: Session,
+    task_id: int,
+    *,
+    reason: str = "Paused by user",
+    event_detail: str | None = None,
+) -> TaskRow:
     """Pause a running task and cascade the pause to its parent requirement.
 
     Sets the task status to 'paused', terminates the runtime, resets the linked
@@ -997,14 +1017,14 @@ def pause_task(db: Session, task_id: int) -> TaskRow:
     task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if task is None:
         raise ValueError(f"Task #{task_id} not found")
-    task_status = _as_text(cast(Any, task).status)
+    task_status = str(getattr(cast(Any, task), "status", "") or "")
     if task_status != "running":
         raise ValueError(f"Task #{task_id} is not running (status={task_status})")
 
     _terminate_task_runtime(task)
     cast(Any, task).status = "cancelled"
-    cast(Any, task).last_error_message = "Paused by user"
-    db.add(TaskLogRow(task_id=task_id, event_type="paused", detail="Task paused by user"))
+    cast(Any, task).last_error_message = reason
+    db.add(TaskLogRow(task_id=task_id, event_type="paused", detail=event_detail or reason))
 
     # Reset the linked workflow step back to ready
     step = db.query(WorkflowStepRow).filter(
@@ -1017,13 +1037,13 @@ def pause_task(db: Session, task_id: int) -> TaskRow:
         step.compatibility_task_id = None
         step.started_at = None
         step.completed_at = None
-        _record_step_event(db, step.id, "status_change", "ready (task paused by user)")
+        _record_step_event(db, step.id, "status_change", event_detail or "ready (task paused)")
 
         # Cascade to parent requirement
         parent_req = db.query(RequirementRow).filter(
             RequirementRow.id == step.requirement_id
         ).first()
-        if parent_req is not None and _as_text(cast(Any, parent_req).status) == "in_progress":
+        if parent_req is not None and str(getattr(cast(Any, parent_req), "status", "") or "") == "in_progress":
             workflow_run = _active_workflow_run(db, parent_req)
             if workflow_run is not None:
                 workflow_run.status = "paused"
@@ -1399,7 +1419,9 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             step.started_at = step.started_at or utcnow()
             step.compatibility_task_id = _as_int(task.id)
             workflow_run.status = "running"
+            workflow_run.started_at = workflow_run.started_at or utcnow()
             requirement.status = "in_progress"
+            requirement.started_at = requirement.started_at or utcnow()
             _record_runtime_lifecycle_artifacts(db, step, task, phase="dispatch_requested")
             _record_step_event(db, step.id, "status_change", f"running (task={task.id})")
             db.commit()
@@ -1414,12 +1436,16 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
                 try:
                     s = db2.query(WorkflowStepRow).filter(WorkflowStepRow.id == step.id).first()
                     t = db2.query(TaskRow).filter(TaskRow.id == task.id).first()
+                    req2 = db2.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
+                    run2 = db2.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run.id).first()
                     if s:
                         s.status = "ready"
                     if t:
                         cast(Any, t).status = "failed"
                         cast(Any, t).last_error_message = "dispatch failed"
                         cast(Any, t).completed_at = utcnow()
+                    if req2 is not None and run2 is not None:
+                        _refresh_run_status(db2, req2, run2)
                     db2.commit()
                 finally:
                     db2.close()
@@ -1712,7 +1738,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
             final_prompt = _truncate_text(final_prompt, max_prompt_chars)
 
     stale_after_minutes = max(1, int(context_policy.get("stale_after_minutes") or 30))
-    cutoff = utcnow() - timedelta(minutes=stale_after_minutes)
+    cutoff = _normalize_utc_datetime(utcnow() - timedelta(minutes=stale_after_minutes))
     stale_sensitive_types = {
         str(item).strip()
         for item in context_policy.get("stale_sensitive_artifact_types") or []
@@ -1721,30 +1747,21 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
     stale_findings: list[str] = []
     for binding in binding_summaries:
         artifact_type = str(binding.get("artifact_type") or "")
-        created_at = parse_runtime_timestamp(str(binding.get("created_at") or ""))
+        created_at = _normalize_utc_datetime(parse_runtime_timestamp(str(binding.get("created_at") or "")))
         workflow_run_id = int(binding.get("workflow_run_id") or 0)
         if workflow_run_id and workflow_run_id != int(step.workflow_run_id):
             stale_findings.append(f"{artifact_type} comes from workflow run #{workflow_run_id}, not the active run #{step.workflow_run_id}")
             continue
-        if artifact_type in stale_sensitive_types and created_at is not None and created_at < cutoff:
+        if artifact_type in stale_sensitive_types and created_at is not None and cutoff is not None and created_at < cutoff:
             stale_findings.append(
                 f"{artifact_type} is older than stale-memory threshold ({stale_after_minutes} min)"
             )
-    requirement_updated_at = getattr(requirement, "updated_at", None)
-    workflow_run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == step.workflow_run_id).first()
-    freshness_anchor = getattr(workflow_run, "created_at", None)
-    if (
-        requirement_updated_at is not None
-        and freshness_anchor is not None
-        and requirement_updated_at > freshness_anchor + timedelta(seconds=60)
-    ):
-        for binding in binding_summaries:
-            artifact_type = str(binding.get("artifact_type") or "")
-            created_at = parse_runtime_timestamp(str(binding.get("created_at") or ""))
-            if artifact_type in stale_sensitive_types and created_at is not None and created_at < requirement_updated_at:
-                stale_findings.append(
-                    f"{artifact_type} predates the latest requirement update at {requirement_updated_at.isoformat()}"
-                )
+    # Requirement.updated_at also moves during operational state transitions
+    # like start/pause/block. Treating that field as a content freshness anchor
+    # causes false stale-memory blocks on otherwise fresh plans. The reliable
+    # freshness guards are:
+    # 1. artifact bound to a different workflow run
+    # 2. artifact older than the explicit stale threshold
 
     verification_status = "fresh" if not stale_findings else "stale"
     return {
@@ -2565,6 +2582,8 @@ def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: 
     if any(step.status in RUNNING_STEP_STATUSES for step in steps):
         workflow_run.status = "running"
         requirement.status = "in_progress"
+        workflow_run.started_at = workflow_run.started_at or utcnow()
+        requirement.started_at = requirement.started_at or utcnow()
         return
     non_cancelled = [s for s in steps if s.status != "cancelled"]
     if non_cancelled and all(step.status == "completed" for step in non_cancelled) and _all_checks_passed(db, requirement.id):
@@ -2578,8 +2597,12 @@ def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: 
         workflow_run.status = "running"
         requirement.status = "in_progress"
         return
-    workflow_run.status = "running"
-    requirement.status = "in_progress"
+    workflow_run.status = "pending"
+    workflow_run.completed_at = None
+    if requirement.status not in {"blocked", "paused", "needs_revision", "done"}:
+        requirement.status = "ready" if int(requirement.current_plan_version or 0) > 0 else "draft"
+        requirement.started_at = None
+        requirement.completed_at = None
 
 
 def _auto_complete_closeout(db: Session, requirement: RequirementRow, workflow_run: WorkflowRunRow, step: WorkflowStepRow):

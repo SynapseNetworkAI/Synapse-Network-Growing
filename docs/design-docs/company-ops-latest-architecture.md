@@ -258,6 +258,141 @@ artifact payload 会记录：
 5. `summary`
 6. `recommended_action`
 7. `source_artifact_type`
+
+## 1.6 系统交互图
+
+下面这张图描述当前系统主链路，以及 agent 决策和 deterministic harness 分工边界。
+
+![Synapse Company Ops System Architecture](../assets/company-ops-system-architecture.svg)
+
+```mermaid
+flowchart LR
+    CR["Company Review"] --> SIG["Optimization Signals"]
+    SIG --> RP["Requirement Pool"]
+    RP --> PLAN["Planner"]
+    PLAN --> WF["Workflow Orchestrator"]
+    WF --> RT["Runtime Backends"]
+    RT --> ART["Artifacts & Telemetry"]
+    ART --> INC["Incidents & Recovery"]
+    ART --> VAL["Validation / Delivery Gate"]
+    INC --> SIG
+    VAL --> CR
+    WF --> AP["Approvals"]
+    AP --> WF
+    POL["Project Policies"] --> PLAN
+    POL --> WF
+    MEM["Agents-Memory"] --> PLAN
+    MEM --> WF
+```
+
+### 交互含义
+
+1. `company review` 负责 portfolio 级观察、incident 汇总和下一周期 recommendation。
+2. `optimization signals` 把 incident、bug report、delivery blocker、manual override 聚合成可治理对象。
+3. `requirement pool` 是正式 intake 层，只有进入 requirement 的工作才会进入可追踪 workflow。
+4. `planner` 先做 plan，再把 project policy、routing、context governance、delivery contract 一起写进执行结构。
+5. `workflow orchestrator` 负责 step dispatch、pause/resume、bugfix loop、interrupt policy、incident follow-up。
+6. `runtime backend` 只负责执行，不拥有最终控制权；最终控制仍在 orchestrator 和 policy。
+7. `artifacts` 是统一事实层，validation、incident、company review 都从这里回读，不直接相信 runtime 自述。
+
+## 1.7 当前 plan 是怎么生成的
+
+当前 planner 已经是“尽可能让 agent 决策，但不给 agent 无限权力”的结构。
+
+这里的 `planning_mode` 指的是服务端 `workflow_planner.py` 的规划模式，不是 Codex 客户端或聊天工具里的 `/plan` UI 模式。
+
+### 默认路径
+
+默认优先走 `full_plan`：
+
+1. planner 调用 agent 一次性产出结构化 step JSON
+2. agent 决定 step 列表、step key、scope、依赖、done_when
+3. 系统再把这些 step 注入 project policy、capability matrix、context policy、validation gate
+
+也就是说：
+
+1. step 形状尽量由 agent 决定
+2. 执行边界和风险控制由 harness 决定
+
+### 回退路径
+
+如果 agent 不能稳定返回结构化 step JSON，就回退到 `phase_detect`：
+
+1. 先保留 `research`
+2. 再保留 `synthesis`
+3. 再根据 requirement 文本确定是否需要 `design / frontend_impl / backend_impl / test_impl`
+4. 最后固定进入 `review -> test -> closeout`
+
+这条路径是 deterministic fallback，不依赖 agent 的结构化 JSON 质量。
+
+### 为什么 step 看起来会重复
+
+旧版本里，fallback step 的标题会把整条 requirement 标题重复拼到每一步，导致：
+
+1. UI 很啰嗦
+2. token 浪费
+3. 同类 step 之间辨识度反而变差
+
+当前已收敛为短标题：
+
+1. `Research context`
+2. `Synthesize plan`
+3. `Design architecture`
+4. `Frontend implementation`
+5. `Backend implementation`
+6. `Test implementation`
+7. `Review output`
+8. `Validate output`
+9. `Close requirement`
+
+requirement 标题保留在 workflow 顶层，不再在每个 step title 里重复灌输。
+
+## 1.8 让 agent 决策，但不让 agent失控
+
+当前系统的分工原则是：
+
+### 让 agent 决策的部分
+
+1. full-plan 模式下的 step 设计
+2. research 阶段的信息搜集与方案空间探索
+3. synthesis 阶段的执行方案压缩
+4. implementation 阶段的具体代码改动和执行路径
+5. review/test 阶段的具体验证产物内容
+
+### 必须由 harness 决定的部分
+
+1. 目标项目是否受管、是否可写
+2. capability matrix 是否允许 shell / git / publish
+3. interrupt policy 何时 pause / abort / operator confirm
+4. context budget、compact、stale verify
+5. approval gate、delivery gate、publish gate
+6. circuit breaker、incident taxonomy、recovery follow-up
+
+也就是说，系统追求的是：
+
+1. `agent 决策执行内容`
+2. `harness 决策边界、治理和回收`
+
+而不是把整个系统的控制权交给 agent。
+
+## 1.9 evidence 去重策略
+
+optimization signal 的 evidence 现在按“保留 occurrence_count、压缩重复 evidence”处理。
+
+具体规则是：
+
+1. `occurrence_count` 保留原始出现次数，继续用于排序和 signal score。
+2. `evidence` 只保留去重后的代表样本，避免相同错误反复灌进上下文。
+3. 去重不是按 artifact id，而是按错误语义去重，例如：
+   1. bug report：`step_type + failed_checks + content_summary`
+   2. delivery blocker：`blocker + publish_status`
+   3. workflow incident：`incident_code + recovery_status + summary`
+
+这样可以同时满足：
+
+1. 信号强度不丢
+2. token 不被重复 evidence 吃掉
+3. operator 还能看见代表性样本
 8. `source_artifact_id`
 
 ### 当前 taxonomy family
