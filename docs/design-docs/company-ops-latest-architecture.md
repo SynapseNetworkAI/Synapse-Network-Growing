@@ -741,6 +741,18 @@ validation 不应在 requirement 创建时一次性写死，而应在执行后�
 4. 必要时把 `requirements` 的 score snapshot 物化
 5. 对慢 aggregation 改成定时刷新而不是每次在线重算
 
+## 2.3 COO Operating Workflows
+
+如果目标不是“任务面板”，而是“AI 公司 COO 系统”，后续实现建议以这份 bundle 为准：
+
+1. [docs/plans/coo-operating-workflows/README.md](/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/coo-operating-workflows/README.md)
+2. 它定义了：
+   1. role operating contract
+   2. requirement source registry
+   3. recurring workflow registry
+   4. daily intake / dispatch / closeout rhythm
+   5. weekly operating review / automation backlog / operator rituals
+
 ### 阶段 B：迁移 PostgreSQL
 
 适用于：
