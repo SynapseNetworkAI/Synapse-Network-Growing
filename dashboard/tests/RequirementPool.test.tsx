@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import RequirementPool from '../src/pages/RequirementPool'
 
@@ -191,6 +191,16 @@ const UNPLANNED_REQUIREMENT = {
   title: 'Incident recovery follow-up',
   current_plan_version: 0,
   active_workflow_run_id: null,
+}
+
+function makeRequirement(id: number, title: string) {
+  return {
+    ...BLOCKER,
+    id,
+    title,
+    created_at: `2026-04-10T00:${String(id).padStart(2, '0')}:00Z`,
+    updated_at: `2026-04-10T00:${String(id).padStart(2, '0')}:30Z`,
+  }
 }
 
 const DETAIL = {
@@ -688,6 +698,35 @@ describe('RequirementPool', () => {
 
     await waitFor(() => {
       expect(mockApi.startRequirement).toHaveBeenCalledWith(5)
+    })
+  })
+
+  it('keeps the current pagination page after reloading pool data', async () => {
+    const pagedRequirements = Array.from({ length: 11 }, (_, index) =>
+      makeRequirement(index + 10, `Requirement ${index + 1}`),
+    )
+    mockApi.getRequirements.mockResolvedValue(pagedRequirements)
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirements-pagination')).toBeDefined()
+    })
+
+    const pagination = screen.getByTestId('requirements-pagination')
+    fireEvent.click(within(pagination).getByRole('button', { name: '2' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('11–11 / 11 条需求')).toBeDefined()
+      expect(screen.getByTestId('requirement-card-10')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('scheduler-advance-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.advanceQueue).toHaveBeenCalled()
+      expect(screen.getByText('11–11 / 11 条需求')).toBeDefined()
+      expect(screen.getByTestId('requirement-card-10')).toBeDefined()
     })
   })
 

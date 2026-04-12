@@ -261,25 +261,21 @@ class TestBuildImplementationSteps:
         assert keys == ["implementation"]
         assert steps[0]["step_key"] == "implementation"
 
-    def test_multi_phase_creates_sub_steps(self):
+    def test_fallback_plan_stays_generic_even_when_multiple_phases_detected(self):
         req = _mock_requirement(title="Full stack")
         phases = _DetectedPhases(design=True, frontend=True, backend=True, test_impl=True)
         steps, keys = _build_implementation_steps(req, phases, "/proj")
-        assert keys == ["design", "frontend_impl", "backend_impl", "test_impl"]
-        assert len(steps) == 4
-        # Check dependency chain
+        assert keys == ["implementation"]
+        assert len(steps) == 1
         assert steps[0]["depends_on"] == []
-        assert steps[1]["depends_on"] == ["design"]
-        assert steps[2]["depends_on"] == ["frontend_impl"]
-        assert steps[3]["depends_on"] == ["backend_impl"]
 
-    def test_frontend_backend_only(self):
+    def test_frontend_backend_detection_does_not_force_fixed_substeps(self):
         req = _mock_requirement(title="FB only")
         phases = _DetectedPhases(frontend=True, backend=True)
         steps, keys = _build_implementation_steps(req, phases, "/proj")
-        assert keys == ["frontend_impl", "backend_impl"]
+        assert keys == ["implementation"]
         assert steps[0]["depends_on"] == []
-        assert steps[1]["depends_on"] == ["frontend_impl"]
+        assert "configured target projects" in steps[0]["done_when_markdown"]
 
     def test_target_path_in_done_when(self):
         req = _mock_requirement(title="Code task")
@@ -431,7 +427,7 @@ class TestBuildPlannerOutput:
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
         assert step_keys == ["research", "synthesis", "frontend_impl", "backend_impl", "review", "test", "closeout"]
 
-    def test_docs_only_requirement_does_not_require_product_code(self, synced_client, db_session):
+    def test_delivery_expectation_leaves_change_shape_to_model(self, synced_client, db_session):
         req = RequirementRow(
             title="[ContentWriter] Welcome 邮件序列",
             description_markdown="为开发者编写三封 onboarding 邮件文案，并输出到 markdown 文档。",
@@ -446,12 +442,16 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        assert output["delivery_expectation"]["docs_only"] is True
-        assert output["delivery_expectation"]["requires_product_code"] is False
+        assert output["delivery_expectation"]["planning_authority"] == "agent_decides_change_shape"
+        assert output["delivery_expectation"]["change_shape"] == "model_determined"
+        assert output["delivery_expectation"]["all_target_paths"] == [
+            "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+            "/Users/cliff/workspace/agent/Synapse-Network",
+        ]
         assert not any(check["check_key"] == "code_delivery_completed" for check in output["acceptance_checks"])
         assert output["target_project_path"].splitlines()[0] == "/Users/cliff/workspace/agent/Synapse-Network-Growing"
 
-    def test_code_requirement_reorders_primary_target_and_rejects_docs_only_plan(self, synced_client, db_session):
+    def test_target_project_path_order_is_preserved_for_model_decision(self, synced_client, db_session):
         req = RequirementRow(
             title="Defect Reduction: Synapse-Network bugfix",
             description_markdown="修复 Synapse-Network API 缺陷并补回归测试，最终要修改产品代码并完成验证。",
@@ -466,36 +466,13 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": True, "frontend": False, "backend": False, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        assert output["extensions"]["planning_mode"] == "phase_detect"
-        assert output["delivery_expectation"]["requires_product_code"] is True
-        assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
-        assert any(check["check_key"] == "code_delivery_completed" for check in output["acceptance_checks"])
-        automated = {check["check_key"]: check for check in output["validation_plan"]["automated_checks"]}
-        assert automated["code_delivery_completed"]["method"] == "repo_file_changes"
-        assert automated["code_delivery_completed"]["required_target_path"] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
-
-    def test_manual_product_requirement_requires_code_delivery_when_target_points_to_product_repo(self, synced_client, db_session):
-        req = RequirementRow(
-            title="Gateway readiness hardening",
-            description_markdown="补齐 readiness 观测和验证闭环，交付到目标产品仓库。",
-            source="manual",
-            target_project_path=(
-                "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
-                "/Users/cliff/workspace/agent/Synapse-Network"
-            ),
-        )
-        db_session.add(req)
-        db_session.flush()
-
-        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": True}):
-            output, _ = build_planner_output(db_session, req)
-
-        assert output["delivery_expectation"]["docs_only"] is False
-        assert output["delivery_expectation"]["requires_product_code"] is True
-        assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
-        automated = {check["check_key"]: check for check in output["validation_plan"]["automated_checks"]}
-        assert automated["code_delivery_completed"]["method"] == "repo_file_changes"
-        assert automated["code_delivery_completed"]["required_target_path"] == workflow_planner.PRIMARY_SYNAPSE_PROJECT
+        assert output["extensions"]["planning_mode"] == "full_plan"
+        assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_GROWING_PROJECT
+        assert output["delivery_expectation"]["all_target_paths"] == [
+            workflow_planner.PRIMARY_GROWING_PROJECT,
+            workflow_planner.PRIMARY_SYNAPSE_PROJECT,
+        ]
+        assert not any(check["check_key"] == "code_delivery_completed" for check in output["acceptance_checks"])
 
     def test_policy_augments_file_scope(self, synced_client, db_session):
         db_session.add(

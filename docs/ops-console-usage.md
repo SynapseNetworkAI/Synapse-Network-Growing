@@ -167,10 +167,11 @@ Company Review
 
 1. 先确认 requirement 本身描述是对的。
 2. 再看 workflow 是否合理。
-3. `Steps` 面板里如果看到 `Research context → Synthesize plan → Frontend/Backend/Test implementation → Review output → Validate output → Close requirement`，这表示系统走的是显式 research/synthesis 工作流。
-4. `planning_mode` 默认优先走 agent full-plan；只有 agent 无法产出结构化 step JSON 时，才会退回 phase-detect fallback。
-5. fallback 模式的 step 标题已经刻意压短，不再把整条 requirement 标题重复塞到每一步里，减少 token 和 UI 噪音。
-6. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
+3. `Steps` 面板里前两步通常是 `Research context → Synthesize plan`，中间 implementation 子步骤的数量、标题和作用域默认由 plan 模型决定，而不是由 harness 固定写死。
+4. `planning_mode` 默认优先走 agent full-plan；只有 agent 无法产出结构化 step JSON 时，才会退回 generic fallback。
+5. target project 的顺序默认按 requirement 原样保留，不再由 harness 自动改写“主仓”；模型会在这些目标项目范围内决定改代码、改文档或混合改动。
+6. review/test 会结合实现阶段产出的 `project_change_summary` 看本次到底改到了哪些项目，再决定验证重点。
+7. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
 7. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死。
 8. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
 9. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan 或 publish。

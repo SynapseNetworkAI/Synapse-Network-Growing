@@ -67,18 +67,32 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     planned = plan_resp.json()
     assert planned["requirement"]["current_plan_version"] == 1
-    assert [step["step_type"] for step in planned["workflow_run"]["steps"]] == [
-        "research",
-        "synthesis",
-        "implementation",
-        "review",
-        "test",
-        "closeout",
-    ]
+    planned_step_types = [step["step_type"] for step in planned["workflow_run"]["steps"]]
+    assert planned_step_types[:2] == ["research", "synthesis"]
+    assert planned_step_types[-3:] == ["review", "test", "closeout"]
+    assert "implementation" in planned_step_types
 
     call_counts = {"test": 0}
 
@@ -147,9 +161,9 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert requirement.status == "done"
 
     tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
-    assert len(tasks) == 8
+    assert len(tasks) >= 6
     assert sum(1 for task in tasks if task.status == "failed") == 1
-    assert sum(1 for task in tasks if task.status == "completed") == 7
+    assert sum(1 for task in tasks if task.status == "completed") == len(tasks) - 1
 
     closeout = db_session.query(WorkflowStepRow).filter(
         WorkflowStepRow.requirement_id == requirement_id,
@@ -161,12 +175,12 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
 
 
-def test_code_requirement_prefers_synapse_repo_and_requires_code_delivery_evidence(synced_client, db_session):
+def test_requirement_keeps_target_project_order_and_records_dynamic_project_change_summary(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
         json={
             "title": "Defect Reduction: Synapse-Network API regression",
-            "description_markdown": "修复 Synapse-Network API 缺陷，补回归测试，并验证真实代码已经落到产品仓库。",
+            "description_markdown": "修复 Synapse-Network API 缺陷，并让模型自行决定需要改动哪些目标项目与验证方式。",
             "priority": "high",
             "target_project_path": (
                 "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
@@ -177,19 +191,37 @@ def test_code_requirement_prefers_synapse_repo_and_requires_code_delivery_eviden
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Apply planned changes",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Apply requirement changes across configured target projects.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
     class FakeRuntime:
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:research]" in task_description:
-                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network" in task_description
+                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network-Growing" in task_description
                 return _runtime_result(text="Research report ready.")
             if "[workflow_step:synthesis]" in task_description:
                 return _runtime_result(text="Synthesis report ready.")
             if "[workflow_step:implementation]" in task_description:
-                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network" in task_description
-                return _runtime_result(text="Implemented API fix in Synapse-Network.")
+                assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network-Growing" in task_description
+                return _runtime_result(text="Implemented API fix across configured target projects.")
             if "[workflow_step:review]" in task_description:
                 return _runtime_result(text="Review passed.")
             if "[workflow_step:test]" in task_description:
@@ -210,12 +242,54 @@ def test_code_requirement_prefers_synapse_repo_and_requires_code_delivery_eviden
                             "additions": 12,
                             "deletions": 1,
                             "patch": "@@\n+code\n",
+                            "target_project_path": workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                        },
+                        {
+                            "filename": "services/gateway/src/app.py",
+                            "additions": 9,
+                            "deletions": 0,
+                            "patch": "@@\n+code\n",
+                            "target_project_path": workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
                         }
                     ],
-                    "target_project_path": workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
-                    "all_target_project_paths": [
-                        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                    "target_project_path": workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                    "changed_target_project_paths": [
                         workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                    ],
+                    "project_snapshots": [
+                        {
+                            "target_project_path": workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                            "changed_file_count": 1,
+                            "changed_files": [
+                                {
+                                    "filename": "server/routes/requirements.py",
+                                    "additions": 12,
+                                    "deletions": 1,
+                                    "patch": "@@\n+code\n",
+                                    "target_project_path": workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                                }
+                            ],
+                            "project_policy_summary": "Growing checks: pytest -q",
+                        },
+                        {
+                            "target_project_path": workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                            "changed_file_count": 1,
+                            "changed_files": [
+                                {
+                                    "filename": "services/gateway/src/app.py",
+                                    "additions": 9,
+                                    "deletions": 0,
+                                    "patch": "@@\n+code\n",
+                                    "target_project_path": workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+                                }
+                            ],
+                            "project_policy_summary": "Synapse checks: npm test",
+                        },
+                    ],
+                    "all_target_project_paths": [
+                        workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+                        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
                     ],
                     "source": "snapshot",
                     "task_id": int(task.id),
@@ -236,9 +310,17 @@ def test_code_requirement_prefers_synapse_repo_and_requires_code_delivery_eviden
     assert start_resp.status_code == 200
     data = start_resp.json()
     assert data["requirement"]["status"] == "done"
-    check_statuses = {check["check_key"]: check["status"] for check in data["acceptance_checks"]}
-    assert check_statuses["code_delivery_completed"] == "passed"
     assert data["requirement"]["target_project_path"].splitlines()[0] == workflow_orchestrator.PRIMARY_GROWING_PROJECT
+    artifact_types = [artifact["artifact_type"] for artifact in data["artifacts"]]
+    assert "project_change_summary" in artifact_types
+    project_change_summary = next(
+        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "project_change_summary"
+    )
+    project_payload = json.loads(project_change_summary["machine_readable_payload"])
+    assert project_payload["changed_target_project_paths"] == [
+        workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+    ]
     latest_test_artifact = next(
         artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "test_report"
     )

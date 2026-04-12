@@ -96,6 +96,7 @@ function queueSkipMessage(value: string | string[] | undefined) {
 
 export default function RequirementPool() {
   const navigate = useNavigate()
+  const PAGE_SIZE = 10
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [projectPolicies, setProjectPolicies] = useState<ProjectPolicy[]>([])
   const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
@@ -113,7 +114,6 @@ export default function RequirementPool() {
   const [editRequirementSaving, setEditRequirementSaving] = useState(false)
   const [deleteRequirementSavingId, setDeleteRequirementSavingId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 10
   const [showCreate, setShowCreate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [titleError, setTitleError] = useState(false)
@@ -135,9 +135,13 @@ export default function RequirementPool() {
       sortMode === 'score' ? 'score' : undefined,
       searchQuery.trim() || undefined,
     )
-    setRequirements(sortRequirements(data, sortMode))
-    setPage(1)
-  }, [searchQuery, sortMode, statusFilter])
+    const sorted = sortRequirements(data, sortMode)
+    setRequirements(sorted)
+    setPage((currentPage) => {
+      const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+      return Math.min(currentPage, totalPages)
+    })
+  }, [PAGE_SIZE, searchQuery, sortMode, statusFilter])
 
   const loadScheduler = useCallback(async () => {
     const data = await api.getRequirementScheduler()
@@ -156,6 +160,10 @@ export default function RequirementPool() {
   useEffect(() => {
     loadPool().catch(() => {})
   }, [loadPool])
+
+  useEffect(() => {
+    setPage(1)
+  }, [statusFilter, sortMode, searchQuery])
 
   // Auto-advance queue on first load if nothing in_progress
   useEffect(() => {
@@ -804,7 +812,7 @@ export default function RequirementPool() {
           const start = (page - 1) * PAGE_SIZE + 1
           const end = Math.min(page * PAGE_SIZE, requirements.length)
           return (
-            <div className="flex items-center justify-between pt-1 text-xs text-gray-500">
+            <div data-testid="requirements-pagination" className="flex items-center justify-between pt-1 text-xs text-gray-500">
               <span>{start}–{end} / {requirements.length} 条需求</span>
               <div className="flex items-center gap-1">
                 <button

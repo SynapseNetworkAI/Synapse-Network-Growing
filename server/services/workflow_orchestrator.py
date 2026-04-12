@@ -191,57 +191,77 @@ def _clear_role_sessions() -> None:
 
 
 def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementRow, step: WorkflowStepRow | None = None) -> None:
-    """Capture `git diff HEAD` in the target project and save to the task output dir."""
+    """Capture `git diff HEAD` across configured target projects and save to the task output dir."""
     try:
-        target_path = _primary_target_directory(
-            db,
-            requirement,
-            step_type=str(step.step_type or "") if step is not None else None,
+        target_paths = _split_target_project_paths(
+            _effective_target_project_path(
+                db,
+                requirement,
+                step_type=str(step.step_type or "") if step is not None else None,
+            )
         )
         output_path = str(task.output_path) if task.output_path else None
-        if not target_path or not output_path:
+        if not target_paths or not output_path:
             return
-        target_dir = Path(target_path)
-        if not target_dir.is_dir():
-            return
-        result = subprocess.run(
-            ["git", "diff", "HEAD", "--unified=5"],
-            cwd=str(target_dir), capture_output=True, text=True, timeout=15,
-        )
-        diff_text = result.stdout
+        changed_files: list[dict[str, Any]] = []
+        project_snapshots: list[dict[str, Any]] = []
+        for target_path in target_paths:
+            target_dir = Path(target_path)
+            if not target_dir.is_dir():
+                continue
+            result = subprocess.run(
+                ["git", "diff", "HEAD", "--unified=5"],
+                cwd=str(target_dir), capture_output=True, text=True, timeout=15,
+            )
+            diff_text = result.stdout
 
-        changed_files: list[dict] = []
-        current: dict | None = None
-        for line in diff_text.splitlines(keepends=True):
-            if line.startswith("diff --git "):
-                if current:
-                    changed_files.append(current)
-                current = {"filename": "", "additions": 0, "deletions": 0, "patch": ""}
-            elif current is not None:
-                if line.startswith("+++ b/"):
-                    current["filename"] = line[6:].rstrip("\n")
-                elif line.startswith("+") and not line.startswith("+++"):
-                    current["additions"] += 1
-                    current["patch"] += line
-                elif line.startswith("-") and not line.startswith("---"):
-                    current["deletions"] += 1
-                    current["patch"] += line
-                else:
-                    current["patch"] += line
-        if current:
-            changed_files.append(current)
-        changed_files = [f for f in changed_files if f["filename"]]
+            repo_changed_files: list[dict[str, Any]] = []
+            current: dict[str, Any] | None = None
+            for line in diff_text.splitlines(keepends=True):
+                if line.startswith("diff --git "):
+                    if current:
+                        repo_changed_files.append(current)
+                    current = {
+                        "filename": "",
+                        "additions": 0,
+                        "deletions": 0,
+                        "patch": "",
+                        "target_project_path": target_path,
+                    }
+                elif current is not None:
+                    if line.startswith("+++ b/"):
+                        current["filename"] = line[6:].rstrip("\n")
+                    elif line.startswith("+") and not line.startswith("+++"):
+                        current["additions"] += 1
+                        current["patch"] += line
+                    elif line.startswith("-") and not line.startswith("---"):
+                        current["deletions"] += 1
+                        current["patch"] += line
+                    else:
+                        current["patch"] += line
+            if current:
+                repo_changed_files.append(current)
+            repo_changed_files = [f for f in repo_changed_files if f["filename"]]
+            changed_files.extend(repo_changed_files)
+            project_snapshots.append(
+                {
+                    "target_project_path": target_path,
+                    "changed_file_count": len(repo_changed_files),
+                    "changed_files": repo_changed_files,
+                    "project_policy_summary": project_policy_summary_markdown(db, target_path),
+                }
+            )
 
         snapshot = {
             "changed_files": changed_files,
-            "target_project_path": target_path,
-            "all_target_project_paths": _split_target_project_paths(
-                _effective_target_project_path(
-                    db,
-                    requirement,
-                    step_type=str(step.step_type or "") if step is not None else None,
-                )
-            ),
+            "target_project_path": project_snapshots[0]["target_project_path"] if project_snapshots else target_paths[0],
+            "changed_target_project_paths": [
+                item["target_project_path"]
+                for item in project_snapshots
+                if int(item.get("changed_file_count") or 0) > 0
+            ],
+            "project_snapshots": project_snapshots,
+            "all_target_project_paths": target_paths,
             "source": "snapshot",
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "task_id": int(task.id),
@@ -253,8 +273,8 @@ def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementR
             json.dumps(snapshot, ensure_ascii=False, indent=2)
         )
         _logger.info(
-            "Saved file-changes snapshot for task %s: %d files changed",
-            task.id, len(changed_files),
+            "Saved file-changes snapshot for task %s: %d files changed across %d target projects",
+            task.id, len(changed_files), len(project_snapshots),
         )
     except Exception:
         _logger.debug("Failed to snapshot file changes for task %s (non-critical)", task.id, exc_info=True)
@@ -391,9 +411,6 @@ def _normalize_target_project_path(raw_path: str | None) -> str | None:
         seen.add(candidate)
         lines.append(candidate)
 
-    if lines == [PRIMARY_GROWING_PROJECT]:
-        lines.append(PRIMARY_SYNAPSE_PROJECT)
-
     if not lines:
         return None
     return "\n".join(lines)
@@ -488,6 +505,74 @@ def _load_task_file_changes(task: TaskRow) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _record_project_change_summary_artifact(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    task: TaskRow,
+) -> ArtifactRow | None:
+    payload = _load_task_file_changes(task)
+    if not isinstance(payload, dict) or not payload:
+        return None
+    project_snapshots = payload.get("project_snapshots") or []
+    if not isinstance(project_snapshots, list):
+        return None
+    changed_projects: list[dict[str, Any]] = []
+    for item in project_snapshots:
+        if not isinstance(item, dict):
+            continue
+        changed_file_count = int(item.get("changed_file_count") or 0)
+        if changed_file_count <= 0:
+            continue
+        target_project_path = str(item.get("target_project_path") or "").strip()
+        changed_projects.append(
+            {
+                "target_project_path": target_project_path,
+                "changed_file_count": changed_file_count,
+                "project_policy_summary": str(item.get("project_policy_summary") or "").strip(),
+                "changed_files": item.get("changed_files") or [],
+            }
+        )
+    if not changed_projects:
+        return None
+    lines = [
+        "# Project Change Summary",
+        "",
+        "Validation should focus on the projects actually modified in this run.",
+    ]
+    for project in changed_projects:
+        lines.extend(
+            [
+                "",
+                f"## {project['target_project_path']}",
+                f"- Changed files: {project['changed_file_count']}",
+            ]
+        )
+        summary = project.get("project_policy_summary") or ""
+        if summary:
+            lines.append(summary)
+    return _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(step.id),
+        producer_step_id=_as_int(step.id),
+        artifact_type="project_change_summary",
+        path=str(task.output_path or "") or None,
+        content_summary=f"Changed projects for step {step.step_key}",
+        human_readable_body="\n".join(lines),
+        machine_readable_payload={
+            "task_id": _as_int(task.id),
+            "step_id": _as_int(step.id),
+            "changed_projects": changed_projects,
+            "changed_target_project_paths": payload.get("changed_target_project_paths") or [],
+            "all_target_project_paths": payload.get("all_target_project_paths") or [],
+        },
+    )
+
+
 def _repo_file_changes_check_error(
     *,
     step: WorkflowStepRow,
@@ -501,9 +586,24 @@ def _repo_file_changes_check_error(
     if not payload:
         return "repo_file_changes evidence is missing"
     required_target = str(spec.get("required_target_path") or "").strip()
+    required_targets = [
+        str(item).strip()
+        for item in spec.get("required_target_paths") or []
+        if str(item).strip()
+    ]
     actual_target = str(payload.get("target_project_path") or "").strip()
     if required_target and actual_target and actual_target != required_target:
         return f"repo_file_changes captured `{actual_target}` but expected `{required_target}`"
+    if required_targets:
+        changed_targets = {
+            str(item).strip()
+            for item in payload.get("changed_target_project_paths") or []
+            if str(item).strip()
+        }
+        if changed_targets and not changed_targets.intersection(required_targets):
+            expected = ", ".join(f"`{item}`" for item in required_targets)
+            actual = ", ".join(f"`{item}`" for item in sorted(changed_targets))
+            return f"repo_file_changes captured {actual or '`<none>`'} but expected one of {expected}"
     changed_files = payload.get("changed_files") or []
     if not isinstance(changed_files, list):
         return "repo_file_changes evidence is malformed"
@@ -1372,6 +1472,13 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         artifact = _create_step_completion_artifact(db, step, task)
         # Snapshot git diff now, before the next step is dispatched
         _snapshot_file_changes(db, task, requirement, step)
+        project_change_artifact = _record_project_change_summary_artifact(
+            db,
+            requirement=requirement,
+            workflow_run=run,
+            step=step,
+            task=task,
+        )
         target_failures = _mark_step_targets_passed(db, requirement, step, artifact, task=task)
         if target_failures:
             step.status = "failed"
@@ -1410,6 +1517,8 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 requirement.status = "needs_revision"
         else:
             _bind_output_to_followup_steps(db, step, artifact)
+            if project_change_artifact is not None:
+                _bind_output_to_followup_steps(db, step, project_change_artifact)
             _am_push_task_completed(task, step, requirement)
             if step.step_type == "closeout":
                 _finalize_requirement(db, requirement, run, step, artifact)

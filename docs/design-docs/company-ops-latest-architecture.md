@@ -81,6 +81,21 @@
 5. runtime / subagent 必须有生命周期与 cleanup
 6. 上下文必须按 budget / compact / stale verify 治理
 
+## 1.1A Requirement → Plan → Execution 的边界
+
+当前系统采用的边界是：
+
+1. requirement 定义目标、约束、目标项目与验收意图
+2. planner 模型决定具体改哪些项目、改代码还是改文档、如何拆 implementation 子步骤
+3. harness 只负责限制项目边界、能力边界、interrupt policy、验证流程和交付治理
+
+这意味着：
+
+1. 不再由 harness 预判 `docs-only` 或强制指定主仓
+2. 不再由 harness 预判“这次必须先 frontend 后 backend”
+3. 模型可以在目标项目范围内自由决定 docs/code/mixed change shape
+4. validation 会根据实际变更到的项目动态收集 `project_change_summary`，再进入 review/test/closeout
+
 ## 1.2 新增的执行约束层
 
 现在 `project policy` 不再只负责路径和发布模式，还负责显式执行约束。

@@ -21,6 +21,8 @@
 1. implementation 不能自证正确。
 2. review / validation / closeout 必须是独立阶段，且默认对 implementation 保持怀疑。
 3. “代码存在”不等于“问题解决”；完成定义必须包含验证证据。
+4. harness 负责定义验证流程与治理边界，不负责替模型预判“这次应该改文档还是改代码”。
+5. requirement 负责给出目标、约束和目标项目；具体改动形态与步骤展开默认由 plan 模型决定。
 
 ## 4. 多代理的目标是隔离不确定性
 
