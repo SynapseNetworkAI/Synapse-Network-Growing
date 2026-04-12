@@ -8,7 +8,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import CompanyOperatingReviewRow, RequirementRow
+from collections import defaultdict
+
+from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RequirementRow, TaskRow, WorkflowStepRow
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals, refresh_optimization_signals
@@ -51,8 +53,301 @@ def _cycle_summary_markdown(
         f"Portfolio active requirements: {portfolio_summary['active_requirements']}, "
         f"open signals: {portfolio_summary['open_signals']}, "
         f"approval-required decisions: {portfolio_summary['approval_required_decisions']}.\n\n"
+        f"Completion rate: {portfolio_summary['completion_rate']}%, "
+        f"budget spent: {portfolio_summary['budget_spent_points']} pts, "
+        f"prompt cache saved chars: {portfolio_summary['prompt_cache_saved_chars']}, "
+        f"human gate hotspots: {portfolio_summary['human_gate_hotspots']}.\n\n"
         f"Recommended next move: {lead_recommendation}."
     )
+
+
+def _requirement_target_paths(requirement: RequirementRow) -> list[str]:
+    return [
+        str(item).strip()
+        for item in str(requirement.target_project_path or "").splitlines()
+        if str(item).strip()
+    ]
+
+
+def _requirement_project_keys(
+    requirement: RequirementRow,
+    project_catalog: dict[str, dict[str, Any]],
+) -> list[str]:
+    target_paths = _requirement_target_paths(requirement)
+    matches: list[str] = []
+    for project in project_catalog.values():
+        project_key = str(project.get("project_key") or "").strip()
+        root_path = str(project.get("root_path") or "").strip()
+        if not project_key or not root_path:
+            continue
+        if any(path == root_path or path.startswith(f"{root_path}/") for path in target_paths):
+            matches.append(project_key)
+    return list(dict.fromkeys(matches))
+
+
+def _empty_runtime_metric_bucket() -> dict[str, Any]:
+    return {
+        "completed_requirements": 0,
+        "budget_spent_points": 0,
+        "tokens_used": 0,
+        "prompt_cache_saved_chars": 0,
+        "deduped_bindings": 0,
+        "escalations": 0,
+        "downgrades": 0,
+        "tier_mix": {"mini": 0, "standard": 0, "max": 0},
+    }
+
+
+def _aggregate_runtime_metrics(
+    db: Session,
+    *,
+    project_catalog: dict[str, dict[str, Any]],
+    requirements: dict[int, RequirementRow],
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    overall = _empty_runtime_metric_bucket()
+    per_project: dict[str, dict[str, Any]] = defaultdict(_empty_runtime_metric_bucket)
+
+    scoped_requirements = [req for req in requirements.values() if str(req.status or "") != "deleted"]
+    for requirement in scoped_requirements:
+        if str(requirement.status or "") == "done":
+            overall["completed_requirements"] += 1
+        for project_key in _requirement_project_keys(requirement, project_catalog):
+            if str(requirement.status or "") == "done":
+                per_project[project_key]["completed_requirements"] += 1
+
+    for task in db.query(TaskRow).all():
+        requirement_id = int(task.requirement_id or 0)
+        requirement = requirements.get(requirement_id)
+        if requirement is None:
+            continue
+        budget_cost = int(task.budget_cost_points or 0)
+        tokens_used = int(task.tokens_used or 0)
+        overall["budget_spent_points"] += budget_cost
+        overall["tokens_used"] += tokens_used
+        for project_key in _requirement_project_keys(requirement, project_catalog):
+            per_project[project_key]["budget_spent_points"] += budget_cost
+            per_project[project_key]["tokens_used"] += tokens_used
+
+    for step in db.query(WorkflowStepRow).all():
+        requirement = requirements.get(int(step.requirement_id or 0))
+        if requirement is None:
+            continue
+        profile = _json_loads(getattr(step, "execution_profile_json", None), {})
+        tier = str(profile.get("complexity_tier") or "standard").strip().lower() or "standard"
+        if tier not in {"mini", "standard", "max"}:
+            tier = "standard"
+        overall["tier_mix"][tier] += 1
+        for project_key in _requirement_project_keys(requirement, project_catalog):
+            per_project[project_key]["tier_mix"][tier] += 1
+
+    for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "prompt_cache_profile").all():
+        requirement = requirements.get(int(artifact.requirement_id or 0))
+        if requirement is None:
+            continue
+        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+        saved_chars = int(payload.get("cached_chars_saved") or 0)
+        deduped_bindings = int(payload.get("deduped_binding_count") or 0)
+        overall["prompt_cache_saved_chars"] += saved_chars
+        overall["deduped_bindings"] += deduped_bindings
+        for project_key in _requirement_project_keys(requirement, project_catalog):
+            per_project[project_key]["prompt_cache_saved_chars"] += saved_chars
+            per_project[project_key]["deduped_bindings"] += deduped_bindings
+
+    for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "runtime_adaptation").all():
+        requirement = requirements.get(int(artifact.requirement_id or 0))
+        if requirement is None:
+            continue
+        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+        adaptation_type = str(payload.get("adaptation_type") or "").strip().lower()
+        if adaptation_type == "escalation":
+            overall["escalations"] += 1
+        elif adaptation_type == "downgrade":
+            overall["downgrades"] += 1
+        else:
+            continue
+        for project_key in _requirement_project_keys(requirement, project_catalog):
+            if adaptation_type == "escalation":
+                per_project[project_key]["escalations"] += 1
+            elif adaptation_type == "downgrade":
+                per_project[project_key]["downgrades"] += 1
+
+    return overall, dict(per_project)
+
+
+def _project_display_for_keys(project_keys: list[str], project_catalog: dict[str, dict[str, Any]]) -> tuple[str | None, str | None]:
+    normalized = [str(item).strip() for item in project_keys if str(item).strip()]
+    if not normalized:
+        return None, None
+    if len(normalized) > 1:
+        return "multi-project", "Multiple Projects"
+    project_key = normalized[0]
+    for project in project_catalog.values():
+        if str(project.get("project_key") or "") == project_key:
+            return project_key, str(project.get("display_name") or project_key)
+    return project_key, project_key
+
+
+def _gate_recommendation(approval_type: str, approval_scope: str, *, step_type: str) -> tuple[str, str]:
+    if approval_scope == "publish" or approval_type == "publish_manual_gate":
+        return "publish_automation", "Stabilize delivery checks so more review-ready work can auto-promote without operator intervention."
+    if approval_scope == "incident_recovery":
+        return "incident_recovery_automation", "Automate incident diagnostics, recovery narrative, and retry readiness before escalating to the operator."
+    if approval_type == "budget_review":
+        return "budget_guardrail_tuning", "Tune model routing or budget caps so repeated budget reviews are handled automatically earlier in the loop."
+    if approval_type == "stale_memory_review":
+        return "context_refresh_automation", "Improve compaction, refresh cadence, or stale-memory recovery so this branch stops requiring manual review."
+    if approval_scope == "max_tier":
+        return "max_tier_branch_reduction", "Split or reroute work earlier so fewer branches escalate into max-tier human-gated execution."
+    return "generic_gate_automation", f"Reduce repeated {step_type or approval_type} manual gate triggers with better routing or stronger automatic verification."
+
+
+def _human_gate_hotspots(
+    db: Session,
+    *,
+    project_catalog: dict[str, dict[str, Any]],
+    requirements: dict[int, RequirementRow],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    gate_buckets: dict[str, dict[str, Any]] = {}
+
+    def _upsert_gate(
+        *,
+        gate_key: str,
+        title: str,
+        approval_type: str,
+        approval_scope: str | None,
+        step_type: str | None,
+        project_key: str | None,
+        project_display_name: str | None,
+        status: str,
+        summary: str,
+    ) -> None:
+        bucket = gate_buckets.setdefault(
+            gate_key,
+            {
+                "gate_key": gate_key,
+                "title": title,
+                "approval_type": approval_type,
+                "approval_scope": approval_scope,
+                "step_type": step_type,
+                "project_key": project_key,
+                "project_display_name": project_display_name,
+                "occurrence_count": 0,
+                "pending_count": 0,
+                "latest_status": status,
+                "summary": summary,
+            },
+        )
+        bucket["occurrence_count"] += 1
+        if status == "pending":
+            bucket["pending_count"] += 1
+        bucket["latest_status"] = status
+
+    steps_by_id = {
+        int(step.id): step
+        for step in db.query(WorkflowStepRow).all()
+        if step.id is not None
+    }
+
+    for approval in db.query(ApprovalRequestRow).all():
+        requirement = requirements.get(int(approval.requirement_id or 0))
+        if requirement is None:
+            continue
+        step = steps_by_id.get(int(approval.step_id or 0))
+        approval_policy = _json_loads(getattr(step, "approval_policy_json", None), {}) if step is not None else {}
+        approval_scope = str(approval_policy.get("approval_scope") or "").strip() or None
+        step_type = str(getattr(step, "step_type", "") or "").strip() or None
+        project_key, project_display_name = _project_display_for_keys(
+            _requirement_project_keys(requirement, project_catalog),
+            project_catalog,
+        )
+        gate_key = "::".join(
+            [
+                str(approval.approval_type or ""),
+                str(approval_scope or "unspecified"),
+                str(step_type or "requirement"),
+                str(project_key or "org-ops"),
+            ]
+        )
+        _upsert_gate(
+            gate_key=gate_key,
+            title=f"{project_display_name or 'Org Ops'} {approval_scope or approval.approval_type}",
+            approval_type=str(approval.approval_type or ""),
+            approval_scope=approval_scope,
+            step_type=step_type,
+            project_key=project_key,
+            project_display_name=project_display_name,
+            status=str(approval.status or "pending"),
+            summary=(
+                f"{project_display_name or 'Org Ops'} triggered `{approval.approval_type}`"
+                f" on `{step_type or 'requirement'}` with scope `{approval_scope or 'unspecified'}`."
+            ),
+        )
+
+    for requirement in requirements.values():
+        latest_delivery_state = db.query(ArtifactRow).filter(
+            ArtifactRow.requirement_id == requirement.id,
+            ArtifactRow.artifact_type == "delivery_state",
+        ).order_by(ArtifactRow.id.desc()).first()
+        if latest_delivery_state is None:
+            continue
+        payload = _json_loads(getattr(latest_delivery_state, "machine_readable_payload", None), {})
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("publish_status") or "") != "review_ready":
+            continue
+        if not bool(payload.get("requires_manual_approval")):
+            continue
+        project_key, project_display_name = _project_display_for_keys(
+            _requirement_project_keys(requirement, project_catalog),
+            project_catalog,
+        )
+        gate_key = f"publish_manual_gate::publish::{project_key or 'org-ops'}"
+        _upsert_gate(
+            gate_key=gate_key,
+            title=f"{project_display_name or 'Org Ops'} publish gate",
+            approval_type="publish_manual_gate",
+            approval_scope="publish",
+            step_type="publish",
+            project_key=project_key,
+            project_display_name=project_display_name,
+            status="pending",
+            summary=f"{project_display_name or 'Org Ops'} has review-ready work waiting on manual publish approval.",
+        )
+
+    hotspots = sorted(
+        gate_buckets.values(),
+        key=lambda item: (-int(item.get("occurrence_count") or 0), -int(item.get("pending_count") or 0), str(item.get("title") or "")),
+    )[:8]
+
+    automation_candidates: list[dict[str, Any]] = []
+    for item in hotspots:
+        occurrence_count = int(item.get("occurrence_count") or 0)
+        pending_count = int(item.get("pending_count") or 0)
+        if occurrence_count < 1:
+            continue
+        automation_type, rationale = _gate_recommendation(
+            str(item.get("approval_type") or ""),
+            str(item.get("approval_scope") or ""),
+            step_type=str(item.get("step_type") or ""),
+        )
+        priority = "high" if pending_count >= 2 or str(item.get("approval_scope") or "") in {"publish", "incident_recovery"} else "normal"
+        automation_candidates.append(
+            {
+                "candidate_key": f"automation:{item['gate_key']}",
+                "title": f"Automate gate: {item['title']}",
+                "gate_key": str(item["gate_key"]),
+                "project_key": item.get("project_key"),
+                "project_display_name": item.get("project_display_name"),
+                "automation_type": automation_type,
+                "priority": priority,
+                "rationale": rationale,
+                "occurrence_count": occurrence_count,
+            }
+        )
+    automation_candidates.sort(
+        key=lambda item: (0 if str(item.get("priority") or "normal") == "high" else 1, -int(item.get("occurrence_count") or 0), str(item.get("title") or "")),
+    )
+    return hotspots, automation_candidates[:6]
 
 
 def _project_highlights(project_catalog: dict[str, dict[str, Any]], scheduler_plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -63,6 +358,7 @@ def _project_highlights(project_catalog: dict[str, dict[str, Any]], scheduler_pl
     highlights: list[dict[str, Any]] = []
     for project in project_catalog.values():
         state = scheduler_by_key.get(str(project.get("project_key") or ""), {})
+        runtime_metrics = dict(project.get("runtime_metrics") or {})
         highlights.append({
             "project_key": str(project.get("project_key") or ""),
             "display_name": str(project.get("display_name") or ""),
@@ -76,6 +372,12 @@ def _project_highlights(project_catalog: dict[str, dict[str, Any]], scheduler_pl
             "autonomy_mode": str(state.get("autonomy_mode") or "recommend"),
             "budget_used": int(state.get("budget_used") or 0),
             "budget_remaining": int(state.get("budget_remaining") or 0),
+            "completed_requirements": int(runtime_metrics.get("completed_requirements") or 0),
+            "budget_spent_points": int(runtime_metrics.get("budget_spent_points") or 0),
+            "prompt_cache_saved_chars": int(runtime_metrics.get("prompt_cache_saved_chars") or 0),
+            "escalations": int(runtime_metrics.get("escalations") or 0),
+            "downgrades": int(runtime_metrics.get("downgrades") or 0),
+            "tier_mix": dict(runtime_metrics.get("tier_mix") or {"mini": 0, "standard": 0, "max": 0}),
         })
     highlights.sort(
         key=lambda item: (
@@ -740,9 +1042,29 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         for row in db.query(RequirementRow).all()
         if row.id is not None
     }
+    runtime_metrics, per_project_runtime_metrics = _aggregate_runtime_metrics(
+        db,
+        project_catalog=project_catalog,
+        requirements=requirements,
+    )
+    for project in project_catalog.values():
+        project_key = str(project.get("project_key") or "")
+        project["runtime_metrics"] = per_project_runtime_metrics.get(project_key, _empty_runtime_metric_bucket())
+    requirement_total = sum(1 for row in requirements.values() if str(row.status or "") != "deleted")
+    completion_rate = round(
+        (int(runtime_metrics.get("completed_requirements") or 0) / requirement_total) * 100,
+        1,
+    ) if requirement_total else 0.0
+    human_gate_hotspots, automation_candidates = _human_gate_hotspots(
+        db,
+        project_catalog=project_catalog,
+        requirements=requirements,
+    )
 
     portfolio_summary = {
         "active_requirements": int(scheduler_plan.get("active_count") or 0),
+        "completed_requirements": int(runtime_metrics.get("completed_requirements") or 0),
+        "completion_rate": completion_rate,
         "open_signals": len(signals),
         "approval_required_decisions": sum(
             1 for item in scheduler_plan.get("decisions") or [] if bool(item.get("approval_required"))
@@ -759,6 +1081,14 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
             1 for item in project_catalog.values()
             if int(item.get("blocked_publish_count") or 0) > 0
         ),
+        "budget_spent_points": int(runtime_metrics.get("budget_spent_points") or 0),
+        "tokens_used": int(runtime_metrics.get("tokens_used") or 0),
+        "prompt_cache_saved_chars": int(runtime_metrics.get("prompt_cache_saved_chars") or 0),
+        "deduped_bindings": int(runtime_metrics.get("deduped_bindings") or 0),
+        "escalations": int(runtime_metrics.get("escalations") or 0),
+        "downgrades": int(runtime_metrics.get("downgrades") or 0),
+        "tier_mix": dict(runtime_metrics.get("tier_mix") or {"mini": 0, "standard": 0, "max": 0}),
+        "human_gate_hotspots": len(human_gate_hotspots),
     }
     project_highlights = _project_highlights(project_catalog, scheduler_plan)
     bottlenecks = _bottlenecks(project_catalog, scheduler_plan)
@@ -810,6 +1140,8 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         "project_highlights": project_highlights,
         "bottlenecks": bottlenecks,
         "incidents": incidents,
+        "human_gate_hotspots": human_gate_hotspots,
+        "automation_candidates": automation_candidates,
         "next_cycle_recommendations": next_cycle_recommendations,
         "next_cycle_requirement_bundle": next_cycle_requirement_bundle,
         "operator_review_package": operator_review_package,
@@ -820,6 +1152,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
             "open_signal_ids": [int(signal.id) for signal in signals[:12]],
             "started_ids": list(scheduler_plan.get("started_ids") or []),
             "rebalanced_ids": list(scheduler_plan.get("rebalanced_ids") or []),
+            "runtime_metrics": runtime_metrics,
         },
     }
 
@@ -840,6 +1173,8 @@ def company_review_to_dict(row: CompanyOperatingReviewRow) -> dict[str, Any]:
         "project_highlights": list(payload.get("project_highlights") or []),
         "bottlenecks": list(payload.get("bottlenecks") or []),
         "incidents": list(payload.get("incidents") or []),
+        "human_gate_hotspots": list(payload.get("human_gate_hotspots") or []),
+        "automation_candidates": list(payload.get("automation_candidates") or []),
         "next_cycle_recommendations": list(payload.get("next_cycle_recommendations") or []),
         "next_cycle_requirement_bundle": list(payload.get("next_cycle_requirement_bundle") or []),
         "operator_review_package": dict(payload.get("operator_review_package") or {
@@ -867,6 +1202,8 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
                 "project_highlights": payload["project_highlights"],
                 "bottlenecks": payload["bottlenecks"],
                 "incidents": payload["incidents"],
+                "human_gate_hotspots": payload["human_gate_hotspots"],
+                "automation_candidates": payload["automation_candidates"],
                 "next_cycle_recommendations": payload["next_cycle_recommendations"],
                 "next_cycle_requirement_bundle": payload["next_cycle_requirement_bundle"],
                 "operator_review_package": payload["operator_review_package"],

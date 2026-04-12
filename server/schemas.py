@@ -49,11 +49,15 @@ class TaskOut(BaseModel):
     attempt_no: int = 1
     last_error_message: Optional[str] = None
     runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
     runtime_session_id: Optional[str] = None
     runtime_selected_agent: Optional[str] = None
     output_path: Optional[str] = None
     output_content: Optional[str] = None
     execution_time_ms: Optional[int] = None
+    tokens_used: int = 0
+    budget_cost_points: int = 0
     requirement_id: Optional[int] = None
     requirement_title: Optional[str] = None
     workflow_step_type: Optional[str] = None
@@ -77,6 +81,10 @@ class TaskHistoryOut(BaseModel):
     skill_name: Optional[str] = None
     last_error_message: Optional[str] = None
     runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
+    tokens_used: int = 0
+    budget_cost_points: int = 0
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -191,11 +199,21 @@ class DashboardStats(BaseModel):
 
 class OperatingReviewPortfolioSummaryOut(BaseModel):
     active_requirements: int = 0
+    completed_requirements: int = 0
+    completion_rate: float = 0.0
     open_signals: int = 0
     approval_required_decisions: int = 0
     rebalance_opportunities: int = 0
     projects_over_budget: int = 0
     blocked_publish_projects: int = 0
+    budget_spent_points: int = 0
+    tokens_used: int = 0
+    prompt_cache_saved_chars: int = 0
+    deduped_bindings: int = 0
+    escalations: int = 0
+    downgrades: int = 0
+    tier_mix: dict[str, int] = {}
+    human_gate_hotspots: int = 0
 
 
 class OperatingReviewProjectHighlightOut(BaseModel):
@@ -211,6 +229,12 @@ class OperatingReviewProjectHighlightOut(BaseModel):
     autonomy_mode: str = "recommend"
     budget_used: int = 0
     budget_remaining: int = 0
+    completed_requirements: int = 0
+    budget_spent_points: int = 0
+    prompt_cache_saved_chars: int = 0
+    escalations: int = 0
+    downgrades: int = 0
+    tier_mix: dict[str, int] = {}
 
 
 class OperatingReviewItemOut(BaseModel):
@@ -226,6 +250,33 @@ class OperatingReviewItemOut(BaseModel):
     recovery_status: Optional[str] = None
     requirement_id: Optional[int] = None
     source_ref: Optional[str] = None
+
+
+class OperatingReviewGateHotspotOut(BaseModel):
+    gate_key: str
+    title: str
+    approval_type: str
+    approval_scope: Optional[str] = None
+    step_type: Optional[str] = None
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    occurrence_count: int = 0
+    pending_count: int = 0
+    latest_status: str = "pending"
+    summary: str
+    recommendation: Optional[str] = None
+
+
+class OperatingReviewAutomationCandidateOut(BaseModel):
+    candidate_key: str
+    title: str
+    gate_key: str
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    automation_type: str
+    priority: str = "normal"
+    rationale: str
+    occurrence_count: int = 0
 
 
 class OperatingReviewRecommendationOut(BaseModel):
@@ -294,6 +345,8 @@ class CompanyOperatingReviewOut(BaseModel):
     project_highlights: list[OperatingReviewProjectHighlightOut] = []
     bottlenecks: list[OperatingReviewItemOut] = []
     incidents: list[OperatingReviewItemOut] = []
+    human_gate_hotspots: list[OperatingReviewGateHotspotOut] = []
+    automation_candidates: list[OperatingReviewAutomationCandidateOut] = []
     next_cycle_recommendations: list[OperatingReviewRecommendationOut] = []
     next_cycle_requirement_bundle: list[OperatingReviewBundleItemOut] = []
     operator_review_package: OperatingReviewOperatorPackageOut
@@ -771,6 +824,7 @@ class WorkflowStepOut(BaseModel):
     handoff_summary_markdown: Optional[str] = None
     done_when_markdown: str = ""
     context_policy_json: Optional[str] = None
+    execution_profile_json: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 

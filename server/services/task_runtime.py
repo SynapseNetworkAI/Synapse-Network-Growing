@@ -8,7 +8,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from server import config
 from server.services.codex_cli import run_codex_exec
@@ -38,10 +38,24 @@ class TaskExecutionResult:
     model: str = ""
     tokens_used: int = 0
     runtime_backend: str = "legacy"
+    runtime_provider: str = ""
     runtime_session_id: str | None = None
     runtime_selected_agent: str | None = None
     events: list[RuntimeEvent] = field(default_factory=list)
     deferred: bool = False
+
+
+@dataclass(frozen=True)
+class RuntimeSelection:
+    backend: str
+    provider: str
+    model: str
+    complexity_tier: str = "standard"
+    budget_cap: dict[str, Any] = field(default_factory=dict)
+    allow_escalation: bool = True
+    escalation_rule: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = 0
+    reason: str = ""
 
 
 @dataclass
@@ -153,6 +167,119 @@ def normalize_copilot_event_type(event_type: str) -> str:
     return mapping.get(event_type, event_type.replace(".", "_"))
 
 
+def _normalize_tier(value: str | None) -> str:
+    tier = str(value or "").strip().lower()
+    if tier in {"mini", "standard", "max"}:
+        return tier
+    return "standard"
+
+
+def _backend_provider_name(backend: str) -> str:
+    normalized = str(backend or "").strip().lower()
+    if normalized == "openai_responses":
+        return "openai"
+    if normalized == "copilot_sdk":
+        return "copilot"
+    if normalized == "codex_cli":
+        return "codex"
+    return str(config.LLM_PROVIDER or "openai").strip().lower() or "openai"
+
+
+def _tier_override(override: str | None, fallback: str) -> str:
+    value = str(override or "").strip()
+    return value or fallback
+
+
+def _default_runtime_model(*, backend: str, provider: str, tier: str) -> str:
+    normalized_backend = str(backend or "").strip().lower()
+    normalized_provider = str(provider or "").strip().lower()
+    normalized_tier = _normalize_tier(tier)
+
+    if normalized_backend == "codex_cli":
+        if normalized_tier == "mini":
+            return "gpt-5-codex-mini"
+        return str(config.CODEX_CLI_MODEL or config.LLM_MODEL or "gpt-5-codex").strip()
+    if normalized_backend == "copilot_sdk":
+        return str(config.COPILOT_SDK_MODEL or config.LLM_MODEL or "gpt-4o").strip()
+    if normalized_backend == "openai_responses":
+        if normalized_tier == "mini" and str(config.LLM_MODEL or "").strip().lower().startswith("gpt-5"):
+            return "gpt-5-mini"
+        return str(config.LLM_MODEL or "gpt-4o").strip()
+    if normalized_provider == "openai" and normalized_tier == "mini" and str(config.LLM_MODEL or "").strip().lower().startswith("gpt-5"):
+        return "gpt-5-mini"
+    return str(config.LLM_MODEL or "").strip()
+
+
+def resolve_runtime_selection(
+    execution_profile: dict[str, Any] | None = None,
+    *,
+    step_type: str = "",
+    preferred_backend: str | None = None,
+) -> RuntimeSelection:
+    profile = execution_profile or {}
+    tier = _normalize_tier(str(profile.get("complexity_tier") or "standard"))
+    budget_cap = profile.get("budget_cap") if isinstance(profile.get("budget_cap"), dict) else {}
+    allow_escalation = bool(profile.get("allow_escalation", True))
+    escalation_rule = profile.get("escalation_rule") if isinstance(profile.get("escalation_rule"), dict) else {}
+
+    backend_overrides = {
+        "mini": config.RUNTIME_TIER_MINI_BACKEND,
+        "standard": config.RUNTIME_TIER_STANDARD_BACKEND,
+        "max": config.RUNTIME_TIER_MAX_BACKEND,
+    }
+    provider_overrides = {
+        "mini": config.RUNTIME_TIER_MINI_PROVIDER,
+        "standard": config.RUNTIME_TIER_STANDARD_PROVIDER,
+        "max": config.RUNTIME_TIER_MAX_PROVIDER,
+    }
+    model_overrides = {
+        "mini": config.RUNTIME_TIER_MINI_MODEL,
+        "standard": config.RUNTIME_TIER_STANDARD_MODEL,
+        "max": config.RUNTIME_TIER_MAX_MODEL,
+    }
+
+    backend = _tier_override(backend_overrides.get(tier), preferred_backend or config.ORCHESTRATION_BACKEND or "legacy").lower()
+    provider = _tier_override(provider_overrides.get(tier), _backend_provider_name(backend)).lower()
+    model = _tier_override(model_overrides.get(tier), _default_runtime_model(backend=backend, provider=provider, tier=tier))
+    timeout_seconds = int(budget_cap.get("max_runtime_seconds") or 0) if isinstance(budget_cap, dict) else 0
+    reason = f"tier={tier} step_type={step_type or '-'} backend={backend} provider={provider}"
+    return RuntimeSelection(
+        backend=backend,
+        provider=provider,
+        model=model,
+        complexity_tier=tier,
+        budget_cap=budget_cap if isinstance(budget_cap, dict) else {},
+        allow_escalation=allow_escalation,
+        escalation_rule=escalation_rule if isinstance(escalation_rule, dict) else {},
+        timeout_seconds=timeout_seconds,
+        reason=reason,
+    )
+
+
+def budget_points_for_tier(tier: str) -> int:
+    normalized = _normalize_tier(tier)
+    return {
+        "mini": 6,
+        "standard": 16,
+        "max": 32,
+    }.get(normalized, 16)
+
+
+def estimate_runtime_budget_points(
+    *,
+    tier: str,
+    runtime_backend: str,
+    execution_time_ms: int = 0,
+    tokens_used: int = 0,
+) -> int:
+    base = budget_points_for_tier(tier)
+    runtime_seconds = max(0, int(execution_time_ms or 0) // 1000)
+    time_points = min(12, max(0, runtime_seconds // 60))
+    token_points = min(18, max(0, int(tokens_used or 0) // 4000))
+    backend_bonus = 2 if str(runtime_backend or "").strip().lower() in {"codex_cli", "copilot_sdk"} else 0
+    return max(base, min(100, base + time_points + token_points + backend_bonus))
+
+
 class BaseTaskRuntime:
     def execute(
         self,
@@ -161,6 +288,7 @@ class BaseTaskRuntime:
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
         raise NotImplementedError
 
@@ -176,6 +304,7 @@ class LegacyTaskRuntime(BaseTaskRuntime):
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
         result = self.engine.execute(
             persona=persona,
@@ -183,6 +312,9 @@ class LegacyTaskRuntime(BaseTaskRuntime):
             task_description=task_description,
             output_dir=output_dir,
             extra_context_files=extra_context_files,
+            provider_name=runtime_selection.provider if runtime_selection else None,
+            model_override=runtime_selection.model if runtime_selection else None,
+            timeout_override=runtime_selection.timeout_seconds if runtime_selection else None,
         )
         return TaskExecutionResult(
             text=result.text,
@@ -191,7 +323,8 @@ class LegacyTaskRuntime(BaseTaskRuntime):
             execution_time_ms=result.execution_time_ms,
             model=result.model,
             tokens_used=result.tokens_used,
-            runtime_backend="legacy",
+            runtime_backend=(runtime_selection.backend if runtime_selection else "legacy"),
+            runtime_provider=(runtime_selection.provider if runtime_selection else str(config.LLM_PROVIDER or "openai")),
         )
 
 
@@ -207,8 +340,11 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
+        selected_model = runtime_selection.model if runtime_selection else (config.CODEX_CLI_MODEL or config.LLM_MODEL)
+        selected_timeout = int(runtime_selection.timeout_seconds or config.CODEX_CLI_TASK_TIMEOUT) if runtime_selection else config.CODEX_CLI_TASK_TIMEOUT
         instructions = self.prompt_engine._build_system_prompt(persona)
         user_message = self.prompt_engine._build_user_message(skill_name, task_description, extra_context_files)
         prompt = "\n\n".join(
@@ -228,14 +364,14 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             prompt=prompt,
             cwd=cwd,
             output_path=output_path,
-            model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
-            timeout=config.CODEX_CLI_TASK_TIMEOUT,
+            model=selected_model,
+            timeout=selected_timeout,
             add_dirs=_dedupe_paths(add_dirs),
         )
         metadata = {
             "provider": "codex",
             "backend": "codex_cli",
-            "model": config.CODEX_CLI_MODEL or config.LLM_MODEL,
+            "model": selected_model,
             "cwd": str(cwd),
             "add_dirs": [str(path) for path in _dedupe_paths(add_dirs)],
             "command": result.command,
@@ -254,18 +390,20 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
                 files=[output_path] if output_path.exists() else [],
                 error=error[:4000],
                 execution_time_ms=elapsed,
-                model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
+                model=selected_model,
                 runtime_backend="codex_cli",
-                events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli cwd={cwd}")],
+                runtime_provider="codex",
+                events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli model={selected_model} cwd={cwd}")],
             )
 
         return TaskExecutionResult(
             text=result.text,
             files=[output_path] if output_path.exists() else [],
             execution_time_ms=elapsed,
-            model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
+            model=selected_model,
             runtime_backend="codex_cli",
-            events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli cwd={cwd}")],
+            runtime_provider="codex",
+            events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli model={selected_model} cwd={cwd}")],
         )
 
 
@@ -292,9 +430,11 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
-        model = config.COPILOT_SDK_MODEL
+        model = runtime_selection.model if runtime_selection else config.COPILOT_SDK_MODEL
+        timeout_seconds = int(runtime_selection.timeout_seconds or config.COPILOT_SDK_TIMEOUT) if runtime_selection else config.COPILOT_SDK_TIMEOUT
         agent_id = persona.get("role", persona.get("id", "unknown"))
         prompt = self._build_parent_prompt(persona, skill_name, task_description, extra_context_files)
         preferred_agent = self._preferred_runtime_agent(skill_name, task_description)
@@ -304,16 +444,16 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
 
         if existing:
             return self._execute_resume(
-                t0, model, agent_id, existing, prompt, preferred_agent, output_dir,
+                t0, model, timeout_seconds, agent_id, existing, prompt, preferred_agent, output_dir,
             )
         return self._execute_new(
-            t0, model, agent_id, prompt, preferred_agent, output_dir,
+            t0, model, timeout_seconds, agent_id, prompt, preferred_agent, output_dir,
         )
 
     _session_counter: int = 0
 
     def _execute_new(
-        self, t0: float, model: str, agent_id: str, prompt: str,
+        self, t0: float, model: str, timeout_seconds: int, agent_id: str, prompt: str,
         preferred_agent: str | None, output_dir: Path | None,
     ) -> TaskExecutionResult:
         CopilotSDKTaskRuntime._session_counter += 1
@@ -327,6 +467,8 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             output_dir=resolved_output_dir,
             prompt=prompt,
             preferred_agent=preferred_agent,
+            model=model,
+            timeout_seconds=timeout_seconds,
         )
 
         try:
@@ -340,6 +482,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
                 execution_time_ms=elapsed,
                 model=model,
                 runtime_backend="copilot_sdk",
+                runtime_provider="copilot",
                 events=[RuntimeEvent(event_type="runtime_failed", detail=str(exc))],
             )
 
@@ -357,6 +500,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             execution_time_ms=elapsed,
             model=model,
             runtime_backend="copilot_sdk",
+            runtime_provider="copilot",
             runtime_session_id=session_id,
             events=[
                 RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model}"),
@@ -366,7 +510,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         )
 
     def _execute_resume(
-        self, t0: float, model: str, agent_id: str, existing: RoleSessionInfo,
+        self, t0: float, model: str, timeout_seconds: int, agent_id: str, existing: RoleSessionInfo,
         prompt: str, preferred_agent: str | None, output_dir: Path | None,
     ) -> TaskExecutionResult:
         session_id = existing.session_id
@@ -380,6 +524,8 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             output_dir=resolved_output_dir,
             prompt=prompt,
             preferred_agent=preferred_agent,
+            model=model,
+            timeout_seconds=timeout_seconds,
         )
 
         try:
@@ -393,7 +539,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             # Fallback: remove stale session and create a new one
             with self._lock:
                 self._role_sessions.pop(agent_id, None)
-            return self._execute_new(t0, model, agent_id, prompt, preferred_agent, output_dir)
+            return self._execute_new(t0, model, timeout_seconds, agent_id, prompt, preferred_agent, output_dir)
 
         with self._lock:
             self._role_sessions[agent_id] = RoleSessionInfo(
@@ -409,6 +555,7 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
             execution_time_ms=elapsed,
             model=model,
             runtime_backend="copilot_sdk",
+            runtime_provider="copilot",
             runtime_session_id=session_id,
             events=[
                 RuntimeEvent(event_type="runtime_started", detail=f"backend=copilot_sdk model={model} (resumed)"),
@@ -426,6 +573,8 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         prompt: str | None = None,
         preferred_agent: str | None = None,
         assume_already_idle: bool = False,
+        model: str | None = None,
+        timeout_seconds: int | None = None,
     ) -> dict:
         paths = copilot_runtime_paths(output_dir)
         payload = {
@@ -443,11 +592,12 @@ class CopilotSDKTaskRuntime(BaseTaskRuntime):
         if preferred_agent:
             payload["preferredAgent"] = preferred_agent
         if action == "start":
-            payload["model"] = config.COPILOT_SDK_MODEL
+            payload["model"] = model or config.COPILOT_SDK_MODEL
         if prompt:
             payload["prompt"] = prompt
-        if config.COPILOT_SDK_TIMEOUT > 0:
-            payload["timeoutMs"] = config.COPILOT_SDK_TIMEOUT * 1000
+        timeout_seconds = timeout_seconds or config.COPILOT_SDK_TIMEOUT
+        if timeout_seconds > 0:
+            payload["timeoutMs"] = timeout_seconds * 1000
         return payload
 
     def _build_parent_prompt(
@@ -552,8 +702,9 @@ class E2ETaskRuntime(BaseTaskRuntime):
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
-        del persona, output_dir, extra_context_files
+        del persona, output_dir, extra_context_files, runtime_selection
         requirement_id = _extract_requirement_id(task_description)
         if "[workflow_step:implementation]" in task_description:
             return _e2e_result("Implementation output ready for review.")
@@ -577,6 +728,7 @@ def _e2e_result(text: str, error: str | None = None) -> TaskExecutionResult:
         execution_time_ms=5,
         model="deterministic-e2e",
         runtime_backend="e2e",
+        runtime_provider="deterministic",
     )
 
 
@@ -617,9 +769,11 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        runtime_selection: RuntimeSelection | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
-        model = config.LLM_MODEL
+        model = runtime_selection.model if runtime_selection else config.LLM_MODEL
+        timeout_seconds = int(runtime_selection.timeout_seconds or config.LLM_TIMEOUT) if runtime_selection else config.LLM_TIMEOUT
         agent_id = str(persona.get("role", persona.get("id", "unknown")))
         instructions = self.prompt_engine._build_system_prompt(persona)
         user_message = self.prompt_engine._build_user_message(skill_name, task_description, extra_context_files)
@@ -634,7 +788,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
                 user_input=user_message,
                 model=model,
                 temperature=config.LLM_TEMPERATURE,
-                timeout=config.LLM_TIMEOUT,
+                timeout=timeout_seconds,
                 background=True,
                 previous_response_id=previous_response_id,
             )
@@ -647,6 +801,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
                 execution_time_ms=elapsed,
                 model=model,
                 runtime_backend="openai_responses",
+                runtime_provider="openai",
                 events=[RuntimeEvent(event_type="runtime_failed", detail=str(exc))],
             )
 
@@ -660,6 +815,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
                 execution_time_ms=elapsed,
                 model=model,
                 runtime_backend="openai_responses",
+                runtime_provider="openai",
                 events=[RuntimeEvent(event_type="runtime_failed", detail=error)],
             )
 
@@ -704,6 +860,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
                 model=model,
                 tokens_used=self.provider.extract_response_tokens(response),
                 runtime_backend="openai_responses",
+                runtime_provider="openai",
                 runtime_session_id=response_id,
                 events=events,
             )
@@ -717,6 +874,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
                 execution_time_ms=elapsed,
                 model=model,
                 runtime_backend="openai_responses",
+                runtime_provider="openai",
                 runtime_session_id=response_id,
                 events=events + [RuntimeEvent(event_type="runtime_failed", detail=error)],
             )
@@ -727,6 +885,7 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
             execution_time_ms=elapsed,
             model=model,
             runtime_backend="openai_responses",
+            runtime_provider="openai",
             runtime_session_id=response_id,
             events=events,
             deferred=True,
@@ -760,23 +919,23 @@ class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
         return [output_path]
 
 
-def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
+def get_task_runtime(project_root: Path | None = None, *, backend: str | None = None) -> BaseTaskRuntime:
     if config.E2E_MODE:
         return E2ETaskRuntime()
-    backend = (config.ORCHESTRATION_BACKEND or "legacy").lower()
-    if backend == "codex_cli":
+    selected_backend = (backend or config.ORCHESTRATION_BACKEND or "legacy").lower()
+    if selected_backend == "codex_cli":
         global _codex_cli_runtime_instance
         with _codex_cli_runtime_lock:
             if _codex_cli_runtime_instance is None:
                 _codex_cli_runtime_instance = CodexCLITaskRuntime(project_root=project_root)
             return _codex_cli_runtime_instance
-    if backend == "copilot_sdk":
+    if selected_backend == "copilot_sdk":
         global _copilot_sdk_runtime_instance
         with _copilot_sdk_runtime_lock:
             if _copilot_sdk_runtime_instance is None:
                 _copilot_sdk_runtime_instance = CopilotSDKTaskRuntime(project_root=project_root)
             return _copilot_sdk_runtime_instance
-    if backend == "openai_responses":
+    if selected_backend == "openai_responses":
         global _openai_responses_runtime_instance
         with _openai_responses_runtime_lock:
             if _openai_responses_runtime_instance is None:

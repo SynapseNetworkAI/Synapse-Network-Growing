@@ -66,11 +66,15 @@ export interface Task {
   attempt_no: number
   last_error_message: string | null
   runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
   runtime_session_id: string | null
   runtime_selected_agent: string | null
   output_path: string | null
   output_content: string | null
   execution_time_ms: number | null
+  tokens_used: number
+  budget_cost_points: number
   requirement_id: number | null
   requirement_title: string | null
   workflow_step_type: string | null
@@ -111,6 +115,10 @@ export interface TaskHistoryItem {
   skill_name: string | null
   last_error_message: string | null
   runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  tokens_used: number
+  budget_cost_points: number
   created_at: string | null
   started_at: string | null
   completed_at: string | null
@@ -493,6 +501,7 @@ export interface WorkflowStep {
   handoff_summary_markdown: string | null
   done_when_markdown: string
   context_policy_json: string | null
+  execution_profile_json: string | null
   started_at: string | null
   completed_at: string | null
 }
@@ -571,11 +580,21 @@ export interface OrgTree {
 
 export interface OperatingReviewPortfolioSummary {
   active_requirements: number
+  completed_requirements: number
+  completion_rate: number
   open_signals: number
   approval_required_decisions: number
   rebalance_opportunities: number
   projects_over_budget: number
   blocked_publish_projects: number
+  budget_spent_points: number
+  tokens_used: number
+  prompt_cache_saved_chars: number
+  deduped_bindings: number
+  escalations: number
+  downgrades: number
+  tier_mix: Record<string, number>
+  human_gate_hotspots: number
 }
 
 export interface OperatingReviewProjectHighlight {
@@ -591,6 +610,12 @@ export interface OperatingReviewProjectHighlight {
   autonomy_mode: string
   budget_used: number
   budget_remaining: number
+  completed_requirements: number
+  budget_spent_points: number
+  prompt_cache_saved_chars: number
+  escalations: number
+  downgrades: number
+  tier_mix: Record<string, number>
 }
 
 export interface OperatingReviewItem {
@@ -606,6 +631,33 @@ export interface OperatingReviewItem {
   recovery_status?: string | null
   requirement_id?: number | null
   source_ref?: string | null
+}
+
+export interface OperatingReviewGateHotspot {
+  gate_key: string
+  title: string
+  approval_type: string
+  approval_scope?: string | null
+  step_type?: string | null
+  project_key?: string | null
+  project_display_name?: string | null
+  occurrence_count: number
+  pending_count: number
+  latest_status: string
+  summary: string
+  recommendation?: string | null
+}
+
+export interface OperatingReviewAutomationCandidate {
+  candidate_key: string
+  title: string
+  gate_key: string
+  project_key?: string | null
+  project_display_name?: string | null
+  automation_type: string
+  priority: string
+  rationale: string
+  occurrence_count: number
 }
 
 export interface OperatingReviewRecommendation {
@@ -674,6 +726,8 @@ export interface CompanyOperatingReview {
   project_highlights: OperatingReviewProjectHighlight[]
   bottlenecks: OperatingReviewItem[]
   incidents: OperatingReviewItem[]
+  human_gate_hotspots: OperatingReviewGateHotspot[]
+  automation_candidates: OperatingReviewAutomationCandidate[]
   next_cycle_recommendations: OperatingReviewRecommendation[]
   next_cycle_requirement_bundle: OperatingReviewBundleItem[]
   operator_review_package: OperatingReviewOperatorPackage

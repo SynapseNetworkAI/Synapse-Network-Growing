@@ -218,17 +218,48 @@ export default function OrgChart() {
           <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             {[
               ['active', review.portfolio_summary.active_requirements],
+              ['completed', review.portfolio_summary.completed_requirements],
+              ['completion %', review.portfolio_summary.completion_rate],
               ['signals', review.portfolio_summary.open_signals],
               ['approval', review.portfolio_summary.approval_required_decisions],
               ['rebalance', review.portfolio_summary.rebalance_opportunities],
               ['over budget', review.portfolio_summary.projects_over_budget],
               ['publish blocked', review.portfolio_summary.blocked_publish_projects],
+              ['budget pts', review.portfolio_summary.budget_spent_points],
+              ['cache saved', review.portfolio_summary.prompt_cache_saved_chars],
+              ['escalations', review.portfolio_summary.escalations],
+              ['downgrades', review.portfolio_summary.downgrades],
+              ['human gates', review.portfolio_summary.human_gate_hotspots],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div className="text-lg font-semibold text-slate-900">{value}</div>
                 <div className="text-xs text-slate-500">{label}</div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
+              <div className="font-medium text-slate-900">Tier Mix</div>
+              <div className="mt-1">mini: {review.portfolio_summary.tier_mix.mini ?? 0}</div>
+              <div>standard: {review.portfolio_summary.tier_mix.standard ?? 0}</div>
+              <div>max: {review.portfolio_summary.tier_mix.max ?? 0}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
+              <div className="font-medium text-slate-900">Prompt Cache</div>
+              <div className="mt-1">saved chars: {review.portfolio_summary.prompt_cache_saved_chars}</div>
+              <div>deduped bindings: {review.portfolio_summary.deduped_bindings}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
+              <div className="font-medium text-slate-900">Budget</div>
+              <div className="mt-1">spent points: {review.portfolio_summary.budget_spent_points}</div>
+              <div>tokens used: {review.portfolio_summary.tokens_used}</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
+              <div className="font-medium text-slate-900">Adaptation Loop</div>
+              <div className="mt-1">escalations: {review.portfolio_summary.escalations}</div>
+              <div>downgrades: {review.portfolio_summary.downgrades}</div>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-4 xl:grid-cols-2">
@@ -366,6 +397,52 @@ export default function OrgChart() {
             </div>
           </div>
 
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">Human Gate Hotspots</h4>
+              <div data-testid="company-review-human-gates" className="mt-3 space-y-2">
+                {review.human_gate_hotspots.map((item) => (
+                  <div key={item.gate_key} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-3 text-sm text-violet-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{item.title}</div>
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] uppercase tracking-wide text-violet-800">{item.approval_type}</span>
+                      {item.approval_scope && (
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-violet-800">{item.approval_scope}</span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-violet-800">{item.summary}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-violet-700">
+                      <span>{item.project_display_name || item.project_key || 'Org Ops'}</span>
+                      {item.step_type && <span>step: {item.step_type}</span>}
+                      <span>count: {item.occurrence_count}</span>
+                      <span>pending: {item.pending_count}</span>
+                    </div>
+                    {item.recommendation && <div className="mt-2 text-xs text-violet-700">建议: {item.recommendation}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">Automation Candidates</h4>
+              <div data-testid="company-review-automation-candidates" className="mt-3 space-y-2">
+                {review.automation_candidates.map((item) => (
+                  <div key={item.candidate_key} className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-3 text-sm text-cyan-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{item.title}</div>
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] uppercase tracking-wide text-cyan-800">{item.automation_type}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] ${item.priority === 'high' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{item.priority}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-cyan-800">{item.rationale}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-cyan-700">
+                      <span>{item.project_display_name || item.project_key || 'Org Ops'}</span>
+                      <span>occurrences: {item.occurrence_count}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="mt-5">
             <h4 className="text-sm font-semibold text-slate-900">Project Highlights</h4>
             <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -377,6 +454,11 @@ export default function OrgChart() {
                   <div>bug / blocked publish: {item.bug_report_count} / {item.blocked_publish_count}</div>
                   <div>autonomy: {item.autonomy_mode} / weight x{item.scheduler_weight}</div>
                   <div>budget used / remaining: {item.budget_used} / {item.budget_remaining}</div>
+                  <div>completed requirements: {item.completed_requirements}</div>
+                  <div>runtime budget spent: {item.budget_spent_points}</div>
+                  <div>prompt cache saved: {item.prompt_cache_saved_chars}</div>
+                  <div>adaptation up/down: {item.escalations} / {item.downgrades}</div>
+                  <div>tier mix: mini {item.tier_mix.mini ?? 0} / std {item.tier_mix.standard ?? 0} / max {item.tier_mix.max ?? 0}</div>
                 </div>
               ))}
             </div>

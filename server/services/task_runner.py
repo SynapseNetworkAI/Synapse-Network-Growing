@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Async task dispatcher — runs CrewEngine in background threads."""
+import json
 import logging
 import threading
 from typing import Any, cast
@@ -8,7 +9,12 @@ from typing import Any, cast
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND, E2E_SYNC_DISPATCH
 from server.services.copilot_sdk_state import task_output_dir
-from server.services.task_runtime import get_task_runtime, RuntimeEvent
+from server.services.task_runtime import (
+    RuntimeEvent,
+    estimate_runtime_budget_points,
+    get_task_runtime,
+    resolve_runtime_selection,
+)
 from server.services.runtime_guards import is_openai_runtime_guard_error
 
 logger = logging.getLogger("ops-dashboard.task_runner")
@@ -36,6 +42,22 @@ def _load_task_context_files(task: TaskRow) -> list[str] | None:
         return json.loads(context_files)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _task_execution_profile(task: TaskRow) -> tuple[dict[str, Any], str]:
+    if not task.workflow_steps:
+        return {}, ""
+    step = task.workflow_steps[0]
+    raw = getattr(cast(Any, step), "execution_profile_json", None)
+    if not raw:
+        return {}, str(getattr(cast(Any, step), "step_type", "") or "")
+    try:
+        payload = json.loads(str(raw))
+        if isinstance(payload, dict):
+            return payload, str(getattr(cast(Any, step), "step_type", "") or "")
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return {}, str(getattr(cast(Any, step), "step_type", "") or "")
 
 
 def dispatch(task_id: int, agent_persona: dict, skill_name: str) -> threading.Thread:
@@ -70,28 +92,43 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         output_dir = task_output_dir(PROJECT_ROOT, role_id, task_id)
 
         _log(db, task_id, "crew_started", f"skill={skill_name}")
+        execution_profile, step_type = _task_execution_profile(task)
+        selection = resolve_runtime_selection(execution_profile, step_type=step_type, preferred_backend=ORCHESTRATION_BACKEND)
         _log(
             db,
             task_id,
             "runtime_submitted",
-            f"backend={ORCHESTRATION_BACKEND} agent={role_id} skill={skill_name}",
+            f"backend={selection.backend} provider={selection.provider} model={selection.model} tier={selection.complexity_tier} agent={role_id} skill={skill_name}",
         )
-        cast(Any, task).runtime_backend = ORCHESTRATION_BACKEND
+        _log(db, task_id, "runtime_selection", selection.reason)
+        cast(Any, task).runtime_backend = selection.backend
+        cast(Any, task).runtime_provider = selection.provider
+        cast(Any, task).runtime_model = selection.model
         db.commit()
 
         # Parse context_files from task (JSON list stored as text)
         extra_files = _load_task_context_files(task)
 
-        runtime = get_task_runtime(PROJECT_ROOT)
+        runtime = get_task_runtime(PROJECT_ROOT, backend=selection.backend)
         result = runtime.execute(
             persona=agent_persona,
             skill_name=skill_name,
             task_description=_task_str(task, "description") or "",
             output_dir=output_dir,
             extra_context_files=extra_files,
+            runtime_selection=selection,
         )
 
         cast(Any, task).runtime_backend = result.runtime_backend
+        cast(Any, task).runtime_provider = result.runtime_provider or selection.provider
+        cast(Any, task).runtime_model = result.model or selection.model
+        cast(Any, task).tokens_used = int(result.tokens_used or 0)
+        cast(Any, task).budget_cost_points = estimate_runtime_budget_points(
+            tier=selection.complexity_tier,
+            runtime_backend=result.runtime_backend or selection.backend,
+            execution_time_ms=int(result.execution_time_ms or 0),
+            tokens_used=int(result.tokens_used or 0),
+        )
         cast(Any, task).runtime_session_id = result.runtime_session_id
         cast(Any, task).runtime_selected_agent = result.runtime_selected_agent
         _persist_runtime_events(db, task_id, result.events)

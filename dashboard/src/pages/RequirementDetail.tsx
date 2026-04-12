@@ -206,6 +206,9 @@ export default function RequirementDetail() {
   const latestContextCompaction = detail.artifacts
     .filter((artifact) => artifact.artifact_type === 'context_compaction')
     .sort((a, b) => b.id - a.id)[0]
+  const latestPromptCacheProfile = detail.artifacts
+    .filter((artifact) => artifact.artifact_type === 'prompt_cache_profile')
+    .sort((a, b) => b.id - a.id)[0]
   const latestStaleMemoryVerification = detail.artifacts
     .filter((artifact) => artifact.artifact_type === 'stale_memory_verification')
     .sort((a, b) => b.id - a.id)[0]
@@ -215,6 +218,7 @@ export default function RequirementDetail() {
   const latestRuntimeTelemetry = detail.artifacts
     .filter((artifact) => artifact.artifact_type === 'runtime_telemetry')
     .sort((a, b) => b.id - a.id)[0]
+  const promptCachePayload = parsePayload(latestPromptCacheProfile?.machine_readable_payload ?? null)
   const contextCompactionPayload = parsePayload(latestContextCompaction?.machine_readable_payload ?? null)
   const staleMemoryPayload = parsePayload(latestStaleMemoryVerification?.machine_readable_payload ?? null)
   const runtimeLifecyclePayload = parsePayload(latestRuntimeLifecycle?.machine_readable_payload ?? null)
@@ -222,6 +226,7 @@ export default function RequirementDetail() {
   const activeContextStep = (detail.workflow_run?.steps || []).find((step) => step.status !== 'completed' && step.status !== 'deleted')
     || detail.workflow_run?.steps?.[0]
   const activeContextPolicy = parsePayload(activeContextStep?.context_policy_json ?? null)
+  const activeExecutionProfile = parsePayload(activeContextStep?.execution_profile_json ?? null)
 
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
@@ -421,6 +426,11 @@ export default function RequirementDetail() {
               <div className="space-y-3">
                 {(detail.workflow_run?.steps || []).map((step) => {
                   const taskId = step.compatibility_task_id
+                  const executionProfile = parsePayload(step.execution_profile_json ?? null)
+                  const budgetCap = executionProfile?.budget_cap as Record<string, unknown> | undefined
+                  const complexityTier = typeof executionProfile?.complexity_tier === 'string'
+                    ? executionProfile.complexity_tier
+                    : ''
                   const inner = (
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -429,6 +439,15 @@ export default function RequirementDetail() {
                           {step.step_type} · {step.assigned_workflow_role || '-'} · agent {step.assigned_agent_id || '-'}
                           {taskId != null && <span className="ml-2 text-blue-600">Task #{taskId}</span>}
                         </div>
+                        {complexityTier && (
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                            <span className="rounded-full bg-indigo-50 px-2 py-1 text-indigo-700">
+                              tier {complexityTier}
+                            </span>
+                            <span>in≤{String(budgetCap?.max_input_tokens ?? '-')}</span>
+                            <span>out≤{String(budgetCap?.max_output_tokens ?? '-')}</span>
+                          </div>
+                        )}
                       </div>
                       <span className={`rounded-full px-2 py-1 text-xs font-medium ${STEP_STATUS_CLASS[step.status] || STEP_STATUS_CLASS.pending}`}>
                         {step.status}
@@ -629,10 +648,22 @@ export default function RequirementDetail() {
               </section>
             )}
 
-            {(latestContextCompaction || latestStaleMemoryVerification || activeContextPolicy) && (
+            {(latestContextCompaction || latestPromptCacheProfile || latestStaleMemoryVerification || activeContextPolicy || activeExecutionProfile) && (
               <section className="p-4 border rounded-xl bg-slate-50" data-testid="context-governance-panel">
                 <div className="mb-3 text-sm font-semibold">Context Governance</div>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {activeExecutionProfile && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Execution Profile</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>tier: {String(activeExecutionProfile.complexity_tier ?? '-')}</div>
+                        <div>allow escalation: {String(activeExecutionProfile.allow_escalation ?? '-')}</div>
+                        <div>next tier: {String((activeExecutionProfile.escalation_rule as Record<string, unknown> | undefined)?.next_tier ?? '-')}</div>
+                        <div>input tokens: {String((activeExecutionProfile.budget_cap as Record<string, unknown> | undefined)?.max_input_tokens ?? '-')}</div>
+                        <div>output tokens: {String((activeExecutionProfile.budget_cap as Record<string, unknown> | undefined)?.max_output_tokens ?? '-')}</div>
+                      </div>
+                    </div>
+                  )}
                   {activeContextPolicy && (
                     <div className="p-3 text-xs border rounded-lg bg-white">
                       <div className="mb-2 font-medium text-gray-900">Step Context Policy</div>
@@ -653,6 +684,17 @@ export default function RequirementDetail() {
                         <div>final chars: {String(contextCompactionPayload?.final_chars ?? '-')}</div>
                         <div>sections: {String(contextCompactionPayload?.section_count ?? '-')}</div>
                         <div>compacted: {String(contextCompactionPayload?.compacted ?? true)}</div>
+                      </div>
+                    </div>
+                  )}
+                  {latestPromptCacheProfile && (
+                    <div className="p-3 text-xs border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Prompt Cache</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>cache key: {String(promptCachePayload?.cache_key ?? '-')}</div>
+                        <div>applied: {String(promptCachePayload?.cache_applied ?? false)}</div>
+                        <div>saved chars: {String(promptCachePayload?.cached_chars_saved ?? '-')}</div>
+                        <div>deduped bindings: {String(promptCachePayload?.deduped_binding_count ?? '-')}</div>
                       </div>
                     </div>
                   )}

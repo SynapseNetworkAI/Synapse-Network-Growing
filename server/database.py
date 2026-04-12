@@ -96,12 +96,16 @@ class TaskRow(Base):
     attempt_no = Column(Integer, default=1)
     last_error_message = Column(Text)
     runtime_backend = Column(Text, default="")
+    runtime_provider = Column(Text, default="")
+    runtime_model = Column(Text, default="")
     runtime_session_id = Column(Text)
     runtime_selected_agent = Column(Text)
     runtime_event_cursor = Column(Integer, default=0)
     output_path = Column(Text)
     output_content = Column(Text)
     execution_time_ms = Column(Integer)
+    tokens_used = Column(Integer, default=0)
+    budget_cost_points = Column(Integer, default=0)
     created_at = Column(DateTime, default=utcnow)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
@@ -347,6 +351,7 @@ class WorkflowStepRow(Base):
     handoff_summary_markdown = Column(Text)
     done_when_markdown = Column(Text, nullable=False, default="")
     context_policy_json = Column(Text, nullable=False, default="{}")
+    execution_profile_json = Column(Text, nullable=False, default="{}")
     file_scope_json = Column(Text, nullable=False, default="{}")
     validation_targets_json = Column(Text, nullable=False, default="[]")
     failure_policy_json = Column(Text, nullable=False, default="{}")
@@ -534,6 +539,7 @@ def _migrate(engine_):
         workflow_step_cols = {
             "compatibility_task_id": "INTEGER",
             "context_policy_json": "TEXT DEFAULT '{}'",
+            "execution_profile_json": "TEXT DEFAULT '{}'",
         }
         for col, col_type in workflow_step_cols.items():
             if col not in existing:
@@ -553,10 +559,14 @@ def _migrate(engine_):
             "skill_name": "TEXT",
             "context_files": "TEXT",
             "execution_time_ms": "INTEGER",
+            "tokens_used": "INTEGER DEFAULT 0",
+            "budget_cost_points": "INTEGER DEFAULT 0",
             "retry_of_task_id": "INTEGER",
             "attempt_no": "INTEGER DEFAULT 1",
             "last_error_message": "TEXT",
             "runtime_backend": "TEXT DEFAULT ''",
+            "runtime_provider": "TEXT DEFAULT ''",
+            "runtime_model": "TEXT DEFAULT ''",
             "runtime_session_id": "TEXT",
             "runtime_selected_agent": "TEXT",
             "runtime_event_cursor": "INTEGER DEFAULT 0",

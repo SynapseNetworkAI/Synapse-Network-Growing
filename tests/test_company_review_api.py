@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from server.database import ArtifactRow, CompanyOperatingReviewRow, RequirementRow
+from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
 
 
 def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(synced_client, db_session):
@@ -63,6 +63,97 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
             }),
         )
     )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=blocked_requirement.id,
+            artifact_type="prompt_cache_profile",
+            content_summary="Prompt cache profile",
+            machine_readable_payload=json.dumps({
+                "cache_key": "cache-company-review",
+                "cached_chars_saved": 4200,
+                "deduped_binding_count": 3,
+            }),
+        )
+    )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=blocked_requirement.id,
+            artifact_type="runtime_adaptation",
+            content_summary="Escalation standard -> max",
+            machine_readable_payload=json.dumps({
+                "adaptation_type": "escalation",
+                "from_tier": "standard",
+                "to_tier": "max",
+            }),
+        )
+    )
+    review_ready_requirement = RequirementRow(
+        title="Manual publish promotion",
+        description_markdown="Ready to publish but still gated by operator review.",
+        status="done",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+        current_plan_version=1,
+    )
+    db_session.add(review_ready_requirement)
+    db_session.flush()
+    run = WorkflowRunRow(
+        requirement_id=review_ready_requirement.id,
+        plan_version=1,
+        status="paused",
+        triggered_by="user",
+    )
+    db_session.add(run)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=review_ready_requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implement expensive branch",
+        status="blocked",
+        sequence_no=10,
+        approval_policy_json=json.dumps({
+            "approval_scope": "max_tier",
+            "requires_operator_confirmation": True,
+            "operator_confirmation_actions": ["shell_access", "git_write"],
+        }),
+        execution_profile_json=json.dumps({
+            "complexity_tier": "max",
+        }),
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        context_policy_json="{}",
+        done_when_markdown="done",
+    )
+    db_session.add(step)
+    db_session.flush()
+    db_session.add(
+        ApprovalRequestRow(
+            requirement_id=review_ready_requirement.id,
+            workflow_run_id=run.id,
+            step_id=step.id,
+            approval_type="step_operator_confirmation",
+            status="pending",
+            reviewer="operator",
+            comment="max-tier branch requires operator confirmation",
+        )
+    )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=review_ready_requirement.id,
+            workflow_run_id=run.id,
+            artifact_type="delivery_state",
+            content_summary="Review-ready publish",
+            machine_readable_payload=json.dumps({
+                "publish_status": "review_ready",
+                "requires_manual_approval": True,
+                "publish_blockers": [],
+            }),
+        )
+    )
     db_session.commit()
 
     review_resp = synced_client.get("/api/company-review")
@@ -71,7 +162,19 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     payload = review_resp.json()
     assert payload["title"] == "Company Operating Review"
     assert payload["portfolio_summary"]["open_signals"] >= 1
+    assert payload["portfolio_summary"]["budget_spent_points"] >= 0
+    assert payload["portfolio_summary"]["prompt_cache_saved_chars"] >= 4200
+    assert payload["portfolio_summary"]["escalations"] >= 1
+    assert payload["portfolio_summary"]["completion_rate"] >= 0
+    assert payload["portfolio_summary"]["human_gate_hotspots"] >= 1
+    assert set(payload["portfolio_summary"]["tier_mix"].keys()) >= {"mini", "standard", "max"}
     assert any(item["project_key"] == "synapse-network-sdk" for item in payload["project_highlights"])
+    assert any(item["prompt_cache_saved_chars"] >= 4200 for item in payload["project_highlights"])
+    assert any(item["escalations"] >= 1 for item in payload["project_highlights"])
+    assert payload["human_gate_hotspots"]
+    assert any(item["approval_scope"] in {"max_tier", "publish"} for item in payload["human_gate_hotspots"])
+    assert payload["automation_candidates"]
+    assert any(item["automation_type"] in {"max_tier_branch_reduction", "publish_automation"} for item in payload["automation_candidates"])
     assert any("publish gate is blocked" in item["title"] for item in payload["bottlenecks"])
     assert any(item.get("incident_code") for item in payload["incidents"])
     assert any("Verification incident" in item["title"] for item in payload["incidents"])

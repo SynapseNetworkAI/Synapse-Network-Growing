@@ -64,7 +64,7 @@ from server.services.copilot_sdk_state import (
     task_output_dir,
 )
 from server.services.execution_resolver import suggest_task_execution
-from server.services.project_policy import project_policy_summary_markdown, resolve_project_policies_for_target
+from server.services.project_policy import project_policy_summary_markdown, project_policy_to_dict, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
@@ -82,6 +82,7 @@ PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
 MAX_BUGFIX_BRANCH_DEPTH = 5
 REPEATED_ERROR_CIRCUIT_BREAKER_THRESHOLD = 3
 CIRCUIT_BREAKER_REQUIREMENT_SOURCE = "bugfix_circuit_breaker"
+_TIER_ORDER = {"mini": 0, "standard": 1, "max": 2}
 INFRA_INCIDENT_ERROR_MARKERS = (
     "session not found",
     "session.resume failed",
@@ -103,12 +104,34 @@ import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
 
 
+def _normalize_runtime_tier(value: str | None) -> str:
+    tier = str(value or "").strip().lower()
+    if tier in _TIER_ORDER:
+        return tier
+    return "standard"
+
+
+def _tier_transition(current_tier: str, requested_tier: str) -> str:
+    current = _normalize_runtime_tier(current_tier)
+    requested = _normalize_runtime_tier(requested_tier)
+    return requested if _TIER_ORDER[requested] >= _TIER_ORDER[current] else current
+
+
 def _normalize_utc_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _step_execution_profile(step: WorkflowStepRow) -> dict[str, Any]:
+    payload = _json_loads(getattr(step, "execution_profile_json", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_step_execution_profile(step: WorkflowStepRow, payload: dict[str, Any]) -> None:
+    step.execution_profile_json = _json_dumps(payload or {})
 
 
 def _workflow_run_has_running_steps(db: Session, workflow_run_id: int) -> bool:
@@ -571,6 +594,211 @@ def _record_project_change_summary_artifact(
             "all_target_project_paths": payload.get("all_target_project_paths") or [],
         },
     )
+
+
+def _project_change_summary_payload(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_run_id: int | None = None,
+) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "project_change_summary", workflow_run_id=workflow_run_id)
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _dynamic_validation_scope(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_run_id: int | None = None,
+) -> dict[str, Any]:
+    payload = _project_change_summary_payload(db, requirement_id, workflow_run_id=workflow_run_id)
+    changed_projects = payload.get("changed_projects") or []
+    changed_paths: list[str] = []
+    changed_file_counts: dict[str, int] = {}
+    if isinstance(changed_projects, list):
+        for item in changed_projects:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("target_project_path") or "").strip()
+            if not path:
+                continue
+            if path not in changed_paths:
+                changed_paths.append(path)
+            changed_file_counts[path] = int(item.get("changed_file_count") or 0)
+    for item in payload.get("changed_target_project_paths") or []:
+        path = str(item).strip()
+        if path and path not in changed_paths:
+            changed_paths.append(path)
+
+    policies = [
+        project_policy_to_dict(row)
+        for row in resolve_project_policies_for_target(db, "\n".join(changed_paths))
+    ]
+    required_checks: list[str] = []
+    affected_projects: list[dict[str, Any]] = []
+    for policy in policies:
+        root_path = str(policy.get("root_path") or "").strip()
+        for check in policy.get("required_checks") or []:
+            check_text = str(check).strip()
+            if check_text and check_text not in required_checks:
+                required_checks.append(check_text)
+        affected_projects.append(
+            {
+                "project_key": str(policy.get("project_key") or ""),
+                "display_name": str(policy.get("display_name") or ""),
+                "root_path": root_path,
+                "required_checks": [str(item) for item in policy.get("required_checks") or [] if str(item).strip()],
+                "changed_file_count": int(changed_file_counts.get(root_path, 0) or 0),
+            }
+        )
+    return {
+        "changed_target_project_paths": changed_paths,
+        "affected_projects": affected_projects,
+        "required_checks": required_checks,
+    }
+
+
+def _project_change_metrics(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_run_id: int | None = None,
+) -> dict[str, Any]:
+    payload = _project_change_summary_payload(db, requirement_id, workflow_run_id=workflow_run_id)
+    changed_projects = payload.get("changed_projects") or []
+    paths: list[str] = []
+    total_changed_files = 0
+    if isinstance(changed_projects, list):
+        for item in changed_projects:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("target_project_path") or "").strip()
+            if path and path not in paths:
+                paths.append(path)
+            total_changed_files += int(item.get("changed_file_count") or 0)
+    return {
+        "changed_project_count": len(paths),
+        "changed_target_project_paths": paths,
+        "total_changed_files": total_changed_files,
+    }
+
+
+def _is_summary_like_step(step: WorkflowStepRow) -> bool:
+    if str(step.step_type or "") in {"closeout", "summary", "report"}:
+        return True
+    title = str(step.title or "").lower()
+    if "summary" in title or "report" in title:
+        return True
+    profile = _step_execution_profile(step)
+    outputs = profile.get("expected_outputs") or []
+    if not isinstance(outputs, list) or not outputs:
+        return False
+    reportish = {"research_report", "synthesis_report", "validation_manifest", "review_surface"}
+    output_types = {
+        str(item.get("artifact_type") or "").strip()
+        for item in outputs
+        if isinstance(item, dict)
+    }
+    return bool(output_types) and output_types.issubset(reportish)
+
+
+def _replace_contract_binding(
+    db: Session,
+    workflow_run_id: int,
+    *,
+    purpose: str,
+    artifact_id: int,
+) -> None:
+    step_ids = [
+        int(step.id)
+        for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run_id).all()
+    ]
+    if not step_ids:
+        return
+    db.query(StepInputBindingRow).filter(
+        StepInputBindingRow.step_id.in_(step_ids),
+        StepInputBindingRow.purpose == purpose,
+    ).delete(synchronize_session=False)
+    db.flush()
+    for step_id in step_ids:
+        _bind_artifact(db, step_id, artifact_id, purpose, True)
+
+
+def _refresh_dynamic_validation_contracts(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+) -> None:
+    dynamic_scope = _dynamic_validation_scope(db, _as_int(requirement.id), workflow_run_id=_as_int(workflow_run.id))
+    affected_projects = dynamic_scope.get("affected_projects") or []
+    if not affected_projects:
+        return
+
+    validation_plan = dict(_validation_plan_payload(db, _as_int(requirement.id)) or {})
+    delivery_contract = dict(_delivery_contract_payload(db, _as_int(requirement.id)) or {})
+    if not validation_plan or not delivery_contract:
+        return
+
+    required_checks = [str(item) for item in dynamic_scope.get("required_checks") or [] if str(item).strip()]
+    affected_paths = [str(item.get("root_path") or "") for item in affected_projects if str(item.get("root_path") or "").strip()]
+    validation_summary = str(validation_plan.get("summary_markdown") or "").strip()
+    dynamic_summary = (
+        "Dynamic validation scope is now derived from `project_change_summary`; "
+        f"current affected projects: {', '.join(item.get('display_name') or item.get('project_key') or '-' for item in affected_projects)}."
+    )
+    if dynamic_summary not in validation_summary:
+        validation_plan["summary_markdown"] = "\n\n".join([part for part in [validation_summary, dynamic_summary] if part])
+    validation_plan["validation_mode"] = "dynamic_by_project_change_summary"
+    validation_plan["affected_projects"] = affected_projects
+    validation_plan["dynamic_required_checks"] = required_checks
+    validation_plan["changed_target_project_paths"] = affected_paths
+
+    delivery_summary = str(delivery_contract.get("summary_markdown") or "").strip()
+    delivery_dynamic_summary = (
+        "Required checks are dynamically narrowed to the projects actually changed in implementation."
+    )
+    if delivery_dynamic_summary not in delivery_summary:
+        delivery_contract["summary_markdown"] = "\n\n".join([part for part in [delivery_summary, delivery_dynamic_summary] if part])
+    delivery_contract["required_checks"] = required_checks
+    delivery_contract["affected_projects"] = affected_projects
+    delivery_contract["changed_target_project_paths"] = affected_paths
+    delivery_contract["managed_projects"] = [
+        item
+        for item in delivery_contract.get("managed_projects") or []
+        if str(item.get("root_path") or "").strip() in set(affected_paths)
+    ] or list(delivery_contract.get("managed_projects") or [])
+    delivery_contract["auto_publish_allowed"] = (
+        str(delivery_contract.get("release_mode") or "manual") == "auto"
+        and not bool(delivery_contract.get("requires_manual_approval"))
+        and not required_checks
+        and bool((delivery_contract.get("capability_matrix") or {}).get("git_push"))
+        and bool((delivery_contract.get("capability_matrix") or {}).get("publish"))
+        and "publish" not in set((delivery_contract.get("interrupt_policy") or {}).get("operator_confirmation_actions") or [])
+    )
+
+    validation_artifact = _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="validation_plan",
+        content_summary=f"Dynamic validation contract for requirement #{requirement.id}",
+        human_readable_body=_validation_plan_markdown(validation_plan),
+        machine_readable_payload=validation_plan,
+    )
+    delivery_artifact = _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="delivery_contract",
+        content_summary=f"Dynamic delivery contract for requirement #{requirement.id}",
+        human_readable_body=_delivery_contract_markdown(delivery_contract),
+        machine_readable_payload=delivery_contract,
+    )
+    _replace_contract_binding(db, _as_int(workflow_run.id), purpose="validation_contract", artifact_id=_as_int(validation_artifact.id))
+    _replace_contract_binding(db, _as_int(workflow_run.id), purpose="delivery_contract", artifact_id=_as_int(delivery_artifact.id))
 
 
 def _repo_file_changes_check_error(
@@ -1479,9 +1707,18 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
             step=step,
             task=task,
         )
+        _record_budget_usage_artifact(db, requirement=requirement, workflow_run=run)
+        if project_change_artifact is not None and step.step_type in {"implementation", "bugfix"}:
+            _refresh_dynamic_validation_contracts(
+                db,
+                requirement=requirement,
+                workflow_run=run,
+            )
         target_failures = _mark_step_targets_passed(db, requirement, step, artifact, task=task)
         if target_failures:
             step.status = "failed"
+            failure_count = _failure_count_for_step(step)
+            step.retry_count = failure_count
             _record_step_event(db, step.id, "validation_failed", "; ".join(target_failures))
             error_text = "; ".join(target_failures)
             bug_report_payload = _build_bug_report_payload(db, requirement, run, step, task, error_text)
@@ -1498,6 +1735,28 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
             )
             _am_push_task_failed(task, step, requirement)
             if step.step_type in {"implementation", "review", "test", "bugfix"}:
+                project_metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(run.id))
+                bugfix_profile = _build_followup_execution_profile(
+                    step,
+                    step_type="bugfix",
+                    failure_count=failure_count,
+                    error_text=error_text,
+                    project_change_metrics=project_metrics,
+                )
+                review_profile = _build_followup_execution_profile(
+                    step,
+                    step_type="review",
+                    failure_count=failure_count,
+                    error_text=error_text,
+                    project_change_metrics=project_metrics,
+                )
+                test_profile = _build_followup_execution_profile(
+                    step,
+                    step_type="test",
+                    failure_count=failure_count,
+                    error_text=error_text,
+                    project_change_metrics=project_metrics,
+                )
                 circuit_breaker_reason = _bugfix_circuit_breaker_reason(db, requirement, run, step, error_text)
                 if circuit_breaker_reason:
                     _trip_bugfix_circuit_breaker(
@@ -1510,7 +1769,16 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                         circuit_breaker_reason,
                     )
                 else:
-                    _create_bugfix_branch(db, requirement, run, step, error_artifact)
+                    _create_bugfix_branch(
+                        db,
+                        requirement,
+                        run,
+                        step,
+                        error_artifact,
+                        bugfix_execution_profile=bugfix_profile,
+                        review_execution_profile=review_profile,
+                        test_execution_profile=test_profile,
+                    )
                     should_dispatch_next = True
             else:
                 run.status = "failed"
@@ -1524,9 +1792,13 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 _finalize_requirement(db, requirement, run, step, artifact)
             else:
                 should_dispatch_next = True
+        if _budget_guardrail_after_task(db, requirement=requirement, workflow_run=run, step=step, task=task):
+            should_dispatch_next = False
 
     elif task.status in {"failed", "rejected"}:
         step.status = "failed"
+        failure_count = _failure_count_for_step(step)
+        step.retry_count = failure_count
         step.started_at = step.started_at or task.started_at or utcnow()
         step.completed_at = task.completed_at or utcnow()
         _record_runtime_lifecycle_artifacts(db, step, task, phase="failed")
@@ -1546,10 +1818,33 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         )
         _mark_step_targets_failed(db, step, error_artifact)
         _am_push_task_failed(task, step, requirement)
+        _record_budget_usage_artifact(db, requirement=requirement, workflow_run=run)
         failure_route = _resolve_failure_route(step, error_text)
         if failure_route == "requirement_revision":
             _create_requirement_revision_request(db, requirement, run, step, error_artifact, error_text)
         elif step.step_type in {"implementation", "review", "test", "bugfix"}:
+            project_metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(run.id))
+            bugfix_profile = _build_followup_execution_profile(
+                step,
+                step_type="bugfix",
+                failure_count=failure_count,
+                error_text=error_text,
+                project_change_metrics=project_metrics,
+            )
+            review_profile = _build_followup_execution_profile(
+                step,
+                step_type="review",
+                failure_count=failure_count,
+                error_text=error_text,
+                project_change_metrics=project_metrics,
+            )
+            test_profile = _build_followup_execution_profile(
+                step,
+                step_type="test",
+                failure_count=failure_count,
+                error_text=error_text,
+                project_change_metrics=project_metrics,
+            )
             circuit_breaker_reason = _bugfix_circuit_breaker_reason(db, requirement, run, step, error_text)
             if circuit_breaker_reason:
                 _trip_bugfix_circuit_breaker(
@@ -1562,11 +1857,22 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                     circuit_breaker_reason,
                 )
             else:
-                _create_bugfix_branch(db, requirement, run, step, error_artifact)
+                _create_bugfix_branch(
+                    db,
+                    requirement,
+                    run,
+                    step,
+                    error_artifact,
+                    bugfix_execution_profile=bugfix_profile,
+                    review_execution_profile=review_profile,
+                    test_execution_profile=test_profile,
+                )
                 should_dispatch_next = True
         else:
             run.status = "failed"
             requirement.status = "needs_revision"
+        if _budget_guardrail_after_task(db, requirement=requirement, workflow_run=run, step=step, task=task):
+            should_dispatch_next = False
 
     _refresh_run_status(db, requirement, run)
     db.commit()
@@ -1750,12 +2056,37 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             if step.status != "ready":
                 continue
             context_snapshot = _materialize_step_context(db, step)
+            profile = _step_execution_profile(step)
+            budget_cap = profile.get("budget_cap") or {}
+            if isinstance(budget_cap, dict):
+                max_attempts = int(budget_cap.get("max_attempts") or 0)
+                failure_count = max(int(step.retry_count or 0), int(profile.get("failure_count") or 0))
+                if max_attempts > 0 and failure_count >= max_attempts:
+                    _pause_for_budget_guardrail(
+                        db,
+                        requirement=requirement,
+                        workflow_run=workflow_run,
+                        step=step,
+                        reason=f"Step exceeded max_attempts budget ({failure_count}/{max_attempts})",
+                        payload={
+                            "requirement_id": _as_int(requirement.id),
+                            "workflow_run_id": _as_int(workflow_run.id),
+                            "step_id": _as_int(step.id),
+                            "budget_cap": budget_cap,
+                            "failure_count": failure_count,
+                            "reasons": [f"step exceeded max_attempts budget ({failure_count}/{max_attempts})"],
+                        },
+                    )
+                    db.commit()
+                    return
             if _interrupt_step_for_stale_context(db, requirement, workflow_run, step, context_snapshot):
                 db.commit()
                 return
             if _interrupt_step_for_policy(db, requirement, workflow_run, step):
                 db.commit()
                 return
+            _maybe_escalate_ready_step(db, requirement=requirement, workflow_run=workflow_run, step=step)
+            _maybe_downgrade_ready_step(db, requirement=requirement, workflow_run=workflow_run, step=step)
             if step.step_type == "closeout":
                 _auto_complete_closeout(db, requirement, workflow_run, step)
                 _record_step_event(db, step.id, "status_change", "completed (auto-closeout)")
@@ -1920,6 +2251,7 @@ def _create_workflow_steps(
             context_scope="verification" if str(step_packet.get("step_type")) in {"review", "test", "closeout"} else "step_private",
             done_when_markdown=str(step_packet.get("done_when_markdown") or ""),
             context_policy_json=json.dumps(step_packet.get("context_policy") or {}),
+            execution_profile_json=json.dumps(step_packet.get("execution_profile") or {}),
             file_scope_json=json.dumps(step_packet.get("file_scope") or {}),
             validation_targets_json=json.dumps(step_packet.get("validation_targets") or []),
             failure_policy_json=json.dumps(step_packet.get("failure_policy") or {}),
@@ -1964,6 +2296,12 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
     description = prepared_description or _step_task_description(db, step)
     suggestion = suggest_task_execution(db, description=description, preferred_agent_id=str(agent.id))
     skill_name = suggestion.skill_name or "content-strategy"
+    from server.services.task_runtime import resolve_runtime_selection
+
+    selection = resolve_runtime_selection(
+        _json_loads(getattr(step, "execution_profile_json", None), {}),
+        step_type=str(step.step_type or ""),
+    )
     task = TaskRow(
         description=description,
         agent_id=str(agent.id),
@@ -1973,7 +2311,9 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
         project_id=project_id,
         agent_group=agent_group,
         skill_name=skill_name,
-        runtime_backend="",
+        runtime_backend=selection.backend,
+        runtime_provider=selection.provider,
+        runtime_model=selection.model,
         started_at=utcnow(),
     )
     db.add(task)
@@ -2002,6 +2342,114 @@ def _format_artifact_for_context(artifact: ArtifactRow) -> tuple[str, str]:
     title = f"{artifact.artifact_type}: {artifact.content_summary or ''}".strip(": ").strip()
     body = str(artifact.human_readable_body or artifact.content_summary or "").strip()
     return title or artifact.artifact_type, body
+
+
+def _prompt_cacheable_binding(binding: dict[str, Any]) -> bool:
+    artifact_type = str(binding.get("artifact_type") or "").strip()
+    return artifact_type in {
+        "implementation_plan",
+        "delivery_contract",
+        "validation_plan",
+        "routing_decision",
+        "requirement_snapshot",
+        "project_change_summary",
+    }
+
+
+def _prompt_cache_payload(sections: list[dict[str, Any]], binding_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    reusable_sections: list[dict[str, Any]] = []
+    seen_reusable_keys: set[str] = set()
+    reused_chars = 0
+    reusable_artifact_count = 0
+    reusable_section_count = 0
+    for section in sections:
+        kind = str(section.get("kind") or "")
+        if kind not in {"project", "capability", "done_when"}:
+            continue
+        body = str(section.get("body") or "").strip()
+        if not body:
+            continue
+        title = str(section.get("title") or "")
+        summary = _truncate_text(body, 240)
+        reusable_key = hashlib.sha1(f"{kind}\n{title}\n{summary}".encode("utf-8")).hexdigest()
+        if reusable_key in seen_reusable_keys:
+            continue
+        seen_reusable_keys.add(reusable_key)
+        reusable_section_count += 1
+        reused_chars += max(0, len(body) - len(summary))
+        reusable_sections.append(
+            {
+                "kind": kind,
+                "title": title,
+                "summary": summary,
+                "raw_chars": len(body),
+                "summary_chars": len(summary),
+            }
+        )
+    for binding in binding_summaries:
+        if not _prompt_cacheable_binding(binding):
+            continue
+        body = str(binding.get("body") or "").strip()
+        if not body:
+            continue
+        artifact_type = str(binding.get("artifact_type") or "")
+        title = str(binding.get("title") or "")
+        summary = _truncate_text(body, 240)
+        reusable_key = hashlib.sha1(f"{artifact_type}\n{title}\n{summary}".encode("utf-8")).hexdigest()
+        if reusable_key in seen_reusable_keys:
+            continue
+        seen_reusable_keys.add(reusable_key)
+        reusable_artifact_count += 1
+        reused_chars += max(0, len(body) - len(summary))
+        reusable_sections.append(
+            {
+                "kind": "artifact",
+                "artifact_type": artifact_type,
+                "title": title,
+                "summary": summary,
+                "raw_chars": len(body),
+                "summary_chars": len(summary),
+            }
+        )
+    digest_source = "\n".join(
+        f"{item.get('kind')}::{item.get('title')}::{item.get('summary')}"
+        for item in reusable_sections
+    )
+    return {
+        "cache_key": hashlib.sha1(digest_source.encode("utf-8")).hexdigest() if digest_source else "",
+        "reusable_sections": reusable_sections,
+        "reusable_section_count": reusable_section_count,
+        "reusable_artifact_count": reusable_artifact_count,
+        "reused_chars": reused_chars,
+        "cache_applied": bool(reusable_sections),
+    }
+
+
+def _prompt_cache_profile_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Prompt Cache Profile",
+        "",
+        f"- cache key: `{payload.get('cache_key') or '-'}`",
+        f"- cache applied: `{payload.get('cache_applied')}`",
+        f"- reusable sections: `{payload.get('reusable_section_count') or 0}`",
+        f"- reusable artifacts: `{payload.get('reusable_artifact_count') or 0}`",
+        f"- deduped bindings: `{payload.get('deduped_binding_count') or 0}`",
+        f"- raw chars: `{payload.get('raw_chars') or 0}`",
+        f"- final chars: `{payload.get('final_chars') or 0}`",
+        f"- saved chars before compaction: `{payload.get('cached_chars_saved') or 0}`",
+    ]
+    reusable_sections = payload.get("reusable_sections") or []
+    if isinstance(reusable_sections, list) and reusable_sections:
+        lines.extend(["", "## Reusable Context"])
+        for item in reusable_sections:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("title") or item.get("artifact_type") or item.get("kind") or "").strip()
+            summary = str(item.get("summary") or "").strip()
+            if not label or not summary:
+                continue
+            lines.append(f"- {label}: {summary}")
+    return "\n".join(lines)
 
 
 def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
@@ -2050,23 +2498,68 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
             )
 
     binding_summaries: list[dict[str, Any]] = []
+    seen_binding_keys: set[str] = set()
+    deduped_binding_count = 0
     bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
+    total_binding_count = len(bindings)
     for binding in bindings:
         artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
         if not artifact:
             continue
         title, body = _format_artifact_for_context(artifact)
+        truncated_body = _truncate_text(body, max_artifact_body_chars)
+        dedupe_key = hashlib.sha1(f"{title}\n{truncated_body}".encode("utf-8")).hexdigest()
+        if dedupe_key in seen_binding_keys:
+            deduped_binding_count += 1
+            continue
+        seen_binding_keys.add(dedupe_key)
         binding_summaries.append(
             {
                 "artifact_id": _as_int(artifact.id),
                 "artifact_type": str(artifact.artifact_type),
                 "title": title,
-                "body": _truncate_text(body, max_artifact_body_chars),
+                "body": truncated_body,
                 "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
                 "workflow_run_id": int(artifact.workflow_run_id) if artifact.workflow_run_id is not None else None,
             }
         )
-        sections.append({"kind": "artifact", "title": title, "body": _truncate_text(body, max_artifact_body_chars)})
+        sections.append({"kind": "artifact", "title": title, "body": truncated_body})
+
+    prompt_cache = _prompt_cache_payload(sections, binding_summaries)
+    cache_key = str(prompt_cache.get("cache_key") or "")
+    reusable_sections = list(prompt_cache.get("reusable_sections") or [])
+    cache_applied = bool(prompt_cache.get("cache_applied"))
+    raw_prompt_before_cache = "\n\n".join(
+        f"## {section['title']}\n{section['body']}".strip()
+        for section in sections
+        if str(section.get("body") or "").strip()
+    ).strip()
+    raw_chars_before_cache = len(raw_prompt_before_cache)
+    if cache_applied:
+        compact_lines = [
+            f"Cache key: `{cache_key}`",
+            "Reusable context summary:",
+        ]
+        for item in reusable_sections:
+            compact_lines.append(
+                f"- {item.get('title') or item.get('artifact_type') or item.get('kind')}: {item.get('summary') or ''}"
+            )
+        sections = [
+            section
+            for section in sections
+            if not (
+                str(section.get("kind") or "") in {"project", "capability", "done_when"}
+                or (
+                    str(section.get("kind") or "") == "artifact"
+                    and any(
+                        str(item.get("title") or "") == str(section.get("title") or "")
+                        and str(item.get("summary") or "") == _truncate_text(str(section.get("body") or ""), 240)
+                        for item in reusable_sections
+                    )
+                )
+            )
+        ]
+        sections.insert(1, {"kind": "prompt_cache", "title": "Cached Context Profile", "body": "\n".join(compact_lines)})
 
     raw_prompt = "\n\n".join(
         f"## {section['title']}\n{section['body']}".strip()
@@ -2124,6 +2617,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
     return {
         "requirement": requirement,
         "context_policy": context_policy,
+        "raw_chars_before_cache": raw_chars_before_cache,
         "raw_prompt": raw_prompt,
         "prompt": final_prompt,
         "raw_chars": len(raw_prompt),
@@ -2131,6 +2625,12 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
         "compacted": compacted,
         "sections": sections,
         "binding_summaries": binding_summaries,
+        "prompt_cache": prompt_cache,
+        "cache_applied": cache_applied,
+        "total_binding_count": total_binding_count,
+        "unique_binding_count": len(binding_summaries),
+        "deduped_binding_count": deduped_binding_count,
+        "cached_chars_saved": max(0, raw_chars_before_cache - len(raw_prompt)),
         "verification_status": verification_status,
         "stale_findings": list(dict.fromkeys(stale_findings)),
     }
@@ -2138,17 +2638,46 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
 
 def _materialize_step_context(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
     snapshot = _step_context_snapshot(db, step)
+    prompt_cache_payload = {
+        **snapshot["prompt_cache"],
+        "cache_applied": snapshot["cache_applied"],
+        "raw_chars_before_cache": snapshot["raw_chars_before_cache"],
+        "raw_chars": snapshot["raw_chars"],
+        "final_chars": snapshot["final_chars"],
+        "cached_chars_saved": snapshot["cached_chars_saved"],
+        "total_binding_count": snapshot["total_binding_count"],
+        "unique_binding_count": snapshot["unique_binding_count"],
+        "deduped_binding_count": snapshot["deduped_binding_count"],
+        "section_count": len(snapshot["sections"]),
+    }
     payload = {
         "step_id": _as_int(step.id),
         "step_key": str(step.step_key),
         "step_type": str(step.step_type),
         "context_policy": snapshot["context_policy"],
+        "raw_chars_before_cache": snapshot["raw_chars_before_cache"],
         "raw_chars": snapshot["raw_chars"],
         "final_chars": snapshot["final_chars"],
         "compacted": snapshot["compacted"],
         "section_count": len(snapshot["sections"]),
         "binding_summaries": snapshot["binding_summaries"],
+        "prompt_cache": prompt_cache_payload,
+        "total_binding_count": snapshot["total_binding_count"],
+        "unique_binding_count": snapshot["unique_binding_count"],
+        "deduped_binding_count": snapshot["deduped_binding_count"],
+        "cached_chars_saved": snapshot["cached_chars_saved"],
     }
+    _create_or_update_artifact(
+        db,
+        requirement_id=step.requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="prompt_cache_profile",
+        content_summary=f"prompt cache profile for step {step.step_key}",
+        human_readable_body=_prompt_cache_profile_markdown(prompt_cache_payload),
+        machine_readable_payload=prompt_cache_payload,
+    )
     if snapshot["compacted"]:
         _create_artifact(
             db,
@@ -2253,6 +2782,9 @@ def _approval_policy_markdown_lines(policy: dict[str, Any]) -> list[str]:
     required = [str(item) for item in policy.get("required_capabilities") or [] if str(item).strip()]
     if required:
         lines.append(f"- Required capabilities: {', '.join(required)}")
+    approval_scope = str(policy.get("approval_scope") or "").strip()
+    if approval_scope:
+        lines.append(f"- Human gate scope: {approval_scope}")
     matrix = policy.get("capability_matrix") or {}
     if isinstance(matrix, dict) and matrix:
         summary = ", ".join(
@@ -2287,22 +2819,33 @@ def _step_required_capabilities_for_type(step_type: str) -> list[str]:
     return ordered
 
 
-def _derived_approval_policy(step_type: str, base_policy: dict[str, Any]) -> dict[str, Any]:
+def _derived_approval_policy(
+    step_type: str,
+    base_policy: dict[str, Any],
+    *,
+    execution_profile: dict[str, Any] | None = None,
+    requirement: RequirementRow | None = None,
+) -> dict[str, Any]:
     if not isinstance(base_policy, dict):
         base_policy = {}
     capability_matrix = dict(base_policy.get("capability_matrix") or {})
     interrupt_policy = dict(base_policy.get("interrupt_policy") or {})
     required_capabilities = _step_required_capabilities_for_type(step_type)
     denied = [name for name in required_capabilities if capability_matrix and not bool(capability_matrix.get(name))]
-    confirmation = [
-        name
-        for name in required_capabilities
-        if name in set(interrupt_policy.get("operator_confirmation_actions") or [])
-    ]
+    from server.services.workflow_planner import _operator_confirmation_actions_for_step
+
+    confirmation, approval_scope = _operator_confirmation_actions_for_step(
+        step_type=step_type,
+        required_capabilities=required_capabilities,
+        interrupt_policy=interrupt_policy,
+        execution_profile=execution_profile,
+        requirement=requirement,
+    )
     return {
         "required_capabilities": required_capabilities,
         "capability_matrix": capability_matrix,
         "interrupt_policy": interrupt_policy,
+        "approval_scope": approval_scope,
         "requires_operator_confirmation": bool(confirmation),
         "operator_confirmation_actions": confirmation,
         "deny_execution": bool(denied),
@@ -2340,7 +2883,14 @@ def _plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
         for i, s in enumerate(steps, 1):
             role = s.get("assigned_role", "")
             done = s.get("done_when_markdown", "")
-            lines.append(f"{i}. **{s.get('title', s.get('step_key', ''))}** ({role}): {done}")
+            tier = str(s.get("complexity_tier") or (s.get("execution_profile") or {}).get("complexity_tier") or "").strip()
+            budget = (s.get("budget_cap") or (s.get("execution_profile") or {}).get("budget_cap") or {})
+            budget_note = ""
+            if tier:
+                budget_note = f" [{tier}]"
+            if isinstance(budget, dict) and budget:
+                budget_note += f" input≤{budget.get('max_input_tokens', '-')} output≤{budget.get('max_output_tokens', '-')}"
+            lines.append(f"{i}. **{s.get('title', s.get('step_key', ''))}** ({role}){budget_note}: {done}")
 
     risks = plan.get("known_risks_markdown", "")
     if risks:
@@ -2398,10 +2948,14 @@ def _create_step_completion_artifact(db: Session, step: WorkflowStepRow, task: T
         "step_type": step.step_type,
         "status": task.status,
         "runtime_backend": task.runtime_backend,
+        "runtime_provider": getattr(cast(Any, task), "runtime_provider", ""),
+        "runtime_model": getattr(cast(Any, task), "runtime_model", ""),
         "runtime_session_id": task.runtime_session_id,
         "output_path": task.output_path,
         "output_content": body,
         "execution_time_ms": task.execution_time_ms,
+        "tokens_used": int(getattr(cast(Any, task), "tokens_used", 0) or 0),
+        "budget_cost_points": int(getattr(cast(Any, task), "budget_cost_points", 0) or 0),
     }
     return _create_artifact(
         db,
@@ -2507,9 +3061,13 @@ def _runtime_telemetry_payload(db: Session, step: WorkflowStepRow, task: TaskRow
         "task_id": _as_int(task.id),
         "phase": phase,
         "runtime_backend": str(task.runtime_backend or ""),
+        "runtime_provider": str(getattr(cast(Any, task), "runtime_provider", "") or ""),
+        "runtime_model": str(getattr(cast(Any, task), "runtime_model", "") or ""),
         "runtime_session_id": str(task.runtime_session_id or ""),
         "runtime_selected_agent": str(task.runtime_selected_agent or ""),
         "runtime_event_cursor": int(getattr(task, "runtime_event_cursor", 0) or 0),
+        "tokens_used": int(getattr(cast(Any, task), "tokens_used", 0) or 0),
+        "budget_cost_points": int(getattr(cast(Any, task), "budget_cost_points", 0) or 0),
         "event_counts": event_counts,
         "subagent_counts": subagent_counts,
         "recent_events": recent_events[-12:],
@@ -2531,6 +3089,8 @@ def _runtime_lifecycle_payload(step: WorkflowStepRow, task: TaskRow, *, phase: s
         "task_status": str(task.status or ""),
         "step_status": str(step.status or ""),
         "runtime_backend": str(task.runtime_backend or ""),
+        "runtime_provider": str(getattr(cast(Any, task), "runtime_provider", "") or ""),
+        "runtime_model": str(getattr(cast(Any, task), "runtime_model", "") or ""),
         "runtime_session_id": str(task.runtime_session_id or ""),
         "runtime_selected_agent": str(task.runtime_selected_agent or ""),
         "agent_id": str(task.agent_id or ""),
@@ -2539,6 +3099,8 @@ def _runtime_lifecycle_payload(step: WorkflowStepRow, task: TaskRow, *, phase: s
         "output_path": str(task.output_path or "") or None,
         "last_error_message": str(task.last_error_message or "") or None,
         "note": note,
+        "tokens_used": int(getattr(cast(Any, task), "tokens_used", 0) or 0),
+        "budget_cost_points": int(getattr(cast(Any, task), "budget_cost_points", 0) or 0),
         "task_created_at": task.created_at.isoformat() if task.created_at else None,
         "task_started_at": task.started_at.isoformat() if task.started_at else None,
         "task_completed_at": task.completed_at.isoformat() if task.completed_at else None,
@@ -2556,6 +3118,10 @@ def _runtime_lifecycle_markdown(payload: dict[str, Any]) -> str:
         f"- Task status: `{payload.get('task_status') or '-'}`",
         f"- Step status: `{payload.get('step_status') or '-'}`",
         f"- Backend: `{payload.get('runtime_backend') or '-'}`",
+        f"- Provider: `{payload.get('runtime_provider') or '-'}`",
+        f"- Model: `{payload.get('runtime_model') or '-'}`",
+        f"- Tokens used: `{payload.get('tokens_used') or 0}`",
+        f"- Budget cost points: `{payload.get('budget_cost_points') or 0}`",
         f"- Session: `{payload.get('runtime_session_id') or '-'}`",
         f"- Selected agent: `{payload.get('runtime_selected_agent') or '-'}`",
         f"- Skill: `{payload.get('skill_name') or '-'}`",
@@ -2572,6 +3138,10 @@ def _runtime_telemetry_markdown(payload: dict[str, Any]) -> str:
         "# Runtime Telemetry",
         "",
         f"- Backend: `{payload.get('runtime_backend') or '-'}`",
+        f"- Provider: `{payload.get('runtime_provider') or '-'}`",
+        f"- Model: `{payload.get('runtime_model') or '-'}`",
+        f"- Tokens used: `{payload.get('tokens_used') or 0}`",
+        f"- Budget cost points: `{payload.get('budget_cost_points') or 0}`",
         f"- Session: `{payload.get('runtime_session_id') or '-'}`",
         f"- Transcript available: {'yes' if payload.get('transcript_available') else 'no'}",
     ]
@@ -2671,6 +3241,463 @@ def _record_runtime_lifecycle_artifacts(
     )
 
 
+def _runtime_adaptation_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# Runtime {str(payload.get('adaptation_type') or 'adaptation').capitalize()}",
+        "",
+        f"- Step: `{payload.get('step_key') or '-'}` ({payload.get('step_type') or '-'})",
+        f"- Tier: `{payload.get('from_tier') or '-'}` -> `{payload.get('to_tier') or '-'}`",
+        f"- Trigger: `{payload.get('trigger') or '-'}`",
+    ]
+    reasons = [str(item).strip() for item in payload.get("reasons") or [] if str(item).strip()]
+    if reasons:
+        lines.extend(["", "## Reasons"])
+        lines.extend([f"- {item}" for item in reasons])
+    metrics = payload.get("project_change_metrics") or {}
+    if isinstance(metrics, dict) and metrics:
+        lines.extend(
+            [
+                "",
+                "## Project Change Metrics",
+                f"- Changed projects: `{metrics.get('changed_project_count', 0)}`",
+                f"- Changed files: `{metrics.get('total_changed_files', 0)}`",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _record_runtime_adaptation(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    payload: dict[str, Any],
+) -> ArtifactRow:
+    return _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(step.id),
+        producer_step_id=_as_int(step.id),
+        artifact_type="runtime_adaptation",
+        content_summary=(
+            f"{payload.get('adaptation_type', 'adaptation')} {payload.get('from_tier', '-')}"
+            f" -> {payload.get('to_tier', '-')}"
+        ),
+        human_readable_body=_runtime_adaptation_markdown(payload),
+        machine_readable_payload=payload,
+    )
+
+
+def _apply_step_runtime_tier(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    target_tier: str,
+    adaptation_type: str,
+    trigger: str,
+    reasons: list[str],
+    project_change_metrics: dict[str, Any] | None = None,
+    persist_failure_count: int | None = None,
+) -> bool:
+    profile = _step_execution_profile(step)
+    from_tier = _normalize_runtime_tier(profile.get("complexity_tier"))
+    to_tier = _normalize_runtime_tier(target_tier)
+    if from_tier == to_tier:
+        return False
+
+    from server.services.workflow_planner import _default_budget_cap, _default_escalation_rule
+
+    allow_escalation = bool(profile.get("allow_escalation", True))
+    if to_tier == "max":
+        allow_escalation = False
+    profile["complexity_tier"] = to_tier
+    profile["budget_cap"] = dict(_default_budget_cap(to_tier))
+    profile["allow_escalation"] = allow_escalation
+    profile["escalation_rule"] = dict(
+        profile.get("escalation_rule") or _default_escalation_rule(to_tier, allow_escalation=allow_escalation)
+    )
+    if persist_failure_count is not None:
+        profile["failure_count"] = int(persist_failure_count)
+    profile["last_runtime_adaptation"] = {
+        "adaptation_type": adaptation_type,
+        "trigger": trigger,
+        "from_tier": from_tier,
+        "to_tier": to_tier,
+        "reasons": reasons,
+        "adapted_at": utcnow().isoformat(),
+    }
+    _write_step_execution_profile(step, profile)
+    _record_runtime_adaptation(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        step=step,
+        payload={
+            "requirement_id": _as_int(requirement.id),
+            "workflow_run_id": _as_int(workflow_run.id),
+            "step_id": _as_int(step.id),
+            "step_key": str(step.step_key or ""),
+            "step_type": str(step.step_type or ""),
+            "adaptation_type": adaptation_type,
+            "trigger": trigger,
+            "from_tier": from_tier,
+            "to_tier": to_tier,
+            "reasons": reasons,
+            "project_change_metrics": project_change_metrics or {},
+        },
+    )
+    _record_step_event(db, _as_int(step.id), f"runtime_{adaptation_type}", "; ".join(reasons) or trigger)
+    return True
+
+
+def _workflow_run_task_rows(db: Session, workflow_run_id: int) -> list[TaskRow]:
+    task_ids = [
+        int(step.compatibility_task_id)
+        for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run_id).all()
+        if int(step.compatibility_task_id or 0) > 0
+    ]
+    if not task_ids:
+        return []
+    return db.query(TaskRow).filter(TaskRow.id.in_(task_ids)).all()
+
+
+def _budget_cap_points_for_step(step: WorkflowStepRow) -> int:
+    from server.services.task_runtime import budget_points_for_tier
+
+    profile = _step_execution_profile(step)
+    tier = _normalize_runtime_tier(profile.get("complexity_tier"))
+    attempts = max(1, int((profile.get("budget_cap") or {}).get("max_attempts") or 1))
+    return budget_points_for_tier(tier) * attempts
+
+
+def _budget_usage_summary(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+) -> dict[str, Any]:
+    tasks = _workflow_run_task_rows(db, _as_int(workflow_run.id))
+    spent_points = sum(int(getattr(cast(Any, task), "budget_cost_points", 0) or 0) for task in tasks)
+    tokens_used = sum(int(getattr(cast(Any, task), "tokens_used", 0) or 0) for task in tasks)
+    runtime_ms = sum(int(task.execution_time_ms or 0) for task in tasks)
+    step_cap_points = sum(_budget_cap_points_for_step(step) for step in workflow_run.steps)
+    project_scope = _dynamic_validation_scope(db, _as_int(requirement.id), workflow_run_id=_as_int(workflow_run.id))
+    affected_projects = project_scope.get("affected_projects") or []
+    return {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id),
+        "spent_points": spent_points,
+        "tokens_used": tokens_used,
+        "execution_time_ms": runtime_ms,
+        "task_count": len(tasks),
+        "step_budget_cap_points": step_cap_points,
+        "affected_projects": affected_projects,
+    }
+
+
+def _budget_usage_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Budget Usage Summary",
+        "",
+        f"- Spent points: `{payload.get('spent_points') or 0}` / `{payload.get('step_budget_cap_points') or 0}`",
+        f"- Tokens used: `{payload.get('tokens_used') or 0}`",
+        f"- Execution time ms: `{payload.get('execution_time_ms') or 0}`",
+        f"- Task count: `{payload.get('task_count') or 0}`",
+    ]
+    projects = payload.get("affected_projects") or []
+    if isinstance(projects, list) and projects:
+        lines.extend(["", "## Affected Projects"])
+        for item in projects:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                f"- `{item.get('display_name') or item.get('project_key') or '-'}`"
+                f" changed_files={int(item.get('changed_file_count') or 0)}"
+            )
+    return "\n".join(lines)
+
+
+def _record_budget_usage_artifact(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+) -> ArtifactRow:
+    payload = _budget_usage_summary(db, requirement, workflow_run)
+    return _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="budget_usage_summary",
+        content_summary=f"Budget usage for requirement #{requirement.id}",
+        human_readable_body=_budget_usage_markdown(payload),
+        machine_readable_payload=payload,
+    )
+
+
+def _pause_for_budget_guardrail(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    reason: str,
+    payload: dict[str, Any],
+) -> None:
+    existing = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.workflow_run_id == workflow_run.id,
+        ApprovalRequestRow.step_id == step.id,
+        ApprovalRequestRow.approval_type == "budget_review",
+        ApprovalRequestRow.status == "pending",
+    ).first()
+    if existing is None:
+        db.add(
+            ApprovalRequestRow(
+                requirement_id=requirement.id,
+                workflow_run_id=workflow_run.id,
+                step_id=step.id,
+                approval_type="budget_review",
+                status="pending",
+                reviewer="operator",
+                comment=reason,
+            )
+        )
+    _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(step.id),
+        producer_step_id=_as_int(step.id),
+        artifact_type="budget_guardrail",
+        content_summary=f"Budget review required for step {step.step_key}",
+        human_readable_body=reason,
+        machine_readable_payload=payload,
+    )
+    workflow_run.status = "paused"
+    workflow_run.completed_at = None
+    requirement.status = "paused"
+    requirement.completed_at = None
+    _record_step_event(db, _as_int(step.id), "budget_guardrail", reason)
+
+
+def _budget_guardrail_after_task(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    task: TaskRow,
+) -> bool:
+    profile = _step_execution_profile(step)
+    budget_cap = profile.get("budget_cap") or {}
+    if not isinstance(budget_cap, dict):
+        budget_cap = {}
+    reasons: list[str] = []
+    max_runtime_seconds = int(budget_cap.get("max_runtime_seconds") or 0)
+    max_tokens = int(budget_cap.get("max_input_tokens") or 0) + int(budget_cap.get("max_output_tokens") or 0)
+    execution_time_ms = int(task.execution_time_ms or 0)
+    tokens_used = int(getattr(cast(Any, task), "tokens_used", 0) or 0)
+    if max_runtime_seconds > 0 and execution_time_ms > max_runtime_seconds * 1000:
+        reasons.append(f"task runtime exceeded max_runtime_seconds ({execution_time_ms}ms > {max_runtime_seconds * 1000}ms)")
+    if max_tokens > 0 and tokens_used > max_tokens:
+        reasons.append(f"task token usage exceeded prompt budget ({tokens_used} > {max_tokens})")
+
+    failure_count = max(int(step.retry_count or 0), int(profile.get("failure_count") or 0))
+    max_attempts = int(budget_cap.get("max_attempts") or 0)
+    if max_attempts > 0 and failure_count >= max_attempts and str(task.status or "") in {"failed", "rejected"}:
+        reasons.append(f"failure count exhausted step budget ({failure_count}/{max_attempts})")
+
+    budget_summary = _budget_usage_summary(db, requirement, workflow_run)
+    step_budget_cap_points = int(budget_summary.get("step_budget_cap_points") or 0)
+    spent_points = int(budget_summary.get("spent_points") or 0)
+    if step_budget_cap_points > 0 and spent_points > step_budget_cap_points:
+        reasons.append(f"requirement budget exhausted ({spent_points}/{step_budget_cap_points})")
+
+    project_scope = budget_summary.get("affected_projects") or []
+    project_root = ""
+    if isinstance(project_scope, list) and project_scope:
+        project_root = str(project_scope[0].get("root_path") or "")
+    if project_root:
+        policies = resolve_project_policies_for_target(db, project_root, require_active=False)
+        if policies:
+            policy = policies[0]
+            project_budget = max(20, int(getattr(policy, "portfolio_budget_points", 100) or 100))
+            if spent_points > project_budget:
+                reasons.append(f"project budget exhausted ({spent_points}/{project_budget})")
+
+    if not reasons:
+        return False
+
+    payload = {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id),
+        "step_id": _as_int(step.id),
+        "task_id": _as_int(task.id),
+        "task_status": str(task.status or ""),
+        "budget_cap": budget_cap,
+        "spent_points": spent_points,
+        "step_budget_cap_points": step_budget_cap_points,
+        "tokens_used": tokens_used,
+        "execution_time_ms": execution_time_ms,
+        "reasons": reasons,
+    }
+    _pause_for_budget_guardrail(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        step=step,
+        reason="; ".join(reasons),
+        payload=payload,
+    )
+    return True
+
+
+def _maybe_escalate_ready_step(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+) -> bool:
+    if str(step.step_type or "") not in {"implementation", "bugfix", "review", "test"}:
+        return False
+    profile = _step_execution_profile(step)
+    if not bool(profile.get("allow_escalation", True)):
+        return False
+    current_tier = _normalize_runtime_tier(profile.get("complexity_tier"))
+    if current_tier == "max":
+        return False
+    rule = profile.get("escalation_rule") or {}
+    if not isinstance(rule, dict):
+        return False
+    when = {str(item).strip() for item in rule.get("when") or [] if str(item).strip()}
+    metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(workflow_run.id))
+    reasons: list[str] = []
+    threshold = int(rule.get("changed_files_threshold") or 8)
+    if "multi_project_change_detected" in when and int(metrics.get("changed_project_count") or 0) > 1:
+        reasons.append("multi-project change detected")
+    if "changed_files_over_threshold" in when and int(metrics.get("total_changed_files") or 0) >= threshold:
+        reasons.append(f"changed files exceeded threshold ({threshold})")
+    next_tier = _tier_transition(current_tier, str(rule.get("next_tier") or current_tier))
+    if next_tier == current_tier or not reasons:
+        return False
+    return _apply_step_runtime_tier(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        step=step,
+        target_tier=next_tier,
+        adaptation_type="escalation",
+        trigger="dispatch_guard",
+        reasons=reasons,
+        project_change_metrics=metrics,
+    )
+
+
+def _maybe_downgrade_ready_step(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+) -> bool:
+    profile = _step_execution_profile(step)
+    current_tier = _normalize_runtime_tier(profile.get("complexity_tier"))
+    if current_tier == "mini":
+        return False
+    metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(workflow_run.id))
+    if _is_summary_like_step(step):
+        return _apply_step_runtime_tier(
+            db,
+            requirement=requirement,
+            workflow_run=workflow_run,
+            step=step,
+            target_tier="mini",
+            adaptation_type="downgrade",
+            trigger="dispatch_guard",
+            reasons=["summary/report step downgraded to mini tier"],
+            project_change_metrics=metrics,
+        )
+    if str(step.step_type or "") in {"review", "test"} and current_tier == "max":
+        threshold = 8
+        if int(metrics.get("changed_project_count") or 0) <= 1 and int(metrics.get("total_changed_files") or 0) < threshold:
+            return _apply_step_runtime_tier(
+                db,
+                requirement=requirement,
+                workflow_run=workflow_run,
+                step=step,
+                target_tier="standard",
+                adaptation_type="downgrade",
+                trigger="dispatch_guard",
+                reasons=["verification scope is small enough to return from max to standard"],
+                project_change_metrics=metrics,
+            )
+    return False
+
+
+def _failure_count_for_step(step: WorkflowStepRow) -> int:
+    profile = _step_execution_profile(step)
+    tracked = int(profile.get("failure_count") or 0)
+    return max(int(step.retry_count or 0), tracked) + 1
+
+
+def _build_followup_execution_profile(
+    failed_step: WorkflowStepRow,
+    *,
+    step_type: str,
+    failure_count: int,
+    error_text: str,
+    project_change_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    from server.services.workflow_planner import _default_budget_cap, _default_escalation_rule
+
+    profile = dict(_step_execution_profile(failed_step))
+    current_tier = _normalize_runtime_tier(profile.get("complexity_tier"))
+    allow_escalation = bool(profile.get("allow_escalation", True))
+    rule = profile.get("escalation_rule") if isinstance(profile.get("escalation_rule"), dict) else {}
+    when = {str(item).strip() for item in rule.get("when") or [] if str(item).strip()}
+    threshold = int(rule.get("changed_files_threshold") or 8)
+    reasons: list[str] = []
+    if allow_escalation and "step_failed_twice" in when and failure_count >= 2:
+        reasons.append("step failed twice")
+    if allow_escalation and "review_or_test_blocker" in when and str(failed_step.step_type or "") in {"review", "test"}:
+        reasons.append(f"{failed_step.step_type} blocker detected")
+    if allow_escalation and "multi_project_change_detected" in when and int(project_change_metrics.get("changed_project_count") or 0) > 1:
+        reasons.append("multi-project change detected")
+    if allow_escalation and "changed_files_over_threshold" in when and int(project_change_metrics.get("total_changed_files") or 0) >= threshold:
+        reasons.append(f"changed files exceeded threshold ({threshold})")
+    target_tier = current_tier
+    if reasons:
+        target_tier = _tier_transition(current_tier, str(rule.get("next_tier") or current_tier))
+    profile["complexity_tier"] = target_tier
+    profile["budget_cap"] = dict(_default_budget_cap(target_tier))
+    profile["allow_escalation"] = False if target_tier == "max" else allow_escalation
+    profile["escalation_rule"] = dict(rule or _default_escalation_rule(target_tier, allow_escalation=bool(profile["allow_escalation"])))
+    profile["failure_count"] = int(failure_count)
+    profile["followup_from_step_type"] = str(failed_step.step_type or "")
+    profile["followup_error_summary"] = str(error_text or "")[:500]
+    if reasons:
+        profile["last_runtime_adaptation"] = {
+            "adaptation_type": "escalation",
+            "trigger": "failure_loop",
+            "from_tier": current_tier,
+            "to_tier": target_tier,
+            "reasons": reasons,
+            "adapted_at": utcnow().isoformat(),
+        }
+    if step_type in {"review", "test"} and target_tier == "max" and int(project_change_metrics.get("changed_project_count") or 0) <= 1:
+        profile["complexity_tier"] = "standard"
+        profile["budget_cap"] = dict(_default_budget_cap("standard"))
+    if step_type == "closeout":
+        profile["complexity_tier"] = "mini"
+        profile["budget_cap"] = dict(_default_budget_cap("mini"))
+    return profile
+
+
 def _bind_output_to_followup_steps(db: Session, step: WorkflowStepRow, artifact: ArtifactRow):
     dependents = db.query(WorkflowStepDependencyRow).filter(
         WorkflowStepDependencyRow.depends_on_step_id == step.id
@@ -2755,6 +3782,10 @@ def _create_bugfix_branch(
     workflow_run: WorkflowRunRow,
     failed_step: WorkflowStepRow,
     bug_report_artifact: ArtifactRow,
+    *,
+    bugfix_execution_profile: dict[str, Any] | None = None,
+    review_execution_profile: dict[str, Any] | None = None,
+    test_execution_profile: dict[str, Any] | None = None,
 ):
     existing = db.query(WorkflowStepRow).filter(
         WorkflowStepRow.workflow_run_id == workflow_run.id,
@@ -2796,7 +3827,13 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps([]),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps(_derived_approval_policy("bugfix", base_approval_policy)),
+        approval_policy_json=json.dumps(_derived_approval_policy(
+            "bugfix",
+            base_approval_policy,
+            execution_profile=bugfix_execution_profile or _step_execution_profile(failed_step),
+            requirement=requirement,
+        )),
+        execution_profile_json=json.dumps(bugfix_execution_profile or _step_execution_profile(failed_step)),
     )
     db.add(bugfix_step)
     db.flush()
@@ -2818,7 +3855,13 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps(review_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps(_derived_approval_policy("review", base_approval_policy)),
+        approval_policy_json=json.dumps(_derived_approval_policy(
+            "review",
+            base_approval_policy,
+            execution_profile=review_execution_profile or _step_execution_profile(failed_step),
+            requirement=requirement,
+        )),
+        execution_profile_json=json.dumps(review_execution_profile or _step_execution_profile(failed_step)),
     )
     db.add(review_step)
     db.flush()
@@ -2839,7 +3882,13 @@ def _create_bugfix_branch(
         file_scope_json=failed_step.file_scope_json,
         validation_targets_json=json.dumps(test_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps(_derived_approval_policy("test", base_approval_policy)),
+        approval_policy_json=json.dumps(_derived_approval_policy(
+            "test",
+            base_approval_policy,
+            execution_profile=test_execution_profile or _step_execution_profile(failed_step),
+            requirement=requirement,
+        )),
+        execution_profile_json=json.dumps(test_execution_profile or _step_execution_profile(failed_step)),
     )
     db.add(test_step)
     db.flush()
@@ -2954,6 +4003,12 @@ def _trip_bugfix_circuit_breaker(
 def _refresh_run_status(db: Session, requirement: RequirementRow, workflow_run: WorkflowRunRow):
     if requirement.status == "needs_revision":
         workflow_run.status = "cancelled"
+        return
+    if requirement.status == "paused" or str(workflow_run.status or "") == "paused":
+        workflow_run.status = "paused"
+        workflow_run.completed_at = None
+        requirement.status = "paused"
+        requirement.completed_at = None
         return
     steps = db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).all()
     if not steps:
@@ -3482,6 +4537,25 @@ def _validation_plan_markdown(payload: dict[str, Any]) -> str:
                 f"owned by `{check.get('owner_role', 'tester')}`."
             )
 
+    affected_projects = payload.get("affected_projects") or []
+    if isinstance(affected_projects, list) and affected_projects:
+        lines.extend(["", "## Affected Projects"])
+        for item in affected_projects:
+            if not isinstance(item, dict):
+                continue
+            display = str(item.get("display_name") or item.get("project_key") or item.get("root_path") or "").strip()
+            if not display:
+                continue
+            checks = [str(check) for check in item.get("required_checks") or [] if str(check).strip()]
+            changed_file_count = int(item.get("changed_file_count") or 0)
+            lines.append(f"- `{display}` changed files: `{changed_file_count}`")
+            if checks:
+                lines.append(f"  Required checks: {', '.join(f'`{check}`' for check in checks)}")
+
+    dynamic_required_checks = [str(item) for item in payload.get("dynamic_required_checks") or [] if str(item).strip()]
+    if dynamic_required_checks:
+        lines.extend(["", "## Dynamic Required Checks", *[f"- `{item}`" for item in dynamic_required_checks]])
+
     bugfix_owner = str(payload.get("bugfix_owner_role") or "").strip()
     closeout_owner = str(payload.get("closeout_owner_role") or "").strip()
     if bugfix_owner or closeout_owner:
@@ -3685,6 +4759,20 @@ def _delivery_contract_markdown(payload: dict[str, Any]) -> str:
     required_checks = [str(item) for item in payload.get("required_checks") or [] if str(item).strip()]
     if required_checks:
         lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
+    affected_projects = payload.get("affected_projects") or []
+    if isinstance(affected_projects, list) and affected_projects:
+        lines.extend(["", "## Validation Scope"])
+        for item in affected_projects:
+            if not isinstance(item, dict):
+                continue
+            display = str(item.get("display_name") or item.get("project_key") or item.get("root_path") or "").strip()
+            if not display:
+                continue
+            changed_file_count = int(item.get("changed_file_count") or 0)
+            checks = [str(check) for check in item.get("required_checks") or [] if str(check).strip()]
+            lines.append(f"- `{display}` changed files: `{changed_file_count}`")
+            if checks:
+                lines.append(f"  Checks: {', '.join(f'`{check}`' for check in checks)}")
     rollback_hint = str(payload.get("rollback_hint_markdown") or "").strip()
     if rollback_hint:
         lines.extend(["", "## Rollback", rollback_hint])
@@ -3917,6 +5005,8 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
     )
     context_governance = planner_output.get("context_governance") or {}
     context_summary = str(context_governance.get("summary_markdown") or "").strip()
+    model_routing = planner_output.get("model_routing") or {}
+    routing_summary = str(model_routing.get("summary_markdown") or "").strip()
     return "\n".join(
         [
             f"# Plan\n",
@@ -3933,13 +5023,18 @@ def _planner_markdown(planner_output: dict, assignments: WorkflowRoleAssignments
             *( [f"- {capability_summary}"] if capability_summary else ["- No explicit capability matrix attached."] ),
             "## Context Governance",
             *( [f"- {line}" for line in context_summary.splitlines() if line.strip()] or ["- No explicit context governance attached."] ),
+            "## Model Routing",
+            *( [f"- {line}" for line in routing_summary.splitlines() if line.strip()] or ["- No model routing annotations attached."] ),
             "## Delivery Contract",
             *(delivery_summary_lines or ["- Delivery contract will be generated for branch/review-ready/publish/rollback."]),
             "## Validation Contract",
             *(validation_summary_lines or ["- Validation contract will be generated for review/test/closeout."]),
             "## Steps",
             *[
-                f"- {step.get('step_key')}: {step.get('title')}"
+                (
+                    f"- {step.get('step_key')}: {step.get('title')}"
+                    f" [{step.get('complexity_tier') or (step.get('execution_profile') or {}).get('complexity_tier') or 'standard'}]"
+                )
                 for step in planner_output.get("workflow_steps", [])
             ],
         ]

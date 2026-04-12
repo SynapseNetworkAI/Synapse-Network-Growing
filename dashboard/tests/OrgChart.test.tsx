@@ -89,11 +89,25 @@ const mockReview: CompanyOperatingReview = {
   summary_markdown: 'Cycle focus: release blockers.\n\nRecommended next move: SDK critical release blocker.',
   portfolio_summary: {
     active_requirements: 2,
+    completed_requirements: 5,
+    completion_rate: 62.5,
     open_signals: 3,
     approval_required_decisions: 1,
     rebalance_opportunities: 1,
     projects_over_budget: 0,
     blocked_publish_projects: 1,
+    budget_spent_points: 144,
+    tokens_used: 188000,
+    prompt_cache_saved_chars: 9200,
+    deduped_bindings: 7,
+    escalations: 2,
+    downgrades: 3,
+    human_gate_hotspots: 2,
+    tier_mix: {
+      mini: 4,
+      standard: 9,
+      max: 2,
+    },
   },
   project_highlights: [
     {
@@ -109,6 +123,16 @@ const mockReview: CompanyOperatingReview = {
       autonomy_mode: 'execute_autonomously',
       budget_used: 24,
       budget_remaining: 71,
+      completed_requirements: 3,
+      budget_spent_points: 88,
+      prompt_cache_saved_chars: 4200,
+      escalations: 1,
+      downgrades: 2,
+      tier_mix: {
+        mini: 1,
+        standard: 4,
+        max: 1,
+      },
     },
   ],
   bottlenecks: [
@@ -135,6 +159,60 @@ const mockReview: CompanyOperatingReview = {
       recovery_status: 'bugfix_loop_active',
       requirement_id: 40,
       source_ref: 'incident:bug_report:7',
+    },
+  ],
+  human_gate_hotspots: [
+    {
+      gate_key: 'step_operator_confirmation::max_tier::implementation::synapse-network-sdk',
+      title: 'Synapse-Network-Sdk max-tier',
+      approval_type: 'step_operator_confirmation',
+      approval_scope: 'max_tier',
+      step_type: 'implementation',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      occurrence_count: 2,
+      pending_count: 1,
+      latest_status: 'pending',
+      summary: 'Synapse-Network-Sdk triggered step_operator_confirmation on implementation with scope max_tier.',
+      recommendation: 'Split or reroute work earlier so fewer branches escalate into max-tier human-gated execution.',
+    },
+    {
+      gate_key: 'publish_manual_gate::publish::synapse-network-sdk',
+      title: 'Synapse-Network-Sdk publish gate',
+      approval_type: 'publish_manual_gate',
+      approval_scope: 'publish',
+      step_type: 'publish',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      occurrence_count: 1,
+      pending_count: 1,
+      latest_status: 'pending',
+      summary: 'Synapse-Network-Sdk has review-ready work waiting on manual publish approval.',
+      recommendation: 'Stabilize delivery checks so more review-ready work can auto-promote without operator intervention.',
+    },
+  ],
+  automation_candidates: [
+    {
+      candidate_key: 'automation:step_operator_confirmation::max_tier::implementation::synapse-network-sdk',
+      title: 'Automate gate: Synapse-Network-Sdk max-tier',
+      gate_key: 'step_operator_confirmation::max_tier::implementation::synapse-network-sdk',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      automation_type: 'max_tier_branch_reduction',
+      priority: 'normal',
+      rationale: 'Split or reroute work earlier so fewer branches escalate into max-tier human-gated execution.',
+      occurrence_count: 2,
+    },
+    {
+      candidate_key: 'automation:publish_manual_gate::publish::synapse-network-sdk',
+      title: 'Automate gate: Synapse-Network-Sdk publish gate',
+      gate_key: 'publish_manual_gate::publish::synapse-network-sdk',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      automation_type: 'publish_automation',
+      priority: 'high',
+      rationale: 'Stabilize delivery checks so more review-ready work can auto-promote without operator intervention.',
+      occurrence_count: 1,
     },
   ],
   next_cycle_recommendations: [
@@ -298,6 +376,15 @@ describe('OrgChart', () => {
     expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('requirement #40')
     expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('approval_required')
     expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('needs operator approval')
+    expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('max_tier')
+    expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('count: 2')
+    expect(screen.getByTestId('company-review-automation-candidates')).toHaveTextContent('publish_automation')
+    expect(screen.getByText('completion %')).toBeInTheDocument()
+    expect(screen.getByText('Prompt Cache')).toBeInTheDocument()
+    expect(screen.getByText(/saved chars: 9200/)).toBeInTheDocument()
+    expect(screen.getByText(/deduped bindings: 7/)).toBeInTheDocument()
+    expect(screen.getByText(/escalations: 2/)).toBeInTheDocument()
+    expect(screen.getByText(/tier mix: mini 1 \/ std 4 \/ max 1/i)).toBeInTheDocument()
   })
 
   it('shows selected node detail', async () => {

@@ -77,6 +77,22 @@ def _latest_template_key(db: Session, requirement_id: int) -> str | None:
     return template_key or None
 
 
+def _latest_budget_usage_summary(db: Session, requirement_id: int) -> dict[str, Any]:
+    artifact = db.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "budget_usage_summary",
+    ).order_by(ArtifactRow.id.desc()).first()
+    if artifact is None or not artifact.machine_readable_payload:
+        return {}
+    import json
+
+    try:
+        payload = json.loads(artifact.machine_readable_payload)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _project_policy_maps(db: Session) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     policies = [project_policy_to_dict(row) for row in list_project_policies(db)]
     by_root = {str(policy["root_path"]): policy for policy in policies}
@@ -163,7 +179,8 @@ def _running_requirement_decision(
     )
     context = _project_context_for_requirement(requirement, score, policy_by_root, project_catalog)
     template_key = _latest_template_key(db, int(requirement.id))
-    budget_cost = _budget_cost(float(score.get("total") or 0.0), template_key)
+    budget_summary = _latest_budget_usage_summary(db, int(requirement.id))
+    budget_cost = int(budget_summary.get("spent_points") or 0) or _budget_cost(float(score.get("total") or 0.0), template_key)
     weighted = _weighted_scheduler_score(
         float(score.get("total") or 0.0),
         scheduler_weight=float(context["scheduler_weight"]),
@@ -184,6 +201,7 @@ def _running_requirement_decision(
         "scheduler_weight": float(context["scheduler_weight"]),
         "autonomy_mode": str(context["autonomy_mode"]),
         "budget_cost": budget_cost,
+        "budget_spent_points": int(budget_summary.get("spent_points") or 0),
         "project_slot_available": False,
         "reason": "currently running",
         "reasons": ["currently running"],

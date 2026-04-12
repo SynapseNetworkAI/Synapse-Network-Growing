@@ -68,6 +68,19 @@ Schema:
       "step_key": "short_snake_case_id",
       "title": "Human readable step title",
       "scope": "infrastructure|backend|frontend|test|docs",
+      "complexity_tier": "mini|standard|max",
+      "budget_cap": {
+        "max_input_tokens": 6000,
+        "max_output_tokens": 1500,
+        "max_attempts": 2,
+        "max_runtime_seconds": 600
+      },
+      "allow_escalation": true,
+      "escalation_rule": {
+        "next_tier": "standard|max|stay",
+        "when": ["step_failed_twice", "review_or_test_blocker"],
+        "max_escalations": 1
+      },
       "depends_on": ["prior_step_key"],
       "done_when": "Concrete completion criteria for this step"
     }
@@ -81,6 +94,7 @@ Rules:
 - Prefer concrete scopes: backend, frontend, infrastructure, test, or docs.
 - Use terse titles, avoid repeating the full requirement title in every step.
 - Let the requirement decide whether work is docs-only, code-only, or mixed.
+- Annotate every implementation step with complexity tier, budget cap, and escalation rule.
 - The harness enforces project boundaries and verification governance. Do not assume a primary repository.
 - If the work is simple, return a single implementation step.
 """
@@ -97,6 +111,10 @@ class _AgentStep:
     scope: str
     depends_on: list[str]
     done_when: str
+    complexity_tier: str = ""
+    budget_cap: dict[str, Any] = field(default_factory=dict)
+    allow_escalation: bool = True
+    escalation_rule: dict[str, Any] = field(default_factory=dict)
 
 
 def _split_target_paths(raw_path: str | None) -> list[str]:
@@ -111,6 +129,103 @@ def _split_target_paths(raw_path: str | None) -> list[str]:
         seen.add(path)
         paths.append(path)
     return paths
+
+
+_TIER_BUDGETS: dict[str, dict[str, int]] = {
+    "mini": {
+        "max_input_tokens": 6000,
+        "max_output_tokens": 1500,
+        "max_attempts": 2,
+        "max_runtime_seconds": 600,
+    },
+    "standard": {
+        "max_input_tokens": 14000,
+        "max_output_tokens": 4000,
+        "max_attempts": 3,
+        "max_runtime_seconds": 1800,
+    },
+    "max": {
+        "max_input_tokens": 24000,
+        "max_output_tokens": 8000,
+        "max_attempts": 4,
+        "max_runtime_seconds": 3600,
+    },
+}
+
+
+def _default_budget_cap(tier: str) -> dict[str, int]:
+    return dict(_TIER_BUDGETS.get(tier, _TIER_BUDGETS["standard"]))
+
+
+def _normalize_complexity_tier(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"mini", "standard", "max"}:
+        return normalized
+    return ""
+
+
+def _default_complexity_tier(*, step_type: str, scope: str = "", target_paths: list[str] | None = None) -> str:
+    target_paths = target_paths or []
+    if step_type == "closeout":
+        return "mini"
+    if step_type in {"implementation", "bugfix", "review", "test"}:
+        if len(target_paths) > 1 and step_type in {"implementation", "bugfix", "review", "test"}:
+            return "max"
+        if scope == "docs" and len(target_paths) <= 1:
+            return "mini"
+        return "standard"
+    if step_type == "research":
+        return "mini" if len(target_paths) <= 1 else "standard"
+    return "standard"
+
+
+def _default_escalation_rule(tier: str, *, allow_escalation: bool) -> dict[str, Any]:
+    if not allow_escalation:
+        return {
+            "next_tier": "stay",
+            "when": [],
+            "max_escalations": 0,
+        }
+    next_tier = "standard" if tier == "mini" else "max"
+    return {
+        "next_tier": next_tier,
+        "when": [
+            "step_failed_twice",
+            "changed_files_over_threshold",
+            "multi_project_change_detected",
+            "review_or_test_blocker",
+        ],
+        "changed_files_threshold": 8,
+        "max_escalations": 1,
+    }
+
+
+def _build_execution_profile(
+    *,
+    step_type: str,
+    scope: str = "",
+    target_paths: list[str] | None = None,
+    complexity_tier: str | None = None,
+    budget_cap: dict[str, Any] | None = None,
+    allow_escalation: bool | None = None,
+    escalation_rule: dict[str, Any] | None = None,
+    expected_outputs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    tier = _normalize_complexity_tier(complexity_tier) or _default_complexity_tier(
+        step_type=step_type,
+        scope=scope,
+        target_paths=target_paths,
+    )
+    escalation_allowed = True if allow_escalation is None else bool(allow_escalation)
+    if tier == "max" and allow_escalation is None:
+        escalation_allowed = False
+    return {
+        "complexity_tier": tier,
+        "budget_cap": dict(budget_cap or _default_budget_cap(tier)),
+        "allow_escalation": escalation_allowed,
+        "escalation_rule": dict(escalation_rule or _default_escalation_rule(tier, allow_escalation=escalation_allowed)),
+        "expected_outputs": list(expected_outputs or []),
+    }
 
 
 def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | None:
@@ -155,18 +270,26 @@ def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | N
             return None
 
         steps: list[_AgentStep] = []
+        target_paths = _split_target_paths(target_path)
         seen_keys: set[str] = set()
         for s in raw_steps:
             key = re.sub(r"[^a-z0-9_]", "_", str(s.get("step_key", "step")).lower())
             if key in seen_keys:
                 key = f"{key}_{len(steps)}"
             seen_keys.add(key)
+            scope = str(s.get("scope", "backend")).lower()
             steps.append(_AgentStep(
                 step_key=key,
                 title=str(s.get("title", key)),
-                scope=str(s.get("scope", "backend")).lower(),
+                scope=scope,
                 depends_on=[str(d) for d in s.get("depends_on", []) if str(d) in seen_keys],
                 done_when=str(s.get("done_when", "Step output is produced and ready for review.")),
+                complexity_tier=_normalize_complexity_tier(s.get("complexity_tier")),
+                budget_cap=dict(s.get("budget_cap") or _default_budget_cap(
+                    _default_complexity_tier(step_type="implementation", scope=scope, target_paths=target_paths)
+                )),
+                allow_escalation=bool(s.get("allow_escalation", True)),
+                escalation_rule=dict(s.get("escalation_rule") or {}),
             ))
 
         logger.info("Agent full-plan produced %d steps via provider=%s", len(steps), provider_name)
@@ -332,6 +455,13 @@ def _review_file_scope(target_project_path: str | None) -> dict:
 
 def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
     project_note = f"\nTarget project: {target_path}" if target_path else ""
+    target_paths = _split_target_paths(target_path)
+    research_outputs = [
+        {"artifact_type": "research_report", "description": "Research findings, constraints, existing code paths, and risks."},
+    ]
+    synthesis_outputs = [
+        {"artifact_type": "synthesis_report", "description": "Execution strategy, change plan, and verification outline."},
+    ]
     return [
         {
             "step_key": "research",
@@ -344,9 +474,7 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
                 {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
             ],
             "file_scope": _review_file_scope(target_path),
-            "expected_outputs": [
-                {"artifact_type": "research_report", "description": "Research findings, constraints, existing code paths, and risks."},
-            ],
+            "expected_outputs": research_outputs,
             "validation_targets": [],
             "done_when_markdown": (
                 "Research output identifies relevant code paths, project constraints, likely risks, and concrete implementation options. "
@@ -354,6 +482,11 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
                 f"{project_note}"
             ),
             "failure_policy": {"on_failure": "requirement_revision", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="research",
+                target_paths=target_paths,
+                expected_outputs=research_outputs,
+            ),
         },
         {
             "step_key": "synthesis",
@@ -366,9 +499,7 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
                 {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
             ],
             "file_scope": _review_file_scope(target_path),
-            "expected_outputs": [
-                {"artifact_type": "synthesis_report", "description": "Execution strategy, change plan, and verification outline."},
-            ],
+            "expected_outputs": synthesis_outputs,
             "validation_targets": [],
             "done_when_markdown": (
                 "Synthesis output turns research findings into a concrete execution plan with files, sequencing, and verification intent. "
@@ -376,6 +507,11 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
                 f"{project_note}"
             ),
             "failure_policy": {"on_failure": "requirement_revision", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="synthesis",
+                target_paths=target_paths,
+                expected_outputs=synthesis_outputs,
+            ),
         },
     ]
 
@@ -440,6 +576,7 @@ def _build_steps_from_agent_plan(
     result: list[dict] = []
     keys: list[str] = [s.step_key for s in agent_steps]
     project_note = f"\nTarget project: {target_path}" if target_path else ""
+    target_paths = _split_target_paths(target_path)
 
     for step in agent_steps:
         step_scope = step.scope
@@ -448,6 +585,9 @@ def _build_steps_from_agent_plan(
         if scope_constraint and "SCOPE:" not in done_when:
             done_when = f"{scope_constraint}\n\n{done_when}"
         done_when += project_note
+        expected_outputs = [
+            {"artifact_type": "step_output", "description": f"{step.title} — implementation output."},
+        ]
 
         result.append({
             "step_key": step.step_key,
@@ -460,12 +600,20 @@ def _build_steps_from_agent_plan(
                 {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
             ],
             "file_scope": _scope_to_file_scope(step_scope, target_path),
-            "expected_outputs": [
-                {"artifact_type": "step_output", "description": f"{step.title} — implementation output."},
-            ],
+            "expected_outputs": expected_outputs,
             "validation_targets": [],
             "done_when_markdown": done_when,
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="implementation",
+                scope=step_scope,
+                target_paths=target_paths,
+                complexity_tier=step.complexity_tier,
+                budget_cap=step.budget_cap,
+                allow_escalation=step.allow_escalation,
+                escalation_rule=step.escalation_rule,
+                expected_outputs=expected_outputs,
+            ),
         })
 
     return result, keys
@@ -566,21 +714,67 @@ def _step_required_capabilities(step: dict[str, Any]) -> list[str]:
     return ordered
 
 
-def _step_approval_policy(step: dict[str, Any], execution_controls: dict[str, Any]) -> dict[str, Any]:
+def _is_incident_recovery_requirement(requirement: RequirementRow | None) -> bool:
+    if requirement is None:
+        return False
+    source = str(getattr(requirement, "source", "") or "").strip().lower()
+    source_ref = str(getattr(requirement, "source_ref", "") or "").strip().lower()
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    if source == "bugfix_circuit_breaker":
+        return True
+    if "incident:" in source_ref or "infra-incident" in source_ref:
+        return True
+    return "incident recovery" in title or title.startswith("infra incident:")
+
+
+def _operator_confirmation_actions_for_step(
+    *,
+    step_type: str,
+    required_capabilities: list[str],
+    interrupt_policy: dict[str, Any],
+    execution_profile: dict[str, Any] | None,
+    requirement: RequirementRow | None,
+) -> tuple[list[str], str]:
+    configured_actions = {
+        str(item).strip()
+        for item in interrupt_policy.get("operator_confirmation_actions") or []
+        if str(item).strip()
+    }
+    if not configured_actions:
+        return [], "none"
+
+    tier = _normalize_complexity_tier((execution_profile or {}).get("complexity_tier")) or "standard"
+    incident_recovery = _is_incident_recovery_requirement(requirement)
+    step_type = str(step_type or "").strip()
+
+    if incident_recovery:
+        return [name for name in required_capabilities if name in configured_actions], "incident_recovery"
+    if tier == "max":
+        return [name for name in required_capabilities if name in configured_actions], "max_tier"
+    if step_type == "publish":
+        return [name for name in required_capabilities if name in configured_actions], "publish"
+    return [], "expensive_branches_only"
+
+
+def _step_approval_policy(step: dict[str, Any], execution_controls: dict[str, Any], requirement: RequirementRow | None = None) -> dict[str, Any]:
     required_capabilities = _step_required_capabilities(step)
     capability_matrix = dict(execution_controls.get("capability_matrix") or {})
     interrupt_policy = dict(execution_controls.get("interrupt_policy") or {})
     denied = [name for name in required_capabilities if not bool(capability_matrix.get(name))]
-    confirmation = [
-        name
-        for name in required_capabilities
-        if name in set(interrupt_policy.get("operator_confirmation_actions") or [])
-    ]
+    execution_profile = dict(step.get("execution_profile") or {})
+    confirmation, approval_scope = _operator_confirmation_actions_for_step(
+        step_type=str(step.get("step_type") or ""),
+        required_capabilities=required_capabilities,
+        interrupt_policy=interrupt_policy,
+        execution_profile=execution_profile,
+        requirement=requirement,
+    )
     deny_reasons = [f"{name} disabled by project capability matrix" for name in denied]
     return {
         "required_capabilities": required_capabilities,
         "capability_matrix": capability_matrix,
         "interrupt_policy": interrupt_policy,
+        "approval_scope": approval_scope,
         "requires_operator_confirmation": bool(confirmation),
         "operator_confirmation_actions": confirmation,
         "deny_execution": bool(denied),
@@ -748,6 +942,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     # Introduce explicit research + synthesis before implementation begins.
     workflow_steps = _prepend_context_steps(impl_steps, requirement, target_path)
+    target_paths = _split_target_paths(target_path)
 
     # The last implementation step key — review depends on it
     last_impl_key = impl_keys[-1] if impl_keys else "implementation"
@@ -771,6 +966,13 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             ],
             "done_when_markdown": "Review report is created and the review acceptance check is passed.",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="review",
+                target_paths=target_paths,
+                expected_outputs=[
+                    {"artifact_type": "review_report", "description": "Review findings and sign-off status."},
+                ],
+            ),
         },
         {
             "step_key": "test",
@@ -791,6 +993,13 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             ],
             "done_when_markdown": "Validation completes with a test report and all validation targets passed.",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="test",
+                target_paths=target_paths,
+                expected_outputs=[
+                    {"artifact_type": "test_report", "description": "Validation report for the current workflow output."},
+                ],
+            ),
         },
         {
             "step_key": "closeout",
@@ -810,6 +1019,13 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             ],
             "done_when_markdown": "Closeout evidence is generated and the requirement is ready to be marked done.",
             "failure_policy": {"on_failure": "block", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="closeout",
+                target_paths=target_paths,
+                expected_outputs=[
+                    {"artifact_type": "validation_manifest", "description": "Final closeout evidence for the requirement."},
+                ],
+            ),
         },
     ]
 
@@ -820,7 +1036,21 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             target_path,
             write=step.get("step_type") == "implementation",
         )
-        step["approval_policy"] = _step_approval_policy(step, execution_controls)
+        step["execution_profile"] = _build_execution_profile(
+            step_type=str(step.get("step_type") or ""),
+            scope=str(step.get("scope") or ""),
+            target_paths=target_paths,
+            complexity_tier=step.get("complexity_tier"),
+            budget_cap=step.get("budget_cap"),
+            allow_escalation=step.get("allow_escalation"),
+            escalation_rule=step.get("escalation_rule"),
+            expected_outputs=step.get("expected_outputs"),
+        )
+        step["complexity_tier"] = step["execution_profile"]["complexity_tier"]
+        step["budget_cap"] = step["execution_profile"]["budget_cap"]
+        step["allow_escalation"] = step["execution_profile"]["allow_escalation"]
+        step["escalation_rule"] = step["execution_profile"]["escalation_rule"]
+        step["approval_policy"] = _step_approval_policy(step, execution_controls, requirement)
         step["context_policy"] = _context_policy_for_step(str(step.get("step_type") or ""))
 
     review_check = {
@@ -875,7 +1105,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     ]
 
     planner_output = {
-        "schema_version": "1.7",
+        "schema_version": "1.8",
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
@@ -898,6 +1128,13 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
                 "and stale-memory verification rule before dispatch."
             ),
             "default_limits": _context_policy_for_step("implementation"),
+        },
+        "model_routing": {
+            "summary_markdown": (
+                "Each workflow step now carries planner tier annotations: complexity_tier, budget_cap, "
+                "allow_escalation, and escalation_rule. Runtime selection and automatic escalation are applied by later phases."
+            ),
+            "supported_tiers": ["mini", "standard", "max"],
         },
         "project_intelligence": {
             "routing_mode": routing_context.get("routing_mode"),
@@ -960,6 +1197,10 @@ def _build_implementation_steps(
 ) -> tuple[list[dict], list[str]]:
     """Return a generic fallback implementation plan when model full-plan is unavailable."""
     project_note = f"\nTarget project: {target_path}" if target_path else ""
+    target_paths = _split_target_paths(target_path)
+    expected_outputs = [
+        {"artifact_type": "step_output", "description": "Implementation result and execution output."},
+    ]
     return [
         {
             "step_key": "implementation",
@@ -972,9 +1213,7 @@ def _build_implementation_steps(
                 {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
             ],
             "file_scope": _project_file_scope(target_path),
-            "expected_outputs": [
-                {"artifact_type": "step_output", "description": "Implementation result and execution output."},
-            ],
+            "expected_outputs": expected_outputs,
             "validation_targets": [],
             "done_when_markdown": (
                 "Apply the planned changes inside the configured target projects. "
@@ -983,6 +1222,11 @@ def _build_implementation_steps(
                 f"{project_note}"
             ),
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
+            **_build_execution_profile(
+                step_type="implementation",
+                target_paths=target_paths,
+                expected_outputs=expected_outputs,
+            ),
         },
     ], ["implementation"]
 

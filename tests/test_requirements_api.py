@@ -321,6 +321,32 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
         workflow_orchestrator.PRIMARY_GROWING_PROJECT,
         workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
     ]
+    dynamic_validation_plan = next(
+        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "validation_plan"
+    )
+    validation_payload = json.loads(dynamic_validation_plan["machine_readable_payload"])
+    assert validation_payload["validation_mode"] == "dynamic_by_project_change_summary"
+    assert [item["root_path"] for item in validation_payload["affected_projects"]] == [
+        workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+    ]
+    assert validation_payload["dynamic_required_checks"] == [
+        "/Users/cliff/workspace/agent/.venv/bin/python -m pytest -q",
+        "cd dashboard && npm test",
+        "cd dashboard && npm run build",
+        "npm test",
+        "pytest",
+    ]
+    dynamic_delivery_contract = next(
+        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "delivery_contract"
+    )
+    delivery_payload = json.loads(dynamic_delivery_contract["machine_readable_payload"])
+    assert delivery_payload["required_checks"] == validation_payload["dynamic_required_checks"]
+    assert [item["root_path"] for item in delivery_payload["affected_projects"]] == [
+        workflow_orchestrator.PRIMARY_GROWING_PROJECT,
+        workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
+    ]
+    assert data["delivery_state"]["required_checks"] == validation_payload["dynamic_required_checks"]
     latest_test_artifact = next(
         artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "test_report"
     )
@@ -1360,6 +1386,23 @@ def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(
     target_path = "/Users/cliff/workspace/agent/Synapse-Network"
     synced_client.get("/api/project-policies")
     huge_description = "Large context block.\n" + ("x" * 16000)
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement large context requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
 
     create_resp = synced_client.post(
         "/api/requirements",
@@ -1370,7 +1413,8 @@ def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
         def execute(self, **_kwargs):
@@ -1390,6 +1434,250 @@ def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(
     payload = json.loads(compaction_artifact.machine_readable_payload or "{}")
     assert payload["compacted"] is True
     assert payload["raw_chars"] > payload["final_chars"]
+    prompt_cache_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.artifact_type == "prompt_cache_profile",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert prompt_cache_artifact is not None
+    cache_payload = json.loads(prompt_cache_artifact.machine_readable_payload or "{}")
+    assert cache_payload["cache_applied"] is True
+    assert cache_payload["cached_chars_saved"] > 0
+
+
+def test_step_context_records_prompt_cache_dedupe_for_duplicate_bindings(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement dedupe path",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Prompt cache binding dedupe",
+            "description_markdown": "Ensure duplicate context bindings are compacted before dispatch.",
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == requirement.active_workflow_run_id
+    ).order_by(WorkflowStepRow.sequence_no.asc()).first()
+    assert step is not None
+
+    duplicate_a = workflow_orchestrator._create_artifact(
+        db_session,
+        requirement_id=requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        artifact_type="routing_decision",
+        content_summary="duplicate routing context",
+        human_readable_body="Route this work to the managed project and keep within policy.",
+        machine_readable_payload={"route": "managed-project", "reason": "duplicate"},
+    )
+    duplicate_b = workflow_orchestrator._create_artifact(
+        db_session,
+        requirement_id=requirement_id,
+        workflow_run_id=step.workflow_run_id,
+        artifact_type="routing_decision",
+        content_summary="duplicate routing context",
+        human_readable_body="Route this work to the managed project and keep within policy.",
+        machine_readable_payload={"route": "managed-project", "reason": "duplicate"},
+    )
+    workflow_orchestrator._bind_artifact(db_session, step.id, duplicate_a.id, "routing_context", True)
+    workflow_orchestrator._bind_artifact(db_session, step.id, duplicate_b.id, "routing_context", True)
+
+    workflow_orchestrator._materialize_step_context(db_session, step)
+
+    prompt_cache_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.step_id == step.id,
+        ArtifactRow.artifact_type == "prompt_cache_profile",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert prompt_cache_artifact is not None
+    payload = json.loads(prompt_cache_artifact.machine_readable_payload or "{}")
+    assert payload["cache_applied"] is True
+    assert payload["total_binding_count"] > payload["unique_binding_count"]
+    assert payload["deduped_binding_count"] >= 1
+
+
+def test_standard_step_skips_operator_confirmation_on_start(synced_client, db_session):
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="standard-approval-policy",
+            display_name="Standard Approval Policy",
+            root_path="/standard-approval-policy",
+            status="active",
+            allowed_write_globs_json='["src/**"]',
+            forbidden_globs_json='[]',
+            required_checks_json='[]',
+            release_mode="manual",
+            requires_manual_approval=True,
+            capability_matrix_json=json.dumps({
+                "shell_access": True,
+                "git_read": True,
+                "git_write": True,
+                "git_push": False,
+                "network_access": False,
+                "publish": False,
+            }),
+            interrupt_policy_json=json.dumps({
+                "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                "auto_pause_on_events": ["operator_confirmation_required"],
+                "auto_abort_on_events": ["forbidden_write"],
+            }),
+        )
+    )
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Standard approval narrowing",
+            "description_markdown": "单项目实现不应因为 shell/git_write 默认就进入人工审批。",
+            "target_project_path": "/standard-approval-policy",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement change",
+                        "scope": "backend",
+                        "complexity_tier": "standard",
+                        "depends_on": [],
+                        "done_when": "Implementation output is ready for review.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    approval = db_session.query(workflow_orchestrator.ApprovalRequestRow).filter(
+        workflow_orchestrator.ApprovalRequestRow.requirement_id == requirement_id,
+        workflow_orchestrator.ApprovalRequestRow.approval_type == "step_operator_confirmation",
+        workflow_orchestrator.ApprovalRequestRow.status == "pending",
+    ).first()
+    assert approval is None
+    assert detail["requirement"]["status"] == "done"
+
+
+def test_max_tier_step_still_requires_operator_confirmation_on_start(synced_client, db_session):
+    for root_path, project_key in [("/max-approval/a", "max-approval-a"), ("/max-approval/b", "max-approval-b")]:
+        db_session.add(
+            ProjectPolicyRow(
+                project_key=project_key,
+                display_name=project_key,
+                root_path=root_path,
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='[]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                    "auto_pause_on_events": ["operator_confirmation_required"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+    db_session.commit()
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Cross-project max approval",
+            "description_markdown": "跨项目实现仍应被视为昂贵分支。",
+            "target_project_path": "/max-approval/a\n/max-approval/b",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement cross-project change",
+                        "scope": "backend",
+                        "complexity_tier": "max",
+                        "depends_on": [],
+                        "done_when": "Implementation output is ready for review.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    approval = db_session.query(workflow_orchestrator.ApprovalRequestRow).filter(
+        workflow_orchestrator.ApprovalRequestRow.requirement_id == requirement_id,
+        workflow_orchestrator.ApprovalRequestRow.approval_type == "step_operator_confirmation",
+        workflow_orchestrator.ApprovalRequestRow.status == "pending",
+    ).first()
+    assert approval is not None
+    assert detail["requirement"]["status"] == "blocked"
 
 
 def test_close_requirement_unblocks_dependents(synced_client, db_session):
@@ -1925,6 +2213,7 @@ def test_requirement_detail_reconciles_active_workflow_run_to_live_run(synced_cl
             runtime_backend="codex_cli",
             retry_count=0,
             context_policy_json="{}",
+            execution_profile_json="{}",
         )
     )
     requirement.current_plan_version = 1
@@ -1938,3 +2227,315 @@ def test_requirement_detail_reconciles_active_workflow_run_to_live_run(synced_cl
     assert payload["requirement"]["active_workflow_run_id"] == running_run.id
     assert payload["workflow_run"]["id"] == running_run.id
     assert payload["workflow_run"]["status"] == "running"
+
+
+def test_runtime_escalation_promotes_ready_step_for_multi_project_large_change(db_session):
+    requirement = RequirementRow(
+        title="Escalate review after broad change",
+        description_markdown="Validate a large multi-project implementation.",
+        status="in_progress",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="test")
+    db_session.add(run)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="review",
+        step_type="review",
+        title="Review output",
+        status="ready",
+        sequence_no=20,
+        context_scope="verification",
+        done_when_markdown="done",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        execution_profile_json=json.dumps(
+            {
+                "complexity_tier": "standard",
+                "budget_cap": {"max_runtime_seconds": 1800},
+                "allow_escalation": True,
+                "escalation_rule": {
+                    "next_tier": "max",
+                    "when": ["multi_project_change_detected", "changed_files_over_threshold"],
+                    "changed_files_threshold": 8,
+                },
+            }
+        ),
+    )
+    db_session.add(step)
+    db_session.flush()
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement.id,
+            workflow_run_id=run.id,
+            step_id=step.id,
+            artifact_type="project_change_summary",
+            content_summary="changed projects",
+            machine_readable_payload=json.dumps(
+                {
+                    "changed_projects": [
+                        {"target_project_path": "/proj/a", "changed_file_count": 5},
+                        {"target_project_path": "/proj/b", "changed_file_count": 6},
+                    ]
+                }
+            ),
+        )
+    )
+    db_session.commit()
+
+    changed = workflow_orchestrator._maybe_escalate_ready_step(
+        db_session,
+        requirement=requirement,
+        workflow_run=run,
+        step=step,
+    )
+    db_session.commit()
+
+    assert changed is True
+    payload = json.loads(step.execution_profile_json)
+    assert payload["complexity_tier"] == "max"
+    artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement.id,
+        ArtifactRow.artifact_type == "runtime_adaptation",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert artifact is not None
+    adaptation = json.loads(artifact.machine_readable_payload)
+    assert adaptation["adaptation_type"] == "escalation"
+    assert adaptation["to_tier"] == "max"
+
+
+def test_runtime_downgrade_reduces_closeout_to_mini_tier(db_session):
+    requirement = RequirementRow(
+        title="Downgrade closeout",
+        description_markdown="Close the requirement with minimal cost.",
+        status="in_progress",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="test")
+    db_session.add(run)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="closeout",
+        step_type="closeout",
+        title="Close requirement",
+        status="ready",
+        sequence_no=50,
+        context_scope="verification",
+        done_when_markdown="done",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        execution_profile_json=json.dumps(
+            {
+                "complexity_tier": "standard",
+                "budget_cap": {"max_runtime_seconds": 1800},
+                "allow_escalation": False,
+                "expected_outputs": [{"artifact_type": "validation_manifest"}],
+            }
+        ),
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    changed = workflow_orchestrator._maybe_downgrade_ready_step(
+        db_session,
+        requirement=requirement,
+        workflow_run=run,
+        step=step,
+    )
+    db_session.commit()
+
+    assert changed is True
+    payload = json.loads(step.execution_profile_json)
+    assert payload["complexity_tier"] == "mini"
+    artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement.id,
+        ArtifactRow.artifact_type == "runtime_adaptation",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert artifact is not None
+    adaptation = json.loads(artifact.machine_readable_payload)
+    assert adaptation["adaptation_type"] == "downgrade"
+    assert adaptation["to_tier"] == "mini"
+
+
+def test_followup_bugfix_profile_escalates_after_second_failure(db_session):
+    step = WorkflowStepRow(
+        workflow_run_id=1,
+        requirement_id=1,
+        step_key="test",
+        step_type="test",
+        title="Validate output",
+        status="failed",
+        sequence_no=40,
+        context_scope="verification",
+        done_when_markdown="done",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        execution_profile_json=json.dumps(
+            {
+                "complexity_tier": "standard",
+                "budget_cap": {"max_runtime_seconds": 1800},
+                "allow_escalation": True,
+                "escalation_rule": {
+                    "next_tier": "max",
+                    "when": ["step_failed_twice", "review_or_test_blocker"],
+                    "changed_files_threshold": 8,
+                },
+                "failure_count": 1,
+            }
+        ),
+        retry_count=1,
+    )
+
+    bugfix_profile = workflow_orchestrator._build_followup_execution_profile(
+        step,
+        step_type="bugfix",
+        failure_count=2,
+        error_text="validation blocker repeated",
+        project_change_metrics={"changed_project_count": 1, "total_changed_files": 2},
+    )
+    review_profile = workflow_orchestrator._build_followup_execution_profile(
+        step,
+        step_type="review",
+        failure_count=2,
+        error_text="validation blocker repeated",
+        project_change_metrics={"changed_project_count": 1, "total_changed_files": 2},
+    )
+
+    assert bugfix_profile["complexity_tier"] == "max"
+    assert bugfix_profile["failure_count"] == 2
+    assert review_profile["complexity_tier"] == "standard"
+
+
+def test_budget_guardrail_pauses_requirement_and_creates_budget_review(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Budget guarded workflow",
+            "description_markdown": "Stop and request operator review when runtime exceeds the configured budget.",
+            "priority": "high",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+
+    run = WorkflowRunRow(requirement_id=requirement_id, plan_version=1, status="running", triggered_by="test")
+    db_session.add(run)
+    db_session.flush()
+    requirement.active_workflow_run_id = run.id
+    requirement.current_plan_version = 1
+    requirement.status = "in_progress"
+
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement_id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implement change",
+        status="running",
+        sequence_no=10,
+        context_scope="step_private",
+        done_when_markdown="done",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        execution_profile_json=json.dumps(
+            {
+                "complexity_tier": "standard",
+                "budget_cap": {
+                    "max_attempts": 3,
+                    "max_runtime_seconds": 1,
+                    "max_input_tokens": 4000,
+                    "max_output_tokens": 4000,
+                },
+                "allow_escalation": True,
+            }
+        ),
+    )
+    db_session.add(step)
+    db_session.flush()
+    task = TaskRow(
+        description="impl",
+        agent_id="dev_rel",
+        status="completed",
+        project_id="Synapse-Network-Growing",
+        agent_group="content",
+        skill_name="content-strategy",
+        runtime_backend="codex_cli",
+        runtime_provider="codex",
+        runtime_model="gpt-5-codex",
+        output_content="completed",
+        execution_time_ms=5000,
+        tokens_used=12000,
+        budget_cost_points=24,
+        started_at=workflow_orchestrator.utcnow(),
+        completed_at=workflow_orchestrator.utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    step.compatibility_task_id = task.id
+    db_session.commit()
+
+    workflow_orchestrator.sync_workflow_for_task(task.id)
+    db_session.expire_all()
+
+    detail = synced_client.get(f"/api/requirements/{requirement_id}").json()
+    assert detail["requirement"]["status"] == "paused"
+    assert detail["workflow_run"]["status"] == "paused"
+    artifact_types = [artifact["artifact_type"] for artifact in detail["artifacts"]]
+    assert "budget_guardrail" in artifact_types
+    assert "budget_usage_summary" in artifact_types
+    pending_budget_review = db_session.query(workflow_orchestrator.ApprovalRequestRow).filter(
+        workflow_orchestrator.ApprovalRequestRow.requirement_id == requirement_id,
+        workflow_orchestrator.ApprovalRequestRow.approval_type == "budget_review",
+        workflow_orchestrator.ApprovalRequestRow.status == "pending",
+    ).first()
+    assert pending_budget_review is not None
+
+
+def test_scheduler_uses_budget_usage_summary_for_running_requirement(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Running budget usage",
+            "description_markdown": "Ensure scheduler sees actual running budget usage.",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    requirement.status = "in_progress"
+    run = WorkflowRunRow(requirement_id=requirement_id, plan_version=1, status="running", triggered_by="test")
+    db_session.add(run)
+    db_session.flush()
+    requirement.active_workflow_run_id = run.id
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement_id,
+            workflow_run_id=run.id,
+            artifact_type="budget_usage_summary",
+            content_summary="budget usage",
+            machine_readable_payload=json.dumps({"spent_points": 77}),
+        )
+    )
+    db_session.commit()
+
+    scheduler_resp = synced_client.get("/api/requirements/scheduler")
+    assert scheduler_resp.status_code == 200
+    decision = next(item for item in scheduler_resp.json()["decisions"] if item.get("requirement_id") == requirement_id)
+    assert decision["budget_cost"] == 77

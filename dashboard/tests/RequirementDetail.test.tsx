@@ -76,6 +76,19 @@ const detail = {
           max_handoff_chars: 1200,
           stale_after_minutes: 30,
         }),
+        execution_profile_json: JSON.stringify({
+          complexity_tier: 'standard',
+          allow_escalation: true,
+          escalation_rule: {
+            next_tier: 'max',
+          },
+          budget_cap: {
+            max_input_tokens: 14000,
+            max_output_tokens: 4000,
+            max_attempts: 3,
+            max_runtime_seconds: 1800,
+          },
+        }),
         started_at: '2026-04-11T08:00:00Z',
         completed_at: null,
       },
@@ -173,6 +186,24 @@ const detail = {
       workflow_run_id: 3,
       step_id: 21,
       producer_step_id: 21,
+      artifact_type: 'prompt_cache_profile',
+      path: null,
+      content_summary: 'prompt cache profile for step implementation',
+      human_readable_body: '# Prompt Cache Profile',
+      machine_readable_payload: JSON.stringify({
+        cache_key: 'cache-123',
+        cache_applied: true,
+        cached_chars_saved: 3200,
+        deduped_binding_count: 2,
+      }),
+      created_at: '2026-04-11T08:01:00Z',
+    },
+    {
+      id: 15,
+      requirement_id: 1,
+      workflow_run_id: 3,
+      step_id: 21,
+      producer_step_id: 21,
       artifact_type: 'context_compaction',
       path: null,
       content_summary: 'context compacted for step implementation',
@@ -186,7 +217,7 @@ const detail = {
       created_at: '2026-04-11T08:01:00Z',
     },
     {
-      id: 15,
+      id: 16,
       requirement_id: 1,
       workflow_run_id: 3,
       step_id: 21,
@@ -202,7 +233,7 @@ const detail = {
       created_at: '2026-04-11T08:01:00Z',
     },
     {
-      id: 16,
+      id: 17,
       requirement_id: 1,
       workflow_run_id: 3,
       step_id: 21,
@@ -222,7 +253,7 @@ const detail = {
       created_at: '2026-04-11T08:02:00Z',
     },
     {
-      id: 17,
+      id: 18,
       requirement_id: 1,
       workflow_run_id: 3,
       step_id: 21,
@@ -328,7 +359,14 @@ describe('RequirementDetail', () => {
     expect(screen.getByTestId('runtime-lifecycle-panel')).toBeInTheDocument()
     expect(screen.getByTestId('incident-panel')).toBeInTheDocument()
     expect(screen.getByText('Latest Compaction')).toBeInTheDocument()
+    expect(screen.getByText('Prompt Cache')).toBeInTheDocument()
+    expect(screen.getByText(/cache key: cache-123/)).toBeInTheDocument()
+    expect(screen.getByText(/saved chars: 3200/)).toBeInTheDocument()
     expect(screen.getByText(/status: fresh/)).toBeInTheDocument()
+    expect(screen.getAllByText(/tier standard/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/allow escalation: true/i)).toBeInTheDocument()
+    expect(screen.getByText(/next tier: max/i)).toBeInTheDocument()
+    expect(screen.getByText(/input tokens: 14000/i)).toBeInTheDocument()
     expect(screen.getByText(/phase: running/)).toBeInTheDocument()
     expect(screen.getByText(/selected agent: editor/)).toBeInTheDocument()
     expect(screen.getByText(/subagents:/)).toBeInTheDocument()

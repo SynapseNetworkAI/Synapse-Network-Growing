@@ -363,7 +363,7 @@ class TestBuildPlannerOutput:
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.7"
+        assert output["schema_version"] == "1.8"
         assert output["detected_phases"]["design"] is True
         assert output["project_intelligence"]["routing_mode"] == "explicit"
         assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
@@ -391,6 +391,19 @@ class TestBuildPlannerOutput:
         assert first_impl["approval_policy"]["deny_execution"] is False
         assert first_impl["context_policy"]["max_prompt_chars"] >= 12000
         assert first_impl["context_policy"]["block_on_stale_memory"] is True
+        assert first_impl["complexity_tier"] == "mini"
+        assert first_impl["budget_cap"]["max_input_tokens"] == 6000
+        assert first_impl["allow_escalation"] is True
+        assert first_impl["escalation_rule"]["next_tier"] == "standard"
+        assert first_impl["escalation_rule"]["changed_files_threshold"] == 8
+        assert first_impl["execution_profile"]["complexity_tier"] == "mini"
+        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
+        assert frontend_step["complexity_tier"] == "standard"
+        assert frontend_step["execution_profile"]["budget_cap"]["max_input_tokens"] == 14000
+        assert review_step["complexity_tier"] == "standard"
+        closeout_step = next(s for s in output["workflow_steps"] if s["step_key"] == "closeout")
+        assert closeout_step["complexity_tier"] == "mini"
+        assert output["model_routing"]["supported_tiers"] == ["mini", "standard", "max"]
 
     def test_plan_without_target_project_path(self, synced_client, db_session):
         req = RequirementRow(
@@ -426,6 +439,28 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
         assert step_keys == ["research", "synthesis", "frontend_impl", "backend_impl", "review", "test", "closeout"]
+        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
+        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
+        assert frontend_step["complexity_tier"] == "standard"
+        assert backend_step["complexity_tier"] == "standard"
+        assert frontend_step["execution_profile"]["budget_cap"]["max_attempts"] == 3
+
+    def test_multi_project_implementation_defaults_to_max_tier(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Cross-project refactor",
+            description_markdown="调整多个项目中的实现并保持兼容。",
+            target_project_path="/proj/a\n/proj/b",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
+        assert backend_step["complexity_tier"] == "max"
+        assert backend_step["execution_profile"]["escalation_rule"]["next_tier"] == "max"
+        assert backend_step["execution_profile"]["budget_cap"]["max_runtime_seconds"] == 3600
 
     def test_delivery_expectation_leaves_change_shape_to_model(self, synced_client, db_session):
         req = RequirementRow(
@@ -554,6 +589,171 @@ class TestBuildPlannerOutput:
         assert research_step["approval_policy"]["deny_execution"] is True
         assert "shell_access disabled by project capability matrix" in research_step["approval_policy"]["deny_reasons"]
         assert implementation_step["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
+
+    def test_standard_steps_skip_operator_confirmation_until_expensive_branch(self, synced_client, db_session):
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="approval-narrowing",
+                display_name="Approval Narrowing",
+                root_path="/approval-narrowing",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='[]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                    "auto_pause_on_events": ["operator_confirmation_required"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+        db_session.commit()
+
+        req = RequirementRow(
+            title="Scoped backend change",
+            description_markdown="实现单项目后端修改。",
+            target_project_path="/approval-narrowing",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
+        assert backend_step["complexity_tier"] == "standard"
+        assert backend_step["approval_policy"]["approval_scope"] == "expensive_branches_only"
+        assert backend_step["approval_policy"]["requires_operator_confirmation"] is False
+        assert backend_step["approval_policy"]["operator_confirmation_actions"] == []
+
+    def test_max_tier_steps_keep_operator_confirmation(self, synced_client, db_session):
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="approval-max",
+                display_name="Approval Max",
+                root_path="/approval-max/a",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='[]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                    "auto_pause_on_events": ["operator_confirmation_required"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="approval-max-b",
+                display_name="Approval Max B",
+                root_path="/approval-max/b",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='[]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                    "auto_pause_on_events": ["operator_confirmation_required"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+        db_session.commit()
+
+        req = RequirementRow(
+            title="Cross project change",
+            description_markdown="同时修改两个项目的实现。",
+            target_project_path="/approval-max/a\n/approval-max/b",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
+        assert backend_step["complexity_tier"] == "max"
+        assert backend_step["approval_policy"]["approval_scope"] == "max_tier"
+        assert backend_step["approval_policy"]["requires_operator_confirmation"] is True
+        assert backend_step["approval_policy"]["operator_confirmation_actions"] == ["shell_access", "git_write"]
+
+    def test_incident_recovery_chain_keeps_operator_confirmation(self, synced_client, db_session):
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="incident-approval",
+                display_name="Incident Approval",
+                root_path="/incident-approval",
+                status="active",
+                allowed_write_globs_json='["src/**"]',
+                forbidden_globs_json='[]',
+                required_checks_json='[]',
+                release_mode="manual",
+                requires_manual_approval=True,
+                capability_matrix_json=json.dumps({
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": False,
+                    "network_access": False,
+                    "publish": False,
+                }),
+                interrupt_policy_json=json.dumps({
+                    "operator_confirmation_actions": ["shell_access", "git_write", "publish"],
+                    "auto_pause_on_events": ["operator_confirmation_required"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }),
+            )
+        )
+        db_session.commit()
+
+        req = RequirementRow(
+            title="Incident Recovery: runtime session handling",
+            description_markdown="恢复一次 runtime incident。",
+            source="bugfix_circuit_breaker",
+            source_ref="incident:session-recovery",
+            target_project_path="/incident-approval",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        research_step = next(s for s in output["workflow_steps"] if s["step_key"] == "research")
+        assert research_step["approval_policy"]["approval_scope"] == "incident_recovery"
+        assert research_step["approval_policy"]["requires_operator_confirmation"] is True
+        assert research_step["approval_policy"]["operator_confirmation_actions"] == ["shell_access"]
 
     def test_auto_routing_metadata_for_sdk_requirement(self, synced_client, db_session):
         req = RequirementRow(

@@ -42,9 +42,12 @@ class CrewEngine:
         task_description: str,
         output_dir: Path | None = None,
         extra_context_files: list[str] | None = None,
+        provider_name: str | None = None,
+        model_override: str | None = None,
+        timeout_override: int | None = None,
     ) -> CrewResult:
         t0 = time.monotonic()
-        model = LLM_MODEL
+        model = model_override or LLM_MODEL
 
         # 1. Build system prompt from persona
         system_prompt = self._build_system_prompt(persona)
@@ -56,7 +59,13 @@ class CrewEngine:
 
         # 3. Call LLM
         try:
-            response_text, tokens = self._call_llm(system_prompt, user_message, model)
+            response_text, tokens = self._call_llm(
+                system_prompt,
+                user_message,
+                model,
+                provider_name=provider_name,
+                timeout_override=timeout_override,
+            )
         except Exception as e:
             elapsed = int((time.monotonic() - t0) * 1000)
             logger.exception("LLM call failed")
@@ -131,9 +140,18 @@ class CrewEngine:
 
         return "\n\n---\n\n".join(parts)
 
-    def _call_llm(self, system: str, user: str, model: str) -> tuple[str, int]:
+    def _call_llm(
+        self,
+        system: str,
+        user: str,
+        model: str,
+        *,
+        provider_name: str | None = None,
+        timeout_override: int | None = None,
+    ) -> tuple[str, int]:
         """Dispatch to the configured LLM provider."""
-        provider = get_provider()
+        provider = get_provider(provider_name)
+        timeout = timeout_override or LLM_TIMEOUT
         logger.info("Calling LLM: provider=%s, model=%s, system=%d chars, user=%d chars",
                      provider.name, model, len(system), len(user))
-        return provider.call(system, user, model, LLM_TEMPERATURE, LLM_TIMEOUT)
+        return provider.call(system, user, model, LLM_TEMPERATURE, timeout)

@@ -94,6 +94,15 @@ CODEX_CLI_TASK_TIMEOUT = int(os.environ.get("CODEX_CLI_TASK_TIMEOUT", str(max(CO
 CODEX_CLI_SANDBOX = os.environ.get("CODEX_CLI_SANDBOX", "workspace-write").strip() or "workspace-write"
 CODEX_CLI_FULL_AUTO = os.environ.get("CODEX_CLI_FULL_AUTO", "true").lower() in {"1", "true", "yes", "on"}
 CODEX_CLI_SKIP_GIT_REPO_CHECK = os.environ.get("CODEX_CLI_SKIP_GIT_REPO_CHECK", "false").lower() in {"1", "true", "yes", "on"}
+RUNTIME_TIER_MINI_BACKEND = os.environ.get("OPS_RUNTIME_TIER_MINI_BACKEND", "").strip().lower()
+RUNTIME_TIER_MINI_PROVIDER = os.environ.get("OPS_RUNTIME_TIER_MINI_PROVIDER", "").strip().lower()
+RUNTIME_TIER_MINI_MODEL = os.environ.get("OPS_RUNTIME_TIER_MINI_MODEL", "").strip()
+RUNTIME_TIER_STANDARD_BACKEND = os.environ.get("OPS_RUNTIME_TIER_STANDARD_BACKEND", "").strip().lower()
+RUNTIME_TIER_STANDARD_PROVIDER = os.environ.get("OPS_RUNTIME_TIER_STANDARD_PROVIDER", "").strip().lower()
+RUNTIME_TIER_STANDARD_MODEL = os.environ.get("OPS_RUNTIME_TIER_STANDARD_MODEL", "").strip()
+RUNTIME_TIER_MAX_BACKEND = os.environ.get("OPS_RUNTIME_TIER_MAX_BACKEND", "").strip().lower()
+RUNTIME_TIER_MAX_PROVIDER = os.environ.get("OPS_RUNTIME_TIER_MAX_PROVIDER", "").strip().lower()
+RUNTIME_TIER_MAX_MODEL = os.environ.get("OPS_RUNTIME_TIER_MAX_MODEL", "").strip()
 E2E_MODE = os.environ.get("OPS_E2E_MODE", "false").lower() in {"1", "true", "yes", "on"}
 E2E_SYNC_DISPATCH = os.environ.get("OPS_E2E_SYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
 

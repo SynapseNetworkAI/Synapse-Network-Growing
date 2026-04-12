@@ -6,7 +6,7 @@ from typing import Any, cast
 from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
-from server.database import AgentRow, TaskRow
+from server.database import AgentRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.copilot_sdk_state import seconds_since_timestamp
 from server.services.task_runtime import TaskExecutionResult
 
@@ -17,18 +17,24 @@ def _runtime_result(
     error: str | None = None,
     execution_time_ms: int = 1,
     runtime_backend: str = "legacy",
+    runtime_provider: str = "",
     runtime_session_id: str | None = None,
     runtime_selected_agent: str | None = None,
     events=None,
     deferred: bool = False,
     files=None,
+    model: str = "",
+    tokens_used: int = 0,
 ):
     return TaskExecutionResult(
         text=text,
         files=files or [],
         error=error,
         execution_time_ms=execution_time_ms,
+        model=model,
+        tokens_used=tokens_used,
         runtime_backend=runtime_backend,
+        runtime_provider=runtime_provider,
         runtime_session_id=runtime_session_id,
         runtime_selected_agent=runtime_selected_agent,
         events=events or [],
@@ -446,6 +452,8 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
             text="# Copilot output",
             execution_time_ms=42,
             runtime_backend="copilot_sdk",
+            runtime_provider="copilot",
+            model="gpt-4o",
             runtime_session_id="session-123",
             runtime_selected_agent="editor",
             events=[
@@ -459,14 +467,93 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
     task = synced_client.get(f"/api/tasks/{task_id}").json()
     assert task["status"] == "completed"
     assert task["runtime_backend"] == "copilot_sdk"
+    assert task["runtime_provider"] == "copilot"
+    assert task["runtime_model"] == "gpt-4o"
+    assert task["tokens_used"] == 0
+    assert task["budget_cost_points"] >= 16
     assert task["runtime_session_id"] == "session-123"
     assert task["runtime_selected_agent"] == "editor"
 
     logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
     event_types = [log["event_type"] for log in logs]
     assert "runtime_submitted" in event_types
+    assert "runtime_selection" in event_types
     assert "runtime_started" in event_types
     assert "subagent_selected" in event_types
+
+
+def test_task_runner_uses_execution_profile_runtime_selection(synced_client, db_session):
+    from server.services.task_runner import _run_task_sync, PROJECT_ROOT
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Route this mini task",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    task = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    assert task is not None
+    requirement = RequirementRow(title="Tier routing", description_markdown="Route runtime by execution profile.")
+    db_session.add(requirement)
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(workflow_run)
+    db_session.flush()
+    db_session.add(
+        WorkflowStepRow(
+            workflow_run_id=workflow_run.id,
+            requirement_id=requirement.id,
+            step_key="research",
+            step_type="research",
+            title="Research context",
+            status="running",
+            sequence_no=10,
+            compatibility_task_id=task_id,
+            done_when_markdown="done",
+            context_scope="step_private",
+            context_policy_json="{}",
+            execution_profile_json='{"complexity_tier":"mini","budget_cap":{"max_runtime_seconds":600},"allow_escalation":true,"escalation_rule":{"next_tier":"standard"}}',
+            file_scope_json="{}",
+            validation_targets_json="[]",
+            failure_policy_json="{}",
+            approval_policy_json="{}",
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.task_runner.resolve_runtime_selection") as mock_selection, patch(
+        "server.services.task_runner.get_task_runtime"
+    ) as mock_runtime_factory:
+        mock_selection.return_value.backend = "openai_responses"
+        mock_selection.return_value.provider = "openai"
+        mock_selection.return_value.model = "gpt-5-mini"
+        mock_selection.return_value.complexity_tier = "mini"
+        mock_selection.return_value.reason = "tier=mini"
+        mock_selection.return_value.timeout_seconds = 600
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            text="done",
+            execution_time_ms=9,
+            runtime_backend="openai_responses",
+            runtime_provider="openai",
+            model="gpt-5-mini",
+            tokens_used=9000,
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    mock_runtime_factory.assert_called_with(PROJECT_ROOT, backend="openai_responses")
+    selection_arg = mock_runtime.execute.call_args.kwargs["runtime_selection"]
+    assert selection_arg.model == "gpt-5-mini"
+    assert selection_arg.complexity_tier == "mini"
+
+    payload = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert payload["runtime_backend"] == "openai_responses"
+    assert payload["runtime_provider"] == "openai"
+    assert payload["runtime_model"] == "gpt-5-mini"
+    assert payload["tokens_used"] == 9000
+    assert payload["budget_cost_points"] >= 8
 
 
 def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_path):

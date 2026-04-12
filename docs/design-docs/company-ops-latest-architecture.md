@@ -197,6 +197,16 @@ dispatch 前，orchestrator 会按固定顺序构造 step context：
 4. `binding_summaries`
 5. `section_summaries`
 
+dispatch 前还会生成 `prompt_cache_profile` artifact，记录：
+
+1. `cache_key`
+2. `reusable_sections`
+3. `reusable_section_count / reusable_artifact_count`
+4. `deduped_binding_count`
+5. `cached_chars_saved`
+
+也就是说，现在系统会先把稳定的 project / capability / done_when / contract artifact 收成可复用摘要，再把重复 binding 去掉，最后才进入 hard compaction。
+
 ### stale memory verification
 
 dispatch 前还会生成 `stale_memory_verification` artifact。
@@ -506,6 +516,197 @@ optimization signal 现在除了原来的：
 因此 signal 不再只是“有问题”，而是会明确告诉 operator“这是哪类事故，以及建议怎样收口”。
 
 ## 2. 当前推荐的数据库策略
+
+## 1.10 模型分层与预算治理
+
+为了同时保证任务完成率和 token 效率，当前推荐把模型路由收成下面这条主线：
+
+1. `harness` 固定流程，不固定内容。
+2. `planner` 负责把 requirement 展开成 step graph，并给每个 step 标注复杂度、预算和升级规则。
+3. `scheduler` 根据复杂度、项目风险、预算余量和历史失败率选择实际 runtime/model tier。
+4. `orchestrator` 执行时可以按失败信号自动升级或降级，不需要人工每次介入。
+5. `review/test` 根据实际变更到的项目动态决定验证重点，而不是提前写死“这次一定只跑某个仓库的验证”。
+
+### planner 输出建议
+
+建议 planner 后续稳定产出以下字段：
+
+1. `complexity_tier`
+   1. `mini`: 搜索、分类、摘要、日志归因、测试结果整理
+   2. `standard`: synthesis、常规实现、review、测试修复
+   3. `max`: 跨仓重构、疑难 bug、架构迁移、反复失败后的升级处理
+2. `budget_cap`
+   1. 限制该 step 最大可消耗的模型预算
+3. `escalation_rule`
+   1. 失败 2 次升级
+   2. 多项目升级
+   3. 改动文件过多升级
+   4. review/test 发现 blocker 升级
+4. `expected_outputs`
+   1. 该 step 应产出的摘要、补丁、测试报告、验证证据
+5. `allow_escalation`
+   1. 是否允许 orchestrator 自动把该 step 提升到更强模型
+
+### runtime 路由建议
+
+当前推荐用双层 runtime：
+
+1. `openai_responses`
+   1. 负责便宜的 planning、signal summarization、incident clustering、company review aggregation
+2. `codex_cli`
+   1. 负责真正要读仓、改仓、跑命令的 `implementation / review / test`
+
+这样做的原因是：
+
+1. planning 与聚合类工作对终端/文件系统依赖弱，更适合便宜模型
+2. implementation/review/test 需要真实仓库上下文和命令执行，更适合 codex runtime
+3. 不把所有任务都扔给最贵模型，可以明显降低高频 orchestration 的成本
+
+### 动态验证建议
+
+validation 不应在 requirement 创建时一次性写死，而应在执行后按真实修改结果动态生成：
+
+1. implementation 结束后生成 `project_change_summary`
+2. review/test 读取 `project_change_summary`
+3. 只对真实改到的项目收集 policy、required checks 和验证命令
+4. closeout 根据实际执行过的验证结果决定是否允许关闭或发布
+
+这能避免两个问题：
+
+### 当前已实现
+
+当前系统已经落地了这一阶段的核心能力：
+
+1. `P0-R1 Planner Tier Annotation`
+   1. planner 在 `full-plan` 和 fallback 两条路径都稳定输出 `complexity_tier / budget_cap / allow_escalation / escalation_rule / expected_outputs`
+   2. `workflow_steps.execution_profile_json` 会持久化这些标注
+   3. requirement detail 已展示 step tier 与 budget cap
+2. `P0-R2 Runtime Selection Contract`
+   1. task dispatch 前会读取 step 的 `execution_profile`
+   2. runtime selection 会显式选择 `backend / provider / model`
+   3. 任务与 runtime telemetry 已记录 `runtime_backend / runtime_provider / runtime_model`
+   4. 支持按 tier 做配置覆盖：
+      1. `OPS_RUNTIME_TIER_MINI_BACKEND / PROVIDER / MODEL`
+      2. `OPS_RUNTIME_TIER_STANDARD_BACKEND / PROVIDER / MODEL`
+      3. `OPS_RUNTIME_TIER_MAX_BACKEND / PROVIDER / MODEL`
+3. `P0-R3 Dynamic Validation Contract`
+   1. implementation / bugfix 完成后会读取最新 `project_change_summary`
+   2. `validation_plan` 会动态写入 `affected_projects / dynamic_required_checks`
+   3. `delivery_contract.required_checks` 会改成“只针对真实改动项目”的检查集合
+   4. 新的 validation/delivery contract 会重新绑定到后续 workflow steps，因此 review/test/closeout 读取到的是最新验证范围
+4. `P1-R1 Escalation And Downgrade Loop`
+   1. dispatch 前会按 `project_change_summary` 自动触发 tier escalation：
+      1. 多项目改动升级
+      2. changed files 超阈值升级
+   2. 失败路径会把 `failure_count` 写回 step execution profile，并在 follow-up bugfix/review/test 上自动应用 escalation rule
+   3. 收尾与 summary/report 类 step 会自动降回 `mini`
+   4. review/test 在小范围单项目验证时会从 `max` 回落到 `standard`
+   5. 每次升级/降级都会落 `runtime_adaptation` artifact，供 requirement detail、incident 和 company review 复用
+5. `P1-R2 Budget Guardrails`
+   1. task 现在会持久化 `tokens_used / budget_cost_points`
+   2. 每次 workflow task 完成或失败后都会更新 `budget_usage_summary`
+   3. 如果 step 运行时超过 `max_runtime_seconds`、token 预算、或 `max_attempts`，系统会暂停 requirement 并创建 `budget_review`
+   4. 预算超限会生成 `budget_guardrail` artifact，operator 可以看到触发原因和实际消耗
+   5. scheduler 对正在运行 requirement 的项目预算占用，优先读取真实 `budget_usage_summary.spent_points`，而不是只靠静态估算
+6. `P1-R3 Prompt Caching And Compaction`
+   1. step dispatch 前会生成 `prompt_cache_profile`
+   2. `project / capability / done_when / implementation_plan / validation_plan / delivery_contract / routing_decision / project_change_summary` 会优先进入 reusable summary
+   3. 重复 binding 会先 dedupe，再进入最终 prompt
+   4. `context_compaction` payload 会带上 prompt cache 统计，detail 页可直接看到 cache key、节省字符和去重数量
+7. `P2-R1 Portfolio-Level Cost And Completion Dashboard`
+   1. company review 会汇总 `completion_rate / budget_spent_points / tokens_used / prompt_cache_saved_chars / deduped_bindings`
+   2. review 首页会展示 `escalations / downgrades / tier_mix`
+   3. `project_highlights` 现在也会带项目级的 `budget_spent_points / prompt_cache_saved_chars / escalations / downgrades / tier_mix`
+8. `P2-R2 Human Gate On Expensive Branches Only`
+   1. `capability deny` 仍然是硬边界，禁用能力会直接拦截
+   2. `operator confirmation` 不再对普通 mini/standard step 普遍生效
+   3. 现在只在 `max-tier / publish / incident recovery` 三类昂贵或高风险分支上保留人工 gate
+   4. bugfix follow-up step 也会复用这套缩窄后的 approval policy，不会回到旧的“广泛审批”模式
+9. `P2-R3 Human Gate Hotspots And Automation Candidates`
+   1. company review 会聚合 `approval_requests`、step 的 `approval_scope`，以及 `delivery_state` 中的人工 publish gate
+   2. review 首页会展示 `human_gate_hotspots`，直接回答哪些 branch 最常把流程拉回人工审批
+   3. 系统会基于 hotspot 自动生成 `automation_candidates`
+   4. 候选项会带 `automation_type / priority / rationale`，帮助判断下一步哪些 gate 值得先自动化
+
+1. requirement 目标项目写得比较宽时，系统仍然只验证本次实际改动到的仓库
+2. planner 不需要被 harness 预判“这次必须改代码还是文档”，而是可以自由决定 change shape
+
+### token 节省策略
+
+当前已经落地或建议默认开启这 4 层压缩：
+
+1. `evidence_dedupe`
+   1. 只保留代表性 evidence，保留 occurrence_count 参与评分
+2. `response_compact`
+   1. 长链路在 step 结束后做 compact，只把下游真正需要的信息继续传递
+3. `prompt_caching`
+   1. project policy、repo brief、project profile、org policy 走缓存或稳定引用
+   2. 当前会产出 `prompt_cache_profile`，记录节省的上下文字符数和去重情况
+4. `human_gate_only_on_expensive_branch`
+   1. 只有 `max-tier`、发布前、或 incident 恢复链才拉人工 gate
+
+### company review 成本与完成率视图
+
+现在 `company review` 已经不是只看风险和建议，它还会汇总：
+
+1. `completion_rate`
+2. `budget_spent_points`
+3. `tokens_used`
+4. `prompt_cache_saved_chars`
+5. `deduped_bindings`
+6. `escalations / downgrades`
+7. `tier_mix`
+
+这些指标同时会下钻到 `project_highlights`，用于回答两个实际问题：
+
+1. 哪些项目真的在稳定完成，而不是只是在消耗预算
+2. 哪些项目虽然完成率高，但 escalation 或 token 消耗异常，需要进一步优化模型路由
+
+### human gate 缩窄原则
+
+当前系统把审批拆成两类：
+
+1. `deny_execution`
+   1. 这是硬边界，来源于 capability matrix
+   2. 例如项目明确禁用 `shell_access` 或 `git_write`，step 仍然会被拦下
+2. `requires_operator_confirmation`
+   1. 这是人工 gate
+   2. 现在只保留给 `max-tier / publish / incident recovery`
+
+这样做的目的不是减少安全性，而是把 operator 注意力集中到真正昂贵、真正危险的分支上，让普通 mini/standard 执行链尽量连续完成。
+
+### human gate hotspot 汇总
+
+现在 company review 会把人工 gate 再往前推进一层，做成 portfolio 级汇总：
+
+1. `human_gate_hotspots`
+   1. 来源于真实 `approval_requests`
+   2. 用 `approval_type + approval_scope + step_type + project_key` 做聚合
+   3. 也会把 `review_ready + requires_manual_approval=true` 的发布门槛视为 `publish` hotspot
+2. `automation_candidates`
+   1. 对高频或高 pending 的 hotspot 自动给出候选项
+   2. 当前会输出：
+      1. `publish_automation`
+      2. `incident_recovery_automation`
+      3. `budget_guardrail_tuning`
+      4. `context_refresh_automation`
+      5. `max_tier_branch_reduction`
+   3. 这些候选项是 operator 下一轮优化 requirement 的直接来源
+
+### 推荐升级/降级条件
+
+推荐的默认策略：
+
+1. `mini -> standard`
+   1. step 连续失败 2 次
+   2. 变更项目数 > 1
+   3. changed files 超过阈值
+2. `standard -> max`
+   1. review/test 发现 blocker
+   2. requirement 已进入 incident recovery / bugfix circuit breaker
+   3. step 涉及架构迁移或跨仓 contract 变更
+3. `standard/max -> mini`
+   1. 回到摘要、归因、报告整理、incident clustering 等低复杂度收尾步骤
 
 ## 2.1 是否要立刻换成更强的数据库
 
