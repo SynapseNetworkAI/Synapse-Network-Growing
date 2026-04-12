@@ -197,10 +197,11 @@ const READY_REQUIREMENT = {
   },
 }
 
-const UNPLANNED_REQUIREMENT = {
+const PLANNING_REQUIREMENT = {
   ...READY_REQUIREMENT,
   id: 5,
   title: 'Incident recovery follow-up',
+  status: 'planning',
   current_plan_version: 0,
   active_workflow_run_id: null,
 }
@@ -719,8 +720,8 @@ describe('RequirementPool', () => {
     })
   })
 
-  it('shows pending-planning requirements as 待规划 and allows direct start', async () => {
-    mockApi.getRequirements.mockResolvedValue([UNPLANNED_REQUIREMENT])
+  it('shows auto-planning requirements as 规划中 and does not allow direct start', async () => {
+    mockApi.getRequirements.mockResolvedValue([PLANNING_REQUIREMENT])
 
     render(<MemoryRouter><RequirementPool /></MemoryRouter>)
 
@@ -728,14 +729,9 @@ describe('RequirementPool', () => {
       expect(screen.getByTestId('requirement-card-5')).toBeDefined()
     })
 
-    expect(screen.getByText('待规划')).toBeDefined()
-    expect(screen.getByText('待生成 workflow plan')).toBeDefined()
-
-    fireEvent.click(screen.getByTestId('requirement-toggle-5'))
-
-    await waitFor(() => {
-      expect(mockApi.startRequirement).toHaveBeenCalledWith(5)
-    })
+    expect(screen.getByText('规划中')).toBeDefined()
+    expect(screen.getByText('系统自动生成 workflow plan 中')).toBeDefined()
+    expect(screen.queryByTestId('requirement-toggle-5')).toBeNull()
   })
 
   it('keeps the current pagination page after reloading pool data', async () => {

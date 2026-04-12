@@ -4,6 +4,8 @@ import { api, ProjectPolicy, Requirement, SchedulerDecision, SchedulerPlan } fro
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
+  planning: '规划中',
+  plan_failed: '规划失败',
   ready: '已规划',
   paused: '已暂停',
   in_progress: '执行中',
@@ -15,6 +17,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_CLASS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
+  planning: 'bg-indigo-100 text-indigo-700',
+  plan_failed: 'bg-rose-100 text-rose-700',
   ready: 'bg-sky-100 text-sky-700',
   paused: 'bg-slate-200 text-slate-700',
   in_progress: 'bg-blue-100 text-blue-700',
@@ -39,12 +43,6 @@ const APPROVAL_CLASS: Record<string, string> = {
 }
 
 function getRequirementDisplayState(requirement: Requirement) {
-  if (requirement.status === 'ready' && requirement.current_plan_version === 0 && !requirement.active_workflow_run_id) {
-    return {
-      label: '待规划',
-      className: STATUS_CLASS.draft,
-    }
-  }
   return {
     label: STATUS_LABEL[requirement.status] || requirement.status,
     className: STATUS_CLASS[requirement.status] || STATUS_CLASS.draft,
@@ -189,9 +187,9 @@ export default function RequirementPool() {
       .catch(() => {})
   }, [loadPool])
 
-  // Poll while any in_progress or ready (plan may be generating)
+  // Poll while any planning or in_progress
   useEffect(() => {
-    const needsPoll = requirements.some((r) => r.status === 'in_progress' || (r.status === 'ready' && r.current_plan_version === 0))
+    const needsPoll = requirements.some((r) => r.status === 'in_progress' || r.status === 'planning')
     if (!needsPoll) return
     const timer = setInterval(() => { loadPool().catch(() => {}) }, 3000)
     return () => clearInterval(timer)
@@ -519,7 +517,7 @@ export default function RequirementPool() {
                 checked={form.auto_start}
                 onChange={() => setForm((prev) => ({ ...prev, auto_start: !prev.auto_start }))}
               />
-              <span className="text-sm">创建后自动生成计划并启动执行</span>
+              <span className="text-sm">审批通过后自动生成计划，并在允许时继续启动执行</span>
             </label>
             <button
               data-testid="submit-requirement-btn"
@@ -527,7 +525,7 @@ export default function RequirementPool() {
               disabled={submitting}
               onClick={() => { handleCreate().catch(() => {}) }}
             >
-              {form.auto_start ? '创建并启动' : '创建并保存'}
+              {form.auto_start ? '创建并进入自动流转' : '创建并保存'}
             </button>
           </div>
         </div>
@@ -619,18 +617,24 @@ export default function RequirementPool() {
         {/* Queue status banner */}
         {!showCreate && (() => {
           const inProgress = requirements.filter((r) => r.status === 'in_progress')
-          const readyCount = requirements.filter((r) => r.status === 'ready' && r.current_plan_version === 0).length
-          const plannedCount = requirements.filter((r) => r.status === 'ready' && r.current_plan_version > 0).length
+          const planningCount = requirements.filter((r) => r.status === 'planning').length
+          const readyCount = requirements.filter((r) => r.status === 'ready').length
           if (inProgress.length > 0) return (
             <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
               <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
               <span>正在执行：<span className="font-medium">{inProgress[0].title}</span></span>
-              {readyCount + plannedCount > 0 && <span className="ml-auto text-blue-400">队列中还有 {readyCount + plannedCount} 个需求</span>}
+              {readyCount + planningCount > 0 && <span className="ml-auto text-blue-400">队列中还有 {readyCount + planningCount} 个需求</span>}
             </div>
           )
-          if (readyCount + plannedCount > 0) return (
+          if (planningCount > 0) return (
+            <div className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-700">
+              <span>系统正在为 <span className="font-medium">{planningCount}</span> 个需求自动生成计划</span>
+              {readyCount > 0 && <span className="ml-3 text-indigo-400">另有 {readyCount} 个已规划需求待执行</span>}
+            </div>
+          )
+          if (readyCount > 0) return (
             <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
-              <span>队列中有 <span className="font-medium">{readyCount + plannedCount}</span> 个待执行需求</span>
+              <span>队列中有 <span className="font-medium">{readyCount}</span> 个待执行需求</span>
               <button
                 className="ml-3 rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
                 onClick={() => {
@@ -689,9 +693,15 @@ export default function RequirementPool() {
                   onClick={() => navigate(`/requirements/${requirement.id}`)}
                 >
                     <div className="mb-2">
-                      <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
+                    <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
                     <div className="mt-1 text-xs text-gray-500">
-                      {requirement.current_plan_version > 0 ? `Plan v${requirement.current_plan_version}` : '待生成 workflow plan'}
+                      {requirement.status === 'planning'
+                        ? '系统自动生成 workflow plan 中'
+                        : requirement.status === 'plan_failed'
+                          ? 'workflow plan 生成失败'
+                          : requirement.current_plan_version > 0
+                            ? `Plan v${requirement.current_plan_version}`
+                            : '待审批后自动生成 workflow plan'}
                     </div>
                   </div>
                   {targetProjectPaths.length > 0 && (
@@ -766,7 +776,7 @@ export default function RequirementPool() {
                   </div>
                   {!['approved', 'waived'].includes(requirement.approval_status) && (
                     <div className="mt-2 rounded-md bg-yellow-50 px-3 py-2 text-[11px] text-yellow-800">
-                      执行审批：{APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}
+                      执行审批：{APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}。审批通过后系统会自动生成计划。
                     </div>
                   )}
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-500">

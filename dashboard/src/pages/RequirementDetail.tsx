@@ -5,6 +5,8 @@ import { api, RequirementDetail as RequirementDetailType, Requirement } from '..
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
+  planning: '规划中',
+  plan_failed: '规划失败',
   ready: '已规划',
   paused: '已暂停',
   in_progress: '执行中',
@@ -16,6 +18,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_CLASS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
+  planning: 'bg-indigo-100 text-indigo-700',
+  plan_failed: 'bg-rose-100 text-rose-700',
   ready: 'bg-sky-100 text-sky-700',
   paused: 'bg-slate-200 text-slate-700',
   in_progress: 'bg-blue-100 text-blue-700',
@@ -52,12 +56,6 @@ const STEP_STATUS_CLASS: Record<string, string> = {
 }
 
 function getRequirementDisplayState(requirement: Requirement) {
-  if (requirement.status === 'ready' && requirement.current_plan_version === 0 && !requirement.active_workflow_run_id) {
-    return {
-      label: '待规划',
-      className: STATUS_CLASS.draft,
-    }
-  }
   return {
     label: STATUS_LABEL[requirement.status] || requirement.status,
     className: STATUS_CLASS[requirement.status] || STATUS_CLASS.draft,
@@ -132,9 +130,9 @@ export default function RequirementDetail() {
     setPublishNote(detail.delivery_state?.publish_note || '')
   }, [detail])
 
-  // Poll while in_progress
+  // Poll while planning or in_progress
   useEffect(() => {
-    if (!detail || detail.requirement.status !== 'in_progress') return
+    if (!detail || !['planning', 'in_progress'].includes(detail.requirement.status)) return
     const timer = setInterval(() => { loadDetail().catch(() => {}) }, 2500)
     return () => clearInterval(timer)
   }, [detail, loadDetail])
@@ -261,7 +259,7 @@ export default function RequirementDetail() {
   const activeContextPolicy = parsePayload(activeContextStep?.context_policy_json ?? null)
   const activeExecutionProfile = parsePayload(activeContextStep?.execution_profile_json ?? null)
 
-  const canStartRequirement = !['blocked', 'done', 'deleted'].includes(req.status)
+  const canStartRequirement = !['blocked', 'done', 'deleted', 'planning', 'plan_failed'].includes(req.status)
     && ['approved', 'waived'].includes(req.approval_status)
 
   return (
@@ -322,15 +320,21 @@ export default function RequirementDetail() {
           </div>
         )}
 
-        {req.current_plan_version === 0 && req.status === 'ready' && (
+        {req.status === 'planning' && (
           <div data-testid="planning-banner" className="px-4 py-3 text-sm text-sky-700 border border-sky-200 rounded-xl bg-sky-50">
-            当前需求尚未生成 workflow plan。点击“启动执行”时，系统会先自动规划，再进入执行。
+            当前需求正在自动生成 workflow plan。规划完成后会自动进入可执行状态。
+          </div>
+        )}
+
+        {req.status === 'plan_failed' && (
+          <div data-testid="plan-failed-banner" className="px-4 py-3 text-sm text-rose-700 border border-rose-200 rounded-xl bg-rose-50">
+            workflow 规划失败。请修订需求后重试，或等待后续补充“重新规划”入口。
           </div>
         )}
 
         {!['approved', 'waived'].includes(req.approval_status) && (
           <div data-testid="approval-banner" className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            当前需求审批状态为 {approvalLabel}。审批通过或豁免后，才会进入自动执行。
+            当前需求审批状态为 {approvalLabel}。审批通过或豁免后，系统会自动生成计划，再进入自动执行。
           </div>
         )}
 

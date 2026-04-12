@@ -232,6 +232,7 @@ def build_portfolio_schedule(
     running_requirements = db.query(RequirementRow).filter(RequirementRow.status == "in_progress").all()
     ready_requirements = db.query(RequirementRow).filter(
         RequirementRow.status == "ready",
+        RequirementRow.current_plan_version > 0,
         RequirementRow.blocked_by_count == 0,
         RequirementRow.approval_status.in_(("approved", "waived")),
     ).all()

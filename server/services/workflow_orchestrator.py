@@ -1208,13 +1208,13 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         len(str(requirement.target_project_path or "").splitlines()) if requirement.target_project_path else 0,
         body.auto_start,
     )
-    if body.auto_start and requirement.blocked_by_count == 0:
+    if body.auto_start and requirement.blocked_by_count == 0 and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
         req_id = _as_int(requirement.id)
 
         def _bg_plan_and_start(req_id: int) -> None:
             bg_db = SessionLocal()
             try:
-                plan_requirement(bg_db, req_id)
+                _plan_requirement_after_approval(bg_db, requirement_id=req_id, trigger="auto_start", raise_on_failure=True)
                 start_requirement(bg_db, req_id)
             except Exception as exc:  # noqa: BLE001
                 import logging
@@ -1242,7 +1242,13 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
     if requirement.current_plan_version > 0 and requirement.active_workflow_run_id:
+        if requirement.status in {"planning", "plan_failed", "draft"}:
+            requirement.status = "ready"
+            db.commit()
         return build_requirement_detail(db, requirement.id)
+
+    requirement.status = "planning"
+    db.flush()
 
     planner_output, assignments = build_planner_output(db, requirement)
     db.refresh(requirement)
@@ -1329,12 +1335,13 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement.planned_roles_json = json.dumps(planner_output.get("required_roles", []))
     requirement.active_workflow_run_id = _as_int(workflow_run.id)
     requirement.status = "ready"
-    _sync_requirement_execution_approval(
-        db,
-        requirement=requirement,
-        workflow_run=workflow_run,
-        planner_output=planner_output,
-    )
+    if normalize_requirement_approval_status(requirement.approval_status) not in {"approved", "waived"}:
+        _sync_requirement_execution_approval(
+            db,
+            requirement=requirement,
+            workflow_run=workflow_run,
+            planner_output=planner_output,
+        )
     db.commit()
     _logger.info(
         "event=requirement_planned requirement_id=%s plan_version=%s steps=%s acceptance_checks=%s",
@@ -1344,6 +1351,63 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         len(planner_output.get("acceptance_checks") or []),
     )
     return build_requirement_detail(db, requirement.id)
+
+
+def _record_planning_failure(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    reason: str,
+    trigger: str,
+) -> None:
+    requirement.status = "plan_failed"
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="planning_failure",
+        content_summary=f"Planning failed for requirement #{requirement.id}",
+        human_readable_body=reason,
+        machine_readable_payload={
+            "requirement_id": _as_int(requirement.id),
+            "trigger": trigger,
+            "reason": reason,
+            "failed_at": utcnow().isoformat(),
+        },
+    )
+
+
+def _plan_requirement_after_approval(
+    db: Session,
+    *,
+    requirement_id: int,
+    trigger: str,
+    raise_on_failure: bool,
+) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+    if int(requirement.current_plan_version or 0) > 0 and requirement.active_workflow_run_id is not None:
+        if requirement.status in {"draft", "planning", "plan_failed", "blocked"} and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
+            requirement.status = "ready"
+            db.commit()
+        return build_requirement_detail(db, requirement.id)
+
+    requirement.status = "planning"
+    db.commit()
+    try:
+        return plan_requirement(db, requirement_id)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        requirement = _require_requirement(db, requirement_id)
+        _record_planning_failure(
+            db,
+            requirement=requirement,
+            reason=str(exc),
+            trigger=trigger,
+        )
+        db.commit()
+        if raise_on_failure:
+            raise ValueError(f"Workflow planning failed: {exc}") from exc
+        return build_requirement_detail(db, requirement.id)
 
 
 def update_requirement_dependencies(db: Session, requirement_id: int, dependency_ids: list[int]) -> RequirementDetailOut:
@@ -1460,12 +1524,12 @@ def decide_requirement_approval(
         requirement.approval_status = "approved"
         requirement.approved_at = utcnow()
         if requirement.status == "blocked" and requirement.blocked_by_count == 0:
-            requirement.status = "ready"
+            requirement.status = "draft" if int(requirement.current_plan_version or 0) == 0 else "ready"
     elif action == "waive":
         requirement.approval_status = "waived"
         requirement.approved_at = utcnow()
         if requirement.status == "blocked" and requirement.blocked_by_count == 0:
-            requirement.status = "ready"
+            requirement.status = "draft" if int(requirement.current_plan_version or 0) == 0 else "ready"
     else:
         requirement.approval_status = "rejected"
         requirement.approved_at = None
@@ -1485,6 +1549,13 @@ def decide_requirement_approval(
         },
     )
     db.commit()
+    if action in {"approve", "waive"}:
+        return _plan_requirement_after_approval(
+            db,
+            requirement_id=requirement.id,
+            trigger="approval_decision",
+            raise_on_failure=False,
+        )
     return build_requirement_detail(db, requirement.id)
 
 
@@ -1673,7 +1744,7 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     requirement.planned_roles_json = None
     requirement.started_at = None
     requirement.completed_at = None
-    requirement.status = "ready"
+    requirement.status = "draft"
     requirement.approval_status = _default_requirement_approval_status(requirement)
     requirement.approval_requested_at = None
     requirement.approved_at = utcnow() if requirement.approval_status == "waived" else None
@@ -1716,6 +1787,8 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     )
     if requirement.status == "in_progress":
         return build_requirement_detail(db, requirement.id)
+    if requirement.status == "planning":
+        raise ValueError("Requirement is currently generating workflow plan.")
     _refresh_requirement_dependency_state(db, requirement)
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
@@ -1739,14 +1812,6 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
                 requirement.status = "ready"
             db.flush()
 
-    if int(requirement.current_plan_version or 0) == 0 or active_workflow_run is None:
-        plan_requirement(db, requirement_id)
-        requirement = _require_requirement(db, requirement_id)
-
-    workflow_run = _active_workflow_run(db, requirement)
-    if workflow_run is None:
-        raise ValueError("Requirement has no active workflow run. Plan it first.")
-
     current_approval_status = normalize_requirement_approval_status(requirement.approval_status)
     if current_approval_status in {"approved", "waived"}:
         approval_decision = {
@@ -1754,17 +1819,30 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
             "reason": "requirement already approved",
         }
     else:
-        approval_decision = _sync_requirement_execution_approval(
-            db,
-            requirement=requirement,
-            workflow_run=workflow_run,
-        )
+            approval_decision = _sync_requirement_execution_approval(
+                db,
+                requirement=requirement,
+                workflow_run=active_workflow_run,
+            )
     if normalize_requirement_approval_status(requirement.approval_status) in {"pending_approval", "rejected"}:
         db.commit()
         raise ValueError(
             "Requirement must be approved before automatic execution: "
             + str(approval_decision.get("reason") or "pending approval")
         )
+
+    if int(requirement.current_plan_version or 0) == 0 or active_workflow_run is None:
+        _plan_requirement_after_approval(
+            db,
+            requirement_id=requirement_id,
+            trigger="start_requirement",
+            raise_on_failure=True,
+        )
+        requirement = _require_requirement(db, requirement_id)
+
+    workflow_run = _active_workflow_run(db, requirement)
+    if workflow_run is None:
+        raise ValueError("Requirement has no active workflow run. Plan it first.")
 
     if workflow_run.status == "completed":
         return build_requirement_detail(db, requirement.id)

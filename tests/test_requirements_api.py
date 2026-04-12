@@ -294,6 +294,77 @@ def test_requirement_plan_auto_approves_low_risk_execution(synced_client, db_ses
     assert pending == 0
 
 
+def test_requirement_approval_auto_triggers_planning(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approval should auto-plan",
+            "description_markdown": "Approval should trigger planning without a separate plan button.",
+            "priority": "high",
+            "approval_contract": {
+                "approval_mode": "manual_required",
+                "required_approver_roles": ["request_owner", "reviewer", "tester"],
+                "fallback_reviewer": "operator",
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement after approval",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement_id}/approval/decide",
+            json={"action": "approve", "reviewer": "cto", "comment": "Proceed"},
+        )
+    assert approve_resp.status_code == 200
+    payload = approve_resp.json()
+    assert payload["requirement"]["approval_status"] == "approved"
+    assert payload["requirement"]["status"] == "ready"
+    assert payload["requirement"]["current_plan_version"] == 1
+    assert payload["workflow_run"]["plan_version"] == 1
+
+
+def test_requirement_approval_sets_plan_failed_when_auto_planning_fails(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approval can fail planning",
+            "description_markdown": "Planner failure should surface as plan_failed after approval.",
+            "approval_contract": {"approval_mode": "manual_required"},
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    with patch("server.services.workflow_orchestrator.build_planner_output", side_effect=RuntimeError("planner unavailable")):
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement_id}/approval/decide",
+            json={"action": "approve", "reviewer": "cto", "comment": "Try plan"},
+        )
+    assert approve_resp.status_code == 200
+    payload = approve_resp.json()
+    assert payload["requirement"]["approval_status"] == "approved"
+    assert payload["requirement"]["status"] == "plan_failed"
+    assert payload["requirement"]["current_plan_version"] == 0
+    assert any(artifact["artifact_type"] == "planning_failure" for artifact in payload["artifacts"])
+
+
 def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -310,6 +381,10 @@ def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_cl
     )
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
+
+    blocked_start = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert blocked_start.status_code == 400
+    assert "approved before automatic execution" in blocked_start.json()["detail"]
 
     provider = MagicMock()
     provider.call.return_value = (
@@ -329,28 +404,13 @@ def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_cl
         123,
     )
     with patch("server.services.workflow_planner.get_provider", return_value=provider):
-        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
-    assert plan_resp.status_code == 200
-    assert plan_resp.json()["requirement"]["approval_status"] == "pending_approval"
-
-    approval = db_session.query(ApprovalRequestRow).filter(
-        ApprovalRequestRow.requirement_id == requirement_id,
-        ApprovalRequestRow.approval_type == "requirement_execution_approval",
-        ApprovalRequestRow.status == "pending",
-    ).first()
-    assert approval is not None
-    assert approval.reviewer == "operator"
-
-    blocked_start = synced_client.post(f"/api/requirements/{requirement_id}/start")
-    assert blocked_start.status_code == 400
-    assert "approved before automatic execution" in blocked_start.json()["detail"]
-
-    approve_resp = synced_client.post(
-        f"/api/requirements/{requirement_id}/approval/decide",
-        json={"action": "approve", "reviewer": "cto", "comment": "Looks good"},
-    )
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement_id}/approval/decide",
+            json={"action": "approve", "reviewer": "cto", "comment": "Looks good"},
+        )
     assert approve_resp.status_code == 200
     assert approve_resp.json()["requirement"]["approval_status"] == "approved"
+    assert approve_resp.json()["requirement"]["current_plan_version"] == 1
 
     class FakeRuntime:
         def execute(self, *, task_description, **_kwargs):

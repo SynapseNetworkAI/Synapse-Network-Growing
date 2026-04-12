@@ -430,12 +430,12 @@ describe('RequirementDetail', () => {
     })
   })
 
-  it('allows starting an unplanned requirement and labels it as pending planning', async () => {
-    const unplannedDetail = {
+  it('shows automatic planning state after approval and disables direct start', async () => {
+    const planningDetail = {
       ...detail,
       requirement: {
         ...detail.requirement,
-        status: 'ready',
+        status: 'planning',
         approval_status: 'approved',
         approved_at: '2026-04-11T08:06:00Z',
         current_plan_version: 0,
@@ -443,8 +443,7 @@ describe('RequirementDetail', () => {
       },
       workflow_run: null,
     }
-    mockApi.getRequirement.mockResolvedValueOnce(unplannedDetail)
-    mockApi.startRequirement.mockResolvedValueOnce(detail)
+    mockApi.getRequirement.mockResolvedValueOnce(planningDetail)
 
     render(
       <MemoryRouter initialEntries={['/requirements/1']}>
@@ -456,14 +455,8 @@ describe('RequirementDetail', () => {
 
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
 
-    expect(screen.getByText('待规划')).toBeInTheDocument()
+    expect(screen.getByText('规划中')).toBeInTheDocument()
     expect(screen.getByTestId('planning-banner')).toBeInTheDocument()
-    expect(screen.getByTestId('start-requirement-btn')).not.toBeDisabled()
-
-    fireEvent.click(screen.getByTestId('start-requirement-btn'))
-
-    await waitFor(() => {
-      expect(mockApi.startRequirement).toHaveBeenCalledWith(1)
-    })
+    expect(screen.getByTestId('start-requirement-btn')).toBeDisabled()
   })
 })
