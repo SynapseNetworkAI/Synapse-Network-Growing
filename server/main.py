@@ -100,6 +100,7 @@ async def log_requests(request: Request, call_next):
             logger,
             "http_request",
             level=logging.ERROR,
+            exc_info=exc,
             request_id=request_id,
             method=request.method,
             path=request.url.path,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, utcnow
@@ -130,6 +130,45 @@ def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
     assert mock_intake.call_args.kwargs["source_key"] == "all"
     assert mock_intake.call_args.kwargs["min_score"] == 70
     assert mock_intake.call_args.kwargs["max_created"] == 3
+
+
+def test_run_morning_intake_workflow_serializes_datetime_incidents(synced_client):
+    with patch(
+        "server.services.recurring_workflows.intake_requirement_sources",
+        return_value={
+            "executed_sources": ["optimization_signal"],
+            "created_requirement_ids": [],
+            "reused_requirement_ids": [],
+            "skipped": [],
+            "items": [],
+        },
+    ), patch(
+        "server.services.recurring_workflows.list_optimization_signals",
+        return_value=[],
+    ), patch(
+        "server.services.recurring_workflows.list_open_incidents",
+        return_value=[
+            {
+                "incident_key": "incident-1",
+                "title": "Runtime incident",
+                "severity": "high",
+                "recovery_status": "operator_review_required",
+                "created_at": datetime(2026, 4, 12, 11, 0, tzinfo=timezone.utc),
+            }
+        ],
+    ), patch(
+        "server.services.recurring_workflows.latest_company_operating_review",
+        return_value=MagicMock(id=18),
+    ), patch(
+        "server.services.recurring_workflows.company_review_to_dict",
+        return_value={"next_cycle_requirement_bundle": []},
+    ):
+        response = synced_client.post("/api/recurring-workflows/morning_intake_sweep/run", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_key"] == "morning_intake_sweep"
+    assert payload["result"]["company_review_id"] == 18
 
 
 def test_run_dispatcher_loop_workflow_advances_requirement_queue(synced_client):

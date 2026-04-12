@@ -6,6 +6,26 @@ from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, Compa
 from server.services.company_review import refresh_company_operating_review
 
 
+def test_company_review_refresh_serializes_workflow_ritual_datetimes(synced_client, db_session):
+    synced_client.post("/api/recurring-workflows/sync")
+    morning = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "morning_intake_sweep").first()
+    assert morning is not None
+    morning.last_run_at = morning.created_at
+    morning.last_result_json = json.dumps(
+        {
+            "created_requirement_ids": [],
+            "operator_attention_items": [],
+            "requires_operator_review": False,
+        }
+    )
+    db_session.add(morning)
+    db_session.commit()
+
+    review = refresh_company_operating_review(db_session)
+    payload = json.loads(review.payload_json)
+    assert payload["source_snapshot"]["workflow_rituals"]["morning_intake_sweep"]["last_run_at"] is not None
+
+
 def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(synced_client, db_session):
     synced_client.post("/api/recurring-workflows/sync")
     morning = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "morning_intake_sweep").first()

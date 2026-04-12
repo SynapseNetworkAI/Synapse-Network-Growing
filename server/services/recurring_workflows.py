@@ -27,7 +27,12 @@ def _json_loads(raw: str | None, default: Any) -> Any:
 
 
 def _json_dumps(payload: Any) -> str:
-    return json.dumps(payload, ensure_ascii=False)
+    def _default(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return _ensure_utc(value).isoformat() if _ensure_utc(value) else None
+        return str(value)
+
+    return json.dumps(payload, ensure_ascii=False, default=_default)
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:

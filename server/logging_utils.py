@@ -29,9 +29,16 @@ def format_log_fields(**fields: Any) -> str:
     return " ".join(pairs)
 
 
-def log_event(logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields: Any) -> None:
+def log_event(
+    logger: logging.Logger,
+    event: str,
+    *,
+    level: int = logging.INFO,
+    exc_info: BaseException | bool | tuple[Any, Any, Any] | None = None,
+    **fields: Any,
+) -> None:
     payload = format_log_fields(event=event, **fields)
-    logger.log(level, payload or event)
+    logger.log(level, payload or event, exc_info=exc_info)
 
 
 @contextmanager
@@ -53,6 +60,7 @@ def timed_operation(
         outcome = "error"
         extra.setdefault("error_type", exc.__class__.__name__)
         extra.setdefault("error", str(exc))
+        log_event(logger, event, level=logging.ERROR, exc_info=exc, **fields, **extra)
         raise
     finally:
         duration_ms = round((time.perf_counter() - started) * 1000, 2)

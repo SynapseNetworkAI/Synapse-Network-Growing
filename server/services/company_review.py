@@ -36,6 +36,15 @@ def _json_loads(raw: str | None, default: Any) -> Any:
         return default
 
 
+def _json_dumps(value: Any) -> str:
+    def _default(item: Any) -> Any:
+        if isinstance(item, datetime):
+            return _ensure_utc(item).isoformat() if _ensure_utc(item) else None
+        return str(item)
+
+    return json.dumps(value, ensure_ascii=False, default=_default)
+
+
 def _cycle_label(now: datetime | None = None) -> str:
     moment = now or datetime.now(timezone.utc)
     iso = moment.isocalendar()
@@ -1473,7 +1482,7 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
         cycle_label=str(payload["cycle_label"]),
         title=str(payload["title"]),
         summary_markdown=str(payload["summary_markdown"]),
-        payload_json=json.dumps(
+        payload_json=_json_dumps(
             {
                 "portfolio_summary": payload["portfolio_summary"],
                 "project_highlights": payload["project_highlights"],
@@ -1488,7 +1497,6 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
                 "operator_review_package": payload["operator_review_package"],
                 "source_snapshot": payload["source_snapshot"],
             },
-            ensure_ascii=False,
         ),
     )
     db.add(row)
