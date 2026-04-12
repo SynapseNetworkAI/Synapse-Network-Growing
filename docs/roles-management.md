@@ -19,7 +19,7 @@ Synapse-Network-Growing 的组织架构 **由 `roles/` 目录驱动**。
     ↓
 自动读取 persona.md 的 YAML frontmatter
     ↓
-Agent 出现在"组织架构"页面 + 可被分配任务
+Agent 进入系统角色注册表 + 可被分配任务
 ```
 
 **不需要修改任何 Python 代码。**
@@ -50,7 +50,7 @@ author: CTO
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `role` | ✅ | 角色 ID，必须与 `roles/<role_id>/` 目录名一致 |
-| `display_name` | ✅ | Dashboard 上的显示名称 |
+| `display_name` | ✅ | Dashboard 与任务分配中的显示名称 |
 | `goal` | ✅ | 一句话职责描述 |
 | `skills` | ✅ | YAML 数组，对应 `.agents/skills/` 下的技能包 |
 | `status` | ✅ | `draft`/`review`/`ready`/`published` |
@@ -156,7 +156,7 @@ roles/<role_id>/
 AGENTS.md                       → 人类可读的组织架构文档（协议层）
 roles/*/prompts/persona.md      → Agent 可读的角色定义（执行层）
 server/services/agent_loader.py → 自动扫描 persona.md（数据层）
-Dashboard "组织架构"页面          → 可视化展示（展示层）
+Dashboard / 调度 / 验收 / Ritual → 运行时使用这些角色（展示与执行层）
 ```
 
 四层保持一致的方式：

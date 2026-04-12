@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 
 from server.database import ApprovalRequestRow, ApprovalRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow, TaskRow
 from server.services.acceptance import acceptance_contract_for_requirement
+from server.services.requirement_approval import (
+    normalize_requirement_approval_status,
+    requirement_approval_contract_for_requirement,
+)
 from server.services.project_onboarding import project_onboarding_to_dict
 from server.services.project_policy import list_project_policies, project_policy_to_dict, resolve_project_policies_for_target
 
@@ -652,6 +656,10 @@ def serialize_requirement(
         "intake_metadata": requirement_intake_metadata_for_requirement(requirement),
         "target_project_path": getattr(requirement, "target_project_path", None),
         "acceptance_contract": acceptance_contract_for_requirement(requirement),
+        "approval_status": normalize_requirement_approval_status(getattr(requirement, "approval_status", None)),
+        "approval_contract": requirement_approval_contract_for_requirement(requirement),
+        "approval_requested_at": getattr(requirement, "approval_requested_at", None),
+        "approved_at": getattr(requirement, "approved_at", None),
         "current_plan_version": int(requirement.current_plan_version or 0),
         "blocked_by_count": int(requirement.blocked_by_count or 0),
         "active_workflow_run_id": int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None,

@@ -14,6 +14,7 @@ from server.logging_utils import timed_operation
 from server.schemas import (
     AcceptanceDispatchRequest,
     AcceptanceDispatchResultOut,
+    RequirementApprovalDecisionRequest,
     RequirementCreate,
     RequirementDependencyUpdate,
     RequirementDetailOut,
@@ -35,6 +36,7 @@ from server.services.workflow_orchestrator import (
     build_requirement_detail,
     close_requirement,
     create_requirement,
+    decide_requirement_approval,
     delete_requirement,
     dispatch_acceptance_sweep,
     patch_requirement,
@@ -215,6 +217,24 @@ def plan_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)
 def start_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return start_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/approval/decide", response_model=RequirementDetailOut)
+def decide_requirement_approval_endpoint(
+    requirement_id: int,
+    body: RequirementApprovalDecisionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return decide_requirement_approval(
+            db,
+            requirement_id,
+            action=body.action,
+            reviewer=body.reviewer,
+            comment=body.comment,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

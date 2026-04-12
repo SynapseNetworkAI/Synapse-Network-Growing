@@ -10,7 +10,8 @@
 
 1. 把 `roles/*` 从 persona 文档升级成岗位契约
 2. 把 requirement 的验收责任做成正式 acceptance contract
-3. 给 acceptance sweep 预留可定时触发的 dispatcher 骨架
+3. 把 requirement 的执行前放行做成正式 approval contract
+4. 给 acceptance sweep 预留可定时触发的 dispatcher 骨架
 
 实现：
 
@@ -26,8 +27,10 @@
    8. `portfolio_operator`
 3. 组织架构页增加 role contract 摘要
 4. requirement 新增 `acceptance_contract`
-5. planner / validation plan 输出 `acceptance_owner_role / acceptance_mode / acceptance_trigger`
-6. 新增 `acceptance dispatcher` 骨架接口，供定时任务后续接入
+5. requirement 新增 `approval_status / approval_contract`
+6. planner 后按 complexity tier / project count / incident 属性自动判定 auto-approve 还是 pending approval
+7. scheduler 与 start 只允许 `approved / waived` requirement 自动执行
+8. 新增 `acceptance dispatcher` 骨架接口，供定时任务后续接入
 
 ### P0-R2 Requirement Source Registry
 

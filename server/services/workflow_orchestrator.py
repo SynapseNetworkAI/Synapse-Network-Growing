@@ -66,6 +66,13 @@ from server.services.copilot_sdk_state import (
 )
 from server.services.execution_resolver import suggest_task_execution
 from server.services.acceptance import acceptance_contract_for_requirement, list_acceptance_dispatch_candidates, normalize_acceptance_contract
+from server.services.requirement_approval import (
+    approval_request_reviewer,
+    evaluate_requirement_execution_approval,
+    normalize_requirement_approval_contract,
+    normalize_requirement_approval_status,
+    requirement_approval_contract_for_requirement,
+)
 from server.services.project_policy import project_policy_summary_markdown, project_policy_to_dict, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
 from server.services.requirement_sources import normalize_requirement_intake_metadata
@@ -135,6 +142,109 @@ def _step_execution_profile(step: WorkflowStepRow) -> dict[str, Any]:
 
 def _write_step_execution_profile(step: WorkflowStepRow, payload: dict[str, Any]) -> None:
     step.execution_profile_json = _json_dumps(payload or {})
+
+
+def _default_requirement_approval_status(requirement: RequirementRow) -> str:
+    contract = requirement_approval_contract_for_requirement(requirement)
+    if str(contract.get("approval_mode") or "") == "waived":
+        return "waived"
+    return "pending_approval"
+
+
+def _record_requirement_approval_artifact(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    content_summary: str,
+    payload: dict[str, Any],
+) -> None:
+    _create_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        artifact_type="requirement_approval_state",
+        content_summary=content_summary,
+        human_readable_body=str(payload.get("reason") or payload.get("approval_status") or "requirement approval updated"),
+        machine_readable_payload=payload,
+    )
+
+
+def _sync_requirement_execution_approval(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    planner_output: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    contract = requirement_approval_contract_for_requirement(requirement)
+    decision = evaluate_requirement_execution_approval(
+        requirement,
+        planner_output=planner_output,
+        workflow_run=workflow_run,
+    )
+    reviewer = approval_request_reviewer(requirement, contract)
+    pending_request = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.approval_type == "requirement_execution_approval",
+        ApprovalRequestRow.status == "pending",
+    ).order_by(ApprovalRequestRow.id.desc()).first()
+
+    target_status = normalize_requirement_approval_status(decision.get("approval_status"))
+    if target_status in {"approved", "waived"}:
+        requirement.approval_status = target_status
+        requirement.approval_requested_at = None
+        requirement.approved_at = requirement.approved_at or utcnow()
+        if pending_request is not None:
+            pending_request.status = "approved"
+            pending_request.reviewer = "system"
+            pending_request.decided_at = utcnow()
+            pending_request.comment = str(decision.get("reason") or "Automatically approved by requirement approval contract")
+        _record_requirement_approval_artifact(
+            db,
+            requirement=requirement,
+            workflow_run=workflow_run,
+            content_summary=f"Requirement #{requirement.id} {target_status}",
+            payload={
+                "approval_status": target_status,
+                "reason": str(decision.get("reason") or ""),
+                "approval_contract": contract,
+                "approval_context": dict(decision.get("context") or {}),
+                "required_approver_roles": list(contract.get("required_approver_roles") or []),
+            },
+        )
+        return decision
+
+    requirement.approval_status = "pending_approval"
+    requirement.approved_at = None
+    requirement.approval_requested_at = requirement.approval_requested_at or utcnow()
+    if pending_request is None:
+        db.add(
+            ApprovalRequestRow(
+                requirement_id=requirement.id,
+                workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+                step_id=None,
+                approval_type="requirement_execution_approval",
+                status="pending",
+                reviewer=reviewer,
+                comment=str(decision.get("reason") or "Requirement requires approval before automatic execution"),
+            )
+        )
+    _record_requirement_approval_artifact(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        content_summary=f"Requirement #{requirement.id} pending approval",
+        payload={
+            "approval_status": "pending_approval",
+            "reason": str(decision.get("reason") or ""),
+            "approval_contract": contract,
+            "approval_context": dict(decision.get("context") or {}),
+            "required_approver_roles": list(contract.get("required_approver_roles") or []),
+            "reviewer": reviewer,
+        },
+    )
+    return decision
 
 
 def _workflow_run_has_running_steps(db: Session, workflow_run_id: int) -> bool:
@@ -1016,7 +1126,11 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
             str(routing_context.get("target_project_path") or "") or requested_target
         ),
         acceptance_contract_json=json.dumps(normalize_acceptance_contract(body.acceptance_contract), ensure_ascii=False),
+        approval_contract_json=json.dumps(normalize_requirement_approval_contract(body.approval_contract), ensure_ascii=False),
     )
+    requirement.approval_status = _default_requirement_approval_status(requirement)
+    if requirement.approval_status == "waived":
+        requirement.approved_at = utcnow()
     db.add(requirement)
     db.flush()
     _create_artifact(
@@ -1053,6 +1167,18 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
             f"Trigger: {acceptance_contract.get('acceptance_trigger')}"
         ),
         machine_readable_payload=acceptance_contract,
+    )
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="requirement_approval_contract",
+        content_summary=f"Requirement approval contract for requirement #{requirement.id}",
+        human_readable_body=(
+            f"Approval status: {requirement.approval_status}\n"
+            f"Mode: {requirement_approval_contract_for_requirement(requirement).get('approval_mode')}\n"
+            f"Fallback reviewer: {requirement_approval_contract_for_requirement(requirement).get('fallback_reviewer')}"
+        ),
+        machine_readable_payload=requirement_approval_contract_for_requirement(requirement),
     )
     if body.template_key or body.template_payload or body.template_acceptance_checks:
         template_payload = dict(body.template_payload or {})
@@ -1203,6 +1329,12 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     requirement.planned_roles_json = json.dumps(planner_output.get("required_roles", []))
     requirement.active_workflow_run_id = _as_int(workflow_run.id)
     requirement.status = "ready"
+    _sync_requirement_execution_approval(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        planner_output=planner_output,
+    )
     db.commit()
     _logger.info(
         "event=requirement_planned requirement_id=%s plan_version=%s steps=%s acceptance_checks=%s",
@@ -1231,20 +1363,25 @@ def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) 
     _ensure_requirement_not_deleted(requirement)
     if requirement.status == "in_progress":
         raise ValueError("Cannot edit a requirement that is currently in progress.")
+    reset_approval = False
     if body.title is not None:
         if not body.title.strip():
             raise ValueError("title cannot be blank")
         requirement.title = body.title.strip()
+        reset_approval = True
     if body.description_markdown is not None:
         if not body.description_markdown.strip():
             raise ValueError("description_markdown cannot be blank")
         requirement.description_markdown = body.description_markdown.strip()
+        reset_approval = True
     if body.priority is not None:
         if body.priority not in {"low", "normal", "high"}:
             raise ValueError("priority must be low|normal|high")
         requirement.priority = body.priority
+        reset_approval = True
     if body.source_ref is not None:
         requirement.source_ref = body.source_ref
+        reset_approval = True
     if body.intake_metadata is not None or body.source_ref is not None:
         requirement.intake_metadata_json = json.dumps(
             normalize_requirement_intake_metadata(
@@ -1254,13 +1391,25 @@ def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) 
             ),
             ensure_ascii=False,
         )
+        reset_approval = True
     if body.target_project_path is not None:
         requirement.target_project_path = _normalize_target_project_path(body.target_project_path)
+        reset_approval = True
     if body.acceptance_contract is not None:
         requirement.acceptance_contract_json = json.dumps(
             normalize_acceptance_contract(body.acceptance_contract),
             ensure_ascii=False,
         )
+    if body.approval_contract is not None:
+        requirement.approval_contract_json = json.dumps(
+            normalize_requirement_approval_contract(body.approval_contract),
+            ensure_ascii=False,
+        )
+        reset_approval = True
+    if reset_approval:
+        requirement.approval_status = _default_requirement_approval_status(requirement)
+        requirement.approval_requested_at = None
+        requirement.approved_at = utcnow() if requirement.approval_status == "waived" else None
     db.commit()
     return build_requirement_detail(db, requirement.id)
 
@@ -1280,6 +1429,63 @@ def dispatch_acceptance_sweep(db: Session, *, limit: int = 20, auto_dispatch: bo
         "dispatched_requirement_ids": dispatched_requirement_ids,
         "candidates": candidates,
     }
+
+
+def decide_requirement_approval(
+    db: Session,
+    requirement_id: int,
+    *,
+    action: str,
+    reviewer: str,
+    comment: str = "",
+) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+    workflow_run = _active_workflow_run(db, requirement)
+    if action not in {"approve", "reject", "waive"}:
+        raise ValueError("action must be approve|reject|waive")
+
+    pending = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement.id,
+        ApprovalRequestRow.approval_type == "requirement_execution_approval",
+        ApprovalRequestRow.status == "pending",
+    ).all()
+    for approval in pending:
+        approval.status = "approved" if action in {"approve", "waive"} else "rejected"
+        approval.reviewer = reviewer
+        approval.comment = comment or approval.comment
+        approval.decided_at = utcnow()
+
+    if action == "approve":
+        requirement.approval_status = "approved"
+        requirement.approved_at = utcnow()
+        if requirement.status == "blocked" and requirement.blocked_by_count == 0:
+            requirement.status = "ready"
+    elif action == "waive":
+        requirement.approval_status = "waived"
+        requirement.approved_at = utcnow()
+        if requirement.status == "blocked" and requirement.blocked_by_count == 0:
+            requirement.status = "ready"
+    else:
+        requirement.approval_status = "rejected"
+        requirement.approved_at = None
+        requirement.status = "blocked"
+    requirement.approval_requested_at = None
+    _record_requirement_approval_artifact(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        content_summary=f"Requirement #{requirement.id} approval {action}",
+        payload={
+            "approval_status": requirement.approval_status,
+            "action": action,
+            "reviewer": reviewer,
+            "comment": comment,
+            "approval_contract": requirement_approval_contract_for_requirement(requirement),
+        },
+    )
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
 
 
 def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
@@ -1468,6 +1674,9 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     requirement.started_at = None
     requirement.completed_at = None
     requirement.status = "ready"
+    requirement.approval_status = _default_requirement_approval_status(requirement)
+    requirement.approval_requested_at = None
+    requirement.approved_at = utcnow() if requirement.approval_status == "waived" else None
 
     _create_artifact(
         db,
@@ -1537,6 +1746,25 @@ def start_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     workflow_run = _active_workflow_run(db, requirement)
     if workflow_run is None:
         raise ValueError("Requirement has no active workflow run. Plan it first.")
+
+    current_approval_status = normalize_requirement_approval_status(requirement.approval_status)
+    if current_approval_status in {"approved", "waived"}:
+        approval_decision = {
+            "approval_status": current_approval_status,
+            "reason": "requirement already approved",
+        }
+    else:
+        approval_decision = _sync_requirement_execution_approval(
+            db,
+            requirement=requirement,
+            workflow_run=workflow_run,
+        )
+    if normalize_requirement_approval_status(requirement.approval_status) in {"pending_approval", "rejected"}:
+        db.commit()
+        raise ValueError(
+            "Requirement must be approved before automatic execution: "
+            + str(approval_decision.get("reason") or "pending approval")
+        )
 
     if workflow_run.status == "completed":
         return build_requirement_detail(db, requirement.id)

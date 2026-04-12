@@ -377,6 +377,10 @@ export interface Requirement {
   source: string
   source_ref: string | null
   target_project_path: string | null
+  approval_status: string
+  approval_contract: Record<string, unknown>
+  approval_requested_at: string | null
+  approved_at: string | null
   current_plan_version: number
   blocked_by_count: number
   active_workflow_run_id: number | null
@@ -562,20 +566,10 @@ export interface RequirementDetail {
   }>
 }
 
-export interface OrgNode {
-  id: string
-  display_name: string
-  type: 'org' | 'group' | 'agent'
-  goal: string
-  icon?: string
-  color?: string
-  project?: string
-  skills?: string[]
-  children?: OrgNode[]
-}
-
-export interface OrgTree {
-  root: OrgNode
+export interface RequirementApprovalDecision {
+  action: 'approve' | 'reject' | 'waive'
+  reviewer?: string
+  comment?: string | null
 }
 
 export interface OperatingReviewPortfolioSummary {
@@ -785,7 +779,6 @@ export const api = {
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
 
   // Org tree
-  getOrgTree: () => request<OrgTree>('/org'),
   getCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review'),
   materializeCompanyReviewBundle: (reviewId: number, data?: { bundle_item_keys?: string[]; auto_start?: boolean }) =>
     request<CompanyReviewBundleMaterializeResult>(`/company-review/${reviewId}/materialize-bundle`, {
@@ -975,6 +968,8 @@ export const api = {
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
   startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
+  decideRequirementApproval: (id: number, data: RequirementApprovalDecision) =>
+    request<RequirementDetail>(`/requirements/${id}/approval/decide`, { method: 'POST', body: JSON.stringify(data) }),
   pauseRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/pause`, { method: 'POST' }),
   publishRequirement: (id: number, data: { completed_checks?: string[]; note?: string | null }) =>
     request<RequirementDetail>(`/requirements/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }),

@@ -96,6 +96,46 @@
 3. 模型可以在目标项目范围内自由决定 docs/code/mixed change shape
 4. validation 会根据实际变更到的项目动态收集 `project_change_summary`，再进入 review/test/closeout
 
+## 1.1B Requirement Approval Contract
+
+acceptance contract 负责“做完后谁来验收”，requirement approval contract 负责“开始前谁来放行”。
+
+当前 requirement 级审批状态定义为：
+
+1. `pending_approval`
+2. `approved`
+3. `rejected`
+4. `waived`
+
+边界约束：
+
+1. `approval_status` 决定 requirement 能不能进入自动执行
+2. `workflow status` 只表达执行进度，不再混用成审批状态
+3. step 级 `operator_confirmation` 仍保留，但它只约束单个 step，不替代 requirement 级审批
+
+当前 approval contract 默认字段为：
+
+1. `approval_mode`
+   1. `auto_or_human`
+   2. `manual_required`
+   3. `waived`
+2. `required_approver_roles`
+3. `fallback_reviewer`
+4. `auto_approve`
+   1. `max_priority`
+   2. `max_complexity_tier`
+   3. `single_project_only`
+   4. `allow_incident_recovery`
+
+实际行为：
+
+1. requirement 创建后默认先进入 `pending_approval`
+2. `plan` 会根据 planner 产出的 complexity tier、目标项目数量、incident 属性尝试 auto-approve
+3. 自动审批失败时会生成 `requirement_execution_approval`
+4. `scheduler` 只调度 `approved / waived`
+5. `start` 会再次检查 approval status，未审批不能进入自动执行
+6. 人工审批后 requirement 才会真正开始自动执行
+
 ## 1.2 新增的执行约束层
 
 现在 `project policy` 不再只负责路径和发布模式，还负责显式执行约束。

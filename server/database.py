@@ -162,6 +162,10 @@ class RequirementRow(Base):
     intake_metadata_json = Column(Text, nullable=False, default="{}")
     target_project_path = Column(Text)
     acceptance_contract_json = Column(Text, nullable=False, default="{}")
+    approval_status = Column(Text, nullable=False, default="pending_approval")
+    approval_contract_json = Column(Text, nullable=False, default="{}")
+    approval_requested_at = Column(DateTime)
+    approved_at = Column(DateTime)
     current_plan_version = Column(Integer, nullable=False, default=0)
     planned_roles_json = Column(Text, nullable=False, default="[]")
     blocked_by_count = Column(Integer, nullable=False, default=0)
@@ -558,6 +562,26 @@ def _migrate(engine_):
             logger.info("Migrating: adding 'acceptance_contract_json' column to requirements table")
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN acceptance_contract_json TEXT DEFAULT '{}'"))
+                conn.commit()
+        if "approval_status" not in existing:
+            logger.info("Migrating: adding 'approval_status' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_status TEXT DEFAULT 'pending_approval'"))
+                conn.commit()
+        if "approval_contract_json" not in existing:
+            logger.info("Migrating: adding 'approval_contract_json' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_contract_json TEXT DEFAULT '{}'"))
+                conn.commit()
+        if "approval_requested_at" not in existing:
+            logger.info("Migrating: adding 'approval_requested_at' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_requested_at DATETIME"))
+                conn.commit()
+        if "approved_at" not in existing:
+            logger.info("Migrating: adding 'approved_at' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN approved_at DATETIME"))
                 conn.commit()
 
     if "recurring_workflows" not in tables:

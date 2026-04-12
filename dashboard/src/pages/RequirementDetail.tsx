@@ -25,6 +25,20 @@ const STATUS_CLASS: Record<string, string> = {
   deleted: 'bg-zinc-200 text-zinc-700',
 }
 
+const APPROVAL_LABEL: Record<string, string> = {
+  pending_approval: '待审批',
+  approved: '已批准',
+  rejected: '已拒绝',
+  waived: '已豁免',
+}
+
+const APPROVAL_CLASS: Record<string, string> = {
+  pending_approval: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+  waived: 'bg-slate-200 text-slate-700',
+}
+
 const STEP_STATUS_CLASS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-700',
   ready: 'bg-sky-50 text-sky-700',
@@ -84,6 +98,8 @@ export default function RequirementDetail() {
   const [showRevise, setShowRevise] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [decidingApproval, setDecidingApproval] = useState(false)
+  const [approvalComment, setApprovalComment] = useState('')
   const [revisionForm, setRevisionForm] = useState({
     title: '',
     description_markdown: '',
@@ -168,6 +184,21 @@ export default function RequirementDetail() {
     }
   }
 
+  const handleApprovalDecision = async (action: 'approve' | 'reject' | 'waive') => {
+    setDecidingApproval(true)
+    try {
+      const data = await api.decideRequirementApproval(requirementId, {
+        action,
+        reviewer: 'cto',
+        comment: approvalComment.trim() || null,
+      })
+      setApprovalComment('')
+      setDetail(data)
+    } finally {
+      setDecidingApproval(false)
+    }
+  }
+
   const toggleDependency = (values: number[], rid: number) =>
     values.includes(rid) ? values.filter((v) => v !== rid) : [...values, rid]
 
@@ -184,6 +215,8 @@ export default function RequirementDetail() {
 
   const req = detail.requirement
   const displayState = getRequirementDisplayState(req)
+  const approvalLabel = APPROVAL_LABEL[req.approval_status] || req.approval_status
+  const approvalClass = APPROVAL_CLASS[req.approval_status] || APPROVAL_CLASS.pending_approval
   const deliveryState = detail.delivery_state
   const targetProjectPaths = getTargetProjectPaths(req.target_project_path)
   const planArtifact = detail.artifacts
@@ -228,6 +261,9 @@ export default function RequirementDetail() {
   const activeContextPolicy = parsePayload(activeContextStep?.context_policy_json ?? null)
   const activeExecutionProfile = parsePayload(activeContextStep?.execution_profile_json ?? null)
 
+  const canStartRequirement = !['blocked', 'done', 'deleted'].includes(req.status)
+    && ['approved', 'waived'].includes(req.approval_status)
+
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
       {/* Breadcrumb */}
@@ -246,6 +282,9 @@ export default function RequirementDetail() {
               <span className={`rounded-full px-2 py-1 font-medium ${displayState.className}`}>
                 {displayState.label}
               </span>
+              <span data-testid="requirement-approval-badge" className={`rounded-full px-2 py-1 font-medium ${approvalClass}`}>
+                审批: {approvalLabel}
+              </span>
               <span>Priority: {req.priority}</span>
               <span>Plan v{req.current_plan_version}</span>
             </div>
@@ -254,7 +293,8 @@ export default function RequirementDetail() {
             <button
               data-testid="start-requirement-btn"
               className="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={req.status === 'blocked' || req.status === 'done' || req.status === 'deleted'}
+              disabled={!canStartRequirement && req.status !== 'in_progress'}
+              title={!canStartRequirement && req.status !== 'in_progress' ? `当前审批状态为 ${approvalLabel}，需审批通过后才能自动执行` : undefined}
               onClick={() => {
                 if (req.status === 'in_progress') {
                   handlePause().catch(() => {})
@@ -285,6 +325,12 @@ export default function RequirementDetail() {
         {req.current_plan_version === 0 && req.status === 'ready' && (
           <div data-testid="planning-banner" className="px-4 py-3 text-sm text-sky-700 border border-sky-200 rounded-xl bg-sky-50">
             当前需求尚未生成 workflow plan。点击“启动执行”时，系统会先自动规划，再进入执行。
+          </div>
+        )}
+
+        {!['approved', 'waived'].includes(req.approval_status) && (
+          <div data-testid="approval-banner" className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            当前需求审批状态为 {approvalLabel}。审批通过或豁免后，才会进入自动执行。
           </div>
         )}
 
@@ -357,6 +403,68 @@ export default function RequirementDetail() {
                     {targetProjectPaths.map((projectPath) => (
                       <div key={projectPath} className="break-all">{projectPath}</div>
                     ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="p-4 border rounded-xl bg-slate-50" data-testid="requirement-approval-panel">
+              <div className="mb-3 text-sm font-semibold">Execution Approval</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
+                  <div className="mb-2 font-medium text-gray-900">Approval Status</div>
+                  <div>status: {approvalLabel}</div>
+                  <div>mode: {String(req.approval_contract?.approval_mode || '-')}</div>
+                  <div>requested at: {req.approval_requested_at || '-'}</div>
+                  <div>approved at: {req.approved_at || '-'}</div>
+                </div>
+                <div className="rounded-lg border bg-white p-3 text-xs text-gray-600">
+                  <div className="mb-2 font-medium text-gray-900">Required Roles</div>
+                  {Array.isArray(req.approval_contract?.required_approver_roles) && req.approval_contract.required_approver_roles.length > 0 ? (
+                    <div className="space-y-1">
+                      {(req.approval_contract.required_approver_roles as string[]).map((role) => (
+                        <div key={role}>{role}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>-</div>
+                  )}
+                </div>
+              </div>
+              {req.approval_status === 'pending_approval' && (
+                <div className="mt-3 rounded-lg border bg-white p-3">
+                  <input
+                    data-testid="requirement-approval-comment"
+                    className="mb-2 w-full rounded border px-3 py-2 text-sm"
+                    placeholder="审批意见（可选）"
+                    value={approvalComment}
+                    onChange={(e) => setApprovalComment(e.target.value)}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      data-testid="approve-requirement-btn"
+                      className="rounded bg-green-600 px-4 py-2 text-xs text-white hover:bg-green-700 disabled:opacity-50"
+                      disabled={decidingApproval}
+                      onClick={() => { handleApprovalDecision('approve').catch(() => {}) }}
+                    >
+                      批准执行
+                    </button>
+                    <button
+                      data-testid="waive-requirement-btn"
+                      className="rounded bg-slate-700 px-4 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-50"
+                      disabled={decidingApproval}
+                      onClick={() => { handleApprovalDecision('waive').catch(() => {}) }}
+                    >
+                      豁免审批
+                    </button>
+                    <button
+                      data-testid="reject-requirement-btn"
+                      className="rounded bg-red-600 px-4 py-2 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                      disabled={decidingApproval}
+                      onClick={() => { handleApprovalDecision('reject').catch(() => {}) }}
+                    >
+                      拒绝
+                    </button>
                   </div>
                 </div>
               )}

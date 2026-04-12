@@ -24,6 +24,20 @@ const STATUS_CLASS: Record<string, string> = {
   deleted: 'bg-zinc-200 text-zinc-700',
 }
 
+const APPROVAL_LABEL: Record<string, string> = {
+  pending_approval: '待审批',
+  approved: '已批准',
+  rejected: '已拒绝',
+  waived: '已豁免',
+}
+
+const APPROVAL_CLASS: Record<string, string> = {
+  pending_approval: 'bg-yellow-100 text-yellow-700',
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+  waived: 'bg-slate-200 text-slate-700',
+}
+
 function getRequirementDisplayState(requirement: Requirement) {
   if (requirement.status === 'ready' && requirement.current_plan_version === 0 && !requirement.active_workflow_run_id) {
     return {
@@ -648,9 +662,13 @@ export default function RequirementPool() {
           const routingContext = requirement.routing_context
           const projectScorecards = routingContext?.project_scorecards || []
           const schedulerDecision = decisionByRequirementId.get(requirement.id)
-          const startBlockedReason = !isRunning && schedulerDecision && schedulerDecision.action !== 'start'
+          const approvalBlockedReason = !['approved', 'waived'].includes(requirement.approval_status)
+            ? `当前审批状态为 ${APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}`
+            : ''
+          const schedulerBlockedReason = !isRunning && schedulerDecision && schedulerDecision.action !== 'start'
             ? (schedulerDecision.reason || schedulerDecision.reasons[0] || '')
             : ''
+          const startBlockedReason = approvalBlockedReason || schedulerBlockedReason
           let toggleLabel = '启动'
           if (actioningRequirementId === requirement.id) {
             toggleLabel = '处理中…'
@@ -746,6 +764,11 @@ export default function RequirementPool() {
                       <span>signal urgency: {requirement.score_breakdown?.signal_urgency ?? 0}</span>
                     )}
                   </div>
+                  {!['approved', 'waived'].includes(requirement.approval_status) && (
+                    <div className="mt-2 rounded-md bg-yellow-50 px-3 py-2 text-[11px] text-yellow-800">
+                      执行审批：{APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
                     <span>优先级: {requirement.priority}</span>
                     <span>阻塞: {requirement.blocked_by_count}</span>
@@ -799,6 +822,12 @@ export default function RequirementPool() {
                   )}
                   <span className={`rounded-full px-2 py-1 text-xs font-medium ${displayState.className}`}>
                     {displayState.label}
+                  </span>
+                  <span
+                    data-testid={`requirement-approval-badge-${requirement.id}`}
+                    className={`rounded-full px-2 py-1 text-xs font-medium ${APPROVAL_CLASS[requirement.approval_status] || APPROVAL_CLASS.pending_approval}`}
+                  >
+                    {APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}
                   </span>
                 </div>
               </div>

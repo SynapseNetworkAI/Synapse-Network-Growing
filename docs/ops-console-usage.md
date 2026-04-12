@@ -28,7 +28,7 @@ Company Review
 
 当前操作台的核心页面有：
 
-1. `/` 组织架构与公司级 review
+1. `/` COO 驾驶舱与公司级 review
 2. `/requirements` 需求池
 3. `/requirements/:id` 需求详情
 4. `/optimization-signals` 优化信号
@@ -77,20 +77,18 @@ Company Review
 
 ### 读取后端
 
-1. `GET /api/org`
-2. `GET /api/dashboard/stats`
-3. `GET /api/company-review`
-4. `POST /api/company-review/{id}/materialize-bundle`
-5. `GET /api/recurring-workflows`
-6. `POST /api/recurring-workflows/{workflow_key}/run`
+1. `GET /api/dashboard/stats`
+2. `GET /api/company-review`
+3. `POST /api/company-review/{id}/materialize-bundle`
+4. `GET /api/recurring-workflows`
+5. `POST /api/recurring-workflows/{workflow_key}/run`
 
 ### 你能做什么
 
-1. 看组织图和 Agent 分组。
-2. 看任务、审批、活跃 requirement 等统计。
-3. 看 incidents、next-cycle recommendations、requirement bundle。
-4. 运行 daily / weekly ritual。
-5. 把下一周期推荐 bundle 直接 materialize 成真实 requirement。
+1. 看任务、审批、活跃 requirement 等统计。
+2. 看 incidents、next-cycle recommendations、requirement bundle。
+3. 运行 daily / weekly ritual。
+4. 把下一周期推荐 bundle 直接 materialize 成真实 requirement。
 
 ### 推荐使用方式
 
@@ -315,24 +313,32 @@ CODEX_CLI_MODEL=gpt-5-codex
 
 ### 模块功能
 
-审批中心负责处理需要人工决策的执行结果。
+审批中心负责处理需要人工决策的执行结果，现在同时覆盖两类对象：
+
+1. task approval：高风险 task 输出需要 operator 决策。
+2. requirement execution approval：requirement 在自动执行前，需要先完成执行审批。
 
 ### 读取后端
 
 1. `GET /api/approvals`
 2. `POST /api/approvals/{id}/decide`
 3. `POST /api/approvals/bulk-decide`
+4. `GET /api/requirements`
+5. `POST /api/requirements/{id}/approval/decide`
 
 ### 你能做什么
 
-1. 查看待审批项。
-2. 单个 approve / reject。
-3. 批量 approve / reject。
-4. 填审批意见。
+1. 查看待审批的 task approvals。
+2. 查看待审批的 requirement execution approvals。
+3. 对 task approval 做单个或批量 approve / reject。
+4. 对 requirement execution approval 做 approve / reject / waive。
+5. 填审批意见。
 
 ### 推荐使用方式
 
 审批应该只覆盖高风险边界，而不是代替普通执行。
+
+推荐先处理 requirement execution approval，再处理 task approval。因为 requirement 未放行时，后续自动执行链不会真正开始。
 
 ## 3. 系统如何使用
 

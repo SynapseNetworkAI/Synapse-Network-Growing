@@ -643,6 +643,7 @@ class RequirementCreate(BaseModel):
     template_payload: Optional[dict[str, object]] = None
     template_acceptance_checks: list[dict[str, object]] = []
     acceptance_contract: Optional[dict[str, object]] = None
+    approval_contract: Optional[dict[str, object]] = None
 
 
 class RequirementDependencyUpdate(BaseModel):
@@ -665,6 +666,13 @@ class RequirementPatch(BaseModel):
     intake_metadata: Optional[dict[str, object]] = None
     target_project_path: Optional[str] = None
     acceptance_contract: Optional[dict[str, object]] = None
+    approval_contract: Optional[dict[str, object]] = None
+
+
+class RequirementApprovalDecisionRequest(BaseModel):
+    action: str  # approve | reject | waive
+    reviewer: str = "operator"
+    comment: str = ""
 
 
 class RequirementPublishRequest(BaseModel):
@@ -863,6 +871,10 @@ class RequirementOut(BaseModel):
     intake_metadata: dict[str, object] = {}
     target_project_path: Optional[str] = None
     acceptance_contract: dict[str, object] = {}
+    approval_status: str = "pending_approval"
+    approval_contract: dict[str, object] = {}
+    approval_requested_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
     current_plan_version: int
     blocked_by_count: int
     active_workflow_run_id: Optional[int] = None

@@ -233,6 +233,7 @@ def build_portfolio_schedule(
     ready_requirements = db.query(RequirementRow).filter(
         RequirementRow.status == "ready",
         RequirementRow.blocked_by_count == 0,
+        RequirementRow.approval_status.in_(("approved", "waived")),
     ).all()
 
     project_active_counts: dict[str, int] = {}

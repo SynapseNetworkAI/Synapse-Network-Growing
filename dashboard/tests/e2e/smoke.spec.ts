@@ -293,42 +293,6 @@ const taskHistory = [
   },
 ]
 
-const orgTree = {
-  root: {
-    id: 'roles',
-    display_name: '真实 Agent 角色',
-    type: 'org',
-    goal: 'Only roles discovered from roles/* are rendered here.',
-    children: [
-      {
-        id: 'group-content',
-        display_name: 'content',
-        type: 'group',
-        goal: '2 discovered roles',
-        color: 'blue',
-        children: [
-          {
-            id: 'content_writer',
-            display_name: 'Content Writer',
-            type: 'agent',
-            goal: 'Writes launch copy',
-            skills: ['copywriting', 'cold-email'],
-            children: [],
-          },
-          {
-            id: 'dev_rel',
-            display_name: 'DevRel Engineer',
-            type: 'agent',
-            goal: 'Own technical GTM',
-            skills: ['content-strategy'],
-            children: [],
-          },
-        ],
-      },
-    ],
-  },
-}
-
 const companyReview = {
   id: 11,
   cycle_label: '2026-W15',
@@ -952,7 +916,6 @@ test.beforeEach(async ({ page }) => {
     const method = request.method()
     const postData = request.postData() || ''
 
-    if (method === 'GET' && path === '/api/org') return json(route, orgTree)
     if (method === 'GET' && path === '/api/dashboard/stats') return json(route, buildStats())
     if (method === 'GET' && path === '/api/company-review') return json(route, companyReview)
     if (method === 'GET' && path === '/api/agents') return json(route, agents)
@@ -970,9 +933,8 @@ test('loads org chart dashboard shell in browser', async ({ page }) => {
 
   await expect(page.getByTestId('orgchart-page')).toBeVisible()
   await expect(page.getByTestId('stats-bar')).toContainText('Agent 总数')
-  await expect(page.getByTestId('org-root')).toContainText('真实 Agent 角色')
-  await expect(page.getByTestId('group-group-content')).toContainText('content')
-  await expect(page.getByTestId('node-content_writer')).toContainText('Content Writer')
+  await expect(page.getByText('Company COO Dashboard')).toBeVisible()
+  await expect(page.getByTestId('operator-rituals-panel')).toContainText('Daily / Weekly Ritual Board')
 })
 
 test('shows copilot runtime metadata in task drawer', async ({ page }) => {

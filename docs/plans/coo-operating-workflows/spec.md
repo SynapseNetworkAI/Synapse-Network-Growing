@@ -8,6 +8,7 @@ Make `Synapse-Network-Growing` behave like the COO system of an AI-native compan
 2. roles own recurring responsibilities instead of only one-off prompts
 3. daily and weekly operating rhythms continuously generate, route, execute, and review requirements
 4. humans stay at goal-setting, boundary-setting, budget, and exception handling
+5. requirement approval stays separate from workflow execution state
 
 ## Core Design
 
@@ -22,6 +23,12 @@ The requirement pool should become the single operating backlog for:
 5. onboarding / governance / policy gaps
 
 The pool should not depend on manual creation alone.
+
+Every requirement should also carry an execution-approval contract:
+
+1. who must approve before autonomous execution starts
+2. whether the system may auto-approve low-risk work
+3. when the requester / operator must be pulled back in
 
 ### 2. Agent Roles As Jobs, Not Personas Only
 
@@ -147,6 +154,8 @@ Primary roles:
 4. budget guardrails
 5. approval gates
 6. delivery safety
+
+Harness should decide whether a requirement may start automatically, but it should not decide the content of the implementation plan.
 
 ### Model Decides
 

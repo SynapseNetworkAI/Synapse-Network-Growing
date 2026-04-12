@@ -17,4 +17,4 @@ doc_status: active
 
 - Create a requirement with dependencies and verify it remains blocked until upstream work is done.
 - Submit a requirement revision and verify the requirement can be replanned on a new version.
-- Open the org page and verify only discovered roles are shown.
+- Open the homepage and verify the operator dashboard renders without org-tree content.

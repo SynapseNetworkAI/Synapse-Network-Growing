@@ -10,6 +10,7 @@ const mockApi = {
   pauseRequirement: vi.fn(),
   publishRequirement: vi.fn(),
   reviseRequirement: vi.fn(),
+  decideRequirementApproval: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -20,6 +21,7 @@ vi.mock('../src/api', () => ({
     pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
     publishRequirement: (...args: unknown[]) => mockApi.publishRequirement(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
+    decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
   },
 }))
 
@@ -32,7 +34,16 @@ const detail = {
     priority: 'high',
     source: 'manual',
     source_ref: null,
+    intake_metadata: {},
     target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+    acceptance_contract: {},
+    approval_status: 'pending_approval',
+    approval_contract: {
+      approval_mode: 'auto_or_human',
+      required_approver_roles: ['request_owner', 'reviewer', 'tester'],
+    },
+    approval_requested_at: '2026-04-11T08:00:00Z',
+    approved_at: null,
     current_plan_version: 2,
     blocked_by_count: 0,
     active_workflow_run_id: 3,
@@ -328,6 +339,14 @@ describe('RequirementDetail', () => {
     mockApi.pauseRequirement.mockResolvedValue(detail)
     mockApi.publishRequirement.mockResolvedValue(detail)
     mockApi.reviseRequirement.mockResolvedValue(detail)
+    mockApi.decideRequirementApproval.mockResolvedValue({
+      ...detail,
+      requirement: {
+        ...detail.requirement,
+        approval_status: 'approved',
+        approved_at: '2026-04-11T08:06:00Z',
+      },
+    })
   })
 
   it('renders validation contract and bug report context', async () => {
@@ -377,7 +396,9 @@ describe('RequirementDetail', () => {
     expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
     expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
     expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()
-
+    expect(screen.getByTestId('requirement-approval-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('requirement-approval-badge')).toHaveTextContent('审批: 待审批')
+    expect(screen.getByTestId('approval-banner')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('publish-requirement-btn'))
 
     await waitFor(() => {
@@ -386,12 +407,37 @@ describe('RequirementDetail', () => {
     expect(mockApi.publishRequirement.mock.calls[0]?.[0]).toBe(1)
   })
 
+  it('allows approving requirement execution from detail page', async () => {
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    fireEvent.change(screen.getByTestId('requirement-approval-comment'), { target: { value: 'Proceed' } })
+    fireEvent.click(screen.getByTestId('approve-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.decideRequirementApproval).toHaveBeenCalledWith(1, {
+        action: 'approve',
+        reviewer: 'cto',
+        comment: 'Proceed',
+      })
+    })
+  })
+
   it('allows starting an unplanned requirement and labels it as pending planning', async () => {
     const unplannedDetail = {
       ...detail,
       requirement: {
         ...detail.requirement,
         status: 'ready',
+        approval_status: 'approved',
+        approved_at: '2026-04-11T08:06:00Z',
         current_plan_version: 0,
         active_workflow_run_id: null,
       },

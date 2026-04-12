@@ -13,7 +13,6 @@ from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows
 from server.services.agent_loader import ensure_agents_loaded
-from server.services.org_builder import build_org_tree
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
@@ -131,13 +130,6 @@ def dashboard_stats(db: Session = Depends(get_db)):
         task_failed=db.query(TaskRow).filter(TaskRow.status.in_(["failed", "rejected"])).count(),
         approval_pending=db.query(ApprovalRow).filter(ApprovalRow.status == "pending").count(),
     )
-
-
-@app.get("/api/org")
-def get_org_tree():
-    """Return the full multi-project org tree."""
-    return build_org_tree()
-
 
 @app.get("/health")
 def health():

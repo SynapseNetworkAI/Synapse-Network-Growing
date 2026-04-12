@@ -43,7 +43,13 @@ const BLOCKER = {
   priority: 'normal',
   source: 'manual',
   source_ref: null,
+  intake_metadata: {},
   target_project_path: null,
+  acceptance_contract: {},
+  approval_status: 'approved',
+  approval_contract: {},
+  approval_requested_at: null,
+  approved_at: '2026-04-10T00:00:00Z',
   current_plan_version: 1,
   blocked_by_count: 0,
   active_workflow_run_id: 5,
@@ -83,7 +89,13 @@ const REQUIREMENT = {
   priority: 'high',
   source: 'manual',
   source_ref: null,
+  intake_metadata: {},
   target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network',
+  acceptance_contract: {},
+  approval_status: 'approved',
+  approval_contract: {},
+  approval_requested_at: null,
+  approved_at: '2026-04-10T00:00:00Z',
   current_plan_version: 1,
   blocked_by_count: 0,
   active_workflow_run_id: 7,
@@ -191,6 +203,18 @@ const UNPLANNED_REQUIREMENT = {
   title: 'Incident recovery follow-up',
   current_plan_version: 0,
   active_workflow_run_id: null,
+}
+
+const PENDING_APPROVAL_REQUIREMENT = {
+  ...READY_REQUIREMENT,
+  id: 6,
+  title: 'Pending approval rollout',
+  approval_status: 'pending_approval',
+  approval_contract: {
+    approval_mode: 'auto_or_human',
+  },
+  approval_requested_at: '2026-04-10T00:06:00Z',
+  approved_at: null,
 }
 
 function makeRequirement(id: number, title: string) {
@@ -559,6 +583,19 @@ describe('RequirementPool', () => {
         auto_start: true,
       })
     })
+  })
+
+  it('shows approval badge and blocks start for pending requirement approvals', async () => {
+    mockApi.getRequirements.mockResolvedValue([PENDING_APPROVAL_REQUIREMENT])
+
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-6')).toBeDefined()
+    })
+
+    expect(screen.getByTestId('requirement-approval-badge-6')).toHaveTextContent('待审批')
+    expect(screen.getByTestId('requirement-toggle-6')).toBeDisabled()
   })
 
   it('creates a requirement from selected managed project policies', async () => {

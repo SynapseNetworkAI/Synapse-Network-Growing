@@ -17,10 +17,10 @@ Items explicitly deferred to Phase 2+ (AI planner, multi-tenant, DAG parallelism
 - [x] Deterministic planner → structured plan output
 - [x] Workflow orchestrator: step scheduling, bugfix loop, closeout
 - [x] Revision lifecycle with cancel-replan
-- [x] Dynamic org chart from roles/* discovery
+- [x] Homepage refocused on COO dashboard workflows
 - [x] Full database schema (all 10 tables from DB design doc)
 - [x] RequirementPool UI: create, plan, start/pause, paused status filter, multi-target display, revision, dependencies, steps, artifacts, acceptance checks
-- [x] OrgChart UI: dynamic agent groups
+- [x] OrgChart UI: operator dashboard and review workflows
 - [x] Backend tests: 111 passed
 - [x] Frontend tests: 39 passed
 - [x] Playwright smoke + real E2E: 8 passed

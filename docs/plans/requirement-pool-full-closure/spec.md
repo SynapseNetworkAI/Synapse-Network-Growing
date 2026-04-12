@@ -14,7 +14,7 @@ Close the remaining Phase 1 gaps between [docs/design-docs/requirement-pool-mult
 
 - Requirement dependencies existed in the schema, but were not exposed in API, not enforced in workflow gating, and not visible in the UI.
 - Requirement revision existed only as a terminal status hint, without a revision submission and re-planning loop.
-- The org page still rendered a static CTO and hardcoded domain tree instead of only showing real agents discovered from `roles/*`.
+- The homepage still mixed static organization visuals into the COO workflow surface, instead of focusing on operating review and rituals.
 
 ## Acceptance Criteria
 
@@ -22,5 +22,5 @@ Close the remaining Phase 1 gaps between [docs/design-docs/requirement-pool-mult
 - Blocked requirements cannot be planned or started.
 - Once all blockers finish, dependent requirements automatically become `ready`.
 - A requirement can enter `needs_revision`, accept a revised spec, and be replanned on a new plan version.
-- The org page and `/api/org` only display real agents discovered from `roles/*`, optionally grouped dynamically by discovered metadata.
+- The homepage removes static org visualization and stays focused on COO dashboard workflows.
 - Backend, frontend, and browser smoke coverage validate the new behavior.

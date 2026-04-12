@@ -10,6 +10,7 @@ import server.services.project_intelligence as project_intelligence
 import server.services.portfolio_scheduler as portfolio_scheduler
 import server.services.workflow_orchestrator as workflow_orchestrator
 from server.database import (
+    ApprovalRequestRow,
     ArtifactRow,
     CompanyOperatingReviewRow,
     OptimizationSignalRow,
@@ -245,6 +246,193 @@ def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client
     assert candidate["step_type"] == "review"
     assert candidate["acceptance_owner_role"] == "reviewer"
     assert "validation_plan" in candidate["required_evidence_artifact_types"]
+
+
+def test_requirement_plan_auto_approves_low_risk_execution(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Auto approve simple requirement",
+            "description_markdown": "A small single-project change should auto approve.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+    assert create_resp.json()["requirement"]["approval_status"] == "pending_approval"
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement small change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                        "complexity_tier": "standard",
+                    }
+                ]
+            }
+        ),
+        111,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    payload = plan_resp.json()
+    assert payload["requirement"]["approval_status"] == "approved"
+    pending = db_session.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement_id,
+        ApprovalRequestRow.approval_type == "requirement_execution_approval",
+        ApprovalRequestRow.status == "pending",
+    ).count()
+    assert pending == 0
+
+
+def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Manual approval requirement",
+            "description_markdown": "This one should wait for approval before execution.",
+            "priority": "high",
+            "approval_contract": {
+                "approval_mode": "manual_required",
+                "required_approver_roles": ["request_owner", "reviewer", "tester"],
+                "fallback_reviewer": "operator",
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement manual gate change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    assert plan_resp.json()["requirement"]["approval_status"] == "pending_approval"
+
+    approval = db_session.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement_id,
+        ApprovalRequestRow.approval_type == "requirement_execution_approval",
+        ApprovalRequestRow.status == "pending",
+    ).first()
+    assert approval is not None
+    assert approval.reviewer == "operator"
+
+    blocked_start = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert blocked_start.status_code == 400
+    assert "approved before automatic execution" in blocked_start.json()["detail"]
+
+    approve_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/approval/decide",
+        json={"action": "approve", "reviewer": "cto", "comment": "Looks good"},
+    )
+    assert approve_resp.status_code == 200
+    assert approve_resp.json()["requirement"]["approval_status"] == "approved"
+
+    class FakeRuntime:
+        def execute(self, *, task_description, **_kwargs):
+            if "[workflow_step:research]" in task_description:
+                return _runtime_result(text="research ok")
+            if "[workflow_step:synthesis]" in task_description:
+                return _runtime_result(text="synthesis ok")
+            if "[workflow_step:implementation]" in task_description:
+                return _runtime_result(text="implementation ok")
+            if "[workflow_step:review]" in task_description:
+                return _runtime_result(text="review ok")
+            if "[workflow_step:test]" in task_description:
+                return _runtime_result(text="test ok")
+            return _runtime_result(text="closeout ok")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+    assert start_resp.status_code == 200
+    assert start_resp.json()["requirement"]["status"] == "done"
+
+
+def test_requirement_reject_sets_rejected_approval_status(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Rejectable requirement",
+            "description_markdown": "Need explicit approval.",
+            "approval_contract": {"approval_mode": "manual_required"},
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps({"steps": [{"step_key": "implementation", "title": "Implement", "scope": "backend", "depends_on": [], "done_when": "Done."}]}),
+        99,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    reject_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/approval/decide",
+        json={"action": "reject", "reviewer": "request_owner", "comment": "Needs refinement"},
+    )
+    assert reject_resp.status_code == 200
+    assert reject_resp.json()["requirement"]["approval_status"] == "rejected"
+    assert reject_resp.json()["requirement"]["status"] == "blocked"
+
+
+def test_scheduler_excludes_pending_requirement_approvals(synced_client, db_session):
+    manual_required = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Pending approval backlog item",
+            "description_markdown": "Should not be scheduled before requirement approval.",
+            "approval_contract": {"approval_mode": "manual_required"},
+        },
+    )
+    assert manual_required.status_code == 201
+    approved = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Auto approved backlog item",
+            "description_markdown": "Can be scheduled.",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+    assert approved.status_code == 201
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps({"steps": [{"step_key": "implementation", "title": "Implement", "scope": "backend", "depends_on": [], "done_when": "Done."}]}),
+        77,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{manual_required.json()['requirement']['id']}/plan")
+        synced_client.post(f"/api/requirements/{approved.json()['requirement']['id']}/plan")
+
+    scheduler_resp = synced_client.get("/api/requirements/scheduler")
+    assert scheduler_resp.status_code == 200
+    titles = [item["title"] for item in scheduler_resp.json()["decisions"]]
+    assert "Auto approved backlog item" in titles
+    assert "Pending approval backlog item" not in titles
 
 
 def test_requirement_source_registry_lists_sources_and_counts(synced_client, db_session):

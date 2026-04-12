@@ -37,6 +37,7 @@ from server.services.project_policy import (
     project_policy_to_dict,
     resolve_project_policies_for_target,
 )
+from server.services.requirement_approval import requirement_approval_contract_for_requirement
 
 logger = logging.getLogger("ops-dashboard.workflow_planner")
 
@@ -884,6 +885,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     template_payload = _latest_requirement_template_payload(db, int(requirement.id))
     template_checks = _template_acceptance_checks(template_payload)
     acceptance_contract = acceptance_contract_for_requirement(requirement)
+    approval_contract = requirement_approval_contract_for_requirement(requirement)
     routing_context = resolve_requirement_routing(
         db,
         title=str(requirement.title),
@@ -1149,6 +1151,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         },
         "requirement_template": template_payload,
         "acceptance_contract": acceptance_contract,
+        "approval_contract": approval_contract,
         "detected_phases": detected_phases_dict,
         "acceptance_checks": acceptance_checks,
         "required_roles": ["researcher", "synthesizer", "implementer", "reviewer", "tester"],
