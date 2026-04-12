@@ -759,6 +759,23 @@ class TestBuildPlannerOutput:
         assert research_step["approval_policy"]["requires_operator_confirmation"] is True
         assert research_step["approval_policy"]["operator_confirmation_actions"] == ["shell_access"]
 
+    def test_incident_recovery_prefers_engineering_role_assignments(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Incident Recovery: runtime session handling",
+            description_markdown="恢复一次 runtime incident。",
+            source="bugfix_circuit_breaker",
+            source_ref="incident:session-recovery",
+            target_project_path="/incident-approval",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            _, assignments = build_planner_output(db_session, req)
+
+        assert assignments.implementer_agent_id == "dev_rel"
+        assert assignments.researcher_agent_id == "dev_rel"
+
     def test_auto_routing_metadata_for_sdk_requirement(self, synced_client, db_session):
         req = RequirementRow(
             title="Improve SDK integration",

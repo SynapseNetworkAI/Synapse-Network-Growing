@@ -171,18 +171,20 @@ monitor 当前会：
 
 1. 正常完成 -> task completed
 2. 运行超时或长期无 heartbeat -> terminate current pid
-3. 如果已有 `thread_id` 且未超过 `resume_max_attempts` -> 自动 `resume`
-4. 如果没有 `thread_id` 或 resume 已耗尽 -> pause requirement，进入人工/incident 路径
+3. 如果已有 `thread_id` 且 stdout/state 仍在推进，则把 step timeout 视为 soft timeout，不直接杀掉长任务
+4. 如果达到 `max_active_seconds`、发生 stalled、或异常退出，且未超过 `resume_max_attempts` -> 自动 `resume`
+5. 如果没有 `thread_id` 或 resume 已耗尽 -> pause requirement，进入人工/incident 路径
 
 ### anti-loop guardrails
 
 当前自动执行的兜底原则是“允许恢复，不允许无限重试”：
 
 1. `codex_cli` session 恢复受 `resume_max_attempts` 限制
-2. workflow step 受 `max_attempts / max_runtime_seconds / budget_cap` 约束
-3. repeated error fingerprint 会进入 circuit-breaker / pause / incident follow-up
-4. bug backlog materialization 会复用同类活跃 requirement，避免同类 bug 无限重复入池
-5. 高风险 bug 与昂贵分支仍需要 approval gate，不会在失败链上无限自动放大
+2. workflow step 的 `max_runtime_seconds` 对 detached Codex task 是 soft timeout；真正的硬边界是 `stalled + max_active_seconds`
+3. workflow step 仍受 `max_attempts / budget_cap` 约束
+4. repeated error fingerprint 会进入 circuit-breaker / pause / incident follow-up
+5. bug backlog materialization 会复用同类活跃 requirement，避免同类 bug 无限重复入池
+6. 高风险 bug 与昂贵分支仍需要 approval gate，不会在失败链上无限自动放大
 
 ### prompt contract
 
@@ -269,6 +271,11 @@ acceptance contract 负责“做完后谁来验收”，requirement approval con
    2. `max_complexity_tier`
    3. `single_project_only`
    4. `allow_incident_recovery`
+5. `agent_review`
+   1. `enabled`
+   2. `approval_role`
+   3. `route_to_human_on_low_confidence`
+   4. `minimum_confidence`
 
 实际行为：
 
@@ -278,6 +285,83 @@ acceptance contract 负责“做完后谁来验收”，requirement approval con
 4. `scheduler` 只调度 `approved / waived`
 5. `start` 会再次检查 approval status，未审批不能进入自动执行
 6. 人工审批后 requirement 才会真正开始自动执行
+
+### Approval Router
+
+当前推荐的审批链不是“全部人工”也不是“全部自动”，而是三层分流：
+
+1. `source-driven approval routing`
+2. `agent approval recommendation`
+3. `human approval fallback`
+
+`approval_router` 是 deterministic harness 逻辑，它会读取：
+
+1. `source / source_ref / intake_metadata`
+2. `project_count`
+3. `complexity_tier`
+4. `budget_cap`
+5. `incident / bug / publish / cross-project` flags
+
+然后输出：
+
+1. `approval_source`
+   1. `auto`
+   2. `agent`
+   3. `human`
+   4. `waived`
+2. `approval_recommendation`
+3. `required_approver_roles`
+4. `needs_human_gate`
+
+### Agent Approval Recommendation
+
+agent 或 roles 在审批中的职责不应替代 policy，而应负责“减少人工判断负担”。
+
+推荐职责：
+
+1. 判断 requirement 是否信息充分
+2. 判断执行前置条件是否齐全
+3. 判断是否属于低风险可自主执行工作
+4. 输出建议：
+   1. `approve`
+   2. `revise`
+   3. `route_to_human`
+
+推荐审批角色：
+
+1. `request_owner`
+2. `reviewer`
+3. `tester`
+4. `portfolio_operator`
+5. 特定项目的 domain owner roles
+
+### Requirement Source Contract
+
+requirement 来源必须是一等信息，而不是展示字段。
+
+当前推荐 requirement source registry 为：
+
+1. `manual`
+2. `optimization_signal`
+3. `incident_followup`
+4. `company_review_bundle`
+5. `automation_candidate`
+6. `bug_intake`
+7. `project_onboarding_gap`
+
+每种 source 都应该声明：
+
+1. 默认优先级 posture
+2. 默认 approval posture
+3. 默认 validation posture
+4. dedupe scope
+5. auto materialization 是否允许
+
+这样 company review、scheduler、approval router 才能解释：
+
+1. 这个需求从哪里来
+2. 为什么它可以自动执行
+3. 为什么它必须人工审批
 
 ## 1.2 新增的执行约束层
 

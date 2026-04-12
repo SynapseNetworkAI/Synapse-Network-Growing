@@ -30,6 +30,20 @@ Every requirement should also carry an execution-approval contract:
 2. whether the system may auto-approve low-risk work
 3. when the requester / operator must be pulled back in
 
+Every requirement should also keep a first-class source contract:
+
+1. `source`
+2. `source_ref`
+3. `intake_metadata`
+
+The source contract is not only for display. It is later used to decide:
+
+1. approval routing
+2. validation strictness
+3. default priority posture
+4. whether the system may auto-intake or auto-approve
+5. how company review attributes requirement creation back to upstream operations
+
 ### 2. Agent Roles As Jobs, Not Personas Only
 
 Each role should define:
@@ -157,6 +171,56 @@ Primary roles:
 
 Harness should decide whether a requirement may start automatically, but it should not decide the content of the implementation plan.
 
+### Approval Router Decides
+
+Before a requirement enters execution, the system should run an approval router.
+
+The router is deterministic and evaluates:
+
+1. requirement source and source_ref
+2. target project count
+3. complexity tier
+4. budget cap and estimated spend
+5. incident or bug recovery flags
+6. publish / delivery impact
+
+The router outputs:
+
+1. `approval_source`
+   1. `auto`
+   2. `agent`
+   3. `human`
+   4. `waived`
+2. `approval_recommendation`
+3. `required_approver_roles`
+4. whether a human gate is mandatory
+
+This keeps policy deterministic while still allowing agent help.
+
+### Agent Approval Layer
+
+The system should support agent-assisted approval without making approval fully free-form.
+
+An approval agent or approval roles should:
+
+1. evaluate whether the requirement is sufficiently specified
+2. confirm that execution inputs are complete
+3. judge whether the requirement is low-risk enough for autonomous execution
+4. recommend one of:
+   1. `approve`
+   2. `revise`
+   3. `route_to_human`
+
+The agent layer should not replace hard rules.
+
+Hard rules still force human review for:
+
+1. multi-project high-risk work
+2. publish or production-impacting work
+3. critical incidents
+4. over-budget or max-tier execution
+5. cross-project bug recovery
+
 ### Model Decides
 
 1. change shape: docs, code, config, or mixed
@@ -189,6 +253,44 @@ Every role should eventually expose:
 5. `handoff_targets`
 6. `success_metrics`
 
+Approval-capable roles should also expose:
+
+1. `approval_ownership`
+2. `approval_scope`
+3. `approval_escalation_targets`
+4. `approval_evidence_expectations`
+
+Recommended approval roles:
+
+1. `request_owner`
+2. `reviewer`
+3. `tester`
+4. `portfolio_operator`
+5. domain owner roles for special projects
+
+### Requirement Source Registry
+
+The source registry should be explicit and queryable.
+
+Recommended source keys:
+
+1. `manual`
+2. `optimization_signal`
+3. `incident_followup`
+4. `company_review_bundle`
+5. `automation_candidate`
+6. `bug_intake`
+7. `project_onboarding_gap`
+
+Each source definition should declare:
+
+1. intake trigger
+2. default priority
+3. dedupe scope
+4. approval default
+5. validation default
+6. whether auto materialization is allowed
+
 ### Workflow Automation Contract
 
 Every recurring workflow should define:
@@ -207,3 +309,71 @@ This phase does not require:
 1. full autonomous company operation without operator review
 2. real-time bidding across all model vendors
 3. replacing the requirement workflow with free-form agent swarms
+
+## Detailed Approval Operating Model
+
+### Requirement Approval State
+
+Requirement approval should remain independent from workflow execution status.
+
+Recommended approval states:
+
+1. `pending_approval`
+2. `approved`
+3. `rejected`
+4. `waived`
+
+Recommended review signals:
+
+1. `approval_source`
+2. `approval_recommendation`
+3. `approval_reason`
+4. `approval_decided_by`
+5. `approval_decided_at`
+
+### Approval Contract
+
+Every requirement should carry an approval contract with:
+
+1. `approval_mode`
+   1. `auto_or_human`
+   2. `manual_required`
+   3. `waived`
+2. `required_approver_roles`
+3. `fallback_reviewer`
+4. `auto_approve`
+   1. `max_priority`
+   2. `max_complexity_tier`
+   3. `single_project_only`
+   4. `allow_incident_recovery`
+5. `agent_review`
+   1. `enabled`
+   2. `approval_role`
+   3. `route_to_human_on_low_confidence`
+   4. `minimum_confidence`
+
+### Approval Decision Flow
+
+The expected approval flow should be:
+
+1. requirement created with source contract
+2. approval router evaluates deterministic risk
+3. if low-risk and allowed, system auto-approves
+4. otherwise, approval agent/roles review and emit recommendation
+5. if still ambiguous or policy requires it, human approval is created
+6. only `approved / waived` requirements may auto-plan and auto-start
+
+### Why This Split Matters
+
+This design keeps each layer narrow:
+
+1. source contract explains where the requirement came from
+2. approval router applies hard policy
+3. approval agent helps reduce human workload
+4. human approval handles expensive or risky branches
+
+Without this split:
+
+1. low-risk work creates too much manual approval load
+2. high-risk work can be over-delegated to the model
+3. company review cannot explain why requirements were allowed to run

@@ -35,6 +35,33 @@ _CODEX_SECTION_TITLES = {
 }
 
 
+def _runtime_timeout_or_default(value: int | None, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _codex_max_active_seconds(timeout_seconds: int) -> int:
+    configured = int(config.CODEX_CLI_MAX_ACTIVE_SECONDS or 0)
+    if configured <= 0:
+        return 0
+    if timeout_seconds <= 0:
+        return configured
+    return max(configured, timeout_seconds)
+
+
+def _codex_selected_timeout_seconds(timeout_seconds: int) -> int:
+    if timeout_seconds > 0:
+        return timeout_seconds
+    configured = int(config.CODEX_CLI_TASK_TIMEOUT or 0)
+    if configured > 0:
+        return configured
+    return 0
+
+
 @dataclass
 class RuntimeEvent:
     event_type: str
@@ -168,10 +195,12 @@ def _truncate_for_codex(text: str, limit: int) -> str:
     return value[: max(0, limit - 1)].rstrip() + "…"
 
 
-def _compact_persona_for_codex(persona: dict[str, Any]) -> str:
+def _compact_persona_for_codex(persona: dict[str, Any], *, resume: bool = False) -> str:
     display_name = str(persona.get("display_name") or persona.get("role") or "Agent").strip()
     goal = str(persona.get("goal") or "").strip()
-    body = _truncate_for_codex(str(persona.get("body") or "").strip(), config.CODEX_CLI_PERSONA_CHAR_LIMIT)
+    if resume:
+        return f"{display_name}\nGoal: continue the active session and finish the current step.".strip()
+    body = _truncate_for_codex(str(persona.get("body") or "").strip(), max(160, min(config.CODEX_CLI_PERSONA_CHAR_LIMIT, 320)))
     lines = [f"{display_name}"]
     if goal:
         lines.append(f"Goal: {goal}")
@@ -197,7 +226,7 @@ def _parse_markdown_sections(markdown: str) -> list[tuple[str, str]]:
     return sections
 
 
-def _compact_codex_task_packet(task_description: str) -> str:
+def _compact_codex_task_packet(task_description: str, *, resume: bool = False) -> str:
     section_char_limit = int(config.CODEX_CLI_SECTION_CHAR_LIMIT)
     prompt_char_limit = int(config.CODEX_CLI_PROMPT_CHAR_LIMIT)
     sections = _parse_markdown_sections(task_description)
@@ -228,22 +257,43 @@ def _compact_codex_task_packet(task_description: str) -> str:
     if not goal:
         goal = _truncate_for_codex(str(task_description or "").strip(), section_char_limit)
 
-    parts = ["# Goal", goal]
-    if context_blocks:
-        parts.extend(["", "# Context", "\n\n".join(context_blocks[:3])])
-    if constraint_blocks:
-        parts.extend(["", "# Constraints", "\n\n".join(constraint_blocks[:4])])
-    if done_when:
-        parts.extend(["", "# Done When", done_when])
-    parts.extend(
-        [
-            "",
-            "# Execution Rules",
-            "- Start with Suggested File Scope and only widen search if blocked.",
-            "- Prefer changing source code in the target project over writing extra docs.",
-            "- Keep edits minimal and verify the changed behavior before finishing.",
+    if resume:
+        parts = [
+            "# Delta",
+            goal,
         ]
-    )
+        if context_blocks:
+            parts.extend(["", "# Current Scope", "\n\n".join(context_blocks[:2])])
+        if constraint_blocks:
+            parts.extend(["", "# Current Constraints", "\n\n".join(constraint_blocks[:3])])
+        if done_when:
+            parts.extend(["", "# Done When", done_when])
+        parts.extend(
+            [
+                "",
+                "# Resume Rules",
+                "- Reuse the active session context; do not restate prior analysis.",
+                "- Focus only on the current step delta and the latest blocking issue.",
+                "- Keep edits minimal and verify only what changed for this step.",
+            ]
+        )
+    else:
+        parts = ["# Goal", goal]
+        if context_blocks:
+            parts.extend(["", "# Context", "\n\n".join(context_blocks[:2])])
+        if constraint_blocks:
+            parts.extend(["", "# Constraints", "\n\n".join(constraint_blocks[:3])])
+        if done_when:
+            parts.extend(["", "# Done When", done_when])
+        parts.extend(
+            [
+                "",
+                "# Execution Rules",
+                "- Start with Suggested File Scope and only widen search if blocked.",
+                "- Prefer changing source code in the target project over writing extra docs.",
+                "- Keep edits minimal and verify the changed behavior before finishing.",
+            ]
+        )
     compact = "\n".join(parts).strip()
     return _truncate_for_codex(compact, prompt_char_limit)
 
@@ -452,14 +502,19 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
         selected_model = runtime_selection.model if runtime_selection else (config.CODEX_CLI_MODEL or config.LLM_MODEL)
-        selected_timeout = int(runtime_selection.timeout_seconds or config.CODEX_CLI_TASK_TIMEOUT) if runtime_selection else config.CODEX_CLI_TASK_TIMEOUT
-        instructions = _compact_persona_for_codex(persona)
-        task_packet = _compact_codex_task_packet(task_description)
+        selected_timeout = (
+            _codex_selected_timeout_seconds(int(runtime_selection.timeout_seconds or 0))
+            if runtime_selection
+            else _codex_selected_timeout_seconds(0)
+        )
+        resume_mode = bool(session_hint and session_hint.get("thread_id"))
+        instructions = _compact_persona_for_codex(persona, resume=resume_mode)
+        task_packet = _compact_codex_task_packet(task_description, resume=resume_mode)
         prompt = "\n\n".join(
             [
                 "# Role",
                 instructions,
-                "# Task Packet",
+                "# Bootstrap Packet" if not resume_mode else "# Delta Packet",
                 task_packet,
                 "# Output Contract",
                 "Do the work directly in the target repository when appropriate. Return a concise final report of what changed, what was verified, and any remaining blockers.",
@@ -489,6 +544,7 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             "json_event_count": 0,
             "prompt_chars": len(prompt),
             "timeout_seconds": selected_timeout,
+            "max_active_seconds": _codex_max_active_seconds(selected_timeout),
             "pid": launched.pid,
             "state_path": str(launched.state_path),
             "stdout_path": str(launched.stdout_path),

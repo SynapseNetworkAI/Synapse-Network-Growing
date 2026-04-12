@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { api, RequirementDetail as RequirementDetailType, Requirement } from '../api'
+import { createPortal } from 'react-dom'
+import { api, RequirementDetail as RequirementDetailType, Requirement, TaskOutputFile, FileChange } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -84,6 +85,95 @@ function parsePayload(raw: string | null) {
   }
 }
 
+function OutputFileModal({
+  file,
+  onClose,
+}: Readonly<{ file: TaskOutputFile; onClose: () => void }>) {
+  const isMarkdown = file.content_type === 'text/markdown' || file.file_name.endsWith('.md')
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative flex max-h-[85vh] w-[90vw] max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b bg-gray-50 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate font-mono text-sm font-semibold text-gray-800">{file.file_name}</div>
+            <div className="text-xs text-gray-500">
+              {new Intl.NumberFormat('zh-CN').format(file.size_bytes)} bytes
+              {file.truncated ? ' · 已截断显示' : ''}
+            </div>
+          </div>
+          <button className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700" onClick={onClose}>✕</button>
+        </div>
+        <div className="flex-1 overflow-auto bg-gray-50">
+          {isMarkdown ? (
+            <div className="p-4">
+              <Md>{file.content}</Md>
+            </div>
+          ) : (
+            <pre className="whitespace-pre-wrap p-4 font-mono text-xs leading-5 text-slate-700">{file.content}</pre>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function DiffLine({ line }: Readonly<{ line: string }>) {
+  if (line.startsWith('+') && !line.startsWith('+++'))
+    return <div className="px-2 font-mono text-xs leading-5 whitespace-pre bg-green-50 text-green-800">{line}</div>
+  if (line.startsWith('-') && !line.startsWith('---'))
+    return <div className="px-2 font-mono text-xs leading-5 whitespace-pre bg-red-50 text-red-800">{line}</div>
+  if (line.startsWith('@@'))
+    return <div className="px-2 font-mono text-xs leading-5 whitespace-pre bg-blue-50 text-blue-600">{line}</div>
+  return <div className="px-2 font-mono text-xs leading-5 whitespace-pre text-gray-700">{line}</div>
+}
+
+function RequirementDiffModal({
+  file,
+  onClose,
+}: Readonly<{ file: FileChange; onClose: () => void }>) {
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="relative flex max-h-[85vh] w-[90vw] max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b bg-gray-50 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate font-mono text-sm font-semibold text-gray-800">{file.filename}</div>
+            <div className="text-xs text-gray-500">
+              <span className="text-green-600">+{file.additions}</span>
+              {' / '}
+              <span className="text-red-500">-{file.deletions}</span>
+            </div>
+          </div>
+          <button className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700" onClick={onClose}>✕</button>
+        </div>
+        <div className="flex-1 overflow-auto bg-gray-50">
+          {file.patch ? (
+            <div className="divide-y divide-gray-100">
+              {file.patch.split('\n').map((line, index) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <DiffLine key={index} line={line} />
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 text-sm text-gray-400">无 diff 内容</div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 export default function RequirementDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -100,6 +190,9 @@ export default function RequirementDetail() {
   const [publishing, setPublishing] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
+  const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
+  const [selectedDiff, setSelectedDiff] = useState<FileChange | null>(null)
+  const [outputFileError, setOutputFileError] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     title: '',
     description_markdown: '',
@@ -293,8 +386,19 @@ export default function RequirementDetail() {
     && ['approved', 'waived'].includes(req.approval_status)
   const canEditRequirement = !['in_progress', 'deleted'].includes(req.status)
 
+  async function openOutputFile(taskId: number, fileName: string) {
+    setOutputFileError(null)
+    try {
+      const result = await api.getTaskOutputFile(taskId, fileName)
+      setSelectedOutputFile(result)
+    } catch (error) {
+      setOutputFileError(error instanceof Error ? error.message : '读取产出文件失败')
+    }
+  }
+
   return (
     <div data-testid="requirement-detail-page" className="space-y-6">
+      {selectedOutputFile && <OutputFileModal file={selectedOutputFile} onClose={() => setSelectedOutputFile(null)} />}
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500">
         <Link to="/requirements" className="text-blue-600 hover:underline">需求池</Link>
@@ -574,6 +678,91 @@ export default function RequirementDetail() {
                   </div>
                 </div>
               )}
+            </section>
+
+            <section className="p-4 border rounded-xl bg-slate-50" data-testid="requirement-task-outputs">
+              <div className="mb-3 text-sm font-semibold">任务产出</div>
+              {detail.merged_output_files.length > 0 && (
+                <div className="mb-3 rounded-lg border bg-white p-3">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">合并产出文件</div>
+                  <div className="space-y-1">
+                    {detail.merged_output_files.map((item) => (
+                      <div key={item.file_name} className="rounded border border-slate-200 px-3 py-2 text-xs text-slate-700">
+                        <div className="font-mono text-[12px]">{item.file_name}</div>
+                        <div className="mt-1 text-slate-500">
+                          来自任务 {item.task_ids.map((taskId) => `#${taskId}`).join(' / ')}
+                          {item.step_titles.length > 0 ? ` · ${item.step_titles.join(' / ')}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {detail.task_outputs.length === 0 ? (
+                <div className="text-xs text-gray-500">当前 workflow 还没有可展示的任务产物。</div>
+              ) : (
+                <div className="space-y-3">
+                  {detail.task_outputs.map((taskOutput) => (
+                    <div key={taskOutput.task_id} className="rounded-lg border bg-white p-3">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <Link to={`/tasks/${taskOutput.task_id}`} className="text-sm font-medium text-blue-700 hover:underline">
+                          Task #{taskOutput.task_id}
+                        </Link>
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">{taskOutput.step_type}</span>
+                        <span className="text-xs text-slate-500">{taskOutput.step_title}</span>
+                      </div>
+                      {taskOutput.output_files.length > 0 ? (
+                        <div className="mb-3 space-y-1">
+                          {taskOutput.output_files.map((file) => (
+                            <button
+                              key={`${taskOutput.task_id}-${file}`}
+                              className="block w-full rounded border border-transparent px-3 py-2 text-left font-mono text-xs text-blue-700 hover:border-blue-200 hover:bg-blue-50"
+                              onClick={() => {
+                                const changedFile = taskOutput.changed_files.find((item) => item.filename === file)
+                                if (changedFile) {
+                                  setSelectedDiff(changedFile)
+                                  return
+                                }
+                                openOutputFile(taskOutput.task_id, file).catch(() => {})
+                              }}
+                            >
+                              📄 {file}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mb-3 text-xs text-slate-400">该任务当前还没有基于 file-changes.json 的产出文件。</div>
+                      )}
+                      <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">任务级真实变更</div>
+                        {taskOutput.change_warning && (
+                          <div className="mb-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            {taskOutput.change_warning}
+                          </div>
+                        )}
+                        {taskOutput.changed_files.length > 0 ? (
+                          <div className="space-y-1">
+                            {taskOutput.changed_files.map((file) => (
+                              <button
+                                key={`${taskOutput.task_id}-${file.filename}`}
+                                className="flex w-full items-center gap-3 rounded bg-white px-3 py-2 text-left text-xs hover:bg-slate-100"
+                                onClick={() => setSelectedDiff(file)}
+                              >
+                                <span className="flex-1 font-mono text-slate-700">{file.filename}</span>
+                                <span className="text-green-600">+{file.additions}</span>
+                                <span className="text-red-500">-{file.deletions}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-400">当前任务尚未验证到 task-scoped 文件改动。</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {outputFileError && <div className="mt-2 text-xs text-red-600">{outputFileError}</div>}
             </section>
 
             <section className="p-4 border rounded-xl" data-testid="dependencies-panel">
@@ -1072,6 +1261,9 @@ export default function RequirementDetail() {
           </div>
         </div>
       </div>
+      {selectedDiff && (
+        <RequirementDiffModal file={selectedDiff} onClose={() => setSelectedDiff(null)} />
+      )}
     </div>
   )
 }

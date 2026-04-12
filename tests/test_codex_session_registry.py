@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from server.database import AgentRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
+from server.database import AgentRow, CodexSessionRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.codex_cli import codex_runtime_paths
 from server.services.codex_session_registry import (
     build_session_key,
+    find_reusable_session,
+    update_session_state,
     upsert_session_launch,
     validate_codex_session_registry,
 )
@@ -154,3 +156,89 @@ def test_codex_monitor_validate_registry_exposes_report(db_session, tmp_path):
     report = monitor.validate_registry()
     assert report["summary"]["total_sessions"] == 1
     assert report["sessions"][0]["issues"] == []
+
+
+def test_find_reusable_session_rotates_when_usage_threshold_is_exceeded(db_session, tmp_path):
+    task, project_root = _seed_codex_session(
+        db_session,
+        tmp_path,
+        suffix="rotate",
+        thread_id="thread-rotate",
+        status="completed",
+        metadata_override={
+            "usage": {
+                "input_tokens": 1_700_000,
+                "cached_input_tokens": 1_200_000,
+                "output_tokens": 1000,
+            },
+            "usage_totals": {
+                "input_tokens": 1_700_000,
+                "cached_input_tokens": 1_200_000,
+                "output_tokens": 1000,
+            },
+            "cumulative_turn_count": 9,
+        },
+    )
+
+    row = find_reusable_session(
+        db_session,
+        role_key="dev_rel",
+        project_root=str(project_root),
+        requirement_id=task.workflow_steps[0].requirement_id,
+    )
+
+    assert row is None
+    rotated = db_session.query(CodexSessionRow).filter(CodexSessionRow.current_task_id == task.id).first()
+    assert rotated is not None
+    assert rotated.status == "rotated"
+    metadata = json.loads(rotated.metadata_json)
+    assert "rotated_reason" in metadata
+
+
+def test_update_session_state_accumulates_usage_once_per_completed_task(db_session, tmp_path):
+    task, project_root = _seed_codex_session(
+        db_session,
+        tmp_path,
+        suffix="usage",
+        thread_id="thread-usage",
+        status="active",
+    )
+    requirement_id = task.workflow_steps[0].requirement_id
+
+    update_session_state(
+        db_session,
+        role_key="dev_rel",
+        project_root=str(project_root),
+        requirement_id=requirement_id,
+        current_task_id=task.id,
+        status="completed",
+        metadata_patch={
+            "last_task_id": task.id,
+            "usage": {"input_tokens": 100, "cached_input_tokens": 70, "output_tokens": 5},
+            "turn_count": 2,
+        },
+    )
+    update_session_state(
+        db_session,
+        role_key="dev_rel",
+        project_root=str(project_root),
+        requirement_id=requirement_id,
+        current_task_id=task.id,
+        status="completed",
+        metadata_patch={
+            "last_task_id": task.id,
+            "usage": {"input_tokens": 100, "cached_input_tokens": 70, "output_tokens": 5},
+            "turn_count": 2,
+        },
+    )
+    db_session.commit()
+
+    session = db_session.query(CodexSessionRow).filter(CodexSessionRow.current_task_id == task.id).first()
+    assert session is not None
+    payload = json.loads(session.metadata_json)
+    assert payload["usage_totals"] == {
+        "input_tokens": 100,
+        "cached_input_tokens": 70,
+        "output_tokens": 5,
+    }
+    assert payload["cumulative_turn_count"] == 2

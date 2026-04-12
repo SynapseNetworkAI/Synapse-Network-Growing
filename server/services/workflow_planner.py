@@ -240,7 +240,7 @@ def _build_execution_profile(
     }
 
 
-def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | None:
+def _plan_with_agent(text: str, target_path: str | None, planning_hint: str | None = None) -> list[_AgentStep] | None:
     """Pass the requirement directly to the agent; it decides the step plan."""
     global _FULL_PLAN_DISABLED_REASON, _FULL_PLAN_DISABLED_UNTIL
     if _FULL_PLAN_DISABLED_UNTIL is not None and datetime.now(timezone.utc) < _FULL_PLAN_DISABLED_UNTIL:
@@ -257,10 +257,10 @@ def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | N
         prompt = text[:4000]
         if target_path:
             prompt = f"Target project path: {target_path}\n\n{prompt}"
-        user_prompt = (
-            f"{prompt}\n\n"
-            "Return only JSON matching the required schema."
-        )
+        user_prompt = f"{prompt}\n\n"
+        if planning_hint:
+            user_prompt += f"Planner hint:\n{planning_hint.strip()}\n\n"
+        user_prompt += "Return only JSON matching the required schema."
         logger.info(
             "Attempting planner full-plan with provider=%s model=%s",
             provider_name,
@@ -977,20 +977,40 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         target_project_path=target_path,
     )
 
+    incident_recovery = _is_incident_recovery_requirement(requirement)
     suggestion = suggest_task_execution(db=db, description=description)
-    implementer_agent_id = suggestion.agent_id or _first_agent_id(db)
-    researcher_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "seo_strategist", "growth_lead"])
-    synthesizer_agent_id = _pick_agent_id(
-        db,
-        exclude={implementer_agent_id, researcher_agent_id},
-        preferred=["growth_lead", "dev_rel", "launch_strategist"],
-    )
-    reviewer_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "growth_lead"])
-    tester_agent_id = _pick_agent_id(
-        db,
-        exclude={implementer_agent_id, reviewer_agent_id, researcher_agent_id, synthesizer_agent_id},
-        preferred=["cro_optimizer", "seo_strategist", "dev_rel"],
-    )
+    if incident_recovery:
+        implementer_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel"])
+        researcher_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel", "growth_lead"])
+        synthesizer_agent_id = _pick_agent_id(
+            db,
+            exclude=set(),
+            preferred=["dev_rel", "growth_lead", "launch_strategist"],
+        )
+        reviewer_agent_id = _pick_agent_id(
+            db,
+            exclude=set(),
+            preferred=["dev_rel", "growth_lead"],
+        )
+        tester_agent_id = _pick_agent_id(
+            db,
+            exclude=set(),
+            preferred=["dev_rel", "seo_strategist", "cro_optimizer"],
+        )
+    else:
+        implementer_agent_id = suggestion.agent_id or _first_agent_id(db)
+        researcher_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "seo_strategist", "growth_lead"])
+        synthesizer_agent_id = _pick_agent_id(
+            db,
+            exclude={implementer_agent_id, researcher_agent_id},
+            preferred=["growth_lead", "dev_rel", "launch_strategist"],
+        )
+        reviewer_agent_id = _pick_agent_id(db, exclude={implementer_agent_id}, preferred=["dev_rel", "growth_lead"])
+        tester_agent_id = _pick_agent_id(
+            db,
+            exclude={implementer_agent_id, reviewer_agent_id, researcher_agent_id, synthesizer_agent_id},
+            preferred=["cro_optimizer", "seo_strategist", "dev_rel"],
+        )
 
     assignments = WorkflowRoleAssignments(
         researcher_agent_id=researcher_agent_id,
@@ -1003,7 +1023,15 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     # Mode 1: try agent full-plan first
     planning_mode = "full_plan"
-    agent_steps = _plan_with_agent(description, target_path)
+    planning_hint = None
+    if incident_recovery:
+        planning_hint = (
+            "This is an engineering incident recovery requirement. "
+            "Prefer backend, infrastructure, or test scopes. "
+            "Do not create docs-only implementation steps unless the requirement explicitly asks for documentation as a deliverable. "
+            "At least one implementation step should apply a code or test change that closes the runtime failure path."
+        )
+    agent_steps = _plan_with_agent(description, target_path, planning_hint=planning_hint)
     if agent_steps:
         impl_steps, impl_keys = _build_steps_from_agent_plan(
             requirement,

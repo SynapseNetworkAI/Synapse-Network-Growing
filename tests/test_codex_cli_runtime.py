@@ -172,6 +172,28 @@ def test_codex_cli_timeout_returns_structured_error(tmp_path):
     assert "partial stdout" in result.stdout
 
 
+def test_codex_cli_timeout_accepts_bytes_streams(tmp_path):
+    timeout_error = subprocess.TimeoutExpired(
+        cmd=["codex", "exec"],
+        timeout=45,
+        output=b'{"type":"thread.started","thread_id":"thread-123"}\npartial stdout',
+        stderr=b"partial stderr",
+    )
+
+    with patch("server.services.codex_cli.subprocess.run", side_effect=timeout_error):
+        result = run_codex_exec(
+            prompt="do work",
+            cwd=tmp_path,
+            output_path=None,
+            model="gpt-5-codex",
+            timeout=45,
+        )
+
+    assert result.exit_code == 124
+    assert result.thread_id == "thread-123"
+    assert "partial stdout" in result.stdout
+
+
 def test_codex_cli_parses_jsonl_thread_and_final_message(tmp_path):
     with patch("server.services.codex_cli.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(

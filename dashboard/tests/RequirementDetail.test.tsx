@@ -12,6 +12,7 @@ const mockApi = {
   reviseRequirement: vi.fn(),
   decideRequirementApproval: vi.fn(),
   updateRequirement: vi.fn(),
+  getTaskOutputFile: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -24,6 +25,7 @@ vi.mock('../src/api', () => ({
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
     decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
+    getTaskOutputFile: (...args: unknown[]) => mockApi.getTaskOutputFile(...args),
   },
 }))
 
@@ -292,6 +294,40 @@ const detail = {
       created_at: '2026-04-11T08:02:00Z',
     },
   ],
+  task_outputs: [
+    {
+      task_id: 44,
+      step_id: 21,
+      step_key: 'implementation',
+      step_type: 'implementation',
+      step_title: 'Implement requirement',
+      task_status: 'completed',
+      output_files: ['server/routes/requirements.py'],
+      changed_files: [
+        {
+          filename: 'server/routes/requirements.py',
+          additions: 12,
+          deletions: 1,
+          patch: '@@ -1,1 +1,1 @@',
+          target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        },
+      ],
+      target_project_paths: ['/Users/cliff/workspace/agent/Synapse-Network-Growing'],
+      source: 'snapshot',
+      captured_at: '2026-04-11T08:01:00Z',
+      legacy_snapshot: false,
+      change_warning: null,
+    },
+  ],
+  merged_output_files: [
+    {
+      file_name: 'server/routes/requirements.py',
+      task_ids: [44],
+      step_keys: ['implementation'],
+      step_types: ['implementation'],
+      step_titles: ['Implement requirement'],
+    },
+  ],
   delivery_state: {
     branch_name: 'ops/req-1-verification-contract-hardening',
     branch_strategy: 'requirement_branch',
@@ -350,6 +386,13 @@ describe('RequirementDetail', () => {
       },
     })
     mockApi.updateRequirement.mockResolvedValue(detail)
+    mockApi.getTaskOutputFile.mockResolvedValue({
+      file_name: 'output.md',
+      content: '# Output\n\nDone.',
+      size_bytes: 24,
+      truncated: false,
+      content_type: 'text/markdown',
+    })
   })
 
   it('renders validation contract and bug report context', async () => {
@@ -402,6 +445,8 @@ describe('RequirementDetail', () => {
     expect(screen.getByTestId('requirement-approval-panel')).toBeInTheDocument()
     expect(screen.getByTestId('requirement-approval-badge')).toHaveTextContent('审批: 待审批')
     expect(screen.getByTestId('approval-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('requirement-task-outputs')).toHaveTextContent('Task #44')
+    expect(screen.getByTestId('requirement-task-outputs')).toHaveTextContent('server/routes/requirements.py')
     fireEvent.click(screen.getByTestId('publish-requirement-btn'))
 
     await waitFor(() => {

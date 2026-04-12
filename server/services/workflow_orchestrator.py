@@ -56,7 +56,7 @@ from server.schemas import (
 )
 from server.config import PROJECT_ROOT
 from server.services.agent_loader import ensure_agents_loaded
-from server.services.incidents import list_requirement_incidents
+from server.services.incidents import classify_artifact_incident, list_requirement_incidents
 from server.services.copilot_sdk_state import (
     copilot_runtime_paths,
     load_runtime_state,
@@ -326,9 +326,150 @@ def _clear_role_sessions() -> None:
         _logger.debug("Failed to clear role sessions (non-critical)", exc_info=True)
 
 
+def _task_output_dir_for_snapshot(task: TaskRow) -> Path | None:
+    output_path = str(task.output_path or "").strip()
+    if output_path:
+        return Path(output_path).resolve().parent
+    task_id = int(getattr(cast(Any, task), "id", 0) or 0)
+    agent_id = str(getattr(cast(Any, task), "agent_id", "unknown") or "unknown")
+    if task_id <= 0:
+        return None
+    return task_output_dir(PROJECT_ROOT, agent_id, task_id)
+
+
+def _parse_git_diff_files(diff_text: str, *, target_path: str) -> list[dict[str, Any]]:
+    files: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            if current:
+                files.append(current)
+            current = {
+                "filename": "",
+                "additions": 0,
+                "deletions": 0,
+                "patch": "",
+                "target_project_path": target_path,
+            }
+            continue
+        if current is None:
+            continue
+        if line.startswith("+++ b/"):
+            current["filename"] = line[6:].rstrip("\n")
+        elif line.startswith("+") and not line.startswith("+++"):
+            current["additions"] += 1
+            current["patch"] += line
+        elif line.startswith("-") and not line.startswith("---"):
+            current["deletions"] += 1
+            current["patch"] += line
+        else:
+            current["patch"] += line
+    if current:
+        files.append(current)
+    return [item for item in files if item["filename"]]
+
+
+def _git_dirty_files(target_dir: Path) -> list[str]:
+    result = subprocess.run(
+        ["git", "diff", "HEAD", "--name-only"],
+        cwd=str(target_dir),
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    dirty_files: list[str] = []
+    for raw_line in result.stdout.splitlines():
+        path = raw_line.strip()
+        if not path:
+            continue
+        dirty_files.append(path)
+    return sorted(set(dirty_files))
+
+
+def _file_content_sha256(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _dirty_file_hashes(target_dir: Path, dirty_files: list[str]) -> dict[str, str | None]:
+    hashes: dict[str, str | None] = {}
+    for relative_path in dirty_files:
+        candidate = (target_dir / relative_path).resolve()
+        hashes[relative_path] = _file_content_sha256(candidate)
+    return hashes
+
+
+def capture_task_file_change_baseline(
+    db: Session,
+    task: TaskRow,
+    requirement: RequirementRow | None = None,
+    step: WorkflowStepRow | None = None,
+) -> None:
+    output_dir = _task_output_dir_for_snapshot(task)
+    if output_dir is None:
+        return
+    baseline_path = output_dir / "file-changes-baseline.json"
+    if baseline_path.exists():
+        return
+    if step is None and task.workflow_steps:
+        step = task.workflow_steps[0]
+    if requirement is None and step is not None:
+        requirement = _require_requirement(db, int(step.requirement_id))
+    if requirement is None:
+        return
+    target_paths = _split_target_project_paths(
+        _effective_target_project_path(
+            db,
+            requirement,
+            step_type=str(step.step_type or "") if step is not None else None,
+        )
+    )
+    if not target_paths:
+        return
+    baselines: list[dict[str, Any]] = []
+    for target_path in target_paths:
+        target_dir = Path(target_path)
+        if not target_dir.is_dir():
+            continue
+        dirty_files = _git_dirty_files(target_dir)
+        baselines.append(
+            {
+                "target_project_path": target_path,
+                "dirty_files": dirty_files,
+                "dirty_file_hashes": _dirty_file_hashes(target_dir, dirty_files),
+            }
+        )
+    if not baselines:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "task_id": int(task.id),
+                "step_id": int(step.id) if step is not None else None,
+                "baseline_mode": "content_hash",
+                "project_baselines": baselines,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementRow, step: WorkflowStepRow | None = None) -> None:
-    """Capture `git diff HEAD` across configured target projects and save to the task output dir."""
+    """Capture task-scoped file changes using a dirty-file baseline to avoid worktree pollution."""
     try:
+        output_dir = _task_output_dir_for_snapshot(task)
+        if output_dir is None:
+            return
         target_paths = _split_target_project_paths(
             _effective_target_project_path(
                 db,
@@ -336,9 +477,34 @@ def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementR
                 step_type=str(step.step_type or "") if step is not None else None,
             )
         )
-        output_path = str(task.output_path) if task.output_path else None
-        if not target_paths or not output_path:
+        if not target_paths:
             return
+        baseline_payload: dict[str, Any] = {}
+        baseline_path = output_dir / "file-changes-baseline.json"
+        if baseline_path.exists():
+            try:
+                baseline_payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+            except Exception:
+                baseline_payload = {}
+        baseline_by_project: dict[str, dict[str, Any]] = {}
+        for item in baseline_payload.get("project_baselines") or []:
+            if not isinstance(item, dict):
+                continue
+            target_project_path = str(item.get("target_project_path") or "").strip()
+            if not target_project_path:
+                continue
+            baseline_by_project[target_project_path] = {
+                "dirty_files": {
+                    str(path).strip()
+                    for path in (item.get("dirty_files") or [])
+                    if str(path).strip()
+                },
+                "dirty_file_hashes": {
+                    str(path).strip(): value
+                    for path, value in (item.get("dirty_file_hashes") or {}).items()
+                    if str(path).strip()
+                },
+            }
         changed_files: list[dict[str, Any]] = []
         project_snapshots: list[dict[str, Any]] = []
         for target_path in target_paths:
@@ -351,33 +517,23 @@ def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementR
             )
             diff_text = result.stdout
 
-            repo_changed_files: list[dict[str, Any]] = []
-            current: dict[str, Any] | None = None
-            for line in diff_text.splitlines(keepends=True):
-                if line.startswith("diff --git "):
-                    if current:
-                        repo_changed_files.append(current)
-                    current = {
-                        "filename": "",
-                        "additions": 0,
-                        "deletions": 0,
-                        "patch": "",
-                        "target_project_path": target_path,
-                    }
-                elif current is not None:
-                    if line.startswith("+++ b/"):
-                        current["filename"] = line[6:].rstrip("\n")
-                    elif line.startswith("+") and not line.startswith("+++"):
-                        current["additions"] += 1
-                        current["patch"] += line
-                    elif line.startswith("-") and not line.startswith("---"):
-                        current["deletions"] += 1
-                        current["patch"] += line
-                    else:
-                        current["patch"] += line
-            if current:
-                repo_changed_files.append(current)
-            repo_changed_files = [f for f in repo_changed_files if f["filename"]]
+            repo_changed_files = _parse_git_diff_files(diff_text, target_path=target_path)
+            baseline_entry = baseline_by_project.get(target_path, {})
+            dirty_before = baseline_entry.get("dirty_files") or set()
+            dirty_hashes = baseline_entry.get("dirty_file_hashes") or {}
+            filtered_files: list[dict[str, Any]] = []
+            for item in repo_changed_files:
+                relative_path = str(item.get("filename") or "").strip()
+                if not relative_path:
+                    continue
+                if relative_path not in dirty_before:
+                    filtered_files.append(item)
+                    continue
+                current_hash = _file_content_sha256((target_dir / relative_path).resolve())
+                baseline_hash = dirty_hashes.get(relative_path)
+                if current_hash != baseline_hash:
+                    filtered_files.append(item)
+            repo_changed_files = filtered_files
             changed_files.extend(repo_changed_files)
             project_snapshots.append(
                 {
@@ -402,8 +558,9 @@ def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementR
             "captured_at": datetime.now(timezone.utc).isoformat(),
             "task_id": int(task.id),
             "step_id": int(step.id) if step is not None else None,
+            "baseline_captured_at": baseline_payload.get("captured_at"),
+            "baseline_mode": baseline_payload.get("baseline_mode") or "legacy",
         }
-        output_dir = Path(output_path).parent
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "file-changes.json").write_text(
             json.dumps(snapshot, ensure_ascii=False, indent=2)
@@ -641,6 +798,126 @@ def _load_task_file_changes(task: TaskRow) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _normalize_task_file_change_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload or {})
+    if not normalized:
+        normalized["legacy_snapshot"] = False
+        return normalized
+    baseline_captured_at = str(normalized.get("baseline_captured_at") or "").strip()
+    if baseline_captured_at:
+        normalized["legacy_snapshot"] = False
+        return normalized
+    normalized["legacy_snapshot"] = True
+    normalized["changed_files"] = []
+    normalized["project_snapshots"] = []
+    normalized["changed_target_project_paths"] = []
+    normalized["change_warning"] = (
+        "This task was captured before task-scoped diff baselines were introduced. "
+        "Re-run the step to collect a clean task-only file change snapshot."
+    )
+    return normalized
+
+
+def _task_changed_files_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    changed_files_raw = payload.get("changed_files") or []
+    return [
+        {
+            "filename": str(item.get("filename") or "").strip(),
+            "additions": int(item.get("additions") or 0),
+            "deletions": int(item.get("deletions") or 0),
+            "patch": str(item.get("patch") or ""),
+            "target_project_path": str(item.get("target_project_path") or "").strip() or None,
+        }
+        for item in changed_files_raw
+        if isinstance(item, dict) and str(item.get("filename") or "").strip()
+    ]
+
+
+def _task_changed_output_files(changed_files: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    output_files: list[str] = []
+    for item in changed_files:
+        filename = str(item.get("filename") or "").strip()
+        if not filename or filename in seen:
+            continue
+        seen.add(filename)
+        output_files.append(filename)
+    return output_files
+
+
+def _requirement_task_outputs(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if workflow_run is None:
+        return [], []
+    step_rows = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id
+    ).order_by(WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()).all()
+    task_ids = [
+        int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0)
+        for step in step_rows
+        if int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0) > 0
+    ]
+    if not task_ids:
+        return [], []
+    task_rows = db.query(TaskRow).filter(TaskRow.id.in_(task_ids)).all()
+    tasks_by_id = {int(task.id): task for task in task_rows}
+    task_outputs: list[dict[str, Any]] = []
+    merged_index: dict[str, dict[str, Any]] = {}
+    for step in step_rows:
+        task_id = int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0)
+        if task_id <= 0:
+            continue
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            continue
+        payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+        changed_files = _task_changed_files_from_payload(payload)
+        output_files = _task_changed_output_files(changed_files)
+        task_outputs.append(
+            {
+                "task_id": task_id,
+                "step_id": int(step.id),
+                "step_key": str(step.step_key or ""),
+                "step_type": str(step.step_type or ""),
+                "step_title": str(step.title or ""),
+                "task_status": str(task.status or "pending"),
+                "output_files": output_files,
+                "changed_files": changed_files,
+                "target_project_paths": list(payload.get("changed_target_project_paths") or []),
+                "source": str(payload.get("source") or "snapshot"),
+                "captured_at": payload.get("captured_at"),
+                "legacy_snapshot": bool(payload.get("legacy_snapshot")),
+                "change_warning": str(payload.get("change_warning") or "").strip() or None,
+            }
+        )
+        for file_name in output_files:
+            merged = merged_index.setdefault(
+                file_name,
+                {
+                    "file_name": file_name,
+                    "task_ids": [],
+                    "step_keys": [],
+                    "step_types": [],
+                    "step_titles": [],
+                },
+            )
+            if task_id not in merged["task_ids"]:
+                merged["task_ids"].append(task_id)
+            step_key = str(step.step_key or "")
+            step_type = str(step.step_type or "")
+            step_title = str(step.title or "")
+            if step_key and step_key not in merged["step_keys"]:
+                merged["step_keys"].append(step_key)
+            if step_type and step_type not in merged["step_types"]:
+                merged["step_types"].append(step_type)
+            if step_title and step_title not in merged["step_titles"]:
+                merged["step_titles"].append(step_title)
+    return task_outputs, list(merged_index.values())
+
+
 def _record_project_change_summary_artifact(
     db: Session,
     *,
@@ -649,7 +926,7 @@ def _record_project_change_summary_artifact(
     step: WorkflowStepRow,
     task: TaskRow,
 ) -> ArtifactRow | None:
-    payload = _load_task_file_changes(task)
+    payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
     if not isinstance(payload, dict) or not payload:
         return None
     project_snapshots = payload.get("project_snapshots") or []
@@ -1968,11 +2245,14 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
     requirement = _require_requirement(db, requirement_id)
     workflow_run = _active_workflow_run(db, requirement)
     steps = []
+    task_outputs: list[dict[str, Any]] = []
+    merged_output_files: list[dict[str, Any]] = []
     if workflow_run is not None:
         rows = db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).order_by(
             WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()
         ).all()
         steps = [WorkflowStepOut.model_validate(row) for row in rows]
+        task_outputs, merged_output_files = _requirement_task_outputs(db, requirement, workflow_run)
 
     checks = db.query(RequirementAcceptanceCheckRow).filter(
         RequirementAcceptanceCheckRow.requirement_id == requirement.id
@@ -2011,6 +2291,8 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
         artifacts=[ArtifactOut.model_validate(artifact) for artifact in artifacts],
         delivery_state=_build_delivery_state(db, requirement),
         incidents=[IncidentRecordOut(**incident) for incident in list_requirement_incidents(db, requirement_id)],
+        task_outputs=task_outputs,
+        merged_output_files=merged_output_files,
     )
 
 
@@ -2467,7 +2749,11 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
                 db.commit()
                 return
 
-            task, persona, skill_name = _prepare_step_task(db, step, prepared_description=str(context_snapshot.get("prompt") or ""))
+            task, persona, skill_name = _prepare_step_task(
+                db,
+                step,
+                prepared_description=str(context_snapshot.get("task_description") or context_snapshot.get("prompt") or ""),
+            )
             step.status = "running"
             step.started_at = step.started_at or utcnow()
             step.compatibility_task_id = _as_int(task.id)
@@ -2662,9 +2948,11 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
             persona = _execution_persona_for_step(db, step)
             return task, persona, skill_name
 
-    agent = db.query(AgentRow).filter(AgentRow.id == step.assigned_agent_id).first()
+    agent = _task_agent_for_step(db, step)
     if agent is None:
         raise ValueError(f"Assigned agent '{step.assigned_agent_id}' not found for step {step.step_key}")
+    if str(step.assigned_agent_id or "") != str(agent.id):
+        step.assigned_agent_id = str(agent.id)
 
     project_id, agent_group = task_metadata_for_agent(str(agent.group))
     description = prepared_description or _step_task_description(db, step)
@@ -2954,12 +3242,41 @@ def _step_relevant_file_hints(db: Session, step: WorkflowStepRow, *, limit: int 
     return hints
 
 
+def _effective_done_when_markdown(step: WorkflowStepRow, requirement: RequirementRow, target_path: str | None) -> str:
+    done_when = str(step.done_when_markdown or "").strip()
+    step_type = str(step.step_type or "").strip().lower()
+    title = str(step.title or "").strip().lower()
+    step_key = str(step.step_key or "").strip().lower()
+    if (
+        _requirement_prefers_engineering_contract(requirement)
+        and step_type in {"implementation", "bugfix"}
+        and "do not write implementation code" in done_when.lower()
+    ):
+        if any(marker in f"{title} {step_key}" for marker in {"verify", "validation", "regression", "test"}):
+            done_when = (
+                "SCOPE: Implement automated validation for the incident recovery path. "
+                "You may add or modify tests and supporting harness code that proves the failure path is now closed.\n\n"
+                "Add or update regression validation that reproduces the incident conditions and proves the new guard holds."
+            )
+        else:
+            done_when = (
+                "SCOPE: Implement a minimal engineering fix in code or supporting runtime/test harness files. "
+                "Do NOT stop at documentation-only output.\n\n"
+                "Apply the smallest safe change that closes the runtime failure path, and record root cause/recovery notes in task output or handoff."
+            )
+        if target_path:
+            done_when += f"\nTarget project: {target_path}"
+    return done_when
+
+
 def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
     requirement = _require_requirement(db, step.requirement_id)
     target_path = _effective_target_project_path(db, requirement, step_type=str(step.step_type or ""))
+    effective_done_when = _effective_done_when_markdown(step, requirement, target_path)
     context_policy = _json_loads(getattr(step, "context_policy_json", None), {})
     max_artifact_body_chars = int(context_policy.get("max_artifact_body_chars") or 2200)
     max_handoff_chars = int(context_policy.get("max_handoff_chars") or 1200)
+    requirement_summary = _truncate_text(str(requirement.description_markdown or "").strip(), 900)
 
     sections: list[dict[str, Any]] = [
         {
@@ -2968,7 +3285,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
             "body": "\n".join([
                 f"[workflow_step:{step.step_type}] {step.title}",
                 f"Requirement #{requirement.id}: {requirement.title}",
-                str(requirement.description_markdown or "").strip(),
+                requirement_summary,
             ]).strip(),
         }
     ]
@@ -2985,7 +3302,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
     if capability_lines:
         sections.append({"kind": "capability", "title": "Capability Contract", "body": "\n".join(capability_lines)})
 
-    sections.append({"kind": "done_when", "title": "Done When", "body": str(step.done_when_markdown or "").strip()})
+    sections.append({"kind": "done_when", "title": "Done When", "body": effective_done_when})
     execution_guidance = _step_execution_guidance(step)
     if execution_guidance:
         sections.append({"kind": "guidance", "title": "Execution Guidance", "body": execution_guidance})
@@ -3159,8 +3476,66 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
     }
 
 
+def _compact_task_description_from_snapshot(step: WorkflowStepRow, snapshot: dict[str, Any]) -> str:
+    sections = list(snapshot.get("sections") or [])
+    binding_summaries = list(snapshot.get("binding_summaries") or [])
+    context_parts: list[str] = []
+    constraint_parts: list[str] = []
+    delta_parts: list[str] = []
+    done_when = ""
+    step_goal = ""
+
+    for section in sections:
+        kind = str(section.get("kind") or "").strip()
+        title = str(section.get("title") or "").strip()
+        body = str(section.get("body") or "").strip()
+        if not body:
+            continue
+        if kind == "base" and not step_goal:
+            lines = [line.strip() for line in body.splitlines() if line.strip()]
+            step_goal = "\n".join(lines[:2]).strip()
+            continue
+        if kind == "done_when" and not done_when:
+            done_when = _truncate_text(body, 280)
+            continue
+        if kind in {"project", "file_hints"}:
+            context_parts.append(f"### {title}\n{_truncate_text(body, 220)}")
+            continue
+        if kind in {"capability", "guidance"}:
+            constraint_parts.append(f"### {title}\n{_truncate_text(body, 180)}")
+            continue
+        if kind == "handoff":
+            delta_parts.append(f"### {title}\n{_truncate_text(body, 160)}")
+
+    if binding_summaries:
+        bound_inputs = []
+        for item in binding_summaries[:3]:
+            if str(item.get("artifact_type") or "").strip() == "requirement_snapshot":
+                continue
+            title = str(item.get("title") or item.get("artifact_type") or "artifact").strip()
+            artifact_type = str(item.get("artifact_type") or "").strip()
+            bound_inputs.append(f"- {title} ({artifact_type})")
+        if bound_inputs:
+            delta_parts.append("### Bound Inputs\n" + "\n".join(bound_inputs))
+
+    parts = [
+        "## Step",
+        step_goal or f"[workflow_step:{step.step_type}] {step.title}",
+    ]
+    if done_when:
+        parts.extend(["", "## Done When", done_when])
+    if context_parts:
+        parts.extend(["", "## Context", "\n\n".join(context_parts[:2])])
+    if constraint_parts:
+        parts.extend(["", "## Constraints", "\n\n".join(constraint_parts[:2])])
+    if delta_parts:
+        parts.extend(["", "## Delta", "\n\n".join(delta_parts[:2])])
+    return _truncate_text("\n".join(parts).strip(), 1400)
+
+
 def _materialize_step_context(db: Session, step: WorkflowStepRow) -> dict[str, Any]:
     snapshot = _step_context_snapshot(db, step)
+    snapshot["task_description"] = _compact_task_description_from_snapshot(step, snapshot)
     prompt_cache_payload = {
         **snapshot["prompt_cache"],
         "cache_applied": snapshot["cache_applied"],
@@ -3238,7 +3613,8 @@ def _materialize_step_context(db: Session, step: WorkflowStepRow) -> dict[str, A
 
 def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
     snapshot = _step_context_snapshot(db, step)
-    lines = [snapshot["prompt"]]
+    compact_task_description = _compact_task_description_from_snapshot(step, snapshot)
+    lines = [compact_task_description or snapshot["prompt"]]
     if snapshot["verification_status"] != "fresh":
         lines.extend([
             "",
@@ -3246,61 +3622,6 @@ def _step_task_description(db: Session, step: WorkflowStepRow) -> str:
             *(f"- {item}" for item in snapshot["stale_findings"]),
         ])
     return "\n".join(lines)
-    requirement = _require_requirement(db, step.requirement_id)
-    parts = [
-        f"[workflow_step:{step.step_type}] {step.title}",
-        f"Requirement #{requirement.id}: {requirement.title}",
-        requirement.description_markdown,
-    ]
-    target_path = _effective_target_project_path(db, requirement, step_type=str(step.step_type or ""))
-    if target_path:
-        parts.append(f"Target project path: {target_path}")
-        parts.append("IMPORTANT: Write actual source code files in the target project, not just documentation.")
-        project_policy_summary = project_policy_summary_markdown(db, target_path)
-        if project_policy_summary:
-            parts.append(project_policy_summary)
-    approval_policy = _json_loads(getattr(step, "approval_policy_json", None), {})
-    capability_lines = _approval_policy_markdown_lines(approval_policy)
-    if capability_lines:
-        parts.append("\n## Capability Contract")
-        parts.extend(capability_lines)
-    parts.append(f"\n## Done When\n{step.done_when_markdown}")
-    relevant_files = _step_relevant_file_hints(db, step)
-    if relevant_files:
-        parts.append("\n## Suggested File Scope")
-        parts.extend(f"- {path}" for path in relevant_files)
-
-    # Include handoff summaries from completed predecessor steps (Markdown, not raw JSON)
-    if _step_includes_predecessor_handoff(step):
-        deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == step.id).all()
-        for dep in deps:
-            pred = db.query(WorkflowStepRow).filter(WorkflowStepRow.id == dep.depends_on_step_id).first()
-            if pred and pred.handoff_summary_markdown:
-                parts.append(f"\n## Prior Step: {pred.title}\n{pred.handoff_summary_markdown}")
-
-    # Include bound input artifacts — convert plan JSONs to concise Markdown summaries
-    bindings = db.query(StepInputBindingRow).filter(StepInputBindingRow.step_id == step.id).all()
-    for binding in bindings:
-        artifact = db.query(ArtifactRow).filter(ArtifactRow.id == binding.artifact_id).first()
-        if not artifact:
-            continue
-        if artifact.artifact_type == "implementation_plan":
-            # Convert plan JSON into a concise Markdown summary for the agent
-            plan_md = _plan_artifact_to_markdown(artifact)
-            if plan_md:
-                parts.append(f"\n## Implementation Plan\n{plan_md}")
-        elif artifact.artifact_type == "delivery_contract":
-            delivery_md = _delivery_contract_artifact_to_markdown(artifact)
-            if delivery_md:
-                parts.append(f"\n## Delivery Contract\n{delivery_md}")
-        elif artifact.artifact_type == "validation_plan":
-            validation_md = _validation_plan_artifact_to_markdown(artifact)
-            if validation_md:
-                parts.append(f"\n## Validation Contract\n{validation_md}")
-        elif artifact.human_readable_body:
-            parts.append(f"\n## {artifact.artifact_type}: {artifact.content_summary}")
-            parts.append(artifact.human_readable_body[:3000])
-    return "\n".join(parts)
 
 
 def _approval_policy_markdown_lines(policy: dict[str, Any]) -> list[str]:
@@ -3449,21 +3770,39 @@ def _resolve_step_skill(db: Session, step: WorkflowStepRow, *, prepared_descript
     return suggestion.skill_name or "content-strategy"
 
 
+def _requirement_prefers_engineering_contract(requirement: RequirementRow) -> bool:
+    title = str(requirement.title or "").strip().lower()
+    source = str(requirement.source or "").strip().lower()
+    source_ref = str(requirement.source_ref or "").strip().lower()
+    description = str(requirement.description_markdown or "").strip().lower()
+    if title.startswith(("bug fix:", "incident recovery:", "infra incident:", "workflow incident:")):
+        return True
+    if source in {"bug_intake", "bugfix_circuit_breaker", "workflow_incident"}:
+        return True
+    markers = ("runtime_failure", "workflow_incident", "incident recovery", "bugfix_regression", "bug report")
+    haystack = " ".join([title, source_ref, description])
+    return any(marker in haystack for marker in markers)
+
+
 def _step_prefers_engineering_contract(db: Session, step: WorkflowStepRow) -> bool:
     requirement = _require_requirement(db, step.requirement_id)
     step_type = str(step.step_type or "").strip().lower()
-    done_when = str(step.done_when_markdown or "").strip().lower()
-    title = str(requirement.title or "").strip().lower()
-    source = str(requirement.source or "").strip().lower()
-    if "scope: only produce documentation" in done_when:
-        return False
     if step_type in {"implementation", "bugfix", "review", "test", "closeout"}:
         return True
-    if source in {"bug_intake", "bugfix_circuit_breaker"}:
-        return step_type in {"research", "synthesis"}
-    if title.startswith("bug fix:") or title.startswith("incident recovery:") or title.startswith("infra incident:"):
+    if _requirement_prefers_engineering_contract(requirement):
         return step_type in {"research", "synthesis"}
     return False
+
+
+def _task_agent_for_step(db: Session, step: WorkflowStepRow) -> AgentRow | None:
+    preferred_id = str(step.assigned_agent_id or "").strip()
+    if _step_prefers_engineering_contract(db, step):
+        engineering = db.query(AgentRow).filter(AgentRow.id == "dev_rel").first()
+        if engineering is not None:
+            return engineering
+    if preferred_id:
+        return db.query(AgentRow).filter(AgentRow.id == preferred_id).first()
+    return None
 
 
 def _engineering_execution_persona(step: WorkflowStepRow) -> dict[str, Any]:
@@ -3799,7 +4138,7 @@ def _record_runtime_lifecycle_artifacts(
     resolved_phase = phase or _runtime_lifecycle_phase_for_task(task)
     lifecycle_payload = _runtime_lifecycle_payload(step, task, phase=resolved_phase, note=note)
     telemetry_payload = _runtime_telemetry_payload(db, step, task, phase=resolved_phase)
-    _create_or_update_artifact(
+    lifecycle_artifact = _create_or_update_artifact(
         db,
         requirement_id=step.requirement_id,
         workflow_run_id=step.workflow_run_id,
@@ -3823,7 +4162,62 @@ def _record_runtime_lifecycle_artifacts(
         human_readable_body=_runtime_telemetry_markdown(telemetry_payload),
         machine_readable_payload=telemetry_payload,
     )
+    _maybe_record_runtime_incident_artifact(db, step, lifecycle_artifact, phase=resolved_phase, note=note)
 
+
+def _maybe_record_runtime_incident_artifact(
+    db: Session,
+    step: WorkflowStepRow,
+    lifecycle_artifact: ArtifactRow | None,
+    *,
+    phase: str,
+    note: str | None = None,
+) -> None:
+    if lifecycle_artifact is None:
+        return
+    resolved_phase = str(phase or "").strip()
+    if resolved_phase not in {"failed", "paused"}:
+        return
+    requirement = _require_requirement(db, _as_int(step.requirement_id))
+    incident = classify_artifact_incident(requirement, lifecycle_artifact)
+    if not incident:
+        return
+    summary = str(incident.get("summary") or "").strip()
+    title = str(incident.get("title") or "Incident Record").strip()
+    project_display = str(incident.get("project_display_name") or incident.get("project_root_path") or "Org Ops").strip()
+    lines = [
+        f"# {title}",
+        "",
+        f"- Project: {project_display}",
+        f"- Phase: {resolved_phase or '-'}",
+        f"- Incident family: {incident.get('incident_family') or '-'}",
+        f"- Incident code: {incident.get('incident_code') or '-'}",
+        f"- Severity: {incident.get('severity') or '-'}",
+        f"- Recovery status: {incident.get('recovery_status') or '-'}",
+    ]
+    if note:
+        lines.extend(["", "## Note", str(note).strip()])
+    if summary:
+        lines.extend(["", "## Summary", summary])
+    recommended_action = str(incident.get("recommended_action") or "").strip()
+    if recommended_action:
+        lines.extend(["", "## Recommended action", recommended_action])
+    evidence = incident.get("evidence") or []
+    if evidence:
+        lines.extend(["", "## Evidence"])
+        for item in evidence:
+            lines.append(f"- {json.dumps(item, ensure_ascii=False, sort_keys=True)}")
+    _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(step.requirement_id),
+        workflow_run_id=_as_int(step.workflow_run_id),
+        step_id=step.id,
+        producer_step_id=step.id,
+        artifact_type="incident_record",
+        content_summary=_truncate_text(summary or recommended_action or title, 200),
+        human_readable_body="\n".join(lines).strip(),
+        machine_readable_payload=incident,
+    )
 
 def _runtime_adaptation_markdown(payload: dict[str, Any]) -> str:
     lines = [

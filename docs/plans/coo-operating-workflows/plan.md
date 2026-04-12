@@ -31,6 +31,8 @@
 6. planner 后按 complexity tier / project count / incident 属性自动判定 auto-approve 还是 pending approval
 7. scheduler 与 start 只允许 `approved / waived` requirement 自动执行
 8. 新增 `acceptance dispatcher` 骨架接口，供定时任务后续接入
+9. 新增 `approval_router`，按 `source / project_count / complexity_tier / budget / incident flags` 做 deterministic 分流
+10. 新增 `approval_recommendation` 契约，允许 agent/roles 给出 `approve / revise / route_to_human`
 
 ### P0-R2 Requirement Source Registry
 
@@ -46,6 +48,7 @@
 2. 统一记录 `source / source_ref / intake_reason / confidence`
 3. 提供统一的 `intake` 入口，把 `optimization signals` 与 `company review bundle` 接到同一条契约
 4. 在需求池中展示来源分布和近期开启趋势
+5. 为每种 source 定义默认 approval posture 和 validation posture
 
 ### P0-R3 Recurring Workflow Registry
 
@@ -71,6 +74,7 @@
 3. 暴露统一 API：
    1. list / sync recurring workflows
    2. run workflow skeleton manually
+4. 预留 `approval sweep` workflow，用于后续 stale approvals 催办和 approval backlog 跟踪
 
 ## P1
 
@@ -88,6 +92,8 @@
 2. 汇总高价值 signals 和 incidents
 3. 自动生成 requirement drafts 或 ready requirements
 4. 对需要 operator 判断的项生成 daily intake summary
+5. 对新 intake requirement 自动运行 `approval_router`
+6. 将低风险项 auto-approve，将其余项送入 approval recommendation / human queue
 
 ### P1-R2 Dispatcher And Follow-Through Loop
 
@@ -107,6 +113,7 @@
    3. incident recovery
    4. approval reminder
 4. 将 follow-through 结果固化到 recurring workflow `last_result`，供 operator 日常值班查看
+5. 跟踪 `pending_approval` requirement，并把 stale approval backlog 纳入 follow-through
 
 ### P1-R3 End-Of-Day Closeout Sweep
 
@@ -141,6 +148,7 @@
 3. 生成 human gate / automation opportunity summary
 4. 输出 weekly COO review package
 5. 汇总 `morning_intake / dispatcher_loop / closeout_and_compact_sweep` 的 ritual 结果，进入 operator package 和 weekly review source snapshot
+6. 汇总 `approval_source / approval_recommendation / stale approvals / approval hotspots`
 
 ### P2-R2 Automation Candidate Backlog
 
@@ -156,6 +164,7 @@
 2. incident recurrence 自动生成 recovery hardening requirements
 3. budget pressure 自动生成 routing / budget tuning requirements
 4. 将 `automation_candidate` 接入 requirement source registry、unified intake 和 daily intake loop，稳定回流到 backlog
+5. 将高频人工审批原因沉淀成 `approval_automation_candidate`
 
 ### P2-R3 Operator Dashboard And Rituals
 
@@ -176,6 +185,11 @@
    4. budget posture
    5. automation opportunities
 4. 支持从首页直接运行 recurring rituals，并查看最新结果
+5. 展示审批经营态：
+   1. auto-approved count
+   2. agent-routed approvals
+   3. human-required approvals
+   4. stale approval backlog
 
 ## P3
 
@@ -195,6 +209,10 @@
    3. approval dependency
    4. average token cost
 2. role workload / backlog 分配面板
+3. approval roles 指标：
+   1. approval turnaround
+   2. approval disagreement rate
+   3. route-to-human rate
 
 ### P3-R2 Autonomous COO Mode
 

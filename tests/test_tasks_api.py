@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 """Tests for /api/tasks endpoints."""
+import json
+import subprocess
 from unittest.mock import patch, MagicMock
 from typing import Any, cast
+from pathlib import Path
 from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
 from server.database import AgentRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.copilot_sdk_state import seconds_since_timestamp
 from server.services.task_runtime import TaskExecutionResult
+from server.services.workflow_orchestrator import capture_task_file_change_baseline, _snapshot_file_changes
 
 
 def _runtime_result(
@@ -236,6 +240,147 @@ def test_get_task_output_file_returns_preview(synced_client, db_session, tmp_pat
     assert data["file_name"] == "output.md"
     assert "hello" in data["content"]
     assert data["content_type"] == "text/markdown"
+
+
+def test_get_task_output_file_filters_codex_stderr_noise(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+    output_dir = tmp_path / "task-outputs"
+    output_dir.mkdir()
+    stderr_file = output_dir / "codex.stderr.log"
+    stderr_file.write_text(
+        "\n".join(
+            [
+                "WARN codex_protocol::openai_models: Model personality requested but model_messages is missing",
+                "WARN codex_core::plugins::manifest: ignoring interface.defaultPrompt: prompt must be at most 128 characters",
+                "Traceback (most recent call last):",
+                "RuntimeError: gateway failure",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    row = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    row.output_path = str(output_dir / "output.md")
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/tasks/{task_id}/output-files/codex.stderr.log")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "gateway failure" in data["content"]
+    assert "defaultPrompt" not in data["content"]
+    assert "model_messages is missing" not in data["content"]
+
+
+def test_get_task_file_changes_requires_snapshot(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+    output_dir = tmp_path / "task-outputs"
+    output_dir.mkdir()
+    row = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    row.output_path = str(output_dir / "output.md")
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/tasks/{task_id}/file-changes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["changed_files"] == []
+    assert data["source"] == "snapshot"
+    assert "not available yet" in data["error"]
+
+
+def test_get_task_file_changes_hides_legacy_snapshot_diff(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+    output_dir = tmp_path / "task-outputs"
+    output_dir.mkdir()
+    (output_dir / "file-changes.json").write_text(
+        json.dumps(
+            {
+                "changed_files": [
+                    {
+                        "filename": "dashboard/src/App.tsx",
+                        "additions": 65,
+                        "deletions": 14,
+                        "patch": "@@",
+                    }
+                ],
+                "source": "snapshot",
+                "captured_at": "2026-04-12T14:18:54Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    row = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    row.output_path = str(output_dir / "output.md")
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/tasks/{task_id}/file-changes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["changed_files"] == []
+    assert data["legacy_snapshot"] is True
+    assert "before task-scoped diff baselines" in data["change_warning"]
+
+
+def test_task_file_changes_include_dirty_file_when_content_hash_changes(synced_client, db_session, tmp_path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    tracked_file = repo_dir / "tracked.txt"
+    tracked_file.write_text("line1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=repo_dir, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+
+    create = synced_client.post("/api/tasks", json={"description": "t1", "agent_id": "dev_rel"})
+    task_id = create.json()["id"]
+    output_dir = tmp_path / "task-outputs"
+    output_dir.mkdir()
+    row = db_session.query(TaskRow).filter(TaskRow.id == task_id).first()
+    row.output_path = str(output_dir / "output.md")
+
+    requirement = RequirementRow(
+        title="Dirty file hash test",
+        description_markdown="Bug fix",
+        status="in_progress",
+        priority="high",
+        source="manual",
+        approval_status="approved",
+        target_project_path=str(repo_dir),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="system")
+    db_session.add(run)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implementation",
+        status="running",
+        sequence_no=1,
+        assigned_agent_id="dev_rel",
+        compatibility_task_id=task_id,
+    )
+    db_session.add(step)
+    db_session.commit()
+    db_session.refresh(row)
+
+    tracked_file.write_text("line1\npre-task dirty\n", encoding="utf-8")
+    capture_task_file_change_baseline(db_session, row, requirement=requirement, step=step)
+    tracked_file.write_text("line1\npre-task dirty\ntask change\n", encoding="utf-8")
+
+    _snapshot_file_changes(db_session, row, requirement, step=step)
+
+    resp = synced_client.get(f"/api/tasks/{task_id}/file-changes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["legacy_snapshot"] is False
+    assert any(item["filename"] == "tracked.txt" for item in data["changed_files"])
 
 
 def test_run_task_no_approval(synced_client):

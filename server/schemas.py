@@ -904,6 +904,38 @@ class WorkflowRunOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskChangedFileOut(BaseModel):
+    filename: str
+    additions: int = 0
+    deletions: int = 0
+    patch: str = ""
+    target_project_path: Optional[str] = None
+
+
+class RequirementTaskOutputOut(BaseModel):
+    task_id: int
+    step_id: Optional[int] = None
+    step_key: str = ""
+    step_type: str = ""
+    step_title: str = ""
+    task_status: str = "pending"
+    output_files: list[str] = []
+    changed_files: list[TaskChangedFileOut] = []
+    target_project_paths: list[str] = []
+    source: str = "snapshot"
+    captured_at: Optional[str] = None
+    legacy_snapshot: bool = False
+    change_warning: Optional[str] = None
+
+
+class RequirementMergedOutputFileOut(BaseModel):
+    file_name: str
+    task_ids: list[int] = []
+    step_keys: list[str] = []
+    step_types: list[str] = []
+    step_titles: list[str] = []
+
+
 class RequirementOut(BaseModel):
     id: int
     title: str
@@ -938,6 +970,8 @@ class RequirementDetailOut(BaseModel):
     artifacts: list[ArtifactOut] = []
     delivery_state: Optional[DeliveryStateOut] = None
     incidents: list[IncidentRecordOut] = []
+    task_outputs: list[RequirementTaskOutputOut] = []
+    merged_output_files: list[RequirementMergedOutputFileOut] = []
 
 
 class AcceptanceDispatchRequest(BaseModel):

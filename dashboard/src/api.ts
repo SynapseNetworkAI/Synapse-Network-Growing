@@ -147,6 +147,30 @@ export interface TaskOutputFile {
   content_type: string
 }
 
+export interface RequirementTaskOutput {
+  task_id: number
+  step_id: number | null
+  step_key: string
+  step_type: string
+  step_title: string
+  task_status: string
+  output_files: string[]
+  changed_files: FileChange[]
+  target_project_paths: string[]
+  source: string
+  captured_at: string | null
+  legacy_snapshot: boolean
+  change_warning: string | null
+}
+
+export interface RequirementMergedOutputFile {
+  file_name: string
+  task_ids: number[]
+  step_keys: string[]
+  step_types: string[]
+  step_titles: string[]
+}
+
 export interface TaskPage {
   items: Task[]
   total: number
@@ -553,6 +577,8 @@ export interface RequirementDetail {
   acceptance_checks: RequirementAcceptanceCheck[]
   artifacts: Artifact[]
   delivery_state: DeliveryState | null
+  task_outputs: RequirementTaskOutput[]
+  merged_output_files: RequirementMergedOutputFile[]
   incidents: Array<{
     incident_key: string
     requirement_id: number

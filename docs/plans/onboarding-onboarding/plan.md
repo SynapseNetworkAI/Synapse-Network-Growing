@@ -25,13 +25,14 @@ doc_status: active
 - 测试改动：
 
 ## Onboarding Execution
-- run `amem doctor .`
-- verify with `amem doctor .`
-- finish when: No pending onboarding steps remain.
+- run `amem plan-check .`
+- verify with `amem plan-check .`
+- finish when: `amem doctor .` shows `[OK] planning_bundle`.
 
 ## Action Sequence Snapshot
 ```json
 [
+  "Planning (required): Run `amem plan-check .`, then fill in or repair the missing planning bundle files.",
   "Optional (recommended): Refactor flagged functions before adding more behavior, and add a short guiding comment when complex logic must remain in place."
 ]
 ```

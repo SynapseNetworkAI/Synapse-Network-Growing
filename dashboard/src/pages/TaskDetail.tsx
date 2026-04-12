@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import { createPortal } from 'react-dom'
 import { api, Task, TaskLog, TaskHistoryItem, FileChange, TaskFileChanges, TaskOutputFile, AgentsMemoryResult, agentsMemoryApi } from '../api'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -116,9 +117,8 @@ function DiffLine({ line }: Readonly<{ line: string }>) {
 }
 
 function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () => void }>) {
-  return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+  return createPortal((
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
@@ -158,7 +158,7 @@ function DiffModal({ file, onClose }: Readonly<{ file: FileChange; onClose: () =
         </div>
       </div>
     </div>
-  )
+  ), document.body)
 }
 
 function OutputFileModal({
@@ -166,8 +166,8 @@ function OutputFileModal({
   onClose,
 }: Readonly<{ file: TaskOutputFile; onClose: () => void }>) {
   const isMarkdown = file.content_type === 'text/markdown' || file.file_name.endsWith('.md')
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+  return createPortal((
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
@@ -198,7 +198,7 @@ function OutputFileModal({
         </div>
       </div>
     </div>
-  )
+  ), document.body)
 }
 
 export default function TaskDetail() {
@@ -524,10 +524,10 @@ export default function TaskDetail() {
         </div>
       )}
 
-      {/* Output files */}
+      {/* Runtime artifacts */}
       {task.output_files && task.output_files.length > 0 && (
         <div className="p-5 bg-white border shadow-sm rounded-xl">
-          <h3 className="mb-2 text-sm font-bold text-gray-500">产出文件</h3>
+          <h3 className="mb-2 text-sm font-bold text-gray-500">运行产物</h3>
           <ul className="p-3 space-y-1 text-sm border rounded bg-gray-50">
             {task.output_files.map((file) => (
               <li key={file}>
@@ -569,7 +569,7 @@ export default function TaskDetail() {
           {fileChanges && fileChanges.changed_files.length > 0 && (
             <div className="pb-3 mb-3 border-b border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">变更文件</p>
+                <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">任务级真实变更</p>
                 <span className="text-xs text-gray-400">
                   {fileChanges.source === 'snapshot' ? '📸 快照' : '⚡ 实时'}
                   {fileChanges.target_project_path && ` · ${fileChanges.target_project_path.split('/').slice(-2).join('/')}`}
@@ -588,6 +588,11 @@ export default function TaskDetail() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {fileChanges && fileChanges.changed_files.length === 0 && (
+            <div className="pb-3 mb-3 border-b border-slate-200 text-sm text-slate-400">
+              当前任务尚未验证到 task-scoped 文件改动。
             </div>
           )}
           {assistantOutputs.length === 0 ? (

@@ -90,8 +90,11 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             return
 
         # Output directory
-        role_id = agent_persona.get("role", agent_persona.get("id", "unknown"))
+        role_id = _task_str(task, "agent_id") or agent_persona.get("role", agent_persona.get("id", "unknown"))
         output_dir = task_output_dir(PROJECT_ROOT, role_id, task_id)
+        if not _task_str(task, "output_path"):
+            cast(Any, task).output_path = str(output_dir / "output.md")
+            db.flush()
 
         _log(db, task_id, "crew_started", f"skill={skill_name}")
         execution_profile, step_type = _task_execution_profile(task)
@@ -106,6 +109,14 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         cast(Any, task).runtime_backend = selection.backend
         cast(Any, task).runtime_provider = selection.provider
         cast(Any, task).runtime_model = selection.model
+        if task.workflow_steps:
+            try:
+                from server.services.workflow_orchestrator import capture_task_file_change_baseline
+
+                first_step = task.workflow_steps[0]
+                capture_task_file_change_baseline(db, task, step=first_step)
+            except Exception:
+                logger.debug("Failed to capture task file-change baseline for task #%d", task_id, exc_info=True)
         db.commit()
 
         # Parse context_files from task (JSON list stored as text)

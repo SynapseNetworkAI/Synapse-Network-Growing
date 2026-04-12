@@ -31,6 +31,8 @@ from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
 from server.services.task_metadata import task_metadata_for_agent, project_for_group
 from server.services.agent_loader import ensure_agents_loaded
 from server.services.execution_resolver import suggest_task_execution
+from server.services.codex_cli import filter_codex_stderr
+from server.services.workflow_orchestrator import _normalize_task_file_change_payload
 
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -630,6 +632,9 @@ def _read_task_output_file(row: TaskRow, file_name: str, max_chars: int = 120_00
         raise HTTPException(status_code=404, detail="Task output file not found")
 
     raw = target.read_text(encoding="utf-8", errors="replace")
+    if target.name == "codex.stderr.log":
+        filtered = filter_codex_stderr(raw)
+        raw = filtered or "当前 stderr 仅包含已过滤的环境噪音，没有高信号错误。"
     truncated = len(raw) > max_chars
     content = raw[:max_chars]
     guessed_type = mimetypes.guess_type(target.name)[0] or "text/plain"
@@ -649,38 +654,30 @@ def _read_task_output_file(row: TaskRow, file_name: str, max_chars: int = 120_00
 
 @router.get("/{task_id}/file-changes")
 def get_task_file_changes(task_id: int, db: Session = Depends(get_db)):
-    """Return git diff for files changed by this task in the target project."""
+    """Return the cached task-scoped file-change snapshot for this task."""
     row = db.query(TaskRow).filter(TaskRow.id == task_id).first()
     if not row:
         raise HTTPException(status_code=404, detail=TASK_NOT_FOUND)
 
-    # 1. Try reading cached snapshot first (written at step completion)
     output_path = _as_text(row.output_path)
     if output_path:
         cache_file = Path(output_path).parent / "file-changes.json"
         if cache_file.is_file():
             try:
-                return json.loads(cache_file.read_text())
+                payload = json.loads(cache_file.read_text())
+                if isinstance(payload, dict):
+                    return _normalize_task_file_change_payload(payload)
             except Exception:
-                pass  # fall through to live diff
+                logger.warning("Failed to parse task file-change snapshot for task %s", task_id, exc_info=True)
 
-    # 2. Live diff from target project
     target_path = _get_target_project_path(row)
-    if not target_path or not Path(target_path).is_dir():
-        return {"changed_files": [], "target_project_path": target_path, "source": "live"}
-
-    try:
-        diff_text = _run_git(["diff", "HEAD", "--unified=5"], cwd=target_path)
-        changed_files = _parse_git_diff(diff_text)
-        return {
-            "changed_files": changed_files,
-            "target_project_path": target_path,
-            "source": "live",
-            "captured_at": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        logger.warning("Git diff failed for task %s: %s", task_id, exc)
-        return {"changed_files": [], "target_project_path": target_path, "source": "live", "error": str(exc)}
+    return {
+        "changed_files": [],
+        "target_project_path": target_path,
+        "source": "snapshot",
+        "captured_at": None,
+        "error": "Task-scoped file-change snapshot not available yet",
+    }
 
 
 @router.get("/{task_id}/output-files/{file_name:path}")

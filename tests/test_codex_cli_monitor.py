@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from datetime import timedelta
 from unittest.mock import patch
 
 from sqlalchemy.orm import sessionmaker
@@ -181,6 +182,171 @@ def test_codex_monitor_resumes_stalled_task(db_session, tmp_path):
     finally:
         check_db.close()
     mock_terminate.assert_called_once()
+
+
+def test_codex_monitor_skips_hard_timeout_when_disabled(db_session, tmp_path):
+    task, output_dir = _seed_running_codex_task(db_session, tmp_path)
+    paths = codex_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["metadata"].write_text(
+        json.dumps(
+            {
+                "cwd": str(tmp_path),
+                "model": "gpt-5-codex",
+                "add_dirs": [],
+                "timeout_seconds": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths["prompt"].write_text("continue work", encoding="utf-8")
+    paths["stdout"].write_text('{"type":"thread.started","thread_id":"thread-no-timeout"}\n', encoding="utf-8")
+    save_codex_state(
+        paths["state"],
+        {
+            "status": "running",
+            "pid": 999,
+            "thread_id": "thread-no-timeout",
+            "started_at": "2026-04-12T00:00:00+00:00",
+            "resume_count": 0,
+        },
+    )
+
+    session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    now = utcnow().timestamp()
+    for file_path in (paths["stdout"], paths["state"]):
+        file_path.touch()
+        os = __import__("os")
+        os.utime(file_path, (now, now))
+
+    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch.object(
+        CodexCLITaskMonitor, "_activity_age_seconds", return_value=0
+    ), patch("server.services.codex_cli_monitor.start_codex_exec_async") as mock_resume:
+        monitor.sync_task(task.id)
+
+    check_db = session_factory()
+    try:
+        refreshed = check_db.query(TaskRow).filter(TaskRow.id == task.id).first()
+        assert refreshed is not None
+        assert refreshed.status == "running"
+        logs = check_db.query(TaskLogRow).filter(TaskLogRow.task_id == task.id).all()
+        assert not any(log.event_type == "runtime_resume_requested" for log in logs)
+    finally:
+        check_db.close()
+    mock_resume.assert_not_called()
+
+
+def test_codex_monitor_treats_timeout_as_soft_when_thread_is_active(db_session, tmp_path):
+    task, output_dir = _seed_running_codex_task(db_session, tmp_path)
+    paths = codex_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["metadata"].write_text(
+        json.dumps(
+            {
+                "cwd": str(tmp_path),
+                "model": "gpt-5-codex",
+                "add_dirs": [],
+                "timeout_seconds": 1,
+                "max_active_seconds": 900,
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths["prompt"].write_text("continue work", encoding="utf-8")
+    paths["stdout"].write_text('{"type":"thread.started","thread_id":"thread-soft-timeout"}\n', encoding="utf-8")
+    save_codex_state(
+        paths["state"],
+        {
+            "status": "running",
+            "pid": 999,
+            "thread_id": "thread-soft-timeout",
+            "started_at": (utcnow() - timedelta(seconds=5)).isoformat(),
+            "resume_count": 0,
+        },
+    )
+
+    session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    now = utcnow().timestamp()
+    for file_path in (paths["stdout"], paths["state"]):
+        file_path.touch()
+        os = __import__("os")
+        os.utime(file_path, (now, now))
+
+    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch(
+        "server.services.codex_cli_monitor.start_codex_exec_async"
+    ) as mock_resume:
+        monitor.sync_task(task.id)
+
+    check_db = session_factory()
+    try:
+        refreshed = check_db.query(TaskRow).filter(TaskRow.id == task.id).first()
+        assert refreshed is not None
+        assert refreshed.status == "running"
+        logs = check_db.query(TaskLogRow).filter(TaskLogRow.task_id == task.id).all()
+        assert not any(log.event_type == "runtime_resume_requested" for log in logs)
+    finally:
+        check_db.close()
+    mock_resume.assert_not_called()
+
+
+def test_codex_monitor_ignores_stderr_noise_for_activity_heartbeat(db_session, tmp_path):
+    task, output_dir = _seed_running_codex_task(db_session, tmp_path)
+    paths = codex_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["metadata"].write_text(
+        json.dumps(
+            {
+                "cwd": str(tmp_path),
+                "model": "gpt-5-codex",
+                "add_dirs": [],
+                "timeout_seconds": 900,
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths["prompt"].write_text("continue work", encoding="utf-8")
+    paths["stdout"].write_text('{"type":"thread.started","thread_id":"thread-noise"}\n', encoding="utf-8")
+    paths["stderr"].write_text(
+        "WARN codex_core::plugins::manifest: ignoring interface.defaultPrompt: prompt must be at most 128 characters\n",
+        encoding="utf-8",
+    )
+    save_codex_state(
+        paths["state"],
+        {
+            "status": "running",
+            "pid": 999,
+            "thread_id": "thread-noise",
+            "started_at": (utcnow() - timedelta(seconds=600)).isoformat(),
+            "resume_count": 0,
+        },
+    )
+
+    session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
+    old_mtime = 1
+    for file_path in (paths["stdout"], paths["state"]):
+        file_path.touch()
+        os = __import__("os")
+        os.utime(file_path, (old_mtime, old_mtime))
+    paths["stderr"].touch()
+
+    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch(
+        "server.services.codex_cli_monitor.start_codex_exec_async"
+    ) as mock_resume:
+        monitor.sync_task(task.id)
+
+    check_db = session_factory()
+    try:
+        refreshed = check_db.query(TaskRow).filter(TaskRow.id == task.id).first()
+        assert refreshed is not None
+        assert refreshed.status == "running"
+        logs = check_db.query(TaskLogRow).filter(TaskLogRow.task_id == task.id).all()
+        assert any(log.event_type == "runtime_resume_requested" for log in logs)
+    finally:
+        check_db.close()
+    mock_resume.assert_called_once()
 
 
 def test_codex_monitor_resumes_unexpected_process_exit(db_session, tmp_path):

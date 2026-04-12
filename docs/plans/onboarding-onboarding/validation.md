@@ -25,15 +25,15 @@ python3 scripts/memory.py docs-check .
 - test diff:
 
 ## Onboarding Verification
-- primary verification command: `amem doctor .`
-- expected completion: No pending onboarding steps remain.
+- primary verification command: `amem plan-check .`
+- expected completion: `amem doctor .` shows `[OK] planning_bundle`.
 
 ## State Snapshot
 ```json
 {
-  "project_bootstrap_ready": true,
-  "project_bootstrap_complete": true,
-  "recommended_next_command": "amem doctor .",
-  "recommended_verify_command": "amem doctor ."
+  "project_bootstrap_ready": false,
+  "project_bootstrap_complete": false,
+  "recommended_next_command": "amem plan-check .",
+  "recommended_verify_command": "amem plan-check ."
 }
 ```

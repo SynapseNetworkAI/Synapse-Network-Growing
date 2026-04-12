@@ -11,6 +11,7 @@ from server import config
 from server.database import ApprovalRow, SessionLocal, TaskLogRow, TaskRow, utcnow
 from server.services.codex_cli import (
     codex_runtime_paths,
+    filter_codex_stderr,
     load_codex_state,
     pid_is_running,
     save_codex_state,
@@ -22,6 +23,15 @@ from server.services.codex_session_registry import update_session_state, validat
 from server.services.copilot_sdk_state import read_text_if_exists, seconds_since_timestamp, task_output_dir
 
 logger = logging.getLogger("ops-dashboard.codex_cli_monitor")
+
+
+def _timeout_or_default(value: Any, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
 
 
 def _task_id(task: TaskRow) -> int:
@@ -92,16 +102,49 @@ class CodexCLITaskMonitor:
             state = load_codex_state(paths["state"]) or {}
             stdout = read_text_if_exists(paths["stdout"]) or ""
             stderr = read_text_if_exists(paths["stderr"]) or ""
-            passthrough_stdout, final_text, discovered_thread_id, json_event_count = _parse_codex_exec_stdout(stdout)
+            activity_age = self._activity_age_seconds(paths)
+            passthrough_stdout, final_text, discovered_thread_id, json_event_count, usage_summary, turn_count = _parse_codex_exec_stdout(stdout)
             del passthrough_stdout
-            if discovered_thread_id and str(task.runtime_session_id or "") != discovered_thread_id:
-                cast(Any, task).runtime_session_id = discovered_thread_id
-                self._log(db, _task_id(task), "runtime_session_created", f"thread={discovered_thread_id}")
+            if discovered_thread_id:
+                metadata_thread = str(metadata.get("thread_id") or "").strip()
+                state_thread = str(state.get("thread_id") or "").strip()
+                task_thread = str(task.runtime_session_id or "").strip()
+                if task_thread != discovered_thread_id:
+                    cast(Any, task).runtime_session_id = discovered_thread_id
+                    self._log(db, _task_id(task), "runtime_session_created", f"thread={discovered_thread_id}")
+                if metadata_thread != discovered_thread_id:
+                    self._update_metadata(
+                        paths["metadata"],
+                        metadata,
+                        {
+                            "thread_id": discovered_thread_id,
+                            "usage": usage_summary or metadata.get("usage") or {},
+                            "turn_count": max(int(metadata.get("turn_count") or 0), int(turn_count or 0)),
+                        },
+                    )
+                if state_thread != discovered_thread_id:
+                    save_codex_state(
+                        paths["state"],
+                        {
+                            **state,
+                            "thread_id": discovered_thread_id,
+                        },
+                    )
                 self._touch_registry(db, task, metadata, status="active", thread_id=discovered_thread_id)
-                db.commit()
+                if task_thread != discovered_thread_id or metadata_thread != discovered_thread_id or state_thread != discovered_thread_id:
+                    db.commit()
 
             thread_id = discovered_thread_id or str(task.runtime_session_id or "") or str(state.get("thread_id") or "")
             resume_count = int(state.get("resume_count") or metadata.get("resume_count") or 0)
+            if usage_summary or turn_count:
+                self._update_metadata(
+                    paths["metadata"],
+                    metadata,
+                    {
+                        "usage": usage_summary or metadata.get("usage") or {},
+                        "turn_count": max(int(metadata.get("turn_count") or 0), int(turn_count or 0)),
+                    },
+                )
 
             if self._should_resume_terminal_state(state, thread_id=thread_id, resume_count=resume_count):
                 self._attempt_resume_or_pause(
@@ -117,14 +160,42 @@ class CodexCLITaskMonitor:
                 return
 
             if self._is_terminal_state(state, paths["output"]):
-                self._finalize_task(db, task, paths, state, stderr, final_text, discovered_thread_id, json_event_count, metadata)
+                self._finalize_task(db, task, paths, state, stderr, final_text, discovered_thread_id, json_event_count, metadata, usage_summary=usage_summary, turn_count=turn_count)
                 return
 
-            activity_age = self._activity_age_seconds(paths)
             started_age = seconds_since_timestamp(str(state.get("started_at") or task.started_at or ""))
-            timeout_seconds = int(metadata.get("timeout_seconds") or config.CODEX_CLI_TASK_TIMEOUT)
+            timeout_seconds = _timeout_or_default(metadata.get("timeout_seconds"), config.CODEX_CLI_TASK_TIMEOUT)
+            max_active_seconds = _timeout_or_default(metadata.get("max_active_seconds"), config.CODEX_CLI_MAX_ACTIVE_SECONDS)
 
-            if started_age is not None and started_age >= timeout_seconds:
+            if timeout_seconds > 0 and started_age is not None and started_age >= timeout_seconds:
+                if (
+                    thread_id
+                    and activity_age is not None
+                    and activity_age < config.CODEX_CLI_STALE_AFTER_SEC
+                ):
+                    if max_active_seconds > 0 and started_age >= max_active_seconds:
+                        self._attempt_resume_or_pause(
+                            db,
+                            task,
+                            paths,
+                            metadata,
+                            state,
+                            thread_id=thread_id,
+                            resume_count=resume_count,
+                            reason=f"Codex CLI task exceeded max active runtime {max_active_seconds}s",
+                        )
+                        return
+                    if not metadata.get("soft_timeout_logged_at"):
+                        self._log(
+                            db,
+                            _task_id(task),
+                            "runtime_soft_timeout",
+                            f"thread={thread_id} task exceeded soft timeout {timeout_seconds}s but is still active",
+                        )
+                        self._update_metadata(paths["metadata"], metadata, {"soft_timeout_logged_at": utcnow().isoformat()})
+                    self._touch_registry(db, task, metadata, status="active", thread_id=thread_id or None, heartbeat=True)
+                    db.commit()
+                    return
                 self._attempt_resume_or_pause(
                     db,
                     task,
@@ -152,9 +223,26 @@ class CodexCLITaskMonitor:
                     )
                     return
 
-            self._touch_registry(db, task, metadata, status="active", thread_id=thread_id or None, heartbeat=True)
+            self._touch_registry(
+                db,
+                task,
+                metadata,
+                status="active",
+                thread_id=thread_id or None,
+                heartbeat=True,
+                usage_summary=usage_summary,
+                turn_count=turn_count,
+            )
             if json_event_count:
-                self._update_metadata(paths["metadata"], metadata, {"json_event_count": json_event_count})
+                self._update_metadata(
+                    paths["metadata"],
+                    metadata,
+                    {
+                        "json_event_count": json_event_count,
+                        "usage": usage_summary or metadata.get("usage") or {},
+                        "turn_count": max(int(metadata.get("turn_count") or 0), int(turn_count or 0)),
+                    },
+                )
             db.commit()
         finally:
             db.close()
@@ -175,6 +263,9 @@ class CodexCLITaskMonitor:
         thread_id: str | None,
         json_event_count: int,
         metadata: dict[str, Any],
+        *,
+        usage_summary: dict[str, int] | None = None,
+        turn_count: int = 0,
     ) -> None:
         exit_code = int(state.get("exit_code") or 0)
         output_text = read_text_if_exists(paths["output"]) or final_text
@@ -183,7 +274,16 @@ class CodexCLITaskMonitor:
         cast(Any, task).runtime_session_id = thread_id or cast(Any, task).runtime_session_id
         cast(Any, task).output_path = str(paths["output"])
         cast(Any, task).execution_time_ms = int((seconds_since_timestamp(str(state.get("started_at") or "")) or 0) * 1000)
-        self._update_metadata(paths["metadata"], metadata, {"thread_id": thread_id or "", "json_event_count": json_event_count})
+        self._update_metadata(
+            paths["metadata"],
+            metadata,
+            {
+                "thread_id": thread_id or "",
+                "json_event_count": json_event_count,
+                "usage": usage_summary or metadata.get("usage") or {},
+                "turn_count": max(int(metadata.get("turn_count") or 0), int(turn_count or 0)),
+            },
+        )
         if exit_code == 0 and output_text:
             cast(Any, task).output_content = output_text
             cast(Any, task).last_error_message = None
@@ -198,15 +298,33 @@ class CodexCLITaskMonitor:
                 cast(Any, task).status = "completed"
                 self._log(db, _task_id(task), "output", output_text[:500])
                 self._log(db, _task_id(task), "completed")
-            self._touch_registry(db, task, metadata, status="completed", thread_id=thread_id or None, heartbeat=True)
+            self._touch_registry(
+                db,
+                task,
+                metadata,
+                status="completed",
+                thread_id=thread_id or None,
+                heartbeat=True,
+                usage_summary=usage_summary,
+                turn_count=turn_count,
+            )
         else:
-            error = (stderr or output_text or "Codex CLI execution failed").strip()[:4000]
+            error = (filter_codex_stderr(stderr) or output_text or "Codex CLI execution failed").strip()[:4000]
             cast(Any, task).status = "failed"
             cast(Any, task).last_error_message = error
             cast(Any, task).output_content = output_text or f"[ERROR] {error}"
             cast(Any, task).completed_at = utcnow()
             self._log(db, _task_id(task), "failed", error)
-            self._touch_registry(db, task, metadata, status="failed", thread_id=thread_id or None, heartbeat=True)
+            self._touch_registry(
+                db,
+                task,
+                metadata,
+                status="failed",
+                thread_id=thread_id or None,
+                heartbeat=True,
+                usage_summary=usage_summary,
+                turn_count=turn_count,
+            )
         db.commit()
         self._sync_workflow_step(_task_id(task))
 
@@ -322,10 +440,15 @@ class CodexCLITaskMonitor:
     @staticmethod
     def _activity_age_seconds(paths: dict[str, Path]) -> float | None:
         timestamps: list[float] = []
-        for key in ("output", "stdout", "stderr", "state"):
+        for key in ("output", "stdout", "state"):
             path = paths[key]
             if path.exists():
                 timestamps.append(path.stat().st_mtime)
+        stderr_path = paths.get("stderr")
+        if stderr_path is not None and stderr_path.exists():
+            filtered_stderr = filter_codex_stderr(read_text_if_exists(stderr_path) or "")
+            if filtered_stderr:
+                timestamps.append(stderr_path.stat().st_mtime)
         if not timestamps:
             return None
         return max(0.0, utcnow().timestamp() - max(timestamps))
@@ -340,10 +463,17 @@ class CodexCLITaskMonitor:
         thread_id: str | None,
         heartbeat: bool = False,
         resume_count: int | None = None,
+        usage_summary: dict[str, int] | None = None,
+        turn_count: int = 0,
     ) -> None:
         if not task.workflow_steps:
             return
         step = task.workflow_steps[0]
+        metadata_patch: dict[str, Any] = {"last_task_id": _task_id(task)}
+        if usage_summary:
+            metadata_patch["usage"] = usage_summary
+        if turn_count > 0:
+            metadata_patch["turn_count"] = int(turn_count)
         update_session_state(
             db=db,
             role_key=str(task.agent_id or ""),
@@ -354,7 +484,7 @@ class CodexCLITaskMonitor:
             heartbeat=heartbeat,
             current_task_id=_task_id(task),
             resume_count=resume_count,
-            metadata_patch={"last_task_id": _task_id(task)},
+            metadata_patch=metadata_patch,
         )
 
     @staticmethod

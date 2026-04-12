@@ -66,6 +66,9 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
             "title": "Launch FAQ quality gate",
             "description_markdown": "Validate the launch FAQ flow and keep iterating until validation passes.",
             "priority": "high",
+            "approval_contract": {
+                "approval_mode": "waived",
+            },
         },
     )
     assert create_resp.status_code == 201
@@ -124,7 +127,7 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
-    assert start_resp.status_code == 200
+    assert start_resp.status_code == 200, start_resp.json()
     data = start_resp.json()
     assert data["requirement"]["status"] == "done"
     assert data["workflow_run"]["status"] == "completed"
@@ -177,6 +180,104 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert closeout.status == "completed"
     assert data["delivery_state"]["publish_status"] == "review_ready"
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
+
+
+def test_incident_research_task_routes_to_engineering_agent(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Incident Recovery: runtime failure",
+            "description_markdown": "Stabilize the runtime incident and close the failure path.",
+            "priority": "high",
+            "source": "workflow_incident",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Capture runtime incident record",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Scope: Only produce documentation and a precise implementation plan.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    research_step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "research",
+    ).first()
+    task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, research_step)
+
+    assert task.agent_id == "dev_rel"
+    assert skill_name == "__direct_execution__"
+    assert persona["display_name"] == "Engineering Executor"
+    assert "## Step" in task.description
+    assert "Cached Context Profile" not in task.description
+    assert len(task.description) < 2600
+
+
+def test_incident_implementation_task_rewrites_legacy_docs_only_scope(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Incident Recovery: runtime failure",
+            "description_markdown": "Stabilize the runtime incident and close the failure path.",
+            "priority": "high",
+            "source": "workflow_incident",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Capture runtime incident record",
+                        "scope": "docs",
+                        "depends_on": [],
+                        "done_when": "SCOPE: Only produce documentation (runbooks, architecture docs, ops guides). Do NOT write implementation code in this step.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    implementation_step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "implementation",
+    ).first()
+    task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, implementation_step)
+
+    assert task.agent_id == "dev_rel"
+    assert implementation_step.assigned_agent_id == "dev_rel"
+    assert skill_name == "__direct_execution__"
+    assert persona["display_name"] == "Engineering Executor"
+    assert "Only produce documentation" not in task.description
+    assert "Do NOT write implementation code in this step." not in task.description
+    assert "## Delta" in task.description
+    assert len(task.description) < 1500
 
 
 def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client, db_session):
@@ -1095,6 +1196,9 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
             "title": "Defect Reduction: Synapse-Network API regression",
             "description_markdown": "修复 Synapse-Network API 缺陷，并让模型自行决定需要改动哪些目标项目与验证方式。",
             "priority": "high",
+            "approval_contract": {
+                "approval_mode": "waived",
+            },
             "target_project_path": (
                 "/Users/cliff/workspace/agent/Synapse-Network-Growing\n"
                 "/Users/cliff/workspace/agent/Synapse-Network"
@@ -1204,10 +1308,11 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
                         workflow_orchestrator.PRIMARY_GROWING_PROJECT,
                         workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
                     ],
-                    "source": "snapshot",
-                    "task_id": int(task.id),
-                    "step_id": int(step.id) if step is not None else None,
-                },
+                        "source": "snapshot",
+                        "baseline_captured_at": "2026-04-12T14:18:54Z",
+                        "task_id": int(task.id),
+                        "step_id": int(step.id) if step is not None else None,
+                    },
                 ensure_ascii=False,
             ),
             encoding="utf-8",
@@ -1259,6 +1364,11 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
         workflow_orchestrator.PRIMARY_GROWING_PROJECT,
         workflow_orchestrator.PRIMARY_SYNAPSE_PROJECT,
     ]
+    assert len(data["task_outputs"]) >= 1
+    implementation_output = next(item for item in data["task_outputs"] if item["step_type"] == "implementation")
+    assert implementation_output["output_files"]
+    assert any(file["filename"] == "server/routes/requirements.py" for file in implementation_output["changed_files"])
+    assert any(item["file_name"] == "server/routes/requirements.py" for item in data["merged_output_files"])
     assert data["delivery_state"]["required_checks"] == validation_payload["dynamic_required_checks"]
     latest_test_artifact = next(
         artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "test_report"
@@ -3171,6 +3281,39 @@ def test_start_requirement_records_runtime_telemetry_artifacts(synced_client, db
     assert telemetry_payload["event_counts"]["subagent_started"] == 1
     assert telemetry_payload["subagent_counts"]["selected"] == 1
     assert telemetry_payload["subagent_counts"]["started"] == 1
+
+
+def test_requirement_detail_includes_runtime_failure_incident(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Runtime failure test",
+            "description_markdown": "Force a runtime failure and capture the runtime record.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class FailureRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(error="simulated runtime failure")
+
+    with patch("server.services.task_runner.get_task_runtime", return_value=FailureRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert any(item["incident_code"] == "runtime_failure" for item in detail["incidents"])
+    incident_artifacts = [artifact for artifact in detail["artifacts"] if artifact["artifact_type"] == "incident_record"]
+    assert incident_artifacts
+    incident_payload = json.loads(incident_artifacts[-1]["machine_readable_payload"])
+    assert incident_payload["incident_code"] == "runtime_failure"
+    assert incident_payload["incident_family"] == "runtime_orchestration"
+    assert incident_payload["recovery_status"] == "runtime_recovery_required"
 
 
 def test_pause_requirement_handles_state_drift_without_running_step(synced_client, db_session):

@@ -41,8 +41,59 @@ def find_reusable_session(
     last_used = row.last_used_at or row.updated_at or row.created_at
     if last_used is None:
         return None
-    if utcnow() > last_used + timedelta(seconds=ttl):
+    last_used = _as_aware(last_used)
+    now = _as_aware(utcnow())
+    if last_used is None or now is None:
+        return None
+    if now > last_used + timedelta(seconds=ttl):
         row.status = "expired"
+        db.commit()
+        return None
+    metadata = _load_metadata(row.metadata_json)
+    usage_totals = metadata.get("usage_totals") if isinstance(metadata.get("usage_totals"), dict) else {}
+    latest_usage = metadata.get("usage") if isinstance(metadata.get("usage"), dict) else {}
+    usage = usage_totals or latest_usage
+    turn_count = int(metadata.get("cumulative_turn_count") or metadata.get("turn_count") or 0)
+    cached_input_tokens = int(usage.get("cached_input_tokens") or 0) if isinstance(usage, dict) else 0
+    input_tokens = int(usage.get("input_tokens") or 0) if isinstance(usage, dict) else 0
+    if config.CODEX_CLI_SESSION_MAX_TURNS > 0 and turn_count >= config.CODEX_CLI_SESSION_MAX_TURNS:
+        row.status = "rotated"
+        row.metadata_json = json.dumps(
+            _merge_metadata(
+                _load_metadata(row.metadata_json),
+                {"rotated_reason": f"turn_count>={config.CODEX_CLI_SESSION_MAX_TURNS}"},
+            ),
+            default=str,
+        )
+        db.commit()
+        return None
+    if (
+        config.CODEX_CLI_SESSION_MAX_CACHED_INPUT_TOKENS > 0
+        and cached_input_tokens >= config.CODEX_CLI_SESSION_MAX_CACHED_INPUT_TOKENS
+    ):
+        row.status = "rotated"
+        row.metadata_json = json.dumps(
+            _merge_metadata(
+                _load_metadata(row.metadata_json),
+                {
+                    "rotated_reason": (
+                        f"cached_input_tokens>={config.CODEX_CLI_SESSION_MAX_CACHED_INPUT_TOKENS}"
+                    )
+                },
+            ),
+            default=str,
+        )
+        db.commit()
+        return None
+    if config.CODEX_CLI_SESSION_MAX_INPUT_TOKENS > 0 and input_tokens >= config.CODEX_CLI_SESSION_MAX_INPUT_TOKENS:
+        row.status = "rotated"
+        row.metadata_json = json.dumps(
+            _merge_metadata(
+                _load_metadata(row.metadata_json),
+                {"rotated_reason": f"input_tokens>={config.CODEX_CLI_SESSION_MAX_INPUT_TOKENS}"},
+            ),
+            default=str,
+        )
         db.commit()
         return None
     return row
@@ -72,13 +123,15 @@ def upsert_session_launch(
             workflow_run_id=workflow_run_id,
         )
         db.add(row)
+    existing_metadata = _load_metadata(row.metadata_json)
+    merged_metadata = _merge_metadata(existing_metadata, metadata or {})
     row.current_task_id = task_id
     row.thread_id = thread_id or row.thread_id
     row.status = status
     row.last_used_at = utcnow()
     row.last_heartbeat_at = row.last_heartbeat_at or utcnow()
     row.resume_count = int(resume_count)
-    row.metadata_json = json.dumps(metadata or {}, default=str)
+    row.metadata_json = json.dumps(merged_metadata, default=str)
     db.flush()
     return row
 
@@ -112,13 +165,7 @@ def update_session_state(
     if resume_count is not None:
         row.resume_count = int(resume_count)
     if metadata_patch:
-        try:
-            payload = json.loads(str(row.metadata_json or "{}"))
-            if not isinstance(payload, dict):
-                payload = {}
-        except Exception:
-            payload = {}
-        payload.update(metadata_patch)
+        payload = _merge_metadata(_load_metadata(row.metadata_json), metadata_patch, current_task_id=current_task_id, status=status)
         row.metadata_json = json.dumps(payload, default=str)
     db.flush()
     return row
@@ -132,6 +179,55 @@ def _load_metadata(payload: str | None) -> dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _usage_dict(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "input_tokens": int(value.get("input_tokens") or 0),
+        "cached_input_tokens": int(value.get("cached_input_tokens") or 0),
+        "output_tokens": int(value.get("output_tokens") or 0),
+    }
+
+
+def _merge_metadata(
+    existing: dict[str, Any],
+    patch: dict[str, Any],
+    *,
+    current_task_id: int | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    payload = dict(existing or {})
+    payload.update(patch or {})
+    usage_patch = _usage_dict(patch.get("usage"))
+    if usage_patch:
+        payload["usage"] = usage_patch
+    existing_totals = _usage_dict(payload.get("usage_totals"))
+    if usage_patch:
+        effective_task_id = current_task_id if current_task_id is not None else _safe_int(payload.get("last_task_id"))
+        last_usage_task_id = _safe_int(payload.get("last_usage_task_id"))
+        terminal = str(status or payload.get("status") or "").strip().lower() in {"completed", "failed", "resumable"}
+        if terminal and effective_task_id is not None and effective_task_id != last_usage_task_id:
+            payload["usage_totals"] = {
+                "input_tokens": int(existing_totals.get("input_tokens") or 0) + int(usage_patch.get("input_tokens") or 0),
+                "cached_input_tokens": int(existing_totals.get("cached_input_tokens") or 0)
+                + int(usage_patch.get("cached_input_tokens") or 0),
+                "output_tokens": int(existing_totals.get("output_tokens") or 0) + int(usage_patch.get("output_tokens") or 0),
+            }
+            payload["last_usage_task_id"] = effective_task_id
+        elif existing_totals:
+            payload["usage_totals"] = existing_totals
+    turn_count_patch = _safe_int(patch.get("turn_count"))
+    if turn_count_patch is not None:
+        payload["turn_count"] = turn_count_patch
+        effective_task_id = current_task_id if current_task_id is not None else _safe_int(payload.get("last_task_id"))
+        last_turn_task_id = _safe_int(payload.get("last_turn_task_id"))
+        terminal = str(status or payload.get("status") or "").strip().lower() in {"completed", "failed", "resumable"}
+        if terminal and effective_task_id is not None and effective_task_id != last_turn_task_id:
+            payload["cumulative_turn_count"] = int(payload.get("cumulative_turn_count") or 0) + turn_count_patch
+            payload["last_turn_task_id"] = effective_task_id
+    return payload
 
 
 def _safe_int(value: Any) -> int | None:

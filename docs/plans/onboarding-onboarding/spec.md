@@ -77,8 +77,8 @@ Shared Engineering Brain onboarding: onboarding
   },
   {
     "name": "Planning",
-    "status": "HEALTHY",
-    "summary": "Planning status=HEALTHY (ok=2, warn=0, fail=0, info=0)",
+    "status": "ATTENTION",
+    "summary": "Planning status=ATTENTION (ok=1, warn=0, fail=1, info=0)",
     "checks": [
       {
         "status": "OK",
@@ -86,9 +86,9 @@ Shared Engineering Brain onboarding: onboarding
         "detail": "present: ./docs/plans"
       },
       {
-        "status": "OK",
+        "status": "FAIL",
         "key": "planning_bundle",
-        "detail": "0 planning bundle(s) passed plan-check"
+        "detail": "docs/plans/ai-company-ops-roadmap/README.md missing required phrases: planning bundle"
       }
     ]
   },
@@ -112,7 +112,7 @@ Shared Engineering Brain onboarding: onboarding
   {
     "name": "Optional",
     "status": "WATCH",
-    "summary": "Optional status=WATCH (ok=2, warn=3, fail=0, info=0)",
+    "summary": "Optional status=WATCH (ok=2, warn=5, fail=0, info=0)",
     "checks": [
       {
         "status": "OK",
@@ -127,17 +127,27 @@ Shared Engineering Brain onboarding: onboarding
       {
         "status": "WARN",
         "key": "refactor_watch",
-        "detail": "scripts/verify_frontmatter.py::main high complexity (branches=6>5, nesting=4>=4, locals=9>8, missing_guiding_comment)"
+        "detail": "server/services/portfolio_scheduler.py::execute_portfolio_schedule high complexity (lines=44>40, branches=9>5, nesting=4>=4, locals=14>8, missing_guiding_comment)"
       },
       {
         "status": "WARN",
         "key": "refactor_watch",
-        "detail": "scripts/verify_frontmatter.py::verify_file high complexity (branches=8>5, nesting=3, locals=6, missing_guiding_comment)"
+        "detail": "server/services/workflow_orchestrator.py::_soft_delete_requirement_tree high complexity (lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment)"
       },
       {
         "status": "WARN",
         "key": "refactor_watch",
-        "detail": "server/routers/agents.py::sync_agents high complexity (nesting=3, locals=7, missing_guiding_comment)"
+        "detail": "server/services/portfolio_scheduler.py::build_portfolio_schedule high complexity (lines=277>40, branches=17>5, nesting=4>=4, locals=45>8, missing_guiding_comment)"
+      },
+      {
+        "status": "WARN",
+        "key": "refactor_watch",
+        "detail": "server/services/recurring_workflows.py::run_recurring_workflow high complexity (lines=94>40, branches=7>5, nesting=6>=4, locals=10>8, missing_guiding_comment)"
+      },
+      {
+        "status": "WARN",
+        "key": "refactor_watch",
+        "detail": "server/services/workflow_orchestrator.py::_snapshot_file_changes high complexity (lines=105>40, branches=14>5, nesting=4>=4, locals=24>8, missing_guiding_comment)"
       }
     ]
   }

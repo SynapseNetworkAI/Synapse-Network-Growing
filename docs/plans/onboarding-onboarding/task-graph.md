@@ -25,5 +25,21 @@ doc_status: active
 
 ## Onboarding Task Steps
 ```json
-[]
+[
+  {
+    "group": "Planning",
+    "priority": "required",
+    "key": "planning_bundle",
+    "status": "FAIL",
+    "detail": "docs/plans/ai-company-ops-roadmap/README.md missing required phrases: planning bundle",
+    "action": "Repair the planning bundle so the repository has a valid spec-first execution package.",
+    "command": "amem plan-check .",
+    "verify_with": "amem plan-check .",
+    "done_when": "`amem doctor .` shows `[OK] planning_bundle`.",
+    "safe_to_auto_execute": false,
+    "approval_required": true,
+    "approval_reason": "plan-check only diagnoses issues; actual planning repairs should be reviewed before editing tracked docs",
+    "next_command": "amem doctor ."
+  }
+]
 ```

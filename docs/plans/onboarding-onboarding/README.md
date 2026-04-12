@@ -17,10 +17,10 @@ doc_status: active
 
 ## Onboarding State
 - state file: `.agents-memory/onboarding-state.json`
-- bootstrap ready: `yes`
-- bootstrap complete: `yes`
-- next group: `Unknown`
-- next key: `unknown`
-- next command: `amem doctor .`
-- verify with: `amem doctor .`
-- done when: No pending onboarding steps remain.
+- bootstrap ready: `no`
+- bootstrap complete: `no`
+- next group: `Planning`
+- next key: `planning_bundle`
+- next command: `amem plan-check .`
+- verify with: `amem plan-check .`
+- done when: `amem doctor .` shows `[OK] planning_bundle`.

@@ -16,6 +16,12 @@ from server import config
 logger = logging.getLogger("ops-dashboard.codex_cli")
 
 _GENERIC_MODEL_ALIASES = {"", "openai", "claude", "copilot", "codex", "responses", "gpt"}
+_STDERR_NOISE_MARKERS = (
+    "model personality requested but model_messages is missing",
+    "plugins::manifest: ignoring interface.defaultprompt: prompt must be at most 128 characters",
+    "shell_snapshot: failed to delete shell snapshot",
+    "failed to terminate mcp process group",
+)
 
 
 @dataclass
@@ -29,6 +35,8 @@ class CodexExecResult:
     output_path: Path | None
     thread_id: str | None = None
     json_event_count: int = 0
+    usage: dict[str, int] | None = None
+    turn_count: int = 0
 
 
 @dataclass
@@ -99,7 +107,11 @@ def run_codex_exec(
         schema_path.write_text(json.dumps(output_schema, indent=2), encoding="utf-8")
         command.extend(["--output-schema", str(schema_path)])
 
-    effective_timeout = int(timeout or config.CODEX_CLI_TIMEOUT or config.LLM_TIMEOUT or 300)
+    selected_timeout = timeout if timeout is not None else config.CODEX_CLI_TIMEOUT
+    if selected_timeout is None:
+        selected_timeout = config.LLM_TIMEOUT or 300
+    effective_timeout = int(selected_timeout)
+    subprocess_timeout = effective_timeout if effective_timeout > 0 else None
     t0 = time.monotonic()
     thread_id: str | None = None
     json_event_count = 0
@@ -110,7 +122,7 @@ def run_codex_exec(
             text=True,
             capture_output=True,
             cwd=str(cwd),
-            timeout=effective_timeout,
+            timeout=subprocess_timeout,
             check=False,
         )
         elapsed = int((time.monotonic() - t0) * 1000)
@@ -119,8 +131,8 @@ def run_codex_exec(
         exit_code = int(completed.returncode)
     except subprocess.TimeoutExpired as exc:
         elapsed = int((time.monotonic() - t0) * 1000)
-        stdout = exc.stdout or ""
-        stderr = (exc.stderr or "").strip()
+        stdout = _coerce_codex_text(exc.stdout)
+        stderr = _coerce_codex_text(exc.stderr).strip()
         timeout_message = f"Codex CLI execution timed out after {effective_timeout}s"
         stderr = f"{stderr}\n{timeout_message}".strip()
         exit_code = 124
@@ -128,11 +140,11 @@ def run_codex_exec(
             "event=codex_cli_exec_timeout cwd=%s model=%s timeout_s=%s elapsed_ms=%s",
             str(cwd),
             resolved_model or "(default)",
-            effective_timeout,
+            effective_timeout if effective_timeout > 0 else "none",
             elapsed,
         )
 
-    parsed_stdout, derived_text, parsed_thread_id, parsed_event_count = _parse_codex_exec_stdout(stdout)
+    parsed_stdout, derived_text, parsed_thread_id, parsed_event_count, usage, turn_count = _parse_codex_exec_stdout(stdout)
     stdout = parsed_stdout
     thread_id = parsed_thread_id
     json_event_count = parsed_event_count
@@ -154,6 +166,8 @@ def run_codex_exec(
         output_path=output_path,
         thread_id=thread_id,
         json_event_count=json_event_count,
+        usage=usage,
+        turn_count=turn_count,
     )
     logger.info(
         "event=codex_cli_exec exit_code=%s cwd=%s model=%s elapsed_ms=%s thread_id=%s json_events=%s",
@@ -242,14 +256,25 @@ def start_codex_exec_async(
     )
 
 
-def _parse_codex_exec_stdout(stdout: str) -> tuple[str, str, str | None, int]:
+def _coerce_codex_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _parse_codex_exec_stdout(stdout: str | bytes) -> tuple[str, str, str | None, int, dict[str, int] | None, int]:
+    stdout = _coerce_codex_text(stdout)
     if not stdout:
-        return "", "", None, 0
+        return "", "", None, 0, None, 0
 
     passthrough_lines: list[str] = []
     final_text = ""
     thread_id: str | None = None
     event_count = 0
+    turn_count = 0
+    latest_usage: dict[str, int] | None = None
 
     for raw_line in stdout.splitlines():
         line = raw_line.strip()
@@ -272,6 +297,15 @@ def _parse_codex_exec_stdout(stdout: str) -> tuple[str, str, str | None, int]:
             value = str(payload.get("thread_id") or "").strip()
             if value:
                 thread_id = value
+        elif event_type == "turn.completed":
+            turn_count += 1
+            usage_payload = payload.get("usage")
+            if isinstance(usage_payload, dict):
+                latest_usage = {
+                    "input_tokens": int(usage_payload.get("input_tokens") or 0),
+                    "cached_input_tokens": int(usage_payload.get("cached_input_tokens") or 0),
+                    "output_tokens": int(usage_payload.get("output_tokens") or 0),
+                }
         elif event_type == "item.completed":
             item = payload.get("item")
             if isinstance(item, dict) and str(item.get("type") or "") == "agent_message":
@@ -279,7 +313,27 @@ def _parse_codex_exec_stdout(stdout: str) -> tuple[str, str, str | None, int]:
                 if value:
                     final_text = value
 
-    return "\n".join(passthrough_lines).strip(), final_text, thread_id, event_count
+    return "\n".join(passthrough_lines).strip(), final_text, thread_id, event_count, latest_usage, turn_count
+
+
+def filter_codex_stderr(stderr: str, *, max_lines: int = 10) -> str:
+    lines = [line.rstrip() for line in str(stderr or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    kept: list[str] = []
+    for line in lines:
+        lowered = line.lower()
+        if any(marker in lowered for marker in _STDERR_NOISE_MARKERS):
+            continue
+        kept.append(line)
+    selected = kept if kept else []
+    if not selected:
+        return ""
+    if len(selected) <= max_lines:
+        return "\n".join(selected)
+    head = selected[:max_lines]
+    omitted = len(selected) - max_lines
+    return "\n".join(head + [f"... [{omitted} more stderr lines omitted]"])
 
 
 def load_codex_state(path: Path) -> dict[str, object] | None:
