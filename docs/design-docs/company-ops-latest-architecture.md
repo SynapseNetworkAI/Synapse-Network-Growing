@@ -729,6 +729,23 @@ requirement 支持：
 6. requirement bundle
 7. operator review package
 
+当前这层已经不只是“把 optimization signal 再展示一次”，而是直接消费统一 incident taxonomy。
+
+具体来说：
+
+1. `incidents` 来自统一 incident record，而不是前端自己拼 signal 文本。
+2. 每条 incident 都会带 `project_key / project_display_name / incident_family / incident_code / recovery_status`。
+3. `next cycle recommendations` 会把 incident 直接作为一类候选项，和 requirement / signal 一起排序。
+4. `next cycle requirement bundle` 会优先把 incident recommendation 转成 `incident_recovery` 模板 requirement。
+5. `operator review package` 会把高风险 incident 继续收束成 operator 决策，而不是任由系统在事故态里无限自治。
+
+这意味着 portfolio 层现在已经可以直接回答：
+
+1. 当前最值得优先处理的事故在哪个项目。
+2. 这是 verification / governance / context / runtime 哪一类问题。
+3. 它现在处在 `bugfix_loop_active / operator_review_required / replan_required / runtime_recovery_required` 的哪一种恢复状态。
+4. 下一周期应该 intake 一个新 recovery requirement，还是先走 operator approval。
+
 ## 6. `/requirements` 慢的当前结论
 
 当前阶段的结论是：

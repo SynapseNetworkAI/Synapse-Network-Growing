@@ -17,6 +17,32 @@ function getColor(color?: string) {
   return COLOR_MAP[color || 'gray'] || COLOR_MAP.gray
 }
 
+function severityTone(severity?: string) {
+  switch (severity) {
+    case 'critical':
+      return 'bg-rose-200 text-rose-900'
+    case 'high':
+      return 'bg-rose-100 text-rose-800'
+    case 'medium':
+      return 'bg-amber-100 text-amber-800'
+    default:
+      return 'bg-slate-100 text-slate-700'
+  }
+}
+
+function actionTone(action?: string) {
+  switch (action) {
+    case 'approval_required':
+      return 'bg-amber-100 text-amber-800'
+    case 'intake':
+      return 'bg-emerald-100 text-emerald-800'
+    case 'review':
+      return 'bg-sky-100 text-sky-800'
+    default:
+      return 'bg-slate-100 text-slate-700'
+  }
+}
+
 export default function OrgChart() {
   const [orgTree, setOrgTree] = useState<OrgTree | null>(null)
   const [stats, setStats] = useState<DashboardStats | null>(null)
@@ -285,23 +311,53 @@ export default function OrgChart() {
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Incidents</h4>
-              <div className="mt-3 space-y-2">
+              <div data-testid="company-review-incidents" className="mt-3 space-y-2">
                 {review.incidents.map((item) => (
                   <div key={item.item_key} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900">
-                    <div className="font-medium">{item.title}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{item.title}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${severityTone(item.severity)}`}>{item.severity}</span>
+                      {item.incident_family && (
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-rose-700">{item.incident_family}</span>
+                      )}
+                      {item.incident_code && (
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 font-mono text-[11px] text-rose-700">{item.incident_code}</span>
+                      )}
+                    </div>
                     <div className="mt-1 text-xs text-rose-800">{item.summary}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-rose-700">
+                      <span>{item.project_display_name || item.project_key || 'Org Ops'}</span>
+                      {item.recovery_status && <span>recovery: {item.recovery_status}</span>}
+                      {item.requirement_id && <span>requirement #{item.requirement_id}</span>}
+                    </div>
+                    {item.recommendation && <div className="mt-2 text-xs text-rose-700">建议: {item.recommendation}</div>}
                   </div>
                 ))}
               </div>
             </div>
             <div>
               <h4 className="text-sm font-semibold text-slate-900">Next Cycle Recommendations</h4>
-              <div className="mt-3 space-y-2">
+              <div data-testid="company-review-recommendations" className="mt-3 space-y-2">
                 {review.next_cycle_recommendations.map((item) => (
                   <div key={`${item.source_ref || item.title}-${item.action}`} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-                    <div className="font-medium">{item.title}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{item.title}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${actionTone(item.action)}`}>{item.action}</span>
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-emerald-800">{item.candidate_type}</span>
+                      {item.incident_family && (
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] text-emerald-800">{item.incident_family}</span>
+                      )}
+                      {item.incident_code && (
+                        <span className="rounded-full bg-white/70 px-2 py-0.5 font-mono text-[11px] text-emerald-800">{item.incident_code}</span>
+                      )}
+                    </div>
                     <div className="mt-1 text-xs text-emerald-800">
                       {item.project_display_name} / {item.action} / score {item.score} / budget {item.budget_cost}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-emerald-700">
+                      {item.recovery_status && <span>recovery: {item.recovery_status}</span>}
+                      {item.approval_required && <span>needs operator approval</span>}
+                      {item.requirement_id && <span>requirement #{item.requirement_id}</span>}
                     </div>
                     <div className="mt-1 text-xs text-emerald-700">{item.rationale}</div>
                   </div>

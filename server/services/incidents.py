@@ -36,6 +36,13 @@ def _display_name(requirement: RequirementRow) -> str:
     return target_path.rsplit("/", 1)[-1]
 
 
+def _project_key(requirement: RequirementRow) -> str:
+    target_path = _first_target_path(requirement)
+    if not target_path:
+        return "org-ops"
+    return target_path.rsplit("/", 1)[-1].strip().lower()
+
+
 def _severity_rank(value: str) -> int:
     return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(str(value), 0)
 
@@ -69,6 +76,7 @@ def _incident_record(
         "title": title,
         "summary": summary,
         "recommended_action": recommended_action,
+        "project_key": _project_key(requirement),
         "project_root_path": target_path,
         "project_display_name": _display_name(requirement),
         "evidence": evidence or [],

@@ -597,7 +597,13 @@ export interface OperatingReviewItem {
   severity: string
   summary: string
   project_key?: string | null
+  project_display_name?: string | null
   recommendation?: string | null
+  incident_family?: string | null
+  incident_code?: string | null
+  recovery_status?: string | null
+  requirement_id?: number | null
+  source_ref?: string | null
 }
 
 export interface OperatingReviewRecommendation {
@@ -610,6 +616,12 @@ export interface OperatingReviewRecommendation {
   budget_cost: number
   source_ref?: string | null
   rationale: string
+  approval_required?: boolean
+  requirement_id?: number | null
+  signal_id?: number | null
+  incident_family?: string | null
+  incident_code?: string | null
+  recovery_status?: string | null
 }
 
 export interface OperatingReviewBundleItem {

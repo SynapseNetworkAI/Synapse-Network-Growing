@@ -142,8 +142,10 @@ npm run dev
 ### 典型使用方式
 
 1. 先看 `portfolio summary` 判断哪里最堵。
-2. 看 `Next Cycle Requirement Bundle` 和 `Operator Review Package`。
-3. 确认后点 `生成 Bundle`，把推荐项放进需求池。
+2. 再看 `Incidents`，先按 `incident_family / incident_code / recovery_status` 判断当前 portfolio 最危险的是验证事故、治理事故、上下文事故还是运行期事故。
+3. 再看 `Next Cycle Recommendations`，这里现在会同时出现 requirement、signal 和 incident 三类候选项。
+4. 最后看 `Next Cycle Requirement Bundle` 和 `Operator Review Package`。
+5. 确认后点 `生成 Bundle`，把推荐项放进需求池。
 
 ## 3.2 需求池 `/requirements`
 

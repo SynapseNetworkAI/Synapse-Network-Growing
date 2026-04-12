@@ -217,7 +217,13 @@ class OperatingReviewItemOut(BaseModel):
     severity: str = "medium"
     summary: str
     project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
     recommendation: Optional[str] = None
+    incident_family: Optional[str] = None
+    incident_code: Optional[str] = None
+    recovery_status: Optional[str] = None
+    requirement_id: Optional[int] = None
+    source_ref: Optional[str] = None
 
 
 class OperatingReviewRecommendationOut(BaseModel):
@@ -230,6 +236,12 @@ class OperatingReviewRecommendationOut(BaseModel):
     budget_cost: int = 0
     source_ref: Optional[str] = None
     rationale: str
+    approval_required: bool = False
+    requirement_id: Optional[int] = None
+    signal_id: Optional[int] = None
+    incident_family: Optional[str] = None
+    incident_code: Optional[str] = None
+    recovery_status: Optional[str] = None
 
 
 class OperatingReviewBundleItemOut(BaseModel):
@@ -661,6 +673,7 @@ class IncidentRecordOut(BaseModel):
     title: str
     summary: str
     recommended_action: str
+    project_key: Optional[str] = None
     project_root_path: Optional[str] = None
     project_display_name: Optional[str] = None
     evidence: list[dict[str, object]] = []

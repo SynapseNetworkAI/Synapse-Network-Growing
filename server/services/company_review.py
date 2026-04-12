@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from server.database import CompanyOperatingReviewRow, RequirementRow
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
+from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals, refresh_optimization_signals
 from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.portfolio_scheduler import build_portfolio_schedule
@@ -157,25 +158,63 @@ def _bottlenecks(project_catalog: dict[str, dict[str, Any]], scheduler_plan: dic
     return items[:8]
 
 
-def _incidents(signals: list[Any]) -> list[dict[str, Any]]:
+def _match_incident_project(
+    incident: dict[str, Any],
+    project_catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    incident_project_key = str(incident.get("project_key") or "").strip()
+    incident_root = str(incident.get("project_root_path") or "").strip()
+    if incident_project_key:
+        for project in project_catalog.values():
+            if str(project.get("project_key") or "") == incident_project_key:
+                return dict(project)
+    if incident_root:
+        for project in project_catalog.values():
+            if str(project.get("root_path") or "") == incident_root:
+                return dict(project)
+    if incident_project_key:
+        return {
+            "project_key": incident_project_key,
+            "display_name": str(incident.get("project_display_name") or incident_project_key),
+            "root_path": incident_root or None,
+        }
+    return {
+        "project_key": "org-ops",
+        "display_name": str(incident.get("project_display_name") or "Org Ops"),
+        "root_path": None,
+    }
+
+
+def _incidents(db: Session, project_catalog: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     incidents: list[dict[str, Any]] = []
-    for signal in signals:
-        severity = str(signal.severity or "medium")
-        if severity not in {"critical", "high"} and str(signal.signal_type) not in {"delivery_blocker", "bug_report"}:
-            continue
+    for incident in list_open_incidents(db):
+        project = _match_incident_project(incident, project_catalog)
+        severity = str(incident.get("severity") or "medium")
         incidents.append({
-            "item_key": f"signal:{int(signal.id)}",
-            "title": str(signal.title),
+            "item_key": str(incident.get("incident_key") or ""),
+            "title": str(incident.get("title") or ""),
             "severity": severity,
-            "summary": str(signal.summary),
-            "project_key": str(signal.project_key or ""),
-            "recommendation": "Convert this incident into a prioritized optimization requirement if it remains open.",
+            "summary": str(incident.get("summary") or ""),
+            "project_key": str(project.get("project_key") or "org-ops"),
+            "project_display_name": str(project.get("display_name") or incident.get("project_display_name") or "Org Ops"),
+            "recommendation": str(incident.get("recommended_action") or ""),
+            "incident_family": str(incident.get("incident_family") or ""),
+            "incident_code": str(incident.get("incident_code") or ""),
+            "recovery_status": str(incident.get("recovery_status") or ""),
+            "requirement_id": int(incident.get("requirement_id") or 0) or None,
+            "source_ref": f"incident:{incident.get('incident_key')}",
         })
-    incidents.sort(key=lambda item: (_SEVERITY_RANK.get(item["severity"], 99), item["title"]))
-    return incidents[:6]
+    incidents.sort(
+        key=lambda item: (
+            _SEVERITY_RANK.get(str(item.get("severity") or "medium"), 99),
+            str(item.get("incident_code") or ""),
+            str(item.get("title") or ""),
+        )
+    )
+    return incidents[:8]
 
 
-def _recommendations(scheduler_plan: dict[str, Any]) -> list[dict[str, Any]]:
+def _recommendations(scheduler_plan: dict[str, Any], incidents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     decisions = []
     for decision in scheduler_plan.get("decisions") or []:
         action = str(decision.get("action") or "")
@@ -202,6 +241,36 @@ def _recommendations(scheduler_plan: dict[str, Any]) -> list[dict[str, Any]]:
             "approval_required": bool(decision.get("approval_required")),
             "requirement_id": int(decision["requirement_id"]) if decision.get("requirement_id") is not None else None,
             "signal_id": int(decision["signal_id"]) if decision.get("signal_id") is not None else None,
+            "incident_family": None,
+            "incident_code": None,
+            "recovery_status": None,
+        })
+    for incident in incidents:
+        severity = str(incident.get("severity") or "medium")
+        base_score = 92.0 if severity in {"critical", "high"} else 68.0
+        recovery_status = str(incident.get("recovery_status") or "")
+        if recovery_status == "operator_review_required":
+            action = "approval_required"
+        elif recovery_status in {"replan_required", "runtime_recovery_required"}:
+            action = "intake"
+        else:
+            action = "review"
+        decisions.append({
+            "candidate_type": "incident",
+            "title": str(incident.get("title") or ""),
+            "project_key": str(incident.get("project_key") or "org-ops"),
+            "project_display_name": str(incident.get("project_display_name") or incident.get("project_key") or "Org Ops"),
+            "action": action,
+            "score": base_score,
+            "budget_cost": 24 if severity in {"critical", "high"} else 16,
+            "source_ref": str(incident.get("source_ref") or "") or None,
+            "rationale": str(incident.get("recommendation") or "Resolve the active incident before expanding automation scope."),
+            "approval_required": action == "approval_required",
+            "requirement_id": int(incident.get("requirement_id") or 0) or None,
+            "signal_id": None,
+            "incident_family": str(incident.get("incident_family") or ""),
+            "incident_code": str(incident.get("incident_code") or ""),
+            "recovery_status": recovery_status or None,
         })
     decisions.sort(key=lambda item: (-item["score"], item["action"]))
     return decisions[:6]
@@ -234,6 +303,8 @@ def _priority_from_score(score: float, *, action: str, severity: str | None = No
 def _template_key_for_item(*, recommendation: dict[str, Any] | None = None, item: dict[str, Any] | None = None, signal: Any | None = None) -> str:
     if signal is not None:
         return template_key_for_signal(str(signal.signal_type))
+    if recommendation and str(recommendation.get("candidate_type") or "") == "incident":
+        return "incident_recovery"
     source_title = f"{(item or {}).get('title', '')} {(item or {}).get('summary', '')}".lower()
     if "publish gate" in source_title or "release" in source_title or "blocker" in source_title:
         return "release_bottleneck"
@@ -386,6 +457,72 @@ def _build_signal_bundle_item(
     )
 
 
+def _build_incident_bundle_item(
+    *,
+    recommendation: dict[str, Any],
+    incident: dict[str, Any],
+    project_catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    project_key = str(recommendation.get("project_key") or "org-ops")
+    project = next(
+        (
+            item for item in project_catalog.values()
+            if str(item.get("project_key") or "") == project_key
+        ),
+        {},
+    )
+    score = float(recommendation.get("score") or 0.0)
+    action = str(recommendation.get("action") or "intake")
+    body = build_template_instance(
+        template_key="incident_recovery",
+        title=str(incident.get("title") or "Incident recovery"),
+        context_summary=(
+            f"{incident.get('summary')}\n\n"
+            f"Incident family: {incident.get('incident_family')}\n"
+            f"Incident code: {incident.get('incident_code')}\n"
+            f"Recovery status: {incident.get('recovery_status')}\n"
+            f"Company review rationale: {recommendation.get('rationale')}"
+        ),
+        target_project_path=str(project.get("root_path") or "") or None,
+        priority=_priority_from_score(score, action=action, severity=str(incident.get("severity") or "medium")),
+        source="company_review_bundle",
+        source_ref=str(incident.get("source_ref") or "") or None,
+        evidence=[{
+            "incident_key": str(incident.get("item_key") or ""),
+            "incident_family": str(incident.get("incident_family") or ""),
+            "incident_code": str(incident.get("incident_code") or ""),
+            "recovery_status": str(incident.get("recovery_status") or ""),
+            "summary": str(incident.get("summary") or ""),
+        }],
+        score_breakdown={
+            "score": score,
+            "recommendation_action": action,
+            "incident_recovery": True,
+        },
+        template_payload_extra={
+            "project_key": project_key,
+            "project_display_name": str(recommendation.get("project_display_name") or project.get("display_name") or "Org Ops"),
+            "incident_family": str(incident.get("incident_family") or ""),
+            "incident_code": str(incident.get("incident_code") or ""),
+            "recovery_status": str(incident.get("recovery_status") or ""),
+        },
+    )
+    return _build_bundle_item_from_template_body(
+        bundle_item_key=str(incident.get("item_key") or ""),
+        recommendation=recommendation,
+        title=str(incident.get("title") or "Incident recovery"),
+        project_key=project_key,
+        project_display_name=str(recommendation.get("project_display_name") or project.get("display_name") or "Org Ops"),
+        materialization_source_ref=str(incident.get("source_ref") or "") or None,
+        template_body=body,
+        score=score,
+        budget_cost=int(recommendation.get("budget_cost") or 0),
+        action=action,
+        approval_required=bool(recommendation.get("approval_required")),
+        requirement_id=int(recommendation.get("requirement_id") or 0) or None,
+    )
+
+
 def _build_derived_bundle_item(
     *,
     item: dict[str, Any],
@@ -463,6 +600,11 @@ def _next_cycle_requirement_bundle(
         for signal in signals
         if getattr(signal, "id", None) is not None
     }
+    incidents_by_key = {
+        str(item.get("item_key") or ""): item
+        for item in incidents
+        if str(item.get("item_key") or "").strip()
+    }
 
     def _push(item: dict[str, Any]) -> None:
         key = str(item.get("bundle_item_key") or "")
@@ -485,6 +627,16 @@ def _next_cycle_requirement_bundle(
                 signal=signals_by_id[int(signal_id)],
                 project_catalog=project_catalog,
             ))
+            continue
+        source_ref = str(recommendation.get("source_ref") or "")
+        if source_ref.startswith("incident:"):
+            incident_key = source_ref.split(":", 1)[1]
+            if incident_key in incidents_by_key:
+                _push(_build_incident_bundle_item(
+                    recommendation=recommendation,
+                    incident=incidents_by_key[incident_key],
+                    project_catalog=project_catalog,
+                ))
 
     for incident in incidents:
         if len(bundle) >= 6:
@@ -605,7 +757,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
     }
     project_highlights = _project_highlights(project_catalog, scheduler_plan)
     bottlenecks = _bottlenecks(project_catalog, scheduler_plan)
-    incidents = _incidents(signals)
+    incidents = _incidents(db, project_catalog)
     if not incidents:
         incidents = [
             {
@@ -614,12 +766,20 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
                 "severity": item["severity"],
                 "summary": item["summary"],
                 "project_key": item.get("project_key"),
+                "project_display_name": next(
+                    (
+                        str(project.get("display_name") or item.get("project_key") or "Org Ops")
+                        for project in project_catalog.values()
+                        if str(project.get("project_key") or "") == str(item.get("project_key") or "")
+                    ),
+                    str(item.get("project_key") or "Org Ops"),
+                ),
                 "recommendation": item.get("recommendation"),
             }
             for item in bottlenecks
             if str(item.get("severity") or "medium") in {"high", "critical"}
         ][:4]
-    next_cycle_recommendations = _recommendations(scheduler_plan)
+    next_cycle_recommendations = _recommendations(scheduler_plan, incidents)
     next_cycle_requirement_bundle = _next_cycle_requirement_bundle(
         project_catalog=project_catalog,
         recommendations=next_cycle_recommendations,

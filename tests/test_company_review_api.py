@@ -51,6 +51,18 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
             }),
         )
     )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=blocked_requirement.id,
+            artifact_type="bug_report",
+            content_summary="Release blocker regression",
+            human_readable_body="Release blocker regression",
+            machine_readable_payload=json.dumps({
+                "severity": "high",
+                "summary": "Release blocker keeps failing validation.",
+            }),
+        )
+    )
     db_session.commit()
 
     review_resp = synced_client.get("/api/company-review")
@@ -61,14 +73,19 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     assert payload["portfolio_summary"]["open_signals"] >= 1
     assert any(item["project_key"] == "synapse-network-sdk" for item in payload["project_highlights"])
     assert any("publish gate is blocked" in item["title"] for item in payload["bottlenecks"])
-    assert any(
-        "Delivery blocker" in item["title"] or "Defect signal" in item["title"] for item in payload["incidents"]
-    )
+    assert any(item.get("incident_code") for item in payload["incidents"])
+    assert any("Verification incident" in item["title"] for item in payload["incidents"])
+    assert any(item.get("incident_family") for item in payload["incidents"])
+    assert any(item.get("project_display_name") for item in payload["incidents"])
     assert payload["next_cycle_requirement_bundle"]
     assert payload["operator_review_package"]["title"] == "Operator Review Package"
     assert payload["operator_review_package"]["recommended_bundle_item_keys"]
     assert any(
         item["source_ref"] in {f"requirement:{ready_id}", None} or item["project_key"] == "synapse-network-sdk"
+        for item in payload["next_cycle_recommendations"]
+    )
+    assert any(
+        item.get("candidate_type") == "incident" and item.get("incident_code")
         for item in payload["next_cycle_recommendations"]
     )
 
@@ -123,11 +140,27 @@ def test_company_review_materialize_bundle_creates_and_reuses_requirements(synce
             }),
         )
     )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=blocked_requirement.id,
+            artifact_type="bug_report",
+            content_summary="Release blocker regression",
+            human_readable_body="Release blocker regression",
+            machine_readable_payload=json.dumps({
+                "severity": "high",
+                "summary": "Release blocker keeps failing validation.",
+            }),
+        )
+    )
     db_session.commit()
 
     review_resp = synced_client.post("/api/company-review/refresh")
     assert review_resp.status_code == 200
     review = review_resp.json()
+    assert any(
+        str(item.get("source_ref") or "").startswith("incident:")
+        for item in review["next_cycle_requirement_bundle"]
+    )
 
     materialize_resp = synced_client.post(
         f"/api/company-review/{review['id']}/materialize-bundle",
@@ -140,7 +173,6 @@ def test_company_review_materialize_bundle_creates_and_reuses_requirements(synce
     assert materialized["created_requirement_ids"]
     assert any(item["status"] == "created" for item in materialized["items"])
     assert any(item["status"] == "linked_existing" for item in materialized["items"])
-
     second_resp = synced_client.post(
         f"/api/company-review/{review['id']}/materialize-bundle",
         json={},

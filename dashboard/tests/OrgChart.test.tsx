@@ -123,15 +123,37 @@ const mockReview: CompanyOperatingReview = {
   ],
   incidents: [
     {
-      item_key: 'signal:7',
+      item_key: 'bug_report:7',
       title: 'SDK critical release blocker',
       severity: 'high',
       summary: 'The SDK release is blocked by failing checks.',
       project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
       recommendation: 'Convert to a release bottleneck requirement.',
+      incident_family: 'verification',
+      incident_code: 'automated_validation_failure',
+      recovery_status: 'bugfix_loop_active',
+      requirement_id: 40,
+      source_ref: 'incident:bug_report:7',
     },
   ],
   next_cycle_recommendations: [
+    {
+      candidate_type: 'incident',
+      title: 'SDK critical release blocker',
+      project_key: 'synapse-network-sdk',
+      project_display_name: 'Synapse-Network-Sdk',
+      action: 'approval_required',
+      score: 92,
+      budget_cost: 24,
+      source_ref: 'incident:bug_report:7',
+      rationale: 'Resolve the active incident before expanding automation scope.',
+      approval_required: true,
+      requirement_id: 40,
+      incident_family: 'verification',
+      incident_code: 'automated_validation_failure',
+      recovery_status: 'operator_review_required',
+    },
     {
       candidate_type: 'signal',
       title: 'SDK critical release blocker',
@@ -272,6 +294,10 @@ describe('OrgChart', () => {
     expect(screen.getAllByText('SDK critical release blocker').length).toBeGreaterThan(0)
     expect(screen.getByTestId('next-cycle-bundle-panel')).toHaveTextContent('Next Cycle Requirement Bundle')
     expect(screen.getByTestId('operator-review-package-panel')).toHaveTextContent('Operator Review Package')
+    expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('automated_validation_failure')
+    expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('requirement #40')
+    expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('approval_required')
+    expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('needs operator approval')
   })
 
   it('shows selected node detail', async () => {
