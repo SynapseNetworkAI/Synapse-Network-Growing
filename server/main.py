@@ -11,7 +11,7 @@ from server import config
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
-from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review
+from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows
 from server.services.org_builder import build_org_tree
 from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
@@ -76,6 +76,7 @@ app.include_router(project_policies.router)
 app.include_router(project_onboarding.router)
 app.include_router(optimization_signals.router)
 app.include_router(company_review.router)
+app.include_router(recurring_workflows.router)
 
 
 @app.middleware("http")

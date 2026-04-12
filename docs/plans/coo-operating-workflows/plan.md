@@ -4,11 +4,13 @@
 
 ### P0-R1 Role Operating Contract
 
-状态：待实现
+状态：进行中
 
 目标：
 
 1. 把 `roles/*` 从 persona 文档升级成岗位契约
+2. 把 requirement 的验收责任做成正式 acceptance contract
+3. 给 acceptance sweep 预留可定时触发的 dispatcher 骨架
 
 实现：
 
@@ -23,10 +25,13 @@
    7. `tester`
    8. `portfolio_operator`
 3. 组织架构页增加 role contract 摘要
+4. requirement 新增 `acceptance_contract`
+5. planner / validation plan 输出 `acceptance_owner_role / acceptance_mode / acceptance_trigger`
+6. 新增 `acceptance dispatcher` 骨架接口，供定时任务后续接入
 
 ### P0-R2 Requirement Source Registry
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -36,11 +41,12 @@
 
 1. 建立 `requirement_source_registry`
 2. 统一记录 `source / source_ref / intake_reason / confidence`
-3. 在需求池中展示来源分布和近期开启趋势
+3. 提供统一的 `intake` 入口，把 `optimization signals` 与 `company review bundle` 接到同一条契约
+4. 在需求池中展示来源分布和近期开启趋势
 
 ### P0-R3 Recurring Workflow Registry
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -59,12 +65,15 @@
    2. dispatcher loop
    3. closeout and compact sweep
    4. weekly operating review
+3. 暴露统一 API：
+   1. list / sync recurring workflows
+   2. run workflow skeleton manually
 
 ## P1
 
 ### P1-R1 Daily Intake And Triage Loop
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -79,7 +88,7 @@
 
 ### P1-R2 Dispatcher And Follow-Through Loop
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -94,10 +103,11 @@
    2. replan
    3. incident recovery
    4. approval reminder
+4. 将 follow-through 结果固化到 recurring workflow `last_result`，供 operator 日常值班查看
 
 ### P1-R3 End-Of-Day Closeout Sweep
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -109,12 +119,13 @@
 2. 对完成或失败的 requirement 写回 review snapshot
 3. 刷新 company review runtime metrics
 4. 生成 end-of-day summary artifact
+5. 将 sweep 结果固化到 recurring workflow `last_result`，供第二天 operator 快速接手
 
 ## P2
 
 ### P2-R1 Weekly Operating Review Workflow
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -126,10 +137,11 @@
 2. 生成 next-cycle requirement bundle
 3. 生成 human gate / automation opportunity summary
 4. 输出 weekly COO review package
+5. 汇总 `morning_intake / dispatcher_loop / closeout_and_compact_sweep` 的 ritual 结果，进入 operator package 和 weekly review source snapshot
 
 ### P2-R2 Automation Candidate Backlog
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -140,10 +152,11 @@
 1. human gate hotspots 自动生成 automation candidate requirements
 2. incident recurrence 自动生成 recovery hardening requirements
 3. budget pressure 自动生成 routing / budget tuning requirements
+4. 将 `automation_candidate` 接入 requirement source registry、unified intake 和 daily intake loop，稳定回流到 backlog
 
 ### P2-R3 Operator Dashboard And Rituals
 
-状态：待实现
+状态：已完成
 
 目标：
 
@@ -159,6 +172,7 @@
    3. publish queue
    4. budget posture
    5. automation opportunities
+4. 支持从首页直接运行 recurring rituals，并查看最新结果
 
 ## P3
 

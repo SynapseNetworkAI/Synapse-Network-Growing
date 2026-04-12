@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import OrgChart from '../src/pages/OrgChart'
-import { api, OrgTree, DashboardStats, CompanyOperatingReview } from '../src/api'
+import { api, OrgTree, DashboardStats, CompanyOperatingReview, RecurringWorkflow } from '../src/api'
 
 vi.mock('../src/api', async () => {
   const actual = await vi.importActual('../src/api')
@@ -14,6 +14,8 @@ vi.mock('../src/api', async () => {
       getCompanyOperatingReview: vi.fn(),
       refreshCompanyOperatingReview: vi.fn(),
       materializeCompanyReviewBundle: vi.fn(),
+      getRecurringWorkflows: vi.fn(),
+      runRecurringWorkflow: vi.fn(),
       syncAgents: vi.fn(),
     },
   }
@@ -290,10 +292,106 @@ const mockReview: CompanyOperatingReview = {
   },
   source_snapshot: {
     scheduler_generated_at: '2026-04-11T13:00:00Z',
+    workflow_rituals: {
+      morning_intake_sweep: { operator_attention_count: 2, requires_operator_review: true },
+      dispatcher_loop: { stuck_requirement_count: 1, approval_reminder_count: 1 },
+      closeout_and_compact_sweep: { stale_requirement_count: 1, review_snapshot_count: 2 },
+    },
   },
   created_at: '2026-04-11T13:00:00Z',
   updated_at: '2026-04-11T13:05:00Z',
 }
+
+const mockRecurringWorkflows: RecurringWorkflow[] = [
+  {
+    id: 1,
+    workflow_key: 'morning_intake_sweep',
+    display_name: 'Morning Intake Sweep',
+    description: 'Refresh intake sources.',
+    status: 'active',
+    trigger_type: 'scheduled',
+    owner_role: 'ops_intake_manager',
+    schedule: { cadence: 'daily' },
+    input_query: {},
+    output_action: {},
+    escalation_rule: {},
+    validation_signal: {},
+    is_builtin: true,
+    last_run_at: '2026-04-11T09:00:00Z',
+    last_result: {
+      created_requirement_ids: [11, 12],
+      operator_attention_items: [{ title: 'Signal A' }, { title: 'Incident B' }],
+    },
+    created_at: '2026-04-11T08:00:00Z',
+    updated_at: '2026-04-11T09:00:00Z',
+  },
+  {
+    id: 2,
+    workflow_key: 'dispatcher_loop',
+    display_name: 'Dispatcher Loop',
+    description: 'Advance queue and follow through.',
+    status: 'active',
+    trigger_type: 'scheduled',
+    owner_role: 'portfolio_operator',
+    schedule: { cadence: 'hourly' },
+    input_query: {},
+    output_action: {},
+    escalation_rule: {},
+    validation_signal: {},
+    is_builtin: true,
+    last_run_at: '2026-04-11T11:00:00Z',
+    last_result: {
+      started_ids: [31],
+      follow_up_actions: [{ action: 'approval_reminder' }],
+    },
+    created_at: '2026-04-11T08:00:00Z',
+    updated_at: '2026-04-11T11:00:00Z',
+  },
+  {
+    id: 3,
+    workflow_key: 'closeout_and_compact_sweep',
+    display_name: 'Closeout And Compact Sweep',
+    description: 'Sweep acceptance and stale requirements.',
+    status: 'active',
+    trigger_type: 'scheduled',
+    owner_role: 'tester',
+    schedule: { cadence: 'daily' },
+    input_query: {},
+    output_action: {},
+    escalation_rule: {},
+    validation_signal: {},
+    is_builtin: true,
+    last_run_at: '2026-04-11T18:00:00Z',
+    last_result: {
+      acceptance_candidates: 2,
+      review_snapshot_requirement_ids: [40, 41],
+    },
+    created_at: '2026-04-11T08:00:00Z',
+    updated_at: '2026-04-11T18:00:00Z',
+  },
+  {
+    id: 4,
+    workflow_key: 'weekly_operating_review',
+    display_name: 'Weekly Operating Review',
+    description: 'Refresh company review.',
+    status: 'active',
+    trigger_type: 'scheduled',
+    owner_role: 'company_reviewer',
+    schedule: { cadence: 'weekly' },
+    input_query: {},
+    output_action: {},
+    escalation_rule: {},
+    validation_signal: {},
+    is_builtin: true,
+    last_run_at: '2026-04-11T10:00:00Z',
+    last_result: {
+      bundle_item_count: 1,
+      automation_candidate_count: 2,
+    },
+    created_at: '2026-04-11T08:00:00Z',
+    updated_at: '2026-04-11T10:00:00Z',
+  },
+]
 
 function renderOrgChart() {
   return render(
@@ -308,6 +406,16 @@ describe('OrgChart', () => {
     vi.clearAllMocks()
     vi.mocked(api.getCompanyOperatingReview).mockResolvedValue(mockReview)
     vi.mocked(api.refreshCompanyOperatingReview).mockResolvedValue(mockReview)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
+    vi.mocked(api.runRecurringWorkflow).mockResolvedValue({
+      workflow_key: 'dispatcher_loop',
+      status: 'completed',
+      run_started_at: '2026-04-12T09:00:00Z',
+      result: {
+        started_ids: [71],
+        follow_up_actions: [{ action: 'replan' }, { action: 'approval_reminder' }],
+      },
+    })
     vi.mocked(api.materializeCompanyReviewBundle).mockResolvedValue({
       review_id: 1,
       created_requirement_ids: [42],
@@ -372,6 +480,13 @@ describe('OrgChart', () => {
     expect(screen.getAllByText('SDK critical release blocker').length).toBeGreaterThan(0)
     expect(screen.getByTestId('next-cycle-bundle-panel')).toHaveTextContent('Next Cycle Requirement Bundle')
     expect(screen.getByTestId('operator-review-package-panel')).toHaveTextContent('Operator Review Package')
+    expect(screen.getByTestId('operator-rituals-panel')).toHaveTextContent('Daily / Weekly Ritual Board')
+    expect(screen.getByTestId('operator-priority-panel')).toHaveTextContent('Today Priorities')
+    expect(screen.getByTestId('weekly-coo-package-panel')).toHaveTextContent('Weekly COO Review')
+    expect(screen.getByTestId('ritual-morning_intake_sweep')).toHaveTextContent('operator attention: 2')
+    expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups: 1')
+    expect(screen.getByTestId('ritual-closeout_and_compact_sweep')).toHaveTextContent('snapshots: 2')
+    expect(screen.getByTestId('ritual-weekly_operating_review')).toHaveTextContent('automation: 2')
     expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('automated_validation_failure')
     expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('requirement #40')
     expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('approval_required')
@@ -404,6 +519,7 @@ describe('OrgChart', () => {
   it('sync button reloads roles', async () => {
     vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     vi.mocked(api.syncAgents).mockResolvedValue([])
     renderOrgChart()
 
@@ -420,6 +536,7 @@ describe('OrgChart', () => {
   it('refreshes the operating review', async () => {
     vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     vi.mocked(api.refreshCompanyOperatingReview).mockResolvedValue({
       ...mockReview,
       id: 2,
@@ -441,6 +558,7 @@ describe('OrgChart', () => {
   it('materializes the next cycle bundle', async () => {
     vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     renderOrgChart()
 
     await waitFor(() => {
@@ -451,6 +569,23 @@ describe('OrgChart', () => {
     await waitFor(() => {
       expect(api.materializeCompanyReviewBundle).toHaveBeenCalledWith(1, {})
       expect(screen.getByTestId('company-review-bundle-result')).toHaveTextContent('created 1, reused 0')
+    })
+  })
+
+  it('runs recurring rituals from the operator dashboard', async () => {
+    vi.mocked(api.getOrgTree).mockResolvedValue(mockOrgTree)
+    vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
+    renderOrgChart()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ritual-dispatcher_loop')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('run-dispatcher_loop'))
+    await waitFor(() => {
+      expect(api.runRecurringWorkflow).toHaveBeenCalledWith('dispatcher_loop', {})
+      expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups: 2')
     })
   })
 })

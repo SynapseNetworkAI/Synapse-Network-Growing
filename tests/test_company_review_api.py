@@ -2,10 +2,32 @@ from __future__ import annotations
 
 import json
 
-from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow
 
 
 def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(synced_client, db_session):
+    synced_client.post("/api/recurring-workflows/sync")
+    morning = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "morning_intake_sweep").first()
+    dispatcher = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "dispatcher_loop").first()
+    closeout = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "closeout_and_compact_sweep").first()
+    morning.last_result_json = json.dumps({
+        "created_requirement_ids": [101, 102],
+        "operator_attention_items": [{"kind": "signal", "title": "Signal A"}],
+        "requires_operator_review": True,
+    })
+    dispatcher.last_result_json = json.dumps({
+        "started_ids": [201],
+        "stuck_requirement_ids": [301],
+        "approval_reminders": [{"approval_request_id": 1}],
+        "follow_up_actions": [{"action": "approval_reminder", "requirement_id": 55}],
+    })
+    closeout.last_result_json = json.dumps({
+        "acceptance_candidates": 2,
+        "stale_requirement_ids": [401],
+        "compacted_requirement_ids": [401],
+        "review_snapshot_requirement_ids": [402, 403],
+    })
+
     ready_resp = synced_client.post(
         "/api/requirements",
         json={
@@ -183,6 +205,11 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     assert payload["next_cycle_requirement_bundle"]
     assert payload["operator_review_package"]["title"] == "Operator Review Package"
     assert payload["operator_review_package"]["recommended_bundle_item_keys"]
+    assert "Morning intake attention items" in payload["operator_review_package"]["summary_markdown"]
+    assert "Dispatcher approval reminders" in payload["operator_review_package"]["summary_markdown"]
+    assert payload["source_snapshot"]["workflow_rituals"]["morning_intake_sweep"]["requires_operator_review"] is True
+    assert payload["source_snapshot"]["workflow_rituals"]["dispatcher_loop"]["stuck_requirement_count"] >= 1
+    assert payload["source_snapshot"]["workflow_rituals"]["closeout_and_compact_sweep"]["review_snapshot_count"] >= 2
     assert any(
         item["source_ref"] in {f"requirement:{ready_id}", None} or item["project_key"] == "synapse-network-sdk"
         for item in payload["next_cycle_recommendations"]

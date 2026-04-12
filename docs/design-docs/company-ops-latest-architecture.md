@@ -752,6 +752,47 @@ validation 不应在 requirement 创建时一次性写死，而应在执行后�
    3. recurring workflow registry
    4. daily intake / dispatch / closeout rhythm
    5. weekly operating review / automation backlog / operator rituals
+3. 当前第一版已经开始落地：
+   1. agent `role_contract`
+   2. requirement `acceptance_contract`
+   3. `acceptance dispatcher` 手动/定时触发骨架
+   4. requirement `intake_metadata`
+   5. `requirement source registry`
+   6. unified `requirements/intake` entry for optimization signals and company review bundle
+   7. `recurring workflow registry`
+   8. built-in COO workflows:
+      1. `morning_intake_sweep`
+      2. `dispatcher_loop`
+      3. `closeout_and_compact_sweep`
+      4. `weekly_operating_review`
+   9. manual run endpoints for workflow execution
+   10. `morning_intake_sweep` now produces:
+      1. unified intake across signals and company review bundle
+      2. top signal / incident / bundle candidate summary
+      3. operator attention summary for daily triage
+   11. `dispatcher_loop` now produces:
+      1. scheduler queue advance result
+      2. stuck / paused / blocked / needs-revision requirement scan
+      3. follow-up action hints such as `retry`, `replan`, `incident_recovery`, `approval_reminder`
+      4. approval reminder summary for operator follow-through
+   12. `closeout_and_compact_sweep` now produces:
+      1. acceptance dispatch summary
+      2. end-of-day compaction snapshots for stale requirements
+      3. review snapshots for completed or recovery-state requirements
+      4. refreshed company review runtime metrics and end-of-day markdown summary
+   13. `weekly_operating_review` now folds daily ritual outputs into:
+      1. company review `source_snapshot.workflow_rituals`
+      2. weekly COO review package
+      3. operator ritual summary for intake / dispatcher / closeout follow-through
+   14. `automation_candidate` is now a first-class requirement source:
+      1. weekly review `automation_candidates` can be materialized into requirements
+      2. source registry tracks their candidate count and latest review linkage
+      3. unified intake and daily morning intake can pull them into backlog automatically
+   15. operator dashboard now exposes:
+      1. daily ritual board for `morning_intake / dispatcher_loop / closeout_and_compact / weekly_operating_review`
+      2. today priorities from incidents, recommendations, and human gate hotspots
+      3. weekly COO review package summary
+      4. manual ritual run entrypoints for operator follow-through
 
 ### 阶段 B：迁移 PostgreSQL
 

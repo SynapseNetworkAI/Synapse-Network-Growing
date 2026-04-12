@@ -21,6 +21,7 @@ from server.schemas import RequirementCreate
 from server.services.incidents import list_open_incidents
 from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.project_intelligence import build_project_catalog
+from server.services.requirement_sources import normalize_requirement_intake_metadata
 from server.services.workflow_orchestrator import create_requirement
 
 logger = logging.getLogger("ops-dashboard.optimization_signals")
@@ -808,6 +809,18 @@ def create_requirement_from_signal(
             "project_display_name": str(row.project_key or row.routing_target_path or "Org Ops"),
         },
         auto_start=auto_start,
+    )
+    body.intake_metadata = normalize_requirement_intake_metadata(
+        body.source,
+        body.source_ref,
+        {
+            "intake_reason": f"signal:{row.signal_type}",
+            "confidence": float(row.confidence or 0.85),
+            "intake_mode": "automatic" if auto_start else "operator",
+            "signal_id": int(row.id),
+            "registry_hint": "optimization_signal",
+            "trigger": "signal_conversion",
+        },
     )
     detail = create_requirement(db, body)
     row.status = "converted"

@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 
 from collections import defaultdict
 
-from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RequirementRow, TaskRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowStepRow
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals, refresh_optimization_signals
 from server.services.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.portfolio_scheduler import build_portfolio_schedule
 from server.services.project_intelligence import build_project_catalog
+from server.services.requirement_sources import normalize_requirement_intake_metadata
 from server.services.workflow_orchestrator import create_requirement
 
 logger = logging.getLogger("ops-dashboard.company_review")
@@ -623,6 +624,13 @@ def _template_key_for_item(*, recommendation: dict[str, Any] | None = None, item
     return "defect_reduction"
 
 
+def _template_key_for_automation_candidate(candidate: dict[str, Any]) -> str:
+    automation_type = str(candidate.get("automation_type") or "").strip().lower()
+    if automation_type in {"incident_recovery_automation"}:
+        return "incident_recovery"
+    return "approval_automation"
+
+
 def _acceptance_checks_from_body(body: RequirementCreate) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     for check in body.template_acceptance_checks or []:
@@ -969,6 +977,7 @@ def _operator_review_package(
     incidents: list[dict[str, Any]],
     portfolio_summary: dict[str, Any],
     project_highlights: list[dict[str, Any]],
+    workflow_rituals: dict[str, Any],
 ) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
     for item in bundle:
@@ -1004,6 +1013,45 @@ def _operator_review_package(
                 "owner_hint": "reviewer",
                 "related_bundle_item_key": None,
             })
+    intake = dict(workflow_rituals.get("morning_intake_sweep") or {})
+    dispatcher = dict(workflow_rituals.get("dispatcher_loop") or {})
+    closeout = dict(workflow_rituals.get("closeout_and_compact_sweep") or {})
+    if bool(intake.get("requires_operator_review")):
+        decisions.append({
+            "decision_key": "ritual:intake-triage",
+            "title": "Review morning intake operator attention items",
+            "decision_type": "intake_triage",
+            "severity": "high",
+            "summary": f"Morning intake flagged {int(intake.get('operator_attention_count') or 0)} operator attention items.",
+            "owner_hint": "ops_intake_manager",
+            "related_bundle_item_key": None,
+        })
+    if int(dispatcher.get("approval_reminder_count") or 0) > 0 or int(dispatcher.get("stuck_requirement_count") or 0) > 0:
+        decisions.append({
+            "decision_key": "ritual:dispatcher-follow-through",
+            "title": "Review dispatcher follow-through backlog",
+            "decision_type": "dispatcher_followthrough",
+            "severity": "high" if int(dispatcher.get("stuck_requirement_count") or 0) > 0 else "medium",
+            "summary": (
+                f"Dispatcher reports {int(dispatcher.get('stuck_requirement_count') or 0)} stuck requirements and "
+                f"{int(dispatcher.get('approval_reminder_count') or 0)} approval reminders."
+            ),
+            "owner_hint": "portfolio_operator",
+            "related_bundle_item_key": None,
+        })
+    if int(closeout.get("stale_requirement_count") or 0) > 0:
+        decisions.append({
+            "decision_key": "ritual:end-of-day-closeout",
+            "title": "Review stale items carried into weekly ritual",
+            "decision_type": "closeout_followthrough",
+            "severity": "medium",
+            "summary": (
+                f"End-of-day sweep still sees {int(closeout.get('stale_requirement_count') or 0)} stale requirements "
+                f"after {int(closeout.get('compacted_requirement_count') or 0)} compactions."
+            ),
+            "owner_hint": "tester",
+            "related_bundle_item_key": None,
+        })
     checklist = [
         "Confirm the next-cycle bundle matches the current company goal and operator bandwidth.",
         "Approve or defer every high-value item that still requires human judgment.",
@@ -1016,7 +1064,10 @@ def _operator_review_package(
         f"- Bundle candidates: {len(bundle)}\n"
         f"- Decisions requiring operator review: {len(decisions)}\n"
         f"- Open portfolio risk: {top_risk}\n"
-        f"- Approval-required scheduler items: {portfolio_summary['approval_required_decisions']}"
+        f"- Approval-required scheduler items: {portfolio_summary['approval_required_decisions']}\n"
+        f"- Morning intake attention items: {int(intake.get('operator_attention_count') or 0)}\n"
+        f"- Dispatcher approval reminders: {int(dispatcher.get('approval_reminder_count') or 0)}\n"
+        f"- End-of-day stale carryover: {int(closeout.get('stale_requirement_count') or 0)}"
     )
     return {
         "title": "Operator Review Package",
@@ -1024,6 +1075,43 @@ def _operator_review_package(
         "checklist": checklist,
         "decisions": decisions[:8],
         "recommended_bundle_item_keys": [str(item["bundle_item_key"]) for item in bundle[:3]],
+    }
+
+
+def _workflow_rituals_summary(db: Session) -> dict[str, Any]:
+    rows = {
+        str(row.workflow_key): row
+        for row in db.query(RecurringWorkflowRow).filter(
+            RecurringWorkflowRow.workflow_key.in_(
+                ["morning_intake_sweep", "dispatcher_loop", "closeout_and_compact_sweep"]
+            )
+        ).all()
+    }
+    intake_payload = _json_loads(getattr(rows.get("morning_intake_sweep"), "last_result_json", None), {})
+    dispatcher_payload = _json_loads(getattr(rows.get("dispatcher_loop"), "last_result_json", None), {})
+    closeout_payload = _json_loads(getattr(rows.get("closeout_and_compact_sweep"), "last_result_json", None), {})
+
+    return {
+        "morning_intake_sweep": {
+            "last_run_at": getattr(rows.get("morning_intake_sweep"), "last_run_at", None),
+            "created_requirement_count": len(list(intake_payload.get("created_requirement_ids") or [])),
+            "operator_attention_count": len(list(intake_payload.get("operator_attention_items") or [])),
+            "requires_operator_review": bool(intake_payload.get("requires_operator_review")),
+        },
+        "dispatcher_loop": {
+            "last_run_at": getattr(rows.get("dispatcher_loop"), "last_run_at", None),
+            "started_count": len(list(dispatcher_payload.get("started_ids") or [])),
+            "stuck_requirement_count": len(list(dispatcher_payload.get("stuck_requirement_ids") or [])),
+            "approval_reminder_count": len(list(dispatcher_payload.get("approval_reminders") or [])),
+            "follow_up_action_count": len(list(dispatcher_payload.get("follow_up_actions") or [])),
+        },
+        "closeout_and_compact_sweep": {
+            "last_run_at": getattr(rows.get("closeout_and_compact_sweep"), "last_run_at", None),
+            "acceptance_candidate_count": int(closeout_payload.get("acceptance_candidates") or 0),
+            "stale_requirement_count": len(list(closeout_payload.get("stale_requirement_ids") or [])),
+            "compacted_requirement_count": len(list(closeout_payload.get("compacted_requirement_ids") or [])),
+            "review_snapshot_count": len(list(closeout_payload.get("review_snapshot_requirement_ids") or [])),
+        },
     }
 
 
@@ -1123,6 +1211,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         signals=signals,
         requirements=requirements,
     )
+    workflow_rituals = _workflow_rituals_summary(db)
     operator_review_package = _operator_review_package(
         cycle_label=_cycle_label(),
         bundle=next_cycle_requirement_bundle,
@@ -1130,6 +1219,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         incidents=incidents,
         portfolio_summary=portfolio_summary,
         project_highlights=project_highlights,
+        workflow_rituals=workflow_rituals,
     )
 
     return {
@@ -1153,6 +1243,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
             "started_ids": list(scheduler_plan.get("started_ids") or []),
             "rebalanced_ids": list(scheduler_plan.get("rebalanced_ids") or []),
             "runtime_metrics": runtime_metrics,
+            "workflow_rituals": workflow_rituals,
         },
     }
 
@@ -1306,6 +1397,18 @@ def materialize_company_review_bundle(
             priority=str(item.get("priority") or "normal"),
             source="company_review_bundle",
             source_ref=review_source_ref,
+            intake_metadata=normalize_requirement_intake_metadata(
+                "company_review_bundle",
+                review_source_ref,
+                {
+                    "intake_reason": "company_review_bundle_materialization",
+                    "confidence": 0.75,
+                    "review_id": int(review_id),
+                    "bundle_item_key": bundle_item_key,
+                    "registry_hint": "company_review_bundle",
+                    "trigger": "company_review_materialize_bundle",
+                },
+            ),
             target_project_path=str(item.get("target_project_path") or "") or None,
             auto_start=auto_start,
             template_key=str(item.get("template_key") or "") or None,
@@ -1343,5 +1446,135 @@ def materialize_company_review_bundle(
         created_requirement_ids=created_requirement_ids,
         reused_requirement_ids=sorted(set(reused_requirement_ids)),
         skipped_bundle_item_keys=skipped_bundle_item_keys,
+        items=items,
+    )
+
+
+def materialize_company_review_automation_candidates(
+    db: Session,
+    *,
+    review_id: int,
+    candidate_keys: list[str] | None = None,
+    auto_start: bool = False,
+) -> CompanyReviewBundleMaterializeResultOut:
+    row = db.query(CompanyOperatingReviewRow).filter(CompanyOperatingReviewRow.id == review_id).first()
+    if row is None:
+        raise ValueError("Company operating review not found")
+    payload = _review_payload(row)
+    candidates = list(payload.get("automation_candidates") or [])
+    selected_keys = {str(key) for key in candidate_keys or [] if str(key).strip()}
+    project_catalog = build_project_catalog(db)
+
+    created_requirement_ids: list[int] = []
+    reused_requirement_ids: list[int] = []
+    skipped_candidate_keys: list[str] = []
+    items: list[dict[str, Any]] = []
+
+    for candidate in candidates:
+        candidate_key = str(candidate.get("candidate_key") or "")
+        if not candidate_key:
+            continue
+        if selected_keys and candidate_key not in selected_keys:
+            continue
+
+        review_source_ref = f"company-review-automation:{review_id}:{candidate_key}"
+        existing = db.query(RequirementRow).filter(RequirementRow.source_ref == review_source_ref).first()
+        if existing is not None:
+            reused_requirement_ids.append(int(existing.id))
+            items.append(
+                {
+                    "bundle_item_key": candidate_key,
+                    "status": "already_exists",
+                    "title": str(existing.title),
+                    "action": "create_requirement",
+                    "requirement_id": int(existing.id),
+                    "source_ref": review_source_ref,
+                }
+            )
+            continue
+
+        project_key = str(candidate.get("project_key") or "")
+        project = next(
+            (item for item in project_catalog.values() if str(item.get("project_key") or "") == project_key),
+            {},
+        )
+        project_display_name = str(candidate.get("project_display_name") or project.get("display_name") or project_key or "Org Ops")
+        template_key = _template_key_for_automation_candidate(candidate)
+        occurrence_count = int(candidate.get("occurrence_count") or 0)
+        body = build_template_instance(
+            template_key=template_key,
+            title=str(candidate.get("title") or "Automation Candidate"),
+            context_summary=(
+                f"Automation opportunity detected in `{project_display_name}`.\n\n"
+                f"Automation type: {candidate.get('automation_type')}\n"
+                f"Occurrences: {occurrence_count}\n"
+                f"Rationale: {candidate.get('rationale')}"
+            ),
+            target_project_path=str(project.get("root_path") or "") or None,
+            priority=str(candidate.get("priority") or "normal"),
+            source="automation_candidate",
+            source_ref=review_source_ref,
+            evidence=[
+                {
+                    "candidate_key": candidate_key,
+                    "automation_type": str(candidate.get("automation_type") or ""),
+                    "occurrence_count": occurrence_count,
+                    "gate_key": str(candidate.get("gate_key") or ""),
+                }
+            ],
+            score_breakdown={
+                "occurrence_count": occurrence_count,
+                "priority": str(candidate.get("priority") or "normal"),
+                "automation_type": str(candidate.get("automation_type") or ""),
+            },
+            template_payload_extra={
+                "project_key": project_key or None,
+                "project_display_name": project_display_name,
+                "company_review_id": int(review_id),
+                "candidate_key": candidate_key,
+                "automation_type": str(candidate.get("automation_type") or ""),
+                "gate_key": str(candidate.get("gate_key") or ""),
+                "operator_review_package_title": str((payload.get("operator_review_package") or {}).get("title") or ""),
+            },
+            auto_start=auto_start,
+        )
+        body.intake_metadata = normalize_requirement_intake_metadata(
+            "automation_candidate",
+            review_source_ref,
+            {
+                "intake_reason": "company_review_automation_candidate_materialization",
+                "confidence": 0.8,
+                "review_id": int(review_id),
+                "registry_hint": "automation_candidate",
+                "trigger": "company_review_materialize_automation_candidate",
+            },
+        )
+        detail = create_requirement(db, body)
+        created_requirement_ids.append(int(detail.requirement.id))
+        items.append(
+            {
+                "bundle_item_key": candidate_key,
+                "status": "created",
+                "title": str(detail.requirement.title),
+                "action": "create_requirement",
+                "requirement_id": int(detail.requirement.id),
+                "source_ref": review_source_ref,
+            }
+        )
+
+    logger.info(
+        "event=company_review_automation_materialized review_id=%s created=%s reused=%s skipped=%s auto_start=%s",
+        review_id,
+        len(created_requirement_ids),
+        len(reused_requirement_ids),
+        len(skipped_candidate_keys),
+        auto_start,
+    )
+
+    return CompanyReviewBundleMaterializeResultOut(
+        review_id=int(review_id),
+        created_requirement_ids=created_requirement_ids,
+        reused_requirement_ids=sorted(set(reused_requirement_ids)),
+        skipped_bundle_item_keys=skipped_candidate_keys,
         items=items,
     )

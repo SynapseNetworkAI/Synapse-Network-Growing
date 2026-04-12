@@ -32,6 +32,7 @@ from server.services.optimization_signals import (
     optimization_signal_to_dict,
     refresh_optimization_signals,
 )
+from server.services.requirement_sources import normalize_requirement_intake_metadata
 from server.services.workflow_orchestrator import create_requirement
 
 
@@ -116,24 +117,32 @@ def create_requirement_from_template_endpoint(
 ):
     try:
         template = get_optimization_requirement_template(template_key)
-        detail = create_requirement(
-            db,
-            build_template_instance(
-                template_key=template["template_key"],
-                title=body.title,
-                context_summary=body.context_summary,
-                target_project_path=body.target_project_path,
-                priority=body.priority,
-                source="optimization_template",
-                source_ref=f"optimization-template:{template['template_key']}",
-                evidence=list(body.evidence or []),
-                template_payload_extra={
-                    "operator_created": True,
-                    "project_display_name": str(body.target_project_path or "Org Ops").rsplit("/", 1)[-1],
-                },
-                auto_start=body.auto_start,
-            ),
+        requirement_body = build_template_instance(
+            template_key=template["template_key"],
+            title=body.title,
+            context_summary=body.context_summary,
+            target_project_path=body.target_project_path,
+            priority=body.priority,
+            source="optimization_template",
+            source_ref=f"optimization-template:{template['template_key']}",
+            evidence=list(body.evidence or []),
+            template_payload_extra={
+                "operator_created": True,
+                "project_display_name": str(body.target_project_path or "Org Ops").rsplit("/", 1)[-1],
+            },
+            auto_start=body.auto_start,
         )
+        requirement_body.intake_metadata = normalize_requirement_intake_metadata(
+            requirement_body.source,
+            requirement_body.source_ref,
+            {
+                "intake_reason": f"created_from_template:{template['template_key']}",
+                "confidence": 0.72,
+                "registry_hint": "optimization_template",
+                "trigger": "operator_template_create",
+            },
+        )
+        detail = create_requirement(db, requirement_body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return detail

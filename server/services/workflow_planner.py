@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import AgentRow, ArtifactRow, RequirementRow
+from server.services.acceptance import acceptance_contract_for_requirement
 from server.services.execution_resolver import suggest_task_execution
 from server.services.llm_adapter import get_provider
 from server.services.project_intelligence import resolve_requirement_routing
@@ -881,6 +882,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     execution_controls = aggregate_execution_controls(project_policies)
     template_payload = _latest_requirement_template_payload(db, int(requirement.id))
     template_checks = _template_acceptance_checks(template_payload)
+    acceptance_contract = acceptance_contract_for_requirement(requirement)
     routing_context = resolve_requirement_routing(
         db,
         title=str(requirement.title),
@@ -1057,14 +1059,14 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "check_key": "review_passed",
         "description": "Review step confirms the implementation output satisfies the requirement intent.",
         "check_type": "manual_review",
-        "owner_role": "reviewer",
+        "owner_role": str(acceptance_contract.get("review_owner_role") or "reviewer"),
         "success_criteria_markdown": "Reviewer confirms the implementation output is coherent and aligned with the requirement.",
     }
     validation_check = {
         "check_key": "validation_passed",
         "description": "Validation step confirms the workflow output is ready to close.",
         "check_type": "content_assertion",
-        "owner_role": "tester",
+        "owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
         "success_criteria_markdown": "Tester validates the produced artifacts and confirms all acceptance targets are satisfied.",
     }
     default_checks = [review_check, validation_check]
@@ -1145,6 +1147,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "project_scorecards": routing_context.get("project_scorecards") or [],
         },
         "requirement_template": template_payload,
+        "acceptance_contract": acceptance_contract,
         "detected_phases": detected_phases_dict,
         "acceptance_checks": acceptance_checks,
         "required_roles": ["researcher", "synthesizer", "implementer", "reviewer", "tester"],
@@ -1159,11 +1162,20 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
                 "reviewer owns the manual review gate, tester owns automated validation and closeout, "
                 "and implementer owns bugfix execution when any verification fails."
             ),
-            "closeout_owner_role": "tester",
+            "acceptance_owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
+            "review_owner_role": str(acceptance_contract.get("review_owner_role") or "reviewer"),
+            "acceptance_mode": str(acceptance_contract.get("acceptance_mode") or "scheduled"),
+            "acceptance_trigger": str(acceptance_contract.get("acceptance_trigger") or "implementation_completed"),
+            "closeout_owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
             "bugfix_owner_role": "implementer",
             "gates": [str(check.get("check_key") or "") for check in acceptance_checks if str(check.get("check_key") or "").strip()],
             "manual_checks": manual_checks,
             "automated_checks": automated_checks,
+            "acceptance_dispatch": {
+                "dispatcher_type": "scheduled_sweep",
+                "workflow_step_types": list(acceptance_contract.get("workflow_step_types") or []),
+                "required_evidence_artifact_types": list(acceptance_contract.get("required_evidence_artifact_types") or []),
+            },
             "bugfix_loop": {
                 "trigger_step_types": ["review", "test", "bugfix"],
                 "reentry_step_type": "bugfix",

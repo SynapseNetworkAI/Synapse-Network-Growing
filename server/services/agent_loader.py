@@ -24,6 +24,27 @@ def _parse_frontmatter(filepath: Path) -> dict | None:
     return yaml.safe_load(text[3:end])
 
 
+def _default_role_contract(frontmatter: dict) -> dict:
+    group = str(frontmatter.get("group") or "").strip()
+    role_id = str(frontmatter.get("role") or "").strip()
+    default_acceptance_scope = "analysis_validation" if group == "optimization" else "peer_review"
+    default_acceptance_steps = ["test"] if group == "optimization" else ["review"]
+    return {
+        "mission": str(frontmatter.get("mission") or frontmatter.get("goal") or ""),
+        "input_channels": list(frontmatter.get("input_channels") or ["requirements", "optimization_signals", "company_review"]),
+        "outputs": list(frontmatter.get("outputs") or ["artifact", "requirement_update"]),
+        "decision_rights": list(frontmatter.get("decision_rights") or ["decide_step_execution_within_scope", "propose_followup_requirement"]),
+        "handoff_targets": list(frontmatter.get("handoff_targets") or ["reviewer", "tester", "portfolio_operator"]),
+        "success_metrics": list(frontmatter.get("success_metrics") or ["completion_rate", "reopen_rate", "acceptance_pass_rate"]),
+        "acceptance_ownership": list(frontmatter.get("acceptance_ownership") or [{
+            "owner_role": role_id,
+            "acceptance_scope": default_acceptance_scope,
+            "workflow_step_types": default_acceptance_steps,
+            "triggers": ["acceptance_ready", "daily_acceptance_sweep"],
+        }]),
+    }
+
+
 def discover_agents() -> list[dict]:
     """Scan roles/*/prompts/persona.md and return agent metadata dicts."""
     agents = []
@@ -50,6 +71,7 @@ def discover_agents() -> list[dict]:
             "group": fm.get("group", ""),
             "persona_path": str(persona_path),
             "skills": json.dumps(skills) if isinstance(skills, list) else skills,
+            "role_contract_json": json.dumps(_default_role_contract(fm), ensure_ascii=False),
         })
 
     return agents

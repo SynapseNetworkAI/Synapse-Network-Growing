@@ -1,4 +1,5 @@
 """Agents API router."""
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ def list_agents(db: Session = Depends(get_db)):
             TaskRow.agent_id == r.id, TaskRow.status == "completed"
         ).count()
         out = AgentOut.model_validate(r)
+        out.role_contract = json.loads(getattr(r, "role_contract_json", None) or "{}")
         out.task_count = total
         out.completed_count = completed
         result.append(out)
@@ -57,6 +59,7 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)):
         TaskRow.agent_id == agent_id, TaskRow.status == "completed"
     ).count()
     out = AgentOut.model_validate(row)
+    out.role_contract = json.loads(getattr(row, "role_contract_json", None) or "{}")
     out.task_count = total
     out.completed_count = completed
     return out
@@ -74,11 +77,15 @@ def sync_agents(db: Session = Depends(get_db)):
             for k, v in data.items():
                 setattr(existing, k, v)
             db.flush()
-            results.append(AgentOut.model_validate(existing))
+            out = AgentOut.model_validate(existing)
+            out.role_contract = json.loads(getattr(existing, "role_contract_json", None) or "{}")
+            results.append(out)
         else:
             row = AgentRow(**data)
             db.add(row)
             db.flush()
-            results.append(AgentOut.model_validate(row))
+            out = AgentOut.model_validate(row)
+            out.role_contract = json.loads(getattr(row, "role_contract_json", None) or "{}")
+            results.append(out)
     db.commit()
     return results

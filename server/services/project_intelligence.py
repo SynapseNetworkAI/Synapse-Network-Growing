@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import ApprovalRequestRow, ApprovalRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow, TaskRow
+from server.services.acceptance import acceptance_contract_for_requirement
 from server.services.project_onboarding import project_onboarding_to_dict
 from server.services.project_policy import list_project_policies, project_policy_to_dict, resolve_project_policies_for_target
 
@@ -639,6 +640,7 @@ def serialize_requirement(
             routing["summary"] = stored_routing["summary"]
         if stored_routing.get("skipped_project_keys") is not None:
             routing["skipped_project_keys"] = list(stored_routing.get("skipped_project_keys") or [])
+    from server.services.requirement_sources import requirement_intake_metadata_for_requirement
     return {
         "id": int(requirement.id),
         "title": str(requirement.title),
@@ -647,7 +649,9 @@ def serialize_requirement(
         "priority": str(requirement.priority),
         "source": str(requirement.source),
         "source_ref": requirement.source_ref,
+        "intake_metadata": requirement_intake_metadata_for_requirement(requirement),
         "target_project_path": getattr(requirement, "target_project_path", None),
+        "acceptance_contract": acceptance_contract_for_requirement(requirement),
         "current_plan_version": int(requirement.current_plan_version or 0),
         "blocked_by_count": int(requirement.blocked_by_count or 0),
         "active_workflow_run_id": int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None,

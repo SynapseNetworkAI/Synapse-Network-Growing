@@ -14,6 +14,7 @@ class AgentOut(BaseModel):
     group: str = ""
     persona_path: Optional[str] = None
     skills: Optional[str] = "[]"
+    role_contract: dict[str, object] = {}
     created_at: Optional[datetime] = None
     task_count: int = 0
     completed_count: int = 0
@@ -634,12 +635,14 @@ class RequirementCreate(BaseModel):
     priority: str = "normal"
     source: str = "manual"
     source_ref: Optional[str] = None
+    intake_metadata: Optional[dict[str, object]] = None
     target_project_path: Optional[str] = None
     depends_on_requirement_ids: list[int] = []
     auto_start: bool = False
     template_key: Optional[str] = None
     template_payload: Optional[dict[str, object]] = None
     template_acceptance_checks: list[dict[str, object]] = []
+    acceptance_contract: Optional[dict[str, object]] = None
 
 
 class RequirementDependencyUpdate(BaseModel):
@@ -659,7 +662,9 @@ class RequirementPatch(BaseModel):
     description_markdown: Optional[str] = None
     priority: Optional[str] = None
     source_ref: Optional[str] = None
+    intake_metadata: Optional[dict[str, object]] = None
     target_project_path: Optional[str] = None
+    acceptance_contract: Optional[dict[str, object]] = None
 
 
 class RequirementPublishRequest(BaseModel):
@@ -855,7 +860,9 @@ class RequirementOut(BaseModel):
     priority: str
     source: str
     source_ref: Optional[str] = None
+    intake_metadata: dict[str, object] = {}
     target_project_path: Optional[str] = None
+    acceptance_contract: dict[str, object] = {}
     current_plan_version: int
     blocked_by_count: int
     active_workflow_run_id: Optional[int] = None
@@ -875,6 +882,114 @@ class RequirementDetailOut(BaseModel):
     artifacts: list[ArtifactOut] = []
     delivery_state: Optional[DeliveryStateOut] = None
     incidents: list[IncidentRecordOut] = []
+
+
+class AcceptanceDispatchRequest(BaseModel):
+    limit: int = 20
+    auto_dispatch: bool = False
+
+
+class AcceptanceDispatchCandidateOut(BaseModel):
+    requirement_id: int
+    requirement_title: str
+    workflow_run_id: int
+    step_id: int
+    step_key: str
+    step_type: str
+    step_title: str
+    acceptance_owner_role: str
+    acceptance_mode: str
+    acceptance_trigger: str
+    required_evidence_artifact_types: list[str] = []
+
+
+class AcceptanceDispatchResultOut(BaseModel):
+    scanned: int = 0
+    dispatched_requirement_ids: list[int] = []
+    candidates: list[AcceptanceDispatchCandidateOut] = []
+
+
+class RequirementSourceRegistryItemOut(BaseModel):
+    source_key: str
+    display_name: str
+    description: str
+    source_types: list[str] = []
+    intake_supported: bool = False
+    requirement_count: int = 0
+    recent_requirement_count: int = 0
+    open_candidate_count: int = 0
+    last_requirement_at: Optional[datetime] = None
+    sample_source_refs: list[str] = []
+    latest_review_id: Optional[int] = None
+
+
+class RequirementSourceRegistryOut(BaseModel):
+    generated_at: Optional[datetime] = None
+    total_requirements: int = 0
+    sources: list[RequirementSourceRegistryItemOut] = []
+
+
+class RequirementSourceIntakeRequest(BaseModel):
+    source_key: str = "all"
+    refresh: bool = True
+    auto_start: bool = False
+    min_score: float = 60.0
+    max_created: int = 1
+    bundle_item_keys: list[str] = []
+
+
+class RequirementSourceIntakeItemOut(BaseModel):
+    source_key: str
+    action: str
+    status: str
+    created_requirement_ids: list[int] = []
+    reused_requirement_ids: list[int] = []
+    skipped: list[str] = []
+    details: dict[str, object] = {}
+
+
+class RequirementSourceIntakeResultOut(BaseModel):
+    executed_sources: list[str] = []
+    created_requirement_ids: list[int] = []
+    reused_requirement_ids: list[int] = []
+    skipped: list[str] = []
+    items: list[RequirementSourceIntakeItemOut] = []
+
+
+class RecurringWorkflowOut(BaseModel):
+    id: int
+    workflow_key: str
+    display_name: str
+    description: str
+    status: str
+    trigger_type: str
+    owner_role: str
+    schedule: dict[str, object] = {}
+    input_query: dict[str, object] = {}
+    output_action: dict[str, object] = {}
+    escalation_rule: dict[str, object] = {}
+    validation_signal: dict[str, object] = {}
+    is_builtin: bool = True
+    last_run_at: Optional[datetime] = None
+    last_result: dict[str, object] = {}
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class RecurringWorkflowRunRequest(BaseModel):
+    dry_run: bool = False
+    auto_start: bool = False
+    intake_min_score: float = 60.0
+    intake_max_created: int = 2
+    acceptance_limit: int = 20
+    auto_dispatch_acceptance: bool = False
+
+
+class RecurringWorkflowRunResultOut(BaseModel):
+    workflow_key: str
+    status: str
+    run_started_at: Optional[datetime] = None
+    result: dict[str, object] = {}
 
 
 # ── Copilot Auth ─────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, CompanyOperatingReview, CompanyReviewBundleMaterializeResult, DashboardStats, OrgNode, OrgTree } from '../api'
+import { api, CompanyOperatingReview, CompanyReviewBundleMaterializeResult, DashboardStats, OrgNode, OrgTree, RecurringWorkflow } from '../api'
 
 /* ── Color mapping ──────────────────────────────────────────── */
 const COLOR_MAP: Record<string, { bg: string; border: string; tag: string; tagText: string; lightBg: string }> = {
@@ -47,11 +47,13 @@ export default function OrgChart() {
   const [orgTree, setOrgTree] = useState<OrgTree | null>(null)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [review, setReview] = useState<CompanyOperatingReview | null>(null)
+  const [rituals, setRituals] = useState<RecurringWorkflow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshingReview, setRefreshingReview] = useState(false)
   const [materializingBundle, setMaterializingBundle] = useState(false)
   const [bundleResult, setBundleResult] = useState<CompanyReviewBundleMaterializeResult | null>(null)
+  const [ritualRunning, setRitualRunning] = useState<Record<string, boolean>>({})
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set())
 
@@ -64,9 +66,11 @@ export default function OrgChart() {
         api.getStats(),
         api.getCompanyOperatingReview(),
       ])
+      const recurring = await api.getRecurringWorkflows()
       setOrgTree(tree)
       setStats(s)
       setReview(companyReview)
+      setRituals(recurring)
       // Auto-expand all domains
       if (tree?.root?.children) {
         setExpandedDomains(new Set(tree.root.children.map(d => d.id)))
@@ -106,6 +110,28 @@ export default function OrgChart() {
     }
   }
 
+  const handleRunRitual = async (workflowKey: string) => {
+    setRitualRunning((prev) => ({ ...prev, [workflowKey]: true }))
+    try {
+      const result = await api.runRecurringWorkflow(workflowKey, {})
+      setRituals((prev) => prev.map((item) => (
+        item.workflow_key === workflowKey
+          ? {
+              ...item,
+              last_run_at: result.run_started_at,
+              last_result: result.result,
+            }
+          : item
+      )))
+      if (workflowKey === 'weekly_operating_review' || workflowKey === 'closeout_and_compact_sweep') {
+        const companyReview = await api.getCompanyOperatingReview()
+        setReview(companyReview)
+      }
+    } finally {
+      setRitualRunning((prev) => ({ ...prev, [workflowKey]: false }))
+    }
+  }
+
   const toggleDomain = (id: string) => {
     setExpandedDomains(prev => {
       const next = new Set(prev)
@@ -117,6 +143,30 @@ export default function OrgChart() {
 
   const selectedDetail = selectedNode && orgTree
     ? findNode(orgTree.root, selectedNode) : null
+  const ritualByKey = Object.fromEntries(rituals.map((item) => [item.workflow_key, item])) as Record<string, RecurringWorkflow>
+  const priorityItems = review ? [
+    ...review.incidents.slice(0, 2).map((item) => ({
+      key: `incident-${item.item_key}`,
+      tone: 'rose',
+      title: item.title,
+      summary: item.summary,
+      meta: item.recovery_status || item.project_display_name || item.project_key || 'incident',
+    })),
+    ...review.next_cycle_recommendations.slice(0, 2).map((item) => ({
+      key: `recommendation-${item.source_ref || item.title}`,
+      tone: 'emerald',
+      title: item.title,
+      summary: item.rationale,
+      meta: `${item.action} / ${item.project_display_name}`,
+    })),
+    ...review.human_gate_hotspots.slice(0, 1).map((item) => ({
+      key: `gate-${item.gate_key}`,
+      tone: 'violet',
+      title: item.title,
+      summary: item.summary,
+      meta: `${item.pending_count} pending`,
+    })),
+  ].slice(0, 5) : []
 
   /* ── Loading skeleton ──────────────────────────────────────── */
   if (loading) {
@@ -465,6 +515,134 @@ export default function OrgChart() {
           </div>
         </section>
       )}
+
+      <section data-testid="operator-rituals-panel" className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">Operator Rituals</div>
+            <h3 className="text-lg font-semibold text-slate-900">Daily / Weekly Ritual Board</h3>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">
+              让 operator 像管理一家 AI 公司一样看 intake、dispatch、closeout 和 weekly COO review。
+            </p>
+          </div>
+          <div className="text-xs text-slate-500">
+            visible rituals: {rituals.length}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr,1fr]">
+          <div data-testid="operator-priority-panel" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-sm font-semibold text-slate-900">Today Priorities</h4>
+            <p className="mt-1 text-xs text-slate-500">来自 incident、next-cycle recommendation 和 human gate hotspot 的今日优先项。</p>
+            <div className="mt-3 space-y-2">
+              {priorityItems.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-sm text-slate-500">
+                  当前没有优先事项，先运行 daily rituals。
+                </div>
+              )}
+              {priorityItems.map((item) => (
+                <div
+                  key={item.key}
+                  className={`rounded-xl border px-3 py-3 text-sm ${
+                    item.tone === 'rose'
+                      ? 'border-rose-200 bg-rose-50 text-rose-900'
+                      : item.tone === 'violet'
+                        ? 'border-violet-200 bg-violet-50 text-violet-900'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  }`}
+                >
+                  <div className="font-medium">{item.title}</div>
+                  <div className="mt-1 text-xs opacity-90">{item.summary}</div>
+                  <div className="mt-2 text-[11px] opacity-80">{item.meta}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div data-testid="weekly-coo-package-panel" className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-sm font-semibold text-slate-900">Weekly COO Review</h4>
+            <p className="mt-1 text-xs text-slate-500">来自 weekly operating review 的 operator 包和 ritual 摘要。</p>
+            {review ? (
+              <>
+                <div className="mt-3 whitespace-pre-line rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
+                  {review.operator_review_package.summary_markdown}
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700">
+                    <div className="font-medium text-slate-900">Decisions</div>
+                    <div className="mt-1">{review.operator_review_package.decisions.length}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700">
+                    <div className="font-medium text-slate-900">Recommended Bundle</div>
+                    <div className="mt-1">{review.operator_review_package.recommended_bundle_item_keys.length}</div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-sm text-slate-500">
+                暂无 weekly COO review。
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            ritualByKey.morning_intake_sweep,
+            ritualByKey.dispatcher_loop,
+            ritualByKey.closeout_and_compact_sweep,
+            ritualByKey.weekly_operating_review,
+          ].filter(Boolean).map((ritual) => {
+            const result = ritual.last_result || {}
+            return (
+              <div key={ritual.workflow_key} data-testid={`ritual-${ritual.workflow_key}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">{ritual.display_name}</div>
+                    <div className="mt-1 text-xs text-slate-500">{ritual.owner_role} / {String(ritual.schedule?.cadence || ritual.trigger_type || 'scheduled')}</div>
+                  </div>
+                  <button
+                    data-testid={`run-${ritual.workflow_key}`}
+                    onClick={() => { handleRunRitual(ritual.workflow_key).catch(() => {}) }}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800"
+                  >
+                    {ritualRunning[ritual.workflow_key] ? '运行中…' : '运行'}
+                  </button>
+                </div>
+                <div className="mt-3 text-xs text-slate-500">
+                  last run: {ritual.last_run_at ? new Date(ritual.last_run_at.endsWith('Z') ? ritual.last_run_at : `${ritual.last_run_at}Z`).toLocaleString('zh-CN') : '-'}
+                </div>
+                <div className="mt-3 space-y-1 text-xs text-slate-700">
+                  {ritual.workflow_key === 'morning_intake_sweep' && (
+                    <>
+                      <div>created: {Array.isArray(result.created_requirement_ids) ? result.created_requirement_ids.length : 0}</div>
+                      <div>operator attention: {Array.isArray(result.operator_attention_items) ? result.operator_attention_items.length : 0}</div>
+                    </>
+                  )}
+                  {ritual.workflow_key === 'dispatcher_loop' && (
+                    <>
+                      <div>started: {Array.isArray(result.started_ids) ? result.started_ids.length : 0}</div>
+                      <div>follow-ups: {Array.isArray(result.follow_up_actions) ? result.follow_up_actions.length : 0}</div>
+                    </>
+                  )}
+                  {ritual.workflow_key === 'closeout_and_compact_sweep' && (
+                    <>
+                      <div>acceptance: {Number(result.acceptance_candidates || 0)}</div>
+                      <div>snapshots: {Array.isArray(result.review_snapshot_requirement_ids) ? result.review_snapshot_requirement_ids.length : 0}</div>
+                    </>
+                  )}
+                  {ritual.workflow_key === 'weekly_operating_review' && (
+                    <>
+                      <div>bundle items: {Number(result.bundle_item_count || 0)}</div>
+                      <div>automation: {Number(result.automation_candidate_count || 0)}</div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
 
       <div data-testid="org-root" className="p-5 mb-6 border rounded-xl bg-slate-50">
         <div className="flex items-start justify-between gap-4">

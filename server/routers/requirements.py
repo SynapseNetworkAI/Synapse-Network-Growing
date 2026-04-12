@@ -12,17 +12,23 @@ from sqlalchemy.orm import Session
 from server.database import RequirementRow, get_db
 from server.logging_utils import timed_operation
 from server.schemas import (
+    AcceptanceDispatchRequest,
+    AcceptanceDispatchResultOut,
     RequirementCreate,
     RequirementDependencyUpdate,
     RequirementDetailOut,
     RequirementOut,
     RequirementPatch,
+    RequirementSourceIntakeRequest,
+    RequirementSourceIntakeResultOut,
+    RequirementSourceRegistryOut,
     RequirementPublishRequest,
     RequirementRevisionRequest,
     SchedulerPlanOut,
 )
 from server.services.project_intelligence import build_requirement_serialization_context, serialize_requirement
 from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
+from server.services.requirement_sources import intake_requirement_sources, list_requirement_source_registry
 from server.services.workflow_orchestrator import (
     _normalize_target_project_path,
     advance_requirement_queue,
@@ -30,6 +36,7 @@ from server.services.workflow_orchestrator import (
     close_requirement,
     create_requirement,
     delete_requirement,
+    dispatch_acceptance_sweep,
     patch_requirement,
     pause_requirement,
     plan_requirement,
@@ -141,6 +148,29 @@ def rebalance_requirement_scheduler(db: Session = Depends(get_db)):
     return execute_portfolio_rebalance(db)
 
 
+@router.get("/sources", response_model=RequirementSourceRegistryOut)
+def get_requirement_source_registry(db: Session = Depends(get_db)):
+    return RequirementSourceRegistryOut(**list_requirement_source_registry(db))
+
+
+@router.post("/intake", response_model=RequirementSourceIntakeResultOut)
+def intake_requirements_endpoint(body: RequirementSourceIntakeRequest, db: Session = Depends(get_db)):
+    try:
+        return RequirementSourceIntakeResultOut(
+            **intake_requirement_sources(
+                db,
+                source_key=body.source_key,
+                refresh=body.refresh,
+                auto_start=body.auto_start,
+                min_score=body.min_score,
+                max_created=body.max_created,
+                bundle_item_keys=body.bundle_item_keys,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{requirement_id}", response_model=RequirementDetailOut)
 def get_requirement(requirement_id: int, db: Session = Depends(get_db)):
     try:
@@ -213,6 +243,11 @@ def publish_requirement_endpoint(
 def queue_advance_endpoint(db: Session = Depends(get_db)):
     """Advance the requirement queue: start the next ready requirement if nothing is in_progress."""
     return advance_requirement_queue(db)
+
+
+@router.post("/acceptance/dispatch", response_model=AcceptanceDispatchResultOut)
+def dispatch_acceptance_endpoint(body: AcceptanceDispatchRequest, db: Session = Depends(get_db)):
+    return dispatch_acceptance_sweep(db, limit=body.limit, auto_dispatch=body.auto_dispatch)
 
 
 @router.put("/{requirement_id}/dependencies", response_model=RequirementDetailOut)

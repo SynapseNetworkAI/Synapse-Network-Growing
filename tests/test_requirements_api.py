@@ -11,6 +11,8 @@ import server.services.portfolio_scheduler as portfolio_scheduler
 import server.services.workflow_orchestrator as workflow_orchestrator
 from server.database import (
     ArtifactRow,
+    CompanyOperatingReviewRow,
+    OptimizationSignalRow,
     ProjectOnboardingRow,
     ProjectPolicyRow,
     RequirementAcceptanceCheckRow,
@@ -173,6 +175,289 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert closeout.status == "completed"
     assert data["delivery_state"]["publish_status"] == "review_ready"
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
+
+
+def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Acceptance-owned requirement",
+            "description_markdown": "Implement and then let the acceptance owner review it.",
+            "acceptance_contract": {
+                "acceptance_owner_role": "tester",
+                "review_owner_role": "reviewer",
+                "acceptance_mode": "scheduled",
+                "acceptance_trigger": "implementation_completed",
+                "workflow_step_types": ["review", "test", "closeout"],
+                "required_evidence_artifact_types": ["project_change_summary", "validation_plan"],
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+    assert create_resp.json()["requirement"]["acceptance_contract"]["acceptance_owner_role"] == "tester"
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement changes",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    assert plan_resp.json()["requirement"]["acceptance_contract"]["acceptance_trigger"] == "implementation_completed"
+
+    run_id = plan_resp.json()["workflow_run"]["id"]
+    steps = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == run_id
+    ).order_by(WorkflowStepRow.sequence_no.asc()).all()
+    for step in steps:
+        if step.step_type in {"research", "synthesis", "implementation"}:
+            step.status = "completed"
+        else:
+            step.status = "pending"
+    run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == run_id).first()
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    run.status = "running"
+    requirement.status = "in_progress"
+    db_session.commit()
+
+    dispatch_resp = synced_client.post(
+        "/api/requirements/acceptance/dispatch",
+        json={"limit": 10, "auto_dispatch": False},
+    )
+    assert dispatch_resp.status_code == 200
+    payload = dispatch_resp.json()
+    assert payload["scanned"] >= 1
+    candidate = next(item for item in payload["candidates"] if item["requirement_id"] == requirement_id)
+    assert candidate["step_type"] == "review"
+    assert candidate["acceptance_owner_role"] == "reviewer"
+    assert "validation_plan" in candidate["required_evidence_artifact_types"]
+
+
+def test_requirement_source_registry_lists_sources_and_counts(synced_client, db_session):
+    db_session.add(
+        RequirementRow(
+            title="Manual backlog item",
+            description_markdown="Operator-created requirement.",
+            status="ready",
+            priority="normal",
+            source="manual",
+            source_ref="manual:1",
+            intake_metadata_json=json.dumps(
+                {
+                    "source_key": "manual",
+                    "intake_reason": "operator_created_requirement",
+                    "confidence": 1.0,
+                }
+            ),
+        )
+    )
+    db_session.add(
+        OptimizationSignalRow(
+            dedupe_key="signal-1",
+            signal_type="bug_report",
+            source_kind="artifact",
+            status="open",
+            title="Repeated bug",
+            summary="Repeated bug report",
+            confidence=0.9,
+        )
+    )
+    db_session.add(
+        CompanyOperatingReviewRow(
+            cycle_label="2026-W15",
+            title="Weekly review",
+            summary_markdown="Weekly review summary",
+            payload_json=json.dumps(
+                {
+                    "automation_candidates": [
+                        {
+                            "candidate_key": "automation:gate-1",
+                            "title": "Automate publish gate",
+                            "automation_type": "publish_automation",
+                            "priority": "high",
+                            "occurrence_count": 3,
+                        }
+                    ],
+                    "next_cycle_requirement_bundle": [
+                        {
+                            "bundle_item_key": "bundle-1",
+                            "title": "Bundle requirement",
+                            "description_markdown": "Create from bundle",
+                            "priority": "high",
+                            "source_ref": "signal:bundle-1",
+                        }
+                    ]
+                }
+            ),
+        )
+    )
+    db_session.commit()
+
+    response = synced_client.get("/api/requirements/sources")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_requirements"] == 1
+    by_key = {item["source_key"]: item for item in data["sources"]}
+    assert by_key["manual"]["requirement_count"] == 1
+    assert by_key["optimization_signal"]["open_candidate_count"] == 1
+    assert by_key["optimization_signal"]["intake_supported"] is True
+    assert by_key["company_review_bundle"]["open_candidate_count"] == 1
+    assert by_key["company_review_bundle"]["latest_review_id"] is not None
+    assert by_key["automation_candidate"]["open_candidate_count"] == 1
+    assert by_key["automation_candidate"]["intake_supported"] is True
+    assert by_key["automation_candidate"]["latest_review_id"] is not None
+
+
+def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
+    with patch("server.services.optimization_signals.refresh_optimization_signals"), patch(
+        "server.services.optimization_signals.auto_intake_optimization_signals",
+        return_value={
+            "created": [{"signal_id": 7, "requirement_id": 71, "title": "From signal", "score": 88.0}],
+            "skipped": ["signal #8 below threshold"],
+        },
+    ), patch(
+        "server.services.company_review.refresh_company_operating_review",
+        return_value=MagicMock(id=12),
+    ), patch(
+        "server.services.company_review.materialize_company_review_bundle",
+        return_value=MagicMock(
+            created_requirement_ids=[81],
+            reused_requirement_ids=[82],
+            skipped_bundle_item_keys=["bundle-3"],
+            model_dump=lambda: {
+                "review_id": 12,
+                "created_requirement_ids": [81],
+                "reused_requirement_ids": [82],
+                "skipped_bundle_item_keys": ["bundle-3"],
+                "items": [],
+            },
+        ),
+    ), patch(
+        "server.services.company_review.materialize_company_review_automation_candidates",
+        return_value=MagicMock(
+            created_requirement_ids=[91],
+            reused_requirement_ids=[92],
+            skipped_bundle_item_keys=["automation:gate-3"],
+            model_dump=lambda: {
+                "review_id": 12,
+                "created_requirement_ids": [91],
+                "reused_requirement_ids": [92],
+                "skipped_bundle_item_keys": ["automation:gate-3"],
+                "items": [],
+            },
+        ),
+    ):
+        response = synced_client.post(
+            "/api/requirements/intake",
+            json={
+                "source_key": "all",
+                "refresh": True,
+                "auto_start": False,
+                "min_score": 70,
+                "max_created": 2,
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["executed_sources"] == ["optimization_signal", "company_review_bundle", "automation_candidate"]
+    assert data["created_requirement_ids"] == [71, 81, 91]
+    assert data["reused_requirement_ids"] == [82, 92]
+    assert "signal #8 below threshold" in data["skipped"]
+    by_source = {item["source_key"]: item for item in data["items"]}
+    assert by_source["optimization_signal"]["created_requirement_ids"] == [71]
+    assert by_source["company_review_bundle"]["created_requirement_ids"] == [81]
+    assert by_source["automation_candidate"]["created_requirement_ids"] == [91]
+
+
+def test_requirement_intake_metadata_roundtrips(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Requirement with intake metadata",
+            "description_markdown": "Track why this requirement entered the pool.",
+            "priority": "normal",
+            "source": "manual",
+            "source_ref": "manual:brief-1",
+            "intake_metadata": {
+                "intake_reason": "weekly_ops_review",
+                "confidence": 0.93,
+                "intake_mode": "operator",
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement = create_resp.json()["requirement"]
+    assert requirement["intake_metadata"]["source_key"] == "manual"
+    assert requirement["intake_metadata"]["intake_reason"] == "weekly_ops_review"
+    assert requirement["intake_metadata"]["confidence"] == 0.93
+
+
+def test_requirement_source_intake_materializes_automation_candidates_from_company_review(synced_client, db_session):
+    db_session.add(
+        CompanyOperatingReviewRow(
+            cycle_label="2026-W16",
+            title="Weekly review",
+            summary_markdown="Weekly review summary",
+            payload_json=json.dumps(
+                {
+                    "automation_candidates": [
+                        {
+                            "candidate_key": "automation:publish-gate",
+                            "title": "Automate publish gate",
+                            "gate_key": "publish_manual_gate::publish::synapse-network",
+                            "project_key": "synapse-network",
+                            "project_display_name": "Synapse-Network",
+                            "automation_type": "publish_automation",
+                            "priority": "high",
+                            "rationale": "Reduce repeated publish approvals.",
+                            "occurrence_count": 4,
+                        }
+                    ],
+                    "operator_review_package": {
+                        "title": "Operator Review Package",
+                    },
+                }
+            ),
+        )
+    )
+    db_session.commit()
+
+    response = synced_client.post(
+        "/api/requirements/intake",
+        json={
+            "source_key": "automation_candidate",
+            "refresh": False,
+            "auto_start": False,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["executed_sources"] == ["automation_candidate"]
+    assert len(data["created_requirement_ids"]) == 1
+    requirement_id = data["created_requirement_ids"][0]
+
+    detail = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert detail.status_code == 200
+    payload = detail.json()["requirement"]
+    assert payload["source"] == "automation_candidate"
+    assert payload["intake_metadata"]["source_key"] == "automation_candidate"
+    assert payload["intake_metadata"]["trigger"] == "company_review_materialize_automation_candidate"
 
 
 def test_requirement_keeps_target_project_order_and_records_dynamic_project_change_summary(synced_client, db_session):

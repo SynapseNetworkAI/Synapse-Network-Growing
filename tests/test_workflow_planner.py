@@ -368,9 +368,13 @@ class TestBuildPlannerOutput:
         assert output["project_intelligence"]["routing_mode"] == "explicit"
         assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
         assert output["validation_plan"]["bugfix_owner_role"] == "implementer"
+        assert output["validation_plan"]["acceptance_owner_role"] == "tester"
+        assert output["validation_plan"]["review_owner_role"] == "reviewer"
+        assert output["acceptance_contract"]["acceptance_mode"] == "scheduled"
         assert output["validation_plan"]["closeout_owner_role"] == "tester"
         assert output["validation_plan"]["manual_checks"][0]["check_key"] == "review_passed"
         assert output["validation_plan"]["automated_checks"][0]["check_key"] == "validation_passed"
+        assert output["validation_plan"]["acceptance_dispatch"]["dispatcher_type"] == "scheduled_sweep"
         assert output["delivery_contract"]["branch_strategy"] == "requirement_branch"
         assert output["delivery_contract"]["branch_name"].startswith(f"ops/req-{req.id}-")
         assert output["delivery_contract"]["release_mode"] == "manual"

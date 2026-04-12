@@ -19,6 +19,9 @@ def test_sync_agents(client):
     assert "seo_strategist" in ids
     assert "cro_optimizer" in ids
     assert "launch_strategist" in ids
+    dev_rel = next(item for item in data if item["id"] == "dev_rel")
+    assert dev_rel["role_contract"]["mission"]
+    assert dev_rel["role_contract"]["acceptance_ownership"]
 
 
 def test_sync_agents_idempotent(client):
@@ -42,6 +45,7 @@ def test_get_agent(synced_client):
     assert data["display_name"] == "DevRel Engineer"
     assert data["task_count"] == 0
     assert data["completed_count"] == 0
+    assert data["role_contract"]["acceptance_ownership"]
 
 
 def test_get_agent_not_found(client):

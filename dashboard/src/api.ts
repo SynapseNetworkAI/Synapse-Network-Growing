@@ -751,6 +751,33 @@ export interface CompanyReviewBundleMaterializeResult {
   }>
 }
 
+export interface RecurringWorkflow {
+  id: number
+  workflow_key: string
+  display_name: string
+  description: string
+  status: string
+  trigger_type: string
+  owner_role: string
+  schedule: Record<string, unknown>
+  input_query: Record<string, unknown>
+  output_action: Record<string, unknown>
+  escalation_rule: Record<string, unknown>
+  validation_signal: Record<string, unknown>
+  is_builtin: boolean
+  last_run_at: string | null
+  last_result: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface RecurringWorkflowRunResult {
+  workflow_key: string
+  status: string
+  run_started_at: string | null
+  result: Record<string, unknown>
+}
+
 // API functions
 export const api = {
   // Agents
@@ -764,6 +791,22 @@ export const api = {
   refreshCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review/refresh', { method: 'POST' }),
   materializeCompanyReviewBundle: (reviewId: number, data?: { bundle_item_keys?: string[]; auto_start?: boolean }) =>
     request<CompanyReviewBundleMaterializeResult>(`/company-review/${reviewId}/materialize-bundle`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  getRecurringWorkflows: () => request<RecurringWorkflow[]>('/recurring-workflows'),
+  runRecurringWorkflow: (
+    workflowKey: string,
+    data?: {
+      dry_run?: boolean
+      auto_start?: boolean
+      intake_min_score?: number
+      intake_max_created?: number
+      acceptance_limit?: number
+      auto_dispatch_acceptance?: boolean
+    },
+  ) =>
+    request<RecurringWorkflowRunResult>(`/recurring-workflows/${workflowKey}/run`, {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),

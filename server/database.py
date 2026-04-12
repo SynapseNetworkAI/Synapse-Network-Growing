@@ -73,6 +73,7 @@ class AgentRow(Base):
     group = Column(Text, default="")  # content | growth | optimization
     persona_path = Column(Text)
     skills = Column(Text, default="[]")  # JSON array
+    role_contract_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=utcnow)
 
     tasks = relationship("TaskRow", back_populates="agent")
@@ -158,7 +159,9 @@ class RequirementRow(Base):
     priority = Column(Text, nullable=False, default="normal")
     source = Column(Text, nullable=False, default="manual")
     source_ref = Column(Text)
+    intake_metadata_json = Column(Text, nullable=False, default="{}")
     target_project_path = Column(Text)
+    acceptance_contract_json = Column(Text, nullable=False, default="{}")
     current_plan_version = Column(Integer, nullable=False, default=0)
     planned_roles_json = Column(Text, nullable=False, default="[]")
     blocked_by_count = Column(Integer, nullable=False, default=0)
@@ -285,6 +288,33 @@ class CompanyOperatingReviewRow(Base):
     title = Column(Text, nullable=False, default="Company Operating Review")
     summary_markdown = Column(Text, nullable=False, default="")
     payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class RecurringWorkflowRow(Base):
+    __tablename__ = "recurring_workflows"
+    __table_args__ = (
+        Index("recurring_workflows_key_idx", "workflow_key", unique=True),
+        Index("recurring_workflows_status_idx", "status"),
+        Index("recurring_workflows_trigger_idx", "trigger_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_key = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="active")
+    trigger_type = Column(Text, nullable=False, default="scheduled")
+    owner_role = Column(Text, nullable=False, default="portfolio_operator")
+    schedule_json = Column(Text, nullable=False, default="{}")
+    input_query_json = Column(Text, nullable=False, default="{}")
+    output_action_json = Column(Text, nullable=False, default="{}")
+    escalation_rule_json = Column(Text, nullable=False, default="{}")
+    validation_signal_json = Column(Text, nullable=False, default="{}")
+    is_builtin = Column(Boolean, nullable=False, default=True)
+    last_run_at = Column(DateTime)
+    last_result_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -506,14 +536,33 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE agents ADD COLUMN \"group\" TEXT DEFAULT ''"))
                 conn.commit()
+        if "role_contract_json" not in existing:
+            logger.info("Migrating: adding 'role_contract_json' column to agents table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE agents ADD COLUMN role_contract_json TEXT DEFAULT '{}'"))
+                conn.commit()
 
     if "requirements" in tables:
         existing = {c["name"] for c in insp.get_columns("requirements")}
+        if "intake_metadata_json" not in existing:
+            logger.info("Migrating: adding 'intake_metadata_json' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN intake_metadata_json TEXT DEFAULT '{}'"))
+                conn.commit()
         if "target_project_path" not in existing:
             logger.info("Migrating: adding 'target_project_path' column to requirements table")
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN target_project_path TEXT"))
                 conn.commit()
+        if "acceptance_contract_json" not in existing:
+            logger.info("Migrating: adding 'acceptance_contract_json' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN acceptance_contract_json TEXT DEFAULT '{}'"))
+                conn.commit()
+
+    if "recurring_workflows" not in tables:
+        logger.info("Migrating: creating 'recurring_workflows' table")
+        RecurringWorkflowRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "project_policies" in tables:
         existing = {c["name"] for c in insp.get_columns("project_policies")}

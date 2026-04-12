@@ -64,8 +64,10 @@ from server.services.copilot_sdk_state import (
     task_output_dir,
 )
 from server.services.execution_resolver import suggest_task_execution
+from server.services.acceptance import acceptance_contract_for_requirement, list_acceptance_dispatch_candidates, normalize_acceptance_contract
 from server.services.project_policy import project_policy_summary_markdown, project_policy_to_dict, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
+from server.services.requirement_sources import normalize_requirement_intake_metadata
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
 
@@ -1005,12 +1007,30 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         priority=body.priority,
         source=body.source,
         source_ref=body.source_ref,
+        intake_metadata_json=json.dumps(
+            normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata),
+            ensure_ascii=False,
+        ),
         target_project_path=_normalize_target_project_path(
             str(routing_context.get("target_project_path") or "") or requested_target
         ),
+        acceptance_contract_json=json.dumps(normalize_acceptance_contract(body.acceptance_contract), ensure_ascii=False),
     )
     db.add(requirement)
     db.flush()
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="intake_record",
+        content_summary=f"Intake record for requirement #{requirement.id}",
+        human_readable_body=str(
+            (
+                normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata).get("intake_reason")
+                or "Requirement entered the pool."
+            )
+        ),
+        machine_readable_payload=normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata),
+    )
     _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -1018,6 +1038,20 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         content_summary=f"Routing for requirement #{requirement.id}",
         human_readable_body=str(routing_context.get("summary") or "Requirement routing was assessed during intake."),
         machine_readable_payload=routing_context,
+    )
+    acceptance_contract = acceptance_contract_for_requirement(requirement)
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="acceptance_contract",
+        content_summary=f"Acceptance contract for requirement #{requirement.id}",
+        human_readable_body=(
+            f"Acceptance owner: {acceptance_contract.get('acceptance_owner_role')}\n"
+            f"Review owner: {acceptance_contract.get('review_owner_role')}\n"
+            f"Mode: {acceptance_contract.get('acceptance_mode')}\n"
+            f"Trigger: {acceptance_contract.get('acceptance_trigger')}"
+        ),
+        machine_readable_payload=acceptance_contract,
     )
     if body.template_key or body.template_payload or body.template_acceptance_checks:
         template_payload = dict(body.template_payload or {})
@@ -1210,8 +1244,41 @@ def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) 
         requirement.priority = body.priority
     if body.source_ref is not None:
         requirement.source_ref = body.source_ref
+    if body.intake_metadata is not None or body.source_ref is not None:
+        requirement.intake_metadata_json = json.dumps(
+            normalize_requirement_intake_metadata(
+                requirement.source,
+                body.source_ref if body.source_ref is not None else requirement.source_ref,
+                body.intake_metadata,
+            ),
+            ensure_ascii=False,
+        )
+    if body.target_project_path is not None:
+        requirement.target_project_path = _normalize_target_project_path(body.target_project_path)
+    if body.acceptance_contract is not None:
+        requirement.acceptance_contract_json = json.dumps(
+            normalize_acceptance_contract(body.acceptance_contract),
+            ensure_ascii=False,
+        )
     db.commit()
     return build_requirement_detail(db, requirement.id)
+
+
+def dispatch_acceptance_sweep(db: Session, *, limit: int = 20, auto_dispatch: bool = False) -> dict[str, Any]:
+    candidates = list_acceptance_dispatch_candidates(db, limit=limit)
+    dispatched_requirement_ids: list[int] = []
+    if auto_dispatch:
+        for candidate in candidates:
+            requirement = _require_requirement(db, int(candidate["requirement_id"]))
+            if str(requirement.status or "") in {"deleted", "done", "blocked"}:
+                continue
+            _dispatch_next_step_for_requirement(int(requirement.id))
+            dispatched_requirement_ids.append(int(requirement.id))
+    return {
+        "scanned": len(candidates),
+        "dispatched_requirement_ids": dispatched_requirement_ids,
+        "candidates": candidates,
+    }
 
 
 def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
