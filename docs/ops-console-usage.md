@@ -47,6 +47,26 @@ Company Review
 6. 任务看板和任务详情看“低层执行到底发生了什么”。
 7. 审批中心看“哪些高风险动作需要人来拍板”。
 
+## 1.1 Runtime 选择心智模型
+
+当前系统的 planner 和 task execution 都由 `ORCHESTRATION_BACKEND` 决定。
+
+最常见的三种运行方式是：
+
+1. `openai_responses`
+   用 OpenAI API 做 planner + execution
+2. `copilot_sdk`
+   用 Copilot SDK 做 planner + execution
+3. `codex_cli`
+   用本机 `codex exec` 做 planner + execution
+
+如果你看到：
+
+1. requirement 规划阶段还在打另一种 provider
+2. task runtime backend 和你预期的不一致
+
+优先检查后端启动时真实读取到的 `ORCHESTRATION_BACKEND`，不要先怀疑前端页面。
+
 ## 2. 各页面模块功能与使用方式
 
 ## 2.1 首页 `/`
@@ -214,6 +234,23 @@ Company Review
 2. 先补齐 docs、validation commands、write scope、forbidden scope、release policy。
 3. 默认先保守配置 `git_push` 和 `publish`，等链路跑顺后再放开。
 4. 删除策略前，先确认没有 active requirement 仍指向该项目；默认内置策略不能直接删除，建议改成 `disabled`。
+
+### backend 配置建议
+
+如果你要让整套系统走本机 Codex，而不是 OpenAI API：
+
+```env
+ORCHESTRATION_BACKEND=codex_cli
+LLM_PROVIDER=codex
+LLM_MODEL=gpt-5-codex
+CODEX_CLI_MODEL=gpt-5-codex
+```
+
+这时：
+
+1. requirement 的 planner full-plan 会直接调用 `codex exec`
+2. task runtime 也会直接调用 `codex exec`
+3. 任务详情页里的 `runtime backend` 会显示 `codex_cli`
 
 ## 2.6 任务看板 `/tasks`
 

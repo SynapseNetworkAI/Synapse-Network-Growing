@@ -9,8 +9,11 @@ from typing import Any, cast
 
 from server import config
 from server.database import ApprovalRow, SessionLocal, TaskLogRow, TaskRow, utcnow
+from server.services.alerting import send_lark_text_alert
 from server.services.copilot_sdk_state import task_output_dir
 from server.services.llm_adapter import OpenAIProvider
+from server.services.runtime_guards import is_openai_runtime_guard_error
+from server.services.task_runtime import get_openai_responses_runtime
 
 logger = logging.getLogger("ops-dashboard.openai_responses_monitor")
 
@@ -145,6 +148,10 @@ class OpenAIResponsesTaskMonitor:
     def _fail_task(self, db, task: TaskRow, response: dict, output_dir: Path, status: str) -> None:
         error_message = self.provider.extract_response_error(response) or f"OpenAI response ended with status '{status}'"
         output_text = self.provider.extract_response_text(response)
+        if config.RUNTIME_AUTH_ALERTS_ENABLED and is_openai_runtime_guard_error(error_message):
+            self._alert_and_pause_for_runtime_guard(db, task, error_message)
+            return
+
         if output_text:
             output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / "output.md"
@@ -157,8 +164,49 @@ class OpenAIResponsesTaskMonitor:
         cast(Any, task).execution_time_ms = self._response_execution_ms(response)
         cast(Any, task).completed_at = utcnow()
         self._log(db, _task_id(task), "failed", error_message)
+        runtime = get_openai_responses_runtime()
+        if runtime is not None:
+            runtime.clear_role_sessions()
         db.commit()
         self._sync_workflow_step(_task_id(task))
+
+    def _alert_and_pause_for_runtime_guard(self, db, task: TaskRow, error_message: str) -> None:
+        from server.services.workflow_orchestrator import pause_task
+
+        requirement_id = getattr(cast(Any, task), "requirement_id", None)
+        alert_text = (
+            f"告警\n"
+            f"OpenAI runtime unavailable for task execution.\n"
+            f"task_id={_task_id(task)}\n"
+            f"requirement_id={requirement_id or '-'}\n"
+            f"agent_id={getattr(cast(Any, task), 'agent_id', '') or '-'}\n"
+            f"skill={getattr(cast(Any, task), 'skill_name', '') or '-'}\n"
+            f"runtime_backend={getattr(cast(Any, task), 'runtime_backend', '') or 'openai_responses'}\n"
+            f"error={error_message}"
+        )
+        sent, detail = send_lark_text_alert(alert_text)
+        db.add(
+            TaskLogRow(
+                task_id=_task_id(task),
+                event_type="runtime_provider_alert",
+                detail="sent" if sent else f"failed: {detail or 'unknown error'}",
+            )
+        )
+        logger.warning(
+            "OpenAI Responses task #%d hit provider guard; lark_alert_sent=%s detail=%s",
+            _task_id(task),
+            sent,
+            (detail or "")[:300],
+        )
+        runtime = get_openai_responses_runtime()
+        if runtime is not None:
+            runtime.clear_role_sessions()
+        pause_task(
+            db,
+            _task_id(task),
+            reason=error_message,
+            event_detail="Paused after OpenAI runtime provider guard",
+        )
 
     @staticmethod
     def _response_execution_ms(response: dict) -> int:

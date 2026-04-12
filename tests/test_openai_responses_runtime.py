@@ -8,6 +8,8 @@ from sqlalchemy.orm import sessionmaker
 
 from server import config
 from server.database import TaskRow
+from server.services.workflow_orchestrator import pause_task
+from server.services.llm_adapter import OpenAIProvider
 from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import OpenAIResponsesTaskRuntime, TaskExecutionResult
@@ -208,3 +210,166 @@ def test_openai_monitor_marks_incomplete_response_as_failed(synced_client, db_se
     task = synced_client.get(f"/api/tasks/{task_id}").json()
     assert task["status"] == "failed"
     assert "max_output_tokens" in (task["last_error_message"] or "")
+
+
+def test_openai_monitor_alerts_and_pauses_on_quota_error(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={
+        "description": "Quota guarded detached openai response",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).status = "running"
+    cast(Any, row).runtime_backend = "openai_responses"
+    cast(Any, row).runtime_session_id = "resp_quota_fail"
+    cast(Any, row).output_path = str(predicted_output)
+    db_session.commit()
+
+    provider = MagicMock()
+    provider.retrieve_response.return_value = {
+        "id": "resp_quota_fail",
+        "status": "failed",
+        "error": {"message": "You exceeded your current quota."},
+    }
+    provider.extract_response_error.return_value = "You exceeded your current quota."
+    provider.extract_response_text.return_value = ""
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
+    monitor = OpenAIResponsesTaskMonitor(project_root=tmp_path, session_factory=session_factory, provider=provider)
+    with patch("server.services.openai_responses_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert, patch(
+        "server.services.llm_adapter.OpenAIProvider.cancel_response",
+        return_value={},
+    ):
+        monitor.poll_once()
+
+    mock_alert.assert_called_once()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "cancelled"
+    assert "current quota" in str(task["last_error_message"]).lower()
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_provider_alert" in event_types
+    assert "paused" in event_types
+
+
+def test_task_runner_pauses_immediate_openai_guard_errors(synced_client, db_session, tmp_path):
+    create = synced_client.post("/api/tasks", json={
+        "description": "Immediate openai guard failure",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.task_runner.get_task_runtime"
+    ) as mock_runtime_factory, patch(
+        "server.services.openai_responses_monitor.send_lark_text_alert",
+        return_value=(True, "ok"),
+    ) as mock_alert:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            error="The requested model 'openai' does not exist.",
+            runtime_backend="openai_responses",
+            execution_time_ms=5,
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    mock_alert.assert_called_once()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "cancelled"
+    assert "does not exist" in str(task["last_error_message"]).lower()
+
+    logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
+    event_types = [log["event_type"] for log in logs]
+    assert "runtime_provider_alert" in event_types
+    assert "paused" in event_types
+
+
+def test_pause_task_tolerates_openai_response_already_failed(synced_client, db_session):
+    create = synced_client.post("/api/tasks", json={
+        "description": "Pause running openai response",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    row = db_session.query(TaskRow).filter_by(id=task_id).first()
+    cast(Any, row).status = "running"
+    cast(Any, row).runtime_backend = "openai_responses"
+    cast(Any, row).runtime_session_id = "resp_terminal"
+    db_session.commit()
+
+    with patch(
+        "server.services.llm_adapter.OpenAIProvider.cancel_response",
+        side_effect=RuntimeError("LLM API error 400: Cannot cancel a failed response."),
+    ):
+        pause_task(db_session, task_id, reason="quota guard", event_detail="Paused after guard")
+
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "cancelled"
+    assert task["last_error_message"] == "quota guard"
+
+
+def test_openai_provider_normalizes_provider_name_model_alias_for_chat_calls(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    provider = OpenAIProvider()
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"total_tokens": 7},
+            }
+
+    def fake_post(url, *, json=None, headers=None, timeout=None):
+        captured["model"] = json["model"]
+        return FakeResponse()
+
+    with patch("httpx.post", side_effect=fake_post):
+        text, tokens = provider.call("sys", "user", "openai", 0.1, 30)
+
+    assert text == "ok"
+    assert tokens == 7
+    assert captured["model"] == "gpt-4o"
+
+
+def test_openai_provider_normalizes_provider_name_model_alias_for_responses(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-key")
+    provider = OpenAIProvider()
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"id": "resp_123", "status": "in_progress"}
+
+    def fake_post(url, *, json=None, headers=None, timeout=None):
+        captured["model"] = json["model"]
+        return FakeResponse()
+
+    with patch("httpx.post", side_effect=fake_post):
+        payload = provider.create_response(
+            instructions="plan",
+            user_input="task",
+            model="openai",
+            temperature=0.1,
+            timeout=30,
+            background=False,
+        )
+
+    assert payload["id"] == "resp_123"
+    assert captured["model"] == "gpt-4o"

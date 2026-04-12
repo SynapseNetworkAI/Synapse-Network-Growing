@@ -6,6 +6,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import server.services.project_intelligence as project_intelligence
+import server.services.portfolio_scheduler as portfolio_scheduler
 from server.database import (
     ArtifactRow,
     ProjectOnboardingRow,
@@ -1627,4 +1628,32 @@ def test_requirements_list_reuses_project_catalog_context(synced_client, monkeyp
     resp = synced_client.get("/api/requirements?sort=score")
     assert resp.status_code == 200
     assert len(resp.json()) >= 2
+    assert call_count["count"] == 1
+
+
+def test_requirement_scheduler_reuses_project_catalog_context(synced_client, monkeypatch):
+    for idx in range(2):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": f"Scheduler reuse {idx}",
+                "description_markdown": "Check scheduler avoids rebuilding project catalog per requirement.",
+                "priority": "normal",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            },
+        )
+        assert create_resp.status_code == 201
+
+    real_build_project_catalog = project_intelligence.build_project_catalog
+    call_count = {"count": 0}
+
+    def wrapped_build_project_catalog(db):
+        call_count["count"] += 1
+        return real_build_project_catalog(db)
+
+    monkeypatch.setattr(project_intelligence, "build_project_catalog", wrapped_build_project_catalog)
+    monkeypatch.setattr(portfolio_scheduler, "build_project_catalog", wrapped_build_project_catalog)
+
+    resp = synced_client.get("/api/requirements/scheduler")
+    assert resp.status_code == 200
     assert call_count["count"] == 1

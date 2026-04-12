@@ -51,9 +51,14 @@ RUNTIME_AUTH_ALERTS_ENABLED = os.environ.get("OPS_RUNTIME_AUTH_ALERTS_ENABLED", 
 # ── Database ──────────────────────────────────────────────────
 DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))
 DATABASE_URL = os.environ.get("OPS_DATABASE_URL", f"sqlite:///{DB_PATH}")
+DB_POOL_SIZE = int(os.environ.get("OPS_DB_POOL_SIZE", "12"))
+DB_MAX_OVERFLOW = int(os.environ.get("OPS_DB_MAX_OVERFLOW", "24"))
+DB_POOL_TIMEOUT = int(os.environ.get("OPS_DB_POOL_TIMEOUT", "60"))
+DB_POOL_RECYCLE = int(os.environ.get("OPS_DB_POOL_RECYCLE", "1800"))
+DB_POOL_PRE_PING = os.environ.get("OPS_DB_POOL_PRE_PING", "true").lower() in {"1", "true", "yes", "on"}
 
 # ── LLM ───────────────────────────────────────────────────────
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")  # openai | claude | copilot
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")  # openai | claude | copilot | codex
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
 LLM_EXECUTION_MODE = os.environ.get("LLM_EXECUTION_MODE", "sync").strip().lower() or "sync"  # sync | session
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
@@ -82,6 +87,12 @@ COPILOT_SDK_DB_ANALYST_MCP_COMMAND = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_
 COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON = os.environ.get("COPILOT_SDK_DB_ANALYST_MCP_ARGS_JSON", "[]")
 OPENAI_RESPONSES_MONITOR_ENABLED = os.environ.get("OPENAI_RESPONSES_MONITOR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 OPENAI_RESPONSES_POLL_INTERVAL_SEC = float(os.environ.get("OPENAI_RESPONSES_POLL_INTERVAL_SEC", "3"))
+CODEX_CLI_BIN = os.environ.get("CODEX_CLI_BIN", "codex").strip() or "codex"
+CODEX_CLI_MODEL = os.environ.get("CODEX_CLI_MODEL", "").strip()
+CODEX_CLI_TIMEOUT = int(os.environ.get("CODEX_CLI_TIMEOUT", str(LLM_TIMEOUT)))
+CODEX_CLI_SANDBOX = os.environ.get("CODEX_CLI_SANDBOX", "workspace-write").strip() or "workspace-write"
+CODEX_CLI_FULL_AUTO = os.environ.get("CODEX_CLI_FULL_AUTO", "true").lower() in {"1", "true", "yes", "on"}
+CODEX_CLI_SKIP_GIT_REPO_CHECK = os.environ.get("CODEX_CLI_SKIP_GIT_REPO_CHECK", "false").lower() in {"1", "true", "yes", "on"}
 E2E_MODE = os.environ.get("OPS_E2E_MODE", "false").lower() in {"1", "true", "yes", "on"}
 E2E_SYNC_DISPATCH = os.environ.get("OPS_E2E_SYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
 
@@ -101,7 +112,7 @@ CORS_ORIGINS = os.environ.get("OPS_CORS_ORIGINS", "*").split(",")
 
 
 SUPPORTED_LLM_EXECUTION_MODES = {"sync", "session"}
-SUPPORTED_ORCHESTRATION_BACKENDS = {"legacy", "copilot_sdk", "openai_responses"}
+SUPPORTED_ORCHESTRATION_BACKENDS = {"legacy", "copilot_sdk", "openai_responses", "codex_cli"}
 
 
 def resolve_orchestration_backend(
@@ -127,11 +138,16 @@ def resolve_orchestration_backend(
             )
         return backend_override
 
+    if provider_name == "codex":
+        return "codex_cli"
+
     if mode == "session":
         if provider_name == "openai":
             return "openai_responses"
         if provider_name == "copilot":
             return "copilot_sdk"
+        if provider_name == "codex":
+            return "codex_cli"
         raise ValueError(
             f"LLM_PROVIDER '{provider_name}' does not support LLM_EXECUTION_MODE=session. "
             "Set ORCHESTRATION_BACKEND explicitly or switch to openai/copilot."

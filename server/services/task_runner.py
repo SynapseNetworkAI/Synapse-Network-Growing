@@ -9,6 +9,7 @@ from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcn
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND, E2E_SYNC_DISPATCH
 from server.services.copilot_sdk_state import task_output_dir
 from server.services.task_runtime import get_task_runtime, RuntimeEvent
+from server.services.runtime_guards import is_openai_runtime_guard_error
 
 logger = logging.getLogger("ops-dashboard.task_runner")
 
@@ -102,6 +103,19 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             cast(Any, task).output_path = str(result.files[0])
 
         if result.error:
+            if result.runtime_backend == "openai_responses" and is_openai_runtime_guard_error(result.error):
+                from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
+
+                if str(getattr(cast(Any, task), "status", "") or "") != "running":
+                    cast(Any, task).status = "running"
+                    db.flush()
+                monitor = OpenAIResponsesTaskMonitor(project_root=PROJECT_ROOT)
+                monitor._alert_and_pause_for_runtime_guard(db, task, result.error)  # noqa: SLF001
+                logger.info(
+                    "Task #%d paused by OpenAI runtime guard before terminal failure writeback",
+                    task_id,
+                )
+                return
             cast(Any, task).status = "failed"
             cast(Any, task).last_error_message = result.error
             cast(Any, task).output_content = f"[ERROR] {result.error}"

@@ -5,9 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from server.database import AgentRow, ArtifactRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
 from server.services.optimization_templates import get_optimization_requirement_template
+import server.services.workflow_planner as workflow_planner
 from server.services.workflow_planner import (
     _DetectedPhases,
     _base_file_scope,
+    _plan_with_agent,
     _build_implementation_steps,
     _detect_phases_fallback,
     _detect_phases_with_agent,
@@ -98,6 +100,103 @@ class TestDetectPhasesWithAgent:
     def test_fallback_design_backend(self):
         p = _detect_phases_with_agent("方案设计，给出后端实现")
         assert p.design and p.backend
+
+
+def test_full_plan_cools_down_after_copilot_authorization_error(monkeypatch):
+    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
+    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
+
+    provider = MagicMock()
+    provider.call.side_effect = RuntimeError(
+        "You are not authorized to use this Copilot feature because you are an enterprise-managed user."
+    )
+
+    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "copilot_sdk")
+    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "copilot")
+    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        assert _plan_with_agent("Need a plan", "/tmp/project") is None
+        assert _plan_with_agent("Need a plan", "/tmp/project") is None
+
+    assert provider.call.call_count == 1
+    assert workflow_planner._FULL_PLAN_DISABLED_UNTIL is not None
+    assert workflow_planner._FULL_PLAN_DISABLED_REASON == "copilot_authorization_error"
+
+
+def test_full_plan_uses_openai_responses_style_call(monkeypatch):
+    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
+    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
+
+    provider = MagicMock()
+    provider.create_response.return_value = {
+        "id": "resp_plan",
+        "status": "completed",
+        "output_text": json.dumps({
+            "steps": [
+                {
+                    "step_key": "implementation",
+                    "title": "Implement requirement",
+                    "scope": "backend",
+                    "depends_on": [],
+                    "done_when": "Implementation is ready for review.",
+                }
+            ]
+        }),
+        "usage": {"total_tokens": 42},
+    }
+    provider.extract_response_text.return_value = provider.create_response.return_value["output_text"]
+    provider.extract_response_tokens.return_value = 42
+    provider.extract_response_error.return_value = None
+
+    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
+    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        steps = _plan_with_agent("Need a plan", "/tmp/project")
+
+    assert steps is not None
+    assert steps[0].step_key == "implementation"
+    provider.create_response.assert_called_once()
+    provider.call.assert_not_called()
+
+
+def test_planner_provider_name_prefers_codex_backend(monkeypatch):
+    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "codex_cli")
+    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
+    assert workflow_planner._planner_provider_name() == "codex"
+
+
+def test_full_plan_uses_codex_provider_call_when_backend_is_codex(monkeypatch):
+    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
+    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement with Codex CLI",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is ready for review.",
+                    }
+                ]
+            }
+        ),
+        0,
+    )
+
+    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "codex_cli")
+    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
+    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "openai")
+    monkeypatch.setattr(workflow_planner.config, "CODEX_CLI_MODEL", "")
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        steps = _plan_with_agent("Need a plan", "/tmp/project")
+
+    assert steps is not None
+    assert steps[0].title == "Implement with Codex CLI"
+    provider.call.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +300,43 @@ class TestBuildImplementationSteps:
 # ---------------------------------------------------------------------------
 
 def _patch_agent_phases(phases: dict):
-    """Return a context manager that mocks the bridge to return the given phases."""
-    mock_bridge_cls = MagicMock()
-    mock_bridge_cls.return_value.run_session.return_value = _mock_bridge_result(phases)
-    return patch("server.services.copilot_sdk_bridge.CopilotSDKBridge", mock_bridge_cls)
+    """Return a context manager that mocks provider.call() with a JSON full-plan."""
+    ordered_steps = []
+    if phases.get("design"):
+        ordered_steps.append({
+            "step_key": "design",
+            "title": "Design architecture",
+            "scope": "docs",
+            "depends_on": [],
+            "done_when": "Architecture decisions are documented.",
+        })
+    if phases.get("frontend"):
+        ordered_steps.append({
+            "step_key": "frontend_impl",
+            "title": "Frontend implementation",
+            "scope": "frontend",
+            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
+            "done_when": "Frontend changes are implemented.",
+        })
+    if phases.get("backend"):
+        ordered_steps.append({
+            "step_key": "backend_impl",
+            "title": "Backend implementation",
+            "scope": "backend",
+            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
+            "done_when": "Backend changes are implemented.",
+        })
+    if phases.get("test_impl"):
+        ordered_steps.append({
+            "step_key": "test_impl",
+            "title": "Test implementation",
+            "scope": "test",
+            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
+            "done_when": "Automated coverage is implemented.",
+        })
+    provider = MagicMock()
+    provider.call.return_value = (json.dumps({"steps": ordered_steps}), 123)
+    return patch("server.services.workflow_planner.get_provider", return_value=provider)
 
 
 class TestBuildPlannerOutput:

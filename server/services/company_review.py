@@ -726,10 +726,15 @@ def _operator_review_package(
 
 
 def build_operating_review_payload(db: Session) -> dict[str, Any]:
-    refresh_optimization_signals(db)
-    scheduler_plan = build_portfolio_schedule(db)
     project_catalog = build_project_catalog(db)
+    refresh_optimization_signals(db)
     signals = list_optimization_signals(db, status="open")
+    scheduler_plan = build_portfolio_schedule(
+        db,
+        refresh_signals=False,
+        signal_rows=signals,
+        project_catalog=project_catalog,
+    )
     requirements = {
         int(row.id): row
         for row in db.query(RequirementRow).all()

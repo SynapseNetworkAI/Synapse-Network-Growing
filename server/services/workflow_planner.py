@@ -1,8 +1,8 @@
 """Agent-driven planner for requirement-first workflows.
 
-Uses the Copilot SDK one-shot bridge to ask an LLM to analyse the
-requirement and produce a full ordered step plan, then generates dynamic
-file_scope based on target_project_path.
+Uses the configured LLM provider to analyse the requirement and produce a
+full ordered step plan, then generates dynamic file_scope based on
+target_project_path.
 
 Mode 1 (full-plan, default): agent returns a JSON step list with step_key,
 title, scope, depends_on, and done_when for each step.
@@ -17,6 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import AgentRow, ArtifactRow, RequirementRow
 from server.services.execution_resolver import suggest_task_execution
+from server.services.llm_adapter import get_provider
 from server.services.project_intelligence import resolve_requirement_routing
 from server.services.project_policy import (
     CAPABILITY_KEYS,
@@ -37,6 +39,46 @@ from server.services.project_policy import (
 logger = logging.getLogger("ops-dashboard.workflow_planner")
 
 _RELEASE_MODE_RANK = {"disabled": 0, "manual": 1, "auto": 2}
+_FULL_PLAN_DISABLED_UNTIL: datetime | None = None
+_FULL_PLAN_DISABLED_REASON: str = ""
+_FULL_PLAN_AUTH_COOLDOWN = timedelta(minutes=10)
+_FULL_PLAN_AUTH_ERROR_SNIPPETS = (
+    "not authorized to use this copilot feature",
+    "you are not authorized to use this copilot feature",
+    "enterprise-managed users",
+)
+_FULL_PLAN_PROVIDER_COOLDOWN_SNIPPETS = (
+    "insufficient_quota",
+    "model_not_found",
+    "rate_limit",
+    "too many requests",
+    "does not exist",
+    "you exceeded your current quota",
+)
+_FULL_PLAN_SYSTEM_PROMPT = """You are a workflow planning model for a multi-agent software delivery system.
+Return strict JSON only, with no markdown fences or commentary.
+
+Schema:
+{
+  "steps": [
+    {
+      "step_key": "short_snake_case_id",
+      "title": "Human readable step title",
+      "scope": "infrastructure|backend|frontend|test|docs",
+      "depends_on": ["prior_step_key"],
+      "done_when": "Concrete completion criteria for this step"
+    }
+  ]
+}
+
+Rules:
+- Plan only implementation sub-steps. Research, synthesis, review, test, and closeout are added by the harness.
+- Keep between 1 and 5 implementation sub-steps.
+- Use dependency chains that reference earlier step_key values only.
+- Prefer concrete scopes: backend, frontend, infrastructure, test, or docs.
+- Use terse titles, avoid repeating the full requirement title in every step.
+- If the work is simple, return a single implementation step.
+"""
 
 # ---------------------------------------------------------------------------
 # Mode 1: Full-plan (agent decides everything)
@@ -54,22 +96,37 @@ class _AgentStep:
 
 def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | None:
     """Pass the requirement directly to the agent; it decides the step plan."""
+    global _FULL_PLAN_DISABLED_REASON, _FULL_PLAN_DISABLED_UNTIL
+    if _FULL_PLAN_DISABLED_UNTIL is not None and datetime.now(timezone.utc) < _FULL_PLAN_DISABLED_UNTIL:
+        logger.info(
+            "Skipping agent full-plan during cooldown until %s (%s)",
+            _FULL_PLAN_DISABLED_UNTIL.isoformat(),
+            _FULL_PLAN_DISABLED_REASON or "temporary disable",
+        )
+        return None
     try:
-        from server.services.copilot_sdk_bridge import CopilotSDKBridge
-
+        provider_name = _planner_provider_name()
+        model_name = _planner_model_name(provider_name)
+        provider = get_provider(provider_name)
         prompt = text[:4000]
         if target_path:
             prompt = f"Target project path: {target_path}\n\n{prompt}"
-
-        bridge = CopilotSDKBridge(cwd=config.PROJECT_ROOT)
-        payload = {
-            "prompt": prompt,
-            "model": config.COPILOT_SDK_MODEL,
-            "sessionId": "planner-fullplan-oneshot",
-            "cwd": str(config.PROJECT_ROOT),
-        }
-        result = bridge.run_session(payload, timeout=90)
-        content = result.content.strip()
+        user_prompt = (
+            f"{prompt}\n\n"
+            "Return only JSON matching the required schema."
+        )
+        logger.info(
+            "Attempting planner full-plan with provider=%s model=%s",
+            provider_name,
+            model_name,
+        )
+        content, _tokens = _call_full_plan_provider(
+            provider_name=provider_name,
+            provider=provider,
+            prompt=user_prompt,
+            model_name=model_name,
+        )
+        content = content.strip()
         content = re.sub(r"^```(?:json)?\s*", "", content)
         content = re.sub(r"\s*```$", "", content)
         data = json.loads(content)
@@ -93,12 +150,89 @@ def _plan_with_agent(text: str, target_path: str | None) -> list[_AgentStep] | N
                 done_when=str(s.get("done_when", "Step output is produced and ready for review.")),
             ))
 
-        logger.info("Agent full-plan produced %d steps", len(steps))
+        logger.info("Agent full-plan produced %d steps via provider=%s", len(steps), provider_name)
         return steps if steps else None
 
-    except Exception:
+    except Exception as exc:
+        message = str(exc).lower()
+        if any(snippet in message for snippet in _FULL_PLAN_AUTH_ERROR_SNIPPETS):
+            _FULL_PLAN_DISABLED_UNTIL = datetime.now(timezone.utc) + _FULL_PLAN_AUTH_COOLDOWN
+            _FULL_PLAN_DISABLED_REASON = "copilot_authorization_error"
+            logger.warning(
+                "Agent full-plan disabled until %s after Copilot authorization error",
+                _FULL_PLAN_DISABLED_UNTIL.isoformat(),
+            )
+        elif any(snippet in message for snippet in _FULL_PLAN_PROVIDER_COOLDOWN_SNIPPETS):
+            _FULL_PLAN_DISABLED_UNTIL = datetime.now(timezone.utc) + timedelta(minutes=5)
+            _FULL_PLAN_DISABLED_REASON = "planner_provider_backoff"
+            logger.warning(
+                "Agent full-plan disabled until %s after provider error",
+                _FULL_PLAN_DISABLED_UNTIL.isoformat(),
+            )
         logger.warning("Agent full-plan failed, will fall back to phase-detect mode", exc_info=True)
         return None
+
+
+def _planner_provider_name() -> str:
+    backend = str(config.ORCHESTRATION_BACKEND or "").strip().lower()
+    if backend == "openai_responses":
+        return "openai"
+    if backend == "copilot_sdk":
+        return "copilot"
+    if backend == "codex_cli":
+        return "codex"
+    explicit = str(config.LLM_PROVIDER or "").strip().lower()
+    if explicit:
+        return explicit
+    return "openai"
+
+
+def _planner_model_name(provider_name: str) -> str:
+    model = str(config.LLM_MODEL or "").strip()
+    if model:
+        if provider_name == "codex" and model.lower() in {"openai", "claude", "copilot", "codex", "responses", "gpt"}:
+            return str(config.CODEX_CLI_MODEL or "").strip()
+        return model
+    if provider_name == "copilot":
+        return str(config.COPILOT_SDK_MODEL or "gpt-4o").strip() or "gpt-4o"
+    if provider_name == "codex":
+        return str(config.CODEX_CLI_MODEL or "").strip()
+    if provider_name == "claude":
+        return "claude-3-7-sonnet-latest"
+    return "gpt-4o"
+
+
+def _call_full_plan_provider(
+    *,
+    provider_name: str,
+    provider: Any,
+    prompt: str,
+    model_name: str,
+) -> tuple[str, int]:
+    timeout = min(config.LLM_TIMEOUT, 90)
+    if provider_name == "openai" and hasattr(provider, "create_response"):
+        response = provider.create_response(
+            instructions=_FULL_PLAN_SYSTEM_PROMPT,
+            user_input=prompt,
+            model=model_name,
+            temperature=0.1,
+            timeout=timeout,
+            background=False,
+            previous_response_id=None,
+        )
+        content = provider.extract_response_text(response)
+        tokens = provider.extract_response_tokens(response)
+        error = provider.extract_response_error(response)
+        if error:
+            raise RuntimeError(error)
+        return content, tokens
+    return provider.call(
+        _FULL_PLAN_SYSTEM_PROMPT,
+        prompt,
+        model_name,
+        0.1,
+        timeout,
+    )
 
 
 # ---------------------------------------------------------------------------

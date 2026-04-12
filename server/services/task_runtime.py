@@ -1,4 +1,4 @@
-"""Task execution runtimes for legacy and Copilot SDK backends."""
+"""Task execution runtimes for legacy, Codex CLI, Copilot SDK, and OpenAI backends."""
 from __future__ import annotations
 
 import json
@@ -8,8 +8,10 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterable
 
 from server import config
+from server.services.codex_cli import run_codex_exec
 from server.services.copilot_sdk_state import copilot_runtime_paths
 from server.services.context_loader import load_context
 from server.services.crew_engine import CrewEngine
@@ -55,6 +57,76 @@ class OpenAIRoleSessionInfo:
     """Tracks the latest OpenAI response chain head for a specific role."""
     response_id: str
     last_used_at: float
+
+
+def _normalize_target_path_token(token: str) -> Path | None:
+    value = token.strip().strip("`").strip(",.;)")
+    if not value.startswith("/"):
+        return None
+    candidate = Path(value)
+    if candidate.exists():
+        return candidate if candidate.is_dir() else candidate.parent
+    return None
+
+
+def _extract_target_directories(task_description: str, project_root: Path) -> list[Path]:
+    lines = [line.strip() for line in str(task_description or "").splitlines()]
+    candidates: list[Path] = []
+    capture = False
+    for line in lines:
+        if line.startswith("Target project path:"):
+            capture = True
+            suffix = line.split("Target project path:", 1)[1].strip()
+            if suffix:
+                maybe = _normalize_target_path_token(suffix)
+                if maybe is not None:
+                    candidates.append(maybe)
+            continue
+        if capture:
+            if not line:
+                continue
+            if line.startswith("## ") or line.startswith("- ") or ":" in line and not line.startswith("/"):
+                capture = False
+                continue
+            maybe = _normalize_target_path_token(line)
+            if maybe is not None:
+                candidates.append(maybe)
+                continue
+            capture = False
+    normalized: list[Path] = []
+    seen: set[str] = set()
+    for path in candidates + [project_root]:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(path.resolve())
+    return normalized
+
+
+def _codex_workdirs(task_description: str, project_root: Path, output_dir: Path | None) -> tuple[Path, list[Path]]:
+    directories = _extract_target_directories(task_description, project_root)
+    cwd = directories[0] if directories else project_root.resolve()
+    add_dirs: list[Path] = directories[1:]
+    if project_root.resolve() != cwd and project_root.resolve() not in add_dirs:
+        add_dirs.append(project_root.resolve())
+    if output_dir is not None:
+        resolved_output_parent = output_dir.resolve().parent
+        if resolved_output_parent != cwd and resolved_output_parent not in add_dirs:
+            add_dirs.append(resolved_output_parent)
+    return cwd, add_dirs
+
+
+def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
+    result: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(path.resolve())
+    return result
 
 
 def normalize_copilot_event_type(event_type: str) -> str:
@@ -120,6 +192,80 @@ class LegacyTaskRuntime(BaseTaskRuntime):
             model=result.model,
             tokens_used=result.tokens_used,
             runtime_backend="legacy",
+        )
+
+
+class CodexCLITaskRuntime(BaseTaskRuntime):
+    def __init__(self, project_root: Path | None = None):
+        self.project_root = (project_root or config.PROJECT_ROOT).resolve()
+        self.prompt_engine = CrewEngine(self.project_root)
+
+    def execute(
+        self,
+        persona: dict,
+        skill_name: str,
+        task_description: str,
+        output_dir: Path | None = None,
+        extra_context_files: list[str] | None = None,
+    ) -> TaskExecutionResult:
+        t0 = time.monotonic()
+        instructions = self.prompt_engine._build_system_prompt(persona)
+        user_message = self.prompt_engine._build_user_message(skill_name, task_description, extra_context_files)
+        prompt = "\n\n".join(
+            [
+                "# Role",
+                instructions,
+                "# Task Packet",
+                user_message,
+                "# Output Contract",
+                "Do the work directly in the target repository when appropriate. Return a concise final report of what changed, what was verified, and any remaining blockers.",
+            ]
+        )
+        resolved_output_dir = (output_dir or (self.project_root / "runtime" / f"codex-task-{int(time.time() * 1000)}")).resolve()
+        output_path = resolved_output_dir / "output.md"
+        cwd, add_dirs = _codex_workdirs(task_description, self.project_root, resolved_output_dir)
+        result = run_codex_exec(
+            prompt=prompt,
+            cwd=cwd,
+            output_path=output_path,
+            model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
+            timeout=config.CODEX_CLI_TIMEOUT,
+            add_dirs=_dedupe_paths(add_dirs),
+        )
+        metadata = {
+            "provider": "codex",
+            "backend": "codex_cli",
+            "model": config.CODEX_CLI_MODEL or config.LLM_MODEL,
+            "cwd": str(cwd),
+            "add_dirs": [str(path) for path in _dedupe_paths(add_dirs)],
+            "command": result.command,
+            "stdout": result.stdout[-4000:],
+            "stderr": result.stderr[-4000:],
+            "exit_code": result.exit_code,
+        }
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+        (resolved_output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        elapsed = int((time.monotonic() - t0) * 1000)
+        if result.exit_code != 0:
+            error = (result.stderr or result.stdout or result.text or "Codex CLI execution failed").strip()
+            return TaskExecutionResult(
+                text=result.text,
+                files=[output_path] if output_path.exists() else [],
+                error=error[:4000],
+                execution_time_ms=elapsed,
+                model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
+                runtime_backend="codex_cli",
+                events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli cwd={cwd}")],
+            )
+
+        return TaskExecutionResult(
+            text=result.text,
+            files=[output_path] if output_path.exists() else [],
+            execution_time_ms=elapsed,
+            model=config.CODEX_CLI_MODEL or config.LLM_MODEL,
+            runtime_backend="codex_cli",
+            events=[RuntimeEvent(event_type="runtime_started", detail=f"backend=codex_cli cwd={cwd}")],
         )
 
 
@@ -445,6 +591,8 @@ _copilot_sdk_runtime_instance: CopilotSDKTaskRuntime | None = None
 _copilot_sdk_runtime_lock = threading.Lock()
 _openai_responses_runtime_instance: "OpenAIResponsesTaskRuntime | None" = None
 _openai_responses_runtime_lock = threading.Lock()
+_codex_cli_runtime_instance: "CodexCLITaskRuntime | None" = None
+_codex_cli_runtime_lock = threading.Lock()
 
 
 class OpenAIResponsesTaskRuntime(BaseTaskRuntime):
@@ -616,6 +764,12 @@ def get_task_runtime(project_root: Path | None = None) -> BaseTaskRuntime:
     if config.E2E_MODE:
         return E2ETaskRuntime()
     backend = (config.ORCHESTRATION_BACKEND or "legacy").lower()
+    if backend == "codex_cli":
+        global _codex_cli_runtime_instance
+        with _codex_cli_runtime_lock:
+            if _codex_cli_runtime_instance is None:
+                _codex_cli_runtime_instance = CodexCLITaskRuntime(project_root=project_root)
+            return _codex_cli_runtime_instance
     if backend == "copilot_sdk":
         global _copilot_sdk_runtime_instance
         with _copilot_sdk_runtime_lock:
@@ -639,6 +793,11 @@ def get_copilot_sdk_runtime() -> CopilotSDKTaskRuntime | None:
 def get_openai_responses_runtime() -> OpenAIResponsesTaskRuntime | None:
     """Return the singleton OpenAIResponsesTaskRuntime instance, or None if not active."""
     return _openai_responses_runtime_instance
+
+
+def get_codex_cli_runtime() -> CodexCLITaskRuntime | None:
+    """Return the singleton CodexCLITaskRuntime instance, or None if not active."""
+    return _codex_cli_runtime_instance
 
 
 def clear_runtime_session_caches() -> None:

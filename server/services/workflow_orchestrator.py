@@ -1490,7 +1490,16 @@ def _terminate_task_runtime(task: TaskRow) -> None:
 
             OpenAIProvider().cancel_response(response_id, timeout=config.LLM_TIMEOUT)
         except Exception as exc:
-            _logger.warning("Failed to cancel OpenAI response %s for task #%s: %s", response_id, task.id, exc)
+            message = str(exc)
+            if "cannot cancel a failed response" in message.lower() or "cannot cancel a completed response" in message.lower():
+                _logger.info(
+                    "OpenAI response %s for task #%s was already terminal before cancel attempt: %s",
+                    response_id,
+                    task.id,
+                    message,
+                )
+            else:
+                _logger.warning("Failed to cancel OpenAI response %s for task #%s: %s", response_id, task.id, exc)
         return
 
     if runtime_backend != "copilot_sdk":

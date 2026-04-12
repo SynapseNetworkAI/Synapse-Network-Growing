@@ -19,11 +19,32 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, timezone
 
-from server.config import DATABASE_URL
+from server.config import (
+    DATABASE_URL,
+    DB_MAX_OVERFLOW,
+    DB_POOL_PRE_PING,
+    DB_POOL_RECYCLE,
+    DB_POOL_SIZE,
+    DB_POOL_TIMEOUT,
+)
 
 logger = logging.getLogger("ops-dashboard.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+_engine_kwargs = {
+    "pool_pre_ping": DB_POOL_PRE_PING,
+}
+if DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+if ":memory:" not in DATABASE_URL:
+    _engine_kwargs.update({
+        "pool_size": DB_POOL_SIZE,
+        "max_overflow": DB_MAX_OVERFLOW,
+        "pool_timeout": DB_POOL_TIMEOUT,
+        "pool_recycle": DB_POOL_RECYCLE,
+    })
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 
 @event.listens_for(engine, "connect")

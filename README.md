@@ -157,6 +157,23 @@ ORCHESTRATION_BACKEND=openai_responses
 
 You also need a valid `OPENAI_API_KEY`. If `ORCHESTRATION_BACKEND` is left at `copilot_sdk`, the backend will keep dispatching Copilot workers even if the provider text says `openai`.
 
+If you want the system to use your locally authenticated Codex CLI instead of API billing, use the `codex_cli` backend. Do not paste ChatGPT session tokens into `.env`; keep the login inside the Codex CLI itself and point the backend at that local runtime:
+
+```env
+ORCHESTRATION_BACKEND=codex_cli
+LLM_PROVIDER=codex
+LLM_MODEL=gpt-5-codex
+CODEX_CLI_MODEL=gpt-5-codex
+CODEX_CLI_FULL_AUTO=true
+```
+
+Notes:
+
+1. `planner full-plan` and workflow task execution will both use the local `codex exec` runtime.
+2. `CODEX_CLI_MODEL` is optional; if omitted, the system falls back to `LLM_MODEL`.
+3. `CODEX_CLI_FULL_AUTO=false` switches to explicit sandbox mode using `CODEX_CLI_SANDBOX`.
+4. This path uses your existing Codex / ChatGPT login state, not `OPENAI_API_KEY`.
+
 Runtime auth guard alerting:
 
 ```env

@@ -9,11 +9,16 @@ from sqlalchemy.orm import Session
 from server.database import ArtifactRow, RequirementRow
 from server.services.optimization_signals import (
     build_optimization_signal_score_breakdown,
+    get_optimization_signal_requirement_context,
     list_optimization_signals,
     refresh_optimization_signals,
 )
 from server.services.optimization_templates import template_key_for_signal
-from server.services.project_intelligence import build_project_catalog, build_requirement_score_breakdown
+from server.services.project_intelligence import (
+    build_project_catalog,
+    build_requirement_score_breakdown,
+    build_signal_requirement_context_map,
+)
 from server.services.project_policy import list_project_policies, project_policy_to_dict
 
 DEFAULT_GLOBAL_CAPACITY = 2
@@ -148,8 +153,14 @@ def _running_requirement_decision(
     requirement: RequirementRow,
     policy_by_root: dict[str, dict[str, Any]],
     project_catalog: dict[str, dict[str, Any]],
+    signal_contexts: dict[str, dict[str, float]],
 ) -> dict[str, Any]:
-    score = build_requirement_score_breakdown(db, requirement)
+    score = build_requirement_score_breakdown(
+        db,
+        requirement,
+        project_catalog=project_catalog,
+        signal_contexts=signal_contexts,
+    )
     context = _project_context_for_requirement(requirement, score, policy_by_root, project_catalog)
     template_key = _latest_template_key(db, int(requirement.id))
     budget_cost = _budget_cost(float(score.get("total") or 0.0), template_key)
@@ -185,11 +196,20 @@ def _running_requirement_decision(
     }
 
 
-def build_portfolio_schedule(db: Session) -> dict[str, Any]:
+def build_portfolio_schedule(
+    db: Session,
+    *,
+    refresh_signals: bool = True,
+    signal_rows: list[Any] | None = None,
+    project_catalog: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     policy_by_root, _policy_by_key = _project_policy_maps(db)
-    project_catalog = build_project_catalog(db)
+    project_catalog = project_catalog or build_project_catalog(db)
     global_capacity = _global_capacity(policy_by_root)
-    refresh_optimization_signals(db)
+    if refresh_signals:
+        refresh_optimization_signals(db)
+    signal_rows = list(signal_rows) if signal_rows is not None else list_optimization_signals(db, status="open")
+    signal_contexts = build_signal_requirement_context_map(db, project_catalog=project_catalog)
 
     running_requirements = db.query(RequirementRow).filter(RequirementRow.status == "in_progress").all()
     ready_requirements = db.query(RequirementRow).filter(
@@ -203,7 +223,7 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
 
     for req in running_requirements:
-        decision = _running_requirement_decision(db, req, policy_by_root, project_catalog)
+        decision = _running_requirement_decision(db, req, policy_by_root, project_catalog, signal_contexts)
         decisions.append(decision)
         key = str(decision["project_key"])
         project_active_counts[key] = project_active_counts.get(key, 0) + 1
@@ -211,7 +231,12 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
 
     requirement_candidates: list[dict[str, Any]] = []
     for requirement in ready_requirements:
-        score = build_requirement_score_breakdown(db, requirement)
+        score = build_requirement_score_breakdown(
+            db,
+            requirement,
+            project_catalog=project_catalog,
+            signal_contexts=signal_contexts,
+        )
         routing = dict(score.get("routing_context") or {})
         context = _project_context_for_requirement(requirement, score, policy_by_root, project_catalog)
         key = str(context["project_key"])
@@ -283,7 +308,7 @@ def build_portfolio_schedule(db: Session) -> dict[str, Any]:
         })
 
     signal_candidates: list[dict[str, Any]] = []
-    for signal in list_optimization_signals(db, status="open"):
+    for signal in signal_rows:
         breakdown = build_optimization_signal_score_breakdown(signal, project_map=project_catalog)
         project_key = str(signal.project_key or "org-ops")
         project = next((item for item in project_catalog.values() if str(item.get("project_key")) == project_key), None) or {}
@@ -466,9 +491,18 @@ def validate_requirement_start_capacity(db: Session, requirement: RequirementRow
         running_count = max(0, running_count - 1)
     if running_count >= global_capacity:
         return f"全局调度容量已满（{running_count}/{global_capacity}），请等待空闲槽位。"
-    score = build_requirement_score_breakdown(db, requirement)
     policy_by_root, _ = _project_policy_maps(db)
     project_catalog = build_project_catalog(db)
+    signal_contexts = None
+    source_ref = str(getattr(requirement, "source_ref", "") or "")
+    if str(getattr(requirement, "source", "")) == "optimization_signal" and source_ref.startswith("optimization-signal:"):
+        signal_contexts = {source_ref: get_optimization_signal_requirement_context(db, source_ref)}
+    score = build_requirement_score_breakdown(
+        db,
+        requirement,
+        project_catalog=project_catalog,
+        signal_contexts=signal_contexts,
+    )
     context = _project_context_for_requirement(requirement, score, policy_by_root, project_catalog)
     project_key = str(context["project_key"])
     active_count = next((int(item["active_count"]) for item in plan["project_states"] if str(item["project_key"]) == project_key), 0)

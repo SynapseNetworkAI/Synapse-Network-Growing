@@ -13,6 +13,59 @@
 5. project policy / onboarding / budget / rebalance
 6. 结果回流到 signal、company review 和下一周期 bundle
 
+## 1.0 Runtime Backend Matrix
+
+当前系统已经不再把 planner 和 execution runtime 硬绑在单一供应商上，而是按 `ORCHESTRATION_BACKEND` 选择实际运行路径。
+
+当前支持的 backend 有：
+
+1. `legacy`
+2. `openai_responses`
+3. `copilot_sdk`
+4. `codex_cli`
+
+### planner / runtime 对齐规则
+
+现在 planner 的 `full-plan` 不再固定依赖 Copilot。
+
+统一规则是：
+
+1. `ORCHESTRATION_BACKEND=openai_responses`
+   planner provider = `openai`
+2. `ORCHESTRATION_BACKEND=copilot_sdk`
+   planner provider = `copilot`
+3. `ORCHESTRATION_BACKEND=codex_cli`
+   planner provider = `codex`
+4. 没显式指定 backend 时，才回退看 `LLM_PROVIDER`
+
+这样做的目的，是避免“任务执行已经切到一种 runtime，但 planner 还在调用另一种模型”的错配。
+
+### codex_cli backend
+
+`codex_cli` 的定位是：
+
+1. 使用本机 `codex exec`
+2. 复用本地 Codex / ChatGPT 登录态
+3. 同时服务 planner full-plan 和 workflow step execution
+
+当前行为：
+
+1. planner full-plan 会通过 `CodexCLIProvider` 调 `codex exec`
+2. task runtime 会通过 `CodexCLITaskRuntime` 调 `codex exec`
+3. task 执行会把 `cwd / add_dirs / command / exit_code / stderr` 写入 `metadata.json`
+4. 这是同步 backend，不依赖 detached monitor
+
+推荐配置键：
+
+1. `ORCHESTRATION_BACKEND=codex_cli`
+2. `LLM_PROVIDER=codex`
+3. `LLM_MODEL=gpt-5-codex`
+4. `CODEX_CLI_MODEL=gpt-5-codex`
+5. `CODEX_CLI_FULL_AUTO=true|false`
+6. `CODEX_CLI_SANDBOX=workspace-write|danger-full-access|read-only`
+
+它的价值不是“替代所有 API backend”，而是给 portfolio 一个不依赖 API billing 的本机执行路径。
+
 ## 1.1 设计原则边界
 
 系统级硬约束已沉淀到：

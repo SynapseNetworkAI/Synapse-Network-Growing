@@ -17,12 +17,40 @@ import logging
 import httpx
 
 from server import config
+from server.services.codex_cli import run_codex_exec
 from server.services.copilot_auth import CopilotAuthService
 
 logger = logging.getLogger("ops-dashboard.llm_adapter")
 
 PERSONAL_ACCESS_TOKEN_PREFIXES = ("github_pat_", "ghp_")
 JSON_CONTENT_TYPE = "application/json"
+_MODEL_ALIASES = {
+    "openai": {
+        "openai": "gpt-4o",
+        "gpt": "gpt-4o",
+        "responses": "gpt-4o",
+    },
+    "claude": {
+        "claude": "claude-3-7-sonnet-latest",
+        "anthropic": "claude-3-7-sonnet-latest",
+    },
+    "copilot": {
+        "copilot": "gpt-4o",
+        "github-copilot": "gpt-4o",
+    },
+    "codex": {},
+}
+
+
+def normalize_model_name(provider_name: str, model: str) -> str:
+    raw = str(model or "").strip()
+    if not raw:
+        return raw
+    alias = _MODEL_ALIASES.get(provider_name, {}).get(raw.lower())
+    if alias and alias != raw:
+        logger.warning("Normalizing %s model alias '%s' to '%s'", provider_name, raw, alias)
+        return alias
+    return raw
 
 
 class LLMProvider(abc.ABC):
@@ -53,11 +81,12 @@ class OpenAIProvider(LLMProvider):
 
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         self._require_api_key()
+        resolved_model = normalize_model_name(self.name, model)
 
         resp = httpx.post(
             f"{self.base_url}/chat/completions",
             json={
-                "model": model,
+                "model": resolved_model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -91,8 +120,9 @@ class OpenAIProvider(LLMProvider):
         previous_response_id: str | None = None,
     ) -> dict:
         self._require_api_key()
+        resolved_model = normalize_model_name(self.name, model)
         payload = {
-            "model": model,
+            "model": resolved_model,
             "instructions": instructions,
             "input": user_input,
             "temperature": temperature,
@@ -199,11 +229,12 @@ class ClaudeProvider(LLMProvider):
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         if not self.api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not set. Configure the environment variable to enable LLM execution.")
+        resolved_model = normalize_model_name(self.name, model)
 
         resp = httpx.post(
             f"{self.base_url}/v1/messages",
             json={
-                "model": model,
+                "model": resolved_model,
                 "max_tokens": 4096,
                 "system": system,
                 "messages": [
@@ -242,11 +273,12 @@ class CopilotProvider(LLMProvider):
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         api_key = self.api_key or self._resolve_api_key()
         self._validate_api_key(api_key)
+        resolved_model = normalize_model_name(self.name, model)
 
         resp = httpx.post(
             f"{self.base_url}/chat/completions",
             json={
-                "model": model,
+                "model": resolved_model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -287,12 +319,44 @@ class CopilotProvider(LLMProvider):
             )
 
 
+class CodexCLIProvider(LLMProvider):
+    """Codex CLI provider using the local authenticated Codex installation."""
+
+    name = "codex"
+
+    def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
+        del temperature
+        prompt = "\n\n".join(
+            [
+                "# System Instructions",
+                system,
+                "# User Request",
+                user,
+                "Return only the final answer content with no surrounding commentary.",
+            ]
+        )
+        output_path = config.PROJECT_ROOT / "runtime" / "codex-cli-provider" / "last-message.txt"
+        result = run_codex_exec(
+            prompt=prompt,
+            cwd=config.PROJECT_ROOT,
+            output_path=output_path,
+            model=model,
+            timeout=timeout,
+            add_dirs=[config.PROJECT_ROOT],
+        )
+        if result.exit_code != 0:
+            detail = (result.stderr or result.stdout or result.text or "Codex CLI execution failed").strip()
+            raise RuntimeError(detail[:1000])
+        return result.text.strip(), 0
+
+
 # ── Provider registry & factory ──────────────────────────────
 
 PROVIDERS: dict[str, type[LLMProvider]] = {
     "openai": OpenAIProvider,
     "claude": ClaudeProvider,
     "copilot": CopilotProvider,
+    "codex": CodexCLIProvider,
 }
 
 
