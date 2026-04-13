@@ -71,10 +71,11 @@
    2. dispatcher loop
    3. closeout and compact sweep
    4. weekly operating review
+   5. approval sweep
 3. 暴露统一 API：
    1. list / sync recurring workflows
    2. run workflow skeleton manually
-4. 预留 `approval sweep` workflow，用于后续 stale approvals 催办和 approval backlog 跟踪
+4. `approval sweep` 现在会重新评估 `pending_approval` requirement，自动放行低风险项，并输出 stale approval backlog 摘要
 
 ## P1
 

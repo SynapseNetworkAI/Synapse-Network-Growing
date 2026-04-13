@@ -183,7 +183,7 @@ def _sync_requirement_execution_approval(
         planner_output=planner_output,
         workflow_run=workflow_run,
     )
-    reviewer = approval_request_reviewer(requirement, contract)
+    reviewer = str(decision.get("reviewer") or approval_request_reviewer(requirement, contract))
     pending_request = db.query(ApprovalRequestRow).filter(
         ApprovalRequestRow.requirement_id == requirement.id,
         ApprovalRequestRow.approval_type == "requirement_execution_approval",
@@ -210,7 +210,10 @@ def _sync_requirement_execution_approval(
                 "reason": str(decision.get("reason") or ""),
                 "approval_contract": contract,
                 "approval_context": dict(decision.get("context") or {}),
-                "required_approver_roles": list(contract.get("required_approver_roles") or []),
+                "required_approver_roles": list(decision.get("required_approver_roles") or contract.get("required_approver_roles") or []),
+                "approval_source": str(decision.get("approval_source") or "auto"),
+                "approval_router": dict(decision.get("approval_router") or {}),
+                "approval_recommendation": dict(decision.get("approval_recommendation") or {}),
             },
         )
         return decision
@@ -227,7 +230,11 @@ def _sync_requirement_execution_approval(
                 approval_type="requirement_execution_approval",
                 status="pending",
                 reviewer=reviewer,
-                comment=str(decision.get("reason") or "Requirement requires approval before automatic execution"),
+                comment=str(
+                    (decision.get("approval_recommendation") or {}).get("reason")
+                    or decision.get("reason")
+                    or "Requirement requires approval before automatic execution"
+                ),
             )
         )
     _record_requirement_approval_artifact(
@@ -240,8 +247,11 @@ def _sync_requirement_execution_approval(
             "reason": str(decision.get("reason") or ""),
             "approval_contract": contract,
             "approval_context": dict(decision.get("context") or {}),
-            "required_approver_roles": list(contract.get("required_approver_roles") or []),
+            "required_approver_roles": list(decision.get("required_approver_roles") or contract.get("required_approver_roles") or []),
             "reviewer": reviewer,
+            "approval_source": str(decision.get("approval_source") or "human"),
+            "approval_router": dict(decision.get("approval_router") or {}),
+            "approval_recommendation": dict(decision.get("approval_recommendation") or {}),
         },
     )
     return decision
@@ -1791,6 +1801,7 @@ def decide_requirement_approval(
         ApprovalRequestRow.approval_type == "requirement_execution_approval",
         ApprovalRequestRow.status == "pending",
     ).all()
+    current_decision = evaluate_requirement_execution_approval(requirement, workflow_run=workflow_run)
     for approval in pending:
         approval.status = "approved" if action in {"approve", "waive"} else "rejected"
         approval.reviewer = reviewer
@@ -1823,6 +1834,9 @@ def decide_requirement_approval(
             "reviewer": reviewer,
             "comment": comment,
             "approval_contract": requirement_approval_contract_for_requirement(requirement),
+            "approval_source": str(current_decision.get("approval_source") or "human"),
+            "approval_router": dict(current_decision.get("approval_router") or {}),
+            "approval_recommendation": dict(current_decision.get("approval_recommendation") or {}),
         },
     )
     db.commit()

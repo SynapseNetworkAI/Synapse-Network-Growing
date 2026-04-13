@@ -395,6 +395,69 @@ def test_requirement_plan_auto_approves_low_risk_execution(synced_client, db_ses
     assert pending == 0
 
 
+def test_requirement_serialization_includes_approval_router_and_recommendation(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approval router summary",
+            "description_markdown": "Implement a small single-project change with a clear description so the approval layer can auto-approve it.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                        "complexity_tier": "standard",
+                    }
+                ]
+            }
+        ),
+        111,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    assert plan_resp.status_code == 200
+    requirement = plan_resp.json()["requirement"]
+    assert requirement["approval_source"] == "auto"
+    assert requirement["approval_router"]["approval_source"] == "auto"
+    assert requirement["approval_recommendation"]["action"] == "approve"
+
+
+def test_requirement_serialization_routes_incomplete_work_to_agent_review(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Too short",
+            "description_markdown": "Short.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+            "approval_contract": {
+                "approval_mode": "auto_or_human",
+                "auto_approve": {"enabled": False},
+                "agent_review": {"enabled": True, "approval_role": "reviewer"},
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    payload = create_resp.json()["requirement"]
+    assert payload["approval_status"] == "pending_approval"
+    assert payload["approval_source"] == "agent"
+    assert payload["approval_recommendation"]["action"] == "revise"
+
+
 def test_requirement_approval_auto_triggers_planning(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -454,10 +517,29 @@ def test_requirement_approval_accepts_null_comment(synced_client):
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    approve_resp = synced_client.post(
-        f"/api/requirements/{requirement_id}/approval/decide",
-        json={"action": "approve", "reviewer": "cto", "comment": None},
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement small change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation is complete.",
+                        "complexity_tier": "standard",
+                    }
+                ]
+            }
+        ),
+        111,
     )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement_id}/approval/decide",
+            json={"action": "approve", "reviewer": "cto", "comment": None},
+        )
     assert approve_resp.status_code == 200
     assert approve_resp.json()["requirement"]["approval_status"] == "approved"
 

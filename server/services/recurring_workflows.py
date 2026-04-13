@@ -8,13 +8,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, utcnow
+from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, utcnow
 from server.services.bug_log_sweep import run_bug_log_sweep
 from server.services.company_review import company_review_to_dict, latest_company_operating_review, refresh_company_operating_review
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals
+from server.services.requirement_approval import evaluate_requirement_execution_approval
 from server.services.requirement_sources import intake_requirement_sources
-from server.services.workflow_orchestrator import advance_requirement_queue, dispatch_acceptance_sweep
+from server.services.workflow_orchestrator import advance_requirement_queue, decide_requirement_approval, dispatch_acceptance_sweep
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -103,6 +104,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "refresh_company_review"},
         "escalation_rule": {"on_high_incidents": "open_operator_summary"},
         "validation_signal": {"success_metric": "bundle_item_count"},
+    },
+    {
+        "workflow_key": "approval_sweep",
+        "display_name": "Approval Sweep",
+        "description": "Re-evaluate pending requirement approvals, auto-approve low-risk work, and summarize stale approval backlog.",
+        "trigger_type": "scheduled",
+        "owner_role": "portfolio_operator",
+        "schedule": {"cadence": "hourly", "interval_hours": 1},
+        "input_query": {"status": ["pending_approval"]},
+        "output_action": {"kind": "refresh_requirement_approvals", "auto_approve": True},
+        "escalation_rule": {"on_stale_backlog": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "auto_approved_requirement_ids"},
     },
 ]
 
@@ -691,6 +704,85 @@ def _closeout_and_compact_sweep(db: Session, *, acceptance_limit: int, auto_disp
     }
 
 
+def _approval_sweep(db: Session) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    stale_cutoff = now - timedelta(hours=4)
+    requirement_ids: set[int] = {
+        int(row.requirement_id)
+        for row in db.query(ApprovalRequestRow).filter(
+            ApprovalRequestRow.approval_type == "requirement_execution_approval",
+            ApprovalRequestRow.status == "pending",
+        ).all()
+        if row.requirement_id is not None
+    }
+    for requirement in db.query(RequirementRow).filter(RequirementRow.approval_status == "pending_approval").all():
+        requirement_ids.add(int(requirement.id))
+
+    auto_approved_requirement_ids: list[int] = []
+    stale_approval_request_ids: list[int] = []
+    approval_source_counts: dict[str, int] = {}
+    pending_items: list[dict[str, Any]] = []
+
+    for requirement_id in sorted(requirement_ids):
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+        if requirement is None or str(requirement.status or "") == "deleted":
+            continue
+        workflow_run = None
+        if requirement.active_workflow_run_id is not None:
+            workflow_run = db.query(WorkflowRunRow).filter(
+                WorkflowRunRow.id == int(requirement.active_workflow_run_id)
+            ).first()
+        decision = evaluate_requirement_execution_approval(requirement, workflow_run=workflow_run)
+        approval_source = str(decision.get("approval_source") or "human")
+        approval_source_counts[approval_source] = approval_source_counts.get(approval_source, 0) + 1
+        recommendation = dict(decision.get("approval_recommendation") or {})
+
+        if str(decision.get("approval_status") or "") in {"approved", "waived"}:
+            action = "waive" if str(decision.get("approval_status")) == "waived" else "approve"
+            detail = decide_requirement_approval(
+                db,
+                requirement_id,
+                action=action,
+                reviewer=str(recommendation.get("role") or "system"),
+                comment=str(recommendation.get("reason") or decision.get("reason") or "Auto-approved by approval sweep"),
+            )
+            auto_approved_requirement_ids.append(int(detail.requirement.id))
+            continue
+
+        pending_request = db.query(ApprovalRequestRow).filter(
+            ApprovalRequestRow.requirement_id == requirement_id,
+            ApprovalRequestRow.approval_type == "requirement_execution_approval",
+            ApprovalRequestRow.status == "pending",
+        ).order_by(ApprovalRequestRow.id.desc()).first()
+        age_hours = 0.0
+        if pending_request is not None:
+            created = _ensure_utc(pending_request.created_at) or now
+            age_hours = round((now - created).total_seconds() / 3600, 2)
+            if created <= stale_cutoff:
+                stale_approval_request_ids.append(int(pending_request.id))
+
+        pending_items.append(
+            {
+                "requirement_id": requirement_id,
+                "title": str(requirement.title),
+                "approval_source": approval_source,
+                "required_roles": list(decision.get("required_approver_roles") or []),
+                "recommendation": recommendation,
+                "needs_human_gate": bool(decision.get("needs_human_gate")),
+                "age_hours": age_hours,
+            }
+        )
+
+    return {
+        "scanned_requirement_ids": sorted(requirement_ids),
+        "pending_count": len(pending_items),
+        "auto_approved_requirement_ids": auto_approved_requirement_ids,
+        "stale_approval_request_ids": stale_approval_request_ids,
+        "approval_source_counts": approval_source_counts,
+        "pending_items": pending_items,
+    }
+
+
 def run_recurring_workflow(
     db: Session,
     *,
@@ -753,6 +845,8 @@ def run_recurring_workflow(
             acceptance_limit=acceptance_limit,
             auto_dispatch_acceptance=auto_dispatch_acceptance,
         )
+    elif workflow_key == "approval_sweep":
+        result = _approval_sweep(db)
     elif workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)

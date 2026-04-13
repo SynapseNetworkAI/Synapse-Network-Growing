@@ -293,6 +293,7 @@ acceptance contract 负责“做完后谁来验收”，requirement approval con
 1. `source-driven approval routing`
 2. `agent approval recommendation`
 3. `human approval fallback`
+4. `approval_sweep` 对 pending backlog 做自动重评与 stale backlog 催办
 
 `approval_router` 是 deterministic harness 逻辑，它会读取：
 

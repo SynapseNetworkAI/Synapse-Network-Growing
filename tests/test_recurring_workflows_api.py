@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta, datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, utcnow
+from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, WorkflowStepRow, utcnow
 
 
 def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_session):
@@ -15,6 +15,7 @@ def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_
         "bug_log_sweep",
         "morning_intake_sweep",
         "dispatcher_loop",
+        "approval_sweep",
         "closeout_and_compact_sweep",
         "weekly_operating_review",
     } <= workflow_keys
@@ -24,6 +25,58 @@ def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_
     morning = next(item for item in items if item["workflow_key"] == "morning_intake_sweep")
     assert morning["owner_role"] == "ops_intake_manager"
     assert morning["trigger_type"] == "scheduled"
+
+
+def test_run_approval_sweep_auto_approves_low_risk_pending_requirements(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Sweep auto approves low-risk requirement",
+        description_markdown="This requirement is fully specified and should be auto-approved by the approval sweep after planning.",
+        status="blocked",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        approval_status="pending_approval",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ApprovalRequestRow(
+            requirement_id=requirement.id,
+            workflow_run_id=None,
+            approval_type="requirement_execution_approval",
+            status="pending",
+            reviewer="operator",
+            comment="waiting approval",
+        )
+    )
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, status="pending", plan_version=1)
+    db_session.add(workflow_run)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow_run.id)
+    db_session.add(
+        WorkflowStepRow(
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            sequence_no=1,
+            step_key="implementation",
+            step_type="implementation",
+            title="Implement",
+            status="pending",
+            execution_profile_json='{"complexity_tier":"standard"}',
+        )
+    )
+    db_session.commit()
+
+    response = synced_client.post("/api/recurring-workflows/approval_sweep/run", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_key"] == "approval_sweep"
+    assert requirement.id in payload["result"]["auto_approved_requirement_ids"]
+    refreshed = db_session.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
+    assert refreshed.approval_status == "approved"
 
 
 def test_run_bug_log_sweep_workflow_updates_bug_backlog(synced_client):

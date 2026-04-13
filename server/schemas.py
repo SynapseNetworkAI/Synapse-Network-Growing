@@ -949,6 +949,9 @@ class RequirementOut(BaseModel):
     acceptance_contract: dict[str, object] = {}
     approval_status: str = "pending_approval"
     approval_contract: dict[str, object] = {}
+    approval_source: str = "human"
+    approval_router: dict[str, object] = {}
+    approval_recommendation: dict[str, object] = {}
     approval_requested_at: Optional[datetime] = None
     approved_at: Optional[datetime] = None
     current_plan_version: int

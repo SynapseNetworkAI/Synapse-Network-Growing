@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from server.database import ApprovalRequestRow, ApprovalRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow, TaskRow
 from server.services.acceptance import acceptance_contract_for_requirement
 from server.services.requirement_approval import (
+    evaluate_requirement_execution_approval,
     normalize_requirement_approval_status,
     requirement_approval_contract_for_requirement,
 )
@@ -645,6 +646,13 @@ def serialize_requirement(
         if stored_routing.get("skipped_project_keys") is not None:
             routing["skipped_project_keys"] = list(stored_routing.get("skipped_project_keys") or [])
     from server.services.requirement_sources import requirement_intake_metadata_for_requirement
+    workflow_run = None
+    active_workflow_run_id = int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None
+    if active_workflow_run_id is not None:
+        from server.database import WorkflowRunRow
+
+        workflow_run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == active_workflow_run_id).first()
+    approval_decision = evaluate_requirement_execution_approval(requirement, workflow_run=workflow_run)
     return {
         "id": int(requirement.id),
         "title": str(requirement.title),
@@ -658,6 +666,9 @@ def serialize_requirement(
         "acceptance_contract": acceptance_contract_for_requirement(requirement),
         "approval_status": normalize_requirement_approval_status(getattr(requirement, "approval_status", None)),
         "approval_contract": requirement_approval_contract_for_requirement(requirement),
+        "approval_source": str(approval_decision.get("approval_source") or "human"),
+        "approval_router": dict(approval_decision.get("approval_router") or {}),
+        "approval_recommendation": dict(approval_decision.get("approval_recommendation") or {}),
         "approval_requested_at": getattr(requirement, "approval_requested_at", None),
         "approved_at": getattr(requirement, "approved_at", None),
         "current_plan_version": int(requirement.current_plan_version or 0),
