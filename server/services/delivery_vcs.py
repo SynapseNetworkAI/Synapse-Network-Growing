@@ -200,9 +200,13 @@ def _normalize_repo_paths(contract: dict[str, Any], fallback_target_path: str | 
             if value and value not in seen:
                 seen.add(value)
                 ordered.append(value)
-    fallback = str(fallback_target_path or "").strip()
-    if fallback and fallback not in seen:
-        ordered.append(fallback)
+    fallback_raw = str(fallback_target_path or "")
+    for candidate in fallback_raw.splitlines():
+        normalized = candidate.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
     return ordered
 
 
