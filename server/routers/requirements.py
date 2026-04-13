@@ -19,6 +19,7 @@ from server.schemas import (
     RequirementDependencyUpdate,
     RequirementDetailOut,
     RequirementOut,
+    RequirementPlanPatch,
     RequirementPatch,
     RequirementSourceIntakeRequest,
     RequirementSourceIntakeResultOut,
@@ -26,6 +27,7 @@ from server.schemas import (
     RequirementPublishRequest,
     RequirementRevisionRequest,
     SchedulerPlanOut,
+    WorkflowStepPatch,
 )
 from server.services.project_intelligence import build_requirement_serialization_context, serialize_requirement
 from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
@@ -40,6 +42,8 @@ from server.services.workflow_orchestrator import (
     delete_requirement,
     dispatch_acceptance_sweep,
     patch_requirement,
+    patch_requirement_plan,
+    patch_workflow_step,
     pause_requirement,
     plan_requirement,
     publish_requirement,
@@ -185,6 +189,27 @@ def get_requirement(requirement_id: int, db: Session = Depends(get_db)):
 def patch_requirement_endpoint(requirement_id: int, body: RequirementPatch, db: Session = Depends(get_db)):
     try:
         return patch_requirement(db, requirement_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/{requirement_id}/plan", response_model=RequirementDetailOut)
+def patch_requirement_plan_endpoint(requirement_id: int, body: RequirementPlanPatch, db: Session = Depends(get_db)):
+    try:
+        return patch_requirement_plan(db, requirement_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/{requirement_id}/workflow-steps/{step_id}", response_model=RequirementDetailOut)
+def patch_requirement_workflow_step_endpoint(
+    requirement_id: int,
+    step_id: int,
+    body: WorkflowStepPatch,
+    db: Session = Depends(get_db),
+):
+    try:
+        return patch_workflow_step(db, requirement_id, step_id, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

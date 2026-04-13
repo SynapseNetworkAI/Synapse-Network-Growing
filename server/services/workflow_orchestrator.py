@@ -48,10 +48,12 @@ from server.schemas import (
     RequirementCreate,
     RequirementDetailOut,
     RequirementOut,
+    RequirementPlanPatch,
     RequirementPatch,
     RequirementPublishRequest,
     RequirementRevisionRequest,
     WorkflowRunOut,
+    WorkflowStepPatch,
     WorkflowStepOut,
 )
 from server.config import PROJECT_ROOT
@@ -1765,6 +1767,165 @@ def patch_requirement(db: Session, requirement_id: int, body: RequirementPatch) 
     return build_requirement_detail(db, requirement.id)
 
 
+def _latest_plan_artifact_for_run(db: Session, requirement_id: int, workflow_run_id: int) -> ArtifactRow | None:
+    return _latest_artifact(db, requirement_id, "implementation_plan", workflow_run_id=workflow_run_id)
+
+
+def _update_plan_payload_step(plan_payload: dict[str, Any], step: WorkflowStepRow) -> dict[str, Any]:
+    payload = dict(plan_payload or {})
+    workflow_steps = list(payload.get("workflow_steps") or [])
+    for item in workflow_steps:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("step_key") or "") != str(step.step_key or ""):
+            continue
+        item["title"] = str(step.title or "")
+        item["done_when_markdown"] = str(step.done_when_markdown or "")
+        if step.handoff_summary_markdown is not None:
+            item["handoff_summary_markdown"] = str(step.handoff_summary_markdown or "")
+    payload["workflow_steps"] = workflow_steps
+    payload["edited_at"] = utcnow().isoformat()
+    return payload
+
+
+def _sync_plan_artifact_for_step_edit(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+) -> None:
+    artifact = _latest_plan_artifact_for_run(db, _as_int(requirement.id), _as_int(workflow_run.id))
+    if artifact is None:
+        return
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    if not isinstance(payload, dict):
+        payload = {}
+    updated_payload = _update_plan_payload_step(payload, step)
+    body = str(artifact.human_readable_body or "").strip() or _plan_artifact_to_markdown(artifact)
+    new_artifact = _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="implementation_plan",
+        content_summary=artifact.content_summary,
+        human_readable_body=body,
+        machine_readable_payload=updated_payload,
+    )
+    if _as_int(new_artifact.id) != _as_int(artifact.id):
+        _replace_contract_binding(
+            db,
+            _as_int(workflow_run.id),
+            purpose="implementation_context",
+            artifact_id=_as_int(new_artifact.id),
+        )
+        workflow_run.planner_artifact_id = _as_int(new_artifact.id)
+
+
+def _sync_pending_task_description_for_step(db: Session, step: WorkflowStepRow) -> None:
+    task_id = _as_int(step.compatibility_task_id)
+    if task_id is None:
+        return
+    task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
+    if task is None:
+        return
+    task_status = str(task.status or "").strip().lower()
+    if task_status not in {"pending", "paused"}:
+        return
+    snapshot = _step_context_snapshot(db, step)
+    description = _compact_task_description_from_snapshot(step, snapshot)
+    if description == str(task.description or ""):
+        return
+    task.description = description
+    db.add(TaskLogRow(task_id=task.id, event_type="edited_from_step", detail=f"workflow_step={step.id}"))
+
+
+def patch_requirement_plan(db: Session, requirement_id: int, body: RequirementPlanPatch) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+    workflow_run = _active_workflow_run(db, requirement)
+    if workflow_run is None:
+        raise ValueError("Requirement has no active workflow plan.")
+    if requirement.status == "in_progress" or str(workflow_run.status or "") == "running":
+        raise ValueError("Cannot edit plan while workflow is running.")
+    markdown = str(body.human_readable_body or "").strip()
+    if not markdown:
+        raise ValueError("human_readable_body cannot be blank")
+    artifact = _latest_plan_artifact_for_run(db, _as_int(requirement.id), _as_int(workflow_run.id))
+    if artifact is None:
+        raise ValueError("Implementation plan artifact is missing.")
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["edited_markdown"] = markdown
+    payload["edited_at"] = utcnow().isoformat()
+    new_artifact = _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="implementation_plan",
+        content_summary=artifact.content_summary,
+        human_readable_body=markdown,
+        machine_readable_payload=payload,
+    )
+    if _as_int(new_artifact.id) != _as_int(artifact.id):
+        _replace_contract_binding(
+            db,
+            _as_int(workflow_run.id),
+            purpose="implementation_context",
+            artifact_id=_as_int(new_artifact.id),
+        )
+        workflow_run.planner_artifact_id = _as_int(new_artifact.id)
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
+def patch_workflow_step(
+    db: Session,
+    requirement_id: int,
+    step_id: int,
+    body: WorkflowStepPatch,
+) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+    workflow_run = _active_workflow_run(db, requirement)
+    if workflow_run is None:
+        raise ValueError("Requirement has no active workflow plan.")
+    step = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.id == step_id,
+        WorkflowStepRow.requirement_id == requirement.id,
+        WorkflowStepRow.workflow_run_id == workflow_run.id,
+    ).first()
+    if step is None:
+        raise ValueError("Workflow step not found.")
+    if str(step.status or "") in {"running", "waiting_approval", "completed", "deleted"}:
+        raise ValueError("Completed or running workflow steps cannot be edited.")
+    if all(value is None for value in (body.title, body.done_when_markdown, body.handoff_summary_markdown)):
+        raise ValueError("At least one workflow step field must be provided.")
+    if body.title is not None:
+        title = str(body.title or "").strip()
+        if not title:
+            raise ValueError("step title cannot be blank")
+        step.title = title
+    if body.done_when_markdown is not None:
+        done_when = str(body.done_when_markdown or "").strip()
+        if not done_when:
+            raise ValueError("done_when_markdown cannot be blank")
+        step.done_when_markdown = done_when
+    if body.handoff_summary_markdown is not None:
+        step.handoff_summary_markdown = str(body.handoff_summary_markdown or "").strip() or None
+    _sync_plan_artifact_for_step_edit(
+        db,
+        requirement=requirement,
+        workflow_run=workflow_run,
+        step=step,
+    )
+    _sync_pending_task_description_for_step(db, step)
+    _record_step_event(db, _as_int(step.id), "edited", "workflow step updated")
+    db.commit()
+    return build_requirement_detail(db, requirement.id)
+
+
 def dispatch_acceptance_sweep(db: Session, *, limit: int = 20, auto_dispatch: bool = False) -> dict[str, Any]:
     candidates = list_acceptance_dispatch_candidates(db, limit=limit)
     dispatched_requirement_ids: list[int] = []
@@ -3396,7 +3557,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
             section
             for section in sections
             if not (
-                str(section.get("kind") or "") in {"project", "capability", "done_when"}
+                str(section.get("kind") or "") in {"project", "capability"}
                 or (
                     str(section.get("kind") or "") == "artifact"
                     and any(
@@ -3725,6 +3886,10 @@ def _plan_artifact_to_markdown(artifact: ArtifactRow) -> str:
         plan = json.loads(payload) if isinstance(payload, str) else payload
     except (json.JSONDecodeError, TypeError):
         return artifact.human_readable_body[:2000] if artifact.human_readable_body else ""
+
+    edited_markdown = str(plan.get("edited_markdown") or "").strip()
+    if edited_markdown:
+        return edited_markdown[:4000]
 
     lines = []
     goal = plan.get("goal_summary_markdown") or plan.get("goal_summary", "")
@@ -5798,6 +5963,9 @@ def _delivery_state_payload(
     blockers: list[str] = []
     if str(contract.get("release_mode") or "manual") == "disabled":
         blockers.append("publish disabled by project policy")
+    capability_matrix = contract.get("capability_matrix") or {}
+    if bool(contract.get("push_required")) and not bool(capability_matrix.get("git_push")):
+        blockers.append("branch push required but git_push is disabled by project policy")
     blockers.extend([f"required check pending: {check}" for check in pending])
     return {
         "branch_name": contract.get("branch_name"),

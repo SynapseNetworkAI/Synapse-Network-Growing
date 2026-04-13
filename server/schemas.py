@@ -783,6 +783,16 @@ class RequirementPatch(BaseModel):
     approval_contract: Optional[dict[str, object]] = None
 
 
+class RequirementPlanPatch(BaseModel):
+    human_readable_body: str
+
+
+class WorkflowStepPatch(BaseModel):
+    title: Optional[str] = None
+    done_when_markdown: Optional[str] = None
+    handoff_summary_markdown: Optional[str] = None
+
+
 class RequirementApprovalDecisionRequest(BaseModel):
     action: str  # approve | reject | waive
     reviewer: str = "operator"

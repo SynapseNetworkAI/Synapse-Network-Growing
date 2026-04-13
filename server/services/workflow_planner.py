@@ -676,6 +676,8 @@ def _build_delivery_contract(
         "branch_strategy": "requirement_branch",
         "branch_name": branch_name,
         "base_branch": base_branch,
+        "commit_required": True,
+        "push_required": True,
         "review_surface": "delivery_state_artifact",
         "release_mode": release_mode,
         "requires_manual_approval": requires_manual_approval,
@@ -704,7 +706,8 @@ def _build_delivery_contract(
         ],
         "rollback_hint_markdown": rollback_hint,
         "summary_markdown": (
-            f"Ship through branch `{branch_name}`, validate before promotion, surface a review-ready bundle, "
+            f"Ship through branch `{branch_name}`, commit the branch changes, push the branch for review, "
+            f"validate before promotion, surface a review-ready bundle, "
             f"and only publish when release mode `{release_mode}` allows it. "
             f"Capability gate: git_push={'yes' if capability_matrix.get('git_push') else 'no'}, "
             f"publish={'yes' if capability_matrix.get('publish') else 'no'}."

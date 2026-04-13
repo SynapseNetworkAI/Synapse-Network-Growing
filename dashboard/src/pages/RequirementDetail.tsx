@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { createPortal } from 'react-dom'
-import { api, RequirementDetail as RequirementDetailType, Requirement, TaskOutputFile, FileChange } from '../api'
+import { api, RequirementDetail as RequirementDetailType, Requirement, TaskOutputFile, FileChange, WorkflowStep } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -185,8 +185,11 @@ export default function RequirementDetail() {
   const [showPlan, setShowPlan] = useState(true)
   const [showRevise, setShowRevise] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [isEditingPlan, setIsEditingPlan] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [savingPlan, setSavingPlan] = useState(false)
+  const [savingStepId, setSavingStepId] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
@@ -198,6 +201,13 @@ export default function RequirementDetail() {
     description_markdown: '',
     priority: 'normal',
     target_project_path: '',
+  })
+  const [planEditMarkdown, setPlanEditMarkdown] = useState('')
+  const [editingStepId, setEditingStepId] = useState<number | null>(null)
+  const [stepEditForm, setStepEditForm] = useState({
+    title: '',
+    done_when_markdown: '',
+    handoff_summary_markdown: '',
   })
   const [revisionForm, setRevisionForm] = useState({
     title: '',
@@ -235,6 +245,12 @@ export default function RequirementDetail() {
     setShowRevise(false)
     setPublishChecks(detail.delivery_state?.confirmed_checks || [])
     setPublishNote(detail.delivery_state?.publish_note || '')
+    const latestPlanArtifact = detail.artifacts
+      .filter((a) => a.artifact_type === 'implementation_plan')
+      .sort((a, b) => b.id - a.id)[0]
+    setPlanEditMarkdown(latestPlanArtifact?.human_readable_body || '')
+    setIsEditingPlan(false)
+    setEditingStepId(null)
   }, [detail])
 
   // Poll while planning or in_progress
@@ -288,6 +304,43 @@ export default function RequirementDetail() {
     }
   }
 
+  const handleSavePlan = async () => {
+    setSavingPlan(true)
+    try {
+      const data = await api.updateRequirementPlan(requirementId, {
+        human_readable_body: planEditMarkdown.trim(),
+      })
+      setDetail(data)
+      setIsEditingPlan(false)
+    } finally {
+      setSavingPlan(false)
+    }
+  }
+
+  const beginStepEdit = (step: WorkflowStep) => {
+    setEditingStepId(step.id)
+    setStepEditForm({
+      title: step.title,
+      done_when_markdown: step.done_when_markdown || '',
+      handoff_summary_markdown: step.handoff_summary_markdown || '',
+    })
+  }
+
+  const handleSaveStep = async (stepId: number) => {
+    setSavingStepId(stepId)
+    try {
+      const data = await api.updateWorkflowStep(requirementId, stepId, {
+        title: stepEditForm.title.trim(),
+        done_when_markdown: stepEditForm.done_when_markdown.trim(),
+        handoff_summary_markdown: stepEditForm.handoff_summary_markdown.trim() || '',
+      })
+      setDetail(data)
+      setEditingStepId(null)
+    } finally {
+      setSavingStepId(null)
+    }
+  }
+
   const togglePublishCheck = (check: string) => {
     setPublishChecks((prev) => prev.includes(check) ? prev.filter((item) => item !== check) : [...prev, check])
   }
@@ -322,6 +375,34 @@ export default function RequirementDetail() {
 
   const toggleDependency = (values: number[], rid: number) =>
     values.includes(rid) ? values.filter((v) => v !== rid) : [...values, rid]
+
+  const editingStep = detail?.workflow_run?.steps.find((step) => step.id === editingStepId) ?? null
+  const togglePlanEdit = (event?: { stopPropagation?: () => void; preventDefault?: () => void }) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    if (!planArtifact) return
+    if (isEditingPlan) {
+      setIsEditingPlan(false)
+      setPlanEditMarkdown(planArtifact.human_readable_body || '')
+      return
+    }
+    setShowPlan(true)
+    setIsEditingPlan(true)
+    setPlanEditMarkdown(planArtifact.human_readable_body || '')
+  }
+  const toggleStepEdit = (
+    step: WorkflowStep,
+    event?: { stopPropagation?: () => void; preventDefault?: () => void },
+  ) => {
+    event?.preventDefault?.()
+    event?.stopPropagation?.()
+    if (editingStepId === step.id) {
+      setEditingStepId(null)
+      return
+    }
+    setExpandedStepId(step.id)
+    beginStepEdit(step)
+  }
 
   const revisionDependencyCandidates = requirements.filter((r) => r.id !== requirementId && r.status !== 'deleted')
 
@@ -385,6 +466,7 @@ export default function RequirementDetail() {
   const canStartRequirement = !['blocked', 'done', 'deleted', 'planning', 'plan_failed'].includes(req.status)
     && ['approved', 'waived'].includes(req.approval_status)
   const canEditRequirement = !['in_progress', 'deleted'].includes(req.status)
+  const canEditPlan = Boolean(planArtifact) && !['in_progress', 'deleted'].includes(req.status)
 
   async function openOutputFile(taskId: number, fileName: string) {
     setOutputFileError(null)
@@ -792,26 +874,74 @@ export default function RequirementDetail() {
             {/* Plan section – implementation_plan artifact from the active run */}
             {planArtifact && (
               <section className="border rounded-xl" data-testid="plan-panel">
-                <button
-                  className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold hover:bg-gray-50 rounded-xl"
-                  onClick={() => setShowPlan((v) => !v)}
-                >
+                <div className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold rounded-xl">
                   <span className="flex items-center gap-2">
-                    执行计划
+                    <button
+                      type="button"
+                      className="text-left hover:text-slate-900"
+                      onClick={() => setShowPlan((v) => !v)}
+                    >
+                      执行计划
+                    </button>
                     {detail.workflow_run && (
                       <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
                         Plan v{detail.workflow_run.plan_version}
                       </span>
                     )}
                   </span>
-                  <span className="text-xs text-gray-400">{showPlan ? '▲ 收起' : '▼ 展开'}</span>
-                </button>
+                  <span className="flex items-center gap-2">
+                    {canEditPlan && (
+                      <>
+                        <button
+                          data-testid="toggle-edit-plan-btn"
+                          type="button"
+                          className="rounded border px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          onMouseDown={togglePlanEdit}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
+                          {isEditingPlan ? '取消编辑' : '编辑计划'}
+                        </button>
+                        {isEditingPlan && (
+                          <button
+                            data-testid="save-plan-btn"
+                            type="button"
+                            className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                            disabled={savingPlan || !planEditMarkdown.trim()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleSavePlan().catch(() => {})
+                            }}
+                          >
+                            保存
+                          </button>
+                        )}
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs text-gray-400 hover:text-slate-600"
+                      onClick={() => setShowPlan((v) => !v)}
+                    >
+                      {showPlan ? '▲ 收起' : '▼ 展开'}
+                    </button>
+                  </span>
+                </div>
                 {showPlan && (
                   <div className="px-4 py-3 border-t">
                     {planArtifact.content_summary && (
                       <div className="mb-2 text-xs text-gray-500">{planArtifact.content_summary}</div>
                     )}
-                    {planArtifact.human_readable_body ? (
+                    {isEditingPlan ? (
+                      <textarea
+                        data-testid="edit-plan-body"
+                        className="w-full min-h-64 rounded border px-3 py-2 font-mono text-sm"
+                        value={planEditMarkdown}
+                        onChange={(e) => setPlanEditMarkdown(e.target.value)}
+                      />
+                    ) : planArtifact.human_readable_body ? (
                       <Md>{planArtifact.human_readable_body}</Md>
                     ) : (
                       <div className="text-xs text-gray-400">计划内容暂无。</div>
@@ -834,13 +964,23 @@ export default function RequirementDetail() {
                   const complexityTier = typeof executionProfile?.complexity_tier === 'string'
                     ? executionProfile.complexity_tier
                     : ''
+                  const isEditingStep = editingStepId === step.id
+                  const canEditStep = !['running', 'waiting_approval', 'completed', 'deleted'].includes(step.status)
                   const inner = (
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-medium">{step.title}</div>
                         <div className="mt-1 text-xs text-gray-500">
                           {step.step_type} · {step.assigned_workflow_role || '-'} · agent {step.assigned_agent_id || '-'}
-                          {taskId != null && <span className="ml-2 text-blue-600">Task #{taskId}</span>}
+                          {taskId != null && (
+                            <Link
+                              to={`/tasks/${taskId}`}
+                              className="ml-2 text-blue-600 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Task #{taskId}
+                            </Link>
+                          )}
                         </div>
                         {complexityTier && (
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
@@ -852,37 +992,44 @@ export default function RequirementDetail() {
                           </div>
                         )}
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${STEP_STATUS_CLASS[step.status] || STEP_STATUS_CLASS.pending}`}>
-                        {step.status}
-                      </span>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${STEP_STATUS_CLASS[step.status] || STEP_STATUS_CLASS.pending}`}>
+                          {step.status}
+                        </span>
+                        {canEditStep && (
+                          <button
+                            data-testid={`edit-workflow-step-${step.id}`}
+                            type="button"
+                            className="rounded border px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                            onMouseDown={(e) => toggleStepEdit(step, e)}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                            }}
+                          >
+                            {isEditingStep ? '取消编辑' : '编辑'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )
 
-                  return taskId != null ? (
-                    <Link
-                      key={step.id}
-                      to={`/tasks/${taskId}`}
-                      data-testid={`workflow-step-${step.id}`}
-                      className="block p-3 transition border rounded-lg cursor-pointer hover:bg-blue-50"
-                    >
-                      {inner}
-                      {step.branch_from_step_id != null && (
-                        <div className="mt-2 text-xs text-amber-600">Bugfix branch from step #{step.branch_from_step_id}</div>
-                      )}
-                      <div className="mt-2 text-xs text-gray-600">{step.done_when_markdown}</div>
-                    </Link>
-                  ) : (
+                  return (
                     <div
                       key={step.id}
                       data-testid={`workflow-step-${step.id}`}
-                      className="p-3 transition border rounded-lg cursor-pointer hover:bg-gray-50"
-                      onClick={() => setExpandedStepId(expandedStepId === step.id ? null : step.id)}
+                      className={`p-3 transition border rounded-lg ${taskId != null ? 'hover:bg-blue-50' : 'cursor-pointer hover:bg-gray-50'}`}
+                      onClick={() => {
+                        if (taskId == null) {
+                          setExpandedStepId(expandedStepId === step.id ? null : step.id)
+                        }
+                      }}
                     >
                       {inner}
                       {step.branch_from_step_id != null && (
                         <div className="mt-2 text-xs text-amber-600">Bugfix branch from step #{step.branch_from_step_id}</div>
                       )}
-                      {expandedStepId === step.id ? (
+                      {taskId == null && expandedStepId === step.id ? (
                         <div className="mt-3 space-y-2">
                           {step.done_when_markdown && (
                             <div className="px-3 py-2 text-xs text-gray-700 border border-gray-100 rounded-md bg-gray-50">
@@ -890,12 +1037,18 @@ export default function RequirementDetail() {
                               <Md>{step.done_when_markdown}</Md>
                             </div>
                           )}
+                          {step.handoff_summary_markdown && (
+                            <div className="px-3 py-2 text-xs text-gray-700 border border-gray-100 rounded-md bg-white">
+                              <div className="mb-1 font-semibold text-gray-500 uppercase tracking-wide text-[10px]">handoff</div>
+                              <Md>{step.handoff_summary_markdown}</Md>
+                            </div>
+                          )}
                           <div className="px-3 py-2 text-xs border rounded-md bg-amber-50 border-amber-100 text-amber-700">
                             Task 尚未分派 — 等待前置步骤完成后将自动调度执行
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-2 text-xs text-gray-400 line-clamp-1">{step.done_when_markdown}</div>
+                        <div className="mt-2 text-xs text-gray-600">{step.done_when_markdown}</div>
                       )}
                     </div>
                   )
@@ -904,6 +1057,43 @@ export default function RequirementDetail() {
                   <div className="text-xs text-gray-500">计划正在生成中，请稍候…</div>
                 )}
               </div>
+              {editingStep && (
+                <div className="mt-4 space-y-3 rounded-lg border bg-slate-50 p-3">
+                  <div className="text-xs font-semibold text-slate-700">编辑 Step #{editingStep.id}</div>
+                  <input
+                    data-testid={`edit-step-title-${editingStep.id}`}
+                    className="w-full rounded border px-3 py-2 text-sm"
+                    value={stepEditForm.title}
+                    onChange={(e) => setStepEditForm((prev) => ({ ...prev, title: e.target.value }))}
+                  />
+                  <textarea
+                    data-testid={`edit-step-done-when-${editingStep.id}`}
+                    className="min-h-24 w-full rounded border px-3 py-2 text-sm"
+                    value={stepEditForm.done_when_markdown}
+                    onChange={(e) => setStepEditForm((prev) => ({ ...prev, done_when_markdown: e.target.value }))}
+                  />
+                  <textarea
+                    data-testid={`edit-step-handoff-${editingStep.id}`}
+                    className="min-h-20 w-full rounded border px-3 py-2 text-sm"
+                    placeholder="handoff 摘要（可选）"
+                    value={stepEditForm.handoff_summary_markdown}
+                    onChange={(e) => setStepEditForm((prev) => ({ ...prev, handoff_summary_markdown: e.target.value }))}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      data-testid={`save-workflow-step-${editingStep.id}`}
+                      type="button"
+                      className="rounded bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                      disabled={savingStepId === editingStep.id || !stepEditForm.title.trim() || !stepEditForm.done_when_markdown.trim()}
+                      onClick={() => {
+                        handleSaveStep(editingStep.id).catch(() => {})
+                      }}
+                    >
+                      保存
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import RequirementDetail from '../src/pages/RequirementDetail'
 
@@ -12,6 +13,8 @@ const mockApi = {
   reviseRequirement: vi.fn(),
   decideRequirementApproval: vi.fn(),
   updateRequirement: vi.fn(),
+  updateRequirementPlan: vi.fn(),
+  updateWorkflowStep: vi.fn(),
   getTaskOutputFile: vi.fn(),
 }
 
@@ -25,6 +28,8 @@ vi.mock('../src/api', () => ({
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
     decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
+    updateRequirementPlan: (...args: unknown[]) => mockApi.updateRequirementPlan(...args),
+    updateWorkflowStep: (...args: unknown[]) => mockApi.updateWorkflowStep(...args),
     getTaskOutputFile: (...args: unknown[]) => mockApi.getTaskOutputFile(...args),
   },
 }))
@@ -386,6 +391,8 @@ describe('RequirementDetail', () => {
       },
     })
     mockApi.updateRequirement.mockResolvedValue(detail)
+    mockApi.updateRequirementPlan.mockResolvedValue(detail)
+    mockApi.updateWorkflowStep.mockResolvedValue(detail)
     mockApi.getTaskOutputFile.mockResolvedValue({
       file_name: 'output.md',
       content: '# Output\n\nDone.',
@@ -562,6 +569,85 @@ describe('RequirementDetail', () => {
         description_markdown: 'Edited requirement body',
         priority: 'normal',
         target_project_path: '/tmp/project-a\n/tmp/project-b',
+      })
+    })
+  })
+
+  it('allows editing plan markdown and saving', async () => {
+    const user = userEvent.setup()
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...detail,
+      requirement: {
+        ...detail.requirement,
+        status: 'paused',
+      },
+      workflow_run: {
+        ...detail.workflow_run,
+        status: 'paused',
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    await user.click(screen.getByTestId('toggle-edit-plan-btn'))
+    fireEvent.change(await screen.findByTestId('edit-plan-body'), { target: { value: '# Edited Plan\n\nUpdated plan body.' } })
+    await user.click(screen.getByTestId('save-plan-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.updateRequirementPlan).toHaveBeenCalledWith(1, {
+        human_readable_body: '# Edited Plan\n\nUpdated plan body.',
+      })
+    })
+  })
+
+  it('allows editing a non-running workflow step and saving', async () => {
+    const user = userEvent.setup()
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...detail,
+      requirement: {
+        ...detail.requirement,
+        status: 'paused',
+      },
+      workflow_run: {
+        ...detail.workflow_run,
+        status: 'paused',
+        steps: detail.workflow_run.steps.map((step) => ({
+          ...step,
+          status: 'ready',
+          compatibility_task_id: 44,
+        })),
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+
+    await user.click(screen.getByTestId('edit-workflow-step-21'))
+    fireEvent.change(await screen.findByTestId('edit-step-title-21'), { target: { value: 'Edited step title' } })
+    fireEvent.change(screen.getByTestId('edit-step-done-when-21'), { target: { value: 'Edited done when' } })
+    fireEvent.change(screen.getByTestId('edit-step-handoff-21'), { target: { value: 'Edited handoff' } })
+    await user.click(screen.getByTestId('save-workflow-step-21'))
+
+    await waitFor(() => {
+      expect(mockApi.updateWorkflowStep).toHaveBeenCalledWith(1, 21, {
+        title: 'Edited step title',
+        done_when_markdown: 'Edited done when',
+        handoff_summary_markdown: 'Edited handoff',
       })
     })
   })

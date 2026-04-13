@@ -19,6 +19,7 @@ from server.database import (
     ProjectPolicyRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
+    StepInputBindingRow,
     TaskRow,
     WorkflowRunRow,
     WorkflowStepEventRow,
@@ -278,6 +279,190 @@ def test_incident_implementation_task_rewrites_legacy_docs_only_scope(synced_cli
     assert "Do NOT write implementation code in this step." not in task.description
     assert "## Delta" in task.description
     assert len(task.description) < 1500
+
+
+def test_requirement_plan_can_be_edited_and_rebound(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Editable plan contract",
+            "description_markdown": "Create a requirement and update the plan markdown after planning.",
+            "priority": "normal",
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement editable contract",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Editable implementation is ready.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+    planned_detail = plan_resp.json()
+    delivery_contract = next(item for item in planned_detail["artifacts"] if item["artifact_type"] == "delivery_contract")
+    assert "push the branch for review" in delivery_contract["human_readable_body"]
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}/plan",
+        json={"human_readable_body": "# Edited Plan\n\nOnly do the minimum safe change."},
+    )
+    assert patch_resp.status_code == 200
+    detail = patch_resp.json()
+    latest_plan = [a for a in detail["artifacts"] if a["artifact_type"] == "implementation_plan"][-1]
+    assert latest_plan["human_readable_body"].startswith("# Edited Plan")
+    payload = json.loads(latest_plan["machine_readable_payload"])
+    assert payload["edited_markdown"].startswith("# Edited Plan")
+
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement_id).first()
+    assert workflow_run is not None
+    latest_artifact = db_session.query(ArtifactRow).filter(
+        ArtifactRow.requirement_id == requirement_id,
+        ArtifactRow.workflow_run_id == workflow_run.id,
+        ArtifactRow.artifact_type == "implementation_plan",
+    ).order_by(ArtifactRow.id.desc()).first()
+    assert latest_artifact is not None
+    bindings = db_session.query(StepInputBindingRow).filter(
+        StepInputBindingRow.purpose == "implementation_context",
+    ).all()
+    assert any(binding.artifact_id == latest_artifact.id for binding in bindings)
+
+
+def test_workflow_step_edit_updates_pending_task_description(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Editable workflow step",
+            "description_markdown": "Allow editing pending steps and sync them to pending tasks.",
+            "priority": "normal",
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement original title",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Original done when text.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "implementation",
+    ).first()
+    assert step is not None
+    task = TaskRow(
+        description="old description",
+        agent_id=str(step.assigned_agent_id or "dev_rel"),
+        status="pending",
+        requires_approval=False,
+        priority="normal",
+        project_id="synapse-network-growing",
+        agent_group="growth",
+        skill_name="content-strategy",
+    )
+    db_session.add(task)
+    db_session.flush()
+    step.compatibility_task_id = task.id
+    db_session.commit()
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}/workflow-steps/{step.id}",
+        json={
+            "title": "Implement edited title",
+            "done_when_markdown": "Edited done when contract.",
+            "handoff_summary_markdown": "Carry the incident context forward.",
+        },
+    )
+    assert patch_resp.status_code == 200
+    body = patch_resp.json()
+    patched_step = next(item for item in body["workflow_run"]["steps"] if item["id"] == step.id)
+    assert patched_step["title"] == "Implement edited title"
+    assert patched_step["done_when_markdown"] == "Edited done when contract."
+
+    db_session.refresh(task)
+    assert "Implement edited title" in str(task.description or "")
+    assert "Edited done when contract." in str(task.description or "")
+
+
+def test_running_or_completed_workflow_step_cannot_be_edited(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Immutable running workflow step",
+            "description_markdown": "Running steps should not be editable.",
+            "priority": "normal",
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement guarded step",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Guard against edits while running.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "implementation",
+    ).first()
+    assert step is not None
+    step.status = "running"
+    db_session.commit()
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}/workflow-steps/{step.id}",
+        json={"title": "Should fail"},
+    )
+    assert patch_resp.status_code == 400
+    assert "cannot be edited" in patch_resp.json()["detail"].lower()
 
 
 def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client, db_session):

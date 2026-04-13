@@ -593,6 +593,16 @@ export interface WorkflowStep {
   completed_at: string | null
 }
 
+export interface RequirementPlanPatch {
+  human_readable_body: string
+}
+
+export interface WorkflowStepPatch {
+  title?: string
+  done_when_markdown?: string
+  handoff_summary_markdown?: string
+}
+
 export interface WorkflowRun {
   id: number
   requirement_id: number
@@ -1127,6 +1137,10 @@ export const api = {
   deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
   updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
     request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateRequirementPlan: (id: number, data: RequirementPlanPatch) =>
+    request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateWorkflowStep: (requirementId: number, stepId: number, data: WorkflowStepPatch) =>
+    request<RequirementDetail>(`/requirements/${requirementId}/workflow-steps/${stepId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   advanceQueue: () => request<QueueAdvanceResult>('/requirements/queue/advance', { method: 'POST' }),
   reviseRequirement: (id: number, data: {
     title?: string
