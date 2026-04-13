@@ -11,6 +11,9 @@ const mockApi = {
   pauseRequirement: vi.fn(),
   publishRequirement: vi.fn(),
   syncRequirementReviewPr: vi.fn(),
+  deployRequirementToStaging: vi.fn(),
+  promoteRequirementToProduction: vi.fn(),
+  rollbackRequirementDeployment: vi.fn(),
   reviseRequirement: vi.fn(),
   decideRequirementApproval: vi.fn(),
   updateRequirement: vi.fn(),
@@ -27,6 +30,9 @@ vi.mock('../src/api', () => ({
     pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
     publishRequirement: (...args: unknown[]) => mockApi.publishRequirement(...args),
     syncRequirementReviewPr: (...args: unknown[]) => mockApi.syncRequirementReviewPr(...args),
+    deployRequirementToStaging: (...args: unknown[]) => mockApi.deployRequirementToStaging(...args),
+    promoteRequirementToProduction: (...args: unknown[]) => mockApi.promoteRequirementToProduction(...args),
+    rollbackRequirementDeployment: (...args: unknown[]) => mockApi.rollbackRequirementDeployment(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
     decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
@@ -111,6 +117,13 @@ const detail = {
             max_runtime_seconds: 1800,
           },
         }),
+        runtime_backend: 'codex_cli',
+        runtime_provider: 'openai',
+        runtime_model: 'gpt-5.4',
+        runtime_session_id: 'session-123',
+        runtime_selected_agent: 'codex_cli',
+        execution_time_ms: 102000,
+        tokens_used: 2480,
         started_at: '2026-04-11T08:00:00Z',
         completed_at: null,
       },
@@ -398,7 +411,72 @@ const detail = {
         detail: 'Pending checks: npm run build',
       },
     ],
+    staging_status: {
+      environment: 'staging',
+      project_key: 'synapse-network-growing',
+      deploy_repo_full_name: 'cliff-personal/Synapse-Network-Growing',
+      host_label: 'staging-vm',
+      deploy_strategy: 'github_actions_ssh',
+      trigger_enabled: true,
+      current_commit_sha: 'abc123def456',
+      current_branch: 'ops/req-1-verification-contract-hardening',
+      last_success_at: '2026-04-11T08:06:00Z',
+      health_status: 'healthy',
+      last_trigger_source: 'ops_console',
+      last_external_url: 'https://github.com/openai/synapse-network-growing/actions/workflows/deploy-staging.yml',
+      last_record_id: 7,
+    },
+    production_status: {
+      environment: 'production',
+      project_key: 'synapse-network-growing',
+      deploy_repo_full_name: 'cliff-personal/Synapse-Network-Growing',
+      host_label: 'prod-vm',
+      deploy_strategy: 'github_actions_ssh',
+      trigger_enabled: true,
+      current_commit_sha: 'abc122200000',
+      current_branch: 'main',
+      last_success_at: '2026-04-10T08:06:00Z',
+      health_status: 'healthy',
+      last_trigger_source: 'ops_console',
+      last_external_url: 'https://github.com/openai/synapse-network-growing/actions/workflows/deploy-production.yml',
+      last_record_id: 6,
+    },
+    last_deployed_sha: 'abc123def456',
+    last_deployed_at: '2026-04-11T08:06:00Z',
+    deploy_readiness: {
+      ready: true,
+      blockers: [],
+      project_key: 'synapse-network-growing',
+      deploy_repo_full_name: 'cliff-personal/Synapse-Network-Growing',
+      deliverable_commit_sha: 'abc123def456',
+    },
   },
+  deployment_records: [
+    {
+      id: 7,
+      requirement_id: 1,
+      project_policy_id: 1,
+      project_key: 'synapse-network-growing',
+      environment: 'staging',
+      action: 'deploy',
+      status: 'requested',
+      commit_sha: 'abc123def456',
+      branch_name: 'ops/req-1-verification-contract-hardening',
+      workflow_file: 'deploy-staging.yml',
+      external_run_id: null,
+      external_url: 'https://github.com/openai/synapse-network-growing/actions/workflows/deploy-staging.yml',
+      actor: 'operator',
+      trigger_source: 'ops_console',
+      rollback_target_sha: null,
+      health_status: null,
+      notes: null,
+      metadata: {},
+      started_at: '2026-04-11T08:06:00Z',
+      finished_at: null,
+      created_at: '2026-04-11T08:06:00Z',
+      updated_at: '2026-04-11T08:06:00Z',
+    },
+  ],
   incidents: [
     {
       incident_key: 'bugfix_circuit_breaker:33',
@@ -420,6 +498,19 @@ const detail = {
       occurred_at: '2026-04-11T08:04:30Z',
     },
   ],
+  attachments: [
+    {
+      id: 1,
+      requirement_id: 1,
+      file_name: 'staging-screenshot.png',
+      stored_path: 'runtime/requirement_attachments/req-1/01-staging-screenshot.png',
+      content_type: 'image/png',
+      attachment_kind: 'image',
+      source: 'clipboard',
+      size_bytes: 18234,
+      created_at: '2026-04-11T08:00:00Z',
+    },
+  ],
 }
 
 describe('RequirementDetail', () => {
@@ -430,6 +521,9 @@ describe('RequirementDetail', () => {
     mockApi.pauseRequirement.mockResolvedValue(detail)
     mockApi.publishRequirement.mockResolvedValue(detail)
     mockApi.syncRequirementReviewPr.mockResolvedValue(detail)
+    mockApi.deployRequirementToStaging.mockResolvedValue(detail.deployment_records[0])
+    mockApi.promoteRequirementToProduction.mockResolvedValue({ ...detail.deployment_records[0], environment: 'production' })
+    mockApi.rollbackRequirementDeployment.mockResolvedValue({ ...detail.deployment_records[0], action: 'rollback', rollback_target_sha: 'abc122200000' })
     mockApi.reviseRequirement.mockResolvedValue(detail)
     mockApi.decideRequirementApproval.mockResolvedValue({
       ...detail,
@@ -511,6 +605,10 @@ describe('RequirementDetail', () => {
     expect(screen.getByTestId('approval-banner')).toBeInTheDocument()
     expect(screen.getByTestId('requirement-task-outputs')).toHaveTextContent('Task #44')
     expect(screen.getByTestId('requirement-task-outputs')).toHaveTextContent('server/routes/requirements.py')
+    expect(screen.getByTestId('workflow-step-runtime-21')).toHaveTextContent('gpt-5.4')
+    expect(screen.getByTestId('workflow-step-runtime-21')).toHaveTextContent('耗时 1m 42s')
+    expect(screen.getByTestId('workflow-step-runtime-21')).toHaveTextContent('tokens 2,480')
+    expect(screen.getByTestId('requirement-attachments')).toHaveTextContent('staging-screenshot.png')
     fireEvent.click(screen.getByTestId('publish-requirement-btn'))
 
     await waitFor(() => {

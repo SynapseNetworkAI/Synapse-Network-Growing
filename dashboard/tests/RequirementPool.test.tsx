@@ -582,6 +582,7 @@ describe('RequirementPool', () => {
         target_project_path: undefined,
         depends_on_requirement_ids: [2],
         auto_start: true,
+        attachments: [],
       })
     })
   })
@@ -616,6 +617,46 @@ describe('RequirementPool', () => {
     await waitFor(() => {
       expect(mockApi.createRequirement).toHaveBeenCalledWith(expect.objectContaining({
         target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network',
+      }))
+    })
+  })
+
+  it('uploads attachments and sends them during requirement creation', async () => {
+    render(<MemoryRouter><RequirementPool /></MemoryRouter>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('requirement-card-1')).toBeDefined()
+    })
+
+    fireEvent.click(screen.getByTestId('create-requirement-btn'))
+    fireEvent.change(screen.getByTestId('requirement-title'), { target: { value: 'Requirement with screenshot' } })
+    fireEvent.change(screen.getByTestId('requirement-description'), { target: { value: 'Need image context.' } })
+
+    const file = new File(['hello-image'], 'staging.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: vi.fn().mockResolvedValue(new TextEncoder().encode('hello-image').buffer),
+    })
+
+    fireEvent.change(screen.getByTestId('requirement-attachment-input'), {
+      target: { files: [file] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('staging.png')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('submit-requirement-btn'))
+
+    await waitFor(() => {
+      expect(mockApi.createRequirement).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Requirement with screenshot',
+        attachments: [
+          expect.objectContaining({
+            file_name: 'staging.png',
+            content_type: 'image/png',
+            source: 'upload',
+          }),
+        ],
       }))
     })
   })

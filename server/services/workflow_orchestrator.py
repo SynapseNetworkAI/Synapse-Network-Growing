@@ -23,6 +23,7 @@ from server.database import (
     ApprovalRow,
     ApprovalRequestRow,
     ArtifactRow,
+    RequirementAttachmentRow,
     RequirementDependencyRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
@@ -71,6 +72,10 @@ from server.services.copilot_sdk_state import (
 from server.services.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state, terminate_pid
 from server.services.delivery_vcs import execute_requirement_delivery_vcs
 from server.services.delivery_pr import sync_requirement_review_pr
+from server.services.deployment_governance import (
+    build_requirement_deployment_summary,
+    list_requirement_deployment_records,
+)
 from server.services.execution_resolver import suggest_task_execution
 from server.services.acceptance import acceptance_contract_for_requirement, list_acceptance_dispatch_candidates, normalize_acceptance_contract
 from server.services.requirement_approval import (
@@ -82,6 +87,11 @@ from server.services.requirement_approval import (
 )
 from server.services.project_policy import project_policy_summary_markdown, project_policy_to_dict, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
+from server.services.requirement_attachments import (
+    persist_requirement_attachments,
+    requirement_attachment_context_files,
+    serialize_requirement_attachment,
+)
 from server.services.requirement_family import (
     build_requirement_family_context,
     build_requirement_family_recommendation,
@@ -1250,6 +1260,53 @@ def _requirement_task_outputs(
     return task_outputs, list(merged_index.values())
 
 
+def _requirement_attachment_rows(db: Session, requirement_id: int) -> list[RequirementAttachmentRow]:
+    return db.query(RequirementAttachmentRow).filter(
+        RequirementAttachmentRow.requirement_id == requirement_id
+    ).order_by(RequirementAttachmentRow.id.asc()).all()
+
+
+def _step_runtime_metrics_by_id(
+    db: Session,
+    workflow_run: WorkflowRunRow | None,
+) -> dict[int, dict[str, Any]]:
+    if workflow_run is None:
+        return {}
+    step_rows = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run.id
+    ).order_by(WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()).all()
+    task_ids = [
+        int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0)
+        for step in step_rows
+        if int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0) > 0
+    ]
+    if not task_ids:
+        return {}
+    tasks_by_id = {
+        int(task.id): task
+        for task in db.query(TaskRow).filter(TaskRow.id.in_(task_ids)).all()
+    }
+    metrics: dict[int, dict[str, Any]] = {}
+    for step in step_rows:
+        step_id = _as_int(getattr(step, "id", None))
+        task_id = int(getattr(cast(Any, step), "compatibility_task_id", 0) or 0)
+        if step_id is None or task_id <= 0:
+            continue
+        task = tasks_by_id.get(task_id)
+        if task is None:
+            continue
+        metrics[step_id] = {
+            "runtime_backend": str(task.runtime_backend or "") or None,
+            "runtime_provider": str(getattr(cast(Any, task), "runtime_provider", "") or "") or None,
+            "runtime_model": str(getattr(cast(Any, task), "runtime_model", "") or "") or None,
+            "runtime_session_id": str(task.runtime_session_id or "") or None,
+            "runtime_selected_agent": str(task.runtime_selected_agent or "") or None,
+            "execution_time_ms": int(task.execution_time_ms or 0) or None,
+            "tokens_used": int(getattr(cast(Any, task), "tokens_used", 0) or 0),
+        }
+    return metrics
+
+
 def _record_project_change_summary_artifact(
     db: Session,
     *,
@@ -1862,6 +1919,13 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     )
     if existing_family_requirement is not None and str(family_recommendation.get("action") or "") in {"reuse_existing", "archive_experiment"}:
         existing_intake = requirement_intake_metadata_for_requirement(existing_family_requirement)
+        persisted_attachments = persist_requirement_attachments(int(existing_family_requirement.id), body.attachments)
+        for attachment in persisted_attachments:
+            db.add(attachment)
+        attachment_context_files = requirement_attachment_context_files(
+            int(existing_family_requirement.id),
+            persisted_attachments,
+        )
         existing_intake.update(
             {
                 "family_key": family_context.get("family_key"),
@@ -1874,6 +1938,17 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
                 "family_reuse_count": int(existing_intake.get("family_reuse_count") or 0) + 1,
                 "family_last_source_ref": str(body.source_ref or "").strip() or None,
                 "family_last_title": str(body.title or ""),
+                "attachment_count": int(existing_intake.get("attachment_count") or 0) + len(persisted_attachments),
+                "attachment_context_files": sorted(
+                    {
+                        *[
+                            str(item)
+                            for item in cast(list[str], existing_intake.get("attachment_context_files") or [])
+                            if str(item or "").strip()
+                        ],
+                        *attachment_context_files,
+                    }
+                ),
             }
         )
         existing_family_requirement.intake_metadata_json = json.dumps(existing_intake, ensure_ascii=False)
@@ -1922,6 +1997,21 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         requirement.approved_at = utcnow()
     db.add(requirement)
     db.flush()
+    persisted_attachments = persist_requirement_attachments(requirement.id, body.attachments)
+    for attachment in persisted_attachments:
+        db.add(attachment)
+    attachment_context_files = requirement_attachment_context_files(requirement.id, persisted_attachments)
+    if persisted_attachments:
+        intake_metadata.update(
+            {
+                "attachment_count": len(persisted_attachments),
+                "attachment_context_files": attachment_context_files,
+            }
+        )
+        requirement.intake_metadata_json = json.dumps(
+            intake_metadata,
+            ensure_ascii=False,
+        )
     _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -3196,11 +3286,19 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
     steps = []
     task_outputs: list[dict[str, Any]] = []
     merged_output_files: list[dict[str, Any]] = []
+    attachments = _requirement_attachment_rows(db, requirement_id)
     if workflow_run is not None:
         rows = db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == workflow_run.id).order_by(
             WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()
         ).all()
-        steps = [WorkflowStepOut.model_validate(row) for row in rows]
+        step_runtime_metrics = _step_runtime_metrics_by_id(db, workflow_run)
+        steps = []
+        for row in rows:
+            step_out = WorkflowStepOut.model_validate(row)
+            runtime_metrics = step_runtime_metrics.get(int(row.id)) or {}
+            for field, value in runtime_metrics.items():
+                setattr(step_out, field, value)
+            steps.append(step_out)
         task_outputs, merged_output_files = _requirement_task_outputs(db, requirement, workflow_run)
 
     checks = db.query(RequirementAcceptanceCheckRow).filter(
@@ -3240,7 +3338,9 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
         ],
         acceptance_checks=[RequirementAcceptanceCheckOut.model_validate(check) for check in checks],
         artifacts=[ArtifactOut.model_validate(artifact) for artifact in artifacts],
+        attachments=[serialize_requirement_attachment(item) for item in attachments],
         delivery_state=_build_delivery_state(db, requirement),
+        deployment_records=list_requirement_deployment_records(db, requirement_id),
         incidents=[IncidentRecordOut(**incident) for incident in list_requirement_incidents(db, requirement_id)],
         task_outputs=task_outputs,
         merged_output_files=merged_output_files,
@@ -3945,6 +4045,10 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
         _json_loads(getattr(step, "execution_profile_json", None), {}),
         step_type=str(step.step_type or ""),
     )
+    attachment_context_files = requirement_attachment_context_files(
+        int(step.requirement_id),
+        _requirement_attachment_rows(db, int(step.requirement_id)),
+    )
     task = TaskRow(
         description=description,
         agent_id=str(agent.id),
@@ -3957,6 +4061,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
         runtime_backend=selection.backend,
         runtime_provider=selection.provider,
         runtime_model=selection.model,
+        context_files=json.dumps(attachment_context_files, ensure_ascii=False) if attachment_context_files else None,
         started_at=utcnow(),
     )
     db.add(task)
@@ -7387,6 +7492,7 @@ def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryS
         payload["review_status"] = "planned"
         payload["publish_status"] = "planned"
         payload["review_ready_at"] = None
+    deploy_summary = build_requirement_deployment_summary(db, requirement)
     return DeliveryStateOut(
         branch_name=str(payload.get("branch_name") or contract.get("branch_name") or "") or None,
         branch_strategy=str(payload.get("branch_strategy") or contract.get("branch_strategy") or "") or None,
@@ -7418,6 +7524,11 @@ def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryS
         last_pushed_at=str(payload.get("last_pushed_at") or "") or None,
         pr_metadata=payload.get("pr_metadata") if isinstance(payload.get("pr_metadata"), dict) else None,
         promotion_checklist=payload.get("promotion_checklist") if isinstance(payload.get("promotion_checklist"), list) else [],
+        staging_status=deploy_summary.get("staging_status"),
+        production_status=deploy_summary.get("production_status"),
+        last_deployed_sha=str(deploy_summary.get("last_deployed_sha") or "") or None,
+        last_deployed_at=str(deploy_summary.get("last_deployed_at") or "") or None,
+        deploy_readiness=deploy_summary.get("deploy_readiness") if isinstance(deploy_summary.get("deploy_readiness"), dict) else None,
     )
 
 

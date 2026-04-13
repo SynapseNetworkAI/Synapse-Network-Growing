@@ -321,7 +321,55 @@ export interface ProjectPolicy {
   scheduler_weight: number
   max_parallel_requirements: number
   portfolio_budget_points: number
+  deploy_repo_full_name: string | null
+  deploy_strategy: string
+  deploy_trigger_enabled: boolean
+  staging_host_label: string | null
+  production_host_label: string | null
+  staging_workflow_file: string
+  production_workflow_file: string
   notes: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface EnvironmentStatus {
+  environment: 'staging' | 'production'
+  project_key: string
+  deploy_repo_full_name: string | null
+  host_label: string | null
+  deploy_strategy: string
+  trigger_enabled: boolean
+  current_commit_sha: string | null
+  current_branch: string | null
+  last_success_at: string | null
+  health_status: string | null
+  last_trigger_source: string | null
+  last_external_url: string | null
+  last_record_id: number | null
+}
+
+export interface DeploymentRecord {
+  id: number
+  requirement_id: number
+  project_policy_id: number | null
+  project_key: string
+  environment: 'staging' | 'production'
+  action: string
+  status: string
+  commit_sha: string | null
+  branch_name: string | null
+  workflow_file: string | null
+  external_run_id: string | null
+  external_url: string | null
+  actor: string | null
+  trigger_source: string
+  rollback_target_sha: string | null
+  health_status: string | null
+  notes: string | null
+  metadata: Record<string, unknown>
+  started_at: string | null
+  finished_at: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -583,6 +631,11 @@ export interface DeliveryState {
   last_pushed_at: string | null
   pr_metadata: Record<string, unknown> | null
   promotion_checklist: Record<string, unknown>[]
+  staging_status: EnvironmentStatus | null
+  production_status: EnvironmentStatus | null
+  last_deployed_sha: string | null
+  last_deployed_at: string | null
+  deploy_readiness: Record<string, unknown> | null
 }
 
 export interface WorkflowStep {
@@ -603,6 +656,13 @@ export interface WorkflowStep {
   done_when_markdown: string
   context_policy_json: string | null
   execution_profile_json: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  runtime_session_id: string | null
+  runtime_selected_agent: string | null
+  execution_time_ms: number | null
+  tokens_used: number
   started_at: string | null
   completed_at: string | null
 }
@@ -653,6 +713,7 @@ export interface RequirementDetail {
   acceptance_checks: RequirementAcceptanceCheck[]
   artifacts: Artifact[]
   delivery_state: DeliveryState | null
+  deployment_records: DeploymentRecord[]
   task_outputs: RequirementTaskOutput[]
   merged_output_files: RequirementMergedOutputFile[]
   incidents: Array<{
@@ -674,6 +735,26 @@ export interface RequirementDetail {
     evidence: Record<string, unknown>[]
     occurred_at: string | null
   }>
+  attachments: RequirementAttachment[]
+}
+
+export interface RequirementAttachment {
+  id: number
+  requirement_id: number
+  file_name: string
+  stored_path: string
+  content_type: string
+  attachment_kind: 'image' | 'file'
+  source: string
+  size_bytes: number
+  created_at: string | null
+}
+
+export interface RequirementAttachmentInput {
+  file_name: string
+  content_type: string
+  content_base64: string
+  source?: string
 }
 
 export interface RequirementApprovalDecision {
@@ -1028,6 +1109,7 @@ export const api = {
 
   // Project policies
   getProjectPolicies: () => request<ProjectPolicy[]>('/project-policies'),
+  getProjectPolicyEnvironmentStatus: (id: number) => request<EnvironmentStatus[]>(`/deployments/project-policies/${id}/environment-status`),
   getProjectOnboardings: () => request<ProjectOnboarding[]>('/project-onboarding'),
   createProjectOnboarding: (data: {
     project_key: string
@@ -1072,6 +1154,13 @@ export const api = {
     scheduler_weight?: number
     max_parallel_requirements?: number
     portfolio_budget_points?: number
+    deploy_repo_full_name?: string | null
+    deploy_strategy?: string
+    deploy_trigger_enabled?: boolean
+    staging_host_label?: string | null
+    production_host_label?: string | null
+    staging_workflow_file?: string
+    production_workflow_file?: string
     notes?: string | null
   }) => request<ProjectPolicy>('/project-policies', { method: 'POST', body: JSON.stringify(data) }),
   updateProjectPolicy: (id: number, data: {
@@ -1102,6 +1191,13 @@ export const api = {
     scheduler_weight?: number
     max_parallel_requirements?: number
     portfolio_budget_points?: number
+    deploy_repo_full_name?: string | null
+    deploy_strategy?: string
+    deploy_trigger_enabled?: boolean
+    staging_host_label?: string | null
+    production_host_label?: string | null
+    staging_workflow_file?: string
+    production_workflow_file?: string
     notes?: string | null
   }) => request<ProjectPolicy>(`/project-policies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProjectPolicy: (id: number) => request<void>(`/project-policies/${id}`, { method: 'DELETE' }),
@@ -1140,6 +1236,7 @@ export const api = {
     target_project_path?: string
     depends_on_requirement_ids?: number[]
     auto_start?: boolean
+    attachments?: RequirementAttachmentInput[]
   }) =>
     request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
   planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
@@ -1151,6 +1248,14 @@ export const api = {
     request<RequirementDetail>(`/requirements/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }),
   syncRequirementReviewPr: (id: number) =>
     request<RequirementDetail>(`/requirements/${id}/review-pr/sync`, { method: 'POST' }),
+  listRequirementDeployments: (id: number) =>
+    request<DeploymentRecord[]>(`/requirements/${id}/deployments`),
+  deployRequirementToStaging: (id: number, data?: { actor?: string; note?: string | null; commit_sha?: string | null }) =>
+    request<DeploymentRecord>(`/requirements/${id}/deployments/staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  promoteRequirementToProduction: (id: number, data?: { actor?: string; note?: string | null; commit_sha?: string | null }) =>
+    request<DeploymentRecord>(`/requirements/${id}/deployments/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  rollbackRequirementDeployment: (id: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
+    request<DeploymentRecord>(`/requirements/${id}/deployments/rollback`, { method: 'POST', body: JSON.stringify(data) }),
   deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
   updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
     request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

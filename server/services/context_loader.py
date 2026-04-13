@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Load project context files for agent execution."""
 import logging
+import mimetypes
 from pathlib import Path
 
 from server.config import PROJECT_ROOT
@@ -10,6 +11,10 @@ logger = logging.getLogger("ops-dashboard.context_loader")
 
 MAX_FILE_SIZE = 100_000   # 100 KB per file
 MAX_CONTEXT_SIZE = 500_000  # 500 KB total
+_TEXT_EXTENSIONS = {
+    ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".py", ".ts", ".tsx",
+    ".js", ".jsx", ".css", ".html", ".sql", ".sh", ".env", ".csv",
+}
 
 
 def _safe_resolve(project_root: Path, rel_path: str) -> Path | None:
@@ -47,8 +52,24 @@ def load_context(project_root: Path | None = None, extra_files: list[str] | None
         full = _safe_resolve(root, rel_path)
         if not full or not full.exists() or not full.is_file():
             continue
-        content = full.read_text(encoding="utf-8")[:MAX_FILE_SIZE]
-        chunk = f"# Reference: {rel_path}\n{content}"
+        guessed_type, _ = mimetypes.guess_type(str(full))
+        is_text = full.suffix.lower() in _TEXT_EXTENSIONS or str(guessed_type or "").startswith("text/")
+        if is_text:
+            try:
+                content = full.read_text(encoding="utf-8")[:MAX_FILE_SIZE]
+            except UnicodeDecodeError:
+                is_text = False
+        if is_text:
+            chunk = f"# Reference: {rel_path}\n{content}"
+        else:
+            kind = "image" if str(guessed_type or "").startswith("image/") else "binary"
+            chunk = "\n".join([
+                f"# Reference {kind.title()}: {rel_path}",
+                f"- absolute_path: `{full}`",
+                f"- content_type: `{guessed_type or 'application/octet-stream'}`",
+                f"- size_bytes: `{full.stat().st_size}`",
+                "- note: This attachment was supplied as requirement context. If the runtime supports local file/image inspection, open it directly.",
+            ])
         parts.append(chunk)
         total += len(chunk)
 

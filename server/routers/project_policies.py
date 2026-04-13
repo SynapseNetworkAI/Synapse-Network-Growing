@@ -61,6 +61,13 @@ def create_project_policy_endpoint(body: ProjectPolicyCreate, db: Session = Depe
             scheduler_weight=body.scheduler_weight,
             max_parallel_requirements=body.max_parallel_requirements,
             portfolio_budget_points=body.portfolio_budget_points,
+            deploy_repo_full_name=body.deploy_repo_full_name,
+            deploy_strategy=body.deploy_strategy,
+            deploy_trigger_enabled=body.deploy_trigger_enabled,
+            staging_host_label=body.staging_host_label,
+            production_host_label=body.production_host_label,
+            staging_workflow_file=body.staging_workflow_file,
+            production_workflow_file=body.production_workflow_file,
             notes=body.notes,
         )
     except ValueError as exc:
@@ -99,6 +106,13 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
             scheduler_weight=body.scheduler_weight,
             max_parallel_requirements=body.max_parallel_requirements,
             portfolio_budget_points=body.portfolio_budget_points,
+            deploy_repo_full_name=body.deploy_repo_full_name,
+            deploy_strategy=body.deploy_strategy,
+            deploy_trigger_enabled=body.deploy_trigger_enabled,
+            staging_host_label=body.staging_host_label,
+            production_host_label=body.production_host_label,
+            staging_workflow_file=body.staging_workflow_file,
+            production_workflow_file=body.production_workflow_file,
             notes=body.notes,
         )
     except ValueError as exc:

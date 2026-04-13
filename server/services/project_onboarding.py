@@ -212,6 +212,13 @@ def create_project_onboarding(
             scheduler_weight=1.0,
             max_parallel_requirements=1,
             portfolio_budget_points=100,
+            deploy_repo_full_name=None,
+            deploy_strategy="github_actions_ssh",
+            deploy_trigger_enabled=False,
+            staging_host_label=None,
+            production_host_label=None,
+            staging_workflow_file="deploy-staging.yml",
+            production_workflow_file="deploy-production.yml",
             notes=notes,
         )
 

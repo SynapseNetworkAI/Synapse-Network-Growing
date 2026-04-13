@@ -14,6 +14,8 @@ from server.logging_utils import timed_operation
 from server.schemas import (
     AcceptanceDispatchRequest,
     AcceptanceDispatchResultOut,
+    DeploymentRecordOut,
+    DeploymentTriggerRequest,
     RequirementApprovalDecisionRequest,
     RequirementCreate,
     RequirementDependencyUpdate,
@@ -29,6 +31,7 @@ from server.schemas import (
     SchedulerPlanOut,
     WorkflowStepPatch,
 )
+from server.services.deployment_governance import list_requirement_deployment_records, trigger_requirement_deployment
 from server.services.project_intelligence import build_requirement_serialization_context, serialize_requirement
 from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
 from server.services.requirement_sources import intake_requirement_sources, list_requirement_source_registry
@@ -186,6 +189,11 @@ def get_requirement(requirement_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/{requirement_id}/deployments", response_model=list[DeploymentRecordOut])
+def list_requirement_deployments_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    return list_requirement_deployment_records(db, requirement_id)
+
+
 @router.patch("/{requirement_id}", response_model=RequirementDetailOut)
 def patch_requirement_endpoint(requirement_id: int, body: RequirementPatch, db: Session = Depends(get_db)):
     try:
@@ -289,6 +297,66 @@ def publish_requirement_endpoint(
 def sync_requirement_review_pr_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return sync_requirement_review_pr_surface(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/deployments/staging", response_model=DeploymentRecordOut)
+def trigger_requirement_staging_deploy_endpoint(
+    requirement_id: int,
+    body: DeploymentTriggerRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return trigger_requirement_deployment(
+            db,
+            requirement_id,
+            environment="staging",
+            actor=body.actor,
+            note=body.note,
+            commit_sha=body.commit_sha,
+            trigger_source="ops_console",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/deployments/production", response_model=DeploymentRecordOut)
+def trigger_requirement_production_deploy_endpoint(
+    requirement_id: int,
+    body: DeploymentTriggerRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return trigger_requirement_deployment(
+            db,
+            requirement_id,
+            environment="production",
+            actor=body.actor,
+            note=body.note,
+            commit_sha=body.commit_sha,
+            trigger_source="ops_console",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/deployments/rollback", response_model=DeploymentRecordOut)
+def trigger_requirement_rollback_endpoint(
+    requirement_id: int,
+    body: DeploymentTriggerRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return trigger_requirement_deployment(
+            db,
+            requirement_id,
+            environment="production",
+            actor=body.actor,
+            note=body.note,
+            rollback_target_sha=body.rollback_target_sha,
+            trigger_source="ops_console",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

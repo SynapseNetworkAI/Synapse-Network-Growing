@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Tests for requirement-first workflow orchestration."""
+import base64
 from datetime import timedelta
 import json
 from datetime import datetime, timezone
@@ -17,9 +18,11 @@ from server.database import (
     ArtifactRow,
     BugRecordRow,
     CompanyOperatingReviewRow,
+    DeploymentRecordRow,
     OptimizationSignalRow,
     ProjectOnboardingRow,
     ProjectPolicyRow,
+    RequirementAttachmentRow,
     RequirementAcceptanceCheckRow,
     RequirementRow,
     StepInputBindingRow,
@@ -30,6 +33,8 @@ from server.database import (
 )
 from server.services.workflow_orchestrator import MAX_BUGFIX_BRANCH_DEPTH
 from server.services.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state
+from server.services.agent_loader import ensure_agents_loaded
+from server.services.requirement_attachments import persist_requirement_attachments
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import RuntimeEvent, TaskExecutionResult
 
@@ -62,6 +67,52 @@ def _deferred_runtime_result(*, session_id: str = "session-running-123", executi
 def _sync_dispatch(task_id: int, agent_persona: dict, skill_name: str):
     _run_task_sync(task_id, agent_persona, skill_name)
     return MagicMock(name=f"task-{task_id}")
+
+
+def _seed_delivery_state_artifact(db_session, requirement_id: int, *, commit_sha: str = "abc123def456", branch_name: str = "ops/req-1-demo"):
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement_id,
+            artifact_type="delivery_contract",
+            content_summary="delivery contract",
+            human_readable_body="delivery contract",
+            machine_readable_payload=json.dumps(
+                {
+                    "branch_name": branch_name,
+                    "branch_strategy": "requirement_branch",
+                    "base_branch": "main",
+                    "release_mode": "manual",
+                    "requires_manual_approval": True,
+                    "required_checks": [],
+                    "capability_matrix": {
+                        "shell_access": True,
+                        "git_read": True,
+                        "git_write": True,
+                        "git_push": False,
+                        "network_access": False,
+                        "publish": False,
+                    },
+                }
+            ),
+        )
+    )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement_id,
+            artifact_type="delivery_state",
+            content_summary="delivery state",
+            human_readable_body="delivery state",
+            machine_readable_payload=json.dumps(
+                {
+                    "branch_name": branch_name,
+                    "head_branch": branch_name,
+                    "latest_commit_sha": commit_sha,
+                    "latest_remote_sha": commit_sha,
+                }
+            ),
+        )
+    )
+    db_session.commit()
 
 
 def test_dynamic_validation_scope_narrows_dashboard_only_checks():
@@ -3645,6 +3696,174 @@ def test_start_requirement_blocks_when_context_is_stale(synced_client, db_sessio
     assert payload["stale_findings"]
 
 
+def test_deploy_to_staging_creates_record_and_dispatches_workflow(synced_client, db_session, monkeypatch):
+    synced_client.get("/api/project-policies")
+    requirement = RequirementRow(
+        title="Deployable requirement",
+        description_markdown="Ready for staging deploy.",
+        status="done",
+        approval_status="approved",
+        current_plan_version=1,
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    _seed_delivery_state_artifact(db_session, requirement.id, commit_sha="deadbeef1234", branch_name="ops/req-deploy")
+
+    monkeypatch.setattr(
+        "server.services.deployment_governance._dispatch_github_workflow",
+        lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml",
+    )
+
+    response = synced_client.post(
+        f"/api/requirements/{requirement.id}/deployments/staging",
+        json={"actor": "cto", "note": "Ship to staging"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["environment"] == "staging"
+    assert payload["status"] == "requested"
+    assert payload["commit_sha"] == "deadbeef1234"
+    assert payload["external_url"].endswith("/deploy-staging.yml")
+
+    detail = synced_client.get(f"/api/requirements/{requirement.id}").json()
+    assert len(detail["deployment_records"]) == 1
+    assert detail["delivery_state"]["staging_status"]["current_commit_sha"] == "deadbeef1234"
+    assert detail["delivery_state"]["deploy_readiness"]["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
+
+
+def test_production_deploy_requires_successful_staging_for_same_commit(synced_client, db_session, monkeypatch):
+    synced_client.get("/api/project-policies")
+    requirement = RequirementRow(
+        title="Promote deployable requirement",
+        description_markdown="Ready for production deploy.",
+        status="done",
+        approval_status="approved",
+        current_plan_version=1,
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    _seed_delivery_state_artifact(db_session, requirement.id, commit_sha="feedface9999", branch_name="ops/req-promote")
+
+    blocked = synced_client.post(
+        f"/api/requirements/{requirement.id}/deployments/production",
+        json={"actor": "cto"},
+    )
+    assert blocked.status_code == 400
+    assert "successful staging deployment" in blocked.json()["detail"]
+
+    policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network").first()
+    db_session.add(
+        DeploymentRecordRow(
+            requirement_id=requirement.id,
+            project_policy_id=policy.id if policy is not None else None,
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            commit_sha="feedface9999",
+            branch_name="ops/req-promote",
+            workflow_file="deploy-staging.yml",
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "server.services.deployment_governance._dispatch_github_workflow",
+        lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-production.yml",
+    )
+    allowed = synced_client.post(
+        f"/api/requirements/{requirement.id}/deployments/production",
+        json={"actor": "cto"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["environment"] == "production"
+    assert allowed.json()["workflow_file"] == "deploy-production.yml"
+
+
+def test_deployment_report_endpoint_updates_record(synced_client, db_session):
+    synced_client.get("/api/project-policies")
+    policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network").first()
+    requirement = RequirementRow(
+        title="Reported deployment",
+        description_markdown="Track callback result.",
+        status="done",
+        approval_status="approved",
+        current_plan_version=1,
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    record = DeploymentRecordRow(
+        requirement_id=requirement.id,
+        project_policy_id=policy.id if policy is not None else None,
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        commit_sha="c0ffee123",
+        workflow_file="deploy-staging.yml",
+    )
+    db_session.add(record)
+    db_session.commit()
+    db_session.refresh(record)
+
+    resp = synced_client.post(
+        f"/api/deployments/{record.id}/report",
+        json={
+            "status": "succeeded",
+            "external_run_id": "987654321",
+            "external_url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/987654321",
+            "health_status": "healthy",
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "succeeded"
+    assert payload["external_run_id"] == "987654321"
+    assert payload["health_status"] == "healthy"
+
+
+def test_rollback_deploy_records_target_sha_and_dispatches_workflow(synced_client, db_session, monkeypatch):
+    synced_client.get("/api/project-policies")
+    requirement = RequirementRow(
+        title="Rollback deployable requirement",
+        description_markdown="Rollback after bad production release.",
+        status="done",
+        approval_status="approved",
+        current_plan_version=1,
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    _seed_delivery_state_artifact(db_session, requirement.id, commit_sha="feedfeed1234", branch_name="ops/req-rollback")
+
+    monkeypatch.setattr(
+        "server.services.deployment_governance._dispatch_github_workflow",
+        lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-production.yml",
+    )
+
+    response = synced_client.post(
+        f"/api/requirements/{requirement.id}/deployments/rollback",
+        json={"actor": "cto", "rollback_target_sha": "safe-sha-0001", "note": "Rollback to last stable"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["environment"] == "production"
+    assert payload["action"] == "rollback"
+    assert payload["commit_sha"] == "safe-sha-0001"
+    assert payload["rollback_target_sha"] == "safe-sha-0001"
+    assert payload["workflow_file"] == "deploy-production.yml"
+
+
 def test_start_requirement_handles_mixed_datetime_freshness_checks(synced_client, db_session):
     target_path = "/Users/cliff/workspace/agent/Synapse-Network"
     synced_client.get("/api/project-policies")
@@ -5586,3 +5805,172 @@ def test_non_mutating_step_repo_changes_block_without_vcs_delivery(synced_client
     artifact_types = [artifact["artifact_type"] for artifact in detail["artifacts"]]
     assert "policy_violation" in artifact_types
     assert "delivery_blocker" not in artifact_types
+
+
+def test_create_requirement_persists_attachments_and_returns_them(synced_client, db_session):
+    payload = base64.b64encode(b"staging screenshot").decode("ascii")
+    response = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Attach staging screenshot",
+            "description_markdown": "Need to include screenshot context for the agent.",
+            "priority": "normal",
+            "attachments": [
+                {
+                    "file_name": "staging.png",
+                    "content_type": "image/png",
+                    "content_base64": payload,
+                    "source": "clipboard",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    requirement_id = int(body["requirement"]["id"])
+    assert len(body["attachments"]) == 1
+    assert body["attachments"][0]["file_name"] == "staging.png"
+    assert body["attachments"][0]["attachment_kind"] == "image"
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    attachments = db_session.query(RequirementAttachmentRow).filter(
+        RequirementAttachmentRow.requirement_id == requirement_id
+    ).all()
+    assert len(attachments) == 1
+    intake_metadata = json.loads(str(requirement.intake_metadata_json or "{}"))
+    assert intake_metadata["attachment_count"] == 1
+    assert any(str(item).endswith("context-manifest.md") for item in intake_metadata["attachment_context_files"])
+    assert any("staging.png" in str(item) for item in intake_metadata["attachment_context_files"])
+
+
+def test_requirement_detail_exposes_step_runtime_metrics(db_session, synced_client):
+    ensure_agents_loaded(db_session)
+    requirement = RequirementRow(
+        title="Expose runtime metrics",
+        description_markdown="Show model and token usage.",
+        status="in_progress",
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    attachment_rows = persist_requirement_attachments(
+        int(requirement.id),
+        [
+            {
+                "file_name": "notes.md",
+                "content_type": "text/markdown",
+                "content_base64": base64.b64encode(b"# Context").decode("ascii"),
+                "source": "upload",
+            }
+        ],
+    )
+    for row in attachment_rows:
+        db_session.add(row)
+    workflow_run = WorkflowRunRow(
+        requirement_id=requirement.id,
+        plan_version=1,
+        status="running",
+        triggered_by="test",
+    )
+    db_session.add(workflow_run)
+    db_session.flush()
+    task = TaskRow(
+        description="Research context",
+        agent_id="dev_rel",
+        status="completed",
+        runtime_backend="codex_cli",
+        runtime_provider="openai",
+        runtime_model="gpt-5.4",
+        runtime_session_id="session-xyz",
+        runtime_selected_agent="codex_cli",
+        execution_time_ms=42000,
+        tokens_used=1234,
+        started_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="research",
+        step_type="research",
+        title="Research context",
+        status="completed",
+        sequence_no=10,
+        assigned_agent_id="dev_rel",
+        assigned_workflow_role="researcher",
+        compatibility_task_id=task.id,
+        done_when_markdown="Context is understood.",
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    response = synced_client.get(f"/api/requirements/{requirement.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["attachments"][0]["file_name"] == "notes.md"
+    assert body["workflow_run"]["steps"][0]["runtime_model"] == "gpt-5.4"
+    assert body["workflow_run"]["steps"][0]["runtime_provider"] == "openai"
+    assert body["workflow_run"]["steps"][0]["execution_time_ms"] == 42000
+    assert body["workflow_run"]["steps"][0]["tokens_used"] == 1234
+
+
+def test_prepare_step_task_includes_requirement_attachment_context_files(db_session):
+    ensure_agents_loaded(db_session)
+    requirement = RequirementRow(
+        title="Use attachment context",
+        description_markdown="Pass intake attachments to the runtime.",
+        status="ready",
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    attachment_rows = persist_requirement_attachments(
+        int(requirement.id),
+        [
+            {
+                "file_name": "brief.txt",
+                "content_type": "text/plain",
+                "content_base64": base64.b64encode(b"launch steps").decode("ascii"),
+                "source": "upload",
+            }
+        ],
+    )
+    for row in attachment_rows:
+        db_session.add(row)
+    workflow_run = WorkflowRunRow(
+        requirement_id=requirement.id,
+        plan_version=1,
+        status="running",
+        triggered_by="test",
+    )
+    db_session.add(workflow_run)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implement with context",
+        status="ready",
+        sequence_no=10,
+        assigned_agent_id="dev_rel",
+        assigned_workflow_role="implementer",
+        done_when_markdown="Done.",
+        execution_profile_json=json.dumps({}),
+    )
+    db_session.add(step)
+    db_session.flush()
+
+    task, _, _ = workflow_orchestrator._prepare_step_task(db_session, step)
+
+    assert task.context_files is not None
+    context_files = json.loads(str(task.context_files))
+    assert any(str(item).endswith("context-manifest.md") for item in context_files)
+    assert any("brief.txt" in str(item) for item in context_files)

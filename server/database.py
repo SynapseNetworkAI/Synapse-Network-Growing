@@ -213,6 +213,11 @@ class RequirementRow(Base):
         order_by="RequirementAcceptanceCheckRow.id",
     )
     artifacts = relationship("ArtifactRow", back_populates="requirement", order_by="ArtifactRow.id")
+    attachments = relationship(
+        "RequirementAttachmentRow",
+        back_populates="requirement",
+        order_by="RequirementAttachmentRow.id",
+    )
 
 
 class ProjectPolicyRow(Base):
@@ -241,6 +246,13 @@ class ProjectPolicyRow(Base):
     scheduler_weight = Column(Float, nullable=False, default=1.0)
     max_parallel_requirements = Column(Integer, nullable=False, default=1)
     portfolio_budget_points = Column(Integer, nullable=False, default=100)
+    deploy_repo_full_name = Column(Text)
+    deploy_strategy = Column(Text, nullable=False, default="github_actions_ssh")
+    deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
+    staging_host_label = Column(Text)
+    production_host_label = Column(Text)
+    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
+    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -408,6 +420,41 @@ class CodexSessionRow(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class DeploymentRecordRow(Base):
+    __tablename__ = "deployment_records"
+    __table_args__ = (
+        Index("deployment_records_requirement_idx", "requirement_id"),
+        Index("deployment_records_project_env_idx", "project_key", "environment"),
+        Index("deployment_records_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    project_policy_id = Column(Integer, ForeignKey("project_policies.id"))
+    project_key = Column(Text, nullable=False)
+    environment = Column(Text, nullable=False)
+    action = Column(Text, nullable=False, default="deploy")
+    status = Column(Text, nullable=False, default="requested")
+    commit_sha = Column(Text)
+    branch_name = Column(Text)
+    workflow_file = Column(Text)
+    external_run_id = Column(Text)
+    external_url = Column(Text)
+    actor = Column(Text)
+    trigger_source = Column(Text, nullable=False, default="ops_console")
+    rollback_target_sha = Column(Text)
+    health_status = Column(Text)
+    notes = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    finished_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow")
+    project_policy = relationship("ProjectPolicyRow")
 
 
 class RequirementDependencyRow(Base):
@@ -583,6 +630,26 @@ class RequirementAcceptanceCheckRow(Base):
     requirement = relationship("RequirementRow", back_populates="acceptance_checks")
 
 
+class RequirementAttachmentRow(Base):
+    __tablename__ = "requirement_attachments"
+    __table_args__ = (
+        Index("requirement_attachments_requirement_idx", "requirement_id"),
+        Index("requirement_attachments_kind_idx", "attachment_kind"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    file_name = Column(Text, nullable=False)
+    stored_path = Column(Text, nullable=False)
+    content_type = Column(Text, nullable=False, default="application/octet-stream")
+    attachment_kind = Column(Text, nullable=False, default="file")
+    source = Column(Text, nullable=False, default="upload")
+    size_bytes = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    requirement = relationship("RequirementRow", back_populates="attachments")
+
+
 class ApprovalRequestRow(Base):
     __tablename__ = "approval_requests"
     __table_args__ = (
@@ -686,6 +753,13 @@ def _migrate(engine_):
             "scheduler_weight": "FLOAT DEFAULT 1.0",
             "max_parallel_requirements": "INTEGER DEFAULT 1",
             "portfolio_budget_points": "INTEGER DEFAULT 100",
+            "deploy_repo_full_name": "TEXT",
+            "deploy_strategy": "TEXT DEFAULT 'github_actions_ssh'",
+            "deploy_trigger_enabled": "BOOLEAN DEFAULT 0",
+            "staging_host_label": "TEXT",
+            "production_host_label": "TEXT",
+            "staging_workflow_file": "TEXT DEFAULT 'deploy-staging.yml'",
+            "production_workflow_file": "TEXT DEFAULT 'deploy-production.yml'",
         }
         for col, col_type in project_policy_cols.items():
             if col not in existing:
@@ -725,6 +799,10 @@ def _migrate(engine_):
     if "codex_sessions" not in tables:
         logger.info("Migrating: creating 'codex_sessions' table")
         CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "deployment_records" not in tables:
+        logger.info("Migrating: creating 'deployment_records' table")
+        DeploymentRecordRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}
@@ -770,6 +848,10 @@ def _migrate(engine_):
                             {"agent_group": next_group, "project_id": next_project, "task_id": task_id},
                         )
                 conn.commit()
+
+    if "requirement_attachments" not in tables:
+        logger.info("Migrating: creating 'requirement_attachments' table")
+        RequirementAttachmentRow.__table__.create(bind=engine_, checkfirst=True)
 
 
 def init_db():

@@ -93,6 +93,13 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.4,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 130,
+        "deploy_repo_full_name": "cliff-personal/Synapse-Network",
+        "deploy_strategy": "github_actions_ssh",
+        "deploy_trigger_enabled": True,
+        "staging_host_label": "staging-vm",
+        "production_host_label": "prod-vm",
+        "staging_workflow_file": "deploy-staging.yml",
+        "production_workflow_file": "deploy-production.yml",
         "notes": "Primary product repo. Human approval required before publish or merge.",
     },
     {
@@ -112,6 +119,13 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.0,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 100,
+        "deploy_repo_full_name": "cliff-personal/Synapse-Network-Provider",
+        "deploy_strategy": "github_actions_ssh",
+        "deploy_trigger_enabled": True,
+        "staging_host_label": "staging-vm",
+        "production_host_label": "prod-vm",
+        "staging_workflow_file": "deploy-staging.yml",
+        "production_workflow_file": "deploy-production.yml",
         "notes": "Provider runtime repo. Keep operator in the loop for releases.",
     },
     {
@@ -369,6 +383,13 @@ def ensure_default_project_policies(db: Session) -> None:
                 scheduler_weight=float(policy.get("scheduler_weight") or 1.0),
                 max_parallel_requirements=int(policy.get("max_parallel_requirements") or 1),
                 portfolio_budget_points=max(20, int(policy.get("portfolio_budget_points") or 100)),
+                deploy_repo_full_name=str(policy.get("deploy_repo_full_name") or "").strip() or None,
+                deploy_strategy=str(policy.get("deploy_strategy") or "github_actions_ssh").strip() or "github_actions_ssh",
+                deploy_trigger_enabled=bool(policy.get("deploy_trigger_enabled", False)),
+                staging_host_label=str(policy.get("staging_host_label") or "").strip() or None,
+                production_host_label=str(policy.get("production_host_label") or "").strip() or None,
+                staging_workflow_file=str(policy.get("staging_workflow_file") or "deploy-staging.yml").strip() or "deploy-staging.yml",
+                production_workflow_file=str(policy.get("production_workflow_file") or "deploy-production.yml").strip() or "deploy-production.yml",
                 notes=policy["notes"],
             )
         )
@@ -406,6 +427,13 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
         "scheduler_weight": float(row.scheduler_weight or 1.0),
         "max_parallel_requirements": int(row.max_parallel_requirements or 1),
         "portfolio_budget_points": max(20, int(getattr(row, "portfolio_budget_points", 100) or 100)),
+        "deploy_repo_full_name": str(getattr(row, "deploy_repo_full_name", "") or "").strip() or None,
+        "deploy_strategy": str(getattr(row, "deploy_strategy", None) or "github_actions_ssh"),
+        "deploy_trigger_enabled": bool(getattr(row, "deploy_trigger_enabled", False)),
+        "staging_host_label": str(getattr(row, "staging_host_label", "") or "").strip() or None,
+        "production_host_label": str(getattr(row, "production_host_label", "") or "").strip() or None,
+        "staging_workflow_file": str(getattr(row, "staging_workflow_file", None) or "deploy-staging.yml"),
+        "production_workflow_file": str(getattr(row, "production_workflow_file", None) or "deploy-production.yml"),
         "notes": row.notes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -442,6 +470,13 @@ def create_project_policy(
     scheduler_weight: float,
     max_parallel_requirements: int,
     portfolio_budget_points: int,
+    deploy_repo_full_name: str | None,
+    deploy_strategy: str,
+    deploy_trigger_enabled: bool,
+    staging_host_label: str | None,
+    production_host_label: str | None,
+    staging_workflow_file: str,
+    production_workflow_file: str,
     notes: str | None,
 ) -> ProjectPolicyRow:
     ensure_default_project_policies(db)
@@ -471,6 +506,13 @@ def create_project_policy(
         scheduler_weight=max(0.2, float(scheduler_weight or 1.0)),
         max_parallel_requirements=max(1, int(max_parallel_requirements or 1)),
         portfolio_budget_points=max(20, int(portfolio_budget_points or 100)),
+        deploy_repo_full_name=(deploy_repo_full_name or "").strip() or None,
+        deploy_strategy=(deploy_strategy or "github_actions_ssh").strip() or "github_actions_ssh",
+        deploy_trigger_enabled=bool(deploy_trigger_enabled),
+        staging_host_label=(staging_host_label or "").strip() or None,
+        production_host_label=(production_host_label or "").strip() or None,
+        staging_workflow_file=(staging_workflow_file or "deploy-staging.yml").strip() or "deploy-staging.yml",
+        production_workflow_file=(production_workflow_file or "deploy-production.yml").strip() or "deploy-production.yml",
         notes=(notes or "").strip() or None,
     )
     db.add(row)
@@ -499,6 +541,13 @@ def update_project_policy(
     scheduler_weight: float | None = None,
     max_parallel_requirements: int | None = None,
     portfolio_budget_points: int | None = None,
+    deploy_repo_full_name: str | None = None,
+    deploy_strategy: str | None = None,
+    deploy_trigger_enabled: bool | None = None,
+    staging_host_label: str | None = None,
+    production_host_label: str | None = None,
+    staging_workflow_file: str | None = None,
+    production_workflow_file: str | None = None,
     notes: str | None = None,
 ) -> ProjectPolicyRow:
     if display_name is not None:
@@ -543,6 +592,20 @@ def update_project_policy(
         row.max_parallel_requirements = max(1, int(max_parallel_requirements))
     if portfolio_budget_points is not None:
         row.portfolio_budget_points = max(20, int(portfolio_budget_points))
+    if deploy_repo_full_name is not None:
+        row.deploy_repo_full_name = deploy_repo_full_name.strip() or None
+    if deploy_strategy is not None:
+        row.deploy_strategy = deploy_strategy.strip() or "github_actions_ssh"
+    if deploy_trigger_enabled is not None:
+        row.deploy_trigger_enabled = bool(deploy_trigger_enabled)
+    if staging_host_label is not None:
+        row.staging_host_label = staging_host_label.strip() or None
+    if production_host_label is not None:
+        row.production_host_label = production_host_label.strip() or None
+    if staging_workflow_file is not None:
+        row.staging_workflow_file = staging_workflow_file.strip() or "deploy-staging.yml"
+    if production_workflow_file is not None:
+        row.production_workflow_file = production_workflow_file.strip() or "deploy-production.yml"
     if notes is not None:
         row.notes = notes.strip() or None
     db.commit()

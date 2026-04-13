@@ -449,6 +449,15 @@ requirement 来源必须是一等信息，而不是展示字段。
 
 现在 `project policy` 不再只负责路径和发布模式，还负责显式执行约束。
 
+对于 `Synapse-Network` 与 `Synapse-Network-Provider`，`project policy` 也负责最低成本部署治理配置：
+
+1. deploy repo mapping
+2. staging / production host labels
+3. deploy workflow file names
+4. deploy trigger enablement
+
+Growing 通过这些配置触发 GitHub Actions deploy workflow，并把结果记录成 deployment records，而不是直接在平台内 SSH 上线。
+
 每个项目策略现在都包含两组控制面：
 
 1. `capability_matrix`

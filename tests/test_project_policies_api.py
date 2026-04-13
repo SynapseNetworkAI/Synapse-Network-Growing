@@ -1,4 +1,4 @@
-from server.database import ProjectPolicyRow
+from server.database import DeploymentRecordRow, ProjectPolicyRow, RequirementRow
 
 
 def test_project_policies_list_includes_default_managed_projects(synced_client):
@@ -17,6 +17,10 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert synapse_policy["portfolio_budget_points"] >= 20
     assert synapse_policy["capability_matrix"]["shell_access"] is True
     assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
+    assert synapse_policy["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
+    assert synapse_policy["deploy_trigger_enabled"] is True
+    assert synapse_policy["staging_host_label"] == "staging-vm"
+    assert synapse_policy["production_workflow_file"] == "deploy-production.yml"
     assert all(not key.startswith("sng-validation") for key in project_keys)
 
 
@@ -72,6 +76,13 @@ def test_project_policy_can_be_updated(synced_client):
             "scheduler_weight": 1.8,
             "max_parallel_requirements": 2,
             "portfolio_budget_points": 160,
+            "deploy_repo_full_name": "cliff-personal/Synapse-Network",
+            "deploy_strategy": "github_actions_ssh",
+            "deploy_trigger_enabled": True,
+            "staging_host_label": "staging-vm",
+            "production_host_label": "prod-vm",
+            "staging_workflow_file": "deploy-staging.yml",
+            "production_workflow_file": "deploy-production.yml",
             "notes": "Tightened during validation.",
         },
     )
@@ -88,7 +99,69 @@ def test_project_policy_can_be_updated(synced_client):
     assert updated["scheduler_weight"] == 1.8
     assert updated["max_parallel_requirements"] == 2
     assert updated["portfolio_budget_points"] == 160
+    assert updated["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
+    assert updated["deploy_trigger_enabled"] is True
     assert updated["notes"] == "Tightened during validation."
+
+
+def test_project_policy_environment_status_reflects_latest_deployments(synced_client, db_session):
+    policies = synced_client.get("/api/project-policies").json()
+    policy = next(item for item in policies if item["project_key"] == "synapse-network")
+    requirement_one = RequirementRow(
+        title="Staging deployment seed",
+        description_markdown="seed",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    requirement_two = RequirementRow(
+        title="Production deployment seed",
+        description_markdown="seed",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add_all([requirement_one, requirement_two])
+    db_session.commit()
+
+    db_session.add_all(
+        [
+            DeploymentRecordRow(
+                requirement_id=requirement_one.id,
+                project_policy_id=policy["id"],
+                project_key="synapse-network",
+                environment="staging",
+                action="deploy",
+                status="succeeded",
+                commit_sha="staging-sha-123",
+                branch_name="main",
+                workflow_file="deploy-staging.yml",
+                health_status="healthy",
+                trigger_source="ops_console",
+                external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/1",
+            ),
+            DeploymentRecordRow(
+                requirement_id=requirement_two.id,
+                project_policy_id=policy["id"],
+                project_key="synapse-network",
+                environment="production",
+                action="promote",
+                status="requested",
+                commit_sha="prod-sha-456",
+                branch_name="main",
+                workflow_file="deploy-production.yml",
+                trigger_source="ops_console",
+                external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/2",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    resp = synced_client.get(f"/api/deployments/project-policies/{policy['id']}/environment-status")
+
+    assert resp.status_code == 200
+    payload = {item["environment"]: item for item in resp.json()}
+    assert payload["staging"]["current_commit_sha"] == "staging-sha-123"
+    assert payload["staging"]["health_status"] == "healthy"
+    assert payload["staging"]["trigger_enabled"] is True
+    assert payload["production"]["current_commit_sha"] == "prod-sha-456"
+    assert payload["production"]["deploy_strategy"] == "github_actions_ssh"
 
 
 def test_project_policy_can_be_created(synced_client):

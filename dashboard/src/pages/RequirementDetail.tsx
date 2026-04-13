@@ -85,6 +85,27 @@ function parsePayload(raw: string | null) {
   }
 }
 
+function formatDuration(ms: number | null | undefined) {
+  if (ms == null || ms <= 0) return '-'
+  const totalSeconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes <= 0) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
+}
+
+function formatTokenCount(value: number | null | undefined) {
+  if (value == null || value < 0) return '-'
+  return new Intl.NumberFormat('en-US').format(value)
+}
+
+function formatIsoTime(value: string | null | undefined) {
+  if (!value) return '-'
+  const date = new Date(value.endsWith('Z') ? value : `${value}Z`)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN')
+}
+
 function OutputFileModal({
   file,
   onClose,
@@ -192,6 +213,9 @@ export default function RequirementDetail() {
   const [savingStepId, setSavingStepId] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [syncingReviewPr, setSyncingReviewPr] = useState(false)
+  const [deployingStaging, setDeployingStaging] = useState(false)
+  const [deployingProduction, setDeployingProduction] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
   const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
@@ -218,6 +242,7 @@ export default function RequirementDetail() {
   })
   const [publishChecks, setPublishChecks] = useState<string[]>([])
   const [publishNote, setPublishNote] = useState('')
+  const [deployNote, setDeployNote] = useState('')
 
   const loadDetail = useCallback(async () => {
     const data = await api.getRequirement(requirementId)
@@ -246,6 +271,7 @@ export default function RequirementDetail() {
     setShowRevise(false)
     setPublishChecks(detail.delivery_state?.confirmed_checks || [])
     setPublishNote(detail.delivery_state?.publish_note || '')
+    setDeployNote('')
     const latestPlanArtifact = detail.artifacts
       .filter((a) => a.artifact_type === 'implementation_plan')
       .sort((a, b) => b.id - a.id)[0]
@@ -269,6 +295,12 @@ export default function RequirementDetail() {
   const handlePause = async () => {
     const data = await api.pauseRequirement(requirementId)
     setDetail(data)
+  }
+
+  const refreshAfterDeployment = async () => {
+    await loadDetail()
+    const requirementsData = await api.getRequirements()
+    setRequirements(requirementsData)
   }
 
   const handleRevise = async () => {
@@ -302,6 +334,48 @@ export default function RequirementDetail() {
       setIsEditing(false)
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  const handleDeployToStaging = async () => {
+    setDeployingStaging(true)
+    try {
+      await api.deployRequirementToStaging(requirementId, {
+        actor: 'operator',
+        note: deployNote.trim() || null,
+      })
+      await refreshAfterDeployment()
+    } finally {
+      setDeployingStaging(false)
+    }
+  }
+
+  const handlePromoteToProduction = async () => {
+    setDeployingProduction(true)
+    try {
+      await api.promoteRequirementToProduction(requirementId, {
+        actor: 'operator',
+        note: deployNote.trim() || null,
+      })
+      await refreshAfterDeployment()
+    } finally {
+      setDeployingProduction(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    const targetSha = window.prompt('输入要回滚到的 commit SHA', detail?.delivery_state?.last_deployed_sha || '')
+    if (!targetSha?.trim()) return
+    setRollingBack(true)
+    try {
+      await api.rollbackRequirementDeployment(requirementId, {
+        actor: 'operator',
+        note: deployNote.trim() || null,
+        rollback_target_sha: targetSha.trim(),
+      })
+      await refreshAfterDeployment()
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -778,6 +852,22 @@ export default function RequirementDetail() {
                   </div>
                 </div>
               )}
+              {detail.attachments.length > 0 && (
+                <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-3 text-xs text-violet-900" data-testid="requirement-attachments">
+                  <div className="mb-2 font-medium">需求上下文附件</div>
+                  <div className="space-y-2">
+                    {detail.attachments.map((attachment) => (
+                      <div key={attachment.id} className="rounded border border-violet-200 bg-white px-3 py-2">
+                        <div className="font-medium">{attachment.file_name}</div>
+                        <div className="mt-1 text-[11px] text-violet-700">
+                          {attachment.attachment_kind} · {attachment.content_type} · {new Intl.NumberFormat('en-US').format(attachment.size_bytes)} bytes
+                        </div>
+                        <div className="mt-1 font-mono text-[11px] text-violet-700 break-all">{attachment.stored_path}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="p-4 border rounded-xl bg-slate-50" data-testid="requirement-task-outputs">
@@ -982,6 +1072,11 @@ export default function RequirementDetail() {
                   const complexityTier = typeof executionProfile?.complexity_tier === 'string'
                     ? executionProfile.complexity_tier
                     : ''
+                  const runtimeLine = [
+                    step.runtime_model || null,
+                    step.runtime_provider || step.runtime_backend || null,
+                    step.runtime_selected_agent ? `agent ${step.runtime_selected_agent}` : null,
+                  ].filter(Boolean).join(' · ')
                   const isEditingStep = editingStepId === step.id
                   const canEditStep = !['running', 'waiting_approval', 'completed', 'deleted'].includes(step.status)
                   const inner = (
@@ -1007,6 +1102,18 @@ export default function RequirementDetail() {
                             </span>
                             <span>in≤{String(budgetCap?.max_input_tokens ?? '-')}</span>
                             <span>out≤{String(budgetCap?.max_output_tokens ?? '-')}</span>
+                          </div>
+                        )}
+                        {(runtimeLine || step.runtime_session_id || step.execution_time_ms || step.tokens_used > 0) && (
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600" data-testid={`workflow-step-runtime-${step.id}`}>
+                            {runtimeLine && (
+                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
+                                model {runtimeLine}
+                              </span>
+                            )}
+                            <span>耗时 {formatDuration(step.execution_time_ms)}</span>
+                            <span>tokens {formatTokenCount(step.tokens_used)}</span>
+                            {step.runtime_session_id && <span>session {step.runtime_session_id}</span>}
                           </div>
                         )}
                       </div>
@@ -1183,6 +1290,52 @@ export default function RequirementDetail() {
                 {deliveryState.review_surface_summary && (
                   <div className="mt-3 text-xs text-gray-700">{deliveryState.review_surface_summary}</div>
                 )}
+                {(deliveryState.staging_status || deliveryState.production_status) && (
+                  <div className="grid gap-3 mt-3 text-xs sm:grid-cols-2">
+                    {[deliveryState.staging_status, deliveryState.production_status].filter(Boolean).map((status) => {
+                      const env = status!
+                      return (
+                        <div key={env.environment || 'env'} className="p-3 border rounded-lg bg-white">
+                          <div className="mb-2 font-medium text-gray-900">
+                            {String(env.environment || '').toLowerCase() === 'production' ? 'Production Status' : 'Staging Status'}
+                          </div>
+                          <div className="space-y-1 text-gray-600">
+                            <div>host: {env.host_label || '-'}</div>
+                            <div>sha: {env.current_commit_sha || '-'}</div>
+                            <div>branch: {env.current_branch || '-'}</div>
+                            <div>health: {env.health_status || '-'}</div>
+                            <div>last success: {formatIsoTime(env.last_success_at)}</div>
+                          </div>
+                          {env.last_external_url ? (
+                            <a href={env.last_external_url} target="_blank" rel="noreferrer" className="block mt-2 font-medium text-blue-600 break-all hover:underline">
+                              Run workflow
+                            </a>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {deliveryState.last_deployed_sha && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white text-gray-700">
+                    <div>Last deployed SHA: {deliveryState.last_deployed_sha}</div>
+                    <div>Last deploy time: {formatIsoTime(deliveryState.last_deployed_at)}</div>
+                  </div>
+                )}
+                {deliveryState.deploy_readiness && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white text-gray-700">
+                    <div className="mb-1 font-medium text-gray-900">Deploy Readiness</div>
+                    <div>repo: {String((deliveryState.deploy_readiness as Record<string, unknown>).deploy_repo_full_name || '-')}</div>
+                    <div>deliverable sha: {String((deliveryState.deploy_readiness as Record<string, unknown>).deliverable_commit_sha || '-')}</div>
+                    {Array.isArray((deliveryState.deploy_readiness as Record<string, unknown>).blockers) && ((deliveryState.deploy_readiness as Record<string, unknown>).blockers as unknown[]).length > 0 && (
+                      <div className="mt-2 space-y-1 text-rose-700">
+                        {((deliveryState.deploy_readiness as Record<string, unknown>).blockers as unknown[]).map((item) => (
+                          <div key={String(item)}>{String(item)}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="mt-3">
                   <button
                     type="button"
@@ -1256,6 +1409,38 @@ export default function RequirementDetail() {
                 )}
                 <div className="mt-3 space-y-2">
                   <textarea
+                    className="w-full px-3 py-2 text-xs border rounded min-h-16"
+                    placeholder="记录 deploy / rollback 说明"
+                    value={deployNote}
+                    onChange={(e) => setDeployNote(e.target.value)}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                      disabled={deployingStaging || !deliveryState.deploy_readiness || Array.isArray((deliveryState.deploy_readiness as Record<string, unknown>).blockers) && ((deliveryState.deploy_readiness as Record<string, unknown>).blockers as unknown[]).length > 0}
+                      onClick={() => { handleDeployToStaging().catch(() => {}) }}
+                    >
+                      {deployingStaging ? 'Deploying…' : 'Deploy To Staging'}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                      disabled={deployingProduction || !deliveryState.staging_status?.current_commit_sha}
+                      onClick={() => { handlePromoteToProduction().catch(() => {}) }}
+                    >
+                      {deployingProduction ? 'Promoting…' : 'Promote To Production'}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                      disabled={rollingBack}
+                      onClick={() => { handleRollback().catch(() => {}) }}
+                    >
+                      {rollingBack ? 'Rolling Back…' : 'Rollback'}
+                    </button>
+                  </div>
+                  <textarea
                     data-testid="publish-note"
                     className="w-full px-3 py-2 text-xs border rounded min-h-20"
                     placeholder="记录这次 publish decision 的说明"
@@ -1273,6 +1458,28 @@ export default function RequirementDetail() {
                     </button>
                   </div>
                 </div>
+                {detail.deployment_records.length > 0 && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Deploy History</div>
+                    <div className="space-y-2">
+                      {detail.deployment_records.map((record) => (
+                        <div key={record.id} className="rounded border border-slate-200 p-2">
+                          <div className="font-medium text-gray-900">
+                            {record.environment} · {record.action} · {record.status}
+                          </div>
+                          <div className="mt-1 text-gray-600">
+                            sha: {record.commit_sha || '-'} · actor: {record.actor || '-'} · started: {formatIsoTime(record.started_at)}
+                          </div>
+                          {record.external_url && (
+                            <a href={record.external_url} target="_blank" rel="noreferrer" className="block mt-1 font-medium text-blue-600 break-all hover:underline">
+                              {record.external_url}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 

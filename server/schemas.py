@@ -525,6 +525,13 @@ class ProjectPolicyCreate(BaseModel):
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: str = "github_actions_ssh"
+    deploy_trigger_enabled: bool = False
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: str = "deploy-staging.yml"
+    production_workflow_file: str = "deploy-production.yml"
     notes: Optional[str] = None
 
 
@@ -545,6 +552,13 @@ class ProjectPolicyPatch(BaseModel):
     scheduler_weight: Optional[float] = None
     max_parallel_requirements: Optional[int] = None
     portfolio_budget_points: Optional[int] = None
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: Optional[str] = None
+    deploy_trigger_enabled: Optional[bool] = None
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: Optional[str] = None
+    production_workflow_file: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -567,6 +581,13 @@ class ProjectPolicyOut(BaseModel):
     scheduler_weight: float = 1.0
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: str = "github_actions_ssh"
+    deploy_trigger_enabled: bool = False
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: str = "deploy-staging.yml"
+    production_workflow_file: str = "deploy-production.yml"
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -758,6 +779,7 @@ class RequirementCreate(BaseModel):
     template_acceptance_checks: list[dict[str, object]] = []
     acceptance_contract: Optional[dict[str, object]] = None
     approval_contract: Optional[dict[str, object]] = None
+    attachments: list[dict[str, object]] = []
 
 
 class RequirementDependencyUpdate(BaseModel):
@@ -903,6 +925,71 @@ class DeliveryStateOut(BaseModel):
     last_pushed_at: Optional[str] = None
     pr_metadata: dict[str, object] | None = None
     promotion_checklist: list[dict[str, object]] = []
+    staging_status: dict[str, object] | None = None
+    production_status: dict[str, object] | None = None
+    last_deployed_sha: Optional[str] = None
+    last_deployed_at: Optional[str] = None
+    deploy_readiness: dict[str, object] | None = None
+
+
+class DeploymentRecordOut(BaseModel):
+    id: int
+    requirement_id: int
+    project_policy_id: Optional[int] = None
+    project_key: str
+    environment: str
+    action: str
+    status: str
+    commit_sha: Optional[str] = None
+    branch_name: Optional[str] = None
+    workflow_file: Optional[str] = None
+    external_run_id: Optional[str] = None
+    external_url: Optional[str] = None
+    actor: Optional[str] = None
+    trigger_source: str = "ops_console"
+    rollback_target_sha: Optional[str] = None
+    health_status: Optional[str] = None
+    notes: Optional[str] = None
+    metadata: dict[str, object] = {}
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class EnvironmentStatusOut(BaseModel):
+    environment: str
+    project_key: str
+    deploy_repo_full_name: Optional[str] = None
+    host_label: Optional[str] = None
+    deploy_strategy: str = "github_actions_ssh"
+    trigger_enabled: bool = False
+    current_commit_sha: Optional[str] = None
+    current_branch: Optional[str] = None
+    last_success_at: Optional[str] = None
+    health_status: Optional[str] = None
+    last_trigger_source: Optional[str] = None
+    last_external_url: Optional[str] = None
+    last_record_id: Optional[int] = None
+
+
+class DeploymentTriggerRequest(BaseModel):
+    actor: str = "operator"
+    note: Optional[str] = None
+    commit_sha: Optional[str] = None
+    rollback_target_sha: Optional[str] = None
+
+
+class DeploymentReportRequest(BaseModel):
+    status: str
+    external_run_id: Optional[str] = None
+    external_url: Optional[str] = None
+    health_status: Optional[str] = None
+    branch_name: Optional[str] = None
+    commit_sha: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ProjectScorecardOut(BaseModel):
@@ -976,10 +1063,29 @@ class WorkflowStepOut(BaseModel):
     done_when_markdown: str = ""
     context_policy_json: Optional[str] = None
     execution_profile_json: Optional[str] = None
+    runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
+    runtime_session_id: Optional[str] = None
+    runtime_selected_agent: Optional[str] = None
+    execution_time_ms: Optional[int] = None
+    tokens_used: int = 0
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class RequirementAttachmentOut(BaseModel):
+    id: int
+    requirement_id: int
+    file_name: str
+    stored_path: str
+    content_type: str
+    attachment_kind: str
+    source: str
+    size_bytes: int
+    created_at: Optional[datetime] = None
 
 
 class WorkflowRunOut(BaseModel):
@@ -1066,7 +1172,9 @@ class RequirementDetailOut(BaseModel):
     dependencies: list[RequirementDependencyOut] = []
     acceptance_checks: list[RequirementAcceptanceCheckOut] = []
     artifacts: list[ArtifactOut] = []
+    attachments: list[RequirementAttachmentOut] = []
     delivery_state: Optional[DeliveryStateOut] = None
+    deployment_records: list[DeploymentRecordOut] = []
     incidents: list[IncidentRecordOut] = []
     task_outputs: list[RequirementTaskOutputOut] = []
     merged_output_files: list[RequirementMergedOutputFileOut] = []

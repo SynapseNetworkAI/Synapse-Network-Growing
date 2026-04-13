@@ -39,6 +39,7 @@ const INTERRUPT_OPTION_GROUPS = [
 
 export default function ProjectPolicies() {
   const [policies, setPolicies] = useState<ProjectPolicy[]>([])
+  const [environmentStatuses, setEnvironmentStatuses] = useState<Record<number, Awaited<ReturnType<typeof api.getProjectPolicyEnvironmentStatus>>>>({})
   const [onboardings, setOnboardings] = useState<ProjectOnboarding[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -72,6 +73,13 @@ export default function ProjectPolicies() {
     scheduler_weight: string
     max_parallel_requirements: string
     portfolio_budget_points: string
+    deploy_repo_full_name: string
+    deploy_strategy: string
+    deploy_trigger_enabled: boolean
+    staging_host_label: string
+    production_host_label: string
+    staging_workflow_file: string
+    production_workflow_file: string
     allowed_write_globs: string
     forbidden_globs: string
     required_checks: string
@@ -99,7 +107,11 @@ export default function ProjectPolicies() {
         api.getProjectPolicies(),
         api.getProjectOnboardings(),
       ])
+      const statusEntries = await Promise.all(
+        policyData.map(async (policy) => [policy.id, await api.getProjectPolicyEnvironmentStatus(policy.id)] as const),
+      )
       setPolicies(policyData)
+      setEnvironmentStatuses(Object.fromEntries(statusEntries))
       setOnboardings(onboardingData)
       setDrafts(
         Object.fromEntries(
@@ -119,6 +131,13 @@ export default function ProjectPolicies() {
               scheduler_weight: String(policy.scheduler_weight ?? 1),
               max_parallel_requirements: String(policy.max_parallel_requirements ?? 1),
               portfolio_budget_points: String(policy.portfolio_budget_points ?? 100),
+              deploy_repo_full_name: policy.deploy_repo_full_name || '',
+              deploy_strategy: policy.deploy_strategy || 'github_actions_ssh',
+              deploy_trigger_enabled: policy.deploy_trigger_enabled ?? false,
+              staging_host_label: policy.staging_host_label || '',
+              production_host_label: policy.production_host_label || '',
+              staging_workflow_file: policy.staging_workflow_file || 'deploy-staging.yml',
+              production_workflow_file: policy.production_workflow_file || 'deploy-production.yml',
               allowed_write_globs: policy.allowed_write_globs.join('\n'),
               forbidden_globs: policy.forbidden_globs.join('\n'),
               required_checks: policy.required_checks.join('\n'),
@@ -639,6 +658,80 @@ export default function ProjectPolicies() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Deploy Repo</span>
+                  <input
+                    className="w-full rounded border px-3 py-2 font-mono text-xs"
+                    value={draft.deploy_repo_full_name}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, deploy_repo_full_name: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Deploy Strategy</span>
+                  <input
+                    className="w-full rounded border px-3 py-2"
+                    value={draft.deploy_strategy}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, deploy_strategy: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Staging Host</span>
+                  <input
+                    className="w-full rounded border px-3 py-2"
+                    value={draft.staging_host_label}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, staging_host_label: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Production Host</span>
+                  <input
+                    className="w-full rounded border px-3 py-2"
+                    value={draft.production_host_label}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, production_host_label: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Staging Workflow</span>
+                  <input
+                    className="w-full rounded border px-3 py-2 font-mono text-xs"
+                    value={draft.staging_workflow_file}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, staging_workflow_file: e.target.value } }))}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-500">Production Workflow</span>
+                  <input
+                    className="w-full rounded border px-3 py-2 font-mono text-xs"
+                    value={draft.production_workflow_file}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, production_workflow_file: e.target.value } }))}
+                  />
+                </label>
+                <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-gray-700 md:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={draft.deploy_trigger_enabled}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [policy.id]: { ...draft, deploy_trigger_enabled: e.target.checked } }))}
+                  />
+                  启用 GitHub Actions deploy trigger
+                </label>
+              </div>
+
+              {(environmentStatuses[policy.id] || []).length > 0 && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {(environmentStatuses[policy.id] || []).map((status) => (
+                    <div key={`${policy.id}-${status.environment}`} className="rounded-lg border bg-slate-50 p-3 text-xs text-slate-700">
+                      <div className="mb-1 font-medium text-slate-900">{status.environment === 'production' ? 'Production' : 'Staging'} Status</div>
+                      <div>host: {status.host_label || '-'}</div>
+                      <div>sha: {status.current_commit_sha || '-'}</div>
+                      <div>branch: {status.current_branch || '-'}</div>
+                      <div>health: {status.health_status || '-'}</div>
+                      <div>last success: {formatTime(status.last_success_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-gray-700">Capability Matrix</div>
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -717,6 +810,13 @@ export default function ProjectPolicies() {
                         scheduler_weight: Number(draft.scheduler_weight || 1),
                         max_parallel_requirements: Math.max(1, Number(draft.max_parallel_requirements || 1)),
                         portfolio_budget_points: Math.max(20, Number(draft.portfolio_budget_points || 100)),
+                        deploy_repo_full_name: draft.deploy_repo_full_name || null,
+                        deploy_strategy: draft.deploy_strategy,
+                        deploy_trigger_enabled: draft.deploy_trigger_enabled,
+                        staging_host_label: draft.staging_host_label || null,
+                        production_host_label: draft.production_host_label || null,
+                        staging_workflow_file: draft.staging_workflow_file,
+                        production_workflow_file: draft.production_workflow_file,
                         allowed_write_globs: parseLines(draft.allowed_write_globs),
                         forbidden_globs: parseLines(draft.forbidden_globs),
                         required_checks: parseLines(draft.required_checks),

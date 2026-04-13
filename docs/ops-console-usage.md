@@ -135,6 +135,7 @@ Company Review
 5. 用顶部搜索框按 requirement 标题、项目路径、`source_ref` 或 requirement id 搜索。
 6. 触发 scheduler、queue advance、rebalance。
 7. 暂停、恢复、编辑、删除 requirement。
+8. 上传文件，或直接粘贴截图/图片，把它们作为 requirement 上下文附件传给后续 agent。
 
 ### 推荐使用方式
 
@@ -143,6 +144,8 @@ Company Review
 3. 明确目标仓库时，优先勾选受管项目策略；只有高级场景再手动补充路径。
 4. 不明确时留空让系统自动路由。
 5. 通过排序和搜索先找到当前最有价值的 requirement，再进入详情页。
+6. 需要补充外部上下文时，优先把文档、截图、配置样例作为附件带进 requirement，而不是只把摘要写进正文。
+7. 从聊天工具或网页复制的图片可以直接粘贴到创建表单，系统会把它保存为执行上下文附件。
 
 ### 状态筛选说明
 
@@ -176,6 +179,14 @@ Company Review
 
 需求详情页是 requirement 的执行面板，负责看 workflow、validation、delivery、artifacts 和 bugfix 闭环。
 
+对于 `Synapse-Network` / `Synapse-Network-Provider` 这类受管项目，Delivery Gate 现在还会显示：
+
+1. `staging / production` 环境状态
+2. deployment history
+3. `Deploy To Staging`
+4. `Promote To Production`
+5. `Rollback`
+
 ### 读取后端
 
 1. `GET /api/requirements/{id}`
@@ -196,6 +207,8 @@ Company Review
 7. 看 artifacts，包括 implementation plan、validation plan、bug report、context_compaction、stale_memory_verification、runtime_lifecycle、runtime_telemetry。
 8. 发起修订。
 9. 在满足 release gate 时执行 publish。
+10. 查看每个 workflow step 的 model/provider、耗时和 token 使用情况。
+11. 查看 requirement intake 附件是否已经进入上下文。
 
 ### 推荐使用方式
 
@@ -206,9 +219,10 @@ Company Review
 5. target project 的顺序默认按 requirement 原样保留，不再由 harness 自动改写“主仓”；模型会在这些目标项目范围内决定改代码、改文档或混合改动。
 6. `validate` 会结合实现阶段产出的 `project_change_summary` 和 requirement acceptance 目标，看本次到底改到了哪些项目，再决定验证重点。
 7. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
-7. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死。
-8. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
-9. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan、publish 或归档。
+8. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死，同时检查 step 卡片里的 model / duration / tokens 是否符合预期。
+9. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
+10. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan、publish 或归档。
+11. 如果执行效果异常，先核对“需求说明”卡片中的附件列表，确认文档或截图已经作为 requirement 上下文进入执行链路。
 
 ## 2.4 优化信号 `/optimization-signals`
 

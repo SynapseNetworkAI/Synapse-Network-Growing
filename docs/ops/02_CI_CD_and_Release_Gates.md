@@ -11,6 +11,10 @@ author: engineering-ops
 
 本文件记录 Synapse Network 工作区在自动化流水线中的 gate 约束，以及如何通过本仓库新增的 shell 工具跨仓触发昂贵检查。
 
+正式的 Synapse `staging/prod` 部署治理拓扑见：
+
+- [`03_Synapse_GCE_Deployment_Governance.md`](./03_Synapse_GCE_Deployment_Governance.md)
+
 ## 1. Pull Request CI
 
 正常 PR gate 仍依赖各产品仓库自带的入口（例如 `Synapse-Network/scripts/ci/pr_checks.sh`）。本仓库提供的脚本用于 orchestration：

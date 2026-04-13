@@ -5,6 +5,7 @@ import ProjectPolicies from '../src/pages/ProjectPolicies'
 
 const mockApi = {
   getProjectPolicies: vi.fn(),
+  getProjectPolicyEnvironmentStatus: vi.fn(),
   getProjectOnboardings: vi.fn(),
   createProjectOnboarding: vi.fn(),
   updateProjectPolicy: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../src/api', async () => {
     api: {
       ...actual.api,
       getProjectPolicies: (...args: unknown[]) => mockApi.getProjectPolicies(...args),
+      getProjectPolicyEnvironmentStatus: (...args: unknown[]) => mockApi.getProjectPolicyEnvironmentStatus(...args),
       getProjectOnboardings: (...args: unknown[]) => mockApi.getProjectOnboardings(...args),
       createProjectOnboarding: (...args: unknown[]) => mockApi.createProjectOnboarding(...args),
       updateProjectPolicy: (...args: unknown[]) => mockApi.updateProjectPolicy(...args),
@@ -57,6 +59,13 @@ const POLICIES = [
     scheduler_weight: 1.4,
     max_parallel_requirements: 2,
     portfolio_budget_points: 130,
+    deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+    deploy_strategy: 'github_actions_ssh',
+    deploy_trigger_enabled: true,
+    staging_host_label: 'staging-vm',
+    production_host_label: 'prod-vm',
+    staging_workflow_file: 'deploy-staging.yml',
+    production_workflow_file: 'deploy-production.yml',
     notes: 'Primary product repo.',
     created_at: '2026-04-11T10:00:00Z',
     updated_at: '2026-04-11T10:05:00Z',
@@ -91,6 +100,13 @@ const POLICIES = [
     scheduler_weight: 1.1,
     max_parallel_requirements: 1,
     portfolio_budget_points: 120,
+    deploy_repo_full_name: 'cliff-personal/sandbox-app',
+    deploy_strategy: 'github_actions_ssh',
+    deploy_trigger_enabled: false,
+    staging_host_label: 'staging-vm',
+    production_host_label: 'prod-vm',
+    staging_workflow_file: 'deploy-staging.yml',
+    production_workflow_file: 'deploy-production.yml',
     notes: 'Temporary sandbox policy.',
     created_at: '2026-04-11T10:00:00Z',
     updated_at: '2026-04-11T10:05:00Z',
@@ -129,6 +145,38 @@ describe('ProjectPolicies', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.getProjectPolicies.mockResolvedValue(POLICIES)
+    mockApi.getProjectPolicyEnvironmentStatus.mockResolvedValue([
+      {
+        environment: 'staging',
+        project_key: 'synapse-network',
+        deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+        host_label: 'staging-vm',
+        deploy_strategy: 'github_actions_ssh',
+        trigger_enabled: true,
+        current_commit_sha: 'abc123',
+        current_branch: 'main',
+        last_success_at: '2026-04-11T10:10:00Z',
+        health_status: 'healthy',
+        last_trigger_source: 'ops_console',
+        last_external_url: null,
+        last_record_id: 1,
+      },
+      {
+        environment: 'production',
+        project_key: 'synapse-network',
+        deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+        host_label: 'prod-vm',
+        deploy_strategy: 'github_actions_ssh',
+        trigger_enabled: true,
+        current_commit_sha: 'abc122',
+        current_branch: 'main',
+        last_success_at: '2026-04-10T10:10:00Z',
+        health_status: 'healthy',
+        last_trigger_source: 'ops_console',
+        last_external_url: null,
+        last_record_id: 2,
+      },
+    ])
     mockApi.getProjectOnboardings.mockResolvedValue(ONBOARDINGS)
     mockApi.createProjectOnboarding.mockResolvedValue(ONBOARDINGS[0])
     mockApi.updateProjectPolicy.mockResolvedValue(POLICIES[0])

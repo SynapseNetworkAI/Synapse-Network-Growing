@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, ProjectPolicy, Requirement, SchedulerDecision, SchedulerPlan } from '../api'
+import { api, ProjectPolicy, Requirement, RequirementAttachmentInput, SchedulerDecision, SchedulerPlan } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -106,10 +106,26 @@ function queueSkipMessage(value: string | string[] | undefined) {
   return value[0] || ''
 }
 
+async function fileToAttachment(file: File, source: string): Promise<RequirementAttachmentInput> {
+  const buffer = await file.arrayBuffer()
+  let binary = ''
+  const bytes = new Uint8Array(buffer)
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value)
+  })
+  return {
+    file_name: file.name,
+    content_type: file.type || 'application/octet-stream',
+    content_base64: window.btoa(binary),
+    source,
+  }
+}
+
 export default function RequirementPool() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const PAGE_SIZE = 10
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [projectPolicies, setProjectPolicies] = useState<ProjectPolicy[]>([])
   const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
@@ -133,6 +149,7 @@ export default function RequirementPool() {
   const [queueMessage, setQueueMessage] = useState('')
   const [depQuery, setDepQuery] = useState('')
   const [depOpen, setDepOpen] = useState(false)
+  const [attachments, setAttachments] = useState<RequirementAttachmentInput[]>([])
   const [form, setForm] = useState({
     title: '',
     description_markdown: '',
@@ -239,11 +256,13 @@ export default function RequirementPool() {
         target_project_path: form.target_project_path.trim() || undefined,
         depends_on_requirement_ids: form.depends_on_requirement_ids,
         auto_start: form.auto_start,
+        attachments,
       })
       setShowCreate(false)
       setTitleError(false)
       setDepQuery('')
       setDepOpen(false)
+      setAttachments([])
       setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
       setPage(1)
       await loadPool()
@@ -256,6 +275,39 @@ export default function RequirementPool() {
   const toggleDependency = (values: number[], requirementId: number) => {
     if (values.includes(requirementId)) return values.filter((v) => v !== requirementId)
     return [...values, requirementId]
+  }
+
+  const appendAttachments = useCallback(async (files: File[], source: string) => {
+    if (files.length === 0) return
+    const nextItems = await Promise.all(files.map((file) => fileToAttachment(file, source)))
+    setAttachments((current) => {
+      const merged = [...current]
+      for (const item of nextItems) {
+        const duplicate = merged.some((existing) =>
+          existing.file_name === item.file_name
+          && existing.content_base64 === item.content_base64
+        )
+        if (!duplicate) {
+          merged.push(item)
+        }
+      }
+      return merged
+    })
+  }, [])
+
+  const handleAttachmentFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    await appendAttachments(files, 'upload')
+    event.target.value = ''
+  }
+
+  const handleCreateFormPaste = async (event: ReactClipboardEvent<HTMLDivElement | HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData?.items || [])
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file))
+    if (files.length === 0) return
+    event.preventDefault()
+    await appendAttachments(files, 'clipboard')
   }
 
   const handleExecutionToggle = async (requirement: Requirement) => {
@@ -402,8 +454,61 @@ export default function RequirementPool() {
             className="w-full px-3 py-2 border rounded min-h-32"
             placeholder="用 Markdown 描述需求、目标和约束"
             value={form.description_markdown}
+            onPaste={handleCreateFormPaste}
             onChange={(e) => setForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
           />
+          <div
+            className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4"
+            onPaste={handleCreateFormPaste}
+            data-testid="requirement-attachments-dropzone"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-slate-800">需求上下文附件</div>
+                <div className="mt-1 text-xs text-slate-500">支持上传文件，也支持在这里或描述框中直接粘贴图片，执行时会作为 agent 上下文。</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  multiple
+                  data-testid="requirement-attachment-input"
+                  className="hidden"
+                  onChange={(event) => { handleAttachmentFileChange(event).catch(() => {}) }}
+                />
+                <button
+                  type="button"
+                  data-testid="requirement-attachment-upload-btn"
+                  className="rounded border px-3 py-2 text-sm hover:bg-white"
+                  onClick={() => attachmentInputRef.current?.click()}
+                >
+                  上传文件
+                </button>
+              </div>
+            </div>
+            {attachments.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {attachments.map((attachment, index) => (
+                  <span
+                    key={`${attachment.file_name}-${index}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-violet-100 px-3 py-1 text-xs text-violet-900"
+                  >
+                    <span>{attachment.file_name}</span>
+                    <span className="text-violet-600">{attachment.source}</span>
+                    <button
+                      type="button"
+                      className="text-violet-500 hover:text-violet-800"
+                      onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-slate-400">当前没有附件。可上传文档、截图，或直接粘贴图片。</div>
+            )}
+          </div>
           <div className="space-y-1">
             <div className="text-xs text-gray-500">目标项目（推荐直接关联项目策略；留空时会按项目 readiness 和语义自动路由）</div>
             {managedProjectPolicies.length > 0 && (
