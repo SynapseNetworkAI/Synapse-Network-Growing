@@ -1,5 +1,5 @@
 const BASE = '/api'
-const REQUEST_TIMEOUT_MS = 12000
+const REQUEST_TIMEOUT_MS = 16000
 
 export interface ApiError extends Error {
   detail?: unknown
