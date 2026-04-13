@@ -19,7 +19,7 @@ from server.services.codex_cli import (
     terminate_pid,
     _parse_codex_exec_stdout,
 )
-from server.services.codex_session_registry import update_session_state, validate_codex_session_registry
+from server.services.codex_session_registry import safe_update_session_state, validate_codex_session_registry
 from server.services.copilot_sdk_state import read_text_if_exists, seconds_since_timestamp, task_output_dir
 
 logger = logging.getLogger("ops-dashboard.codex_cli_monitor")
@@ -477,7 +477,7 @@ class CodexCLITaskMonitor:
             metadata_patch["usage"] = usage_summary
         if turn_count > 0:
             metadata_patch["turn_count"] = int(turn_count)
-        update_session_state(
+        safe_update_session_state(
             db=db,
             role_key=str(task.agent_id or ""),
             project_root=str(metadata.get("cwd") or self.project_root),

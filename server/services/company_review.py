@@ -1756,15 +1756,27 @@ def materialize_company_review_bundle(
             template_acceptance_checks=list(item.get("acceptance_checks") or []),
         )
         detail = create_requirement(db, body)
-        created_requirement_ids.append(int(detail.requirement.id))
-        items.append({
-            "bundle_item_key": bundle_item_key,
-            "status": "created",
-            "title": str(detail.requirement.title),
-            "action": "create_requirement",
-            "requirement_id": int(detail.requirement.id),
-            "source_ref": review_source_ref,
-        })
+        family_action = str((detail.requirement.intake_metadata or {}).get("family_recommendation", {}).get("action") or "")
+        if family_action in {"reuse_existing", "archive_experiment"} or str(detail.requirement.source_ref or "") != review_source_ref:
+            reused_requirement_ids.append(int(detail.requirement.id))
+            items.append({
+                "bundle_item_key": bundle_item_key,
+                "status": "linked_existing",
+                "title": str(detail.requirement.title),
+                "action": "reuse_existing",
+                "requirement_id": int(detail.requirement.id),
+                "source_ref": review_source_ref,
+            })
+        else:
+            created_requirement_ids.append(int(detail.requirement.id))
+            items.append({
+                "bundle_item_key": bundle_item_key,
+                "status": "created",
+                "title": str(detail.requirement.title),
+                "action": "create_requirement",
+                "requirement_id": int(detail.requirement.id),
+                "source_ref": review_source_ref,
+            })
 
     logger.info(
         "event=company_review_bundle_materialized review_id=%s created=%s reused=%s skipped=%s auto_start=%s",
@@ -1887,17 +1899,31 @@ def materialize_company_review_automation_candidates(
             },
         )
         detail = create_requirement(db, body)
-        created_requirement_ids.append(int(detail.requirement.id))
-        items.append(
-            {
-                "bundle_item_key": candidate_key,
-                "status": "created",
-                "title": str(detail.requirement.title),
-                "action": "create_requirement",
-                "requirement_id": int(detail.requirement.id),
-                "source_ref": review_source_ref,
-            }
-        )
+        family_action = str((detail.requirement.intake_metadata or {}).get("family_recommendation", {}).get("action") or "")
+        if family_action in {"reuse_existing", "archive_experiment"} or str(detail.requirement.source_ref or "") != review_source_ref:
+            reused_requirement_ids.append(int(detail.requirement.id))
+            items.append(
+                {
+                    "bundle_item_key": candidate_key,
+                    "status": "linked_existing",
+                    "title": str(detail.requirement.title),
+                    "action": "reuse_existing",
+                    "requirement_id": int(detail.requirement.id),
+                    "source_ref": review_source_ref,
+                }
+            )
+        else:
+            created_requirement_ids.append(int(detail.requirement.id))
+            items.append(
+                {
+                    "bundle_item_key": candidate_key,
+                    "status": "created",
+                    "title": str(detail.requirement.title),
+                    "action": "create_requirement",
+                    "requirement_id": int(detail.requirement.id),
+                    "source_ref": review_source_ref,
+                }
+            )
 
     logger.info(
         "event=company_review_automation_materialized review_id=%s created=%s reused=%s skipped=%s auto_start=%s",

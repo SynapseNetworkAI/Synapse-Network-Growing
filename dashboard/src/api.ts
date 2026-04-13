@@ -621,6 +621,7 @@ export interface WorkflowRun {
   id: number
   requirement_id: number
   plan_version: number
+  step_model_version: string
   status: string
   triggered_by: string
   planner_artifact_id: number | null

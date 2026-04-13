@@ -122,7 +122,7 @@ def _is_validation_clone_requirement(task: TaskRow) -> bool:
 
 def _should_use_deterministic_delivery_executor(task: TaskRow, step_type: str) -> bool:
     return (
-        step_type in {"research", "synthesis", "implementation", "review", "test", "closeout"}
+        step_type in {"research", "plan", "implementation", "validate", "closeout"}
         and _is_requirement_centric_delivery_requirement(task)
         and _is_validation_clone_requirement(task)
     )
@@ -232,7 +232,7 @@ def _deterministic_delivery_validation_result(db, task: TaskRow, output_dir: Pat
                 "- No broad repository survey was needed for this requirement-centric branch delivery validation.",
             ]
         )
-    elif step_type == "synthesis":
+    elif step_type == "plan":
         lines.extend(
             [
                 "## Deterministic Execution Plan",
@@ -270,20 +270,7 @@ def _deterministic_delivery_validation_result(db, task: TaskRow, output_dir: Pat
                 f"- Branch delivery will now commit and push this change on `{branch_name}`.",
             ]
         )
-    elif step_type == "review":
-        exists = target_file.exists()
-        lines.extend(
-            [
-                "## Review Summary",
-                f"- tracked file present: `{exists}`",
-                f"- tracked file: `{output_relpath}`",
-                f"- compare_url: `{compare_url or '<pending>'}`",
-                f"- pr_url: `{pr_url or '<pending>'}`",
-                "",
-                "Review confirms the delivery artifact is review-ready for branch promotion.",
-            ]
-        )
-    elif step_type == "test":
+    elif step_type == "validate":
         remote_branch = _git_capture(repo_root, "ls-remote", "--heads", "origin", branch_name)
         remote_sha_fallback = str(
             delivery_state.get("latest_remote_sha")
@@ -302,7 +289,7 @@ def _deterministic_delivery_validation_result(db, task: TaskRow, output_dir: Pat
                 remote_branch,
                 "```",
                 "",
-                "Validation confirms the requirement branch is present on origin and the delivery artifact exists.",
+                "Validation confirms the requirement branch is present on origin, the delivery artifact exists, and the review surface is ready for closeout.",
             ]
         )
     else:

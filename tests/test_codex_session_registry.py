@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
+
 from server.database import AgentRow, CodexSessionRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.codex_cli import codex_runtime_paths
 from server.services.codex_session_registry import (
     build_session_key,
     find_reusable_session,
+    safe_update_session_state,
     update_session_state,
     upsert_session_launch,
     validate_codex_session_registry,
@@ -242,3 +245,62 @@ def test_update_session_state_accumulates_usage_once_per_completed_task(db_sessi
         "output_tokens": 5,
     }
     assert payload["cumulative_turn_count"] == 2
+
+
+def test_update_session_state_skips_frequent_heartbeat_writes(db_session, tmp_path):
+    task, project_root = _seed_codex_session(
+        db_session,
+        tmp_path,
+        suffix="heartbeat",
+        thread_id="thread-heartbeat",
+        status="active",
+    )
+    requirement_id = task.workflow_steps[0].requirement_id
+    session = db_session.query(CodexSessionRow).filter(CodexSessionRow.current_task_id == task.id).first()
+    assert session is not None
+    before_last_used = session.last_used_at
+    before_heartbeat = session.last_heartbeat_at
+
+    update_session_state(
+        db_session,
+        role_key="dev_rel",
+        project_root=str(project_root),
+        requirement_id=requirement_id,
+        heartbeat=True,
+    )
+    db_session.commit()
+
+    db_session.refresh(session)
+    assert session.last_used_at == before_last_used
+    assert session.last_heartbeat_at == before_heartbeat
+
+
+def test_safe_update_session_state_swallows_sqlite_lock(db_session, tmp_path, monkeypatch):
+    task, project_root = _seed_codex_session(
+        db_session,
+        tmp_path,
+        suffix="safe-lock",
+        thread_id="thread-safe-lock",
+        status="active",
+    )
+    requirement_id = task.workflow_steps[0].requirement_id
+
+    original_flush = db_session.flush
+
+    def locked_flush(*args, **kwargs):
+        raise OperationalError("UPDATE codex_sessions", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(db_session, "flush", locked_flush)
+
+    row = safe_update_session_state(
+        db_session,
+        role_key="dev_rel",
+        project_root=str(project_root),
+        requirement_id=requirement_id,
+        status="active",
+        metadata_patch={"usage": {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 0}},
+    )
+
+    assert row is None
+
+    monkeypatch.setattr(db_session, "flush", original_flush)

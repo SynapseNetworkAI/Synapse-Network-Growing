@@ -351,19 +351,19 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
-        # Should have research, synthesis, implementation sub-steps + review + test + closeout
-        assert step_keys[:2] == ["research", "synthesis"]
+        # Should have research, plan, implementation sub-steps + validate + closeout
+        assert step_keys[:2] == ["research", "plan"]
         assert "design" in step_keys
         assert "frontend_impl" in step_keys
         assert "backend_impl" in step_keys
         assert "test_impl" in step_keys
-        assert "review" in step_keys
-        assert "test" in step_keys
+        assert "validate" in step_keys
         assert "closeout" in step_keys
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
-        assert output["schema_version"] == "1.8"
+        assert output["schema_version"] == "2.0"
+        assert output["step_model_version"] == "2.0"
         assert output["detected_phases"]["design"] is True
         assert output["project_intelligence"]["routing_mode"] == "explicit"
         assert output["project_intelligence"]["project_scorecards"][0]["project_key"] == "synapse-network"
@@ -384,13 +384,12 @@ class TestBuildPlannerOutput:
         assert output["execution_controls"]["capability_matrix"]["shell_access"] is True
         assert output["context_governance"]["default_limits"]["block_on_stale_memory"] is True
         assert output["extensions"]["role_assignments"]["researcher_agent_id"]
-        assert output["extensions"]["role_assignments"]["synthesizer_agent_id"]
+        assert output["extensions"]["role_assignments"]["planner_agent_id"]
 
-        # Review should depend on the last impl step (test_impl)
-        review_step = next(s for s in output["workflow_steps"] if s["step_key"] == "review")
-        assert review_step["depends_on"] == ["test_impl"]
+        validate_step = next(s for s in output["workflow_steps"] if s["step_key"] == "validate")
+        assert validate_step["depends_on"] == ["test_impl"]
         first_impl = next(s for s in output["workflow_steps"] if s["step_key"] == "design")
-        assert first_impl["depends_on"] == ["synthesis"]
+        assert first_impl["depends_on"] == ["plan"]
         assert first_impl["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
         assert first_impl["approval_policy"]["deny_execution"] is False
         assert first_impl["context_policy"]["max_prompt_chars"] >= 12000
@@ -404,7 +403,7 @@ class TestBuildPlannerOutput:
         frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
         assert frontend_step["complexity_tier"] == "standard"
         assert frontend_step["execution_profile"]["budget_cap"]["max_input_tokens"] == 14000
-        assert review_step["complexity_tier"] == "standard"
+        assert validate_step["complexity_tier"] == "standard"
         closeout_step = next(s for s in output["workflow_steps"] if s["step_key"] == "closeout")
         assert closeout_step["complexity_tier"] == "mini"
         assert output["model_routing"]["supported_tiers"] == ["mini", "standard", "max"]
@@ -422,8 +421,8 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
-        # Should fall back to research + synthesis + single implementation step
-        assert step_keys[:3] == ["research", "synthesis", "implementation"]
+        # Should fall back to research + plan + single implementation step
+        assert step_keys[:3] == ["research", "plan", "implementation"]
         assert "implementation" in step_keys
         assert "design" not in step_keys
         assert output["target_project_path"] is None
@@ -501,7 +500,7 @@ class TestBuildPlannerOutput:
             output, _ = build_planner_output(db_session, req)
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
-        assert step_keys == ["research", "synthesis", "frontend_impl", "backend_impl", "review", "test", "closeout"]
+        assert step_keys == ["research", "plan", "frontend_impl", "backend_impl", "validate", "closeout"]
         frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
         backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
         assert frontend_step["complexity_tier"] == "standard"
@@ -937,10 +936,9 @@ class TestBuildPlannerOutput:
         assert "rollback_path_documented" in acceptance_keys
         assert output["requirement_template"]["template_key"] == "release_bottleneck"
 
-        review_step = next(step for step in output["workflow_steps"] if step["step_key"] == "review")
-        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
-        assert any(target["check_key"] == "rollback_path_documented" for target in review_step["validation_targets"])
-        assert any(target["check_key"] == "release_blocker_removed" for target in test_step["validation_targets"])
+        validate_step = next(step for step in output["workflow_steps"] if step["step_key"] == "validate")
+        assert any(target["check_key"] == "rollback_path_documented" for target in validate_step["validation_targets"])
+        assert any(target["check_key"] == "release_blocker_removed" for target in validate_step["validation_targets"])
 
     def test_bug_intake_requirements_gain_bug_validation_contract(self, synced_client, db_session):
         req = RequirementRow(
@@ -967,13 +965,33 @@ class TestBuildPlannerOutput:
             "bug_verification_passed",
         } <= acceptance_keys
         assert "bug-derived requirements" in output["validation_plan"]["summary_markdown"]
-        review_step = next(step for step in output["workflow_steps"] if step["step_key"] == "review")
-        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
-        assert any(target["check_key"] == "root_cause_documented" for target in review_step["validation_targets"])
-        assert any(target["check_key"] == "bug_evidence_bound" for target in review_step["validation_targets"])
-        assert any(target["check_key"] == "fix_applied" for target in test_step["validation_targets"])
-        assert any(target["check_key"] == "regression_guard_added" for target in test_step["validation_targets"])
-        assert any(target["check_key"] == "bug_verification_passed" for target in test_step["validation_targets"])
+        validate_step = next(step for step in output["workflow_steps"] if step["step_key"] == "validate")
+        assert any(target["check_key"] == "root_cause_documented" for target in validate_step["validation_targets"])
+        assert any(target["check_key"] == "bug_evidence_bound" for target in validate_step["validation_targets"])
+        assert any(target["check_key"] == "fix_applied" for target in validate_step["validation_targets"])
+        assert any(target["check_key"] == "regression_guard_added" for target in validate_step["validation_targets"])
+        assert any(target["check_key"] == "bug_verification_passed" for target in validate_step["validation_targets"])
+
+    def test_validation_clone_delivery_requirement_uses_deterministic_planner(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Validation clone queue chain deterministic planning",
+            description_markdown=(
+                "Requirement-centric branch delivery validation on validation clone. "
+                "Commit, push, sync a draft PR, and produce a review-ready bundle."
+            ),
+            source="manual",
+            target_project_path="/private/tmp/sng-delivery-validation-next",
+        )
+        db_session.add(req)
+        db_session.commit()
+
+        with patch("server.services.workflow_planner._plan_with_agent", side_effect=AssertionError("agent planner should not run")):
+            output, assignments = build_planner_output(db_session, req)
+
+        assert output["planning_mode"] == "deterministic_validation_clone"
+        implementation_steps = [step for step in output["workflow_steps"] if step["step_type"] == "implementation"]
+        assert len(implementation_steps) == 1
+        assert assignments.implementer_agent_id == "dev_rel"
 
     def test_cross_project_bug_requirements_gain_cross_project_recovery_check(self, synced_client, db_session):
         req = RequirementRow(
@@ -1002,8 +1020,8 @@ class TestBuildPlannerOutput:
         acceptance_keys = {item["check_key"] for item in output["acceptance_checks"]}
         assert "cross_project_recovery_verified" in acceptance_keys
         assert "Cross-project bug recovery" in output["validation_plan"]["summary_markdown"]
-        test_step = next(step for step in output["workflow_steps"] if step["step_key"] == "test")
-        assert any(target["check_key"] == "cross_project_recovery_verified" for target in test_step["validation_targets"])
+        validate_step = next(step for step in output["workflow_steps"] if step["step_key"] == "validate")
+        assert any(target["check_key"] == "cross_project_recovery_verified" for target in validate_step["validation_targets"])
 
 
 # ---------------------------------------------------------------------------
@@ -1053,14 +1071,13 @@ class TestRequirementApiWithProjectPath:
         steps = plan_resp.json()["workflow_run"]["steps"]
         step_keys = [s["step_key"] for s in steps]
 
-        # All context + implementation sub-steps + review + test + closeout
-        assert step_keys[:2] == ["research", "synthesis"]
+        # All context + implementation sub-steps + validate + closeout
+        assert step_keys[:2] == ["research", "plan"]
         assert "design" in step_keys
         assert "frontend_impl" in step_keys
         assert "backend_impl" in step_keys
         assert "test_impl" in step_keys
-        assert "review" in step_keys
-        assert "test" in step_keys
+        assert "validate" in step_keys
         assert "closeout" in step_keys
 
         # Verify file_scope from DB directly
@@ -1090,4 +1107,4 @@ class TestRequirementApiWithProjectPath:
         assert len(impl_steps) == 1
         assert impl_steps[0]["step_key"] == "implementation"
         all_step_keys = [s["step_key"] for s in steps]
-        assert all_step_keys[:3] == ["research", "synthesis", "implementation"]
+        assert all_step_keys[:3] == ["research", "plan", "implementation"]

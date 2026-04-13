@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from server.database import ProjectOnboardingRow, ProjectPolicyRow, RequirementRow
@@ -299,9 +300,13 @@ def aggregate_execution_controls(project_policies: list[dict[str, Any]]) -> dict
 
 
 def ensure_default_project_policies(db: Session) -> None:
-    rows = db.query(ProjectPolicyRow).all()
-    existing = {str(row.project_key) for row in rows}
-    existing_roots = {_normalize_root_path(str(row.root_path)) for row in rows}
+    rows = db.execute(text("SELECT project_key, root_path FROM project_policies")).all()
+    existing = {str(project_key) for project_key, _ in rows if project_key}
+    existing_roots = {
+        _normalize_root_path(str(root_path))
+        for _, root_path in rows
+        if root_path
+    }
     changed = False
     for policy in DEFAULT_PROJECT_POLICIES:
         normalized_root = _normalize_root_path(policy["root_path"])

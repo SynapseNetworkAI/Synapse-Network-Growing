@@ -82,7 +82,12 @@ from server.services.requirement_approval import (
 )
 from server.services.project_policy import project_policy_summary_markdown, project_policy_to_dict, resolve_project_policies_for_target
 from server.services.project_intelligence import resolve_requirement_routing, serialize_requirement
-from server.services.requirement_sources import normalize_requirement_intake_metadata
+from server.services.requirement_family import (
+    build_requirement_family_context,
+    build_requirement_family_recommendation,
+    find_active_requirement_for_family,
+)
+from server.services.requirement_sources import normalize_requirement_intake_metadata, requirement_intake_metadata_for_requirement
 from server.services.task_metadata import task_metadata_for_agent
 from server.services.workflow_planner import WorkflowRoleAssignments, build_planner_output
 
@@ -91,7 +96,7 @@ RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
 SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
 MUTATING_STEP_TYPES = {"implementation", "bugfix"}
-NON_MUTATING_STEP_TYPES = {"research", "synthesis", "review", "test"}
+NON_MUTATING_STEP_TYPES = {"research", "plan", "validate", "synthesis", "review", "test"}
 DELETED_REQUIREMENT_STATUSES = {"deleted"}
 DELETED_WORKFLOW_STATUSES = {"deleted"}
 DELETED_STEP_STATUSES = {"deleted"}
@@ -122,6 +127,17 @@ _AUTO_PLAN_LOCK = threading.Lock()
 
 import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
+
+
+def _should_inline_auto_plan(db: Session) -> bool:
+    bind = db.get_bind()
+    url = getattr(bind, "url", None)
+    if url is None:
+        return False
+    if str(getattr(url, "drivername", "")).split("+", 1)[0] != "sqlite":
+        return False
+    database = str(getattr(url, "database", "") or "")
+    return database in {"", ":memory:"}
 
 
 def _github_https_remote(remote_url: str | None) -> str | None:
@@ -702,6 +718,13 @@ def _snapshot_file_changes(db: Session, task: TaskRow, requirement: RequirementR
                     "project_policy_summary": project_policy_summary_markdown(db, target_path),
                 }
             )
+
+        step_type = str(step.step_type or "") if step is not None else ""
+        if not changed_files and step_type in NON_MUTATING_STEP_TYPES:
+            snapshot_path = output_dir / "file-changes.json"
+            if snapshot_path.exists():
+                snapshot_path.unlink()
+            return
 
         snapshot = {
             "changed_files": changed_files,
@@ -1394,7 +1417,7 @@ def _is_summary_like_step(step: WorkflowStepRow) -> bool:
     outputs = profile.get("expected_outputs") or []
     if not isinstance(outputs, list) or not outputs:
         return False
-    reportish = {"research_report", "synthesis_report", "validation_manifest", "review_surface"}
+    reportish = {"research_report", "plan_brief", "synthesis_report", "validation_report", "validation_manifest", "review_surface"}
     output_types = {
         str(item.get("artifact_type") or "").strip()
         for item in outputs
@@ -1733,6 +1756,83 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         description_markdown=body.description_markdown,
         target_project_path=requested_target,
     )
+    intake_metadata = normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata)
+    resolved_target = _normalize_target_project_path(
+        str(routing_context.get("target_project_path") or "") or requested_target
+    )
+    family_context = build_requirement_family_context(
+        title=body.title,
+        source=body.source,
+        source_ref=body.source_ref,
+        target_project_path=resolved_target,
+        description_markdown=body.description_markdown,
+        intake_metadata=intake_metadata,
+    )
+    existing_family_requirement = find_active_requirement_for_family(
+        db,
+        family_key=str(family_context.get("family_key") or ""),
+    )
+    family_recommendation = build_requirement_family_recommendation(
+        title=body.title,
+        source=body.source,
+        source_ref=body.source_ref,
+        target_project_path=resolved_target,
+        description_markdown=body.description_markdown,
+        intake_metadata=intake_metadata,
+        existing_requirement=existing_family_requirement,
+    )
+    intake_metadata.update(
+        {
+            "family_key": family_context.get("family_key"),
+            "family_category": family_context.get("family_category"),
+            "family_target_root": family_context.get("family_target_root"),
+            "family_key_suffix": family_context.get("family_key_suffix"),
+            "is_validation_experiment": bool(family_context.get("is_validation_experiment")),
+            "family_recommendation": family_recommendation,
+        }
+    )
+    if existing_family_requirement is not None and str(family_recommendation.get("action") or "") in {"reuse_existing", "archive_experiment"}:
+        existing_intake = requirement_intake_metadata_for_requirement(existing_family_requirement)
+        existing_intake.update(
+            {
+                "family_key": family_context.get("family_key"),
+                "family_category": family_context.get("family_category"),
+                "family_target_root": family_context.get("family_target_root"),
+                "family_key_suffix": family_context.get("family_key_suffix"),
+                "is_validation_experiment": bool(family_context.get("is_validation_experiment")),
+                "family_recommendation": family_recommendation,
+                "family_primary_requirement_id": int(existing_family_requirement.id),
+                "family_reuse_count": int(existing_intake.get("family_reuse_count") or 0) + 1,
+                "family_last_source_ref": str(body.source_ref or "").strip() or None,
+                "family_last_title": str(body.title or ""),
+            }
+        )
+        existing_family_requirement.intake_metadata_json = json.dumps(existing_intake, ensure_ascii=False)
+        priority_rank = {"low": 0, "normal": 1, "high": 2}
+        if priority_rank.get(str(body.priority), 1) > priority_rank.get(str(existing_family_requirement.priority), 1):
+            existing_family_requirement.priority = body.priority
+        _create_artifact(
+            db,
+            requirement_id=int(existing_family_requirement.id),
+            artifact_type="family_intake_decision",
+            content_summary=f"Family intake reused requirement #{existing_family_requirement.id}",
+            human_readable_body=(
+                f"Incoming requirement `{body.title}` was merged into active family requirement #{existing_family_requirement.id}.\n"
+                f"Family key: `{family_context.get('family_key')}`\n"
+                f"Decision: `{family_recommendation.get('action')}`\n"
+                f"Reason: {family_recommendation.get('reason')}"
+            ),
+            machine_readable_payload={
+                "incoming_title": str(body.title),
+                "incoming_source": str(body.source),
+                "incoming_source_ref": str(body.source_ref or "") or None,
+                "family_context": family_context,
+                "family_recommendation": family_recommendation,
+                "primary_requirement_id": int(existing_family_requirement.id),
+            },
+        )
+        db.commit()
+        return build_requirement_detail(db, int(existing_family_requirement.id))
     requirement = RequirementRow(
         title=body.title,
         description_markdown=body.description_markdown,
@@ -1741,12 +1841,10 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         source=body.source,
         source_ref=body.source_ref,
         intake_metadata_json=json.dumps(
-            normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata),
+            intake_metadata,
             ensure_ascii=False,
         ),
-        target_project_path=_normalize_target_project_path(
-            str(routing_context.get("target_project_path") or "") or requested_target
-        ),
+        target_project_path=resolved_target,
         acceptance_contract_json=json.dumps(normalize_acceptance_contract(body.acceptance_contract), ensure_ascii=False),
         approval_contract_json=json.dumps(normalize_requirement_approval_contract(body.approval_contract), ensure_ascii=False),
     )
@@ -1762,11 +1860,26 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         content_summary=f"Intake record for requirement #{requirement.id}",
         human_readable_body=str(
             (
-                normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata).get("intake_reason")
+                intake_metadata.get("intake_reason")
                 or "Requirement entered the pool."
             )
         ),
-        machine_readable_payload=normalize_requirement_intake_metadata(body.source, body.source_ref, body.intake_metadata),
+        machine_readable_payload=intake_metadata,
+    )
+    _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="family_intake_decision",
+        content_summary=f"Family intake decision for requirement #{requirement.id}",
+        human_readable_body=(
+            f"Family key: `{family_context.get('family_key')}`\n"
+            f"Decision: `{family_recommendation.get('action')}`\n"
+            f"Reason: {family_recommendation.get('reason')}"
+        ),
+        machine_readable_payload={
+            "family_context": family_context,
+            "family_recommendation": family_recommendation,
+        },
     )
     _create_artifact(
         db,
@@ -1832,6 +1945,9 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     )
     requested_auto_start = bool(body.auto_start)
     effective_auto_start = bool(requested_auto_start or inferred_auto_start)
+    inline_auto_plan = _should_inline_auto_plan(db) and bool(
+        requested_auto_start or inferred_auto_start or body.target_project_path
+    )
     _logger.info(
         "event=requirement_created requirement_id=%s source=%s priority=%s routing_mode=%s target_paths=%s auto_start=%s",
         requirement.id,
@@ -1847,6 +1963,10 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     )
     if requested_auto_start and approved_for_execution:
         req_id = _as_int(requirement.id)
+        if req_id is not None and inline_auto_plan:
+            with _AUTO_PLAN_LOCK:
+                _plan_requirement_after_approval(db, requirement_id=req_id, trigger="auto_start", raise_on_failure=True)
+            return start_requirement(db, req_id)
 
         def _bg_plan_and_start(req_id: int) -> None:
             bg_db = SessionLocal()
@@ -1865,6 +1985,17 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         threading.Thread(target=_bg_plan_and_start, args=(req_id,), daemon=True).start()
     elif approved_for_execution:
         req_id = _as_int(requirement.id)
+        if req_id is not None and inline_auto_plan:
+            with _AUTO_PLAN_LOCK:
+                _plan_requirement_after_approval(
+                    db,
+                    requirement_id=req_id,
+                    trigger="requirement_create",
+                    raise_on_failure=True,
+                )
+            return build_requirement_detail(db, requirement.id)
+        if _should_inline_auto_plan(db):
+            return detail
 
         def _bg_plan_only(req_id: int) -> None:
             bg_db = SessionLocal()
@@ -1949,6 +2080,34 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
             ],
         },
     )
+    requirement_brief_artifact = _create_artifact(
+        db,
+        requirement_id=requirement.id,
+        artifact_type="requirement_brief",
+        content_summary=f"Bootstrap brief for requirement #{requirement.id}",
+        human_readable_body="\n".join(
+            [
+                "# Requirement Brief",
+                "",
+                f"## Goal\n{requirement.title}",
+                "",
+                f"## Context\n{requirement.description_markdown}",
+                "",
+                "## Constraints",
+                f"- Target project: `{requirement.target_project_path or '-'}`",
+                f"- Branch strategy: `{((planner_output.get('delivery_contract') or {}).get('branch_strategy') or 'requirement_branch')}`",
+                f"- Release mode: `{((planner_output.get('delivery_contract') or {}).get('release_mode') or 'manual')}`",
+                f"- Required checks: {', '.join(((planner_output.get('delivery_contract') or {}).get('required_checks') or [])) or 'none'}",
+            ]
+        ),
+        machine_readable_payload={
+            "goal": requirement.title,
+            "target_project_path": requirement.target_project_path,
+            "delivery_contract": planner_output.get("delivery_contract") or {},
+            "validation_plan": planner_output.get("validation_plan") or {},
+            "step_model_version": planner_output.get("step_model_version") or "2.0",
+        },
+    )
 
     workflow_run = WorkflowRunRow(
         requirement_id=requirement.id,
@@ -1995,6 +2154,7 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     _create_step_dependencies(db, steps_by_key, planner_output)
     for step in steps_by_key.values():
         _bind_artifact(db, step.id, snapshot_artifact.id, "primary_spec", True)
+        _bind_artifact(db, step.id, requirement_brief_artifact.id, "bootstrap_context", False)
         _bind_artifact(db, step.id, plan_artifact.id, "implementation_context", True)
         _bind_artifact(db, step.id, delivery_contract_artifact.id, "delivery_contract", True)
         _bind_artifact(db, step.id, validation_plan_artifact.id, "validation_contract", True)
@@ -2020,7 +2180,7 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     )
     if normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
         preferred_project_key, preferred_root_path = _queue_preference_for_requirement(db, requirement)
-        _schedule_advance_queue(
+        _schedule_advance_queue_compat(
             preferred_project_key=preferred_project_key,
             preferred_root_path=preferred_root_path,
         )
@@ -2991,6 +3151,8 @@ def build_requirement_detail(db: Session, requirement_id: int) -> RequirementDet
     if workflow_run is not None:
         run_out = WorkflowRunOut.model_validate(workflow_run)
         run_out.steps = steps
+        validation_payload = _validation_plan_payload(db, _as_int(requirement.id))
+        run_out.step_model_version = str(validation_payload.get("step_model_version") or "1.0")
 
     return RequirementDetailOut(
         requirement=RequirementOut(**serialize_requirement(db, requirement)),
@@ -3135,7 +3297,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 machine_readable_payload=bug_report_payload,
             )
             _am_push_task_failed(task, step, requirement)
-            if step.step_type in {"implementation", "review", "test", "bugfix"}:
+            if step.step_type in {"implementation", "validate", "review", "test", "bugfix"}:
                 project_metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(run.id))
                 bugfix_profile = _build_followup_execution_profile(
                     step,
@@ -3144,16 +3306,9 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                     error_text=error_text,
                     project_change_metrics=project_metrics,
                 )
-                review_profile = _build_followup_execution_profile(
+                validate_profile = _build_followup_execution_profile(
                     step,
-                    step_type="review",
-                    failure_count=failure_count,
-                    error_text=error_text,
-                    project_change_metrics=project_metrics,
-                )
-                test_profile = _build_followup_execution_profile(
-                    step,
-                    step_type="test",
+                    step_type="validate",
                     failure_count=failure_count,
                     error_text=error_text,
                     project_change_metrics=project_metrics,
@@ -3177,8 +3332,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                         step,
                         error_artifact,
                         bugfix_execution_profile=bugfix_profile,
-                        review_execution_profile=review_profile,
-                        test_execution_profile=test_profile,
+                        validate_execution_profile=validate_profile,
                     )
                     should_dispatch_next = True
             else:
@@ -3223,7 +3377,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
         failure_route = _resolve_failure_route(step, error_text)
         if failure_route == "requirement_revision":
             _create_requirement_revision_request(db, requirement, run, step, error_artifact, error_text)
-        elif step.step_type in {"implementation", "review", "test", "bugfix"}:
+        elif step.step_type in {"implementation", "validate", "review", "test", "bugfix"}:
             project_metrics = _project_change_metrics(db, _as_int(requirement.id), workflow_run_id=_as_int(run.id))
             bugfix_profile = _build_followup_execution_profile(
                 step,
@@ -3232,16 +3386,9 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 error_text=error_text,
                 project_change_metrics=project_metrics,
             )
-            review_profile = _build_followup_execution_profile(
+            validate_profile = _build_followup_execution_profile(
                 step,
-                step_type="review",
-                failure_count=failure_count,
-                error_text=error_text,
-                project_change_metrics=project_metrics,
-            )
-            test_profile = _build_followup_execution_profile(
-                step,
-                step_type="test",
+                step_type="validate",
                 failure_count=failure_count,
                 error_text=error_text,
                 project_change_metrics=project_metrics,
@@ -3265,8 +3412,7 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                     step,
                     error_artifact,
                     bugfix_execution_profile=bugfix_profile,
-                    review_execution_profile=review_profile,
-                    test_execution_profile=test_profile,
+                    validate_execution_profile=validate_profile,
                 )
                 should_dispatch_next = True
         else:
@@ -3655,8 +3801,10 @@ def _create_workflow_steps(
 ) -> dict[str, WorkflowStepRow]:
     role_agent_map = {
         "researcher": assignments.researcher_agent_id,
+        "planner": assignments.synthesizer_agent_id,
         "synthesizer": assignments.synthesizer_agent_id,
         "implementer": assignments.implementer_agent_id,
+        "validator": assignments.tester_agent_id,
         "reviewer": assignments.reviewer_agent_id,
         "tester": assignments.tester_agent_id,
     }
@@ -3672,7 +3820,7 @@ def _create_workflow_steps(
             sequence_no=index * 10,
             assigned_agent_id=role_agent_map.get(assigned_role),
             assigned_workflow_role=assigned_role,
-            context_scope="verification" if str(step_packet.get("step_type")) in {"review", "test", "closeout"} else "step_private",
+            context_scope="verification" if str(step_packet.get("step_type")) in {"validate", "review", "test", "closeout"} else "step_private",
             done_when_markdown=str(step_packet.get("done_when_markdown") or ""),
             context_policy_json=json.dumps(step_packet.get("context_policy") or {}),
             execution_profile_json=json.dumps(step_packet.get("execution_profile") or {}),
@@ -3733,7 +3881,7 @@ def _prepare_step_task(db: Session, step: WorkflowStepRow, *, prepared_descripti
         agent_id=str(agent.id),
         status="running",
         requires_approval=False,
-        priority="high" if step.step_type in {"test", "bugfix"} else "normal",
+        priority="high" if step.step_type in {"validate", "test", "bugfix"} else "normal",
         project_id=project_id,
         agent_group=agent_group,
         skill_name=skill_name,
@@ -3888,19 +4036,19 @@ def _binding_relevant_for_step(step: WorkflowStepRow, binding: StepInputBindingR
             return False
         if artifact_type in {"implementation_plan", "delivery_contract", "validation_plan", "review_report", "test_report"}:
             return False
-    elif step_type == "synthesis":
+    elif step_type == "plan":
         if purpose in {"delivery_contract", "validation_contract", "review_context", "test_context"}:
             return False
-        if artifact_type in {"implementation_plan", "delivery_contract", "validation_plan", "review_report", "test_report"}:
+        if artifact_type in {"implementation_plan", "delivery_contract", "validation_plan", "validation_report"}:
             return False
     elif step_type in {"implementation", "bugfix"}:
         if purpose in {"delivery_contract", "validation_contract", "review_context", "test_context"}:
             return False
-        if artifact_type in {"delivery_contract", "validation_plan", "review_report", "test_report"}:
+        if artifact_type in {"delivery_contract", "validation_plan", "validation_report"}:
             return False
-    if step_type == "synthesis" and artifact_type == "research_report":
+    if step_type == "plan" and artifact_type == "research_report":
         return False
-    if step_type in {"implementation", "bugfix"} and artifact_type == "synthesis_report":
+    if step_type in {"implementation", "bugfix"} and artifact_type == "plan_brief":
         return False
 
     return True
@@ -3950,7 +4098,7 @@ def _step_execution_guidance(db: Session, step: WorkflowStepRow) -> str:
                 "- Do not edit production code in this step.",
             ]
         )
-    if step_type == "synthesis":
+    if step_type == "plan":
         if delivery_requirement:
             return "\n".join(
                 [
@@ -3970,8 +4118,17 @@ def _step_execution_guidance(db: Session, step: WorkflowStepRow) -> str:
     if step_type in {"implementation", "bugfix"}:
         return "\n".join(
             [
-                "- Keep changes tightly scoped to the target project and files already identified by research/synthesis unless new evidence requires expansion.",
+                "- Keep changes tightly scoped to the target project and files already identified by research/plan unless new evidence requires expansion.",
                 "- Prefer minimal diffs that directly satisfy the stated goal and validation contract.",
+            ]
+        )
+    if step_type == "validate":
+        return "\n".join(
+            [
+                "- Treat validate as the single final quality gate for this requirement.",
+                "- Reuse plan and implementation evidence instead of repeating the whole requirement.",
+                "- Make the result binary: either validated and ready for closeout, or specific enough to trigger bugfix.",
+                "- Do not make new source edits in this step unless a policy artifact explicitly allows it.",
             ]
         )
     return ""
@@ -4026,11 +4183,11 @@ def _step_relevant_file_hints(db: Session, step: WorkflowStepRow, *, limit: int 
     step_type = str(step.step_type or "").strip().lower()
     requirement = _require_requirement(db, step.requirement_id)
     delivery_requirement = _is_requirement_centric_delivery_requirement(requirement)
-    if step_type not in {"implementation", "bugfix", "review", "test"} and not (
-        delivery_requirement and step_type in {"research", "synthesis"}
+    if step_type not in {"implementation", "bugfix", "validate", "review", "test"} and not (
+        delivery_requirement and step_type in {"research", "plan"}
     ):
         return []
-    if delivery_requirement and step_type in {"research", "synthesis"}:
+    if delivery_requirement and step_type in {"research", "plan"}:
         hints: list[str] = []
         seen: set[str] = set()
         description = str(getattr(requirement, "description_markdown", "") or "")
@@ -4050,7 +4207,7 @@ def _step_relevant_file_hints(db: Session, step: WorkflowStepRow, *, limit: int 
                 return hints
         return hints
     requirement_id = _as_int(step.requirement_id)
-    artifact_types = ["research_report", "synthesis_report", "implementation_plan"]
+    artifact_types = ["research_report", "plan_brief", "implementation_plan"]
     hints: list[str] = []
     seen: set[str] = set()
     for artifact_type in artifact_types:
@@ -4493,7 +4650,7 @@ def _approval_policy_markdown_lines(policy: dict[str, Any]) -> list[str]:
 
 def _step_required_capabilities_for_type(step_type: str) -> list[str]:
     required = ["git_read"]
-    if step_type in {"research", "synthesis", "review", "test", "implementation", "bugfix"}:
+    if step_type in {"research", "plan", "validate", "synthesis", "review", "test", "implementation", "bugfix"}:
         required.append("shell_access")
     if step_type in {"implementation", "bugfix"}:
         required.append("git_write")
@@ -4653,10 +4810,10 @@ def _requirement_prefers_engineering_contract(requirement: RequirementRow) -> bo
 def _step_prefers_engineering_contract(db: Session, step: WorkflowStepRow) -> bool:
     requirement = _require_requirement(db, step.requirement_id)
     step_type = str(step.step_type or "").strip().lower()
-    if step_type in {"implementation", "bugfix", "review", "test", "closeout"}:
+    if step_type in {"implementation", "bugfix", "validate", "review", "test", "closeout"}:
         return True
     if _requirement_prefers_engineering_contract(requirement):
-        return step_type in {"research", "synthesis"}
+        return step_type in {"research", "plan"}
     return False
 
 
@@ -4676,9 +4833,11 @@ def _engineering_execution_persona(step: WorkflowStepRow) -> dict[str, Any]:
     step_type = str(step.step_type or "").strip().lower()
     goal = {
         "research": "Investigate the codebase like a senior software engineer and isolate the likely root cause quickly.",
+        "plan": "Turn the current research into a compact implementation and validation brief for engineers.",
         "synthesis": "Turn the current research into a concrete implementation and verification plan for engineers.",
         "implementation": "Implement the smallest safe code change that fixes the issue and keeps verification in view.",
         "bugfix": "Apply a focused fix for the failed validation path and preserve the delivery contract.",
+        "validate": "Run the single final validation gate and confirm the outcome is ready for closeout or bugfix.",
         "review": "Review the code and verification evidence like a pragmatic engineering reviewer.",
         "test": "Run targeted technical validation and confirm the failure path is closed.",
         "closeout": "Summarize the engineering outcome, changed files, and validation evidence succinctly.",
@@ -4689,7 +4848,7 @@ def _engineering_execution_persona(step: WorkflowStepRow) -> dict[str, Any]:
             "Ignore any growth, SEO, launch, or marketing framing that may come from the stored role assignment.",
             "Prioritize repository evidence, minimal diffs, concrete verification, and closing the stated software issue.",
             "When the step allows edits, make real source-code or test changes in the target project instead of only producing documentation.",
-            "When the step is research or synthesis, avoid broad repo tours and stop once you have enough evidence to move the workflow forward.",
+            "When the step is research or plan, avoid broad repo tours and stop once you have enough evidence to move the workflow forward.",
         ]
     )
     return {
@@ -4722,9 +4881,11 @@ def _dependencies_satisfied(db: Session, step_id: int) -> bool:
 def _create_step_completion_artifact(db: Session, step: WorkflowStepRow, task: TaskRow) -> ArtifactRow:
     artifact_type = {
         "research": "research_report",
+        "plan": "plan_brief",
         "synthesis": "synthesis_report",
         "implementation": "step_output",
         "bugfix": "step_output",
+        "validate": "validation_report",
         "review": "review_report",
         "test": "test_report",
         "closeout": "validation_manifest",
@@ -5407,7 +5568,7 @@ def _maybe_escalate_ready_step(
     workflow_run: WorkflowRunRow,
     step: WorkflowStepRow,
 ) -> bool:
-    if str(step.step_type or "") not in {"implementation", "bugfix", "review", "test"}:
+    if str(step.step_type or "") not in {"implementation", "bugfix", "validate", "review", "test"}:
         return False
     profile = _step_execution_profile(step)
     if not bool(profile.get("allow_escalation", True)):
@@ -5466,7 +5627,7 @@ def _maybe_downgrade_ready_step(
             reasons=["summary/report step downgraded to mini tier"],
             project_change_metrics=metrics,
         )
-    if str(step.step_type or "") in {"review", "test"} and current_tier == "max":
+    if str(step.step_type or "") in {"validate", "review", "test"} and current_tier == "max":
         threshold = 8
         if int(metrics.get("changed_project_count") or 0) <= 1 and int(metrics.get("total_changed_files") or 0) < threshold:
             return _apply_step_runtime_tier(
@@ -5508,7 +5669,7 @@ def _build_followup_execution_profile(
     reasons: list[str] = []
     if allow_escalation and "step_failed_twice" in when and failure_count >= 2:
         reasons.append("step failed twice")
-    if allow_escalation and "review_or_test_blocker" in when and str(failed_step.step_type or "") in {"review", "test"}:
+    if allow_escalation and ("review_or_test_blocker" in when or "validation_blocker" in when) and str(failed_step.step_type or "") in {"validate", "review", "test"}:
         reasons.append(f"{failed_step.step_type} blocker detected")
     if allow_escalation and "multi_project_change_detected" in when and int(project_change_metrics.get("changed_project_count") or 0) > 1:
         reasons.append("multi-project change detected")
@@ -5533,7 +5694,7 @@ def _build_followup_execution_profile(
             "reasons": reasons,
             "adapted_at": utcnow().isoformat(),
         }
-    if step_type in {"review", "test"} and target_tier == "max" and int(project_change_metrics.get("changed_project_count") or 0) <= 1:
+    if step_type in {"validate", "review", "test"} and target_tier == "max" and int(project_change_metrics.get("changed_project_count") or 0) <= 1:
         profile["complexity_tier"] = "standard"
         profile["budget_cap"] = dict(_default_budget_cap("standard"))
     if step_type == "closeout":
@@ -5548,12 +5709,14 @@ def _bind_output_to_followup_steps(db: Session, step: WorkflowStepRow, artifact:
     ).all()
     purpose = {
         "research": "research_context",
+        "plan": "plan_context",
         "synthesis": "implementation_context",
         "implementation": "implementation_context",
         "bugfix": "bugfix_context",
+        "validate": "validation_context",
         "review": "review_context",
         "test": "test_context",
-        "closeout": "test_context",
+        "closeout": "validation_context",
     }.get(step.step_type, "implementation_context")
     for dep in dependents:
         _bind_artifact(db, dep.step_id, artifact.id, purpose, True)
@@ -5628,8 +5791,7 @@ def _create_bugfix_branch(
     bug_report_artifact: ArtifactRow,
     *,
     bugfix_execution_profile: dict[str, Any] | None = None,
-    review_execution_profile: dict[str, Any] | None = None,
-    test_execution_profile: dict[str, Any] | None = None,
+    validate_execution_profile: dict[str, Any] | None = None,
 ):
     existing = db.query(WorkflowStepRow).filter(
         WorkflowStepRow.workflow_run_id == workflow_run.id,
@@ -5644,15 +5806,11 @@ def _create_bugfix_branch(
     ).first()
     next_sequence = (max_sequence.sequence_no if max_sequence else 0) + 10
     bugfix_agent_id = failed_step.assigned_agent_id or _fallback_agent_id(db)
-    reviewer_agent_id = _secondary_agent_id(db, exclude={bugfix_agent_id})
-    tester_agent_id = _secondary_agent_id(db, exclude={bugfix_agent_id, reviewer_agent_id})
+    tester_agent_id = _secondary_agent_id(db, exclude={bugfix_agent_id})
     inherited_targets = _json_loads(failed_step.validation_targets_json, [])
-    review_targets = [{"check_key": "review_passed", "method": "manual_review"}]
-    test_targets = [{"check_key": "validation_passed", "method": "agent_validation"}]
-    if failed_step.step_type == "review" and isinstance(inherited_targets, list) and inherited_targets:
-        review_targets = inherited_targets
-    if failed_step.step_type == "test" and isinstance(inherited_targets, list) and inherited_targets:
-        test_targets = inherited_targets
+    validate_targets = [{"check_key": "validation_passed", "method": "agent_validation"}]
+    if failed_step.step_type in {"validate", "review", "test"} and isinstance(inherited_targets, list) and inherited_targets:
+        validate_targets = inherited_targets
     base_approval_policy = _json_loads(getattr(failed_step, "approval_policy_json", None), {})
 
     bugfix_step = WorkflowStepRow(
@@ -5683,75 +5841,39 @@ def _create_bugfix_branch(
     db.flush()
     _bind_artifact(db, bugfix_step.id, bug_report_artifact.id, "bugfix_context", True)
 
-    review_step = WorkflowStepRow(
+    validate_step = WorkflowStepRow(
         workflow_run_id=workflow_run.id,
         requirement_id=requirement.id,
-        step_key=f"review-{bugfix_step.id}",
-        step_type="review",
-        title=f"Review bugfix for {requirement.title}",
+        step_key=f"validate-{bugfix_step.id}",
+        step_type="validate",
+        title=f"Validate bugfix for {requirement.title}",
         status="pending",
         sequence_no=next_sequence + 10,
-        assigned_agent_id=reviewer_agent_id,
-        assigned_workflow_role="reviewer",
-        branch_from_step_id=failed_step.id,
-        context_scope="verification",
-        done_when_markdown="Bugfix review report is created and review check is passed.",
-        file_scope_json=failed_step.file_scope_json,
-        validation_targets_json=json.dumps(review_targets),
-        failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
-        approval_policy_json=json.dumps(_derived_approval_policy(
-            "review",
-            base_approval_policy,
-            execution_profile=review_execution_profile or _step_execution_profile(failed_step),
-            requirement=requirement,
-        )),
-        execution_profile_json=json.dumps(review_execution_profile or _step_execution_profile(failed_step)),
-    )
-    db.add(review_step)
-    db.flush()
-
-    test_step = WorkflowStepRow(
-        workflow_run_id=workflow_run.id,
-        requirement_id=requirement.id,
-        step_key=f"test-{bugfix_step.id}",
-        step_type="test",
-        title=f"Re-validate bugfix for {requirement.title}",
-        status="pending",
-        sequence_no=next_sequence + 20,
         assigned_agent_id=tester_agent_id,
-        assigned_workflow_role="tester",
+        assigned_workflow_role="validator",
         branch_from_step_id=failed_step.id,
         context_scope="verification",
-        done_when_markdown="Retest completes with a passing test report.",
+        done_when_markdown="Validation reruns and confirms the bugfix is ready for closeout.",
         file_scope_json=failed_step.file_scope_json,
-        validation_targets_json=json.dumps(test_targets),
+        validation_targets_json=json.dumps(validate_targets),
         failure_policy_json=json.dumps({"on_failure": "bugfix", "max_retries": 0}),
         approval_policy_json=json.dumps(_derived_approval_policy(
-            "test",
+            "validate",
             base_approval_policy,
-            execution_profile=test_execution_profile or _step_execution_profile(failed_step),
+            execution_profile=validate_execution_profile or _step_execution_profile(failed_step),
             requirement=requirement,
         )),
-        execution_profile_json=json.dumps(test_execution_profile or _step_execution_profile(failed_step)),
+        execution_profile_json=json.dumps(validate_execution_profile or _step_execution_profile(failed_step)),
     )
-    db.add(test_step)
+    db.add(validate_step)
     db.flush()
 
     db.add(
         WorkflowStepDependencyRow(
-            step_id=review_step.id,
+            step_id=validate_step.id,
             depends_on_step_id=bugfix_step.id,
             dependency_kind="output_required",
             required_artifact_types_json=json.dumps(["step_output"]),
-            is_blocking=True,
-        )
-    )
-    db.add(
-        WorkflowStepDependencyRow(
-            step_id=test_step.id,
-            depends_on_step_id=review_step.id,
-            dependency_kind="review_required",
-            required_artifact_types_json=json.dumps(["review_report"]),
             is_blocking=True,
         )
     )
@@ -5761,7 +5883,7 @@ def _create_bugfix_branch(
         WorkflowStepRow.step_type == "closeout",
     ).first()
     if closeout_step is not None:
-        closeout_step.sequence_no = next_sequence + 30
+        closeout_step.sequence_no = next_sequence + 20
         existing_deps = db.query(WorkflowStepDependencyRow).filter(WorkflowStepDependencyRow.step_id == closeout_step.id).all()
         for dep in existing_deps:
             db.delete(dep)
@@ -5769,9 +5891,9 @@ def _create_bugfix_branch(
         db.add(
             WorkflowStepDependencyRow(
                 step_id=closeout_step.id,
-                depends_on_step_id=test_step.id,
-                dependency_kind="test_required",
-                required_artifact_types_json=json.dumps(["test_report"]),
+                depends_on_step_id=validate_step.id,
+                dependency_kind="validation_required",
+                required_artifact_types_json=json.dumps(["validation_report"]),
                 is_blocking=True,
             )
         )
@@ -6092,7 +6214,7 @@ def _finalize_requirement(
     _am_push_requirement_completed(requirement, steps_summary, output_summary or "", changed_files)
     # After completing, advance the queue so the next ready requirement starts automatically
     preferred_project_key, preferred_root_path = _queue_preference_for_requirement(db, requirement)
-    _schedule_advance_queue(
+    _schedule_advance_queue_compat(
         preferred_project_key=preferred_project_key,
         preferred_root_path=preferred_root_path,
     )
@@ -6117,6 +6239,22 @@ def _schedule_advance_queue(
         finally:
             db.close()
     threading.Thread(target=_run, daemon=True).start()
+
+
+def _schedule_advance_queue_compat(
+    *,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
+) -> None:
+    try:
+        _schedule_advance_queue(
+            preferred_project_key=preferred_project_key,
+            preferred_root_path=preferred_root_path,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        _schedule_advance_queue()
 
 
 def _queue_preference_for_requirement(db: Session, requirement: RequirementRow) -> tuple[str | None, str | None]:
@@ -6449,6 +6587,9 @@ def _validation_plan_payload(db: Session, requirement_id: int) -> dict[str, Any]
 
 
 def _validation_plan_check_specs(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    combined = payload.get("validation_checks") or []
+    if isinstance(combined, list) and combined:
+        return [entry for entry in combined if isinstance(entry, dict)]
     checks: list[dict[str, Any]] = []
     for group_name in ("manual_checks", "automated_checks"):
         entries = payload.get(group_name) or []
@@ -6473,23 +6614,10 @@ def _validation_plan_markdown(payload: dict[str, Any]) -> str:
     if gates:
         lines.extend(["", "## Close Gate", *[f"- `{gate}` must pass before closeout." for gate in gates]])
 
-    manual_checks = payload.get("manual_checks") or []
-    if isinstance(manual_checks, list) and manual_checks:
-        lines.extend(["", "## Manual Checks"])
-        for check in manual_checks:
-            if not isinstance(check, dict):
-                continue
-            lines.append(
-                f"- `{check.get('check_key', '')}` via `{check.get('method', 'manual_review')}` "
-                f"owned by `{check.get('owner_role', 'reviewer')}`."
-            )
-
-    automated_checks = payload.get("automated_checks") or []
-    if isinstance(automated_checks, list) and automated_checks:
-        lines.extend(["", "## Automated Checks"])
-        for check in automated_checks:
-            if not isinstance(check, dict):
-                continue
+    validation_checks = _validation_plan_check_specs(payload)
+    if validation_checks:
+        lines.extend(["", "## Validation Checks"])
+        for check in validation_checks:
             lines.append(
                 f"- `{check.get('check_key', '')}` via `{check.get('method', 'agent_validation')}` "
                 f"owned by `{check.get('owner_role', 'tester')}`."
@@ -6616,6 +6744,11 @@ def _build_bug_report_payload(
     validation_plan = _validation_plan_payload(db, _as_int(requirement.id))
     root_failure_step_id = _root_failure_step_id(db, step)
     error_fingerprint = _error_fingerprint(error_text)
+    validation_targets = [
+        item
+        for item in _json_loads(step.validation_targets_json, [])
+        if isinstance(item, dict)
+    ]
     checks_by_key = {
         str(check.check_key): check
         for check in db.query(RequirementAcceptanceCheckRow).filter(
@@ -6623,9 +6756,7 @@ def _build_bug_report_payload(
         ).all()
     }
     failed_checks: list[dict[str, Any]] = []
-    for target in _json_loads(step.validation_targets_json, []):
-        if not isinstance(target, dict):
-            continue
+    for target in validation_targets:
         check_key = str(target.get("check_key") or "").strip()
         if not check_key:
             continue
@@ -6641,6 +6772,14 @@ def _build_bug_report_payload(
             }
         )
 
+    verification_type = "automated"
+    if str(step.step_type or "") == "review":
+        verification_type = "manual"
+    elif str(step.step_type or "") == "validate":
+        methods = {str(item.get("method") or "").strip() for item in validation_targets}
+        automated_methods = {"agent_validation", "content_assertion", "repo_file_changes", "closeout_gate"}
+        verification_type = "automated" if methods & automated_methods else "manual"
+
     return {
         "requirement_id": _as_int(requirement.id),
         "requirement_title": str(requirement.title),
@@ -6649,13 +6788,13 @@ def _build_bug_report_payload(
         "step_id": _as_int(step.id),
         "step_key": str(step.step_key),
         "step_type": str(step.step_type),
-        "verification_type": "manual" if step.step_type == "review" else "automated",
+        "verification_type": verification_type,
         "bugfix_owner_role": str(validation_plan.get("bugfix_owner_role") or "implementer"),
         "root_failure_step_id": root_failure_step_id,
         "bugfix_depth": _bugfix_branch_depth(db, _as_int(workflow_run.id), step) if workflow_run is not None else 0,
         "error_fingerprint": error_fingerprint,
         "target_project_path": _effective_target_project_path(db, requirement, step_type=str(step.step_type or "")),
-        "validation_targets": _json_loads(step.validation_targets_json, []),
+        "validation_targets": validation_targets,
         "failed_checks": failed_checks,
         "error": error_text,
         "status": str(task.status),

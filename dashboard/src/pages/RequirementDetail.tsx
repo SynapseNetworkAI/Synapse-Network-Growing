@@ -441,6 +441,13 @@ export default function RequirementDetail() {
   const validationPlan = parsePayload(validationPlanArtifact?.machine_readable_payload ?? null)
   const validationSummary = typeof validationPlan?.summary_markdown === 'string' ? validationPlan.summary_markdown : ''
   const validationGates = Array.isArray(validationPlan?.gates) ? validationPlan.gates : []
+  const stepModelVersion = detail.workflow_run?.step_model_version || '1.0'
+  const validationChecks = Array.isArray(validationPlan?.validation_checks)
+    ? validationPlan.validation_checks
+    : [
+        ...(Array.isArray(validationPlan?.manual_checks) ? validationPlan.manual_checks : []),
+        ...(Array.isArray(validationPlan?.automated_checks) ? validationPlan.automated_checks : []),
+      ]
   const manualChecks = Array.isArray(validationPlan?.manual_checks) ? validationPlan.manual_checks : []
   const automatedChecks = Array.isArray(validationPlan?.automated_checks) ? validationPlan.automated_checks : []
   const bugfixOwner = typeof validationPlan?.bugfix_owner_role === 'string' ? validationPlan.bugfix_owner_role : ''
@@ -1271,16 +1278,16 @@ export default function RequirementDetail() {
 
             {validationPlanArtifact && (
               <section className="p-4 border rounded-xl bg-slate-50" data-testid="validation-contract-panel">
-                <div className="mb-3 text-sm font-semibold">Validation Contract</div>
+                <div className="mb-3 text-sm font-semibold">Validation Contract{stepModelVersion !== '1.0' ? ` · Model ${stepModelVersion}` : ''}</div>
                 {validationSummary ? <Md>{validationSummary}</Md> : <div className="text-xs text-gray-500">暂无验证摘要。</div>}
                 <div className="grid gap-3 mt-3 sm:grid-cols-2">
                   <div className="p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Manual Checks</div>
-                    {manualChecks.length === 0 ? (
+                    <div className="mb-2 font-medium text-gray-900">{stepModelVersion === '2.0' ? 'Validation Checks' : 'Manual Checks'}</div>
+                    {(stepModelVersion === '2.0' ? validationChecks : manualChecks).length === 0 ? (
                       <div className="text-gray-500">无</div>
                     ) : (
                       <div className="space-y-2">
-                        {manualChecks.map((check, idx) => {
+                        {(stepModelVersion === '2.0' ? validationChecks : manualChecks).map((check, idx) => {
                           const item = check as Record<string, unknown>
                           return (
                             <div key={`${String(item.check_key)}-${idx}`}>
@@ -1293,8 +1300,13 @@ export default function RequirementDetail() {
                     )}
                   </div>
                   <div className="p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Automated Checks</div>
-                    {automatedChecks.length === 0 ? (
+                    <div className="mb-2 font-medium text-gray-900">{stepModelVersion === '2.0' ? 'Validation Mode' : 'Automated Checks'}</div>
+                    {stepModelVersion === '2.0' ? (
+                      <div className="space-y-1 text-gray-600">
+                        <div>{String(validationPlan?.validation_mode || 'single_gate')}</div>
+                        <div>closeout owner · {closeoutOwner || '-'}</div>
+                      </div>
+                    ) : automatedChecks.length === 0 ? (
                       <div className="text-gray-500">无</div>
                     ) : (
                       <div className="space-y-2">

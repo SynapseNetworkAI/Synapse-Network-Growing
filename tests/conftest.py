@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from server.database import Base, get_db, SessionLocal as _ProdSession
 from server.main import app
+from server.config import PROJECT_ROOT
 from server.services.agent_loader import ensure_agents_loaded
 from server.services.copilot_sdk_state import task_output_dir
 
@@ -38,6 +39,7 @@ def _fake_vcs_delivery(db, requirement, workflow_run, step):
         "branch_name": branch_name,
         "base_branch": "main",
         "remote_name": "origin",
+        "remote_url": "https://github.com/example/test-repo.git",
         "blockers": [],
         "repositories": [
             {
@@ -46,6 +48,7 @@ def _fake_vcs_delivery(db, requirement, workflow_run, step):
                 "branch_name": branch_name,
                 "commit_sha": "deadbeef0001",
                 "remote_sha": "deadbeef0001",
+                "remote_url": "https://github.com/example/test-repo.git",
                 "committed": True,
                 "pushed": True,
                 "blockers": [],
@@ -56,8 +59,28 @@ def _fake_vcs_delivery(db, requirement, workflow_run, step):
     return payload, None
 
 
+def _fake_review_pr_sync(db, requirement, workflow_run, step, delivery_contract=None, vcs_payload=None):
+    branch_name = str((vcs_payload or {}).get("branch_name") or f"ops/req-{getattr(requirement, 'id', 'x')}-test")
+    base_branch = str((vcs_payload or {}).get("base_branch") or "main")
+    return {
+        "status": "draft",
+        "pr_status": "draft",
+        "pr_number": 1,
+        "pr_url": "https://github.com/example/test-repo/pull/1",
+        "head_branch": branch_name,
+        "base_branch": base_branch,
+        "compare_url": f"https://github.com/example/test-repo/compare/{base_branch}...{branch_name}",
+        "blockers": [],
+    }, None
+
+
 def _fake_capture_task_file_change_baseline(db, task, requirement=None, step=None):
-    output_dir = task_output_dir(Path("/tmp"), str(getattr(task, "agent_id", "test")), int(task.id))
+    raw_output_path = str(getattr(task, "output_path", "") or "").strip()
+    if raw_output_path:
+        output_path = Path(raw_output_path).expanduser()
+        output_dir = output_path.parent
+    else:
+        output_dir = task_output_dir(PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id))
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "file-changes-baseline.json").write_text(
         json.dumps(
@@ -76,7 +99,12 @@ def _fake_capture_task_file_change_baseline(db, task, requirement=None, step=Non
 
 
 def _fake_snapshot_file_changes(db, task, requirement, step=None):
-    output_dir = task_output_dir(Path("/tmp"), str(getattr(task, "agent_id", "test")), int(task.id))
+    raw_output_path = str(getattr(task, "output_path", "") or "").strip()
+    if raw_output_path:
+        output_path = Path(raw_output_path).expanduser()
+        output_dir = output_path.parent
+    else:
+        output_dir = task_output_dir(PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id))
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "file-changes.json").write_text(
         json.dumps(
@@ -120,6 +148,8 @@ def setup_db():
         "server.services.workflow_orchestrator.SessionLocal", TestSession
     ), patch(
         "server.services.workflow_orchestrator._execute_requirement_vcs_delivery", _fake_vcs_delivery
+    ), patch(
+        "server.services.workflow_orchestrator._sync_requirement_review_pr", _fake_review_pr_sync
     ), patch(
         "server.services.workflow_orchestrator.capture_task_file_change_baseline",
         _fake_capture_task_file_change_baseline,

@@ -986,6 +986,7 @@ class WorkflowRunOut(BaseModel):
     id: int
     requirement_id: int
     plan_version: int
+    step_model_version: str = "1.0"
     status: str
     triggered_by: str
     planner_artifact_id: Optional[int] = None

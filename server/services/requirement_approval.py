@@ -308,7 +308,8 @@ def build_requirement_approval_recommendation(
     completeness_gaps: list[str] = []
     if not bool(context.get("description_complete")):
         completeness_gaps.append("description is too short")
-    if int(context.get("workflow_step_count") or 0) == 0:
+    has_active_plan = bool(getattr(requirement, "active_workflow_run_id", None)) or int(getattr(requirement, "current_plan_version", 0) or 0) > 0
+    if has_active_plan and int(context.get("workflow_step_count") or 0) == 0:
         completeness_gaps.append("workflow plan is missing")
     if int(context.get("target_project_count") or 0) == 0:
         completeness_gaps.append("target project is missing")
@@ -339,6 +340,21 @@ def build_requirement_approval_recommendation(
             "role": approval_role,
             "confidence": round(confidence, 2),
             "reason": "requirement is complete and low risk enough for autonomous execution",
+        }
+    only_priority_ceiling = bool(risk_hits) and all("exceeds auto-approve ceiling" in str(hit) for hit in risk_hits)
+    if (
+        str(router.get("approval_source") or "") == "agent"
+        and bool(context.get("is_bug_recovery"))
+        and not bool(context.get("cross_project_bug_recovery"))
+        and not bool(context.get("publish_impact"))
+        and only_priority_ceiling
+        and confidence >= max(min_confidence - 0.08, 0.68)
+    ):
+        return {
+            "action": "approve",
+            "role": approval_role,
+            "confidence": round(confidence, 2),
+            "reason": "single-project bug recovery exceeded the deterministic auto ceiling but passed agent review",
         }
     if confidence < min_confidence and route_to_human_on_low_confidence:
         return {

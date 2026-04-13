@@ -9,9 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from server import config
 from server.database import CodexSessionRow, TaskRow, utcnow
+
+
+_SESSION_HEARTBEAT_WRITE_INTERVAL_SECONDS = max(
+    int(config.CODEX_CLI_POLL_INTERVAL_SEC * 3),
+    15,
+)
 
 
 def build_session_key(*, role_key: str, project_root: str, requirement_id: int | None) -> str:
@@ -153,13 +160,33 @@ def update_session_state(
     row = db.query(CodexSessionRow).filter(CodexSessionRow.session_key == session_key).first()
     if row is None:
         return None
+    metadata_patch = metadata_patch or None
+    should_write_heartbeat = True
+    if heartbeat:
+        last_heartbeat = _as_aware(row.last_heartbeat_at or row.last_used_at or row.updated_at or row.created_at)
+        now = _as_aware(utcnow())
+        if (
+            status in {None, "", str(row.status or "")}
+            and not thread_id
+            and current_task_id is None
+            and resume_count is None
+            and not metadata_patch
+            and last_heartbeat is not None
+            and now is not None
+            and now <= last_heartbeat + timedelta(seconds=_SESSION_HEARTBEAT_WRITE_INTERVAL_SECONDS)
+        ):
+            should_write_heartbeat = False
     if thread_id:
         row.thread_id = thread_id
     if status:
         row.status = status
-    if heartbeat:
+    if heartbeat and should_write_heartbeat:
         row.last_heartbeat_at = utcnow()
-    row.last_used_at = utcnow()
+    if heartbeat:
+        if should_write_heartbeat:
+            row.last_used_at = utcnow()
+    else:
+        row.last_used_at = utcnow()
     if current_task_id is not None:
         row.current_task_id = current_task_id
     if resume_count is not None:
@@ -169,6 +196,19 @@ def update_session_state(
         row.metadata_json = json.dumps(payload, default=str)
     db.flush()
     return row
+
+
+def safe_update_session_state(
+    db: Session,
+    **kwargs: Any,
+) -> CodexSessionRow | None:
+    try:
+        return update_session_state(db, **kwargs)
+    except OperationalError as exc:
+        if "database is locked" not in str(exc).lower():
+            raise
+        db.rollback()
+        return None
 
 
 def _load_metadata(payload: str | None) -> dict[str, Any]:

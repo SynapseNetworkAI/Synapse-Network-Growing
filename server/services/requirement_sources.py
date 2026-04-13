@@ -111,6 +111,10 @@ def normalize_requirement_intake_metadata(
         value = raw.get(key)
         if value is not None:
             normalized[key] = value
+    for key, value in raw.items():
+        if key in normalized or value is None:
+            continue
+        normalized[key] = value
     return normalized
 
 
@@ -209,14 +213,11 @@ def _bug_blocker_flags(row: BugRecordRow) -> list[str]:
 
 
 def _bug_requires_human_approval(row: BugRecordRow) -> bool:
-    severity = str(getattr(row, "severity", "") or "").strip().lower()
-    if severity == "critical":
-        return True
     source_key = str(getattr(row, "source_key", "") or "").strip().lower()
     if source_key in {"workflow_incident", "delivery_blocker_bug"}:
         return True
     blocker_flags = set(_bug_blocker_flags(row))
-    return bool(blocker_flags & {"delivery_blocker", "workflow_incident", "critical", "explicit_blocker"})
+    return bool(blocker_flags & {"delivery_blocker", "workflow_incident"})
 
 
 def _bug_is_high_value(row: BugRecordRow, *, min_score: float) -> bool:
@@ -247,7 +248,7 @@ def _bug_approval_contract(db: Session, row: BugRecordRow) -> dict[str, object]:
         "fallback_reviewer": "operator",
         "auto_approve": {
             "enabled": True,
-            "max_priority": "high",
+            "max_priority": "normal",
             "max_complexity_tier": "standard",
             "single_project_only": True,
             "allow_incident_recovery": False,
@@ -471,6 +472,20 @@ def materialize_bug_backlog(
         row.status = "converted"
         db.add(row)
         db.commit()
+        family_action = str((detail.requirement.intake_metadata or {}).get("family_recommendation", {}).get("action") or "")
+        if family_action in {"reuse_existing", "archive_experiment"} or str(detail.requirement.source_ref or "") != source_ref:
+            reused_requirement_ids.append(int(detail.requirement.id))
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "deduped_to_active_requirement",
+                    "action": "reuse_existing",
+                    "bug_id": bug_id,
+                    "requirement_id": int(detail.requirement.id),
+                    "source_ref": source_ref,
+                }
+            )
+            continue
         created_requirement_ids.append(int(detail.requirement.id))
         items.append(
             {

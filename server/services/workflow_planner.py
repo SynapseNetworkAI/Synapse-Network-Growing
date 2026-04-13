@@ -91,7 +91,7 @@ Schema:
 }
 
 Rules:
-- Plan only implementation sub-steps. Research, synthesis, review, test, and closeout are added by the harness.
+- Plan only implementation sub-steps. Research, plan, validate, and closeout are added by the harness.
 - Keep between 1 and 5 implementation sub-steps.
 - Use dependency chains that reference earlier step_key values only.
 - Prefer concrete scopes: backend, frontend, infrastructure, test, or docs.
@@ -180,8 +180,8 @@ def _default_complexity_tier(*, step_type: str, scope: str = "", target_paths: l
     target_paths = target_paths or []
     if step_type == "closeout":
         return "mini"
-    if step_type in {"implementation", "bugfix", "review", "test"}:
-        if len(target_paths) > 1 and step_type in {"implementation", "bugfix", "review", "test"}:
+    if step_type in {"implementation", "bugfix", "validate"}:
+        if len(target_paths) > 1 and step_type in {"implementation", "bugfix", "validate"}:
             return "max"
         if scope == "docs" and len(target_paths) <= 1:
             return "mini"
@@ -205,7 +205,7 @@ def _default_escalation_rule(tier: str, *, allow_escalation: bool) -> dict[str, 
             "step_failed_twice",
             "changed_files_over_threshold",
             "multi_project_change_detected",
-            "review_or_test_blocker",
+            "validation_blocker",
         ],
         "changed_files_threshold": 8,
         "max_escalations": 1,
@@ -465,14 +465,17 @@ def _review_file_scope(target_project_path: str | None) -> dict:
     return _project_file_scope(target_project_path, write=False)
 
 
-def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
+STEP_MODEL_VERSION = "2.0"
+
+
+def _build_research_and_plan_steps(requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
     project_note = f"\nTarget project: {target_path}" if target_path else ""
     target_paths = _split_target_paths(target_path)
     research_outputs = [
         {"artifact_type": "research_report", "description": "Research findings, constraints, existing code paths, and risks."},
     ]
-    synthesis_outputs = [
-        {"artifact_type": "synthesis_report", "description": "Execution strategy, change plan, and verification outline."},
+    plan_outputs = [
+        {"artifact_type": "plan_brief", "description": "Execution strategy, change plan, and validation outline."},
     ]
     return [
         {
@@ -483,7 +486,7 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
             "depends_on": [],
             "required_artifacts": [
                 {"artifact_type": "requirement_snapshot", "purpose": "primary_spec", "required": True},
-                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
+                {"artifact_type": "requirement_brief", "purpose": "bootstrap_context", "required": False},
             ],
             "file_scope": _review_file_scope(target_path),
             "expected_outputs": research_outputs,
@@ -501,42 +504,42 @@ def _build_research_and_synthesis_steps(requirement: RequirementRow, target_path
             ),
         },
         {
-            "step_key": "synthesis",
-            "step_type": "synthesis",
-            "title": "Synthesize plan",
+            "step_key": "plan",
+            "step_type": "plan",
+            "title": "Plan implementation",
             "assigned_role": "synthesizer",
             "depends_on": ["research"],
             "required_artifacts": [
                 {"artifact_type": "research_report", "purpose": "research_context", "required": True},
-                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
+                {"artifact_type": "requirement_brief", "purpose": "bootstrap_context", "required": False},
             ],
             "file_scope": _review_file_scope(target_path),
-            "expected_outputs": synthesis_outputs,
+            "expected_outputs": plan_outputs,
             "validation_targets": [],
             "done_when_markdown": (
-                "Synthesis output turns research findings into a concrete execution plan with files, sequencing, and verification intent. "
+                "Plan output turns research findings into a concrete execution plan with files, sequencing, and validation intent. "
                 "Do not modify production code in this step."
                 f"{project_note}"
             ),
             "failure_policy": {"on_failure": "requirement_revision", "max_retries": 0},
             **_build_execution_profile(
-                step_type="synthesis",
+                step_type="plan",
                 target_paths=target_paths,
-                expected_outputs=synthesis_outputs,
+                expected_outputs=plan_outputs,
             ),
         },
     ]
 
 
 def _prepend_context_steps(workflow_steps: list[dict[str, Any]], requirement: RequirementRow, target_path: str | None) -> list[dict[str, Any]]:
-    context_steps = _build_research_and_synthesis_steps(requirement, target_path)
+    context_steps = _build_research_and_plan_steps(requirement, target_path)
     for step in workflow_steps:
         key = str(step.get("step_key") or "")
-        if key in {"research", "synthesis"}:
+        if key in {"research", "plan"}:
             continue
         depends_on = list(step.get("depends_on") or [])
         if not depends_on:
-            step["depends_on"] = ["synthesis"]
+            step["depends_on"] = ["plan"]
     return context_steps + workflow_steps
 
 
@@ -718,7 +721,7 @@ def _build_delivery_contract(
 def _step_required_capabilities(step: dict[str, Any]) -> list[str]:
     step_type = str(step.get("step_type") or "")
     required = ["git_read"]
-    if step_type in {"research", "synthesis", "review", "test", "implementation", "bugfix"}:
+    if step_type in {"research", "plan", "validate", "implementation", "bugfix"}:
         required.append("shell_access")
     if step_type in {"implementation", "bugfix"}:
         required.append("git_write")
@@ -768,6 +771,21 @@ def _is_requirement_centric_delivery_requirement(
         return False
     soft_markers = ("branch", "delivery", "review surface", "promotion")
     return any(marker in text for marker in soft_markers)
+
+
+def _is_validation_clone_delivery_requirement(
+    requirement: RequirementRow | None,
+    execution_controls: dict[str, Any] | None = None,
+) -> bool:
+    if not _is_requirement_centric_delivery_requirement(requirement, execution_controls=execution_controls):
+        return False
+    if requirement is None:
+        return False
+    target_path = str(getattr(requirement, "target_project_path", "") or "").strip().lower()
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    description = str(getattr(requirement, "description_markdown", "") or "").strip().lower()
+    haystack = "\n".join([target_path, title, description])
+    return "sng-delivery-validation" in haystack or "validation clone" in haystack
 
 
 def _is_engineering_process_requirement(requirement: RequirementRow | None) -> bool:
@@ -860,14 +878,14 @@ def _context_policy_for_step(step_type: str) -> dict[str, Any]:
         "stale_sensitive_artifact_types": [
             "requirement_snapshot",
             "research_report",
-            "synthesis_report",
+            "plan_brief",
             "implementation_plan",
             "validation_plan",
             "delivery_contract",
         ],
         "block_on_stale_memory": True,
     }
-    if step_type in {"review", "test", "closeout"}:
+    if step_type in {"validate", "closeout"}:
         base["max_prompt_chars"] = 10000
         base["compact_after_chars"] = 7500
         base["max_artifact_body_chars"] = 1800
@@ -875,7 +893,7 @@ def _context_policy_for_step(step_type: str) -> dict[str, Any]:
         base["max_prompt_chars"] = 14000
         base["compact_after_chars"] = 11000
         base["max_artifact_body_chars"] = 2600
-    if step_type in {"research", "synthesis"}:
+    if step_type in {"research", "plan"}:
         base["max_prompt_chars"] = 13000
         base["compact_after_chars"] = 9500
         base["max_artifact_body_chars"] = 2400
@@ -915,7 +933,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
             "check_type": "manual_review",
             "owner_role": "reviewer",
             "success_criteria_markdown": "Review artifact explains the root cause, blast radius, and chosen remediation path.",
-            "validation_step_key": "review",
+            "validation_step_key": "validate",
             "verification_type": "manual",
         },
         {
@@ -924,7 +942,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
             "check_type": "manual_review",
             "owner_role": "reviewer",
             "success_criteria_markdown": "Review surface links the change to bug evidence, fingerprint, or a reproducible failure path.",
-            "validation_step_key": "review",
+            "validation_step_key": "validate",
             "verification_type": "manual",
         },
         {
@@ -933,7 +951,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
             "check_type": "repo_file_changes",
             "owner_role": "tester",
             "success_criteria_markdown": "Validation shows file-change evidence for the project affected by the bug.",
-            "validation_step_key": "test",
+            "validation_step_key": "validate",
             "verification_type": "automated",
         },
         {
@@ -942,7 +960,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
             "check_type": "content_assertion",
             "owner_role": "tester",
             "success_criteria_markdown": "Automated validation demonstrates repeatable regression coverage or an equivalent guard exists.",
-            "validation_step_key": "test",
+            "validation_step_key": "validate",
             "verification_type": "automated",
         },
         {
@@ -951,7 +969,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
             "check_type": "content_assertion",
             "owner_role": "tester",
             "success_criteria_markdown": "Automated validation shows the bug is resolved, bounded, or escalated with an explicit guardrail.",
-            "validation_step_key": "test",
+            "validation_step_key": "validate",
             "verification_type": "automated",
         },
     ]
@@ -964,7 +982,7 @@ def _bug_validation_acceptance_checks(requirement: RequirementRow | None) -> lis
                 "check_type": "content_assertion",
                 "owner_role": "tester",
                 "success_criteria_markdown": "Automated validation shows the multi-project failure path is closed across all affected projects.",
-                "validation_step_key": "test",
+                "validation_step_key": "validate",
                 "verification_type": "automated",
             }
         )
@@ -996,9 +1014,7 @@ def _apply_template_targets_to_steps(workflow_steps: list[dict[str, Any]], templ
         check_key = str(check.get("check_key") or "").strip()
         if not check_key:
             continue
-        step_key = str(check.get("validation_step_key") or "")
-        if not step_key:
-            step_key = "review" if str(check.get("check_type") or "") == "manual_review" else "test"
+        step_key = str(check.get("validation_step_key") or "") or "validate"
         step = by_key.get(step_key)
         if step is None:
             continue
@@ -1034,6 +1050,10 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     incident_recovery = _is_incident_recovery_requirement(requirement)
     delivery_requirement = _is_requirement_centric_delivery_requirement(
+        requirement,
+        execution_controls=execution_controls,
+    )
+    validation_clone_delivery = _is_validation_clone_delivery_requirement(
         requirement,
         execution_controls=execution_controls,
     )
@@ -1080,100 +1100,87 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     )
     delivery_contract = _build_delivery_contract(requirement, target_path, project_policies, execution_controls)
 
-    # Mode 1: try agent full-plan first
+    # Mode 1: try agent full-plan first unless this is a deterministic validation-clone delivery flow.
     planning_mode = "full_plan"
     planning_hint = None
-    if incident_recovery:
-        planning_hint = (
-            "This is an engineering incident recovery requirement. "
-            "Prefer backend, infrastructure, or test scopes. "
-            "Do not create docs-only implementation steps unless the requirement explicitly asks for documentation as a deliverable. "
-            "At least one implementation step should apply a code or test change that closes the runtime failure path."
-        )
-    agent_steps = _plan_with_agent(description, target_path, planning_hint=planning_hint)
-    if agent_steps:
-        impl_steps, impl_keys = _build_steps_from_agent_plan(
-            requirement,
-            agent_steps,
-            target_path,
-        )
-        detected_phases_dict: dict[str, Any] = {
-            "design": any(s.step_key == "design" or s.scope == "docs" for s in agent_steps),
-            "frontend": any(s.scope == "frontend" for s in agent_steps),
-            "backend": any(s.scope in {"backend", "infrastructure"} for s in agent_steps),
-            "test_impl": any(s.scope == "test" for s in agent_steps),
-            "agent_plan_scopes": {s.step_key: s.scope for s in agent_steps},
-        }
-    if not agent_steps:
-        # Mode 2: fall back to 4-boolean phase detection
-        planning_mode = "phase_detect"
-        phases = _detect_phases_with_agent(description)
+    agent_steps = None
+    if validation_clone_delivery:
+        planning_mode = "deterministic_validation_clone"
+        phases = _detect_phases_fallback(description)
         impl_steps, impl_keys = _build_implementation_steps(requirement, phases, target_path)
         detected_phases_dict = {
             "design": phases.design,
             "frontend": phases.frontend,
             "backend": phases.backend,
             "test_impl": phases.test_impl,
+            "deterministic_validation_clone": True,
         }
+    else:
+        if incident_recovery:
+            planning_hint = (
+                "This is an engineering incident recovery requirement. "
+                "Prefer backend, infrastructure, or test scopes. "
+                "Do not create docs-only implementation steps unless the requirement explicitly asks for documentation as a deliverable. "
+                "At least one implementation step should apply a code or test change that closes the runtime failure path."
+            )
+        agent_steps = _plan_with_agent(description, target_path, planning_hint=planning_hint)
+        if agent_steps:
+            impl_steps, impl_keys = _build_steps_from_agent_plan(
+                requirement,
+                agent_steps,
+                target_path,
+            )
+            detected_phases_dict = {
+                "design": any(s.step_key == "design" or s.scope == "docs" for s in agent_steps),
+                "frontend": any(s.scope == "frontend" for s in agent_steps),
+                "backend": any(s.scope in {"backend", "infrastructure"} for s in agent_steps),
+                "test_impl": any(s.scope == "test" for s in agent_steps),
+                "agent_plan_scopes": {s.step_key: s.scope for s in agent_steps},
+            }
+        if not agent_steps:
+            # Mode 2: fall back to 4-boolean phase detection
+            planning_mode = "phase_detect"
+            phases = _detect_phases_with_agent(description)
+            impl_steps, impl_keys = _build_implementation_steps(requirement, phases, target_path)
+            detected_phases_dict = {
+                "design": phases.design,
+                "frontend": phases.frontend,
+                "backend": phases.backend,
+                "test_impl": phases.test_impl,
+            }
 
-    # Introduce explicit research + synthesis before implementation begins.
+    # Introduce explicit research + plan before implementation begins.
     workflow_steps = _prepend_context_steps(impl_steps, requirement, target_path)
     target_paths = _split_target_paths(target_path)
 
-    # The last implementation step key — review depends on it
+    # The last implementation step key — validate depends on it
     last_impl_key = impl_keys[-1] if impl_keys else "implementation"
 
     workflow_steps = workflow_steps + [
         {
-            "step_key": "review",
-            "step_type": "review",
-            "title": "Review output",
-            "assigned_role": "reviewer",
-            "depends_on": [last_impl_key],
-            "required_artifacts": [
-                {"artifact_type": "step_output", "purpose": "review_context", "required": True},
-            ],
-            "file_scope": _review_file_scope(target_path),
-            "expected_outputs": [
-                {"artifact_type": "review_report", "description": "Review findings and sign-off status."},
-            ],
-            "validation_targets": [
-                {"check_key": "review_passed", "method": "manual_review"},
-            ],
-            "done_when_markdown": "Review report is created and the review acceptance check is passed.",
-            "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
-            **_build_execution_profile(
-                step_type="review",
-                target_paths=target_paths,
-                expected_outputs=[
-                    {"artifact_type": "review_report", "description": "Review findings and sign-off status."},
-                ],
-            ),
-        },
-        {
-            "step_key": "test",
-            "step_type": "test",
+            "step_key": "validate",
+            "step_type": "validate",
             "title": "Validate output",
             "assigned_role": "tester",
-            "depends_on": ["review"],
+            "depends_on": [last_impl_key],
             "required_artifacts": [
-                {"artifact_type": "step_output", "purpose": "test_context", "required": True},
-                {"artifact_type": "review_report", "purpose": "test_context", "required": True},
+                {"artifact_type": "step_output", "purpose": "validation_context", "required": True},
+                {"artifact_type": "plan_brief", "purpose": "validation_context", "required": False},
             ],
             "file_scope": _review_file_scope(target_path),
             "expected_outputs": [
-                {"artifact_type": "test_report", "description": "Validation report for the current workflow output."},
+                {"artifact_type": "validation_report", "description": "Unified validation report with acceptance, review, and delivery evidence."},
             ],
             "validation_targets": [
                 {"check_key": "validation_passed", "method": "agent_validation"},
             ],
-            "done_when_markdown": "Validation completes with a test report and all validation targets passed.",
+            "done_when_markdown": "Validation completes with one report that confirms acceptance, review-quality checks, and delivery readiness.",
             "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
             **_build_execution_profile(
-                step_type="test",
+                step_type="validate",
                 target_paths=target_paths,
                 expected_outputs=[
-                    {"artifact_type": "test_report", "description": "Validation report for the current workflow output."},
+                    {"artifact_type": "validation_report", "description": "Unified validation report for the current workflow output."},
                 ],
             ),
         },
@@ -1182,9 +1189,9 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "step_type": "closeout",
             "title": "Close requirement",
             "assigned_role": "tester",
-            "depends_on": ["test"],
+            "depends_on": ["validate"],
             "required_artifacts": [
-                {"artifact_type": "test_report", "purpose": "test_context", "required": True},
+                {"artifact_type": "validation_report", "purpose": "validation_context", "required": True},
             ],
             "file_scope": _review_file_scope(target_path),
             "expected_outputs": [
@@ -1231,10 +1238,11 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
 
     review_check = {
         "check_key": "review_passed",
-        "description": "Review step confirms the implementation output satisfies the requirement intent.",
+        "description": "Validation confirms the implementation output satisfies the requirement intent and preserves escalation safety.",
         "check_type": "manual_review",
         "owner_role": str(acceptance_contract.get("review_owner_role") or "reviewer"),
-        "success_criteria_markdown": "Reviewer confirms the implementation output is coherent and aligned with the requirement.",
+        "success_criteria_markdown": "Validation evidence confirms the implementation output is coherent, review-ready, and aligned with the requirement.",
+        "validation_step_key": "validate",
     }
     validation_check = {
         "check_key": "validation_passed",
@@ -1242,6 +1250,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "check_type": "content_assertion",
         "owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
         "success_criteria_markdown": "Tester validates the produced artifacts and confirms all acceptance targets are satisfied.",
+        "validation_step_key": "validate",
     }
     default_checks = [review_check, validation_check]
     bug_checks = _bug_validation_acceptance_checks(requirement)
@@ -1255,10 +1264,10 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "check_type": str(check.get("check_type") or "manual_review"),
             "verification_type": "manual",
             "method": "manual_review",
-            "step_key": str(check.get("validation_step_key") or "review"),
-            "step_type": "review",
+            "step_key": "validate",
+            "step_type": "validate",
             "blocking": True,
-            "required_artifact_type": "review_report",
+            "required_artifact_type": "validation_report",
         }
         for check in acceptance_checks
         if str(check.get("check_type") or "") == "manual_review"
@@ -1271,10 +1280,10 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "check_type": str(check.get("check_type") or "content_assertion"),
             "verification_type": "automated",
             "method": "repo_file_changes" if str(check.get("check_type") or "") == "repo_file_changes" else "agent_validation",
-            "step_key": str(check.get("validation_step_key") or "test"),
-            "step_type": "test",
+            "step_key": "validate",
+            "step_type": "validate",
             "blocking": True,
-            "required_artifact_type": "test_report",
+            "required_artifact_type": "validation_report",
             "required_target_path": str(check.get("required_target_path") or "") or None,
         }
         for check in acceptance_checks
@@ -1282,7 +1291,9 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     ]
 
     planner_output = {
-        "schema_version": "1.8",
+        "schema_version": "2.0",
+        "step_model_version": STEP_MODEL_VERSION,
+        "planning_mode": planning_mode,
         "goal_summary": requirement.title,
         "goal_summary_markdown": f"## Goal\n\n{requirement.title}\n\n{requirement.description_markdown}",
         "target_project_path": target_path,
@@ -1326,27 +1337,24 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         "approval_contract": approval_contract,
         "detected_phases": detected_phases_dict,
         "acceptance_checks": acceptance_checks,
-        "required_roles": ["researcher", "synthesizer", "implementer", "reviewer", "tester"],
-        "known_risks_markdown": "- Requirement may need iterative bugfix if validation fails.\n- File scope is constrained by target_project_path and project policy.\n- Queue priority now considers project readiness, bug pressure, and delivery friction.\n- Research and synthesis must isolate uncertainty before implementation starts.",
+        "required_roles": ["researcher", "planner", "implementer", "validator"],
+        "known_risks_markdown": "- Requirement may need iterative bugfix if validation fails.\n- File scope is constrained by target_project_path and project policy.\n- Queue priority now considers project readiness, bug pressure, and delivery friction.\n- Research and planning must isolate uncertainty before implementation starts.",
         "open_questions_markdown": "- No open questions generated by smart planner.",
         "global_constraints_markdown": "- Keep changes minimal and traceable.\n- Persist all key outputs as artifacts.",
         "workflow_steps": workflow_steps,
         "delivery_contract": delivery_contract,
         "validation_plan": {
+            "step_model_version": STEP_MODEL_VERSION,
             "summary_markdown": (
-                (
-                    "Researcher explores current state, synthesizer compresses that into an execution plan, "
-                    "reviewer owns the manual review gate, tester owns automated validation and closeout, "
-                    "and implementer owns bugfix execution when any verification fails."
-                )
+                "Research isolates the current state, plan turns that into one execution brief, "
+                "implementation applies the fix, validate owns the final quality gate, and closeout packages delivery evidence."
                 + (
-                    " For bug-derived requirements, review must document root cause and evidence binding, "
-                    "while validation must prove a real fix, regression guard, and bug verification pass."
+                    " For bug-derived requirements, validate must also document root cause, evidence binding, regression guard, and bug verification pass."
                     if _is_bug_validation_requirement(requirement)
                     else ""
                 )
                 + (
-                    " Cross-project bug recovery also requires validation to show the failure path is closed across every affected project."
+                    " Cross-project bug recovery requires validate to show the failure path is closed across every affected project."
                     if bool(_json_loads(getattr(requirement, "intake_metadata_json", None), {}).get("cross_project_recovery"))
                     else ""
                 )
@@ -1357,7 +1365,9 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "acceptance_trigger": str(acceptance_contract.get("acceptance_trigger") or "implementation_completed"),
             "closeout_owner_role": str(acceptance_contract.get("acceptance_owner_role") or "tester"),
             "bugfix_owner_role": "implementer",
+            "validation_mode": str(template_payload.get("validation_mode") or "single_gate"),
             "gates": [str(check.get("check_key") or "") for check in acceptance_checks if str(check.get("check_key") or "").strip()],
+            "validation_checks": manual_checks + automated_checks,
             "manual_checks": manual_checks,
             "automated_checks": automated_checks,
             "acceptance_dispatch": {
@@ -1366,19 +1376,21 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
                 "required_evidence_artifact_types": list(acceptance_contract.get("required_evidence_artifact_types") or []),
             },
             "bugfix_loop": {
-                "trigger_step_types": ["review", "test", "bugfix"],
+                "trigger_step_types": ["validate", "bugfix"],
                 "reentry_step_type": "bugfix",
-                "revalidation_step_types": ["review", "test"],
+                "revalidation_step_types": ["validate"],
                 "closeout_step_type": "closeout",
-                "summary_markdown": "Any failed review/test check must produce a bug report, route into bugfix, and re-run review/test before closeout.",
+                "summary_markdown": "Any failed validation check must produce a bug report, route into bugfix, and re-run validate before closeout.",
             },
         },
         "extensions": {
             "planning_mode": planning_mode,
                 "role_assignments": {
                     "researcher_agent_id": researcher_agent_id,
+                    "planner_agent_id": synthesizer_agent_id,
                     "synthesizer_agent_id": synthesizer_agent_id,
                     "implementer_agent_id": implementer_agent_id,
+                    "validator_agent_id": tester_agent_id,
                     "reviewer_agent_id": reviewer_agent_id,
                     "tester_agent_id": tester_agent_id,
             }

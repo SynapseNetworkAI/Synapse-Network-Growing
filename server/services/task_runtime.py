@@ -33,7 +33,7 @@ _CODEX_SECTION_TITLES = {
     "delivery contract",
     "stale memory verification",
 }
-_CODEX_NON_MUTATING_STEP_TYPES = {"research", "synthesis", "review", "test"}
+_CODEX_NON_MUTATING_STEP_TYPES = {"research", "plan", "validate", "synthesis", "review", "test"}
 
 
 def _runtime_timeout_or_default(value: int | None, default: int) -> int:

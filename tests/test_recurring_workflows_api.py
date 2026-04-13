@@ -16,6 +16,7 @@ def test_recurring_workflows_registry_lists_builtin_workflows(synced_client, db_
         "morning_intake_sweep",
         "dispatcher_loop",
         "approval_sweep",
+        "requirement_family_cleanup_sweep",
         "closeout_and_compact_sweep",
         "weekly_operating_review",
     } <= workflow_keys
@@ -115,6 +116,43 @@ def test_run_bug_log_sweep_workflow_updates_bug_backlog(synced_client):
     assert mock_intake.call_count == 1
     assert mock_intake.call_args.kwargs["source_key"] == "bug_intake"
     assert mock_intake.call_args.kwargs["refresh"] is False
+
+
+def test_run_requirement_family_cleanup_sweep_archives_duplicate_validation_experiments(synced_client, db_session):
+    canonical = RequirementRow(
+        title="Validate unattended auto-start branch delivery for sng-validation",
+        description_markdown="Keep the real validation branch delivery requirement.",
+        status="ready",
+        priority="normal",
+        source="manual",
+        target_project_path="/private/tmp/sng-delivery-validation",
+        approval_status="approved",
+        current_plan_version=2,
+    )
+    duplicate = RequirementRow(
+        title="Validate unattended branch delivery for sng-validation",
+        description_markdown="Older duplicate validation experiment requirement.",
+        status="ready",
+        priority="normal",
+        source="manual",
+        target_project_path="/private/tmp/sng-delivery-validation",
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add_all([canonical, duplicate])
+    db_session.commit()
+
+    response = synced_client.post("/api/recurring-workflows/requirement_family_cleanup_sweep/run", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workflow_key"] == "requirement_family_cleanup_sweep"
+    assert payload["result"]["duplicate_group_count"] == 1
+    assert int(duplicate.id) in payload["result"]["archived_requirement_ids"]
+    assert int(canonical.id) in payload["result"]["kept_requirement_ids"]
+    refreshed_duplicate = db_session.query(RequirementRow).filter(RequirementRow.id == duplicate.id).first()
+    assert refreshed_duplicate is not None
+    assert refreshed_duplicate.status == "deleted"
 
 
 def test_run_morning_intake_workflow_uses_unified_intake(synced_client):

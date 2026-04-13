@@ -66,6 +66,15 @@ DB_MAX_OVERFLOW = int(os.environ.get("OPS_DB_MAX_OVERFLOW", "24"))
 DB_POOL_TIMEOUT = int(os.environ.get("OPS_DB_POOL_TIMEOUT", "60"))
 DB_POOL_RECYCLE = int(os.environ.get("OPS_DB_POOL_RECYCLE", "1800"))
 DB_POOL_PRE_PING = os.environ.get("OPS_DB_POOL_PRE_PING", "true").lower() in {"1", "true", "yes", "on"}
+DB_SQLITE_BUSY_TIMEOUT = max(5, int(os.environ.get("OPS_DB_SQLITE_BUSY_TIMEOUT", "30")))
+_journal_mode_default = os.environ.get("OPS_DB_SQLITE_JOURNAL_MODE", "WAL").strip().upper() or "WAL"
+if _journal_mode_default not in {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}:
+    _journal_mode_default = "WAL"
+DB_SQLITE_JOURNAL_MODE = _journal_mode_default
+_sqlite_sync_default = os.environ.get("OPS_DB_SQLITE_SYNCHRONOUS", "NORMAL").strip().upper() or "NORMAL"
+if _sqlite_sync_default not in {"OFF", "NORMAL", "FULL", "EXTRA"}:
+    _sqlite_sync_default = "NORMAL"
+DB_SQLITE_SYNCHRONOUS = _sqlite_sync_default
 
 # ── LLM ───────────────────────────────────────────────────────
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")  # openai | claude | copilot | codex

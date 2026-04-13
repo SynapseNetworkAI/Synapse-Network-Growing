@@ -26,17 +26,25 @@ from server.config import (
     DB_POOL_RECYCLE,
     DB_POOL_SIZE,
     DB_POOL_TIMEOUT,
+    DB_SQLITE_BUSY_TIMEOUT,
+    DB_SQLITE_JOURNAL_MODE,
+    DB_SQLITE_SYNCHRONOUS,
 )
 
 logger = logging.getLogger("ops-dashboard.db")
+_IS_SQLITE = DATABASE_URL.startswith("sqlite")
+_IS_IN_MEMORY = ":memory:" in DATABASE_URL
 
 _engine_kwargs = {
     "pool_pre_ping": DB_POOL_PRE_PING,
 }
-if DATABASE_URL.startswith("sqlite"):
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+if _IS_SQLITE:
+    _engine_kwargs["connect_args"] = {
+        "check_same_thread": False,
+        "timeout": float(max(5, DB_SQLITE_BUSY_TIMEOUT)),
+    }
 
-if ":memory:" not in DATABASE_URL:
+if not _IS_IN_MEMORY:
     _engine_kwargs.update({
         "pool_size": DB_POOL_SIZE,
         "max_overflow": DB_MAX_OVERFLOW,
@@ -48,10 +56,27 @@ engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 
 @event.listens_for(engine, "connect")
-def _enable_fk(dbapi_conn, _):
+def _configure_sqlite(dbapi_conn, _):
+    if not _IS_SQLITE:
+        return
     cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+        if not _IS_IN_MEMORY:
+            try:
+                cursor.execute(f"PRAGMA journal_mode={DB_SQLITE_JOURNAL_MODE}")
+                cursor.fetchone()
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to enforce SQLite journal_mode=%s: %s", DB_SQLITE_JOURNAL_MODE, exc)
+        if DB_SQLITE_SYNCHRONOUS:
+            try:
+                cursor.execute(f"PRAGMA synchronous={DB_SQLITE_SYNCHRONOUS}")
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to enforce SQLite synchronous=%s: %s", DB_SQLITE_SYNCHRONOUS, exc)
+        busy_timeout_ms = max(1000, int(DB_SQLITE_BUSY_TIMEOUT * 1000))
+        cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
+    finally:
+        cursor.close()
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

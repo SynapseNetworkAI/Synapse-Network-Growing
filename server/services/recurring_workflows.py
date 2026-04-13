@@ -13,6 +13,7 @@ from server.services.bug_log_sweep import run_bug_log_sweep
 from server.services.company_review import company_review_to_dict, latest_company_operating_review, refresh_company_operating_review
 from server.services.incidents import list_open_incidents
 from server.services.optimization_signals import list_optimization_signals
+from server.services.requirement_family import cleanup_requirement_families
 from server.services.requirement_approval import evaluate_requirement_execution_approval
 from server.services.requirement_sources import intake_requirement_sources
 from server.services.workflow_orchestrator import advance_requirement_queue, decide_requirement_approval, dispatch_acceptance_sweep
@@ -116,6 +117,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "refresh_requirement_approvals", "auto_approve": True},
         "escalation_rule": {"on_stale_backlog": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "auto_approved_requirement_ids"},
+    },
+    {
+        "workflow_key": "requirement_family_cleanup_sweep",
+        "display_name": "Requirement Family Cleanup Sweep",
+        "description": "Archive duplicate validation experiment requirements and surface merge recommendations for repeated active families.",
+        "trigger_type": "scheduled",
+        "owner_role": "portfolio_operator",
+        "schedule": {"cadence": "daily", "window": "evening", "suggested_local_time": "20:00"},
+        "input_query": {"status": ["draft", "ready", "paused", "blocked", "pending_approval"], "family_cleanup": True},
+        "output_action": {"kind": "cleanup_requirement_families", "archive_validation_experiments": True},
+        "escalation_rule": {"on_duplicate_growth": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "archived_requirement_ids"},
     },
 ]
 
@@ -783,6 +796,14 @@ def _approval_sweep(db: Session) -> dict[str, Any]:
     }
 
 
+def _requirement_family_cleanup_sweep(db: Session) -> dict[str, Any]:
+    return cleanup_requirement_families(
+        db,
+        categories={"validation_experiment", "release_bottleneck", "approval_automation", "incident_recovery", "bug_fix"},
+        archive_validation_experiments=True,
+    )
+
+
 def run_recurring_workflow(
     db: Session,
     *,
@@ -847,6 +868,8 @@ def run_recurring_workflow(
         )
     elif workflow_key == "approval_sweep":
         result = _approval_sweep(db)
+    elif workflow_key == "requirement_family_cleanup_sweep":
+        result = _requirement_family_cleanup_sweep(db)
     elif workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)

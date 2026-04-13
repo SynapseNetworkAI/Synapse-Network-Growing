@@ -101,25 +101,23 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     planned = plan_resp.json()
     assert planned["requirement"]["current_plan_version"] == 1
     planned_step_types = [step["step_type"] for step in planned["workflow_run"]["steps"]]
-    assert planned_step_types[:2] == ["research", "synthesis"]
-    assert planned_step_types[-3:] == ["review", "test", "closeout"]
+    assert planned_step_types[:2] == ["research", "plan"]
+    assert planned_step_types[-2:] == ["validate", "closeout"]
     assert "implementation" in planned_step_types
 
-    call_counts = {"test": 0}
+    call_counts = {"validate": 0}
 
     class FakeRuntime:
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:research]" in task_description:
-                return _runtime_result(text="Research report ready for synthesis.")
-            if "[workflow_step:synthesis]" in task_description:
-                return _runtime_result(text="Synthesis report ready for implementation.")
+                return _runtime_result(text="Research report ready for plan.")
+            if "[workflow_step:plan]" in task_description:
+                return _runtime_result(text="Plan brief ready for implementation.")
             if "[workflow_step:implementation]" in task_description:
-                return _runtime_result(text="Implementation output ready for review.")
-            if "[workflow_step:review]" in task_description:
-                return _runtime_result(text="Review passed and output is coherent.")
-            if "[workflow_step:test]" in task_description:
-                call_counts["test"] += 1
-                if call_counts["test"] == 1:
+                return _runtime_result(text="Implementation output ready for validation.")
+            if "[workflow_step:validate]" in task_description:
+                call_counts["validate"] += 1
+                if call_counts["validate"] == 1:
                     return _runtime_result(error="Validation failed: issue reproduced in end-to-end check.")
                 return _runtime_result(text="Validation passed after bugfix.")
             if "[workflow_step:bugfix]" in task_description:
@@ -137,16 +135,15 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert data["workflow_run"]["status"] == "completed"
 
     step_types = [step["step_type"] for step in data["workflow_run"]["steps"]]
-    assert step_types[:3] == ["research", "synthesis", "implementation"]
+    assert step_types[:3] == ["research", "plan", "implementation"]
     assert step_types.count("bugfix") == 1
-    assert step_types.count("review") == 2
-    assert step_types.count("test") == 2
+    assert step_types.count("validate") == 2
     assert step_types[-1] == "closeout"
 
-    failed_test_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "test" and step["status"] == "failed"]
-    assert len(failed_test_steps) == 1
+    failed_validation_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "validate" and step["status"] == "failed"]
+    assert len(failed_validation_steps) == 1
     bugfix_steps = [step for step in data["workflow_run"]["steps"] if step["step_type"] == "bugfix"]
-    assert bugfix_steps[0]["branch_from_step_id"] == failed_test_steps[0]["id"]
+    assert bugfix_steps[0]["branch_from_step_id"] == failed_validation_steps[0]["id"]
 
     assert {check["check_key"]: check["status"] for check in data["acceptance_checks"]} == {
         "review_passed": "passed",
@@ -162,7 +159,7 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert "validation_manifest" in artifact_types
     bug_report = next(artifact for artifact in data["artifacts"] if artifact["artifact_type"] == "bug_report")
     bug_payload = json.loads(bug_report["machine_readable_payload"])
-    assert bug_payload["step_type"] == "test"
+    assert bug_payload["step_type"] == "validate"
     assert bug_payload["verification_type"] == "automated"
     assert bug_payload["bugfix_owner_role"] == "implementer"
     assert bug_payload["failed_checks"][0]["check_key"] == "validation_passed"
@@ -176,14 +173,40 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert sum(1 for task in tasks if task.status == "failed") == 1
     assert sum(1 for task in tasks if task.status == "completed") == len(tasks) - 1
 
-    closeout = db_session.query(WorkflowStepRow).filter(
-        WorkflowStepRow.requirement_id == requirement_id,
-        WorkflowStepRow.step_type == "closeout",
-    ).first()
-    assert closeout is not None
-    assert closeout.status == "completed"
-    assert data["delivery_state"]["publish_status"] == "review_ready"
-    assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
+
+def test_duplicate_approval_automation_requirement_reuses_active_family_requirement(synced_client, db_session):
+    payload = {
+        "title": "Approval Automation: sng-validation - Manual override load: SNG Validation Clone",
+        "description_markdown": "Reduce repeated manual approvals without losing escalation safety.",
+        "priority": "normal",
+        "source": "automation_candidate",
+        "source_ref": "company-review-automation:1:manual-override",
+        "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    }
+
+    first = synced_client.post("/api/requirements", json=payload)
+    assert first.status_code == 201
+    first_requirement = first.json()["requirement"]
+
+    second = synced_client.post(
+        "/api/requirements",
+        json={
+            **payload,
+            "description_markdown": "Second intake should reuse the active family requirement instead of creating a duplicate.",
+            "source_ref": "company-review-automation:2:manual-override",
+        },
+    )
+    assert second.status_code == 201
+    second_requirement = second.json()["requirement"]
+
+    assert second_requirement["id"] == first_requirement["id"]
+    family_recommendation = second_requirement["intake_metadata"]["family_recommendation"]
+    assert family_recommendation["family_category"] == "approval_automation"
+    assert family_recommendation["action"] == "reuse_existing"
+    rows = db_session.query(RequirementRow).filter(
+        RequirementRow.title.like("Approval Automation: sng-validation%")
+    ).all()
+    assert len(rows) == 1
 
 
 def test_legacy_runtime_budget_points_do_not_trip_bugfix_loop_budget_guardrail():
@@ -240,11 +263,10 @@ def test_incident_research_task_routes_to_engineering_agent(synced_client, db_se
     assert task.agent_id == "dev_rel"
     assert skill_name == "__direct_execution__"
     assert persona["display_name"] == "Engineering Executor"
-    assert "branch-delivery preflight" in task.description
-    assert "git status --short --branch" in task.description
-    assert "README.md" in task.description
-    assert "docs/auto-validation/" in task.description
     assert "## Step" in task.description
+    assert "## Delta" in task.description
+    assert "Bootstrap brief for requirement" in task.description
+    assert "```json" not in task.description
 
 
 def test_waived_requirement_creation_auto_plans(synced_client, db_session):
@@ -1136,14 +1158,12 @@ def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_cl
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:research]" in task_description:
                 return _runtime_result(text="research ok")
-            if "[workflow_step:synthesis]" in task_description:
-                return _runtime_result(text="synthesis ok")
+            if "[workflow_step:plan]" in task_description:
+                return _runtime_result(text="plan ok")
             if "[workflow_step:implementation]" in task_description:
                 return _runtime_result(text="implementation ok")
-            if "[workflow_step:review]" in task_description:
-                return _runtime_result(text="review ok")
-            if "[workflow_step:test]" in task_description:
-                return _runtime_result(text="test ok")
+            if "[workflow_step:validate]" in task_description:
+                return _runtime_result(text="validate ok")
             return _runtime_result(text="closeout ok")
 
     with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
@@ -1895,14 +1915,12 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
             if "[workflow_step:research]" in task_description:
                 assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network-Growing" in task_description
                 return _runtime_result(text="Research report ready.")
-            if "[workflow_step:synthesis]" in task_description:
-                return _runtime_result(text="Synthesis report ready.")
+            if "[workflow_step:plan]" in task_description:
+                return _runtime_result(text="Plan brief ready.")
             if "[workflow_step:implementation]" in task_description:
                 assert "Target project path: /Users/cliff/workspace/agent/Synapse-Network-Growing" in task_description
                 return _runtime_result(text="Implemented API fix across configured target projects.")
-            if "[workflow_step:review]" in task_description:
-                return _runtime_result(text="Review passed.")
-            if "[workflow_step:test]" in task_description:
+            if "[workflow_step:validate]" in task_description:
                 return _runtime_result(text="Validation passed with regression coverage.")
             return _runtime_result(text="noop")
 
@@ -2032,7 +2050,7 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
     assert any(item["file_name"] == "server/routes/requirements.py" for item in data["merged_output_files"])
     assert data["delivery_state"]["required_checks"] == validation_payload["dynamic_required_checks"]
     latest_test_artifact = next(
-        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "test_report"
+        artifact for artifact in reversed(data["artifacts"]) if artifact["artifact_type"] == "validation_report"
     )
     payload = json.loads(latest_test_artifact["machine_readable_payload"])
     assert payload["runtime_backend"] == "legacy"
@@ -2060,9 +2078,9 @@ def test_requirement_bugfix_loop_circuit_breaks_on_repeated_identical_errors(syn
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:research]" in task_description:
                 return _runtime_result(text="Research output ready.")
-            if "[workflow_step:synthesis]" in task_description:
-                return _runtime_result(text="Synthesis output ready.")
-            if "[workflow_step:review]" in task_description or "[workflow_step:test]" in task_description:
+            if "[workflow_step:plan]" in task_description:
+                return _runtime_result(text="Plan output ready.")
+            if "[workflow_step:validate]" in task_description:
                 return _runtime_result(text="not reached")
             if "[workflow_step:implementation]" in task_description or "[workflow_step:bugfix]" in task_description:
                 return _runtime_result(error=repeated_error)
@@ -2132,15 +2150,13 @@ def test_requirement_bugfix_loop_circuit_breaks_on_depth_limit(synced_client, db
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:research]" in task_description:
                 return _runtime_result(text="Research report complete.")
-            if "[workflow_step:synthesis]" in task_description:
-                return _runtime_result(text="Synthesis report complete.")
+            if "[workflow_step:plan]" in task_description:
+                return _runtime_result(text="Plan report complete.")
             if "[workflow_step:implementation]" in task_description:
                 return _runtime_result(text="Implementation complete.")
-            if "[workflow_step:review]" in task_description:
-                return _runtime_result(text="Review complete.")
             if "[workflow_step:bugfix]" in task_description:
                 return _runtime_result(text="Bugfix applied.")
-            if "[workflow_step:test]" in task_description:
+            if "[workflow_step:validate]" in task_description:
                 return _runtime_result(error=next(error_messages))
             return _runtime_result(text="noop")
 
@@ -2264,7 +2280,7 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
         def execute(self, *, task_description, **_kwargs):
             if "[workflow_step:implementation]" in task_description:
                 return _runtime_result(text="Implementation draft ready.")
-            if "[workflow_step:review]" in task_description:
+            if "[workflow_step:validate]" in task_description:
                 return _runtime_result(error="Requirement issue: needs revision because the acceptance criteria are ambiguous.")
             return _runtime_result(text="noop")
 
@@ -2335,8 +2351,8 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
 
     class RevisionRuntime:
         def execute(self, *, task_description, **_kwargs):
-            if "[workflow_step:review]" in task_description:
-                return _runtime_result(error="Requirement issue: needs revision after first review.")
+            if "[workflow_step:validate]" in task_description:
+                return _runtime_result(error="Requirement issue: needs revision after validation.")
             return _runtime_result(text="ok")
 
     with patch("server.services.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
@@ -2397,6 +2413,9 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
             "title": "Auto-plan on start",
             "description_markdown": "Start should create the plan before execution.",
             "priority": "high",
+            "approval_contract": {
+                "approval_mode": "waived",
+            },
         },
     )
     assert create_resp.status_code == 201
@@ -2406,9 +2425,27 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
-    ):
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for validation.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+
+    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
+        "server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()
+    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert start_resp.status_code == 200
@@ -2419,10 +2456,9 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
     assert payload["requirement"]["status"] == "done"
     assert [step["step_type"] for step in payload["workflow_run"]["steps"]] == [
         "research",
-        "synthesis",
+        "plan",
         "implementation",
-        "review",
-        "test",
+        "validate",
         "closeout",
     ]
 
@@ -3520,20 +3556,38 @@ def test_start_requirement_allows_resume_when_snapshot_and_plan_are_old(synced_c
     assert not any(item["incident_code"] == "stale_memory_blocked" for item in detail["incidents"])
 
 
-def test_implementation_context_omits_prior_synthesis_handoff(synced_client, db_session):
+def test_implementation_context_omits_prior_plan_handoff(synced_client, db_session):
     target_path = "/Users/cliff/workspace/agent/Synapse-Network"
     synced_client.get("/api/project-policies")
 
     create_resp = synced_client.post(
         "/api/requirements",
         json={
-            "title": "Implementation should ignore stale synthesis blocker prose",
+            "title": "Implementation should ignore stale plan blocker prose",
             "description_markdown": "Ensure implementation relies on structured plan instead of prior blocker handoff text.",
             "target_project_path": target_path,
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for validation.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
     requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
@@ -3543,9 +3597,9 @@ def test_implementation_context_omits_prior_synthesis_handoff(synced_client, db_
     steps = db_session.query(WorkflowStepRow).filter(
         WorkflowStepRow.workflow_run_id == workflow_run.id
     ).order_by(WorkflowStepRow.sequence_no.asc()).all()
-    synthesis_step = next(step for step in steps if step.step_type == "synthesis")
+    plan_step = next(step for step in steps if step.step_type == "plan")
     implementation_step = next(step for step in steps if step.step_type == "implementation")
-    synthesis_step.handoff_summary_markdown = (
+    plan_step.handoff_summary_markdown = (
         "**Summary:** Need more environment data before implementing.\n\n"
         "- **Blockers:** Waiting for runtime `/readiness` payload."
     )
@@ -3554,6 +3608,7 @@ def test_implementation_context_omits_prior_synthesis_handoff(synced_client, db_
     snapshot = workflow_orchestrator._step_context_snapshot(db_session, implementation_step)
     prompt = str(snapshot["prompt"])
     assert "Prior Step: Synthesize plan" not in prompt
+    assert "Prior Step: Plan implementation" not in prompt
     assert "Need more environment data before implementing." not in prompt
     assert "Implementation Plan" in prompt
 
@@ -3571,7 +3626,25 @@ def test_implementation_context_includes_research_file_hints(synced_client, db_s
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for validation.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
     requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
@@ -3583,15 +3656,17 @@ def test_implementation_context_includes_research_file_hints(synced_client, db_s
     ).order_by(WorkflowStepRow.sequence_no.asc()).all()
     implementation_step = next(step for step in steps if step.step_type == "implementation")
 
-    research_artifact = db_session.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == requirement_id,
-        ArtifactRow.artifact_type == "research_report",
-    ).order_by(ArtifactRow.id.desc()).first()
-    assert research_artifact is not None
-    research_artifact.human_readable_body = (
+    research_artifact = ArtifactRow(
+        requirement_id=requirement_id,
+        workflow_run_id=workflow_run.id,
+        artifact_type="research_report",
+        content_summary="Research file hints",
+        human_readable_body=(
         "Investigate `services/gateway/src/app.py:32-111` and "
         "`services/gateway/tests/unit/test_gateway_readiness_endpoint_unit.py:74-133` first."
+        ),
     )
+    db_session.add(research_artifact)
     db_session.commit()
 
     snapshot = workflow_orchestrator._step_context_snapshot(db_session, implementation_step)
@@ -3885,11 +3960,11 @@ def test_bug_intake_steps_use_engineering_direct_execution_contract(synced_clien
     workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
     assert workflow_run is not None
 
-    synthesis_step = (
+    plan_step = (
         db_session.query(WorkflowStepRow)
         .filter(
             WorkflowStepRow.workflow_run_id == workflow_run.id,
-            WorkflowStepRow.step_type == "synthesis",
+            WorkflowStepRow.step_type == "plan",
         )
         .first()
     )
@@ -3901,10 +3976,10 @@ def test_bug_intake_steps_use_engineering_direct_execution_contract(synced_clien
         )
         .first()
     )
-    assert synthesis_step is not None
+    assert plan_step is not None
     assert implementation_step is not None
 
-    assert workflow_orchestrator._resolve_step_skill(db_session, synthesis_step) == "__direct_execution__"
+    assert workflow_orchestrator._resolve_step_skill(db_session, plan_step) == "__direct_execution__"
     task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, implementation_step)
     assert task.skill_name == "__direct_execution__"
     assert skill_name == "__direct_execution__"
