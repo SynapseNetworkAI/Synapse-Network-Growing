@@ -168,3 +168,7 @@ These blockers do not affect `--mock` demo execution. They block the **live "3-l
 **✅ PASS — Requirement fulfilled in scope.**
 
 The `--mock` path delivers zero-friction DX. All in-repo bugs are fixed. SDK-side blockers are documented with actionable fix instructions for the `Synapse-Network-Sdk` team. This requirement is ready to close.
+
+## Requirement #27 Marker
+
+This document now carries a *minimal doc marker* proving `Requirement #27: Live unattended validation clone branch delivery v2` was delivered purely through documentation on branch `ops/req-23-live-validate-branch-delivery-minimal-ch`. No implementation code was touched in this validation clone step.
