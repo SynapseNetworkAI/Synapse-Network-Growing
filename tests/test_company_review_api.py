@@ -101,6 +101,18 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
         "compacted_requirement_ids": [401],
         "review_snapshot_requirement_ids": [402, 403],
     })
+    approval = db_session.query(RecurringWorkflowRow).filter(RecurringWorkflowRow.workflow_key == "approval_sweep").first()
+    assert approval is not None
+    approval.last_result_json = json.dumps({
+        "auto_approved_requirement_ids": [501, 502],
+        "pending_count": 2,
+        "stale_approval_request_ids": [77],
+        "approval_source_counts": {"auto": 2, "human": 1},
+        "pending_items": [
+            {"requirement_id": 88, "needs_human_gate": True},
+            {"requirement_id": 89, "needs_human_gate": False},
+        ],
+    })
 
     ready_resp = synced_client.post(
         "/api/requirements",
@@ -397,11 +409,27 @@ def test_company_review_aggregates_bottlenecks_incidents_and_recommendations(syn
     assert payload["next_cycle_requirement_bundle"]
     assert payload["operator_review_package"]["title"] == "Operator Review Package"
     assert payload["operator_review_package"]["recommended_bundle_item_keys"]
+    assert payload["operator_review_package"]["autonomous_decision_count"] >= 1
     assert "Morning intake attention items" in payload["operator_review_package"]["summary_markdown"]
     assert "Dispatcher approval reminders" in payload["operator_review_package"]["summary_markdown"]
+    assert all(
+        str(item.get("severity") or "") in {"high", "critical"}
+        for item in payload["operator_review_package"]["decisions"]
+    )
+    assert all(
+        str(item.get("decision_type") or "") != "closeout_followthrough"
+        for item in payload["operator_review_package"]["decisions"]
+    )
+    assert payload["autonomous_coo_posture"]["operator_only_high_risk"] is True
+    assert payload["autonomous_coo_posture"]["auto_approved_requirement_count"] == 2
+    assert payload["autonomous_coo_posture"]["stale_approval_count"] == 1
+    assert payload["autonomous_coo_posture"]["pending_human_gate_count"] == 1
+    assert payload["autonomous_coo_posture"]["high_risk_decision_count"] == len(payload["operator_review_package"]["decisions"])
+    assert "approval_sweep" in payload["autonomous_coo_posture"]["autonomous_workflow_keys"]
     assert payload["source_snapshot"]["workflow_rituals"]["morning_intake_sweep"]["requires_operator_review"] is True
     assert payload["source_snapshot"]["workflow_rituals"]["dispatcher_loop"]["stuck_requirement_count"] >= 1
     assert payload["source_snapshot"]["workflow_rituals"]["closeout_and_compact_sweep"]["review_snapshot_count"] >= 2
+    assert payload["source_snapshot"]["workflow_rituals"]["approval_sweep"]["auto_approved_count"] == 2
     assert payload["source_snapshot"]["bug_backlog_summary"]["open_bug_pressure"] >= 2
     assert any(
         item["source_ref"] in {f"requirement:{ready_id}", None} or item["project_key"] == "synapse-network-sdk"

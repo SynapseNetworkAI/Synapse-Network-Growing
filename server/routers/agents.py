@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db, AgentRow, TaskRow
-from server.schemas import AgentOut, AgentMatch
+from server.schemas import AgentOut, AgentMatch, RoleKpiSnapshotOut
 from server.services.agent_loader import ensure_agents_loaded
 from server.services.agent_matcher import match_agents
+from server.services.role_kpis import build_role_kpi_snapshot
 
 logger = logging.getLogger("ops-dashboard.agents")
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -28,6 +29,12 @@ def list_agents(db: Session = Depends(get_db)):
         out.completed_count = completed
         result.append(out)
     return result
+
+
+@router.get("/role-kpis", response_model=RoleKpiSnapshotOut)
+def get_role_kpis(db: Session = Depends(get_db)):
+    ensure_agents_loaded(db)
+    return build_role_kpi_snapshot(db)
 
 
 @router.get("/match", response_model=list[AgentMatch])
@@ -64,4 +71,3 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)):
     out.task_count = total
     out.completed_count = completed
     return out
-

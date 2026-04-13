@@ -50,6 +50,57 @@ export interface Agent {
   completed_count: number
 }
 
+export interface RoleKPI {
+  role_id: string
+  display_name: string
+  group: string
+  mission: string
+  task_count: number
+  completed_count: number
+  active_task_count: number
+  pending_task_count: number
+  failed_task_count: number
+  backlog_count: number
+  reopened_task_count: number
+  approval_dependency_count: number
+  completion_rate: number
+  reopen_rate: number
+  approval_dependency_rate: number
+  average_token_cost: number
+  average_budget_cost_points: number
+  tokens_used_total: number
+  budget_cost_points_total: number
+  open_requirement_count: number
+  status_mix: Record<string, number>
+}
+
+export interface ApprovalRoleKPI {
+  role_id: string
+  assigned_count: number
+  pending_count: number
+  decided_count: number
+  average_turnaround_hours: number
+  disagreement_rate: number
+  route_to_human_rate: number
+  approve_recommendation_count: number
+  revise_recommendation_count: number
+  route_to_human_count: number
+}
+
+export interface RoleWorkAllocationSummary {
+  role_count: number
+  total_backlog_count: number
+  overloaded_role_count: number
+  approval_pending_count: number
+  approval_stale_count: number
+}
+
+export interface RoleKpiSnapshot {
+  roles: RoleKPI[]
+  approval_roles: ApprovalRoleKPI[]
+  summary: RoleWorkAllocationSummary
+}
+
 export interface Task {
   id: number
   description: string
@@ -784,7 +835,25 @@ export interface OperatingReviewOperatorPackage {
   summary_markdown: string
   checklist: string[]
   decisions: OperatingReviewOperatorDecision[]
+  autonomous_decision_count: number
   recommended_bundle_item_keys: string[]
+}
+
+export interface OperatingReviewAutonomousCooPosture {
+  mode: string
+  operator_only_high_risk: boolean
+  autonomous_workflow_keys: string[]
+  high_risk_decision_count: number
+  autonomous_decision_count: number
+  operator_queue_count: number
+  pending_human_gate_count: number
+  auto_approved_requirement_count: number
+  stale_approval_count: number
+  stuck_requirement_count: number
+  critical_incident_count: number
+  requires_operator_attention: boolean
+  autonomous_execution_rate: number
+  summary_markdown: string
 }
 
 export interface CompanyOperatingReview {
@@ -803,6 +872,7 @@ export interface CompanyOperatingReview {
   next_cycle_recommendations: OperatingReviewRecommendation[]
   next_cycle_requirement_bundle: OperatingReviewBundleItem[]
   operator_review_package: OperatingReviewOperatorPackage
+  autonomous_coo_posture: OperatingReviewAutonomousCooPosture
   source_snapshot: Record<string, unknown>
   created_at: string | null
   updated_at: string | null
@@ -855,6 +925,7 @@ export const api = {
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
+  getRoleKpis: () => request<RoleKpiSnapshot>('/agents/role-kpis'),
 
   // Org tree
   getCompanyOperatingReview: () => request<CompanyOperatingReview>('/company-review'),

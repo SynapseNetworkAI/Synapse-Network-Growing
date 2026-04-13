@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import OrgChart from '../src/pages/OrgChart'
-import { api, DashboardStats, CompanyOperatingReview, RecurringWorkflow } from '../src/api'
+import { api, DashboardStats, CompanyOperatingReview, RecurringWorkflow, RoleKpiSnapshot } from '../src/api'
 
 vi.mock('../src/api', async () => {
   const actual = await vi.importActual('../src/api')
@@ -11,6 +11,7 @@ vi.mock('../src/api', async () => {
     api: {
       getStats: vi.fn(),
       getCompanyOperatingReview: vi.fn(),
+      getRoleKpis: vi.fn(),
       materializeCompanyReviewBundle: vi.fn(),
       getRecurringWorkflows: vi.fn(),
       runRecurringWorkflow: vi.fn(),
@@ -26,6 +27,55 @@ const mockStats: DashboardStats = {
   task_completed: 7,
   task_failed: 1,
   approval_pending: 2,
+}
+
+const mockRoleKpis: RoleKpiSnapshot = {
+  roles: [
+    {
+      role_id: 'dev_rel',
+      display_name: 'DevRel Engineer',
+      group: 'content',
+      mission: 'Owns developer-facing delivery and execution.',
+      task_count: 8,
+      completed_count: 5,
+      active_task_count: 1,
+      pending_task_count: 2,
+      failed_task_count: 1,
+      backlog_count: 3,
+      reopened_task_count: 1,
+      approval_dependency_count: 2,
+      completion_rate: 62.5,
+      reopen_rate: 12.5,
+      approval_dependency_rate: 25,
+      average_token_cost: 3200,
+      average_budget_cost_points: 14,
+      tokens_used_total: 16000,
+      budget_cost_points_total: 70,
+      open_requirement_count: 2,
+      status_mix: { completed: 5, running: 1, pending: 2 },
+    },
+  ],
+  approval_roles: [
+    {
+      role_id: 'reviewer',
+      assigned_count: 4,
+      pending_count: 1,
+      decided_count: 3,
+      average_turnaround_hours: 6,
+      disagreement_rate: 25,
+      route_to_human_rate: 50,
+      approve_recommendation_count: 2,
+      revise_recommendation_count: 1,
+      route_to_human_count: 2,
+    },
+  ],
+  summary: {
+    role_count: 1,
+    total_backlog_count: 3,
+    overloaded_role_count: 1,
+    approval_pending_count: 1,
+    approval_stale_count: 0,
+  },
 }
 
 const mockReview: CompanyOperatingReview = {
@@ -279,6 +329,7 @@ const mockReview: CompanyOperatingReview = {
     checklist: [
       'Confirm the next-cycle bundle matches the current company goal and operator bandwidth.',
     ],
+    autonomous_decision_count: 3,
     decisions: [
       {
         decision_key: 'bundle-approval:signal:7',
@@ -291,6 +342,22 @@ const mockReview: CompanyOperatingReview = {
       },
     ],
     recommended_bundle_item_keys: ['signal:7'],
+  },
+  autonomous_coo_posture: {
+    mode: 'autonomous_coo',
+    operator_only_high_risk: true,
+    autonomous_workflow_keys: ['bug_log_sweep', 'morning_intake_sweep', 'dispatcher_loop', 'closeout_and_compact_sweep', 'approval_sweep'],
+    high_risk_decision_count: 1,
+    autonomous_decision_count: 3,
+    operator_queue_count: 2,
+    pending_human_gate_count: 1,
+    auto_approved_requirement_count: 4,
+    stale_approval_count: 1,
+    stuck_requirement_count: 1,
+    critical_incident_count: 1,
+    requires_operator_attention: true,
+    autonomous_execution_rate: 50,
+    summary_markdown: 'Autonomous COO mode keeps `5` daily loops self-running, while only `2` high-risk items remain in the operator queue.',
   },
   source_snapshot: {
     scheduler_generated_at: '2026-04-11T13:00:00Z',
@@ -305,6 +372,7 @@ const mockReview: CompanyOperatingReview = {
       morning_intake_sweep: { operator_attention_count: 2, requires_operator_review: true },
       dispatcher_loop: { stuck_requirement_count: 1, approval_reminder_count: 1 },
       closeout_and_compact_sweep: { stale_requirement_count: 1, review_snapshot_count: 2 },
+      approval_sweep: { auto_approved_count: 4, stale_approval_count: 1 },
     },
   },
   created_at: '2026-04-11T13:00:00Z',
@@ -436,6 +504,7 @@ describe('OrgChart', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.getCompanyOperatingReview).mockResolvedValue(mockReview)
+    vi.mocked(api.getRoleKpis).mockResolvedValue(mockRoleKpis)
     vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     vi.mocked(api.runRecurringWorkflow).mockResolvedValue({
       workflow_key: 'dispatcher_loop',
@@ -474,6 +543,7 @@ describe('OrgChart', () => {
   it('shows error state when api calls fail', async () => {
     vi.mocked(api.getStats).mockRejectedValue(new Error('network'))
     vi.mocked(api.getCompanyOperatingReview).mockRejectedValue(new Error('network'))
+    vi.mocked(api.getRoleKpis).mockRejectedValue(new Error('network'))
     renderOrgChart()
     await waitFor(() => {
       expect(screen.getByTestId('orgchart-error')).toBeInTheDocument()
@@ -489,6 +559,13 @@ describe('OrgChart', () => {
     })
 
     expect(screen.getByText('Company COO Dashboard')).toBeInTheDocument()
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('Role KPI & Work Allocation')
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('DevRel Engineer')
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('reviewer')
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('Autonomous COO Mode')
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('operator queue')
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('Autonomous COO mode keeps `5` daily loops self-running')
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('pending human gates: 1')
     expect(screen.getByTestId('company-review-panel')).toHaveTextContent('Company Operating Review')
     expect(screen.getAllByText('SDK critical release blocker').length).toBeGreaterThan(0)
     expect(screen.getByTestId('next-cycle-bundle-panel')).toHaveTextContent('Next Cycle Requirement Bundle')

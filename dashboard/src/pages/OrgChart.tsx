@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { api, CompanyOperatingReview, CompanyReviewBundleMaterializeResult, DashboardStats, RecurringWorkflow } from '../api'
+import {
+  api,
+  ApprovalRoleKPI,
+  CompanyOperatingReview,
+  CompanyReviewBundleMaterializeResult,
+  DashboardStats,
+  RecurringWorkflow,
+  RoleKPI,
+  RoleKpiSnapshot,
+} from '../api'
 
 function severityTone(severity?: string) {
   switch (severity) {
@@ -31,6 +40,7 @@ export default function OrgChart() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [review, setReview] = useState<CompanyOperatingReview | null>(null)
   const [rituals, setRituals] = useState<RecurringWorkflow[]>([])
+  const [roleKpis, setRoleKpis] = useState<RoleKpiSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [materializingBundle, setMaterializingBundle] = useState(false)
@@ -41,13 +51,15 @@ export default function OrgChart() {
     setLoading(true)
     setError('')
     try {
-      const [s, companyReview] = await Promise.all([
+      const [s, companyReview, roleSnapshot] = await Promise.all([
         api.getStats(),
         api.getCompanyOperatingReview(),
+        api.getRoleKpis(),
       ])
       const recurring = await api.getRecurringWorkflows()
       setStats(s)
       setReview(companyReview)
+      setRoleKpis(roleSnapshot)
       setRituals(recurring)
     } catch {
       setError('无法连接后端，请启动 sh scripts/local/start.sh')
@@ -91,6 +103,8 @@ export default function OrgChart() {
   }
 
   const ritualByKey = Object.fromEntries(rituals.map((item) => [item.workflow_key, item])) as Record<string, RecurringWorkflow>
+  const topExecutionRoles = (roleKpis?.roles || []).slice().sort((a, b) => b.backlog_count - a.backlog_count || b.tokens_used_total - a.tokens_used_total).slice(0, 4)
+  const topApprovalRoles = (roleKpis?.approval_roles || []).slice().sort((a, b) => b.pending_count - a.pending_count || b.route_to_human_count - a.route_to_human_count).slice(0, 4)
   const priorityItems = review ? [
     ...review.incidents.slice(0, 2).map((item) => ({
       key: `incident-${item.item_key}`,
@@ -163,6 +177,132 @@ export default function OrgChart() {
         <h2 className="text-xl font-bold">Company COO Dashboard</h2>
         <div className="text-sm text-slate-500">首页聚焦 operating review、ritual、bundle 和 operator decisions。</div>
       </div>
+
+      {roleKpis && (
+        <section data-testid="role-kpis-panel" className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400">Role KPIs</div>
+              <h3 className="text-lg font-semibold text-slate-900">Role KPI & Work Allocation</h3>
+              <p className="mt-2 max-w-3xl text-sm text-slate-600">
+                聚焦执行角色负载、审批角色周转、以及哪些角色最容易积压或把需求路由回人工。
+              </p>
+            </div>
+            <div className="grid gap-2 text-right text-xs text-slate-500 sm:grid-cols-2">
+              <div>roles: {roleKpis.summary.role_count}</div>
+              <div>backlog: {roleKpis.summary.total_backlog_count}</div>
+              <div>overloaded: {roleKpis.summary.overloaded_role_count}</div>
+              <div>approval stale: {roleKpis.summary.approval_stale_count}</div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">Execution Roles</h4>
+              <div className="mt-3 space-y-3">
+                {topExecutionRoles.map((role: RoleKPI) => (
+                  <div key={role.role_id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="font-medium text-slate-900">{role.display_name}</div>
+                        <div className="text-xs text-slate-500">{role.group || 'ungrouped'} / {role.role_id}</div>
+                      </div>
+                      <div className={`rounded-full px-2 py-0.5 text-[11px] ${role.backlog_count >= 3 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        backlog {role.backlog_count}
+                      </div>
+                    </div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                      <div>complete: {role.completion_rate}%</div>
+                      <div>reopen: {role.reopen_rate}%</div>
+                      <div>approval dep: {role.approval_dependency_rate}%</div>
+                      <div>active/pending: {role.active_task_count}/{role.pending_task_count}</div>
+                      <div>avg tokens: {role.average_token_cost}</div>
+                      <div>open reqs: {role.open_requirement_count}</div>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">{role.mission}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900">Approval Roles</h4>
+              <div className="mt-3 space-y-3">
+                {topApprovalRoles.map((role: ApprovalRoleKPI) => (
+                  <div key={role.role_id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium text-slate-900">{role.role_id}</div>
+                      <div className={`rounded-full px-2 py-0.5 text-[11px] ${role.pending_count > 0 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                        pending {role.pending_count}
+                      </div>
+                    </div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                      <div>assigned: {role.assigned_count}</div>
+                      <div>turnaround: {role.average_turnaround_hours}h</div>
+                      <div>disagreement: {role.disagreement_rate}%</div>
+                      <div>route-human: {role.route_to_human_rate}%</div>
+                      <div>approve: {role.approve_recommendation_count}</div>
+                      <div>revise: {role.revise_recommendation_count}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {review && (
+        <section data-testid="autonomous-coo-panel" className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400">Autonomous COO</div>
+              <h3 className="text-lg font-semibold text-slate-900">Autonomous COO Mode</h3>
+              <p className="mt-2 max-w-3xl whitespace-pre-line text-sm text-slate-600">
+                {review.autonomous_coo_posture.summary_markdown}
+              </p>
+            </div>
+            <div className={`rounded-full px-3 py-1 text-xs font-medium ${review.autonomous_coo_posture.requires_operator_attention ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+              {review.autonomous_coo_posture.requires_operator_attention ? 'operator attention' : 'self-running'}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {[
+              { label: 'operator queue', value: review.autonomous_coo_posture.operator_queue_count },
+              { label: 'high-risk only', value: review.autonomous_coo_posture.high_risk_decision_count },
+              { label: 'auto approved', value: review.autonomous_coo_posture.auto_approved_requirement_count },
+              { label: 'stale approvals', value: review.autonomous_coo_posture.stale_approval_count },
+              { label: 'stuck reqs', value: review.autonomous_coo_posture.stuck_requirement_count },
+              { label: 'autonomy %', value: `${review.autonomous_coo_posture.autonomous_execution_rate}%` },
+            ].map((item) => (
+              <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <div className="text-xl font-semibold text-slate-900">{item.value}</div>
+                <div className="mt-1 text-xs text-slate-500">{item.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div className="font-medium text-slate-900">Autonomous workflow coverage</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {review.autonomous_coo_posture.autonomous_workflow_keys.map((item) => (
+                  <span key={item} className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-800">{item}</span>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <div className="font-medium text-slate-900">Operator guardrail posture</div>
+              <div className="mt-2 text-xs text-slate-600">
+                <div>operator only high-risk: {review.autonomous_coo_posture.operator_only_high_risk ? 'yes' : 'no'}</div>
+                <div>pending human gates: {review.autonomous_coo_posture.pending_human_gate_count}</div>
+                <div>critical incidents: {review.autonomous_coo_posture.critical_incident_count}</div>
+                <div>autonomous decisions: {review.autonomous_coo_posture.autonomous_decision_count}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {review && (
         <section data-testid="company-review-panel" className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

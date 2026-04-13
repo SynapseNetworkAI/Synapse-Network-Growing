@@ -864,9 +864,11 @@ def run_recurring_workflow(
             "weekly_coo_review_package": {
                 "title": str(operator_package.get("title") or "Operator Review Package"),
                 "decision_count": len(operator_package.get("decisions") or []),
+                "autonomous_decision_count": int(operator_package.get("autonomous_decision_count") or 0),
                 "recommended_bundle_item_keys": list(operator_package.get("recommended_bundle_item_keys") or []),
                 "summary_markdown": str(operator_package.get("summary_markdown") or ""),
             },
+            "autonomous_coo_posture": dict(payload.get("autonomous_coo_posture") or {}),
         }
     else:
         raise ValueError("Unsupported recurring workflow")

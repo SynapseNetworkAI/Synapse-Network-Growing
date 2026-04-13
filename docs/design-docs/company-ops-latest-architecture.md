@@ -1061,6 +1061,13 @@ validation 不应在 requirement 创建时一次性写死，而应在执行后�
       2. today priorities from incidents, recommendations, and human gate hotspots
       3. weekly COO review package summary
       4. manual ritual run entrypoints for operator follow-through
+      5. role KPI / work allocation view for execution roles and approval roles
+      6. autonomous COO posture, so operator can see low-risk workflows self-running while only high-risk items remain in the human queue
+   16. autonomous COO mode now means:
+      1. `operator_review_package` only carries `high/critical` decisions
+      2. lower-risk review items are counted as autonomous decisions instead of being pushed into the operator queue
+      3. `autonomous_coo_posture` summarizes operator queue size, auto-approved requirements, stale approvals, stuck work, and autonomous workflow coverage
+      4. weekly operating review and homepage surface the same posture, so operator sees the exact boundary between self-running workflows and manual intervention
 
 ### 阶段 B：迁移 PostgreSQL
 

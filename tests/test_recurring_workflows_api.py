@@ -337,7 +337,13 @@ def test_run_weekly_operating_review_refreshes_company_review(synced_client):
                 "title": "Operator Review Package",
                 "summary_markdown": "Weekly COO review summary",
                 "decisions": [{"decision_key": "d-1"}],
+                "autonomous_decision_count": 3,
                 "recommended_bundle_item_keys": ["bundle-1"],
+            },
+            "autonomous_coo_posture": {
+                "operator_only_high_risk": True,
+                "operator_queue_count": 1,
+                "autonomous_workflow_keys": ["approval_sweep", "dispatcher_loop"],
             },
         },
     ):
@@ -354,7 +360,9 @@ def test_run_weekly_operating_review_refreshes_company_review(synced_client):
     assert payload["result"]["automation_candidate_count"] == 1
     assert payload["result"]["workflow_rituals"]["dispatcher_loop"]["stuck_requirement_count"] == 2
     assert payload["result"]["weekly_coo_review_package"]["decision_count"] == 1
+    assert payload["result"]["weekly_coo_review_package"]["autonomous_decision_count"] == 3
     assert payload["result"]["weekly_coo_review_package"]["recommended_bundle_item_keys"] == ["bundle-1"]
+    assert payload["result"]["autonomous_coo_posture"]["operator_only_high_risk"] is True
     assert mock_refresh.call_count == 1
 
 
@@ -373,7 +381,7 @@ def test_run_closeout_and_compact_workflow_records_review_snapshot_and_compactio
         status="done",
         priority="normal",
         source="manual",
-        updated_at=utcnow() - timedelta(hours=1),
+        updated_at=utcnow() - timedelta(minutes=5),
     )
     db_session.add_all([stale_requirement, done_requirement])
     db_session.flush()

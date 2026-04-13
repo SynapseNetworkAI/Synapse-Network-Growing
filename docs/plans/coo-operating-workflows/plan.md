@@ -196,7 +196,7 @@
 
 ### P3-R1 Role KPIs And Work Allocation
 
-状态：待实现
+状态：已实现
 
 目标：
 
@@ -214,10 +214,12 @@
    1. approval turnaround
    2. approval disagreement rate
    3. route-to-human rate
+4. 首页 COO dashboard 已显示 execution roles 与 approval roles 的 KPI 面板
+5. 后端已提供 `/api/agents/role-kpis`
 
 ### P3-R2 Autonomous COO Mode
 
-状态：待实现
+状态：已实现
 
 目标：
 
@@ -225,6 +227,8 @@
 
 实现：
 
-1. 支持只对高风险事项发起 operator review
-2. 低风险日常 workflow 自主运行
-3. 失败时自动进入 incident / replan / follow-up requirement 链
+1. `company review` 现在会生成 `autonomous_coo_posture`
+2. `operator_review_package` 只保留 `high/critical` 决策，高风险事项才进入 operator queue
+3. `approval_sweep` / `dispatcher_loop` / `closeout_and_compact_sweep` 的结果会被汇总进 autonomy posture
+4. 首页新增 `Autonomous COO Mode` 面板，直接展示 operator queue、auto-approved、stale approvals、autonomous workflow coverage
+5. 低风险 daily ritual 保持自主运行；失败和高风险事项继续回流 incident / replan / follow-up requirement 链

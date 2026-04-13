@@ -1157,10 +1157,10 @@ def _operator_review_package(
     project_highlights: list[dict[str, Any]],
     workflow_rituals: dict[str, Any],
 ) -> dict[str, Any]:
-    decisions: list[dict[str, Any]] = []
+    all_decisions: list[dict[str, Any]] = []
     for item in bundle:
         if bool(item.get("approval_required")):
-            decisions.append({
+            all_decisions.append({
                 "decision_key": f"bundle-approval:{item['bundle_item_key']}",
                 "title": f"Approve next-cycle bundle item: {item['title']}",
                 "decision_type": "bundle_approval",
@@ -1171,7 +1171,7 @@ def _operator_review_package(
             })
     for project in project_highlights:
         if int(project.get("budget_remaining") or 0) <= 20 and int(project.get("queued_count") or 0) > 0:
-            decisions.append({
+            all_decisions.append({
                 "decision_key": f"budget:{project['project_key']}",
                 "title": f"Confirm budget posture for {project['display_name']}",
                 "decision_type": "budget_review",
@@ -1182,7 +1182,7 @@ def _operator_review_package(
             })
     for item in bottlenecks[:2]:
         if str(item.get("severity") or "medium") in {"high", "critical"}:
-            decisions.append({
+            all_decisions.append({
                 "decision_key": f"risk:{item['item_key']}",
                 "title": f"Review risk before autonomous promotion: {item['title']}",
                 "decision_type": "risk_watch",
@@ -1194,8 +1194,9 @@ def _operator_review_package(
     intake = dict(workflow_rituals.get("morning_intake_sweep") or {})
     dispatcher = dict(workflow_rituals.get("dispatcher_loop") or {})
     closeout = dict(workflow_rituals.get("closeout_and_compact_sweep") or {})
+    approval = dict(workflow_rituals.get("approval_sweep") or {})
     if bool(intake.get("requires_operator_review")):
-        decisions.append({
+        all_decisions.append({
             "decision_key": "ritual:intake-triage",
             "title": "Review morning intake operator attention items",
             "decision_type": "intake_triage",
@@ -1205,7 +1206,7 @@ def _operator_review_package(
             "related_bundle_item_key": None,
         })
     if int(dispatcher.get("approval_reminder_count") or 0) > 0 or int(dispatcher.get("stuck_requirement_count") or 0) > 0:
-        decisions.append({
+        all_decisions.append({
             "decision_key": "ritual:dispatcher-follow-through",
             "title": "Review dispatcher follow-through backlog",
             "decision_type": "dispatcher_followthrough",
@@ -1218,7 +1219,7 @@ def _operator_review_package(
             "related_bundle_item_key": None,
         })
     if int(closeout.get("stale_requirement_count") or 0) > 0:
-        decisions.append({
+        all_decisions.append({
             "decision_key": "ritual:end-of-day-closeout",
             "title": "Review stale items carried into weekly ritual",
             "decision_type": "closeout_followthrough",
@@ -1230,6 +1231,24 @@ def _operator_review_package(
             "owner_hint": "tester",
             "related_bundle_item_key": None,
         })
+    if int(approval.get("stale_approval_count") or 0) > 0:
+        all_decisions.append({
+            "decision_key": "ritual:approval-stale-backlog",
+            "title": "Review stale high-risk approvals",
+            "decision_type": "approval_stale_backlog",
+            "severity": "high",
+            "summary": (
+                f"Approval sweep still sees {int(approval.get('stale_approval_count') or 0)} stale approval requests "
+                f"and {int(approval.get('pending_human_gate_count') or 0)} human-gated requirements."
+            ),
+            "owner_hint": "portfolio_operator",
+            "related_bundle_item_key": None,
+        })
+
+    decisions = [
+        item for item in all_decisions
+        if str(item.get("severity") or "medium") in {"high", "critical"}
+    ]
     checklist = [
         "Confirm the next-cycle bundle matches the current company goal and operator bandwidth.",
         "Approve or defer every high-value item that still requires human judgment.",
@@ -1241,6 +1260,7 @@ def _operator_review_package(
         f"Cycle `{cycle_label}` operator package.\n\n"
         f"- Bundle candidates: {len(bundle)}\n"
         f"- Decisions requiring operator review: {len(decisions)}\n"
+        f"- Lower-risk decisions handled autonomously: {max(0, len(all_decisions) - len(decisions))}\n"
         f"- Open portfolio risk: {top_risk}\n"
         f"- Approval-required scheduler items: {portfolio_summary['approval_required_decisions']}\n"
         f"- Morning intake attention items: {int(intake.get('operator_attention_count') or 0)}\n"
@@ -1252,7 +1272,68 @@ def _operator_review_package(
         "summary_markdown": summary_markdown,
         "checklist": checklist,
         "decisions": decisions[:8],
+        "autonomous_decision_count": max(0, len(all_decisions) - len(decisions)),
         "recommended_bundle_item_keys": [str(item["bundle_item_key"]) for item in bundle[:3]],
+    }
+
+
+def _autonomous_coo_posture(
+    *,
+    portfolio_summary: dict[str, Any],
+    workflow_rituals: dict[str, Any],
+    operator_review_package: dict[str, Any],
+    incidents: list[dict[str, Any]],
+) -> dict[str, Any]:
+    intake = dict(workflow_rituals.get("morning_intake_sweep") or {})
+    dispatcher = dict(workflow_rituals.get("dispatcher_loop") or {})
+    closeout = dict(workflow_rituals.get("closeout_and_compact_sweep") or {})
+    approval = dict(workflow_rituals.get("approval_sweep") or {})
+
+    high_risk_decision_count = len(list(operator_review_package.get("decisions") or []))
+    autonomous_decision_count = int(operator_review_package.get("autonomous_decision_count") or 0)
+    autonomous_workflow_keys = [
+        key for key in [
+            "bug_log_sweep",
+            "morning_intake_sweep",
+            "dispatcher_loop",
+            "closeout_and_compact_sweep",
+            "approval_sweep",
+        ]
+        if workflow_rituals.get(key) is not None
+    ]
+    human_gate_required_count = int(approval.get("pending_human_gate_count") or 0)
+    operator_queue_count = high_risk_decision_count + human_gate_required_count
+    critical_incident_count = sum(
+        1 for item in incidents if str(item.get("severity") or "medium") in {"critical", "high"}
+    )
+    autonomous_execution_rate = 0.0
+    denom = operator_queue_count + int(portfolio_summary.get("active_requirements") or 0)
+    if denom > 0:
+        autonomous_execution_rate = round(
+            (int(portfolio_summary.get("active_requirements") or 0) / denom) * 100,
+            1,
+        )
+    summary_markdown = (
+        f"Autonomous COO mode keeps `{len(autonomous_workflow_keys)}` daily loops self-running, "
+        f"while only `{operator_queue_count}` high-risk items remain in the operator queue. "
+        f"Approval sweep auto-managed `{int(approval.get('auto_approved_count') or 0)}` requirements; "
+        f"stale human approvals: `{int(approval.get('stale_approval_count') or 0)}`."
+    )
+    return {
+        "mode": "autonomous_coo",
+        "operator_only_high_risk": True,
+        "autonomous_workflow_keys": autonomous_workflow_keys,
+        "high_risk_decision_count": high_risk_decision_count,
+        "autonomous_decision_count": autonomous_decision_count,
+        "operator_queue_count": operator_queue_count,
+        "pending_human_gate_count": human_gate_required_count,
+        "auto_approved_requirement_count": int(approval.get("auto_approved_count") or 0),
+        "stale_approval_count": int(approval.get("stale_approval_count") or 0),
+        "stuck_requirement_count": int(dispatcher.get("stuck_requirement_count") or 0),
+        "critical_incident_count": critical_incident_count,
+        "requires_operator_attention": operator_queue_count > 0 or critical_incident_count > 0,
+        "autonomous_execution_rate": autonomous_execution_rate,
+        "summary_markdown": summary_markdown,
     }
 
 
@@ -1261,13 +1342,14 @@ def _workflow_rituals_summary(db: Session) -> dict[str, Any]:
         str(row.workflow_key): row
         for row in db.query(RecurringWorkflowRow).filter(
             RecurringWorkflowRow.workflow_key.in_(
-                ["morning_intake_sweep", "dispatcher_loop", "closeout_and_compact_sweep"]
+                ["morning_intake_sweep", "dispatcher_loop", "closeout_and_compact_sweep", "approval_sweep"]
             )
         ).all()
     }
     intake_payload = _json_loads(getattr(rows.get("morning_intake_sweep"), "last_result_json", None), {})
     dispatcher_payload = _json_loads(getattr(rows.get("dispatcher_loop"), "last_result_json", None), {})
     closeout_payload = _json_loads(getattr(rows.get("closeout_and_compact_sweep"), "last_result_json", None), {})
+    approval_payload = _json_loads(getattr(rows.get("approval_sweep"), "last_result_json", None), {})
 
     return {
         "morning_intake_sweep": {
@@ -1289,6 +1371,18 @@ def _workflow_rituals_summary(db: Session) -> dict[str, Any]:
             "stale_requirement_count": len(list(closeout_payload.get("stale_requirement_ids") or [])),
             "compacted_requirement_count": len(list(closeout_payload.get("compacted_requirement_ids") or [])),
             "review_snapshot_count": len(list(closeout_payload.get("review_snapshot_requirement_ids") or [])),
+        },
+        "approval_sweep": {
+            "last_run_at": getattr(rows.get("approval_sweep"), "last_run_at", None),
+            "auto_approved_count": len(list(approval_payload.get("auto_approved_requirement_ids") or [])),
+            "pending_count": int(approval_payload.get("pending_count") or 0),
+            "stale_approval_count": len(list(approval_payload.get("stale_approval_request_ids") or [])),
+            "pending_human_gate_count": sum(
+                1
+                for item in list(approval_payload.get("pending_items") or [])
+                if bool((item or {}).get("needs_human_gate"))
+            ),
+            "approval_source_counts": dict(approval_payload.get("approval_source_counts") or {}),
         },
     }
 
@@ -1417,6 +1511,12 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         project_highlights=project_highlights,
         workflow_rituals=workflow_rituals,
     )
+    autonomous_coo_posture = _autonomous_coo_posture(
+        portfolio_summary=portfolio_summary,
+        workflow_rituals=workflow_rituals,
+        operator_review_package=operator_review_package,
+        incidents=incidents,
+    )
 
     return {
         "cycle_label": _cycle_label(),
@@ -1433,6 +1533,7 @@ def build_operating_review_payload(db: Session) -> dict[str, Any]:
         "next_cycle_recommendations": next_cycle_recommendations,
         "next_cycle_requirement_bundle": next_cycle_requirement_bundle,
         "operator_review_package": operator_review_package,
+        "autonomous_coo_posture": autonomous_coo_posture,
         "source_snapshot": {
             "scheduler_generated_at": scheduler_plan.get("generated_at").isoformat()
             if getattr(scheduler_plan.get("generated_at"), "isoformat", None)
@@ -1474,7 +1575,24 @@ def company_review_to_dict(row: CompanyOperatingReviewRow) -> dict[str, Any]:
             "summary_markdown": "No operator package generated yet.",
             "checklist": [],
             "decisions": [],
+            "autonomous_decision_count": 0,
             "recommended_bundle_item_keys": [],
+        }),
+        "autonomous_coo_posture": dict(payload.get("autonomous_coo_posture") or {
+            "mode": "autonomous_coo",
+            "operator_only_high_risk": True,
+            "autonomous_workflow_keys": [],
+            "high_risk_decision_count": 0,
+            "autonomous_decision_count": 0,
+            "operator_queue_count": 0,
+            "pending_human_gate_count": 0,
+            "auto_approved_requirement_count": 0,
+            "stale_approval_count": 0,
+            "stuck_requirement_count": 0,
+            "critical_incident_count": 0,
+            "requires_operator_attention": False,
+            "autonomous_execution_rate": 0.0,
+            "summary_markdown": "Autonomous COO posture has not been computed yet.",
         }),
         "source_snapshot": dict(payload.get("source_snapshot") or {}),
         "created_at": row.created_at,
@@ -1501,6 +1619,7 @@ def refresh_company_operating_review(db: Session) -> CompanyOperatingReviewRow:
                 "next_cycle_recommendations": payload["next_cycle_recommendations"],
                 "next_cycle_requirement_bundle": payload["next_cycle_requirement_bundle"],
                 "operator_review_package": payload["operator_review_package"],
+                "autonomous_coo_posture": payload["autonomous_coo_posture"],
                 "source_snapshot": payload["source_snapshot"],
             },
         ),

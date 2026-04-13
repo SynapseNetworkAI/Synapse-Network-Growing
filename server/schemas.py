@@ -22,6 +22,57 @@ class AgentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RoleKPIOut(BaseModel):
+    role_id: str
+    display_name: str
+    group: str = ""
+    mission: str = ""
+    task_count: int = 0
+    completed_count: int = 0
+    active_task_count: int = 0
+    pending_task_count: int = 0
+    failed_task_count: int = 0
+    backlog_count: int = 0
+    reopened_task_count: int = 0
+    approval_dependency_count: int = 0
+    completion_rate: float = 0.0
+    reopen_rate: float = 0.0
+    approval_dependency_rate: float = 0.0
+    average_token_cost: float = 0.0
+    average_budget_cost_points: float = 0.0
+    tokens_used_total: int = 0
+    budget_cost_points_total: int = 0
+    open_requirement_count: int = 0
+    status_mix: dict[str, int] = {}
+
+
+class ApprovalRoleKPIOut(BaseModel):
+    role_id: str
+    assigned_count: int = 0
+    pending_count: int = 0
+    decided_count: int = 0
+    average_turnaround_hours: float = 0.0
+    disagreement_rate: float = 0.0
+    route_to_human_rate: float = 0.0
+    approve_recommendation_count: int = 0
+    revise_recommendation_count: int = 0
+    route_to_human_count: int = 0
+
+
+class RoleWorkAllocationSummaryOut(BaseModel):
+    role_count: int = 0
+    total_backlog_count: int = 0
+    overloaded_role_count: int = 0
+    approval_pending_count: int = 0
+    approval_stale_count: int = 0
+
+
+class RoleKpiSnapshotOut(BaseModel):
+    roles: list[RoleKPIOut] = []
+    approval_roles: list[ApprovalRoleKPIOut] = []
+    summary: RoleWorkAllocationSummaryOut = RoleWorkAllocationSummaryOut()
+
+
 # ── Task ──────────────────────────────────────────────────────
 
 class TaskCreate(BaseModel):
@@ -376,7 +427,25 @@ class OperatingReviewOperatorPackageOut(BaseModel):
     summary_markdown: str
     checklist: list[str] = []
     decisions: list[OperatingReviewOperatorDecisionOut] = []
+    autonomous_decision_count: int = 0
     recommended_bundle_item_keys: list[str] = []
+
+
+class OperatingReviewAutonomousCooPostureOut(BaseModel):
+    mode: str = "autonomous_coo"
+    operator_only_high_risk: bool = True
+    autonomous_workflow_keys: list[str] = []
+    high_risk_decision_count: int = 0
+    autonomous_decision_count: int = 0
+    operator_queue_count: int = 0
+    pending_human_gate_count: int = 0
+    auto_approved_requirement_count: int = 0
+    stale_approval_count: int = 0
+    stuck_requirement_count: int = 0
+    critical_incident_count: int = 0
+    requires_operator_attention: bool = False
+    autonomous_execution_rate: float = 0.0
+    summary_markdown: str = ""
 
 
 class CompanyOperatingReviewOut(BaseModel):
@@ -395,6 +464,7 @@ class CompanyOperatingReviewOut(BaseModel):
     next_cycle_recommendations: list[OperatingReviewRecommendationOut] = []
     next_cycle_requirement_bundle: list[OperatingReviewBundleItemOut] = []
     operator_review_package: OperatingReviewOperatorPackageOut
+    autonomous_coo_posture: OperatingReviewAutonomousCooPostureOut
     source_snapshot: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
