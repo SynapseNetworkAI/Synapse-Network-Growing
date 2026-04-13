@@ -95,6 +95,8 @@ Rules:
 - Keep between 1 and 5 implementation sub-steps.
 - Use dependency chains that reference earlier step_key values only.
 - Prefer concrete scopes: backend, frontend, infrastructure, test, or docs.
+- Do not add pure verification-only steps such as "run tests", "execute repo checks", or "review output"; validate owns the final quality gate.
+- Use `test` scope only when the step must write or update automated test code as part of implementation.
 - Use terse titles, avoid repeating the full requirement title in every step.
 - Let the requirement decide whether work is docs-only, code-only, or mixed.
 - Annotate every implementation step with complexity tier, budget cap, and escalation rule.
@@ -594,6 +596,8 @@ def _build_steps_from_agent_plan(
     target_paths = _split_target_paths(target_path)
 
     for step in agent_steps:
+        if _is_validate_only_agent_step(step):
+            continue
         step_scope = step.scope
         scope_constraint = _SCOPE_CONSTRAINTS.get(step_scope, "")
         done_when = step.done_when
@@ -632,6 +636,36 @@ def _build_steps_from_agent_plan(
         })
 
     return result, keys
+
+
+def _is_validate_only_agent_step(step: _AgentStep) -> bool:
+    if str(step.scope or "").strip().lower() != "test":
+        return False
+    text = f"{step.title}\n{step.done_when}".lower()
+    validate_markers = (
+        "run tests",
+        "run repo checks",
+        "execute repo validation",
+        "execute validation",
+        "validation suite",
+        "project-level validation command",
+        "validate output",
+        "verify output",
+        "verify the change",
+        "review output",
+    )
+    authoring_markers = (
+        "implement test",
+        "write test",
+        "add test",
+        "add regression",
+        "regression coverage",
+        "test code",
+        "coverage is implemented",
+    )
+    if any(marker in text for marker in authoring_markers):
+        return False
+    return any(marker in text for marker in validate_markers)
 
 
 def _slugify_branch_fragment(value: str) -> str:

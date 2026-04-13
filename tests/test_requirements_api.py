@@ -12,6 +12,7 @@ import server.services.portfolio_scheduler as portfolio_scheduler
 import server.services.workflow_orchestrator as workflow_orchestrator
 from sqlalchemy.exc import OperationalError
 from server.database import (
+    AgentRow,
     ApprovalRequestRow,
     ArtifactRow,
     BugRecordRow,
@@ -61,6 +62,159 @@ def _deferred_runtime_result(*, session_id: str = "session-running-123", executi
 def _sync_dispatch(task_id: int, agent_persona: dict, skill_name: str):
     _run_task_sync(task_id, agent_persona, skill_name)
     return MagicMock(name=f"task-{task_id}")
+
+
+def test_dynamic_validation_scope_narrows_dashboard_only_checks():
+    narrowed = workflow_orchestrator._narrow_required_checks_for_changed_files(
+        [
+            "/Users/cliff/workspace/agent/.venv/bin/python -m pytest -q",
+            "cd dashboard && npm test",
+            "cd dashboard && npm run build",
+        ],
+        ["dashboard/src/api.ts"],
+    )
+    assert narrowed == [
+        "cd dashboard && npm test",
+        "cd dashboard && npm run build",
+    ]
+
+
+def test_repo_file_changes_check_uses_latest_mutating_step(db_session, tmp_path):
+    db_session.add(
+        AgentRow(
+            id="dev_rel",
+            display_name="DevRel",
+            goal="Ship",
+            group="growth",
+            persona_path="roles/dev_rel/prompts/persona.md",
+            skills="[]",
+        )
+    )
+    requirement = RequirementRow(
+        title="Validate latest mutating task",
+        description_markdown="Ensure repo_file_changes uses implementation evidence.",
+        status="in_progress",
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+
+    workflow_run = WorkflowRunRow(
+        requirement_id=requirement.id,
+        plan_version=1,
+        status="running",
+        triggered_by="test",
+    )
+    db_session.add(workflow_run)
+    db_session.flush()
+
+    impl_dir = tmp_path / "task-impl"
+    impl_dir.mkdir()
+    (impl_dir / "file-changes.json").write_text(
+        json.dumps(
+            {
+                "changed_files": [
+                    {
+                        "filename": "dashboard/src/api.ts",
+                        "additions": 1,
+                        "deletions": 1,
+                        "patch": "@@",
+                        "target_project_path": "/private/tmp/sng-delivery-validation-next",
+                    }
+                ],
+                "target_project_path": "/private/tmp/sng-delivery-validation-next",
+                "changed_target_project_paths": ["/private/tmp/sng-delivery-validation-next"],
+                "baseline_captured_at": "2026-04-13T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    impl_task = TaskRow(
+        description="Implementation task",
+        status="completed",
+        output_path=str(impl_dir / "output.md"),
+        agent_id="dev_rel",
+    )
+    validate_task = TaskRow(
+        description="Validate task",
+        status="completed",
+        output_path=str((tmp_path / "task-validate") / "output.md"),
+        agent_id="dev_rel",
+    )
+    bugfix_dir = tmp_path / "task-bugfix"
+    bugfix_dir.mkdir()
+    (bugfix_dir / "file-changes.json").write_text(
+        json.dumps(
+            {
+                "changed_files": [],
+                "target_project_path": "/private/tmp/sng-delivery-validation-next",
+                "changed_target_project_paths": [],
+                "baseline_captured_at": "2026-04-13T00:05:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    bugfix_task = TaskRow(
+        description="Bugfix task without new file changes",
+        status="completed",
+        output_path=str(bugfix_dir / "output.md"),
+        agent_id="dev_rel",
+    )
+    db_session.add_all([impl_task, bugfix_task, validate_task])
+    db_session.flush()
+
+    impl_step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implementation",
+        status="completed",
+        sequence_no=30,
+        compatibility_task_id=impl_task.id,
+    )
+    bugfix_step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="bugfix",
+        step_type="bugfix",
+        title="Bugfix",
+        status="completed",
+        sequence_no=35,
+        compatibility_task_id=bugfix_task.id,
+    )
+    validate_step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="validate",
+        step_type="validate",
+        title="Validate",
+        status="running",
+        sequence_no=40,
+        compatibility_task_id=validate_task.id,
+    )
+    artifact = ArtifactRow(
+        requirement_id=requirement.id,
+        workflow_run_id=workflow_run.id,
+        step_id=validate_step.id,
+        producer_step_id=validate_step.id,
+        artifact_type="validation_report",
+        content_summary="validation report",
+        human_readable_body="ok",
+    )
+    db_session.add_all([impl_step, bugfix_step, validate_step, artifact])
+    db_session.flush()
+
+    failure = workflow_orchestrator._repo_file_changes_check_error(
+        db_session,
+        step=validate_step,
+        task=validate_task,
+        spec={"check_key": "fix_applied"},
+        artifact=artifact,
+    )
+
+    assert failure is None
 
 
 def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_session):
@@ -3918,6 +4072,7 @@ def test_implementation_context_skips_delivery_and_validation_contracts(synced_c
     assert "## Validation Contract" not in prompt
     assert "## Execution Guidance" in prompt
     assert "Keep changes tightly scoped to the target project" in prompt
+    assert "Do not run dependency installation/bootstrap commands" in prompt
 
 
 def test_bug_intake_steps_use_engineering_direct_execution_contract(synced_client, db_session):
@@ -4683,8 +4838,18 @@ def test_requirement_scheduler_reuses_project_catalog_context(synced_client, mon
 def test_execute_portfolio_schedule_skips_signal_refresh_for_auto_dispatch(db_session, monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_build_portfolio_schedule(db, *, refresh_signals=True, signal_rows=None, project_catalog=None):
+    def fake_build_portfolio_schedule(
+        db,
+        *,
+        refresh_signals=True,
+        signal_rows=None,
+        project_catalog=None,
+        preferred_project_key=None,
+        preferred_root_path=None,
+        include_signal_candidates=True,
+    ):
         captured["refresh_signals"] = refresh_signals
+        captured["include_signal_candidates"] = include_signal_candidates
         return {
             "global_capacity": 1,
             "active_count": 0,
@@ -4705,6 +4870,7 @@ def test_execute_portfolio_schedule_skips_signal_refresh_for_auto_dispatch(db_se
 
     assert result["decisions"] == []
     assert captured["refresh_signals"] is False
+    assert captured["include_signal_candidates"] is True
 
 
 def test_advance_requirement_queue_disables_signal_intake(db_session, monkeypatch):
@@ -4865,6 +5031,77 @@ def test_execute_portfolio_schedule_prefers_same_project_next_requirement(db_ses
 
     assert started == [int(same_project_requirement.id)]
     assert result["started_ids"] == [int(same_project_requirement.id)]
+
+
+def test_execute_portfolio_schedule_retries_without_signals_when_queue_only(db_session, monkeypatch):
+    requirement = RequirementRow(
+        title="Queue-only requirement should still start",
+        description_markdown="ready",
+        status="ready",
+        priority="normal",
+        source="manual",
+        target_project_path="/tmp/queue-only-project",
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add(requirement)
+    db_session.commit()
+
+    plans = [
+        {
+            "decisions": [
+                {
+                    "candidate_type": "signal",
+                    "action": "intake",
+                    "signal_id": 99,
+                    "title": "Signal intake",
+                },
+                {
+                    "candidate_type": "requirement",
+                    "action": "delay",
+                    "requirement_id": int(requirement.id),
+                    "title": str(requirement.title),
+                },
+            ],
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": [],
+        },
+        {
+            "decisions": [
+                {
+                    "candidate_type": "requirement",
+                    "action": "start",
+                    "requirement_id": int(requirement.id),
+                    "title": str(requirement.title),
+                },
+            ],
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": [],
+        },
+    ]
+
+    def fake_build_portfolio_schedule(*_args, **_kwargs):
+        return plans.pop(0)
+
+    started: list[int] = []
+    monkeypatch.setattr(portfolio_scheduler, "build_portfolio_schedule", fake_build_portfolio_schedule)
+    monkeypatch.setattr(workflow_orchestrator, "plan_requirement", lambda _db, requirement_id: {"requirement_id": requirement_id})
+    monkeypatch.setattr(workflow_orchestrator, "start_requirement", lambda _db, requirement_id: started.append(int(requirement_id)))
+
+    result = portfolio_scheduler.execute_portfolio_schedule(
+        db_session,
+        allow_intake=False,
+    )
+
+    assert started == [int(requirement.id)]
+    assert result["started_ids"] == [int(requirement.id)]
+    assert any("intake deferred for queue-only advance" in item for item in result["skipped"])
 
 
 def test_plan_requirement_after_approval_retries_sqlite_lock(db_session, monkeypatch):

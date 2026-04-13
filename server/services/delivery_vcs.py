@@ -308,3 +308,67 @@ def execute_requirement_delivery_vcs(
         "latest_remote_sha": latest_remote_sha,
         "last_pushed_at": last_pushed_at,
     }
+
+
+def prepare_requirement_delivery_branch(
+    *,
+    delivery_contract: dict[str, Any],
+    fallback_target_path: str | None = None,
+) -> dict[str, Any]:
+    branch_name = str(delivery_contract.get("branch_name") or "").strip()
+    base_branch = str(delivery_contract.get("base_branch") or "main").strip() or "main"
+    remote_name = str(delivery_contract.get("remote_name") or config.DELIVERY_VCS_REMOTE_NAME).strip() or "origin"
+    capability_matrix = dict(delivery_contract.get("capability_matrix") or {})
+    repo_paths = _normalize_repo_paths(delivery_contract, fallback_target_path)
+    blockers: list[str] = []
+    repo_results: list[dict[str, Any]] = []
+
+    if not branch_name:
+        blockers.append("delivery contract is missing branch_name")
+    if not repo_paths:
+        blockers.append("no target repositories resolved for branch preparation")
+    if not bool(capability_matrix.get("git_write", True)):
+        blockers.append("branch preparation requires git_write but project policy disables it")
+    if blockers:
+        return {
+            "status": "blocked",
+            "branch_name": branch_name or None,
+            "base_branch": base_branch,
+            "remote_name": remote_name,
+            "blockers": blockers,
+            "repositories": [],
+        }
+
+    for repo_path in repo_paths:
+        repo_result: dict[str, Any] = {
+            "repo_path": repo_path,
+            "branch_name": branch_name,
+            "base_branch": base_branch,
+            "remote_name": remote_name,
+            "remote_url": None,
+            "status": "blocked",
+            "blockers": [],
+            "current_branch_after": None,
+        }
+        try:
+            if not os.path.isdir(repo_path):
+                raise RuntimeError("repository path does not exist")
+            if not _is_git_repo(repo_path):
+                raise RuntimeError("target path is not a git repository")
+            repo_result["remote_url"] = _remote_url(repo_path, remote_name)
+            repo_result.update(_ensure_delivery_branch(repo_path, branch_name, base_branch, remote_name))
+            repo_result["current_branch_after"] = _current_branch(repo_path)
+            repo_result["status"] = "ready"
+        except Exception as exc:  # noqa: BLE001
+            repo_result["blockers"].append(str(exc))
+            blockers.append(f"{repo_path}: {exc}")
+        repo_results.append(repo_result)
+
+    return {
+        "status": "ready" if not blockers else "blocked",
+        "branch_name": branch_name,
+        "base_branch": base_branch,
+        "remote_name": remote_name,
+        "blockers": blockers,
+        "repositories": repo_results,
+    }

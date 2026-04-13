@@ -1339,6 +1339,7 @@ def _dynamic_validation_scope(
     changed_projects = payload.get("changed_projects") or []
     changed_paths: list[str] = []
     changed_file_counts: dict[str, int] = {}
+    changed_files_by_project: dict[str, list[str]] = {}
     if isinstance(changed_projects, list):
         for item in changed_projects:
             if not isinstance(item, dict):
@@ -1349,6 +1350,11 @@ def _dynamic_validation_scope(
             if path not in changed_paths:
                 changed_paths.append(path)
             changed_file_counts[path] = int(item.get("changed_file_count") or 0)
+            changed_files_by_project[path] = [
+                str(entry.get("filename") or "").strip()
+                for entry in item.get("changed_files") or []
+                if isinstance(entry, dict) and str(entry.get("filename") or "").strip()
+            ]
     for item in payload.get("changed_target_project_paths") or []:
         path = str(item).strip()
         if path and path not in changed_paths:
@@ -1362,7 +1368,11 @@ def _dynamic_validation_scope(
     affected_projects: list[dict[str, Any]] = []
     for policy in policies:
         root_path = str(policy.get("root_path") or "").strip()
-        for check in policy.get("required_checks") or []:
+        narrowed_checks = _narrow_required_checks_for_changed_files(
+            [str(item) for item in policy.get("required_checks") or [] if str(item).strip()],
+            changed_files_by_project.get(root_path) or [],
+        )
+        for check in narrowed_checks:
             check_text = str(check).strip()
             if check_text and check_text not in required_checks:
                 required_checks.append(check_text)
@@ -1371,8 +1381,9 @@ def _dynamic_validation_scope(
                 "project_key": str(policy.get("project_key") or ""),
                 "display_name": str(policy.get("display_name") or ""),
                 "root_path": root_path,
-                "required_checks": [str(item) for item in policy.get("required_checks") or [] if str(item).strip()],
+                "required_checks": narrowed_checks,
                 "changed_file_count": int(changed_file_counts.get(root_path, 0) or 0),
+                "changed_files": changed_files_by_project.get(root_path) or [],
             }
         )
     return {
@@ -1380,6 +1391,30 @@ def _dynamic_validation_scope(
         "affected_projects": affected_projects,
         "required_checks": required_checks,
     }
+
+
+def _narrow_required_checks_for_changed_files(required_checks: list[str], changed_files: list[str]) -> list[str]:
+    checks = [str(item).strip() for item in required_checks if str(item).strip()]
+    files = [str(item).strip().replace("\\", "/") for item in changed_files if str(item).strip()]
+    if not checks or not files:
+        return checks
+    all_dashboard = all(path.startswith("dashboard/") for path in files)
+    all_backend = all(path.startswith("server/") or path.startswith("tests/") for path in files)
+    if all_dashboard:
+        narrowed = [
+            check
+            for check in checks
+            if any(marker in check.lower() for marker in ("dashboard", "npm", "yarn", "vite", "vitest"))
+        ]
+        return narrowed or checks
+    if all_backend:
+        narrowed = [
+            check
+            for check in checks
+            if any(marker in check.lower() for marker in ("pytest", "python", "server", "backend"))
+        ]
+        return narrowed or checks
+    return checks
 
 
 def _project_change_metrics(
@@ -1559,13 +1594,47 @@ def _refresh_delivery_contract_for_existing_plan(
     _replace_contract_binding(db, _as_int(workflow_run.id), purpose="delivery_contract", artifact_id=_as_int(delivery_artifact.id))
 
 
+def _resolve_repo_file_change_task(
+    db: Session,
+    *,
+    step: WorkflowStepRow,
+    task: TaskRow | None,
+) -> TaskRow | None:
+    if task is not None and _task_has_tracked_repo_changes(task):
+        return task
+    workflow_run_id = _as_int(getattr(step, "workflow_run_id", 0))
+    sequence_no = int(getattr(step, "sequence_no", 0) or 0)
+    if workflow_run_id <= 0:
+        return task
+    candidate_steps = db.query(WorkflowStepRow).filter(
+        WorkflowStepRow.workflow_run_id == workflow_run_id,
+        WorkflowStepRow.sequence_no <= sequence_no,
+        WorkflowStepRow.compatibility_task_id.is_not(None),
+    ).order_by(WorkflowStepRow.sequence_no.desc(), WorkflowStepRow.id.desc()).all()
+    for candidate_step in candidate_steps:
+        candidate_type = str(getattr(candidate_step, "step_type", "") or "")
+        if candidate_type not in {"implementation", "bugfix"}:
+            continue
+        candidate_task_id = _as_int(getattr(candidate_step, "compatibility_task_id", 0))
+        if candidate_task_id <= 0:
+            continue
+        candidate_task = db.query(TaskRow).filter(TaskRow.id == candidate_task_id).first()
+        if candidate_task is None:
+            continue
+        if _task_has_tracked_repo_changes(candidate_task):
+            return candidate_task
+    return task
+
+
 def _repo_file_changes_check_error(
+    db: Session,
     *,
     step: WorkflowStepRow,
     task: TaskRow | None,
     spec: dict[str, Any],
     artifact: ArtifactRow,
 ) -> str | None:
+    task = _resolve_repo_file_change_task(db, step=step, task=task)
     if task is None:
         return "repo_file_changes check has no task context"
     payload = _load_task_file_changes(task)
@@ -4120,6 +4189,8 @@ def _step_execution_guidance(db: Session, step: WorkflowStepRow) -> str:
             [
                 "- Keep changes tightly scoped to the target project and files already identified by research/plan unless new evidence requires expansion.",
                 "- Prefer minimal diffs that directly satisfy the stated goal and validation contract.",
+                "- Do not run dependency installation/bootstrap commands such as `npm install`, `pnpm install`, or `yarn install` unless the requirement explicitly asks for dependency changes.",
+                "- Reuse the repository's existing lockfile and scripts; if a required check cannot run without new installs, fail fast and report the blocker instead of broad environment setup.",
             ]
         )
     if step_type == "validate":
@@ -5747,6 +5818,7 @@ def _mark_step_targets_passed(
         failure_reason: str | None = None
         if str(getattr(check, "check_type", "") or "") == "repo_file_changes":
             failure_reason = _repo_file_changes_check_error(
+                db,
                 step=step,
                 task=task,
                 spec=target if isinstance(target, dict) else {},

@@ -860,6 +860,110 @@ def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_i
     assert "requirement_branch" in target_file.read_text(encoding="utf-8")
 
 
+def test_task_runner_prepares_requirement_branch_before_mutating_runtime_execution(synced_client, db_session, tmp_path):
+    from server.services.task_runner import _run_task_sync
+
+    repo_root = tmp_path / "sng-delivery-validation-next"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_root, check=True, capture_output=True, text=True)
+    (repo_root / "README.md").write_text("# Validation Clone\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "checkout", "-b", "ops/req-old"], cwd=repo_root, check=True, capture_output=True, text=True)
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Run mutating implementation",
+        "agent_id": "dev_rel",
+        "skill_name": "__direct_execution__",
+    })
+    task_id = create.json()["id"]
+
+    requirement = RequirementRow(
+        title="Bug Fix: timeout constant",
+        description_markdown="Increase the timeout constant in `dashboard/src/api.ts` and validate the behavior.",
+        source="bug_intake",
+        source_ref="bug-intake:test",
+        target_project_path=str(repo_root),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(workflow_run)
+    db_session.flush()
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            artifact_type="delivery_contract",
+            content_summary="delivery contract",
+            human_readable_body="delivery contract",
+            machine_readable_payload=json.dumps(
+                {
+                    "branch_strategy": "requirement_branch",
+                    "branch_name": "ops/req-test-timeout",
+                    "base_branch": "main",
+                    "remote_name": "origin",
+                    "capability_matrix": {"git_write": True, "git_push": False},
+                    "managed_projects": [{"root_path": str(repo_root)}],
+                }
+            ),
+        )
+    )
+    db_session.add(
+        WorkflowStepRow(
+            workflow_run_id=workflow_run.id,
+            requirement_id=requirement.id,
+            step_key="implementation",
+            step_type="implementation",
+            title="Bump timeout",
+            status="running",
+            sequence_no=20,
+            assigned_agent_id="dev_rel",
+            compatibility_task_id=task_id,
+            done_when_markdown="done",
+            context_scope="step_private",
+            context_policy_json="{}",
+            execution_profile_json='{"complexity_tier":"mini","budget_cap":{"max_runtime_seconds":600}}',
+            file_scope_json="{}",
+            validation_targets_json="[]",
+            failure_policy_json="{}",
+            approval_policy_json="{}",
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
+        "server.services.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            text="implemented",
+            execution_time_ms=25,
+            runtime_backend="openai_responses",
+            runtime_provider="openai",
+            model="gpt-5-mini",
+            tokens_used=120,
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "dev_rel", "display_name": "DevRel", "goal": "", "body": ""}, "__direct_execution__")
+
+    assert (
+        subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == "ops/req-test-timeout"
+    )
+    payload = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert payload["status"] == "completed"
+    assert any(log["event_type"] == "delivery_branch_prepared" for log in synced_client.get(f"/api/tasks/{task_id}/logs").json())
+
+
 def test_deterministic_delivery_review_and_test_use_review_surface_metadata(db_session, tmp_path):
     from server.services.task_runner import _deterministic_delivery_validation_result
 

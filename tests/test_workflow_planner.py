@@ -10,7 +10,9 @@ from server.services.workflow_planner import (
     _DetectedPhases,
     _base_file_scope,
     _plan_with_agent,
+    _AgentStep,
     _build_implementation_steps,
+    _build_steps_from_agent_plan,
     _detect_phases_fallback,
     _detect_phases_with_agent,
     _project_file_scope,
@@ -290,6 +292,31 @@ class TestBuildImplementationSteps:
         steps, _ = _build_implementation_steps(req, phases, "/my/project")
         for step in steps:
             assert "/my/project/**" in step["file_scope"]["allowed_write_globs"]
+
+    def test_validate_only_test_step_is_filtered_from_implementation_plan(self):
+        req = _mock_requirement(title="Validation only")
+        steps, keys = _build_steps_from_agent_plan(
+            req,
+            [
+                _AgentStep(
+                    step_key="impl",
+                    title="Change frontend timeout",
+                    scope="frontend",
+                    depends_on=[],
+                    done_when="Frontend change is implemented.",
+                ),
+                _AgentStep(
+                    step_key="run_repo_checks",
+                    title="Execute repo validation suite",
+                    scope="test",
+                    depends_on=["impl"],
+                    done_when="Project-level validation command completes successfully or its failures are documented.",
+                ),
+            ],
+            "/tmp/project",
+        )
+        assert [step["step_key"] for step in steps] == ["impl"]
+        assert keys == ["impl", "run_repo_checks"]
 
 
 # ---------------------------------------------------------------------------

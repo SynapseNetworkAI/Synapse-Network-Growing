@@ -13,6 +13,7 @@ from server.database import ArtifactRow, SessionLocal, TaskRow, TaskLogRow, Appr
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND, E2E_SYNC_DISPATCH
 from server.services.copilot_sdk_state import task_output_dir
 from server.services.codex_session_registry import find_reusable_session, upsert_session_launch
+from server.services.delivery_vcs import prepare_requirement_delivery_branch
 from server.services.task_runtime import (
     RuntimeEvent,
     _codex_workdirs,
@@ -176,6 +177,32 @@ def _latest_artifact_payload(db, requirement_id: int, artifact_type: str) -> dic
     except (json.JSONDecodeError, TypeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _prepare_requirement_branch_for_task(db, task: TaskRow, step_type: str) -> None:
+    if step_type not in {"implementation", "bugfix"}:
+        return
+    requirement = _task_requirement(task)
+    if requirement is None:
+        return
+    requirement_id = int(getattr(cast(Any, requirement), "id", 0) or 0)
+    delivery_contract = _latest_artifact_payload(db, requirement_id, "delivery_contract")
+    if not isinstance(delivery_contract, dict) or not delivery_contract:
+        return
+    branch_strategy = str(delivery_contract.get("branch_strategy") or "").strip().lower()
+    if branch_strategy != "requirement_branch":
+        return
+    target_path = str(getattr(cast(Any, requirement), "target_project_path", "") or "").strip() or None
+    prepared = prepare_requirement_delivery_branch(
+        delivery_contract=delivery_contract,
+        fallback_target_path=target_path,
+    )
+    blockers = [str(item).strip() for item in (prepared.get("blockers") or []) if str(item).strip()]
+    if blockers:
+        raise RuntimeError("; ".join(blockers))
+    branch_name = str(prepared.get("branch_name") or "").strip()
+    if branch_name:
+        _log(db, int(cast(Any, task).id), "delivery_branch_prepared", branch_name)
 
 
 def _deterministic_delivery_validation_result(db, task: TaskRow, output_dir: Path, step_type: str):
@@ -415,6 +442,9 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 session_hint["session_key"] = reusable.session_key
                 session_hint["thread_id"] = str(reusable.thread_id or "")
                 session_hint["resume_count"] = int(reusable.resume_count or 0)
+
+        _prepare_requirement_branch_for_task(db, task, step_type)
+        db.commit()
 
         deterministic_result = None
         if _should_use_deterministic_delivery_executor(task, step_type):

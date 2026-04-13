@@ -239,6 +239,7 @@ def build_portfolio_schedule(
     project_catalog: dict[str, dict[str, Any]] | None = None,
     preferred_project_key: str | None = None,
     preferred_root_path: str | None = None,
+    include_signal_candidates: bool = True,
 ) -> dict[str, Any]:
     policy_by_root, _policy_by_key = _project_policy_maps(db)
     project_catalog = project_catalog or build_project_catalog(db)
@@ -246,6 +247,8 @@ def build_portfolio_schedule(
     if refresh_signals:
         refresh_optimization_signals(db)
     signal_rows = list(signal_rows) if signal_rows is not None else list_optimization_signals(db, status="open")
+    if not include_signal_candidates:
+        signal_rows = []
     signal_contexts = build_signal_requirement_context_map(db, project_catalog=project_catalog)
 
     running_requirements = db.query(RequirementRow).filter(RequirementRow.status == "in_progress").all()
@@ -580,48 +583,73 @@ def execute_portfolio_schedule(
         refresh_signals=refresh_signals,
         preferred_project_key=preferred_project_key,
         preferred_root_path=preferred_root_path,
+        include_signal_candidates=allow_intake,
     )
     started_ids: list[int] = []
     created_requirement_ids: list[int] = []
     preempted_ids: list[int] = []
     rebalanced_ids: list[int] = []
     skipped: list[str] = []
+    deferred_signal_intake = False
 
     from server.services.optimization_signals import create_requirement_from_signal
     from server.services.workflow_orchestrator import pause_requirement, plan_requirement, start_requirement
 
-    for decision in plan["decisions"]:
-        action = str(decision.get("action") or "")
-        if action not in {"start", "intake", "rebalance_start"}:
-            continue
-        if action == "intake" and not allow_intake:
-            skipped.append(f"{decision.get('title')}: intake deferred for queue-only advance")
-            continue
-        try:
-            if action == "rebalance_start":
-                preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
-                if preempt_requirement_id:
-                    pause_requirement(db, preempt_requirement_id)
-                    preempted_ids.append(preempt_requirement_id)
-            if action == "intake":
-                signal_id = int(decision["signal_id"])
-                _signal, detail = create_requirement_from_signal(db, signal_id=signal_id, auto_start=False)
-                requirement_id = int(detail.requirement.id)
-                created_requirement_ids.append(requirement_id)
-            else:
-                requirement_id = int(decision["requirement_id"])
-            requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
-            if requirement is None:
-                raise ValueError(f"requirement #{requirement_id} not found")
-            if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
-                plan_requirement(db, requirement_id)
-            start_requirement(db, requirement_id)
-            started_ids.append(requirement_id)
-            if action == "rebalance_start":
-                rebalanced_ids.append(requirement_id)
-                break
-        except Exception as exc:  # noqa: BLE001
-            skipped.append(f"{decision.get('title')}: {exc}")
+    def _process_decisions(decisions: list[dict[str, Any]], *, skip_signal_intake: bool) -> None:
+        nonlocal deferred_signal_intake
+        for decision in decisions:
+            action = str(decision.get("action") or "")
+            if action not in {"start", "intake", "rebalance_start"}:
+                continue
+            if action == "intake" and skip_signal_intake:
+                skipped.append(f"{decision.get('title')}: intake deferred for queue-only advance")
+                deferred_signal_intake = True
+                continue
+            try:
+                if action == "rebalance_start":
+                    preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
+                    if preempt_requirement_id:
+                        pause_requirement(db, preempt_requirement_id)
+                        preempted_ids.append(preempt_requirement_id)
+                if action == "intake":
+                    signal_id = int(decision["signal_id"])
+                    _signal, detail = create_requirement_from_signal(db, signal_id=signal_id, auto_start=False)
+                    requirement_id = int(detail.requirement.id)
+                    created_requirement_ids.append(requirement_id)
+                else:
+                    requirement_id = int(decision["requirement_id"])
+                requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+                if requirement is None:
+                    raise ValueError(f"requirement #{requirement_id} not found")
+                if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
+                    plan_requirement(db, requirement_id)
+                start_requirement(db, requirement_id)
+                started_ids.append(requirement_id)
+                if action == "rebalance_start":
+                    rebalanced_ids.append(requirement_id)
+                    break
+            except Exception as exc:  # noqa: BLE001
+                skipped.append(f"{decision.get('title')}: {exc}")
+
+    _process_decisions(list(plan["decisions"]), skip_signal_intake=not allow_intake)
+
+    if deferred_signal_intake and not started_ids and not allow_intake:
+        retry_plan = build_portfolio_schedule(
+            db,
+            refresh_signals=refresh_signals,
+            preferred_project_key=preferred_project_key,
+            preferred_root_path=preferred_root_path,
+            include_signal_candidates=False,
+        )
+        retry_decisions = [
+            decision
+            for decision in retry_plan["decisions"]
+            if str(decision.get("candidate_type") or "") != "signal"
+        ]
+        _process_decisions(retry_decisions, skip_signal_intake=False)
+        if started_ids:
+            plan = retry_plan
+            plan["decisions"] = retry_decisions
 
     plan["started_ids"] = started_ids
     plan["created_requirement_ids"] = created_requirement_ids
