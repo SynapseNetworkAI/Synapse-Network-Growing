@@ -682,7 +682,7 @@ def _build_delivery_contract(
         "release_mode": release_mode,
         "requires_manual_approval": requires_manual_approval,
         "required_checks": required_checks,
-        "required_capabilities": ["git_push", "publish"],
+        "required_capabilities": ["git_write", "git_push", "publish"],
         "capability_matrix": capability_matrix,
         "interrupt_policy": interrupt_policy,
         "auto_publish_allowed": (

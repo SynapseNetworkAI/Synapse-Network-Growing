@@ -427,11 +427,16 @@ def estimate_runtime_budget_points(
     execution_time_ms: int = 0,
     tokens_used: int = 0,
 ) -> int:
+    backend_name = str(runtime_backend or "").strip().lower()
     base = budget_points_for_tier(tier)
     runtime_seconds = max(0, int(execution_time_ms or 0) // 1000)
     time_points = min(12, max(0, runtime_seconds // 60))
     token_points = min(18, max(0, int(tokens_used or 0) // 4000))
-    backend_bonus = 2 if str(runtime_backend or "").strip().lower() in {"codex_cli", "copilot_sdk"} else 0
+    if backend_name == "legacy":
+        # Legacy/mock runtimes are used for local deterministic tests and lightweight
+        # fallbacks, so they should not consume the same budget as real provider calls.
+        return max(2, min(12, 2 + time_points + token_points))
+    backend_bonus = 2 if backend_name in {"codex_cli", "copilot_sdk"} else 0
     return max(base, min(100, base + time_points + token_points + backend_bonus))
 
 

@@ -183,6 +183,17 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
     assert data["delivery_state"]["branch_name"].startswith(f"ops/req-{requirement_id}-")
 
 
+def test_legacy_runtime_budget_points_do_not_trip_bugfix_loop_budget_guardrail():
+    from server.services.task_runtime import estimate_runtime_budget_points
+
+    assert estimate_runtime_budget_points(
+        tier="standard",
+        runtime_backend="legacy",
+        execution_time_ms=5,
+        tokens_used=0,
+    ) == 2
+
+
 def test_incident_research_task_routes_to_engineering_agent(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -2525,6 +2536,149 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
         json={"completed_checks": ["pytest -q", "npm run build"], "note": "ship it"},
     )
     assert publish_resp.status_code == 200
+
+
+def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Delivery branch blocked",
+            "description_markdown": "Validation passes but branch delivery fails.",
+            "target_project_path": target_path,
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    with patch(
+        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+        return_value=(
+            {
+                "status": "blocked",
+                "branch_name": f"ops/req-{requirement_id}-delivery-branch-blocked",
+                "base_branch": "main",
+                "remote_name": "origin",
+                "blockers": ["origin push rejected"],
+                "repositories": [],
+            },
+            None,
+        ),
+    ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "blocked"
+    assert detail["workflow_run"]["status"] == "paused"
+    closeout = next(step for step in detail["workflow_run"]["steps"] if step["step_type"] == "closeout")
+    assert closeout["status"] == "blocked"
+    assert detail["delivery_state"]["review_status"] == "blocked"
+    assert "origin push rejected" in detail["delivery_state"]["publish_blockers"]
+
+
+def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Delivery branch success",
+            "description_markdown": "Validation passes and branch delivery succeeds.",
+            "target_project_path": target_path,
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
+
+    class SuccessRuntime:
+        def execute(self, **_kwargs):
+            return _runtime_result(text="ok")
+
+    vcs_payload = {
+        "status": "delivered",
+        "branch_name": f"ops/req-{requirement_id}-delivery-branch-success",
+        "base_branch": "main",
+        "remote_name": "origin",
+        "blockers": [],
+        "repositories": [
+            {
+                "repo_path": target_path,
+                "status": "delivered",
+                "branch_name": f"ops/req-{requirement_id}-delivery-branch-success",
+                "commit_sha": "abc123def456",
+                "remote_sha": "abc123def456",
+                "committed": True,
+                "pushed": True,
+                "blockers": [],
+            }
+        ],
+    }
+
+    with patch(
+        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+        return_value=(vcs_payload, None),
+    ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ):
+        start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
+
+    assert start_resp.status_code == 200
+    detail = start_resp.json()
+    assert detail["requirement"]["status"] == "done"
+    assert detail["delivery_state"]["review_status"] == "review_ready"
+    assert detail["delivery_state"]["vcs_status"] == "delivered"
+    assert detail["delivery_state"]["vcs_repositories"][0]["commit_sha"] == "abc123def456"
+    review_surface = next(artifact for artifact in detail["artifacts"] if artifact["artifact_type"] == "review_surface")
+    review_payload = json.loads(review_surface["machine_readable_payload"])
+    assert review_payload["vcs_delivery"]["status"] == "delivered"
 
 
 def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access(synced_client, db_session):

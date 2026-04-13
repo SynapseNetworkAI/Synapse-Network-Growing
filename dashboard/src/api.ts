@@ -569,6 +569,9 @@ export interface DeliveryState {
   review_ready_at: string | null
   published_at: string | null
   publish_note: string | null
+  vcs_status: string | null
+  vcs_remote_name: string | null
+  vcs_repositories: Record<string, unknown>[]
 }
 
 export interface WorkflowStep {

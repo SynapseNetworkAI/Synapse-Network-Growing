@@ -889,6 +889,9 @@ class DeliveryStateOut(BaseModel):
     review_ready_at: Optional[str] = None
     published_at: Optional[str] = None
     publish_note: Optional[str] = None
+    vcs_status: Optional[str] = None
+    vcs_remote_name: Optional[str] = None
+    vcs_repositories: list[dict[str, object]] = []
 
 
 class ProjectScorecardOut(BaseModel):

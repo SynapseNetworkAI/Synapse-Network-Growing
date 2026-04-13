@@ -66,6 +66,7 @@ from server.services.copilot_sdk_state import (
     save_runtime_state,
     task_output_dir,
 )
+from server.services.delivery_vcs import execute_requirement_delivery_vcs
 from server.services.execution_resolver import suggest_task_execution
 from server.services.acceptance import acceptance_contract_for_requirement, list_acceptance_dispatch_candidates, normalize_acceptance_contract
 from server.services.requirement_approval import (
@@ -2047,11 +2048,28 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         "delivery_state",
         workflow_run_id=workflow_run.id,
     ) is None:
+        vcs_payload, _artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, None)
+        if (vcs_payload.get("blockers") or []) and str(vcs_payload.get("status") or "") != "delivered":
+            requirement.status = "blocked"
+            requirement.completed_at = None
+            if workflow_run is not None:
+                workflow_run.status = "paused"
+                workflow_run.completed_at = None
+            _record_delivery_state(
+                db,
+                requirement,
+                workflow_run,
+                review_status="blocked",
+                publish_status="blocked",
+            )
+            db.commit()
+            raise ValueError("Requirement cannot close before delivery branch commit/push succeeds.")
         delivery_contract = _delivery_contract_payload(db, requirement.id)
         _record_delivery_state(
             db,
             requirement,
             workflow_run,
+            review_status="review_ready",
             publish_status="blocked" if str(delivery_contract.get("release_mode") or "manual") == "disabled" else "review_ready",
         )
     requirement.status = "done"
@@ -2920,7 +2938,8 @@ def _dispatch_next_step_for_requirement(requirement_id: int):
             _maybe_downgrade_ready_step(db, requirement=requirement, workflow_run=workflow_run, step=step)
             if step.step_type == "closeout":
                 _auto_complete_closeout(db, requirement, workflow_run, step)
-                _record_step_event(db, step.id, "status_change", "completed (auto-closeout)")
+                if step.status == "completed":
+                    _record_step_event(db, step.id, "status_change", "completed (auto-closeout)")
                 db.commit()
                 return
 
@@ -5235,9 +5254,8 @@ def _auto_complete_closeout(db: Session, requirement: RequirementRow, workflow_r
         human_readable_body=_manual_closeout_markdown(requirement, db),
         machine_readable_payload=_manual_closeout_payload(db, requirement, workflow_run),
     )
-    step.status = "completed"
     step.started_at = step.started_at or utcnow()
-    step.completed_at = utcnow()
+    step.completed_at = None
     _finalize_requirement(db, requirement, workflow_run, step, artifact)
 
 
@@ -5249,11 +5267,33 @@ def _finalize_requirement(
     artifact: ArtifactRow,
 ):
     _mark_step_targets_passed(db, requirement, step, artifact)
+    delivery_contract = _delivery_contract_payload(db, requirement.id)
+    vcs_payload, _vcs_artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, step)
+    vcs_blockers = [str(item).strip() for item in (vcs_payload.get("blockers") or []) if str(item).strip()]
+    if vcs_blockers:
+        step.status = "blocked"
+        step.completed_at = None
+        workflow_run.status = "paused"
+        workflow_run.completed_at = None
+        requirement.status = "blocked"
+        requirement.completed_at = None
+        _record_step_event(db, _as_int(step.id), "closeout_blocked", "; ".join(vcs_blockers))
+        _record_delivery_state(
+            db,
+            requirement,
+            workflow_run,
+            review_status="blocked",
+            publish_status="blocked",
+            vcs_payload=vcs_payload,
+        )
+        return
+
+    step.status = "completed"
+    step.completed_at = utcnow()
     workflow_run.status = "completed"
     workflow_run.completed_at = utcnow()
     requirement.status = "done"
     requirement.completed_at = utcnow()
-    delivery_contract = _delivery_contract_payload(db, requirement.id)
     auto_publish_allowed = bool(delivery_contract.get("auto_publish_allowed"))
     required_checks = [str(item) for item in delivery_contract.get("required_checks") or [] if str(item).strip()]
     publish_status = "published" if auto_publish_allowed and not required_checks else (
@@ -5271,6 +5311,7 @@ def _finalize_requirement(
             "workflow_run_id": _as_int(workflow_run.id),
             "branch_name": delivery_contract.get("branch_name"),
             "validation_checks": _validation_check_statuses(db, _as_int(requirement.id)),
+            "vcs_delivery": vcs_payload,
             "generated_at": utcnow().isoformat(),
         },
     )
@@ -5278,9 +5319,11 @@ def _finalize_requirement(
         db,
         requirement,
         workflow_run,
+        review_status="review_ready",
         publish_status=publish_status,
         confirmed_checks=required_checks if publish_status == "published" else [],
         publish_note="auto-published by release gate" if publish_status == "published" else None,
+        vcs_payload=vcs_payload,
     )
     if publish_status == "published":
         _create_artifact(
@@ -5936,15 +5979,114 @@ def _delivery_contract_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _delivery_review_surface_summary(requirement: RequirementRow, db: Session) -> str:
+def _latest_vcs_delivery_payload(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_run_id: int | None = None,
+) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "vcs_delivery", workflow_run_id=workflow_run_id)
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _vcs_delivery_markdown(payload: dict[str, Any]) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+    lines = ["# VCS Delivery", ""]
+    lines.append(f"- Status: `{payload.get('status', 'unknown')}`")
+    if payload.get("branch_name"):
+        lines.append(f"- Branch: `{payload.get('branch_name')}`")
+    if payload.get("base_branch"):
+        lines.append(f"- Base branch: `{payload.get('base_branch')}`")
+    if payload.get("remote_name"):
+        lines.append(f"- Remote: `{payload.get('remote_name')}`")
+    blockers = payload.get("blockers") or []
+    if isinstance(blockers, list) and blockers:
+        lines.extend(["", "## Delivery Blockers", *[f"- {item}" for item in blockers]])
+    repositories = payload.get("repositories") or []
+    if isinstance(repositories, list) and repositories:
+        lines.extend(["", "## Repository Results"])
+        for item in repositories:
+            if not isinstance(item, dict):
+                continue
+            repo_path = str(item.get("repo_path") or "").strip() or "-"
+            status = str(item.get("status") or "unknown")
+            lines.append(f"- `{repo_path}` -> `{status}`")
+            commit_sha = str(item.get("commit_sha") or "").strip()
+            remote_sha = str(item.get("remote_sha") or "").strip()
+            if commit_sha:
+                lines.append(f"  Commit: `{commit_sha[:12]}`")
+            if remote_sha:
+                lines.append(f"  Remote: `{remote_sha[:12]}`")
+            repo_blockers = item.get("blockers") or []
+            if isinstance(repo_blockers, list):
+                for blocker in repo_blockers:
+                    lines.append(f"  Blocker: {blocker}")
+    return "\n".join(lines)
+
+
+def _record_vcs_delivery_artifact(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    step: WorkflowStepRow | None,
+    payload: dict[str, Any],
+) -> ArtifactRow:
+    status = str(payload.get("status") or "unknown")
+    return _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        step_id=_as_int(step.id) if step is not None else None,
+        producer_step_id=_as_int(step.id) if step is not None else None,
+        artifact_type="vcs_delivery",
+        content_summary=f"VCS delivery {status} for requirement #{requirement.id}",
+        human_readable_body=_vcs_delivery_markdown(payload),
+        machine_readable_payload=payload,
+    )
+
+
+def _execute_requirement_vcs_delivery(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    step: WorkflowStepRow | None,
+) -> tuple[dict[str, Any], ArtifactRow | None]:
+    contract = _delivery_contract_payload(db, _as_int(requirement.id))
+    if not contract:
+        return {}, None
+    payload = execute_requirement_delivery_vcs(
+        requirement_id=_as_int(requirement.id),
+        requirement_title=str(requirement.title),
+        delivery_contract=contract,
+        fallback_target_path=_effective_target_project_path(
+            db,
+            requirement,
+            step_type=str(getattr(step, "step_type", "") or "closeout"),
+        ),
+    )
+    artifact = _record_vcs_delivery_artifact(db, requirement, workflow_run, step, payload)
+    return payload, artifact
+
+
+def _delivery_review_surface_summary(requirement: RequirementRow, db: Session, *, workflow_run_id: int | None = None) -> str:
     check_lines = [
         f"`{check['check_key']}`={check['status']}"
         for check in _validation_check_statuses(db, _as_int(requirement.id))
     ]
-    return (
+    summary = (
         f"Requirement #{requirement.id} is review-ready for `{requirement.title}`. "
         f"Validation: {', '.join(check_lines) if check_lines else 'no checks recorded'}."
     )
+    vcs_payload = _latest_vcs_delivery_payload(db, _as_int(requirement.id), workflow_run_id=workflow_run_id)
+    repositories = vcs_payload.get("repositories") or []
+    delivered = [item for item in repositories if isinstance(item, dict) and str(item.get("status") or "") == "delivered"]
+    if delivered:
+        repos = ", ".join(str(item.get("repo_path") or "").strip() for item in delivered if str(item.get("repo_path") or "").strip())
+        if repos:
+            summary += f" Delivered branches pushed for: {repos}."
+    return summary
 
 
 def _delivery_state_payload(
@@ -5952,11 +6094,18 @@ def _delivery_state_payload(
     requirement: RequirementRow,
     workflow_run: WorkflowRunRow | None,
     *,
+    review_status: str = "review_ready",
     publish_status: str,
     confirmed_checks: list[str] | None = None,
     publish_note: str | None = None,
+    vcs_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     contract = _delivery_contract_payload(db, _as_int(requirement.id))
+    effective_vcs_payload = vcs_payload if isinstance(vcs_payload, dict) else _latest_vcs_delivery_payload(
+        db,
+        _as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    )
     required_checks = [str(item) for item in contract.get("required_checks") or [] if str(item).strip()]
     confirmed = [str(item) for item in (confirmed_checks or []) if str(item).strip()]
     pending = [check for check in required_checks if check not in confirmed]
@@ -5964,14 +6113,22 @@ def _delivery_state_payload(
     if str(contract.get("release_mode") or "manual") == "disabled":
         blockers.append("publish disabled by project policy")
     capability_matrix = contract.get("capability_matrix") or {}
+    if bool(contract.get("commit_required")) and not bool(capability_matrix.get("git_write", True)):
+        blockers.append("branch commit required but git_write is disabled by project policy")
     if bool(contract.get("push_required")) and not bool(capability_matrix.get("git_push")):
         blockers.append("branch push required but git_push is disabled by project policy")
+    vcs_blockers = [
+        str(item).strip()
+        for item in (effective_vcs_payload.get("blockers") or [])
+        if str(item).strip()
+    ]
+    blockers.extend(vcs_blockers)
     blockers.extend([f"required check pending: {check}" for check in pending])
     return {
         "branch_name": contract.get("branch_name"),
         "branch_strategy": contract.get("branch_strategy"),
         "base_branch": contract.get("base_branch"),
-        "review_status": "review_ready",
+        "review_status": review_status,
         "publish_status": publish_status,
         "release_mode": contract.get("release_mode"),
         "requires_manual_approval": bool(contract.get("requires_manual_approval")),
@@ -5979,12 +6136,19 @@ def _delivery_state_payload(
         "confirmed_checks": confirmed,
         "pending_checks": pending,
         "publish_blockers": blockers,
-        "review_surface_summary": _delivery_review_surface_summary(requirement, db),
+        "review_surface_summary": _delivery_review_surface_summary(
+            requirement,
+            db,
+            workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        ),
         "rollback_hint_markdown": contract.get("rollback_hint_markdown"),
-        "review_ready_at": utcnow().isoformat(),
+        "review_ready_at": utcnow().isoformat() if review_status == "review_ready" else None,
         "published_at": utcnow().isoformat() if publish_status == "published" else None,
         "publish_note": publish_note,
         "workflow_run_id": _as_int(workflow_run.id) if workflow_run is not None else None,
+        "vcs_status": str(effective_vcs_payload.get("status") or "") or None,
+        "vcs_remote_name": str(effective_vcs_payload.get("remote_name") or "") or None,
+        "vcs_repositories": effective_vcs_payload.get("repositories") or [],
     }
 
 
@@ -6003,6 +6167,9 @@ def _delivery_state_markdown(payload: dict[str, Any]) -> str:
             f"- Release mode: `{payload.get('release_mode', '-')}`",
         ]
     )
+    vcs_status = str(payload.get("vcs_status") or "").strip()
+    if vcs_status:
+        lines.append(f"- VCS status: `{vcs_status}`")
     required_checks = payload.get("required_checks") or []
     if isinstance(required_checks, list) and required_checks:
         lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
@@ -6020,19 +6187,26 @@ def _record_delivery_state(
     requirement: RequirementRow,
     workflow_run: WorkflowRunRow | None,
     *,
+    review_status: str = "review_ready",
     publish_status: str,
     confirmed_checks: list[str] | None = None,
     publish_note: str | None = None,
+    vcs_payload: dict[str, Any] | None = None,
 ) -> ArtifactRow:
     payload = _delivery_state_payload(
         db,
         requirement,
         workflow_run,
+        review_status=review_status,
         publish_status=publish_status,
         confirmed_checks=confirmed_checks,
         publish_note=publish_note,
+        vcs_payload=vcs_payload,
     )
-    summary_label = "Published" if publish_status == "published" else "Review-ready"
+    if review_status == "blocked":
+        summary_label = "Delivery blocked"
+    else:
+        summary_label = "Published" if publish_status == "published" else "Review-ready"
     return _create_artifact(
         db,
         requirement_id=_as_int(requirement.id),
@@ -6098,6 +6272,9 @@ def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryS
         review_ready_at=str(payload.get("review_ready_at") or "") or None,
         published_at=str(payload.get("published_at") or "") or None,
         publish_note=str(payload.get("publish_note") or "") or None,
+        vcs_status=str(payload.get("vcs_status") or "") or None,
+        vcs_remote_name=str(payload.get("vcs_remote_name") or "") or None,
+        vcs_repositories=payload.get("vcs_repositories") or [],
     )
 
 

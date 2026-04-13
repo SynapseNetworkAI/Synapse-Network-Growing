@@ -379,7 +379,7 @@ class TestBuildPlannerOutput:
         assert output["delivery_contract"]["branch_name"].startswith(f"ops/req-{req.id}-")
         assert output["delivery_contract"]["release_mode"] == "manual"
         assert output["delivery_contract"]["required_checks"]
-        assert output["delivery_contract"]["required_capabilities"] == ["git_push", "publish"]
+        assert output["delivery_contract"]["required_capabilities"] == ["git_write", "git_push", "publish"]
         assert output["delivery_contract"]["auto_publish_allowed"] is False
         assert output["execution_controls"]["capability_matrix"]["shell_access"] is True
         assert output["context_governance"]["default_limits"]["block_on_stale_memory"] is True
