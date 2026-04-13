@@ -453,7 +453,17 @@ def _build_codex_exec_command(
 ) -> list[str]:
     resolved_model = resolve_codex_cli_model(model)
     if resume_thread_id:
-        command = [config.CODEX_CLI_BIN, "exec", "resume", resume_thread_id, "-"]
+        command = [config.CODEX_CLI_BIN, "exec", "resume"]
+        if resolved_model:
+            command.extend(["-m", resolved_model])
+        if config.CODEX_CLI_FULL_AUTO and str(sandbox_mode or "").strip().lower() not in {"", "read-only"}:
+            command.append("--full-auto")
+        if config.CODEX_CLI_SKIP_GIT_REPO_CHECK:
+            command.append("--skip-git-repo-check")
+        if config.CODEX_CLI_JSON_EVENTS:
+            command.append("--json")
+        command.extend(["--output-last-message", str(output_path), resume_thread_id, "-"])
+        return command
     else:
         command = [config.CODEX_CLI_BIN, "exec", "-", "-C", str(cwd)]
     if resolved_model:

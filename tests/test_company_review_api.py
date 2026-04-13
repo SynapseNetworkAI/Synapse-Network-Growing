@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
-from server.services.company_review import refresh_company_operating_review
+from server.config import PROJECT_ROOT
+from server.services.company_review import materialize_company_review_automation_candidates, refresh_company_operating_review
 
 
 def test_company_review_refresh_serializes_workflow_ritual_datetimes(synced_client, db_session):
@@ -528,3 +529,39 @@ def test_company_review_materialize_bundle_creates_and_reuses_requirements(synce
     second_payload = second_resp.json()
     assert second_payload["created_requirement_ids"] == []
     assert any(item["status"] == "already_exists" for item in second_payload["items"])
+
+
+def test_company_review_materializes_approval_automation_into_control_plane_repo(synced_client, db_session):
+    review = CompanyOperatingReviewRow(
+        cycle_label="2026-W16",
+        summary_markdown="approval automation candidate",
+        payload_json=json.dumps(
+            {
+                "automation_candidates": [
+                    {
+                        "candidate_key": "automation:stale_memory_review::expensive_branches_only::implementation::synapse-network",
+                        "title": "Approval Automation: Synapse-Network - Automate gate: Synapse-Network expensive_branches_only",
+                        "project_key": "synapse-network",
+                        "project_display_name": "Synapse-Network",
+                        "priority": "normal",
+                        "automation_type": "context_refresh_automation",
+                        "occurrence_count": 1,
+                        "rationale": "Narrow repeated stale-memory manual gate handling.",
+                        "gate_key": "stale_memory_review::expensive_branches_only::implementation::synapse-network",
+                    }
+                ],
+                "operator_review_package": {"title": "Cycle review package"},
+            }
+        ),
+    )
+    db_session.add(review)
+    db_session.commit()
+
+    result = materialize_company_review_automation_candidates(db_session, review_id=review.id)
+    assert result.created_requirement_ids
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == result.created_requirement_ids[0]).first()
+    assert requirement is not None
+    assert requirement.target_project_path == str(PROJECT_ROOT)
+    intake = json.loads(requirement.intake_metadata_json or "{}")
+    assert intake["source_key"] == "automation_candidate"

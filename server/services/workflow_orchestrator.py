@@ -2646,7 +2646,8 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
 
     requirement.title = (body.title or requirement.title).strip()
     requirement.description_markdown = body.description_markdown.strip()
-    requirement.source_ref = body.source_ref
+    if body.source_ref is not None:
+        requirement.source_ref = body.source_ref
     requirement.active_workflow_run_id = None
     requirement.current_plan_version = 0
     requirement.planned_roles_json = "[]"
@@ -2656,6 +2657,14 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     requirement.approval_status = _default_requirement_approval_status(requirement)
     requirement.approval_requested_at = None
     requirement.approved_at = utcnow() if requirement.approval_status == "waived" else None
+    requirement.intake_metadata_json = json.dumps(
+        normalize_requirement_intake_metadata(
+            requirement.source,
+            requirement.source_ref,
+            _json_loads(requirement.intake_metadata_json, {}),
+        ),
+        ensure_ascii=False,
+    )
 
     _create_artifact(
         db,
@@ -4442,12 +4451,29 @@ def _requirement_prefers_engineering_contract(requirement: RequirementRow) -> bo
     source = str(requirement.source or "").strip().lower()
     source_ref = str(requirement.source_ref or "").strip().lower()
     description = str(requirement.description_markdown or "").strip().lower()
+    intake_metadata = str(getattr(requirement, "intake_metadata_json", "") or "").strip().lower()
     if title.startswith(("bug fix:", "incident recovery:", "infra incident:", "workflow incident:")):
         return True
     if source in {"bug_intake", "bugfix_circuit_breaker", "workflow_incident"}:
         return True
-    markers = ("runtime_failure", "workflow_incident", "incident recovery", "bugfix_regression", "bug report")
-    haystack = " ".join([title, source_ref, description])
+    markers = (
+        "runtime_failure",
+        "workflow_incident",
+        "incident recovery",
+        "bugfix_regression",
+        "bug report",
+        "approval automation",
+        "manual approval",
+        "expensive_branches_only",
+        "stale_memory",
+        "stale-memory",
+        "context_refresh_automation",
+        "gate config",
+        "gate state",
+    )
+    haystack = " ".join([title, source, source_ref, description, intake_metadata])
+    if source == "automation_candidate" and "approval_automation" in haystack:
+        return True
     return any(marker in haystack for marker in markers)
 
 

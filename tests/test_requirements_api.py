@@ -242,6 +242,60 @@ def test_incident_research_task_routes_to_engineering_agent(synced_client, db_se
     assert len(task.description) < 2600
 
 
+def test_approval_automation_research_task_routes_to_engineering_agent(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approval Automation: Synapse-Network - Automate gate: expensive_branches_only",
+            "description_markdown": (
+                "Reduce repeated manual approval touches by tightening stale_memory gate config and "
+                "context_refresh_automation behavior for the expensive_branches_only path."
+            ),
+            "priority": "normal",
+            "source": "automation_candidate",
+            "source_ref": "company-review-automation:gate",
+            "intake_metadata": {
+                "source_key": "automation_candidate",
+                "automation_type": "context_refresh_automation",
+                "gate_key": "stale_memory_review::expensive_branches_only::implementation::synapse-network",
+            },
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Harden stale-memory gate automation",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation plan identifies the precise approval automation code path.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    research_step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "research",
+    ).first()
+    task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, research_step)
+
+    assert task.agent_id == "dev_rel"
+    assert skill_name == "__direct_execution__"
+    assert persona["display_name"] == "Engineering Executor"
+
+
 def test_incident_implementation_task_rewrites_legacy_docs_only_scope(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -2097,6 +2151,34 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
         "test",
         "closeout",
     ]
+
+
+def test_requirement_revision_preserves_source_ref_when_not_overridden(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Preserve source ref on revise",
+            "description_markdown": "Revision should not clear the upstream source ref.",
+            "source": "automation_candidate",
+            "source_ref": "company-review-automation:99:automation:test",
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    revise_resp = synced_client.post(
+        f"/api/requirements/{requirement_id}/revise",
+        json={
+            "title": "Preserve source ref on revise",
+            "description_markdown": "Revision updated wording only.",
+            "revision_note": "No upstream source change.",
+        },
+    )
+    assert revise_resp.status_code == 200
+    payload = revise_resp.json()
+    assert payload["requirement"]["source_ref"] == "company-review-automation:99:automation:test"
+    assert payload["requirement"]["intake_metadata"]["source_ref"] == "company-review-automation:99:automation:test"
 
 
 def test_start_requirement_stays_ready_when_no_step_dispatch_happens(synced_client):

@@ -19,6 +19,7 @@ from server.services.portfolio_scheduler import build_portfolio_schedule
 from server.services.project_intelligence import build_project_catalog
 from server.services.requirement_sources import normalize_requirement_intake_metadata
 from server.services.workflow_orchestrator import create_requirement
+from server.config import PROJECT_ROOT
 
 logger = logging.getLogger("ops-dashboard.company_review")
 
@@ -807,6 +808,18 @@ def _template_key_for_automation_candidate(candidate: dict[str, Any]) -> str:
     if automation_type in {"incident_recovery_automation"}:
         return "incident_recovery"
     return "approval_automation"
+
+
+def _target_project_path_for_automation_candidate(project: dict[str, Any], candidate: dict[str, Any]) -> str | None:
+    template_key = _template_key_for_automation_candidate(candidate)
+    automation_type = str(candidate.get("automation_type") or "").strip().lower()
+    if template_key == "approval_automation" or automation_type in {
+        "context_refresh_automation",
+        "approval_automation",
+        "manual_override_automation",
+    }:
+        return str(PROJECT_ROOT)
+    return str(project.get("root_path") or "") or None
 
 
 def _acceptance_checks_from_body(body: RequirementCreate) -> list[dict[str, Any]]:
@@ -1831,7 +1844,7 @@ def materialize_company_review_automation_candidates(
                 f"Occurrences: {occurrence_count}\n"
                 f"Rationale: {candidate.get('rationale')}"
             ),
-            target_project_path=str(project.get("root_path") or "") or None,
+            target_project_path=_target_project_path_for_automation_candidate(project, candidate),
             priority=str(candidate.get("priority") or "normal"),
             source="automation_candidate",
             source_ref=review_source_ref,
@@ -1855,6 +1868,9 @@ def materialize_company_review_automation_candidates(
                 "candidate_key": candidate_key,
                 "automation_type": str(candidate.get("automation_type") or ""),
                 "gate_key": str(candidate.get("gate_key") or ""),
+                "managed_project_key": project_key or None,
+                "managed_project_display_name": project_display_name,
+                "managed_project_root_path": str(project.get("root_path") or "") or None,
                 "operator_review_package_title": str((payload.get("operator_review_package") or {}).get("title") or ""),
             },
             auto_start=auto_start,

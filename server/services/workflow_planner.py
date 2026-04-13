@@ -770,6 +770,30 @@ def _is_requirement_centric_delivery_requirement(
     return any(marker in text for marker in soft_markers)
 
 
+def _is_engineering_process_requirement(requirement: RequirementRow | None) -> bool:
+    if requirement is None:
+        return False
+    source = str(getattr(requirement, "source", "") or "").strip().lower()
+    source_ref = str(getattr(requirement, "source_ref", "") or "").strip().lower()
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    description = str(getattr(requirement, "description_markdown", "") or "").strip().lower()
+    intake_metadata = str(getattr(requirement, "intake_metadata_json", "") or "").strip().lower()
+    haystack = "\n".join([source, source_ref, title, description, intake_metadata])
+    if source == "automation_candidate" and "approval_automation" in haystack:
+        return True
+    markers = (
+        "approval automation",
+        "manual approval",
+        "expensive_branches_only",
+        "stale_memory",
+        "stale-memory",
+        "context_refresh_automation",
+        "gate config",
+        "gate state",
+    )
+    return any(marker in haystack for marker in markers)
+
+
 def _operator_confirmation_actions_for_step(
     *,
     step_type: str,
@@ -1014,7 +1038,7 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
         execution_controls=execution_controls,
     )
     suggestion = suggest_task_execution(db=db, description=description)
-    if incident_recovery or delivery_requirement:
+    if incident_recovery or delivery_requirement or _is_engineering_process_requirement(requirement):
         implementer_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel"])
         researcher_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel", "growth_lead"])
         synthesizer_agent_id = _pick_agent_id(

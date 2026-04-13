@@ -9,6 +9,7 @@ from server import config
 from server.services.codex_cli import (
     CodexAsyncExecResult,
     CodexExecResult,
+    _build_codex_exec_command,
     _sanitize_plugin_manifests,
     run_codex_exec,
 )
@@ -76,6 +77,25 @@ def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
     assert result.deferred is True
     assert result.runtime_session_id == "thread-async-1"
     assert result.files
+
+
+def test_codex_resume_command_omits_exec_only_flags(tmp_path):
+    command = _build_codex_exec_command(
+        cwd=tmp_path,
+        model="gpt-5-codex-mini",
+        add_dirs=[tmp_path / "extra"],
+        output_path=tmp_path / "output.md",
+        resume_thread_id="thread-123",
+        sandbox_mode="read-only",
+    )
+
+    assert command[:3] == ["codex", "exec", "resume"]
+    assert "--sandbox" not in command
+    assert "-C" not in command
+    assert "--add-dir" not in command
+    assert "--json" in command
+    assert "--output-last-message" in command
+    assert command[-2:] == ["thread-123", "-"]
 
 
 def test_codex_cli_workdirs_accept_target_project_marker(tmp_path):

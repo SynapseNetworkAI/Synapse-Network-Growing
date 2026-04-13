@@ -865,6 +865,32 @@ class TestBuildPlannerOutput:
         assert assignments.implementer_agent_id == "dev_rel"
         assert assignments.researcher_agent_id == "dev_rel"
 
+    def test_approval_automation_requirement_prefers_engineering_role_assignments(self, synced_client, db_session):
+        req = RequirementRow(
+            title="Approval Automation: Synapse-Network - Automate gate: expensive_branches_only",
+            description_markdown=(
+                "Reduce repeated manual approval touches by tightening stale_memory gate config and "
+                "context_refresh_automation behavior for the expensive_branches_only path."
+            ),
+            source="automation_candidate",
+            source_ref="company-review-automation:gate",
+            intake_metadata_json=json.dumps({
+                "source_key": "automation_candidate",
+                "automation_type": "context_refresh_automation",
+                "gate_key": "stale_memory_review::expensive_branches_only::implementation::synapse-network",
+            }),
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            _, assignments = build_planner_output(db_session, req)
+
+        assert assignments.researcher_agent_id == "dev_rel"
+        assert assignments.synthesizer_agent_id == "dev_rel"
+        assert assignments.implementer_agent_id == "dev_rel"
+
     def test_auto_routing_metadata_for_sdk_requirement(self, synced_client, db_session):
         req = RequirementRow(
             title="Improve SDK integration",
