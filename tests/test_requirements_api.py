@@ -2459,16 +2459,46 @@ def test_delivery_state_stops_at_review_ready_when_publish_disabled(synced_clien
             "title": "Disabled publish gate",
             "description_markdown": "Finish the work but stop at review-ready because publish is disabled.",
             "target_project_path": target_path,
+            "approval_contract": {"approval_mode": "waived"},
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+    pr_payload = {
+        "status": "synced",
+        "pr_status": "draft",
+        "pr_number": 77,
+        "pr_url": "https://github.com/openai/synapse-network/pull/77",
+        "head_branch": f"ops/req-{requirement_id}-disabled-publish-gate",
+        "base_branch": "main",
+        "latest_commit_sha": "abc123def456",
+        "latest_remote_sha": "abc123def456",
+        "blockers": [],
+    }
+    with patch("server.services.workflow_orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
         "server.services.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
@@ -2503,10 +2533,29 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
             "title": "Manual publish gate",
             "description_markdown": "Promote only after required checks are confirmed.",
             "target_project_path": target_path,
+            "approval_contract": {"approval_mode": "waived"},
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     assert any(artifact["artifact_type"] == "delivery_contract" for artifact in plan_resp.json()["artifacts"])
 
@@ -2514,7 +2563,18 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+    pr_payload = {
+        "status": "synced",
+        "pr_status": "draft",
+        "pr_number": 88,
+        "pr_url": "https://github.com/openai/synapse-network/pull/88",
+        "head_branch": f"ops/req-{requirement_id}-manual-publish-gate",
+        "base_branch": "main",
+        "latest_commit_sha": "abc123def456",
+        "latest_remote_sha": "abc123def456",
+        "blockers": [],
+    }
+    with patch("server.services.workflow_orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
         "server.services.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
@@ -2522,18 +2582,21 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
     assert start_resp.status_code == 200
     detail = start_resp.json()
     assert detail["delivery_state"]["publish_status"] == "review_ready"
-    assert sorted(detail["delivery_state"]["pending_checks"]) == ["npm run build", "pytest -q"]
+    required_checks = sorted(detail["delivery_state"]["required_checks"])
+    pending_checks = sorted(detail["delivery_state"]["pending_checks"])
+    assert pending_checks == required_checks
+    assert len(required_checks) >= 2
 
     blocked_publish = synced_client.post(
         f"/api/requirements/{requirement_id}/publish",
-        json={"completed_checks": ["pytest -q"], "note": "not enough"},
+        json={"completed_checks": [required_checks[0]], "note": "not enough"},
     )
     assert blocked_publish.status_code == 400
-    assert "npm run build" in blocked_publish.json()["detail"]
+    assert required_checks[1] in blocked_publish.json()["detail"]
 
     publish_resp = synced_client.post(
         f"/api/requirements/{requirement_id}/publish",
-        json={"completed_checks": ["pytest -q", "npm run build"], "note": "ship it"},
+        json={"completed_checks": required_checks, "note": "ship it"},
     )
     assert publish_resp.status_code == 200
 
@@ -2589,6 +2652,16 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
             },
             None,
         ),
+    ), patch(
+        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        return_value=(
+            {
+                "status": "blocked",
+                "pr_status": "missing",
+                "blockers": ["review PR sync failed"],
+            },
+            None,
+        ),
     ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
         "server.services.task_runner.dispatch", side_effect=_sync_dispatch
     ):
@@ -2596,7 +2669,7 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
 
     assert start_resp.status_code == 200
     detail = start_resp.json()
-    assert detail["requirement"]["status"] == "blocked"
+    assert detail["requirement"]["status"] == "paused"
     assert detail["workflow_run"]["status"] == "paused"
     closeout = next(step for step in detail["workflow_run"]["steps"] if step["step_type"] == "closeout")
     assert closeout["status"] == "blocked"
@@ -2665,9 +2738,23 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
         ],
     }
 
+    pr_payload = {
+        "status": "synced",
+        "pr_status": "draft",
+        "pr_number": 91,
+        "pr_url": "https://github.com/openai/synapse-network-growing/pull/91",
+        "head_branch": f"ops/req-{requirement_id}-delivery-branch-success",
+        "base_branch": "main",
+        "latest_commit_sha": "abc123def456",
+        "latest_remote_sha": "abc123def456",
+        "blockers": [],
+    }
     with patch(
         "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
         return_value=(vcs_payload, None),
+    ), patch(
+        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        return_value=(pr_payload, None),
     ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
         "server.services.task_runner.dispatch", side_effect=_sync_dispatch
     ):
@@ -2682,6 +2769,9 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
     assert detail["delivery_state"]["compare_url"] == (
         f"https://github.com/openai/synapse-network-growing/compare/main...ops/req-{requirement_id}-delivery-branch-success"
     )
+    assert detail["delivery_state"]["pr_status"] == "draft"
+    assert detail["delivery_state"]["pr_number"] == 91
+    assert detail["delivery_state"]["pr_url"] == "https://github.com/openai/synapse-network-growing/pull/91"
     assert detail["delivery_state"]["pr_metadata"]["title"].startswith(f"ops(req-{requirement_id})")
     assert detail["delivery_state"]["promotion_checklist"][0]["key"] == "branch_delivery"
     review_surface = next(artifact for artifact in detail["artifacts"] if artifact["artifact_type"] == "review_surface")
@@ -2689,6 +2779,7 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
     assert review_payload["vcs_delivery"]["status"] == "delivered"
     assert review_payload["compare_url"] == detail["delivery_state"]["compare_url"]
     assert review_payload["pr_metadata"]["head_branch"] == f"ops/req-{requirement_id}-delivery-branch-success"
+    assert review_payload["review_pr"]["pr_number"] == 91
 
 
 def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access(synced_client, db_session):

@@ -893,6 +893,14 @@ class DeliveryStateOut(BaseModel):
     vcs_remote_name: Optional[str] = None
     vcs_repositories: list[dict[str, object]] = []
     compare_url: Optional[str] = None
+    pr_status: Optional[str] = None
+    pr_number: Optional[int] = None
+    pr_url: Optional[str] = None
+    head_branch: Optional[str] = None
+    latest_commit_sha: Optional[str] = None
+    latest_remote_sha: Optional[str] = None
+    review_bundle_generated_at: Optional[str] = None
+    last_pushed_at: Optional[str] = None
     pr_metadata: dict[str, object] | None = None
     promotion_checklist: list[dict[str, object]] = []
 

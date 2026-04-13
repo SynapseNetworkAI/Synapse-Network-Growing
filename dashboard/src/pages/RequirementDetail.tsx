@@ -191,6 +191,7 @@ export default function RequirementDetail() {
   const [savingPlan, setSavingPlan] = useState(false)
   const [savingStepId, setSavingStepId] = useState<number | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const [syncingReviewPr, setSyncingReviewPr] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
   const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
@@ -355,6 +356,16 @@ export default function RequirementDetail() {
       setDetail(data)
     } finally {
       setPublishing(false)
+    }
+  }
+
+  const handleSyncReviewPr = async () => {
+    setSyncingReviewPr(true)
+    try {
+      const data = await api.syncRequirementReviewPr(requirementId)
+      setDetail(data)
+    } finally {
+      setSyncingReviewPr(false)
     }
   }
 
@@ -1108,6 +1119,7 @@ export default function RequirementDetail() {
                       <div>{deliveryState.branch_name || '-'}</div>
                       <div>base: {deliveryState.base_branch || '-'}</div>
                       <div>strategy: {deliveryState.branch_strategy || '-'}</div>
+                      <div>head: {deliveryState.head_branch || deliveryState.branch_name || '-'}</div>
                     </div>
                   </div>
                   <div className="p-3 border rounded-lg bg-white">
@@ -1116,6 +1128,7 @@ export default function RequirementDetail() {
                       <div>review: {deliveryState.review_status}</div>
                       <div>publish: {deliveryState.publish_status}</div>
                       <div>mode: {deliveryState.release_mode || '-'}</div>
+                      <div>pr: {deliveryState.pr_status || '-'}</div>
                     </div>
                   </div>
                 </div>
@@ -1127,7 +1140,10 @@ export default function RequirementDetail() {
                         <div>title: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.title || '-')}</div>
                         <div>head: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.head_branch || deliveryState.branch_name || '-')}</div>
                         <div>base: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.base_branch || deliveryState.base_branch || '-')}</div>
-                        <div>status: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.status || deliveryState.vcs_status || '-')}</div>
+                        <div>status: {deliveryState.pr_status || String((deliveryState.pr_metadata as Record<string, unknown> | null)?.status || deliveryState.vcs_status || '-')}</div>
+                        <div>number: {deliveryState.pr_number ?? '-'}</div>
+                        <div>latest commit: {deliveryState.latest_remote_sha || deliveryState.latest_commit_sha || '-'}</div>
+                        <div>last pushed: {deliveryState.last_pushed_at || '-'}</div>
                       </div>
                     </div>
                     <div className="p-3 border rounded-lg bg-white">
@@ -1144,12 +1160,32 @@ export default function RequirementDetail() {
                       ) : (
                         <div className="text-gray-500">当前 remote 无法推导 compare URL。</div>
                       )}
+                      {deliveryState.pr_url && (
+                        <a
+                          href={deliveryState.pr_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block mt-2 font-medium text-blue-600 break-all hover:underline"
+                        >
+                          {deliveryState.pr_url}
+                        </a>
+                      )}
                     </div>
                   </div>
                 )}
                 {deliveryState.review_surface_summary && (
                   <div className="mt-3 text-xs text-gray-700">{deliveryState.review_surface_summary}</div>
                 )}
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => { handleSyncReviewPr().catch(() => {}) }}
+                    disabled={syncingReviewPr || !deliveryState.branch_name}
+                    className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {syncingReviewPr ? 'Syncing Review PR…' : 'Create/Sync Review PR'}
+                  </button>
+                </div>
                 {deliveryState.promotion_checklist.length > 0 && (
                   <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
                     <div className="mb-2 font-medium text-gray-900">Promotion Checklist</div>

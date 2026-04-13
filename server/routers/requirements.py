@@ -48,6 +48,7 @@ from server.services.workflow_orchestrator import (
     plan_requirement,
     publish_requirement,
     revise_requirement,
+    sync_requirement_review_pr_surface,
     start_requirement,
     update_requirement_dependencies,
 )
@@ -280,6 +281,14 @@ def publish_requirement_endpoint(
 ):
     try:
         return publish_requirement(db, requirement_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/review-pr/sync", response_model=RequirementDetailOut)
+def sync_requirement_review_pr_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return sync_requirement_review_pr_surface(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -67,6 +67,7 @@ from server.services.copilot_sdk_state import (
     task_output_dir,
 )
 from server.services.delivery_vcs import execute_requirement_delivery_vcs
+from server.services.delivery_pr import sync_requirement_review_pr
 from server.services.execution_resolver import suggest_task_execution
 from server.services.acceptance import acceptance_contract_for_requirement, list_acceptance_dispatch_candidates, normalize_acceptance_contract
 from server.services.requirement_approval import (
@@ -177,6 +178,41 @@ def _build_delivery_pr_metadata(
         "delivered_repository_count": delivered_repos,
         "summary": summary,
     }
+
+
+def _latest_delivery_sha(vcs_payload: dict[str, Any], key: str) -> str | None:
+    repositories = vcs_payload.get("repositories") or []
+    if not isinstance(repositories, list):
+        return None
+    for item in repositories:
+        if not isinstance(item, dict):
+            continue
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _latest_delivery_timestamp(vcs_payload: dict[str, Any], key: str) -> str | None:
+    repositories = vcs_payload.get("repositories") or []
+    if not isinstance(repositories, list):
+        return None
+    latest: datetime | None = None
+    latest_raw: str | None = None
+    for item in repositories:
+        if not isinstance(item, dict):
+            continue
+        raw = str(item.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+            latest_raw = raw
+    return latest_raw
 
 
 def _build_promotion_checklist(payload: dict[str, Any], compare_url: str | None) -> list[dict[str, Any]]:
@@ -960,6 +996,110 @@ def _task_changed_output_files(changed_files: list[dict[str, Any]]) -> list[str]
         seen.add(filename)
         output_files.append(filename)
     return output_files
+
+
+def _task_has_tracked_repo_changes(task: TaskRow) -> bool:
+    payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+    changed_files = _task_changed_files_from_payload(payload)
+    return bool(changed_files)
+
+
+def _record_delivery_blocker(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    *,
+    vcs_payload: dict[str, Any],
+    pr_payload: dict[str, Any] | None = None,
+) -> None:
+    blockers = [
+        str(item).strip()
+        for item in [
+            *(vcs_payload.get("blockers") or []),
+            *((pr_payload or {}).get("blockers") or []),
+        ]
+        if str(item).strip()
+    ]
+    summary = "; ".join(blockers) or "delivery branch or review PR sync failed"
+    _create_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(step.id),
+        producer_step_id=_as_int(step.id),
+        artifact_type="delivery_blocker",
+        content_summary=summary[:200],
+        human_readable_body=summary,
+        machine_readable_payload={
+            "requirement_id": _as_int(requirement.id),
+            "workflow_run_id": _as_int(workflow_run.id),
+            "step_id": _as_int(step.id),
+            "vcs_delivery": vcs_payload,
+            "review_pr": pr_payload or {},
+            "recorded_at": utcnow().isoformat(),
+        },
+    )
+
+
+def _sync_step_delivery_branch(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+    delivery_contract = _delivery_contract_payload(db, _as_int(requirement.id))
+    if not delivery_contract:
+        return True, {}, {}
+    vcs_payload, _artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, step)
+    vcs_blockers = [str(item).strip() for item in (vcs_payload.get("blockers") or []) if str(item).strip()]
+    pr_payload: dict[str, Any] = {}
+    if not vcs_blockers:
+        pr_payload, _pr_artifact = _sync_requirement_review_pr(
+            db,
+            requirement,
+            workflow_run,
+            step,
+            delivery_contract=delivery_contract,
+            vcs_payload=vcs_payload,
+        )
+    pr_blockers = [str(item).strip() for item in (pr_payload.get("blockers") or []) if str(item).strip()]
+    if vcs_blockers or pr_blockers:
+        step.status = "blocked"
+        step.completed_at = None
+        workflow_run.status = "paused"
+        workflow_run.completed_at = None
+        requirement.status = "blocked"
+        requirement.completed_at = None
+        _record_step_event(db, _as_int(step.id), "delivery_blocked", "; ".join(vcs_blockers + pr_blockers))
+        _record_delivery_blocker(
+            db,
+            requirement,
+            workflow_run,
+            step,
+            vcs_payload=vcs_payload,
+            pr_payload=pr_payload,
+        )
+        _record_delivery_state(
+            db,
+            requirement,
+            workflow_run,
+            review_status="blocked",
+            publish_status="blocked",
+            vcs_payload=vcs_payload,
+            pr_payload=pr_payload,
+        )
+        return False, vcs_payload, pr_payload
+    _record_delivery_state(
+        db,
+        requirement,
+        workflow_run,
+        review_status="planned",
+        publish_status="planned",
+        vcs_payload=vcs_payload,
+        pr_payload=pr_payload,
+    )
+    return True, vcs_payload, pr_payload
 
 
 def _requirement_task_outputs(
@@ -2153,7 +2293,16 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         workflow_run_id=workflow_run.id,
     ) is None:
         vcs_payload, _artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, None)
-        if (vcs_payload.get("blockers") or []) and str(vcs_payload.get("status") or "") != "delivered":
+        pr_payload: dict[str, Any] = {}
+        if not ((vcs_payload.get("blockers") or []) and str(vcs_payload.get("status") or "") != "delivered"):
+            pr_payload, _pr_artifact = _sync_requirement_review_pr(
+                db,
+                requirement,
+                workflow_run,
+                None,
+                vcs_payload=vcs_payload,
+            )
+        if ((vcs_payload.get("blockers") or []) and str(vcs_payload.get("status") or "") != "delivered") or (pr_payload.get("blockers") or []):
             requirement.status = "blocked"
             requirement.completed_at = None
             if workflow_run is not None:
@@ -2165,9 +2314,11 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
                 workflow_run,
                 review_status="blocked",
                 publish_status="blocked",
+                vcs_payload=vcs_payload,
+                pr_payload=pr_payload,
             )
             db.commit()
-            raise ValueError("Requirement cannot close before delivery branch commit/push succeeds.")
+            raise ValueError("Requirement cannot close before delivery branch/PR sync succeeds.")
         delivery_contract = _delivery_contract_payload(db, requirement.id)
         _record_delivery_state(
             db,
@@ -2175,6 +2326,8 @@ def close_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
             workflow_run,
             review_status="review_ready",
             publish_status="blocked" if str(delivery_contract.get("release_mode") or "manual") == "disabled" else "review_ready",
+            vcs_payload=vcs_payload,
+            pr_payload=pr_payload,
         )
     requirement.status = "done"
     requirement.completed_at = requirement.completed_at or utcnow()
@@ -2230,6 +2383,37 @@ def publish_requirement(
     latest_state_payload = _json_loads(getattr(latest_state, "machine_readable_payload", None), {})
     if isinstance(latest_state_payload, dict) and latest_state_payload.get("publish_status") == "published":
         return build_requirement_detail(db, requirement.id)
+    pr_status = str(latest_state_payload.get("pr_status") or "").strip()
+    if pr_status in {"", "missing"}:
+        vcs_payload = _latest_vcs_delivery_payload(
+            db,
+            _as_int(requirement.id),
+            workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        )
+        pr_payload, _pr_artifact = _sync_requirement_review_pr(
+            db,
+            requirement,
+            workflow_run,
+            None,
+            vcs_payload=vcs_payload,
+        )
+        if pr_payload:
+            latest_state_payload = _delivery_state_payload(
+                db,
+                requirement,
+                workflow_run,
+                review_status=str(latest_state_payload.get("review_status") or "review_ready"),
+                publish_status=str(latest_state_payload.get("publish_status") or "review_ready"),
+                confirmed_checks=list(latest_state_payload.get("confirmed_checks") or []),
+                publish_note=str(latest_state_payload.get("publish_note") or "") or None,
+                vcs_payload=vcs_payload,
+                pr_payload=pr_payload,
+            )
+    pr_status = str(latest_state_payload.get("pr_status") or "").strip()
+    if pr_status in {"", "missing"}:
+        raise ValueError("Publish blocked until a review PR is created or synced.")
+    if pr_status in {"closed"}:
+        raise ValueError("Publish blocked because the review PR is closed.")
 
     note = (body.note if body is not None else None) or ""
     _create_artifact(
@@ -2248,6 +2432,9 @@ def publish_requirement(
             "completed_checks": completed_checks,
             "publish_note": note or None,
             "published_at": utcnow().isoformat(),
+            "promoted_commit_sha": str(latest_state_payload.get("latest_remote_sha") or latest_state_payload.get("latest_commit_sha") or "") or None,
+            "pr_number": latest_state_payload.get("pr_number"),
+            "pr_url": latest_state_payload.get("pr_url"),
         },
     )
     _record_delivery_state(
@@ -2257,6 +2444,16 @@ def publish_requirement(
         publish_status="published",
         confirmed_checks=completed_checks,
         publish_note=note or None,
+        vcs_payload=_latest_vcs_delivery_payload(
+            db,
+            _as_int(requirement.id),
+            workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        ),
+        pr_payload=_latest_review_pr_payload(
+            db,
+            _as_int(requirement.id),
+            workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        ),
     )
     db.commit()
     _logger.info(
@@ -2265,6 +2462,48 @@ def publish_requirement(
         release_mode,
         len(completed_checks),
     )
+    return build_requirement_detail(db, requirement.id)
+
+
+def sync_requirement_review_pr_surface(db: Session, requirement_id: int) -> RequirementDetailOut:
+    requirement = _require_requirement(db, requirement_id)
+    _ensure_requirement_not_deleted(requirement)
+    workflow_run = _active_workflow_run(db, requirement)
+    delivery_contract = _delivery_contract_payload(db, requirement.id)
+    if not delivery_contract:
+        raise ValueError("Requirement has no delivery contract. Plan it first.")
+    vcs_payload = _latest_vcs_delivery_payload(
+        db,
+        _as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    )
+    if not vcs_payload:
+        vcs_payload, _artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, None)
+    pr_payload, _pr_artifact = _sync_requirement_review_pr(
+        db,
+        requirement,
+        workflow_run,
+        None,
+        delivery_contract=delivery_contract,
+        vcs_payload=vcs_payload,
+    )
+    review_status = "review_ready" if requirement.status == "done" and not (pr_payload.get("blockers") or []) else "planned"
+    publish_status = "published" if requirement.status == "done" and _latest_artifact(
+        db,
+        requirement.id,
+        "publish_record",
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    ) is not None else ("review_ready" if review_status == "review_ready" else "planned")
+    _record_delivery_state(
+        db,
+        requirement,
+        workflow_run,
+        review_status=review_status if not (pr_payload.get("blockers") or []) else "blocked",
+        publish_status=publish_status if not (pr_payload.get("blockers") or []) else "blocked",
+        vcs_payload=vcs_payload,
+        pr_payload=pr_payload,
+    )
+    db.commit()
     return build_requirement_detail(db, requirement.id)
 
 
@@ -2667,6 +2906,18 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 requirement=requirement,
                 workflow_run=run,
             )
+        if _task_has_tracked_repo_changes(task):
+            delivery_ok, _step_vcs_payload, _step_pr_payload = _sync_step_delivery_branch(
+                db,
+                requirement,
+                run,
+                step,
+            )
+            if not delivery_ok:
+                should_dispatch_next = False
+                _refresh_run_status(db, requirement, run)
+                db.commit()
+                return
         target_failures = _mark_step_targets_passed(db, requirement, step, artifact, task=task)
         if target_failures:
             step.status = "failed"
@@ -5374,14 +5625,34 @@ def _finalize_requirement(
     delivery_contract = _delivery_contract_payload(db, requirement.id)
     vcs_payload, _vcs_artifact = _execute_requirement_vcs_delivery(db, requirement, workflow_run, step)
     vcs_blockers = [str(item).strip() for item in (vcs_payload.get("blockers") or []) if str(item).strip()]
-    if vcs_blockers:
+    pr_payload: dict[str, Any] = {}
+    pr_blockers: list[str] = []
+    if not vcs_blockers:
+        pr_payload, _pr_artifact = _sync_requirement_review_pr(
+            db,
+            requirement,
+            workflow_run,
+            step,
+            delivery_contract=delivery_contract,
+            vcs_payload=vcs_payload,
+        )
+        pr_blockers = [str(item).strip() for item in (pr_payload.get("blockers") or []) if str(item).strip()]
+    if vcs_blockers or pr_blockers:
         step.status = "blocked"
         step.completed_at = None
         workflow_run.status = "paused"
         workflow_run.completed_at = None
         requirement.status = "blocked"
         requirement.completed_at = None
-        _record_step_event(db, _as_int(step.id), "closeout_blocked", "; ".join(vcs_blockers))
+        _record_step_event(db, _as_int(step.id), "closeout_blocked", "; ".join(vcs_blockers + pr_blockers))
+        _record_delivery_blocker(
+            db,
+            requirement,
+            workflow_run,
+            step,
+            vcs_payload=vcs_payload,
+            pr_payload=pr_payload,
+        )
         _record_delivery_state(
             db,
             requirement,
@@ -5389,6 +5660,7 @@ def _finalize_requirement(
             review_status="blocked",
             publish_status="blocked",
             vcs_payload=vcs_payload,
+            pr_payload=pr_payload,
         )
         return
 
@@ -5427,6 +5699,7 @@ def _finalize_requirement(
             },
             compare_url,
         ),
+        "review_pr": pr_payload,
         "promotion_checklist": _build_promotion_checklist(
             {
                 "review_status": "review_ready",
@@ -5457,6 +5730,7 @@ def _finalize_requirement(
         confirmed_checks=required_checks if publish_status == "published" else [],
         publish_note="auto-published by release gate" if publish_status == "published" else None,
         vcs_payload=vcs_payload,
+        pr_payload=pr_payload,
     )
     if publish_status == "published":
         _create_artifact(
@@ -5481,6 +5755,7 @@ def _finalize_requirement(
                 "publish_note": "auto-published by release gate",
                 "published_at": utcnow().isoformat(),
                 "review_surface_artifact_id": _as_int(review_surface.id),
+                "promoted_commit_sha": str(pr_payload.get("latest_remote_sha") or vcs_payload.get("latest_remote_sha") or "") or None,
             },
         )
     _refresh_dependents_for_requirement(db, requirement.id)
@@ -6123,6 +6398,17 @@ def _latest_vcs_delivery_payload(
     return payload if isinstance(payload, dict) else {}
 
 
+def _latest_review_pr_payload(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_run_id: int | None = None,
+) -> dict[str, Any]:
+    artifact = _latest_artifact(db, requirement_id, "review_pr_sync", workflow_run_id=workflow_run_id)
+    payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
+    return payload if isinstance(payload, dict) else {}
+
+
 def _vcs_delivery_markdown(payload: dict[str, Any]) -> str:
     if not isinstance(payload, dict) or not payload:
         return ""
@@ -6180,6 +6466,101 @@ def _record_vcs_delivery_artifact(
     )
 
 
+def _review_pr_sync_markdown(payload: dict[str, Any]) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return ""
+    lines = ["# Review PR Sync", ""]
+    lines.append(f"- Status: `{payload.get('pr_status') or payload.get('status') or 'missing'}`")
+    pr_url = str(payload.get("pr_url") or "").strip()
+    if pr_url:
+        lines.append(f"- PR: {pr_url}")
+    branch_name = str(payload.get("head_branch") or payload.get("branch_name") or "").strip()
+    if branch_name:
+        lines.append(f"- Head branch: `{branch_name}`")
+    base_branch = str(payload.get("base_branch") or "").strip()
+    if base_branch:
+        lines.append(f"- Base branch: `{base_branch}`")
+    latest_remote_sha = str(payload.get("latest_remote_sha") or "").strip()
+    if latest_remote_sha:
+        lines.append(f"- Latest remote SHA: `{latest_remote_sha[:12]}`")
+    compare_url = str(payload.get("compare_url") or "").strip()
+    if compare_url:
+        lines.append(f"- Compare URL: {compare_url}")
+    blockers = payload.get("blockers") or []
+    if isinstance(blockers, list) and blockers:
+        lines.extend(["", "## PR Sync Blockers", *[f"- {item}" for item in blockers]])
+    return "\n".join(lines)
+
+
+def _record_review_pr_sync_artifact(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    step: WorkflowStepRow | None,
+    payload: dict[str, Any],
+) -> ArtifactRow:
+    status = str(payload.get("pr_status") or payload.get("status") or "missing")
+    return _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        step_id=_as_int(step.id) if step is not None else None,
+        producer_step_id=_as_int(step.id) if step is not None else None,
+        artifact_type="review_pr_sync",
+        content_summary=f"Review PR {status} for requirement #{requirement.id}",
+        human_readable_body=_review_pr_sync_markdown(payload),
+        machine_readable_payload=payload,
+    )
+
+
+def _sync_requirement_review_pr(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow | None,
+    step: WorkflowStepRow | None,
+    *,
+    delivery_contract: dict[str, Any] | None = None,
+    vcs_payload: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], ArtifactRow | None]:
+    contract = delivery_contract if isinstance(delivery_contract, dict) else _delivery_contract_payload(db, _as_int(requirement.id))
+    effective_vcs = vcs_payload if isinstance(vcs_payload, dict) else _latest_vcs_delivery_payload(
+        db,
+        _as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    )
+    branch_name = str(contract.get("branch_name") or "").strip()
+    base_branch = str(contract.get("base_branch") or "main").strip() or "main"
+    compare_url = _build_delivery_compare_url(effective_vcs, branch_name or None, base_branch or None)
+    payload = sync_requirement_review_pr(
+        requirement_id=_as_int(requirement.id),
+        requirement_title=str(requirement.title or ""),
+        branch_name=branch_name,
+        base_branch=base_branch,
+        compare_url=compare_url,
+        latest_commit_sha=_latest_delivery_sha(effective_vcs, "commit_sha") or str(effective_vcs.get("latest_commit_sha") or "").strip() or None,
+        latest_remote_sha=_latest_delivery_sha(effective_vcs, "remote_sha") or str(effective_vcs.get("latest_remote_sha") or "").strip() or None,
+        last_pushed_at=_latest_delivery_timestamp(effective_vcs, "last_pushed_at") or str(effective_vcs.get("last_pushed_at") or "").strip() or None,
+        review_surface_summary=_delivery_review_surface_summary(
+            requirement,
+            db,
+            workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+        ),
+        promotion_checklist=_build_promotion_checklist(
+            {
+                "review_status": "review_ready" if requirement.status == "done" else "planned",
+                "release_mode": contract.get("release_mode"),
+                "pending_checks": [str(item) for item in contract.get("required_checks") or [] if str(item).strip()],
+                "publish_blockers": [],
+                "vcs_status": effective_vcs.get("status"),
+            },
+            compare_url,
+        ),
+        vcs_payload=effective_vcs,
+    )
+    artifact = _record_review_pr_sync_artifact(db, requirement, workflow_run, step, payload)
+    return payload, artifact
+
+
 def _execute_requirement_vcs_delivery(
     db: Session,
     requirement: RequirementRow,
@@ -6232,9 +6613,15 @@ def _delivery_state_payload(
     confirmed_checks: list[str] | None = None,
     publish_note: str | None = None,
     vcs_payload: dict[str, Any] | None = None,
+    pr_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     contract = _delivery_contract_payload(db, _as_int(requirement.id))
     effective_vcs_payload = vcs_payload if isinstance(vcs_payload, dict) else _latest_vcs_delivery_payload(
+        db,
+        _as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
+    )
+    effective_pr_payload = pr_payload if isinstance(pr_payload, dict) else _latest_review_pr_payload(
         db,
         _as_int(requirement.id),
         workflow_run_id=_as_int(workflow_run.id) if workflow_run is not None else None,
@@ -6256,6 +6643,18 @@ def _delivery_state_payload(
         if str(item).strip()
     ]
     blockers.extend(vcs_blockers)
+    pr_blockers = [
+        str(item).strip()
+        for item in (effective_pr_payload.get("blockers") or [])
+        if str(item).strip()
+    ]
+    blockers.extend(pr_blockers)
+    pr_status = str(effective_pr_payload.get("pr_status") or "").strip()
+    if str(effective_vcs_payload.get("status") or "").strip() == "delivered":
+        if pr_status in {"", "missing"}:
+            blockers.append("review PR missing")
+        elif pr_status == "closed":
+            blockers.append("review PR is closed")
     blockers.extend([f"required check pending: {check}" for check in pending])
     compare_url = _build_delivery_compare_url(
         effective_vcs_payload,
@@ -6288,8 +6687,23 @@ def _delivery_state_payload(
         "vcs_remote_name": str(effective_vcs_payload.get("remote_name") or "") or None,
         "vcs_repositories": effective_vcs_payload.get("repositories") or [],
         "compare_url": compare_url,
+        "pr_status": str(effective_pr_payload.get("pr_status") or "") or None,
+        "pr_number": int(effective_pr_payload.get("pr_number") or 0) or None,
+        "pr_url": str(effective_pr_payload.get("pr_url") or "").strip() or None,
+        "head_branch": str(effective_pr_payload.get("head_branch") or contract.get("branch_name") or "").strip() or None,
+        "latest_commit_sha": str(effective_pr_payload.get("latest_commit_sha") or effective_vcs_payload.get("latest_commit_sha") or "").strip() or None,
+        "latest_remote_sha": str(effective_pr_payload.get("latest_remote_sha") or effective_vcs_payload.get("latest_remote_sha") or "").strip() or None,
+        "review_bundle_generated_at": str(effective_pr_payload.get("review_bundle_generated_at") or "").strip() or None,
+        "last_pushed_at": str(effective_pr_payload.get("last_pushed_at") or effective_vcs_payload.get("last_pushed_at") or "").strip() or None,
     }
-    payload["pr_metadata"] = _build_delivery_pr_metadata(requirement, payload, compare_url)
+    payload["pr_metadata"] = (
+        {
+            **_build_delivery_pr_metadata(requirement, payload, compare_url),
+            **(effective_pr_payload if isinstance(effective_pr_payload, dict) else {}),
+        }
+        if effective_pr_payload
+        else _build_delivery_pr_metadata(requirement, payload, compare_url)
+    )
     payload["promotion_checklist"] = _build_promotion_checklist(payload, compare_url)
     return payload
 
@@ -6347,6 +6761,7 @@ def _record_delivery_state(
     confirmed_checks: list[str] | None = None,
     publish_note: str | None = None,
     vcs_payload: dict[str, Any] | None = None,
+    pr_payload: dict[str, Any] | None = None,
 ) -> ArtifactRow:
     payload = _delivery_state_payload(
         db,
@@ -6357,6 +6772,7 @@ def _record_delivery_state(
         confirmed_checks=confirmed_checks,
         publish_note=publish_note,
         vcs_payload=vcs_payload,
+        pr_payload=pr_payload,
     )
     if review_status == "blocked":
         summary_label = "Delivery blocked"
@@ -6431,6 +6847,14 @@ def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryS
         vcs_remote_name=str(payload.get("vcs_remote_name") or "") or None,
         vcs_repositories=payload.get("vcs_repositories") or [],
         compare_url=str(payload.get("compare_url") or "") or None,
+        pr_status=str(payload.get("pr_status") or "") or None,
+        pr_number=int(payload.get("pr_number") or 0) or None,
+        pr_url=str(payload.get("pr_url") or "") or None,
+        head_branch=str(payload.get("head_branch") or "") or None,
+        latest_commit_sha=str(payload.get("latest_commit_sha") or "") or None,
+        latest_remote_sha=str(payload.get("latest_remote_sha") or "") or None,
+        review_bundle_generated_at=str(payload.get("review_bundle_generated_at") or "") or None,
+        last_pushed_at=str(payload.get("last_pushed_at") or "") or None,
         pr_metadata=payload.get("pr_metadata") if isinstance(payload.get("pr_metadata"), dict) else None,
         promotion_checklist=payload.get("promotion_checklist") if isinstance(payload.get("promotion_checklist"), list) else [],
     )

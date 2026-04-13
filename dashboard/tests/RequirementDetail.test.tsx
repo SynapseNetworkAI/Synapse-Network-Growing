@@ -10,6 +10,7 @@ const mockApi = {
   startRequirement: vi.fn(),
   pauseRequirement: vi.fn(),
   publishRequirement: vi.fn(),
+  syncRequirementReviewPr: vi.fn(),
   reviseRequirement: vi.fn(),
   decideRequirementApproval: vi.fn(),
   updateRequirement: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../src/api', () => ({
     startRequirement: (...args: unknown[]) => mockApi.startRequirement(...args),
     pauseRequirement: (...args: unknown[]) => mockApi.pauseRequirement(...args),
     publishRequirement: (...args: unknown[]) => mockApi.publishRequirement(...args),
+    syncRequirementReviewPr: (...args: unknown[]) => mockApi.syncRequirementReviewPr(...args),
     reviseRequirement: (...args: unknown[]) => mockApi.reviseRequirement(...args),
     decideRequirementApproval: (...args: unknown[]) => mockApi.decideRequirementApproval(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
@@ -366,6 +368,14 @@ const detail = {
       },
     ],
     compare_url: 'https://github.com/openai/synapse-network-growing/compare/main...ops/req-1-verification-contract-hardening',
+    pr_status: 'draft',
+    pr_number: 42,
+    pr_url: 'https://github.com/openai/synapse-network-growing/pull/42',
+    head_branch: 'ops/req-1-verification-contract-hardening',
+    latest_commit_sha: 'abc123def456',
+    latest_remote_sha: 'abc123def456',
+    review_bundle_generated_at: '2026-04-11T08:05:00Z',
+    last_pushed_at: '2026-04-11T08:04:30Z',
     pr_metadata: {
       title: 'ops(req-1): Verification contract hardening',
       head_branch: 'ops/req-1-verification-contract-hardening',
@@ -419,6 +429,7 @@ describe('RequirementDetail', () => {
     mockApi.startRequirement.mockResolvedValue(detail)
     mockApi.pauseRequirement.mockResolvedValue(detail)
     mockApi.publishRequirement.mockResolvedValue(detail)
+    mockApi.syncRequirementReviewPr.mockResolvedValue(detail)
     mockApi.reviseRequirement.mockResolvedValue(detail)
     mockApi.decideRequirementApproval.mockResolvedValue({
       ...detail,
@@ -488,6 +499,8 @@ describe('RequirementDetail', () => {
     expect(screen.getByText('PR Metadata')).toBeInTheDocument()
     expect(screen.getByText('Compare')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /https:\/\/github.com\/openai\/synapse-network-growing\/compare\/main...ops\/req-1-verification-contract-hardening/i })).toBeInTheDocument()
+    expect(screen.getByText('number: 42')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /https:\/\/github.com\/openai\/synapse-network-growing\/pull\/42/i })).toBeInTheDocument()
     expect(screen.getByText('Promotion Checklist')).toBeInTheDocument()
     expect(screen.getByText('Branch delivery pushed')).toBeInTheDocument()
     expect(screen.getByText('Required checks confirmed')).toBeInTheDocument()
@@ -504,6 +517,24 @@ describe('RequirementDetail', () => {
       expect(mockApi.publishRequirement).toHaveBeenCalledTimes(1)
     })
     expect(mockApi.publishRequirement.mock.calls[0]?.[0]).toBe(1)
+  })
+
+  it('can sync review pr from delivery gate', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/requirements/1']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
+    await user.click(screen.getByRole('button', { name: 'Create/Sync Review PR' }))
+
+    await waitFor(() => {
+      expect(mockApi.syncRequirementReviewPr).toHaveBeenCalledWith(1)
+    })
   })
 
   it('allows approving requirement execution from detail page', async () => {

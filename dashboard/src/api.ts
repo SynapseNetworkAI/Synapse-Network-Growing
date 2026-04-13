@@ -573,6 +573,14 @@ export interface DeliveryState {
   vcs_remote_name: string | null
   vcs_repositories: Record<string, unknown>[]
   compare_url: string | null
+  pr_status: string | null
+  pr_number: number | null
+  pr_url: string | null
+  head_branch: string | null
+  latest_commit_sha: string | null
+  latest_remote_sha: string | null
+  review_bundle_generated_at: string | null
+  last_pushed_at: string | null
   pr_metadata: Record<string, unknown> | null
   promotion_checklist: Record<string, unknown>[]
 }
@@ -1140,6 +1148,8 @@ export const api = {
   pauseRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/pause`, { method: 'POST' }),
   publishRequirement: (id: number, data: { completed_checks?: string[]; note?: string | null }) =>
     request<RequirementDetail>(`/requirements/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }),
+  syncRequirementReviewPr: (id: number) =>
+    request<RequirementDetail>(`/requirements/${id}/review-pr/sync`, { method: 'POST' }),
   deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
   updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
     request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

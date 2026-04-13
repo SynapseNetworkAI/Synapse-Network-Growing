@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,10 @@ def _push_branch(repo_path: str, remote_name: str, branch_name: str) -> str | No
     return line[0].split()[0]
 
 
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _normalize_repo_paths(contract: dict[str, Any], fallback_target_path: str | None) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
@@ -275,12 +280,16 @@ def execute_requirement_delivery_vcs(
                 remote_sha = _push_branch(repo_path, remote_name, branch_name)
                 repo_result["remote_sha"] = remote_sha
                 repo_result["pushed"] = True
+                repo_result["last_pushed_at"] = _utcnow_iso()
             repo_result["status"] = "delivered"
         except Exception as exc:  # noqa: BLE001
             repo_result["blockers"].append(str(exc))
             blockers.append(f"{repo_path}: {exc}")
         repo_results.append(repo_result)
 
+    latest_commit_sha = next((str(item.get("commit_sha") or "").strip() for item in repo_results if str(item.get("commit_sha") or "").strip()), None)
+    latest_remote_sha = next((str(item.get("remote_sha") or "").strip() for item in repo_results if str(item.get("remote_sha") or "").strip()), None)
+    last_pushed_at = next((str(item.get("last_pushed_at") or "").strip() for item in repo_results if str(item.get("last_pushed_at") or "").strip()), None)
     return {
         "status": "delivered" if not blockers else "blocked",
         "branch_name": branch_name,
@@ -291,4 +300,7 @@ def execute_requirement_delivery_vcs(
         "blockers": blockers,
         "repositories": repo_results,
         "delivered_repository_count": sum(1 for item in repo_results if item.get("status") == "delivered"),
+        "latest_commit_sha": latest_commit_sha,
+        "latest_remote_sha": latest_remote_sha,
+        "last_pushed_at": last_pushed_at,
     }
