@@ -374,6 +374,39 @@ export interface DeploymentRecord {
   updated_at: string | null
 }
 
+export interface DeploymentProjectOverview {
+  project_policy_id: number
+  project_key: string
+  display_name: string
+  deploy_repo_full_name: string | null
+  deploy_strategy: string
+  deploy_trigger_enabled: boolean
+  staging_host_label: string | null
+  production_host_label: string | null
+  environment_statuses: EnvironmentStatus[]
+  recent_records: DeploymentRecord[]
+}
+
+export interface DeploymentRequirementCandidate {
+  requirement_id: number
+  title: string
+  status: string
+  priority: string
+  source: string
+  source_ref: string | null
+  project_key: string | null
+  project_display_name: string | null
+  target_project_path: string | null
+  updated_at: string | null
+  delivery_state: DeliveryState | null
+  deployment_records: DeploymentRecord[]
+}
+
+export interface DeploymentOverview {
+  project_overviews: DeploymentProjectOverview[]
+  release_candidates: DeploymentRequirementCandidate[]
+}
+
 export interface ProjectReadinessItem {
   key: string
   label: string
@@ -1109,6 +1142,7 @@ export const api = {
 
   // Project policies
   getProjectPolicies: () => request<ProjectPolicy[]>('/project-policies'),
+  getDeploymentOverview: () => request<DeploymentOverview>('/deployments/overview'),
   getProjectPolicyEnvironmentStatus: (id: number) => request<EnvironmentStatus[]>(`/deployments/project-policies/${id}/environment-status`),
   getProjectOnboardings: () => request<ProjectOnboarding[]>('/project-onboarding'),
   createProjectOnboarding: (data: {

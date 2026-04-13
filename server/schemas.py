@@ -975,6 +975,39 @@ class EnvironmentStatusOut(BaseModel):
     last_record_id: Optional[int] = None
 
 
+class DeploymentProjectOverviewOut(BaseModel):
+    project_policy_id: int
+    project_key: str
+    display_name: str
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: str = "github_actions_ssh"
+    deploy_trigger_enabled: bool = False
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    environment_statuses: list[EnvironmentStatusOut] = []
+    recent_records: list[DeploymentRecordOut] = []
+
+
+class DeploymentRequirementCandidateOut(BaseModel):
+    requirement_id: int
+    title: str
+    status: str
+    priority: str
+    source: str
+    source_ref: Optional[str] = None
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    target_project_path: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    delivery_state: Optional[DeliveryStateOut] = None
+    deployment_records: list[DeploymentRecordOut] = []
+
+
+class DeploymentOverviewOut(BaseModel):
+    project_overviews: list[DeploymentProjectOverviewOut] = []
+    release_candidates: list[DeploymentRequirementCandidateOut] = []
+
+
 class DeploymentTriggerRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None

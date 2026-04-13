@@ -24,6 +24,14 @@
 4. harness 负责定义验证流程与治理边界，不负责替模型预判“这次应该改文档还是改代码”。
 5. requirement 负责给出目标、约束和目标项目；具体改动形态与步骤展开默认由 plan 模型决定。
 
+## 3A. Requirement 与 Release 必须分面治理
+
+1. requirement 页面只负责 requirement 本身的目标、workflow、validation、context governance、runtime evidence 与 incident narrative。
+2. 环境状态、部署记录、publish、staging / production promotion、rollback 必须进入独立的 release surface，不得继续混在 requirement detail 中。
+3. requirement 可以展示 release handoff 摘要与跳转入口，但不能承担环境控制台职责。
+4. project policy 负责定义 deploy governance 边界；release center 负责执行和展示这些边界；requirement detail 不得复制这套控制面。
+5. 后续新增 UI / API 时，凡是“环境视角”或“发布视角”的能力，都默认进入独立 release center，而不是回灌到 requirement 页面。
+
 ## 4. 多代理的目标是隔离不确定性
 
 1. 多代理不是堆 worker 数量，而是分离 research、synthesis、implementation、verification 的职责。

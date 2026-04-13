@@ -11,11 +11,13 @@ import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
 import ProjectPolicies from './pages/ProjectPolicies'
 import OptimizationSignals from './pages/OptimizationSignals'
+import DeploymentsPage from './pages/DeploymentsPage'
 
 const navItems = [
   { to: '/overview', label: '运营总览' },
   { to: '/recurring-workflows', label: '定时任务' },
   { to: '/requirements', label: '需求池' },
+  { to: '/deployments', label: '发布中心' },
   { to: '/optimization-signals', label: '优化信号' },
   { to: '/project-policies', label: '项目策略' },
   { to: '/tasks', label: '任务看板' },
@@ -80,11 +82,18 @@ const routeBriefs = [
     chips: ['queue', 'validation', 'delivery gate'],
   },
   {
+    match: (pathname: string) => pathname === '/deployments',
+    eyebrow: 'Release Center',
+    title: '环境与发布总览',
+    description: '把环境状态、部署记录、publish、staging/prod promotion 与 rollback 从 requirement 页面里独立出来。',
+    chips: ['deployments', 'environments', 'rollback'],
+  },
+  {
     match: (pathname: string) => pathname.startsWith('/requirements/'),
     eyebrow: 'Requirement Detail',
     title: '单条 Requirement 指挥台',
-    description: '查看 workflow、validation contract、delivery state 和 bugfix 证据，逐项推进到完成。',
-    chips: ['workflow', 'artifacts', 'release-ready'],
+    description: '查看 workflow、validation contract、上下文治理和执行证据；发布与环境 promotion 统一在发布中心处理。',
+    chips: ['workflow', 'artifacts', 'validation'],
   },
   {
     match: (pathname: string) => pathname === '/optimization-signals',
@@ -318,6 +327,7 @@ export default function App() {
               <Route path="/recurring-workflows" element={<RecurringWorkflowsPage />} />
               <Route path="/requirements" element={<RequirementPool />} />
               <Route path="/requirements/:id" element={<RequirementDetail />} />
+              <Route path="/deployments" element={<DeploymentsPage />} />
               <Route path="/optimization-signals" element={<OptimizationSignals />} />
               <Route path="/project-policies" element={<ProjectPolicies />} />
               <Route path="/tasks" element={<TaskBoard />} />

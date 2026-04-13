@@ -164,6 +164,49 @@ def test_project_policy_environment_status_reflects_latest_deployments(synced_cl
     assert payload["production"]["deploy_strategy"] == "github_actions_ssh"
 
 
+def test_deployment_overview_returns_projects_and_release_candidates(synced_client, db_session):
+    policy = next(item for item in synced_client.get("/api/project-policies").json() if item["project_key"] == "synapse-network")
+    requirement = RequirementRow(
+        title="Release candidate requirement",
+        description_markdown="ready for release",
+        status="done",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+
+    db_session.add(
+        DeploymentRecordRow(
+            requirement_id=requirement.id,
+            project_policy_id=policy["id"],
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            commit_sha="candidate-sha-123",
+            branch_name="ops/release-candidate",
+            workflow_file="deploy-staging.yml",
+            health_status="healthy",
+            trigger_source="ops_console",
+            external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/9",
+        )
+    )
+    db_session.commit()
+
+    resp = synced_client.get("/api/deployments/overview")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    project = next(item for item in payload["project_overviews"] if item["project_key"] == "synapse-network")
+    assert project["environment_statuses"][0]["environment"] == "staging"
+    assert project["recent_records"][0]["commit_sha"] == "candidate-sha-123"
+    candidate = next(item for item in payload["release_candidates"] if item["requirement_id"] == requirement.id)
+    assert candidate["project_key"] == "synapse-network"
+    assert candidate["delivery_state"]["staging_status"]["current_commit_sha"] == "candidate-sha-123"
+
+
 def test_project_policy_can_be_created(synced_client):
     create_resp = synced_client.post(
         "/api/project-policies",

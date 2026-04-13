@@ -569,7 +569,7 @@ describe('RequirementDetail', () => {
     expect(within(bugPanel).getAllByText('Validation failed after test run').length).toBeGreaterThan(0)
     expect(within(bugPanel).getByText(/Failed checks: validation_passed/)).toBeInTheDocument()
 
-    expect(screen.getByTestId('delivery-state-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('release-handoff-panel')).toBeInTheDocument()
     expect(screen.getByTestId('context-governance-panel')).toBeInTheDocument()
     expect(screen.getByTestId('runtime-lifecycle-panel')).toBeInTheDocument()
     expect(screen.getByTestId('incident-panel')).toBeInTheDocument()
@@ -589,17 +589,13 @@ describe('RequirementDetail', () => {
     expect(screen.getAllByText(/editor/).length).toBeGreaterThan(0)
     expect(screen.getByText(/Recovery incident: bugfix circuit breaker/)).toBeInTheDocument()
     expect(screen.getByText(/operator_review_required/)).toBeInTheDocument()
-    expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
+    expect(screen.getByText(/branch: ops\/req-1-verification-contract-hardening/)).toBeInTheDocument()
     expect(screen.getByText('PR Metadata')).toBeInTheDocument()
     expect(screen.getByText('Compare')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /https:\/\/github.com\/openai\/synapse-network-growing\/compare\/main...ops\/req-1-verification-contract-hardening/i })).toBeInTheDocument()
     expect(screen.getByText('number: 42')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /https:\/\/github.com\/openai\/synapse-network-growing\/pull\/42/i })).toBeInTheDocument()
-    expect(screen.getByText('Promotion Checklist')).toBeInTheDocument()
-    expect(screen.getByText('Branch delivery pushed')).toBeInTheDocument()
-    expect(screen.getByText('Required checks confirmed')).toBeInTheDocument()
-    expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
-    expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往发布中心' })).toHaveAttribute('href', '/deployments?requirement=1')
     expect(screen.getByTestId('requirement-approval-panel')).toBeInTheDocument()
     expect(screen.getByTestId('requirement-approval-badge')).toHaveTextContent('审批: 待审批')
     expect(screen.getByTestId('approval-banner')).toBeInTheDocument()
@@ -609,16 +605,9 @@ describe('RequirementDetail', () => {
     expect(screen.getByTestId('workflow-step-runtime-21')).toHaveTextContent('耗时 1m 42s')
     expect(screen.getByTestId('workflow-step-runtime-21')).toHaveTextContent('tokens 2,480')
     expect(screen.getByTestId('requirement-attachments')).toHaveTextContent('staging-screenshot.png')
-    fireEvent.click(screen.getByTestId('publish-requirement-btn'))
-
-    await waitFor(() => {
-      expect(mockApi.publishRequirement).toHaveBeenCalledTimes(1)
-    })
-    expect(mockApi.publishRequirement.mock.calls[0]?.[0]).toBe(1)
   })
 
-  it('can sync review pr from delivery gate', async () => {
-    const user = userEvent.setup()
+  it('keeps release controls in the release center instead of requirement detail', async () => {
     render(
       <MemoryRouter initialEntries={['/requirements/1']}>
         <Routes>
@@ -628,11 +617,10 @@ describe('RequirementDetail', () => {
     )
 
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(1))
-    await user.click(screen.getByRole('button', { name: 'Create/Sync Review PR' }))
-
-    await waitFor(() => {
-      expect(mockApi.syncRequirementReviewPr).toHaveBeenCalledWith(1)
-    })
+    expect(screen.queryByRole('button', { name: 'Create/Sync Review PR' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Deploy To Staging' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Promote To Production' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rollback' })).not.toBeInTheDocument()
   })
 
   it('allows approving requirement execution from detail page', async () => {

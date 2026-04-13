@@ -235,6 +235,7 @@ planner 只有在 full-plan 结构化输出时才要求 strict JSON；普通 tas
 4. 多代理用于隔离不确定性
 5. runtime / subagent 必须有生命周期与 cleanup
 6. 上下文必须按 budget / compact / stale verify 治理
+7. requirement detail 与 release center 必须分面治理，环境/发布动作不能继续混在 requirement 页面里
 
 ## 1.1C Five-Step Markdown-First Requirement Flow
 

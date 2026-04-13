@@ -35,11 +35,12 @@ Company Review
 5. `/recurring-workflows` 定时任务管理
 6. `/requirements` 需求池
 7. `/requirements/:id` 需求详情
-8. `/optimization-signals` 优化信号
-9. `/project-policies` 项目策略与 onboarding
-10. `/tasks` 任务看板
-11. `/tasks/:id` 任务详情
-12. `/approvals` 审批中心
+8. `/deployments` 发布中心
+9. `/optimization-signals` 优化信号
+10. `/project-policies` 项目策略与 onboarding
+11. `/tasks` 任务看板
+12. `/tasks/:id` 任务详情
+13. `/approvals` 审批中心
 
 建议按下面的心智模型来理解它们：
 
@@ -49,11 +50,12 @@ Company Review
 4. 自治模式看“还有多少事情需要 operator 亲自盯”。
 5. 定时任务看“ritual 现在有没有真的在跑”。
 6. 需求池看“哪些事情已经被系统正式接管”。
-7. 需求详情看“某件事是怎么被规划、执行、验证、交付的”。
-8. 优化信号看“系统自动发现了哪些问题和优化机会”。
-9. 项目策略看“系统在每个仓库里被允许做什么”。
-10. 任务看板和任务详情看“低层执行到底发生了什么”。
-11. 审批中心看“哪些高风险动作需要人来拍板”。
+7. 需求详情看“某件事是怎么被规划、执行、验证并形成 release handoff 的”。
+8. 发布中心看“哪些 requirement 可以发、环境现在是什么版本、最近怎么发的”。
+9. 优化信号看“系统自动发现了哪些问题和优化机会”。
+10. 项目策略看“系统在每个仓库里被允许做什么”。
+11. 任务看板和任务详情看“低层执行到底发生了什么”。
+12. 审批中心看“哪些高风险动作需要人来拍板”。
 
 ## 1.1 Runtime 选择心智模型
 
@@ -177,15 +179,13 @@ Company Review
 
 ### 模块功能
 
-需求详情页是 requirement 的执行面板，负责看 workflow、validation、delivery、artifacts 和 bugfix 闭环。
+需求详情页是 requirement 的执行面板，负责看 workflow、validation、artifacts、bugfix 闭环和 release handoff 摘要。
 
-对于 `Synapse-Network` / `Synapse-Network-Provider` 这类受管项目，Delivery Gate 现在还会显示：
+注意：
 
-1. `staging / production` 环境状态
-2. deployment history
-3. `Deploy To Staging`
-4. `Promote To Production`
-5. `Rollback`
+1. 需求页不再直接承载 deploy / publish / rollback 动作
+2. 对于 `Synapse-Network` / `Synapse-Network-Provider` 这类受管项目，环境状态与发布动作已经迁到独立的 `/deployments` 发布中心
+3. 需求页只保留 requirement 视角信息与 handoff 摘要，避免混合环境控制台职责
 
 ### 读取后端
 
@@ -194,7 +194,6 @@ Company Review
 3. `POST /api/requirements/{id}/start`
 4. `POST /api/requirements/{id}/pause`
 5. `POST /api/requirements/{id}/revise`
-6. `POST /api/requirements/{id}/publish`
 
 ### 你能做什么
 
@@ -206,7 +205,7 @@ Company Review
 6. 看 Recovery Narrative & Incidents，理解为什么 requirement 被阻断、暂停或转 incident。
 7. 看 artifacts，包括 implementation plan、validation plan、bug report、context_compaction、stale_memory_verification、runtime_lifecycle、runtime_telemetry。
 8. 发起修订。
-9. 在满足 release gate 时执行 publish。
+9. 查看 release handoff 摘要，并跳转到发布中心。
 10. 查看每个 workflow step 的 model/provider、耗时和 token 使用情况。
 11. 查看 requirement intake 附件是否已经进入上下文。
 
@@ -221,8 +220,42 @@ Company Review
 7. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
 8. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死，同时检查 step 卡片里的 model / duration / tokens 是否符合预期。
 9. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
-10. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan、publish 或归档。
+10. 最后看 release handoff 摘要；如需 publish、deploy 或 rollback，转到 `/deployments` 处理。
 11. 如果执行效果异常，先核对“需求说明”卡片中的附件列表，确认文档或截图已经作为 requirement 上下文进入执行链路。
+
+## 2.3A 发布中心 `/deployments`
+
+### 模块功能
+
+发布中心负责统一处理环境状态、部署记录、publish、staging / production promotion 和 rollback。
+
+### 读取后端
+
+1. `GET /api/deployments/overview`
+2. `GET /api/deployments/project-policies/{id}/environment-status`
+3. `POST /api/requirements/{id}/review-pr/sync`
+4. `POST /api/requirements/{id}/publish`
+5. `POST /api/requirements/{id}/deployments/staging`
+6. `POST /api/requirements/{id}/deployments/production`
+7. `POST /api/requirements/{id}/deployments/rollback`
+
+### 你能做什么
+
+1. 看每个受管项目的 `staging / production` 当前 SHA、健康状态和最近一次 workflow run。
+2. 看哪些 requirement 已经形成 release candidate。
+3. 集中处理：
+   1. `Create/Sync Review PR`
+   2. `Promote To Publish`
+   3. `Deploy To Staging`
+   4. `Promote To Production`
+   5. `Rollback`
+4. 查看最近部署记录并回链到对应 requirement。
+
+### 推荐使用方式
+
+1. 先在 `/requirements/:id` 确认需求本身已经完成、验证通过、handoff 清晰。
+2. 再到 `/deployments` 以环境视角执行 publish、deploy 或 rollback。
+3. 需要同时看多个 requirement 的环境影响时，只在发布中心统一操作，不要回到单条 requirement 上分散处理。
 
 ## 2.4 优化信号 `/optimization-signals`
 

@@ -11,8 +11,15 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import ArtifactRow, DeploymentRecordRow, ProjectPolicyRow, RequirementRow, utcnow
-from server.schemas import DeploymentRecordOut, EnvironmentStatusOut
-from server.services.project_policy import project_policy_to_dict, resolve_project_policies_for_target
+from server.schemas import (
+    DeliveryStateOut,
+    DeploymentOverviewOut,
+    DeploymentProjectOverviewOut,
+    DeploymentRecordOut,
+    DeploymentRequirementCandidateOut,
+    EnvironmentStatusOut,
+)
+from server.services.project_policy import list_project_policies, project_policy_to_dict, resolve_project_policies_for_target
 
 
 def _json_load(raw: str | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -87,6 +94,22 @@ def list_requirement_deployment_records(db: Session, requirement_id: int) -> lis
         db.query(DeploymentRecordRow)
         .filter(DeploymentRecordRow.requirement_id == requirement_id)
         .order_by(DeploymentRecordRow.id.desc())
+        .all()
+    )
+    return [DeploymentRecordOut(**_deployment_record_to_dict(row)) for row in rows]
+
+
+def _list_project_deployment_records(
+    db: Session,
+    project_key: str,
+    *,
+    limit: int = 6,
+) -> list[DeploymentRecordOut]:
+    rows = (
+        db.query(DeploymentRecordRow)
+        .filter(DeploymentRecordRow.project_key == project_key)
+        .order_by(DeploymentRecordRow.id.desc())
+        .limit(max(1, limit))
         .all()
     )
     return [DeploymentRecordOut(**_deployment_record_to_dict(row)) for row in rows]
@@ -407,3 +430,79 @@ def build_requirement_deployment_summary(db: Session, requirement: RequirementRo
             "deliverable_commit_sha": deliverable_commit,
         },
     }
+
+
+def build_deployment_overview(
+    db: Session,
+    *,
+    candidate_limit: int = 20,
+    record_limit: int = 6,
+) -> DeploymentOverviewOut:
+    project_overviews: list[DeploymentProjectOverviewOut] = []
+    policies = list_project_policies(db)
+    for policy in policies:
+        policy_data = project_policy_to_dict(policy)
+        recent_records = _list_project_deployment_records(db, policy_data["project_key"], limit=record_limit)
+        has_deploy_governance = bool(policy_data.get("deploy_repo_full_name")) or bool(policy_data.get("deploy_trigger_enabled"))
+        if not has_deploy_governance and not recent_records:
+            continue
+        project_overviews.append(
+            DeploymentProjectOverviewOut(
+                project_policy_id=int(policy.id),
+                project_key=policy_data["project_key"],
+                display_name=policy_data["display_name"],
+                deploy_repo_full_name=policy_data.get("deploy_repo_full_name"),
+                deploy_strategy=str(policy_data.get("deploy_strategy") or "github_actions_ssh"),
+                deploy_trigger_enabled=bool(policy_data.get("deploy_trigger_enabled")),
+                staging_host_label=policy_data.get("staging_host_label"),
+                production_host_label=policy_data.get("production_host_label"),
+                environment_statuses=build_project_environment_statuses(db, policy),
+                recent_records=recent_records,
+            )
+        )
+
+    release_candidates: list[DeploymentRequirementCandidateOut] = []
+    requirements = (
+        db.query(RequirementRow)
+        .filter(RequirementRow.status != "deleted")
+        .order_by(RequirementRow.updated_at.desc(), RequirementRow.id.desc())
+        .limit(max(1, candidate_limit))
+        .all()
+    )
+    for requirement in requirements:
+        records = list_requirement_deployment_records(db, int(requirement.id))
+        project_key = None
+        project_display_name = None
+        has_deploy_governance = False
+        try:
+            policy = _require_policy_for_requirement(db, requirement)
+            policy_data = project_policy_to_dict(policy)
+            project_key = str(policy_data.get("project_key") or "").strip() or None
+            project_display_name = str(policy_data.get("display_name") or "").strip() or None
+            has_deploy_governance = bool(policy_data.get("deploy_repo_full_name")) or bool(policy_data.get("deploy_trigger_enabled"))
+        except Exception:
+            policy = None
+        if not has_deploy_governance and not records:
+            continue
+        deploy_summary = build_requirement_deployment_summary(db, requirement)
+        release_candidates.append(
+            DeploymentRequirementCandidateOut(
+                requirement_id=int(requirement.id),
+                title=str(requirement.title or ""),
+                status=str(requirement.status or "draft"),
+                priority=str(requirement.priority or "normal"),
+                source=str(requirement.source or "manual"),
+                source_ref=str(requirement.source_ref or "").strip() or None,
+                project_key=project_key,
+                project_display_name=project_display_name,
+                target_project_path=str(requirement.target_project_path or "").strip() or None,
+                updated_at=requirement.updated_at,
+                delivery_state=DeliveryStateOut(**deploy_summary),
+                deployment_records=records[:record_limit],
+            )
+        )
+
+    return DeploymentOverviewOut(
+        project_overviews=project_overviews,
+        release_candidates=release_candidates,
+    )

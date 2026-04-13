@@ -211,11 +211,6 @@ export default function RequirementDetail() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [savingPlan, setSavingPlan] = useState(false)
   const [savingStepId, setSavingStepId] = useState<number | null>(null)
-  const [publishing, setPublishing] = useState(false)
-  const [syncingReviewPr, setSyncingReviewPr] = useState(false)
-  const [deployingStaging, setDeployingStaging] = useState(false)
-  const [deployingProduction, setDeployingProduction] = useState(false)
-  const [rollingBack, setRollingBack] = useState(false)
   const [decidingApproval, setDecidingApproval] = useState(false)
   const [approvalComment, setApprovalComment] = useState('')
   const [selectedOutputFile, setSelectedOutputFile] = useState<TaskOutputFile | null>(null)
@@ -240,9 +235,6 @@ export default function RequirementDetail() {
     revision_note: '',
     depends_on_requirement_ids: [] as number[],
   })
-  const [publishChecks, setPublishChecks] = useState<string[]>([])
-  const [publishNote, setPublishNote] = useState('')
-  const [deployNote, setDeployNote] = useState('')
 
   const loadDetail = useCallback(async () => {
     const data = await api.getRequirement(requirementId)
@@ -269,9 +261,6 @@ export default function RequirementDetail() {
       depends_on_requirement_ids: detail.dependencies.map((d) => d.depends_on_requirement_id),
     })
     setShowRevise(false)
-    setPublishChecks(detail.delivery_state?.confirmed_checks || [])
-    setPublishNote(detail.delivery_state?.publish_note || '')
-    setDeployNote('')
     const latestPlanArtifact = detail.artifacts
       .filter((a) => a.artifact_type === 'implementation_plan')
       .sort((a, b) => b.id - a.id)[0]
@@ -295,12 +284,6 @@ export default function RequirementDetail() {
   const handlePause = async () => {
     const data = await api.pauseRequirement(requirementId)
     setDetail(data)
-  }
-
-  const refreshAfterDeployment = async () => {
-    await loadDetail()
-    const requirementsData = await api.getRequirements()
-    setRequirements(requirementsData)
   }
 
   const handleRevise = async () => {
@@ -334,48 +317,6 @@ export default function RequirementDetail() {
       setIsEditing(false)
     } finally {
       setSavingEdit(false)
-    }
-  }
-
-  const handleDeployToStaging = async () => {
-    setDeployingStaging(true)
-    try {
-      await api.deployRequirementToStaging(requirementId, {
-        actor: 'operator',
-        note: deployNote.trim() || null,
-      })
-      await refreshAfterDeployment()
-    } finally {
-      setDeployingStaging(false)
-    }
-  }
-
-  const handlePromoteToProduction = async () => {
-    setDeployingProduction(true)
-    try {
-      await api.promoteRequirementToProduction(requirementId, {
-        actor: 'operator',
-        note: deployNote.trim() || null,
-      })
-      await refreshAfterDeployment()
-    } finally {
-      setDeployingProduction(false)
-    }
-  }
-
-  const handleRollback = async () => {
-    const targetSha = window.prompt('输入要回滚到的 commit SHA', detail?.delivery_state?.last_deployed_sha || '')
-    if (!targetSha?.trim()) return
-    setRollingBack(true)
-    try {
-      await api.rollbackRequirementDeployment(requirementId, {
-        actor: 'operator',
-        note: deployNote.trim() || null,
-        rollback_target_sha: targetSha.trim(),
-      })
-      await refreshAfterDeployment()
-    } finally {
-      setRollingBack(false)
     }
   }
 
@@ -413,33 +354,6 @@ export default function RequirementDetail() {
       setEditingStepId(null)
     } finally {
       setSavingStepId(null)
-    }
-  }
-
-  const togglePublishCheck = (check: string) => {
-    setPublishChecks((prev) => prev.includes(check) ? prev.filter((item) => item !== check) : [...prev, check])
-  }
-
-  const handlePublish = async () => {
-    setPublishing(true)
-    try {
-      const data = await api.publishRequirement(requirementId, {
-        completed_checks: publishChecks,
-        note: publishNote.trim() || null,
-      })
-      setDetail(data)
-    } finally {
-      setPublishing(false)
-    }
-  }
-
-  const handleSyncReviewPr = async () => {
-    setSyncingReviewPr(true)
-    try {
-      const data = await api.syncRequirementReviewPr(requirementId)
-      setDetail(data)
-    } finally {
-      setSyncingReviewPr(false)
     }
   }
 
@@ -1224,29 +1138,32 @@ export default function RequirementDetail() {
 
           <div className="space-y-4">
             {deliveryState && (
-              <section className="p-4 border rounded-xl bg-amber-50" data-testid="delivery-state-panel">
-                <div className="mb-3 text-sm font-semibold">Delivery Gate</div>
+              <section className="p-4 border rounded-xl bg-amber-50" data-testid="release-handoff-panel">
+                <div className="mb-3 text-sm font-semibold">Release Handoff</div>
+                <div className="mb-3 text-xs text-gray-600">
+                  Requirement 页只负责执行、验证和证据。Review PR、publish、staging / production、rollback 已拆到发布中心统一处理。
+                </div>
                 <div className="grid gap-3 text-xs sm:grid-cols-2">
                   <div className="p-3 border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Branch</div>
+                    <div className="mb-2 font-medium text-gray-900">Delivery Summary</div>
                     <div className="space-y-1 text-gray-600">
-                      <div>{deliveryState.branch_name || '-'}</div>
+                      <div>branch: {deliveryState.branch_name || '-'}</div>
                       <div>base: {deliveryState.base_branch || '-'}</div>
-                      <div>strategy: {deliveryState.branch_strategy || '-'}</div>
-                      <div>head: {deliveryState.head_branch || deliveryState.branch_name || '-'}</div>
+                      <div>review: {deliveryState.review_status}</div>
+                      <div>publish: {deliveryState.publish_status}</div>
                     </div>
                   </div>
                   <div className="p-3 border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Release State</div>
+                    <div className="mb-2 font-medium text-gray-900">Deployment Snapshot</div>
                     <div className="space-y-1 text-gray-600">
-                      <div>review: {deliveryState.review_status}</div>
-                      <div>publish: {deliveryState.publish_status}</div>
-                      <div>mode: {deliveryState.release_mode || '-'}</div>
-                      <div>pr: {deliveryState.pr_status || '-'}</div>
+                      <div>last deployed: {deliveryState.last_deployed_sha || '-'}</div>
+                      <div>deploy time: {formatIsoTime(deliveryState.last_deployed_at)}</div>
+                      <div>staging: {deliveryState.staging_status?.current_commit_sha || '-'}</div>
+                      <div>production: {deliveryState.production_status?.current_commit_sha || '-'}</div>
                     </div>
                   </div>
                 </div>
-                {(deliveryState.compare_url || deliveryState.pr_metadata) && (
+                {(deliveryState.compare_url || deliveryState.pr_metadata || deliveryState.pr_url) && (
                   <div className="grid gap-3 mt-3 text-xs sm:grid-cols-2">
                     <div className="p-3 border rounded-lg bg-white">
                       <div className="mb-2 font-medium text-gray-900">PR Metadata</div>
@@ -1290,41 +1207,9 @@ export default function RequirementDetail() {
                 {deliveryState.review_surface_summary && (
                   <div className="mt-3 text-xs text-gray-700">{deliveryState.review_surface_summary}</div>
                 )}
-                {(deliveryState.staging_status || deliveryState.production_status) && (
-                  <div className="grid gap-3 mt-3 text-xs sm:grid-cols-2">
-                    {[deliveryState.staging_status, deliveryState.production_status].filter(Boolean).map((status) => {
-                      const env = status!
-                      return (
-                        <div key={env.environment || 'env'} className="p-3 border rounded-lg bg-white">
-                          <div className="mb-2 font-medium text-gray-900">
-                            {String(env.environment || '').toLowerCase() === 'production' ? 'Production Status' : 'Staging Status'}
-                          </div>
-                          <div className="space-y-1 text-gray-600">
-                            <div>host: {env.host_label || '-'}</div>
-                            <div>sha: {env.current_commit_sha || '-'}</div>
-                            <div>branch: {env.current_branch || '-'}</div>
-                            <div>health: {env.health_status || '-'}</div>
-                            <div>last success: {formatIsoTime(env.last_success_at)}</div>
-                          </div>
-                          {env.last_external_url ? (
-                            <a href={env.last_external_url} target="_blank" rel="noreferrer" className="block mt-2 font-medium text-blue-600 break-all hover:underline">
-                              Run workflow
-                            </a>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {deliveryState.last_deployed_sha && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white text-gray-700">
-                    <div>Last deployed SHA: {deliveryState.last_deployed_sha}</div>
-                    <div>Last deploy time: {formatIsoTime(deliveryState.last_deployed_at)}</div>
-                  </div>
-                )}
                 {deliveryState.deploy_readiness && (
                   <div className="mt-3 p-3 text-xs border rounded-lg bg-white text-gray-700">
-                    <div className="mb-1 font-medium text-gray-900">Deploy Readiness</div>
+                    <div className="mb-1 font-medium text-gray-900">Release Readiness</div>
                     <div>repo: {String((deliveryState.deploy_readiness as Record<string, unknown>).deploy_repo_full_name || '-')}</div>
                     <div>deliverable sha: {String((deliveryState.deploy_readiness as Record<string, unknown>).deliverable_commit_sha || '-')}</div>
                     {Array.isArray((deliveryState.deploy_readiness as Record<string, unknown>).blockers) && ((deliveryState.deploy_readiness as Record<string, unknown>).blockers as unknown[]).length > 0 && (
@@ -1336,150 +1221,24 @@ export default function RequirementDetail() {
                     )}
                   </div>
                 )}
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => { handleSyncReviewPr().catch(() => {}) }}
-                    disabled={syncingReviewPr || !deliveryState.branch_name}
-                    className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    to={`/deployments?requirement=${requirementId}`}
+                    className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    {syncingReviewPr ? 'Syncing Review PR…' : 'Create/Sync Review PR'}
-                  </button>
+                    前往发布中心
+                  </Link>
+                  {deliveryState.pr_url ? (
+                    <a
+                      href={deliveryState.pr_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      打开 PR
+                    </a>
+                  ) : null}
                 </div>
-                {deliveryState.promotion_checklist.length > 0 && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Promotion Checklist</div>
-                    <div className="space-y-2">
-                      {deliveryState.promotion_checklist.map((item, idx) => {
-                        const entry = item as Record<string, unknown>
-                        const status = String(entry.status || 'pending')
-                        const tone =
-                          status === 'completed'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : status === 'blocked'
-                              ? 'bg-rose-50 text-rose-700'
-                              : 'bg-amber-50 text-amber-700'
-                        return (
-                          <div key={`${String(entry.key || 'check')}-${idx}`} className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="font-medium text-gray-900">{String(entry.label || entry.key || 'check')}</div>
-                              <div className="text-gray-500">{String(entry.detail || '')}</div>
-                            </div>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
-                              {status}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-                {deliveryState.required_checks.length > 0 && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Required Checks Before Publish</div>
-                    <div className="space-y-2">
-                      {deliveryState.required_checks.map((check) => (
-                        <label key={check} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={publishChecks.includes(check)}
-                            onChange={() => togglePublishCheck(check)}
-                          />
-                          <span>{check}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {deliveryState.publish_blockers.length > 0 && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-rose-50 border-rose-100 text-rose-700">
-                    <div className="mb-1 font-medium">Publish Blockers</div>
-                    <div className="space-y-1">
-                      {deliveryState.publish_blockers.map((item) => (
-                        <div key={item}>{item}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {deliveryState.rollback_hint_markdown && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Rollback Hint</div>
-                    <Md>{deliveryState.rollback_hint_markdown}</Md>
-                  </div>
-                )}
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    className="w-full px-3 py-2 text-xs border rounded min-h-16"
-                    placeholder="记录 deploy / rollback 说明"
-                    value={deployNote}
-                    onChange={(e) => setDeployNote(e.target.value)}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="rounded border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
-                      disabled={deployingStaging || !deliveryState.deploy_readiness || Array.isArray((deliveryState.deploy_readiness as Record<string, unknown>).blockers) && ((deliveryState.deploy_readiness as Record<string, unknown>).blockers as unknown[]).length > 0}
-                      onClick={() => { handleDeployToStaging().catch(() => {}) }}
-                    >
-                      {deployingStaging ? 'Deploying…' : 'Deploy To Staging'}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
-                      disabled={deployingProduction || !deliveryState.staging_status?.current_commit_sha}
-                      onClick={() => { handlePromoteToProduction().catch(() => {}) }}
-                    >
-                      {deployingProduction ? 'Promoting…' : 'Promote To Production'}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-                      disabled={rollingBack}
-                      onClick={() => { handleRollback().catch(() => {}) }}
-                    >
-                      {rollingBack ? 'Rolling Back…' : 'Rollback'}
-                    </button>
-                  </div>
-                  <textarea
-                    data-testid="publish-note"
-                    className="w-full px-3 py-2 text-xs border rounded min-h-20"
-                    placeholder="记录这次 publish decision 的说明"
-                    value={publishNote}
-                    onChange={(e) => setPublishNote(e.target.value)}
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      data-testid="publish-requirement-btn"
-                      className="px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded hover:bg-emerald-700 disabled:opacity-50"
-                      disabled={publishing || deliveryState.publish_status === 'published' || deliveryState.release_mode === 'disabled'}
-                      onClick={() => { handlePublish().catch(() => {}) }}
-                    >
-                      {deliveryState.publish_status === 'published' ? '已发布' : 'Promote To Publish'}
-                    </button>
-                  </div>
-                </div>
-                {detail.deployment_records.length > 0 && (
-                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
-                    <div className="mb-2 font-medium text-gray-900">Deploy History</div>
-                    <div className="space-y-2">
-                      {detail.deployment_records.map((record) => (
-                        <div key={record.id} className="rounded border border-slate-200 p-2">
-                          <div className="font-medium text-gray-900">
-                            {record.environment} · {record.action} · {record.status}
-                          </div>
-                          <div className="mt-1 text-gray-600">
-                            sha: {record.commit_sha || '-'} · actor: {record.actor || '-'} · started: {formatIsoTime(record.started_at)}
-                          </div>
-                          {record.external_url && (
-                            <a href={record.external_url} target="_blank" rel="noreferrer" className="block mt-1 font-medium text-blue-600 break-all hover:underline">
-                              {record.external_url}
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </section>
             )}
 

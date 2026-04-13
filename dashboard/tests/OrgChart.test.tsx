@@ -687,10 +687,11 @@ describe('OrgChart', () => {
     renderApp('/overview')
 
     await waitFor(() => {
-      expect(screen.getAllByText('运营总览').length).toBeGreaterThan(0)
-    })
+    expect(screen.getAllByText('运营总览').length).toBeGreaterThan(0)
+  })
 
     expect(screen.getAllByText('定时任务').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('发布中心').length).toBeGreaterThan(0)
     expect(screen.getAllByText('公司复盘').length).toBeGreaterThan(0)
     expect(screen.getAllByText('角色 KPI').length).toBeGreaterThan(0)
     expect(screen.getAllByText('自治模式').length).toBeGreaterThan(0)
