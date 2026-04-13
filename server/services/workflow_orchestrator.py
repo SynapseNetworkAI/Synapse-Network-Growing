@@ -8,11 +8,13 @@ import re
 import signal
 import subprocess
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from server.database import (
@@ -116,6 +118,7 @@ INFRA_INCIDENT_ERROR_MARKERS = (
     "connection refused",
     "failed to connect",
 )
+_AUTO_PLAN_LOCK = threading.Lock()
 
 import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
@@ -1818,6 +1821,17 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
     db.commit()
 
     detail = build_requirement_detail(db, requirement.id)
+    target_policies = resolve_project_policies_for_target(
+        db,
+        requirement.target_project_path,
+        require_active=False,
+    )
+    inferred_auto_start = bool(target_policies) and all(
+        str(project_policy_to_dict(policy).get("autonomy_mode") or "recommend") == "execute_autonomously"
+        for policy in target_policies
+    )
+    requested_auto_start = bool(body.auto_start)
+    effective_auto_start = bool(requested_auto_start or inferred_auto_start)
     _logger.info(
         "event=requirement_created requirement_id=%s source=%s priority=%s routing_mode=%s target_paths=%s auto_start=%s",
         requirement.id,
@@ -1825,19 +1839,20 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         requirement.priority,
         routing_context.get("routing_mode") or "unknown",
         len(str(requirement.target_project_path or "").splitlines()) if requirement.target_project_path else 0,
-        body.auto_start,
+        effective_auto_start,
     )
     approved_for_execution = (
         requirement.blocked_by_count == 0
         and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}
     )
-    if body.auto_start and approved_for_execution:
+    if requested_auto_start and approved_for_execution:
         req_id = _as_int(requirement.id)
 
         def _bg_plan_and_start(req_id: int) -> None:
             bg_db = SessionLocal()
             try:
-                _plan_requirement_after_approval(bg_db, requirement_id=req_id, trigger="auto_start", raise_on_failure=True)
+                with _AUTO_PLAN_LOCK:
+                    _plan_requirement_after_approval(bg_db, requirement_id=req_id, trigger="auto_start", raise_on_failure=True)
                 start_requirement(bg_db, req_id)
             except Exception as exc:  # noqa: BLE001
                 import logging
@@ -1854,12 +1869,13 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         def _bg_plan_only(req_id: int) -> None:
             bg_db = SessionLocal()
             try:
-                _plan_requirement_after_approval(
-                    bg_db,
-                    requirement_id=req_id,
-                    trigger="requirement_create",
-                    raise_on_failure=True,
-                )
+                with _AUTO_PLAN_LOCK:
+                    _plan_requirement_after_approval(
+                        bg_db,
+                        requirement_id=req_id,
+                        trigger="requirement_create",
+                        raise_on_failure=True,
+                    )
             except Exception as exc:  # noqa: BLE001
                 import logging
                 logging.getLogger("ops-dashboard.orchestrator").warning(
@@ -2002,6 +2018,12 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
         len(planner_output.get("workflow_steps") or []),
         len(planner_output.get("acceptance_checks") or []),
     )
+    if normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
+        preferred_project_key, preferred_root_path = _queue_preference_for_requirement(db, requirement)
+        _schedule_advance_queue(
+            preferred_project_key=preferred_project_key,
+            preferred_root_path=preferred_root_path,
+        )
     return build_requirement_detail(db, requirement.id)
 
 
@@ -2046,7 +2068,16 @@ def _plan_requirement_after_approval(
     requirement.status = "planning"
     db.commit()
     try:
-        return plan_requirement(db, requirement_id)
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return plan_requirement(db, requirement_id)
+            except OperationalError as exc:
+                if "database is locked" not in str(exc).lower() or attempts >= 4:
+                    raise
+                db.rollback()
+                time.sleep(0.25 * attempts)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         requirement = _require_requirement(db, requirement_id)
@@ -6060,15 +6091,27 @@ def _finalize_requirement(
     changed_files = list(changed_files_json.get("changed_files", []))
     _am_push_requirement_completed(requirement, steps_summary, output_summary or "", changed_files)
     # After completing, advance the queue so the next ready requirement starts automatically
-    _schedule_advance_queue()
+    preferred_project_key, preferred_root_path = _queue_preference_for_requirement(db, requirement)
+    _schedule_advance_queue(
+        preferred_project_key=preferred_project_key,
+        preferred_root_path=preferred_root_path,
+    )
 
 
-def _schedule_advance_queue() -> None:
+def _schedule_advance_queue(
+    *,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
+) -> None:
     """Fire-and-forget: pick the next queued ready requirement and start it."""
     def _run() -> None:
         db = SessionLocal()
         try:
-            advance_requirement_queue(db)
+            advance_requirement_queue(
+                db,
+                preferred_project_key=preferred_project_key,
+                preferred_root_path=preferred_root_path,
+            )
         except Exception:
             _logger.debug("Queue advance failed (non-critical)", exc_info=True)
         finally:
@@ -6076,11 +6119,36 @@ def _schedule_advance_queue() -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
-def advance_requirement_queue(db: Session) -> dict:
+def _queue_preference_for_requirement(db: Session, requirement: RequirementRow) -> tuple[str | None, str | None]:
+    target_paths = [
+        item.strip()
+        for item in str(_normalize_target_project_path(requirement.target_project_path) or "").splitlines()
+        if item.strip()
+    ]
+    preferred_root_path = target_paths[0] if target_paths else None
+    preferred_project_key = None
+    if preferred_root_path:
+        policies = resolve_project_policies_for_target(db, preferred_root_path, require_active=False)
+        if policies:
+            preferred_project_key = str(project_policy_to_dict(policies[0]).get("project_key") or "").strip() or None
+    return preferred_project_key, preferred_root_path
+
+
+def advance_requirement_queue(
+    db: Session,
+    *,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
+) -> dict:
     """Run the portfolio scheduler and start every candidate that fits the current window."""
     from server.services.portfolio_scheduler import execute_portfolio_schedule
 
-    result = execute_portfolio_schedule(db)
+    result = execute_portfolio_schedule(
+        db,
+        allow_intake=False,
+        preferred_project_key=preferred_project_key,
+        preferred_root_path=preferred_root_path,
+    )
     started_ids = list(result.get("started_ids") or [])
     skip_reasons = list(result.get("skipped") or [])
 

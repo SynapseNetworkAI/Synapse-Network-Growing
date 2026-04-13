@@ -164,6 +164,23 @@ def _weighted_scheduler_score(base_score: float, *, scheduler_weight: float, tem
     return round(base_score + weight_bonus + template_bonus + headroom_bonus, 2)
 
 
+def _candidate_matches_preferred_project(
+    candidate: dict[str, Any],
+    *,
+    preferred_project_key: str | None,
+    preferred_root_path: str | None,
+) -> bool:
+    candidate_project_key = str(candidate.get("project_key") or "").strip()
+    candidate_root_path = str(candidate.get("root_path") or "").strip()
+    project_key = str(preferred_project_key or "").strip()
+    root_path = str(preferred_root_path or "").strip()
+    if project_key and candidate_project_key == project_key:
+        return True
+    if root_path and candidate_root_path == root_path:
+        return True
+    return False
+
+
 def _running_requirement_decision(
     db: Session,
     requirement: RequirementRow,
@@ -220,6 +237,8 @@ def build_portfolio_schedule(
     refresh_signals: bool = True,
     signal_rows: list[Any] | None = None,
     project_catalog: dict[str, dict[str, Any]] | None = None,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
 ) -> dict[str, Any]:
     policy_by_root, _policy_by_key = _project_policy_maps(db)
     project_catalog = project_catalog or build_project_catalog(db)
@@ -287,6 +306,7 @@ def build_portfolio_schedule(
                 "title": str(requirement.title),
                 "project_key": context["project_key"],
                 "project_display_name": context["display_name"],
+                "root_path": str(context["root_path"]),
                 "score": scheduler_score,
                 "base_score": float(score.get("total") or 0.0),
                 "scheduler_weight": float(context["scheduler_weight"]),
@@ -311,6 +331,7 @@ def build_portfolio_schedule(
             "title": str(requirement.title),
             "project_key": context["project_key"],
             "project_display_name": context["display_name"],
+            "root_path": str(context["root_path"]),
             "score": scheduler_score,
             "base_score": float(score.get("total") or 0.0),
             "scheduler_weight": float(context["scheduler_weight"]),
@@ -354,6 +375,7 @@ def build_portfolio_schedule(
             "title": str(signal.title),
             "project_key": project_key,
             "project_display_name": display_name,
+            "root_path": root_path,
             "score": scheduler_score,
             "base_score": float(breakdown.get("total") or 0.0),
             "scheduler_weight": float(policy.get("scheduler_weight") or 1.0),
@@ -376,7 +398,18 @@ def build_portfolio_schedule(
 
     available_slots = max(global_capacity - len(running_requirements), 0)
     project_allocations = dict(project_active_counts)
-    pending = sorted(requirement_candidates + signal_candidates, key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    pending = sorted(
+        requirement_candidates + signal_candidates,
+        key=lambda item: (
+            1 if _candidate_matches_preferred_project(
+                item,
+                preferred_project_key=preferred_project_key,
+                preferred_root_path=preferred_root_path,
+            ) else 0,
+            float(item.get("score") or 0.0),
+        ),
+        reverse=True,
+    )
 
     weakest_running = min(
         (item for item in decisions if item["action"] == "running"),
@@ -534,8 +567,20 @@ def validate_requirement_start_capacity(db: Session, requirement: RequirementRow
     return None
 
 
-def execute_portfolio_schedule(db: Session) -> dict[str, Any]:
-    plan = build_portfolio_schedule(db)
+def execute_portfolio_schedule(
+    db: Session,
+    *,
+    refresh_signals: bool = False,
+    allow_intake: bool = True,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
+) -> dict[str, Any]:
+    plan = build_portfolio_schedule(
+        db,
+        refresh_signals=refresh_signals,
+        preferred_project_key=preferred_project_key,
+        preferred_root_path=preferred_root_path,
+    )
     started_ids: list[int] = []
     created_requirement_ids: list[int] = []
     preempted_ids: list[int] = []
@@ -548,6 +593,9 @@ def execute_portfolio_schedule(db: Session) -> dict[str, Any]:
     for decision in plan["decisions"]:
         action = str(decision.get("action") or "")
         if action not in {"start", "intake", "rebalance_start"}:
+            continue
+        if action == "intake" and not allow_intake:
+            skipped.append(f"{decision.get('title')}: intake deferred for queue-only advance")
             continue
         try:
             if action == "rebalance_start":
@@ -583,8 +631,20 @@ def execute_portfolio_schedule(db: Session) -> dict[str, Any]:
     return plan
 
 
-def execute_portfolio_rebalance(db: Session) -> dict[str, Any]:
-    plan = build_portfolio_schedule(db)
+def execute_portfolio_rebalance(
+    db: Session,
+    *,
+    refresh_signals: bool = False,
+    allow_intake: bool = True,
+    preferred_project_key: str | None = None,
+    preferred_root_path: str | None = None,
+) -> dict[str, Any]:
+    plan = build_portfolio_schedule(
+        db,
+        refresh_signals=refresh_signals,
+        preferred_project_key=preferred_project_key,
+        preferred_root_path=preferred_root_path,
+    )
     started_ids: list[int] = []
     created_requirement_ids: list[int] = []
     preempted_ids: list[int] = []
@@ -606,6 +666,9 @@ def execute_portfolio_rebalance(db: Session) -> dict[str, Any]:
                 pause_requirement(db, preempt_requirement_id)
                 preempted_ids.append(preempt_requirement_id)
             if decision["candidate_type"] == "signal":
+                if not allow_intake:
+                    skipped.append(f"{decision.get('title')}: intake deferred for queue-only rebalance")
+                    continue
                 signal_id = int(decision["signal_id"])
                 _signal, detail = create_requirement_from_signal(db, signal_id=signal_id, auto_start=False)
                 requirement_id = int(detail.requirement.id)

@@ -3,12 +3,14 @@ from __future__ import annotations
 """Tests for requirement-first workflow orchestration."""
 from datetime import timedelta
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import server.services.project_intelligence as project_intelligence
 import server.services.portfolio_scheduler as portfolio_scheduler
 import server.services.workflow_orchestrator as workflow_orchestrator
+from sqlalchemy.exc import OperationalError
 from server.database import (
     ApprovalRequestRow,
     ArtifactRow,
@@ -277,7 +279,7 @@ def test_waived_requirement_creation_auto_plans(synced_client, db_session):
     with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
         "server.services.workflow_orchestrator.threading.Thread",
         ImmediateThread,
-    ):
+    ), patch("server.services.workflow_orchestrator._schedule_advance_queue") as mock_advance_queue:
         create_resp = synced_client.post(
             "/api/requirements",
             json={
@@ -298,6 +300,95 @@ def test_waived_requirement_creation_auto_plans(synced_client, db_session):
     assert payload["requirement"]["current_plan_version"] == 1
     assert payload["workflow_run"] is not None
     assert payload["workflow_run"]["steps"][0]["step_type"] == "research"
+    mock_advance_queue.assert_called_once()
+
+
+def test_execute_autonomous_project_requirement_auto_starts_on_create(synced_client, db_session):
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement autonomous validation-only branch delivery change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "A minimal repo change is prepared for branch delivery validation.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="autonomous-clone",
+            display_name="Autonomous Clone",
+            root_path="/tmp/autonomous-clone",
+            status="active",
+            allowed_write_globs_json=json.dumps(["**"]),
+            forbidden_globs_json=json.dumps([".git/**"]),
+            required_checks_json=json.dumps(["pytest -q"]),
+            release_mode="manual",
+            requires_manual_approval=True,
+            autonomy_mode="execute_autonomously",
+            capability_matrix_json=json.dumps(
+                {
+                    "shell_access": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "git_push": True,
+                    "network_access": False,
+                    "publish": False,
+                }
+            ),
+            interrupt_policy_json=json.dumps(
+                {
+                    "operator_confirmation_actions": ["git_push", "publish"],
+                    "auto_pause_on_events": ["capability_denied"],
+                    "auto_abort_on_events": ["forbidden_write"],
+                }
+            ),
+            scheduler_weight=1.0,
+            max_parallel_requirements=1,
+            portfolio_budget_points=100,
+        )
+    )
+    db_session.commit()
+
+    class ImmediateThread:
+        def __init__(self, *, target=None, args=(), kwargs=None, daemon=None, **_extra):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
+
+    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
+        "server.services.workflow_orchestrator.threading.Thread",
+        ImmediateThread,
+    ), patch("server.services.workflow_orchestrator._schedule_advance_queue") as mock_advance_queue, patch(
+        "server.services.workflow_orchestrator.start_requirement"
+    ) as mock_start_requirement:
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Autonomous delivery requirement",
+                "description_markdown": "Create a minimal validation-only change and keep it on a requirement branch.",
+                "priority": "normal",
+                "target_project_path": "/tmp/autonomous-clone",
+                "approval_contract": {"approval_mode": "waived"},
+            },
+        )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+    mock_start_requirement.assert_not_called()
+    mock_advance_queue.assert_called_once()
+    assert requirement_id > 0
 
 
 def test_approval_automation_research_task_routes_to_engineering_agent(synced_client, db_session):
@@ -1447,8 +1538,8 @@ def test_requirement_source_intake_materializes_bug_backlog(synced_client, db_se
     assert payload["intake_metadata"]["scorecard_priority"] == "high"
     assert "explicit_blocker" in payload["intake_metadata"]["blocker_flags"]
     assert "/Users/cliff/workspace/agent/Synapse-Network" in str(payload["target_project_path"])
-    assert payload["approval_contract"]["approval_mode"] == "manual_required"
-    assert "operator" in payload["approval_contract"]["required_approver_roles"]
+    assert payload["approval_contract"]["approval_mode"] == "auto_or_human"
+    assert "operator" not in payload["approval_contract"]["required_approver_roles"]
     assert payload["approval_status"] == "pending_approval"
 
     bug_row = db_session.query(BugRecordRow).filter(BugRecordRow.id == bug_id).first()
@@ -1695,6 +1786,68 @@ def test_cross_project_bug_backlog_materializes_multi_project_requirement(synced
         "synapse-network-provider",
     ]
     assert payload["approval_contract"]["approval_mode"] == "manual_required"
+
+
+def test_bug_intake_approval_sweep_auto_approves_single_project_critical_bug(synced_client, db_session):
+    bug_row = BugRecordRow(
+        bug_key="manual_bug_report::sng-validation::fp_validation_auto_approve",
+        source_key="manual_bug_report",
+        source_kind="manual_input",
+        status="open",
+        title="Critical validation clone delivery regression",
+        summary="Fix unattended validation clone branch delivery regression.",
+        severity="critical",
+        fingerprint="fp_validation_auto_approve",
+        project_key="sng-validation",
+        project_root_path="/private/tmp/sng-delivery-validation",
+        source_ref="live-validation:auto-approve",
+        environment="local",
+        occurrence_count=1,
+        evidence_json=json.dumps(
+            [
+                {
+                    "title": "Critical validation clone delivery regression",
+                    "summary": "Fix unattended validation clone branch delivery regression.",
+                    "source_ref": "live-validation:auto-approve",
+                }
+            ]
+        ),
+        metadata_json=json.dumps(
+            {
+                "requested_output_path": "docs/auto-validation/bug-auto-approve.md",
+                "blocker": True,
+            }
+        ),
+        scorecard_json=json.dumps(
+            {
+                "priority": "critical",
+                "total": 97.0,
+                "auto_intake_eligible": True,
+                "blocker_flags": ["critical_severity", "explicit_blocker"],
+            }
+        ),
+    )
+    db_session.add(bug_row)
+    db_session.commit()
+
+    intake = synced_client.post(
+        "/api/requirements/intake",
+        json={"source_key": "bug_intake", "refresh": False, "auto_start": False, "min_score": 60, "max_created": 1},
+    )
+    assert intake.status_code == 200
+    requirement_id = intake.json()["created_requirement_ids"][0]
+
+    sweep = synced_client.post("/api/recurring-workflows/approval_sweep/run", json={})
+    assert sweep.status_code == 200
+    result = sweep.json()["result"]
+    assert requirement_id in result["auto_approved_requirement_ids"]
+
+    detail = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert detail.status_code == 200
+    payload = detail.json()["requirement"]
+    assert payload["approval_status"] == "approved"
+    assert payload["approval_source"] == "agent"
+    assert payload["approval_recommendation"]["action"] == "approve"
 
 
 def test_requirement_keeps_target_project_order_and_records_dynamic_project_change_summary(synced_client, db_session):
@@ -4450,6 +4603,228 @@ def test_requirement_scheduler_reuses_project_catalog_context(synced_client, mon
     resp = synced_client.get("/api/requirements/scheduler")
     assert resp.status_code == 200
     assert call_count["count"] == 1
+
+
+def test_execute_portfolio_schedule_skips_signal_refresh_for_auto_dispatch(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_build_portfolio_schedule(db, *, refresh_signals=True, signal_rows=None, project_catalog=None):
+        captured["refresh_signals"] = refresh_signals
+        return {
+            "global_capacity": 1,
+            "active_count": 0,
+            "available_slots": 1,
+            "generated_at": datetime.now(timezone.utc),
+            "project_states": [],
+            "decisions": [],
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(portfolio_scheduler, "build_portfolio_schedule", fake_build_portfolio_schedule)
+
+    result = portfolio_scheduler.execute_portfolio_schedule(db_session)
+
+    assert result["decisions"] == []
+    assert captured["refresh_signals"] is False
+
+
+def test_advance_requirement_queue_disables_signal_intake(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_execute_portfolio_schedule(
+        db,
+        *,
+        refresh_signals=False,
+        allow_intake=True,
+        preferred_project_key=None,
+        preferred_root_path=None,
+    ):
+        captured["refresh_signals"] = refresh_signals
+        captured["allow_intake"] = allow_intake
+        captured["preferred_project_key"] = preferred_project_key
+        captured["preferred_root_path"] = preferred_root_path
+        return {
+            "decisions": [],
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(portfolio_scheduler, "execute_portfolio_schedule", fake_execute_portfolio_schedule)
+
+    result = workflow_orchestrator.advance_requirement_queue(db_session)
+
+    assert result["skipped"] == "no ready requirements"
+    assert captured["refresh_signals"] is False
+    assert captured["allow_intake"] is False
+    assert captured["preferred_project_key"] is None
+    assert captured["preferred_root_path"] is None
+
+
+def test_advance_requirement_queue_forwards_project_preference(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_execute_portfolio_schedule(
+        db,
+        *,
+        refresh_signals=False,
+        allow_intake=True,
+        preferred_project_key=None,
+        preferred_root_path=None,
+    ):
+        captured["refresh_signals"] = refresh_signals
+        captured["allow_intake"] = allow_intake
+        captured["preferred_project_key"] = preferred_project_key
+        captured["preferred_root_path"] = preferred_root_path
+        return {
+            "decisions": [],
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": [],
+        }
+
+    monkeypatch.setattr(portfolio_scheduler, "execute_portfolio_schedule", fake_execute_portfolio_schedule)
+
+    result = workflow_orchestrator.advance_requirement_queue(
+        db_session,
+        preferred_project_key="project-alpha",
+        preferred_root_path="/tmp/project-alpha",
+    )
+
+    assert result["skipped"] == "no ready requirements"
+    assert captured["allow_intake"] is False
+    assert captured["preferred_project_key"] == "project-alpha"
+    assert captured["preferred_root_path"] == "/tmp/project-alpha"
+
+
+def test_execute_portfolio_schedule_prefers_same_project_next_requirement(db_session, monkeypatch):
+    project_a_root = "/tmp/strict-next-a"
+    project_b_root = "/tmp/strict-next-b"
+    db_session.add_all(
+        [
+            ProjectPolicyRow(
+                project_key="strict-next-a",
+                root_path=project_a_root,
+                display_name="Strict Next A",
+                status="active",
+                autonomy_mode="execute_autonomously",
+                max_parallel_requirements=1,
+            ),
+            ProjectPolicyRow(
+                project_key="strict-next-b",
+                root_path=project_b_root,
+                display_name="Strict Next B",
+                status="active",
+                autonomy_mode="execute_autonomously",
+                max_parallel_requirements=1,
+            ),
+        ]
+    )
+    same_project_requirement = RequirementRow(
+        title="Same project should go next",
+        description_markdown="ready",
+        status="ready",
+        priority="normal",
+        source="manual",
+        target_project_path=project_a_root,
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    different_project_requirement = RequirementRow(
+        title="Different project higher score",
+        description_markdown="ready",
+        status="ready",
+        priority="high",
+        source="manual",
+        target_project_path=project_b_root,
+        approval_status="approved",
+        current_plan_version=1,
+    )
+    db_session.add_all([same_project_requirement, different_project_requirement])
+    db_session.commit()
+
+    monkeypatch.setattr(portfolio_scheduler, "_global_capacity", lambda _policy_by_root: 1)
+    monkeypatch.setattr(
+        portfolio_scheduler,
+        "build_project_catalog",
+        lambda _db: {
+            project_a_root: {
+                "project_key": "strict-next-a",
+                "display_name": "Strict Next A",
+                "root_path": project_a_root,
+                "readiness_status": "policy_only",
+                "readiness_score": 70,
+            },
+            project_b_root: {
+                "project_key": "strict-next-b",
+                "display_name": "Strict Next B",
+                "root_path": project_b_root,
+                "readiness_status": "policy_only",
+                "readiness_score": 70,
+            },
+        },
+    )
+
+    def fake_score(_db, requirement, **_kwargs):
+        score = 20.0 if int(requirement.id) == int(same_project_requirement.id) else 95.0
+        return {"total": score, "routing_context": {"automation_ready": True}}
+
+    monkeypatch.setattr(portfolio_scheduler, "build_requirement_score_breakdown", fake_score)
+    started: list[int] = []
+    monkeypatch.setattr(workflow_orchestrator, "plan_requirement", lambda _db, requirement_id: {"requirement_id": requirement_id})
+    monkeypatch.setattr(workflow_orchestrator, "start_requirement", lambda _db, requirement_id: started.append(int(requirement_id)))
+
+    result = portfolio_scheduler.execute_portfolio_schedule(
+        db_session,
+        preferred_project_key="strict-next-a",
+        preferred_root_path=project_a_root,
+    )
+
+    assert started == [int(same_project_requirement.id)]
+    assert result["started_ids"] == [int(same_project_requirement.id)]
+
+
+def test_plan_requirement_after_approval_retries_sqlite_lock(db_session, monkeypatch):
+    requirement = RequirementRow(
+        title="Retry locked planner",
+        description_markdown="Planner should retry sqlite lock errors.",
+        status="ready",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        approval_status="waived",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+
+    calls = {"count": 0}
+
+    def fake_plan(db, requirement_id):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OperationalError("select 1", {}, Exception("database is locked"))
+        return {"ok": True, "requirement_id": requirement_id}
+
+    monkeypatch.setattr(workflow_orchestrator, "plan_requirement", fake_plan)
+    monkeypatch.setattr(workflow_orchestrator.time, "sleep", lambda _seconds: None)
+
+    result = workflow_orchestrator._plan_requirement_after_approval(
+        db_session,
+        requirement_id=int(requirement.id),
+        trigger="test",
+        raise_on_failure=True,
+    )
+
+    assert result == {"ok": True, "requirement_id": int(requirement.id)}
+    assert calls["count"] == 2
 
 
 def test_requirement_detail_reconciles_active_workflow_run_to_live_run(synced_client, db_session):
