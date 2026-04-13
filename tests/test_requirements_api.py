@@ -26,6 +26,7 @@ from server.database import (
     WorkflowStepRow,
 )
 from server.services.workflow_orchestrator import MAX_BUGFIX_BRANCH_DEPTH
+from server.services.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state
 from server.services.task_runner import _run_task_sync
 from server.services.task_runtime import RuntimeEvent, TaskExecutionResult
 
@@ -237,9 +238,66 @@ def test_incident_research_task_routes_to_engineering_agent(synced_client, db_se
     assert task.agent_id == "dev_rel"
     assert skill_name == "__direct_execution__"
     assert persona["display_name"] == "Engineering Executor"
+    assert "branch-delivery preflight" in task.description
+    assert "git status --short --branch" in task.description
+    assert "README.md" in task.description
+    assert "docs/auto-validation/" in task.description
     assert "## Step" in task.description
-    assert "Cached Context Profile" not in task.description
-    assert len(task.description) < 2600
+
+
+def test_waived_requirement_creation_auto_plans(synced_client, db_session):
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement validation-only branch delivery change",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "A minimal repo change is prepared for branch delivery validation.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+
+    class ImmediateThread:
+        def __init__(self, *, target=None, args=(), kwargs=None, daemon=None, **_extra):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
+
+    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
+        "server.services.workflow_orchestrator.threading.Thread",
+        ImmediateThread,
+    ):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Auto-plan waived requirement",
+                "description_markdown": "Create a minimal validation-only change and keep it on a requirement branch.",
+                "priority": "normal",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+                "approval_contract": {"approval_mode": "waived"},
+            },
+        )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    detail_resp = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert detail_resp.status_code == 200
+    payload = detail_resp.json()
+    assert payload["requirement"]["approval_status"] == "waived"
+    assert payload["requirement"]["current_plan_version"] == 1
+    assert payload["workflow_run"] is not None
+    assert payload["workflow_run"]["steps"][0]["step_type"] == "research"
 
 
 def test_approval_automation_research_task_routes_to_engineering_agent(synced_client, db_session):
@@ -284,6 +342,69 @@ def test_approval_automation_research_task_routes_to_engineering_agent(synced_cl
     with patch("server.services.workflow_planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
+
+    research_step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "research",
+    ).first()
+    task, persona, skill_name = workflow_orchestrator._prepare_step_task(db_session, research_step)
+
+    assert task.agent_id == "dev_rel"
+    assert skill_name == "__direct_execution__"
+    assert persona["display_name"] == "Engineering Executor"
+
+
+def test_requirement_centric_delivery_research_task_routes_to_engineering_agent(synced_client, db_session):
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "doc_touchup",
+                        "title": "Implement validation note",
+                        "scope": "docs",
+                        "depends_on": [],
+                        "done_when": "A minimal tracked file change is prepared and ready for requirement-branch delivery.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+
+    class ImmediateThread:
+        def __init__(self, *, target=None, args=(), kwargs=None, daemon=None, **_extra):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
+
+    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
+        "server.services.workflow_orchestrator.threading.Thread",
+        ImmediateThread,
+    ):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Live unattended validation clone branch delivery v2",
+                "description_markdown": (
+                    "Implement a minimal documentation-only change in the validation clone to prove unattended "
+                    "requirement-centric branch delivery. Use the requirement branch, commit and push after the "
+                    "mutating step, sync a draft PR review surface with compare URL and PR metadata, and stop at "
+                    "review-ready without publish."
+                ),
+                "priority": "high",
+                "source": "manual",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+                "approval_contract": {"approval_mode": "waived"},
+            },
+        )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
 
     research_step = db_session.query(WorkflowStepRow).filter(
         WorkflowStepRow.requirement_id == requirement_id,
@@ -2151,6 +2272,105 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
         "test",
         "closeout",
     ]
+
+
+def test_requirement_revision_cancels_running_codex_cli_task(synced_client, db_session, tmp_path):
+    requirement = RequirementRow(
+        title="Revise cancels detached codex task",
+        description_markdown="Revising a requirement should cancel its detached codex task.",
+        status="in_progress",
+        priority="high",
+        approval_status="waived",
+        approval_contract_json=json.dumps({"approval_mode": "waived"}),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(run)
+    db_session.flush()
+    requirement.active_workflow_run_id = run.id
+    requirement.current_plan_version = 1
+
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="implementation",
+        step_type="implementation",
+        title="Implement change",
+        status="running",
+        sequence_no=10,
+        context_scope="step_private",
+        done_when_markdown="done",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        runtime_backend="codex_cli",
+        retry_count=0,
+        context_policy_json="{}",
+        execution_profile_json="{}",
+    )
+    db_session.add(step)
+    db_session.flush()
+
+    output_dir = tmp_path / "roles" / "dev_rel" / "outputs" / "task-1"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = codex_runtime_paths(output_dir)
+    save_codex_state(
+        paths["state"],
+        {
+            "status": "running",
+            "pid": 43210,
+            "started_at": workflow_orchestrator.utcnow().isoformat(),
+        },
+    )
+
+    task = TaskRow(
+        description="detached implementation",
+        agent_id="dev_rel",
+        status="running",
+        requires_approval=False,
+        priority="normal",
+        project_id="Synapse-Network-Growing",
+        agent_group="content",
+        skill_name="__direct_execution__",
+        runtime_backend="codex_cli",
+        runtime_provider="codex",
+        runtime_model="gpt-5-codex-mini",
+        output_path=str(paths["output"]),
+        started_at=workflow_orchestrator.utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    step.compatibility_task_id = task.id
+    db_session.commit()
+
+    with patch("server.services.workflow_orchestrator.task_output_dir", return_value=output_dir), patch(
+        "server.services.workflow_orchestrator.terminate_pid"
+    ) as terminate_pid_mock:
+        revise_resp = synced_client.post(
+            f"/api/requirements/{requirement.id}/revise",
+            json={
+                "title": "Revise cancels detached codex task",
+                "description_markdown": "Revised requirement body.",
+                "revision_note": "Restart with a fresh workflow run.",
+            },
+        )
+
+    assert revise_resp.status_code == 200
+    terminate_pid_mock.assert_called_once_with(43210)
+    db_session.expire_all()
+    refreshed_task = db_session.query(TaskRow).filter(TaskRow.id == task.id).first()
+    refreshed_step = db_session.query(WorkflowStepRow).filter(WorkflowStepRow.id == step.id).first()
+    assert refreshed_task is not None
+    assert refreshed_task.status == "cancelled"
+    assert refreshed_task.last_error_message == "Restart with a fresh workflow run."
+    assert refreshed_step is not None
+    assert refreshed_step.status == "cancelled"
+    assert refreshed_step.compatibility_task_id is None
+    cancelled_state = load_codex_state(paths["state"]) or {}
+    assert cancelled_state.get("status") == "cancelled"
 
 
 def test_requirement_revision_preserves_source_ref_when_not_overridden(synced_client):

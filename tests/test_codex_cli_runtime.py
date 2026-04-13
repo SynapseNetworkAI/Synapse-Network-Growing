@@ -402,6 +402,7 @@ def test_codex_cli_task_runtime_uses_compact_prompt_packet(tmp_path):
     assert "# Done When" in prompt
     assert "services/gateway/src/app.py" in prompt
     assert "do not search outside the target repository for parent AGENTS.md or llms.txt files" in prompt
+    assert "If the target repository mentions `llms.txt` or similar bootstrap files and they are absent locally" in prompt
     assert "## Skill Instructions" not in prompt
     assert result.runtime_session_id == "thread-compact"
 

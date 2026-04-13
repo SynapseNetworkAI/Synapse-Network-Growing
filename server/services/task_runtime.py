@@ -299,6 +299,8 @@ def _compact_codex_task_packet(task_description: str, *, resume: bool = False) -
                 "# Execution Rules",
                 "- Start with Suggested File Scope and only widen search if blocked.",
                 "- Harness already resolved external workspace policies; do not search outside the target repository for parent AGENTS.md or llms.txt files.",
+                "- If the target repository mentions `llms.txt` or similar bootstrap files and they are absent locally, do not keep searching; continue with the task using the provided packet and current repository state.",
+                "- Do not run commands like `find ..`, `cat ../llms.txt`, or inspect parent directories unless the prompt explicitly says to leave the target repository.",
                 "- Prefer changing source code in the target project over writing extra docs.",
                 "- Keep edits minimal and verify the changed behavior before finishing.",
             ]

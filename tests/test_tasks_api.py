@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
-from server.database import AgentRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
+from server.database import AgentRow, ArtifactRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.services.copilot_sdk_state import seconds_since_timestamp
 from server.services.task_runtime import TaskExecutionResult
 from server.services.workflow_orchestrator import capture_task_file_change_baseline, _snapshot_file_changes
@@ -719,6 +719,243 @@ def test_task_runner_uses_execution_profile_runtime_selection(synced_client, db_
     assert payload["runtime_model"] == "gpt-5-mini"
     assert payload["tokens_used"] == 9000
     assert payload["budget_cost_points"] >= 8
+
+
+def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_research(synced_client, db_session, tmp_path):
+    from server.services.task_runner import _run_task_sync
+
+    repo_root = tmp_path / "validation-repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_root, check=True, capture_output=True, text=True)
+    (repo_root / "README.md").write_text("# Validation Clone\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Run deterministic research",
+        "agent_id": "dev_rel",
+        "skill_name": "__direct_execution__",
+    })
+    task_id = create.json()["id"]
+
+    requirement = RequirementRow(
+        title="Validate unattended auto-start branch delivery on validation clone",
+        description_markdown=(
+            "Use a requirement branch, commit, push, draft PR, compare URL, and write `docs/auto-validation/req-test.md` "
+            "inside the validation clone."
+        ),
+        target_project_path=str(repo_root / "sng-delivery-validation"),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(workflow_run)
+    db_session.flush()
+    db_session.add(
+        WorkflowStepRow(
+            workflow_run_id=workflow_run.id,
+            requirement_id=requirement.id,
+            step_key="research",
+            step_type="research",
+            title="Research preflight",
+            status="running",
+            sequence_no=10,
+            assigned_agent_id="dev_rel",
+            compatibility_task_id=task_id,
+            done_when_markdown="done",
+            context_scope="step_private",
+            context_policy_json="{}",
+            execution_profile_json='{"complexity_tier":"mini","budget_cap":{"max_runtime_seconds":600}}',
+            file_scope_json="{}",
+            validation_targets_json="[]",
+            failure_policy_json="{}",
+            approval_policy_json="{}",
+        )
+    )
+    db_session.commit()
+
+    # align target path with validation clone marker
+    requirement.target_project_path = str(repo_root / "sng-delivery-validation")
+    Path(requirement.target_project_path).mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=requirement.target_project_path, check=True, capture_output=True, text=True)
+    (Path(requirement.target_project_path) / "README.md").write_text("# Validation Clone\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=requirement.target_project_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=requirement.target_project_path, check=True, capture_output=True, text=True)
+    db_session.commit()
+
+    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
+        "server.services.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        _run_task_sync(task_id, {"role": "dev_rel", "display_name": "DevRel", "goal": "", "body": ""}, "__direct_execution__")
+
+    mock_runtime_factory.assert_not_called()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "completed"
+    assert "Branch Delivery Preflight" in task["output_content"]
+
+
+def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_implementation(synced_client, db_session, tmp_path):
+    from server.services.task_runner import _run_task_sync
+
+    repo_root = tmp_path / "sng-delivery-validation"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_root, check=True, capture_output=True, text=True)
+    (repo_root / "README.md").write_text("# Validation Clone\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Run deterministic implementation",
+        "agent_id": "dev_rel",
+        "skill_name": "__direct_execution__",
+    })
+    task_id = create.json()["id"]
+
+    requirement = RequirementRow(
+        title="Validate unattended auto-start branch delivery on validation clone",
+        description_markdown=(
+            "Use a requirement branch, commit, push, draft PR, compare URL, and write `docs/auto-validation/req-test.md` "
+            "inside the validation clone."
+        ),
+        target_project_path=str(repo_root),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(workflow_run)
+    db_session.flush()
+    db_session.add(
+        WorkflowStepRow(
+            workflow_run_id=workflow_run.id,
+            requirement_id=requirement.id,
+            step_key="implementation",
+            step_type="implementation",
+            title="Write delivery note",
+            status="running",
+            sequence_no=20,
+            assigned_agent_id="dev_rel",
+            compatibility_task_id=task_id,
+            done_when_markdown="done",
+            context_scope="step_private",
+            context_policy_json="{}",
+            execution_profile_json='{"complexity_tier":"mini","budget_cap":{"max_runtime_seconds":600}}',
+            file_scope_json="{}",
+            validation_targets_json="[]",
+            failure_policy_json="{}",
+            approval_policy_json="{}",
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
+        "server.services.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        _run_task_sync(task_id, {"role": "dev_rel", "display_name": "DevRel", "goal": "", "body": ""}, "__direct_execution__")
+
+    mock_runtime_factory.assert_not_called()
+    task = synced_client.get(f"/api/tasks/{task_id}").json()
+    assert task["status"] == "completed"
+    target_file = repo_root / "docs/auto-validation/req-test.md"
+    assert target_file.exists()
+    assert "requirement_branch" in target_file.read_text(encoding="utf-8")
+
+
+def test_deterministic_delivery_review_and_test_use_review_surface_metadata(db_session, tmp_path):
+    from server.services.task_runner import _deterministic_delivery_validation_result
+
+    repo_root = tmp_path / "sng-delivery-validation"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_root, check=True, capture_output=True, text=True)
+    (repo_root / "README.md").write_text("# Validation Clone\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
+
+    requirement = RequirementRow(
+        title="Validate unattended auto-start branch delivery on validation clone",
+        description_markdown="Create `docs/auto-validation/req-test.md`, commit, push, draft PR, compare URL on validation clone.",
+        target_project_path=str(repo_root),
+    )
+    db_session.add(
+        AgentRow(
+            id="dev_rel",
+            display_name="DevRel",
+            goal="",
+            group="growth",
+            persona_path="roles/dev_rel/prompts/persona.md",
+            skills="[]",
+        )
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="user")
+    db_session.add(workflow_run)
+    db_session.flush()
+    task = TaskRow(description="deterministic review", agent_id="dev_rel", skill_name="__direct_execution__", status="running")
+    db_session.add(task)
+    db_session.flush()
+    step = WorkflowStepRow(
+        workflow_run_id=workflow_run.id,
+        requirement_id=requirement.id,
+        step_key="review",
+        step_type="review",
+        title="Review output",
+        status="running",
+        sequence_no=40,
+        assigned_agent_id="dev_rel",
+        compatibility_task_id=task.id,
+        done_when_markdown="done",
+        context_scope="step_private",
+        context_policy_json="{}",
+        execution_profile_json='{"complexity_tier":"mini"}',
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+    )
+    db_session.add(step)
+    db_session.flush()
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            artifact_type="delivery_contract",
+            content_summary="delivery contract",
+            human_readable_body="delivery contract",
+            machine_readable_payload=json.dumps({
+                "branch_name": "ops/req-test",
+                "base_branch": "main",
+            }),
+        )
+    )
+    db_session.add(
+        ArtifactRow(
+            requirement_id=requirement.id,
+            workflow_run_id=workflow_run.id,
+            artifact_type="review_pr_sync",
+            content_summary="review pr",
+            human_readable_body="review pr",
+            machine_readable_payload=json.dumps({
+                "compare_url": "https://example.test/compare",
+                "pr_url": "https://example.test/pr/1",
+                "latest_remote_sha": "abc123",
+            }),
+        )
+    )
+    db_session.commit()
+
+    target_file = repo_root / "docs/auto-validation/req-test.md"
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_text("hello\n", encoding="utf-8")
+
+    review_result = _deterministic_delivery_validation_result(db_session, task, tmp_path / "out-review", "review")
+    assert "https://example.test/compare" in review_result.text
+    assert "https://example.test/pr/1" in review_result.text
+
+    step.step_type = "test"
+    step.step_key = "test"
+    db_session.commit()
+    test_result = _deterministic_delivery_validation_result(db_session, task, tmp_path / "out-test", "test")
+    assert "abc123" in test_result.text
 
 
 def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_path):

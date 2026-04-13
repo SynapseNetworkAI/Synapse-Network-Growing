@@ -66,6 +66,7 @@ from server.services.copilot_sdk_state import (
     save_runtime_state,
     task_output_dir,
 )
+from server.services.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state, terminate_pid
 from server.services.delivery_vcs import execute_requirement_delivery_vcs
 from server.services.delivery_pr import sync_requirement_review_pr
 from server.services.execution_resolver import suggest_task_execution
@@ -1826,7 +1827,11 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
         len(str(requirement.target_project_path or "").splitlines()) if requirement.target_project_path else 0,
         body.auto_start,
     )
-    if body.auto_start and requirement.blocked_by_count == 0 and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
+    approved_for_execution = (
+        requirement.blocked_by_count == 0
+        and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}
+    )
+    if body.auto_start and approved_for_execution:
         req_id = _as_int(requirement.id)
 
         def _bg_plan_and_start(req_id: int) -> None:
@@ -1843,6 +1848,27 @@ def create_requirement(db: Session, body: RequirementCreate) -> RequirementDetai
                 bg_db.close()
 
         threading.Thread(target=_bg_plan_and_start, args=(req_id,), daemon=True).start()
+    elif approved_for_execution:
+        req_id = _as_int(requirement.id)
+
+        def _bg_plan_only(req_id: int) -> None:
+            bg_db = SessionLocal()
+            try:
+                _plan_requirement_after_approval(
+                    bg_db,
+                    requirement_id=req_id,
+                    trigger="requirement_create",
+                    raise_on_failure=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger("ops-dashboard.orchestrator").warning(
+                    "Background auto-plan failed for req %s: %s", req_id, exc
+                )
+            finally:
+                bg_db.close()
+
+        threading.Thread(target=_bg_plan_only, args=(req_id,), daemon=True).start()
 
     return detail
 
@@ -2624,8 +2650,31 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
         for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.workflow_run_id == active_run.id).all():
             if step.status in TERMINAL_STEP_STATUSES:
                 continue
+            task = None
+            if step.compatibility_task_id:
+                task = db.query(TaskRow).filter(TaskRow.id == step.compatibility_task_id).first()
+            if task is not None and str(getattr(cast(Any, task), "status", "") or "") not in {
+                "completed",
+                "failed",
+                "cancelled",
+                "deleted",
+            }:
+                _terminate_task_runtime(task)
+                cast(Any, task).status = "cancelled"
+                cast(Any, task).last_error_message = body.revision_note or "Requirement revised"
+                cast(Any, task).completed_at = task.completed_at or utcnow()
+                db.add(
+                    TaskLogRow(
+                        task_id=task.id,
+                        event_type="cancelled",
+                        detail=body.revision_note or "Requirement revised",
+                    )
+                )
             step.status = "cancelled"
             step.completed_at = step.completed_at or utcnow()
+            step.runtime_session_id = None
+            step.runtime_backend = ""
+            step.compatibility_task_id = None
             _record_step_event(db, step.id, "status_change", "cancelled (revision)")
 
     db.query(RequirementAcceptanceCheckRow).filter(
@@ -3507,6 +3556,24 @@ def _terminate_task_runtime(task: TaskRow) -> None:
                 _logger.warning("Failed to cancel OpenAI response %s for task #%s: %s", response_id, task.id, exc)
         return
 
+    if runtime_backend == "codex_cli":
+        output_dir = task_output_dir(PROJECT_ROOT, str(task.agent_id), int(task.id))
+        paths = codex_runtime_paths(output_dir)
+        state = load_codex_state(paths["state"]) or {}
+        pid = int(state.get("pid") or 0)
+        if pid > 0:
+            terminate_pid(pid)
+        save_codex_state(
+            paths["state"],
+            {
+                **state,
+                "status": "cancelled",
+                "updated_at": utcnow().isoformat(),
+                "cancelled_at": utcnow().isoformat(),
+            },
+        )
+        return
+
     if runtime_backend != "copilot_sdk":
         return
 
@@ -3808,9 +3875,43 @@ def _binding_relevant_for_step(step: WorkflowStepRow, binding: StepInputBindingR
     return True
 
 
-def _step_execution_guidance(step: WorkflowStepRow) -> str:
+def _is_requirement_centric_delivery_requirement(requirement: RequirementRow | None) -> bool:
+    if requirement is None:
+        return False
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    description = str(getattr(requirement, "description_markdown", "") or "").strip().lower()
+    text = f"{title}\n{description}"
+    strong_markers = (
+        "commit",
+        "push",
+        "draft pr",
+        "pull request",
+        "review-ready",
+        "compare url",
+        "requirement branch",
+        "same branch",
+        "branch delivery",
+        "review surface",
+        "validation clone",
+    )
+    return any(marker in text for marker in strong_markers)
+
+
+def _step_execution_guidance(db: Session, step: WorkflowStepRow) -> str:
     step_type = str(step.step_type or "").strip().lower()
+    requirement = _require_requirement(db, step.requirement_id)
+    delivery_requirement = _is_requirement_centric_delivery_requirement(requirement)
     if step_type == "research":
+        if delivery_requirement:
+            return "\n".join(
+                [
+                    "- Treat this as a branch-delivery preflight, not a general repository investigation.",
+                    "- Limit commands to high-signal checks such as `git status --short --branch`, `git branch --show-current`, `git remote -v`, `ls docs`, and targeted reads of `README.md` or the requested output path parent.",
+                    "- Do not scan unrelated source trees, test suites, or service internals in this step.",
+                    "- Stop once you know the current branch, remote, required target path, and any blockers to creating exactly the requested tracked file.",
+                    "- Do not edit production code in this step.",
+                ]
+            )
         return "\n".join(
             [
                 "- Limit exploration to the highest-signal files only; avoid broad repo surveys.",
@@ -3819,6 +3920,15 @@ def _step_execution_guidance(step: WorkflowStepRow) -> str:
             ]
         )
     if step_type == "synthesis":
+        if delivery_requirement:
+            return "\n".join(
+                [
+                    "- Build the execution plan from the delivery contract, git preflight, and requested output path only.",
+                    "- Do not re-scan broad parts of the repository; synthesize from the known branch/remote state and the requested tracked file scope.",
+                    "- Keep the plan anchored to one branch, one tracked file, commit/push, and draft PR sync.",
+                    "- Do not edit production code in this step.",
+                ]
+            )
         return "\n".join(
             [
                 "- Build the execution plan from the research findings; do not re-scan large unrelated parts of the repo.",
@@ -3883,8 +3993,31 @@ def _extract_file_hints_from_text(markdown: str, *, limit: int = 6) -> list[str]
 
 def _step_relevant_file_hints(db: Session, step: WorkflowStepRow, *, limit: int = 6) -> list[str]:
     step_type = str(step.step_type or "").strip().lower()
-    if step_type not in {"implementation", "bugfix", "review", "test"}:
+    requirement = _require_requirement(db, step.requirement_id)
+    delivery_requirement = _is_requirement_centric_delivery_requirement(requirement)
+    if step_type not in {"implementation", "bugfix", "review", "test"} and not (
+        delivery_requirement and step_type in {"research", "synthesis"}
+    ):
         return []
+    if delivery_requirement and step_type in {"research", "synthesis"}:
+        hints: list[str] = []
+        seen: set[str] = set()
+        description = str(getattr(requirement, "description_markdown", "") or "")
+        for candidate in _extract_file_hints_from_text(description, limit=limit):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            hints.append(candidate)
+            if len(hints) >= limit:
+                return hints
+        for candidate in ("README.md", "docs/", "docs/auto-validation/"):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            hints.append(candidate)
+            if len(hints) >= limit:
+                return hints
+        return hints
     requirement_id = _as_int(step.requirement_id)
     artifact_types = ["research_report", "synthesis_report", "implementation_plan"]
     hints: list[str] = []
@@ -3969,7 +4102,7 @@ def _step_context_snapshot(db: Session, step: WorkflowStepRow) -> dict[str, Any]
         sections.append({"kind": "capability", "title": "Capability Contract", "body": "\n".join(capability_lines)})
 
     sections.append({"kind": "done_when", "title": "Done When", "body": effective_done_when})
-    execution_guidance = _step_execution_guidance(step)
+    execution_guidance = _step_execution_guidance(db, step)
     if execution_guidance:
         sections.append({"kind": "guidance", "title": "Execution Guidance", "body": execution_guidance})
     relevant_files = _step_relevant_file_hints(db, step)
@@ -4470,6 +4603,15 @@ def _requirement_prefers_engineering_contract(requirement: RequirementRow) -> bo
         "context_refresh_automation",
         "gate config",
         "gate state",
+        "draft pr",
+        "pull request",
+        "review-ready",
+        "compare url",
+        "requirement branch",
+        "same branch",
+        "branch delivery",
+        "review surface",
+        "validation clone",
     )
     haystack = " ".join([title, source, source_ref, description, intake_metadata])
     if source == "automation_candidate" and "approval_automation" in haystack:
