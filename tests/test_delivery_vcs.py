@@ -91,3 +91,42 @@ def test_execute_requirement_delivery_vcs_blocks_when_push_capability_disabled(t
     assert result["status"] == "blocked"
     assert "branch push required but git_push is disabled by project policy" in result["blockers"]
     assert result["repositories"] == []
+
+
+def test_execute_requirement_delivery_vcs_supports_multiline_fallback_target_paths(tmp_path):
+    remote_a = tmp_path / "remote-a.git"
+    remote_b = tmp_path / "remote-b.git"
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    remote_a.mkdir()
+    remote_b.mkdir()
+    repo_a.mkdir()
+    repo_b.mkdir()
+    _git(remote_a, "init", "--bare")
+    _git(remote_b, "init", "--bare")
+    _init_repo(repo_a, remote_a)
+    _init_repo(repo_b, remote_b)
+    (repo_a / "README.md").write_text("base\nchange-a\n", encoding="utf-8")
+    (repo_b / "README.md").write_text("base\nchange-b\n", encoding="utf-8")
+
+    result = execute_requirement_delivery_vcs(
+        requirement_id=43,
+        requirement_title="Validation clone multiline fallback",
+        delivery_contract={
+            "branch_name": "ops/req-43-validation",
+            "base_branch": "main",
+            "commit_required": True,
+            "push_required": False,
+            "capability_matrix": {"git_write": True, "git_push": False},
+            "changed_target_project_paths": [],
+        },
+        fallback_target_path=f"{repo_a}\n{repo_b}",
+    )
+
+    assert result["status"] == "delivered"
+    assert result["blockers"] == []
+    assert result["delivered_repository_count"] == 2
+    repo_paths = [item["repo_path"] for item in result["repositories"]]
+    assert sorted(repo_paths) == sorted([str(repo_a), str(repo_b)])
+    assert all(item["status"] == "delivered" for item in result["repositories"])
+    assert all(item["committed"] for item in result["repositories"])
