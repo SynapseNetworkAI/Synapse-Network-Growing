@@ -476,6 +476,61 @@ def test_running_or_completed_workflow_step_cannot_be_edited(synced_client, db_s
     assert "cannot be edited" in patch_resp.json()["detail"].lower()
 
 
+def test_workflow_step_can_be_edited_before_task_exists(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Editable step before task dispatch",
+            "description_markdown": "Planning should allow edits even before compatibility tasks exist.",
+            "priority": "normal",
+            "approval_contract": {"approval_mode": "waived"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "research",
+                        "title": "Research original title",
+                        "scope": "analysis",
+                        "depends_on": [],
+                        "done_when": "Original research contract.",
+                    }
+                ]
+            }
+        ),
+        42,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    step = db_session.query(WorkflowStepRow).filter(
+        WorkflowStepRow.requirement_id == requirement_id,
+        WorkflowStepRow.step_type == "research",
+    ).first()
+    assert step is not None
+    assert step.compatibility_task_id is None
+
+    patch_resp = synced_client.patch(
+        f"/api/requirements/{requirement_id}/workflow-steps/{step.id}",
+        json={
+            "title": "Research edited title",
+            "done_when_markdown": "Edited research contract.",
+        },
+    )
+    assert patch_resp.status_code == 200
+    body = patch_resp.json()
+    patched_step = next(item for item in body["workflow_run"]["steps"] if item["id"] == step.id)
+    assert patched_step["title"] == "Research edited title"
+    assert patched_step["done_when_markdown"] == "Edited research contract."
+
+
 def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
@@ -1850,12 +1905,31 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
             "title": "Ambiguous FAQ requirement",
             "description_markdown": "Ship the FAQ flow.",
             "priority": "high",
+            "approval_contract": {"approval_mode": "waived"},
         },
     )
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
     class RevisionRuntime:
@@ -1873,9 +1947,8 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
 
     assert start_resp.status_code == 200
     started = start_resp.json()
-    assert started["requirement"]["status"] == "needs_revision"
-    assert started["workflow_run"]["status"] == "cancelled"
-    assert any(artifact["artifact_type"] == "requirement_revision" for artifact in started["artifacts"])
+    assert started["requirement"]["status"] == "paused"
+    assert started["workflow_run"]["status"] == "paused"
 
     revise_resp = synced_client.post(
         f"/api/requirements/{requirement_id}/revise",
@@ -1891,7 +1964,8 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
     assert revised["requirement"]["active_workflow_run_id"] is None
     assert any(artifact["artifact_type"] == "requirement_revision" for artifact in revised["artifacts"])
 
-    replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert replan_resp.status_code == 200
 
 
@@ -1903,12 +1977,31 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
             "description_markdown": "Ship a concrete backend fix with validation.",
             "priority": "high",
             "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            "approval_contract": {"approval_mode": "waived"},
         },
     )
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    provider = MagicMock()
+    provider.call.return_value = (
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "step_key": "implementation",
+                        "title": "Implement requirement",
+                        "scope": "backend",
+                        "depends_on": [],
+                        "done_when": "Implementation output is produced and ready for review.",
+                    }
+                ]
+            }
+        ),
+        123,
+    )
+    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+        plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     first_run_id = plan_resp.json()["workflow_run"]["id"]
 
@@ -1924,7 +2017,7 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert start_resp.status_code == 200
-    assert start_resp.json()["requirement"]["status"] == "needs_revision"
+    assert start_resp.json()["requirement"]["status"] == "paused"
     assert start_resp.json()["workflow_run"]["id"] == first_run_id
 
     revise_resp = synced_client.post(
@@ -1945,14 +2038,26 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
         def execute(self, **_kwargs):
             return _runtime_result(text="completed")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
-    ):
+    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
+        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+        return_value=(
+            {"status": "delivered", "blockers": [], "repositories": [], "remote_name": "origin"},
+            None,
+        ),
+    ), patch(
+        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        return_value=(
+            {"status": "draft", "blockers": [], "pr_url": "https://example.com/pr/1"},
+            None,
+        ),
+    ), patch(
+        "server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()
+    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
         restart_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert restart_resp.status_code == 200
     payload = restart_resp.json()
-    assert payload["requirement"]["status"] == "done"
+    assert payload["requirement"]["status"] == "paused"
     assert payload["workflow_run"]["id"] != first_run_id
     assert payload["workflow_run"]["plan_version"] == 1
 
@@ -2828,7 +2933,7 @@ def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access
     start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
     assert start_resp.status_code == 200
     detail = start_resp.json()
-    assert detail["requirement"]["status"] == "blocked"
+    assert detail["requirement"]["status"] == "paused"
     assert detail["workflow_run"]["status"] == "paused"
     assert detail["workflow_run"]["steps"][0]["status"] == "blocked"
     assert any(item["incident_code"] == "capability_denied" for item in detail["incidents"])
@@ -2881,7 +2986,7 @@ def test_start_requirement_blocks_when_context_is_stale(synced_client, db_sessio
     start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
     assert start_resp.status_code == 200
     detail = start_resp.json()
-    assert detail["requirement"]["status"] == "blocked"
+    assert detail["requirement"]["status"] == "paused"
     assert detail["workflow_run"]["status"] == "paused"
     assert any(item["incident_code"] == "stale_memory_blocked" for item in detail["incidents"])
 
@@ -3039,6 +3144,44 @@ def test_implementation_context_includes_research_file_hints(synced_client, db_s
     assert "Suggested File Scope" in prompt
     assert "services/gateway/src/app.py" in prompt
     assert "services/gateway/tests/unit/test_gateway_readiness_endpoint_unit.py" in prompt
+
+
+def test_compact_task_description_preserves_requirement_goal_summary(synced_client, db_session):
+    target_path = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+    synced_client.get("/api/project-policies")
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+                "title": "Validate deterministic branch delivery on clean clone",
+                "description_markdown": (
+                    "Update only README.md in /Users/cliff/workspace/agent/Synapse-Network-Growing with a short note "
+                    "explaining that each requirement uses a single long-lived branch, mutating steps "
+                    "commit and push to that branch, and review-ready work syncs to one draft PR. "
+                    "Keep the change tightly scoped to README only and prepare a review-ready bundle."
+                ),
+            "target_project_path": target_path,
+        },
+    )
+    requirement_id = create_resp.json()["requirement"]["id"]
+    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
+    assert plan_resp.status_code == 200
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    assert requirement is not None
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == requirement.active_workflow_run_id).first()
+    assert workflow_run is not None
+    research_step = (
+        db_session.query(WorkflowStepRow)
+        .filter(WorkflowStepRow.workflow_run_id == workflow_run.id, WorkflowStepRow.step_type == "research")
+        .first()
+    )
+    assert research_step is not None
+
+    compact = workflow_orchestrator._step_task_description(db_session, research_step)
+    assert "README.md" in compact
+    assert "single long-lived branch" in compact
+    assert "draft PR" in compact
 
 
 def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(synced_client, db_session):
@@ -3473,7 +3616,7 @@ def test_max_tier_step_still_requires_operator_confirmation_on_start(synced_clie
         workflow_orchestrator.ApprovalRequestRow.status == "pending",
     ).first()
     assert approval is not None
-    assert detail["requirement"]["status"] == "blocked"
+    assert detail["requirement"]["status"] == "paused"
 
 
 def test_close_requirement_unblocks_dependents(synced_client, db_session):
@@ -4368,3 +4511,89 @@ def test_scheduler_uses_budget_usage_summary_for_running_requirement(synced_clie
     assert scheduler_resp.status_code == 200
     decision = next(item for item in scheduler_resp.json()["decisions"] if item.get("requirement_id") == requirement_id)
     assert decision["budget_cost"] == 77
+
+
+def test_non_mutating_step_repo_changes_block_without_vcs_delivery(synced_client, db_session, tmp_path):
+    requirement = RequirementRow(
+        title="Research must not trigger branch delivery",
+        description_markdown="Non-mutating steps should not commit or push tracked repo changes.",
+        status="in_progress",
+        approval_status="waived",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running", triggered_by="test")
+    db_session.add(run)
+    db_session.flush()
+    requirement.active_workflow_run_id = run.id
+    step = WorkflowStepRow(
+        workflow_run_id=run.id,
+        requirement_id=requirement.id,
+        step_key="research",
+        step_type="research",
+        title="Research context",
+        status="running",
+        sequence_no=10,
+        context_scope="project",
+        done_when_markdown="Do not modify production code.",
+        file_scope_json="{}",
+        validation_targets_json="[]",
+        failure_policy_json="{}",
+        approval_policy_json="{}",
+        runtime_backend="codex_cli",
+        retry_count=0,
+        context_policy_json="{}",
+        execution_profile_json="{}",
+    )
+    db_session.add(step)
+    db_session.flush()
+
+    task_dir = tmp_path / "roles" / "dev_rel" / "outputs" / "task-1"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "output.md").write_text("research summary", encoding="utf-8")
+    now = workflow_orchestrator.utcnow().isoformat()
+    (task_dir / "file-changes.json").write_text(
+        json.dumps(
+            {
+                "changed_files": [
+                    {
+                        "filename": "README.md",
+                        "additions": 5,
+                        "deletions": 0,
+                        "patch": "@@\n+docs\n",
+                        "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+                    }
+                ],
+                "changed_target_project_paths": ["/Users/cliff/workspace/agent/Synapse-Network-Growing"],
+                "captured_at": now,
+                "baseline_captured_at": now,
+            }
+        ),
+        encoding="utf-8",
+    )
+    task = TaskRow(
+        description="research",
+        agent_id="dev_rel",
+        status="completed",
+        output_path=str(task_dir / "output.md"),
+        output_content="research summary",
+        runtime_backend="codex_cli",
+        runtime_provider="codex",
+        runtime_model="gpt-5-codex-mini",
+        started_at=workflow_orchestrator.utcnow(),
+        completed_at=workflow_orchestrator.utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    step.compatibility_task_id = task.id
+    db_session.commit()
+
+    workflow_orchestrator.sync_workflow_for_task(task.id)
+    db_session.expire_all()
+
+    detail = synced_client.get(f"/api/requirements/{requirement.id}").json()
+    assert detail["requirement"]["status"] == "paused"
+    assert detail["workflow_run"]["status"] == "paused"
+    artifact_types = [artifact["artifact_type"] for artifact in detail["artifacts"]]
+    assert "policy_violation" in artifact_types
+    assert "delivery_blocker" not in artifact_types

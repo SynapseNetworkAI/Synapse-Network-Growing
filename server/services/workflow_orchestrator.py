@@ -87,6 +87,8 @@ from server.services.workflow_planner import WorkflowRoleAssignments, build_plan
 RUNNING_STEP_STATUSES = {"running", "waiting_approval"}
 TERMINAL_STEP_STATUSES = {"completed", "failed", "cancelled"}
 SCHEDULABLE_STEP_STATUSES = {"pending", "ready", "blocked"}
+MUTATING_STEP_TYPES = {"implementation", "bugfix"}
+NON_MUTATING_STEP_TYPES = {"research", "synthesis", "review", "test"}
 DELETED_REQUIREMENT_STATUSES = {"deleted"}
 DELETED_WORKFLOW_STATUSES = {"deleted"}
 DELETED_STEP_STATUSES = {"deleted"}
@@ -1004,6 +1006,52 @@ def _task_has_tracked_repo_changes(task: TaskRow) -> bool:
     return bool(changed_files)
 
 
+def _step_requires_branch_delivery(step: WorkflowStepRow) -> bool:
+    return str(step.step_type or "") in MUTATING_STEP_TYPES
+
+
+def _block_unexpected_non_mutating_repo_changes(
+    db: Session,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    step: WorkflowStepRow,
+    task: TaskRow,
+) -> None:
+    payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+    changed_files = _task_changed_files_from_payload(payload)
+    output_files = _task_changed_output_files(changed_files)
+    reason = (
+        f"{step.step_type} step modified tracked repo files even though this step is non-mutating: "
+        + ", ".join(output_files[:5] or ["<unknown>"])
+    )
+    step.status = "blocked"
+    step.completed_at = None
+    workflow_run.status = "paused"
+    workflow_run.completed_at = None
+    requirement.status = "blocked"
+    requirement.completed_at = None
+    _record_step_event(db, _as_int(step.id), "policy_violation", reason)
+    _create_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        step_id=_as_int(step.id),
+        producer_step_id=_as_int(step.id),
+        artifact_type="policy_violation",
+        content_summary=reason[:200],
+        human_readable_body="# Policy Violation\n\n" + reason,
+        machine_readable_payload={
+            "requirement_id": _as_int(requirement.id),
+            "workflow_run_id": _as_int(workflow_run.id),
+            "step_id": _as_int(step.id),
+            "task_id": _as_int(task.id),
+            "step_type": str(step.step_type or ""),
+            "changed_files": changed_files,
+            "recorded_at": utcnow().isoformat(),
+        },
+    )
+
+
 def _record_delivery_blocker(
     db: Session,
     requirement: RequirementRow,
@@ -1448,6 +1496,42 @@ def _refresh_dynamic_validation_contracts(
     _replace_contract_binding(db, _as_int(workflow_run.id), purpose="delivery_contract", artifact_id=_as_int(delivery_artifact.id))
 
 
+def _refresh_delivery_contract_for_existing_plan(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_run: WorkflowRunRow,
+    project_policies: list[Any],
+) -> None:
+    from server.services.project_policy import aggregate_execution_controls, project_policy_to_dict
+    from server.services.workflow_planner import _build_delivery_contract
+
+    normalized_policies = [
+        project_policy_to_dict(policy) if not isinstance(policy, dict) else dict(policy)
+        for policy in project_policies
+    ]
+    execution_controls = aggregate_execution_controls(normalized_policies)
+    refreshed_contract = _build_delivery_contract(
+        requirement,
+        _normalize_target_project_path(requirement.target_project_path),
+        normalized_policies,
+        execution_controls,
+    )
+    existing_contract = dict(_delivery_contract_payload(db, _as_int(requirement.id)) or {})
+    if existing_contract == refreshed_contract:
+        return
+    delivery_artifact = _create_or_update_artifact(
+        db,
+        requirement_id=_as_int(requirement.id),
+        workflow_run_id=_as_int(workflow_run.id),
+        artifact_type="delivery_contract",
+        content_summary=f"Delivery contract for requirement #{requirement.id}",
+        human_readable_body=_delivery_contract_markdown(refreshed_contract),
+        machine_readable_payload=refreshed_contract,
+    )
+    _replace_contract_binding(db, _as_int(workflow_run.id), purpose="delivery_contract", artifact_id=_as_int(delivery_artifact.id))
+
+
 def _repo_file_changes_check_error(
     *,
     step: WorkflowStepRow,
@@ -1776,9 +1860,17 @@ def plan_requirement(db: Session, requirement_id: int) -> RequirementDetailOut:
     if requirement.blocked_by_count > 0:
         raise ValueError("Requirement is blocked by unfinished dependencies.")
     if requirement.current_plan_version > 0 and requirement.active_workflow_run_id:
+        workflow_run = _active_workflow_run(db, requirement)
+        if workflow_run is not None and str(workflow_run.status or "").strip().lower() in {"pending", "ready", "paused"}:
+            _refresh_delivery_contract_for_existing_plan(
+                db,
+                requirement=requirement,
+                workflow_run=workflow_run,
+                project_policies=project_policies,
+            )
         if requirement.status in {"planning", "plan_failed", "draft"}:
             requirement.status = "ready"
-            db.commit()
+        db.commit()
         return build_requirement_detail(db, requirement.id)
 
     requirement.status = "planning"
@@ -2068,7 +2160,10 @@ def _sync_plan_artifact_for_step_edit(
 
 
 def _sync_pending_task_description_for_step(db: Session, step: WorkflowStepRow) -> None:
-    task_id = _as_int(step.compatibility_task_id)
+    raw_task_id = getattr(step, "compatibility_task_id", None)
+    if raw_task_id in (None, ""):
+        return
+    task_id = _as_int(raw_task_id)
     if task_id is None:
         return
     task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
@@ -2554,7 +2649,7 @@ def revise_requirement(db: Session, requirement_id: int, body: RequirementRevisi
     requirement.source_ref = body.source_ref
     requirement.active_workflow_run_id = None
     requirement.current_plan_version = 0
-    requirement.planned_roles_json = None
+    requirement.planned_roles_json = "[]"
     requirement.started_at = None
     requirement.completed_at = None
     requirement.status = "draft"
@@ -2907,6 +3002,19 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
                 workflow_run=run,
             )
         if _task_has_tracked_repo_changes(task):
+            if str(step.step_type or "") in NON_MUTATING_STEP_TYPES:
+                _block_unexpected_non_mutating_repo_changes(
+                    db,
+                    requirement,
+                    run,
+                    step,
+                    task,
+                )
+                should_dispatch_next = False
+                _refresh_run_status(db, requirement, run)
+                db.commit()
+                return
+        if _task_has_tracked_repo_changes(task) and _step_requires_branch_delivery(step):
             delivery_ok, _step_vcs_payload, _step_pr_payload = _sync_step_delivery_branch(
                 db,
                 requirement,
@@ -4042,7 +4150,13 @@ def _compact_task_description_from_snapshot(step: WorkflowStepRow, snapshot: dic
             continue
         if kind == "base" and not step_goal:
             lines = [line.strip() for line in body.splitlines() if line.strip()]
-            step_goal = "\n".join(lines[:2]).strip()
+            headline = lines[:5]
+            goal_text = "\n".join(headline).strip()
+            if len(lines) > 5:
+                remaining = " ".join(lines[5:]).strip()
+                if remaining:
+                    goal_text = f"{goal_text}\n{remaining}".strip()
+            step_goal = _truncate_text(goal_text, 520)
             continue
         if kind == "done_when" and not done_when:
             done_when = _truncate_text(body, 280)

@@ -6,7 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server import config
-from server.services.codex_cli import CodexAsyncExecResult, CodexExecResult, run_codex_exec
+from server.services.codex_cli import (
+    CodexAsyncExecResult,
+    CodexExecResult,
+    _sanitize_plugin_manifests,
+    run_codex_exec,
+)
 from server.services.llm_adapter import CodexCLIProvider
 from server.services.task_runtime import (
     CodexCLITaskRuntime,
@@ -105,6 +110,98 @@ def test_codex_cli_workdirs_accept_target_project_marker_with_context_prefix(tmp
 
     assert cwd == product_repo.resolve()
     assert tmp_path.resolve() in add_dirs
+
+
+def test_codex_cli_runtime_prefers_session_hint_project_root(tmp_path):
+    runtime = CodexCLITaskRuntime(project_root=tmp_path)
+    target_repo = tmp_path / "clean-clone"
+    target_repo.mkdir()
+
+    def _fake_start_codex_exec_async(*, cwd: Path, output_dir: Path, **kwargs):
+        assert cwd == target_repo.resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return CodexAsyncExecResult(
+            command=["codex", "exec", "--json"],
+            output_path=output_dir / "output.md",
+            stdout_path=output_dir / "codex.stdout.jsonl",
+            stderr_path=output_dir / "codex.stderr.log",
+            state_path=output_dir / "codex.state.json",
+            metadata_path=output_dir / "metadata.json",
+            prompt_path=output_dir / "prompt.md",
+            pid=12345,
+            thread_id="thread-async-2",
+        )
+
+    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+        result = runtime.execute(
+            persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Research", "body": ""},
+            skill_name="content-strategy",
+            task_description="## Step\nResearch context only",
+            output_dir=tmp_path / "roles" / "dev_rel" / "outputs" / "task-9",
+            session_hint={"project_root": str(target_repo)},
+        )
+
+    assert result.runtime_session_id == "thread-async-2"
+
+
+def test_codex_cli_runtime_uses_read_only_sandbox_for_research(tmp_path):
+    runtime = CodexCLITaskRuntime(project_root=tmp_path)
+
+    def _fake_start_codex_exec_async(*, sandbox_mode: str | None, output_dir: Path, **kwargs):
+        assert sandbox_mode == "read-only"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return CodexAsyncExecResult(
+            command=["codex", "exec", "--sandbox", "read-only"],
+            output_path=output_dir / "output.md",
+            stdout_path=output_dir / "codex.stdout.jsonl",
+            stderr_path=output_dir / "codex.stderr.log",
+            state_path=output_dir / "codex.state.json",
+            metadata_path=output_dir / "metadata.json",
+            prompt_path=output_dir / "prompt.md",
+            pid=12346,
+            thread_id="thread-read-only-1",
+        )
+
+    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+        result = runtime.execute(
+            persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Research", "body": ""},
+            skill_name="content-strategy",
+            task_description="## Step\nInvestigate only",
+            output_dir=tmp_path / "roles" / "dev_rel" / "outputs" / "task-10",
+            session_hint={"step_type": "research", "project_root": str(tmp_path)},
+        )
+
+    assert result.runtime_session_id == "thread-read-only-1"
+
+
+def test_codex_cli_runtime_uses_default_writable_mode_for_implementation(tmp_path):
+    runtime = CodexCLITaskRuntime(project_root=tmp_path)
+
+    def _fake_start_codex_exec_async(*, sandbox_mode: str | None, output_dir: Path, **kwargs):
+        assert sandbox_mode is None
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return CodexAsyncExecResult(
+            command=["codex", "exec", "--full-auto"],
+            output_path=output_dir / "output.md",
+            stdout_path=output_dir / "codex.stdout.jsonl",
+            stderr_path=output_dir / "codex.stderr.log",
+            state_path=output_dir / "codex.state.json",
+            metadata_path=output_dir / "metadata.json",
+            prompt_path=output_dir / "prompt.md",
+            pid=12347,
+            thread_id="thread-writable-1",
+        )
+
+    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+        result = runtime.execute(
+            persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Implement", "body": ""},
+            skill_name="content-strategy",
+            task_description="## Step\nImplement fix",
+            output_dir=tmp_path / "roles" / "dev_rel" / "outputs" / "task-11",
+            session_hint={"step_type": "implementation", "project_root": str(tmp_path)},
+        )
+
+    assert result.runtime_session_id == "thread-writable-1"
 
 
 def test_get_task_runtime_returns_codex_cli_runtime(monkeypatch, tmp_path):
@@ -284,5 +381,55 @@ def test_codex_cli_task_runtime_uses_compact_prompt_packet(tmp_path):
     assert "# Constraints" in prompt
     assert "# Done When" in prompt
     assert "services/gateway/src/app.py" in prompt
+    assert "do not search outside the target repository for parent AGENTS.md or llms.txt files" in prompt
     assert "## Skill Instructions" not in prompt
     assert result.runtime_session_id == "thread-compact"
+
+
+def _write_plugin_manifest(path: Path, *, prompt: str) -> None:
+    payload = {
+        "name": "sample",
+        "interface": {
+            "defaultPrompt": prompt,
+        },
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def test_sanitize_plugin_manifests_trims_long_prompts(tmp_path):
+    plugin_root = tmp_path / "plugins-root"
+    manifest_dir = plugin_root / "sample" / ".codex-plugin"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "plugin.json"
+    _write_plugin_manifest(manifest_path, prompt="x" * 200)
+    sha_path = tmp_path / "plugins.sha"
+    sha_path.write_text("abc", encoding="utf-8")
+
+    _sanitize_plugin_manifests(plugin_root=plugin_root, max_prompt_len=64, sha_path=sha_path)
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(data["interface"]["defaultPrompt"]) == 64
+
+
+def test_sanitize_plugin_manifests_rechecks_when_sha_changes(tmp_path):
+    plugin_root = tmp_path / "plugins-root"
+    manifest_dir = plugin_root / "sample" / ".codex-plugin"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "plugin.json"
+    _write_plugin_manifest(manifest_path, prompt="a" * 150)
+    sha_path = tmp_path / "plugins.sha"
+    sha_path.write_text("first", encoding="utf-8")
+
+    _sanitize_plugin_manifests(plugin_root=plugin_root, max_prompt_len=32, sha_path=sha_path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(data["interface"]["defaultPrompt"]) == 32
+
+    _write_plugin_manifest(manifest_path, prompt="b" * 80)
+    _sanitize_plugin_manifests(plugin_root=plugin_root, max_prompt_len=16, sha_path=sha_path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(data["interface"]["defaultPrompt"]) == 80
+
+    sha_path.write_text("second", encoding="utf-8")
+    _sanitize_plugin_manifests(plugin_root=plugin_root, max_prompt_len=16, sha_path=sha_path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(data["interface"]["defaultPrompt"]) == 16

@@ -429,6 +429,65 @@ class TestBuildPlannerOutput:
         assert output["target_project_path"] is None
         assert output["project_intelligence"]["routing_mode"] == "unrouted"
 
+    def test_delivery_contract_capability_gate_reflects_target_project_policy(self, synced_client, db_session):
+        root_path = "/tmp/workflow-planner-push-enabled"
+        db_session.add(
+            ProjectPolicyRow(
+                project_key="push-enabled-validation",
+                display_name="Push Enabled Validation",
+                root_path=root_path,
+                status="active",
+                allowed_write_globs_json=json.dumps(["**"]),
+                forbidden_globs_json=json.dumps([]),
+                required_checks_json=json.dumps(["pytest -q"]),
+                release_mode="manual",
+                requires_manual_approval=True,
+                autonomy_mode="execute_with_approval",
+                allow_rebalance=True,
+                allow_preemption=False,
+                capability_matrix_json=json.dumps(
+                    {
+                        "shell_access": True,
+                        "git_read": True,
+                        "git_write": True,
+                        "git_push": True,
+                        "network_access": False,
+                        "publish": False,
+                    }
+                ),
+                interrupt_policy_json=json.dumps(
+                    {
+                        "operator_confirmation_actions": ["publish"],
+                        "auto_pause_on_events": ["capability_denied"],
+                        "auto_abort_on_events": ["forbidden_write"],
+                    }
+                ),
+                scheduler_weight=1.0,
+                max_parallel_requirements=1,
+                portfolio_budget_points=100,
+                notes="Validation policy with push enabled.",
+            )
+        )
+        db_session.flush()
+
+        req = RequirementRow(
+            title="Push enabled delivery contract",
+            description_markdown="Update README only and push a review branch.",
+            target_project_path=root_path,
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            output, _ = build_planner_output(db_session, req)
+
+        delivery_contract = output["delivery_contract"]
+        assert delivery_contract["managed_projects"][0]["project_key"] == "push-enabled-validation"
+        assert delivery_contract["capability_matrix"]["git_write"] is True
+        assert delivery_contract["capability_matrix"]["git_push"] is True
+        assert delivery_contract["capability_matrix"]["publish"] is False
+        assert "Capability gate: git_push=yes, publish=no." in delivery_contract["summary_markdown"]
+
     def test_plan_simple_backend_frontend(self, synced_client, db_session):
         req = RequirementRow(
             title="Feature X",
@@ -766,6 +825,36 @@ class TestBuildPlannerOutput:
             source="bugfix_circuit_breaker",
             source_ref="incident:session-recovery",
             target_project_path="/incident-approval",
+        )
+        db_session.add(req)
+        db_session.flush()
+
+        with _patch_agent_phases({"design": False, "frontend": False, "backend": False, "test_impl": False}):
+            _, assignments = build_planner_output(db_session, req)
+
+        assert assignments.implementer_agent_id == "dev_rel"
+        assert assignments.researcher_agent_id == "dev_rel"
+
+    def test_branch_delivery_requirement_prefers_engineering_role_assignments(self, synced_client, db_session):
+        policy = ProjectPolicyRow(
+            project_key="delivery-validate",
+            display_name="Delivery Validate",
+            root_path="/private/tmp/sng-delivery-validation",
+            release_mode="manual",
+            requires_manual_approval=True,
+            capability_matrix_json=json.dumps({"git_read": True, "git_write": True, "git_push": True, "publish": False}),
+            interrupt_policy_json="{}",
+        )
+        db_session.add(policy)
+        db_session.flush()
+
+        req = RequirementRow(
+            title="Live validate branch delivery minimal chain",
+            description_markdown=(
+                "Only update README.md with a short note. Implementation must commit on the same requirement branch, "
+                "push to origin, and keep one draft PR as the review surface."
+            ),
+            target_project_path="/private/tmp/sng-delivery-validation",
         )
         db_session.add(req)
         db_session.flush()

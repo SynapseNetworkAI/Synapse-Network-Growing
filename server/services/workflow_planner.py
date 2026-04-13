@@ -742,6 +742,34 @@ def _is_incident_recovery_requirement(requirement: RequirementRow | None) -> boo
     return "incident recovery" in title or title.startswith("infra incident:")
 
 
+def _is_requirement_centric_delivery_requirement(
+    requirement: RequirementRow | None,
+    execution_controls: dict[str, Any] | None = None,
+) -> bool:
+    if requirement is None:
+        return False
+    title = str(getattr(requirement, "title", "") or "").strip().lower()
+    description = str(getattr(requirement, "description_markdown", "") or "").strip().lower()
+    text = f"{title}\n{description}"
+    strong_markers = (
+        "commit",
+        "push",
+        "draft pr",
+        "pull request",
+        "review-ready",
+        "compare url",
+        "requirement branch",
+        "same branch",
+    )
+    if any(marker in text for marker in strong_markers):
+        return True
+    controls = execution_controls or {}
+    if not (bool(controls.get("git_write")) and bool(controls.get("git_push"))):
+        return False
+    soft_markers = ("branch", "delivery", "review surface", "promotion")
+    return any(marker in text for marker in soft_markers)
+
+
 def _operator_confirmation_actions_for_step(
     *,
     step_type: str,
@@ -981,8 +1009,12 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     )
 
     incident_recovery = _is_incident_recovery_requirement(requirement)
+    delivery_requirement = _is_requirement_centric_delivery_requirement(
+        requirement,
+        execution_controls=execution_controls,
+    )
     suggestion = suggest_task_execution(db=db, description=description)
-    if incident_recovery:
+    if incident_recovery or delivery_requirement:
         implementer_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel"])
         researcher_agent_id = _pick_agent_id(db, exclude=set(), preferred=["dev_rel", "growth_lead"])
         synthesizer_agent_id = _pick_agent_id(

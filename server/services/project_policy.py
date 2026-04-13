@@ -255,9 +255,15 @@ def _normalize_interrupt_policy(value: dict[str, Any] | None) -> dict[str, list[
 
 
 def aggregate_execution_controls(project_policies: list[dict[str, Any]]) -> dict[str, Any]:
-    capability_matrix = default_capability_matrix()
+    capability_matrix = {key: True for key in CAPABILITY_KEYS}
     interrupt_policy = default_interrupt_policy()
     policy_summaries: list[dict[str, Any]] = []
+    if not project_policies:
+        return {
+            "capability_matrix": default_capability_matrix(),
+            "interrupt_policy": interrupt_policy,
+            "policy_summaries": policy_summaries,
+        }
     for policy in project_policies:
         normalized_capabilities = _normalize_capability_matrix(
             policy.get("capability_matrix") if isinstance(policy, dict) else None,

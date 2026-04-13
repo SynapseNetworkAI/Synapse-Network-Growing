@@ -412,3 +412,55 @@ def test_codex_monitor_resumes_unexpected_process_exit(db_session, tmp_path):
         assert state["resume_count"] == 1
     finally:
         check_db.close()
+
+
+def test_codex_monitor_resume_preserves_read_only_sandbox(db_session, tmp_path):
+    task, output_dir = _seed_running_codex_task(db_session, tmp_path)
+    paths = codex_runtime_paths(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths["metadata"].write_text(
+        json.dumps(
+            {
+                "cwd": str(tmp_path),
+                "model": "gpt-5-codex",
+                "add_dirs": [],
+                "timeout_seconds": 900,
+                "resume_count": 0,
+                "sandbox_mode": "read-only",
+            }
+        ),
+        encoding="utf-8",
+    )
+    paths["prompt"].write_text("continue work", encoding="utf-8")
+    paths["stdout"].write_text('{"type":"thread.started","thread_id":"thread-read-only-resume"}\n', encoding="utf-8")
+    save_codex_state(
+        paths["state"],
+        {
+            "status": "failed",
+            "pid": 4321,
+            "thread_id": "thread-read-only-resume",
+            "started_at": utcnow().isoformat(),
+            "resume_count": 0,
+            "exit_code": -15,
+        },
+    )
+
+    launched = CodexAsyncExecResult(
+        command=["codex", "exec", "resume"],
+        output_path=paths["output"],
+        stdout_path=paths["stdout"],
+        stderr_path=paths["stderr"],
+        state_path=paths["state"],
+        metadata_path=paths["metadata"],
+        prompt_path=paths["prompt"],
+        pid=5003,
+        thread_id="thread-read-only-resume",
+    )
+    session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
+
+    with patch("server.services.codex_cli_monitor.start_codex_exec_async", return_value=launched) as mock_start:
+        monitor.sync_task(task.id)
+
+    kwargs = mock_start.call_args.kwargs
+    assert kwargs["sandbox_mode"] == "read-only"

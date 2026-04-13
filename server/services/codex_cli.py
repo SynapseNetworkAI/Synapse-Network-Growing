@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 from server import config
 
@@ -22,6 +23,10 @@ _STDERR_NOISE_MARKERS = (
     "shell_snapshot: failed to delete shell snapshot",
     "failed to terminate mcp process group",
 )
+
+_DEFAULT_PLUGIN_ROOT = Path.home() / ".codex" / ".tmp" / "plugins" / "plugins"
+_PLUGIN_SHA_PATH = _DEFAULT_PLUGIN_ROOT.parent.parent / "plugins.sha"
+_PLUGIN_SANITIZE_STATE: dict[str, str | None] = {}
 
 
 @dataclass
@@ -79,15 +84,14 @@ def run_codex_exec(
     timeout: int | None = None,
     add_dirs: list[Path] | None = None,
     output_schema: dict | None = None,
+    sandbox_mode: str | None = None,
 ) -> CodexExecResult:
+    _sanitize_plugin_manifests()
     command = [config.CODEX_CLI_BIN, "exec", "-", "-C", str(cwd), "--color", "never"]
     resolved_model = resolve_codex_cli_model(model)
     if resolved_model:
         command.extend(["-m", resolved_model])
-    if config.CODEX_CLI_FULL_AUTO:
-        command.append("--full-auto")
-    else:
-        command.extend(["--sandbox", config.CODEX_CLI_SANDBOX])
+    _append_codex_execution_mode(command, sandbox_mode=sandbox_mode)
     if config.CODEX_CLI_SKIP_GIT_REPO_CHECK:
         command.append("--skip-git-repo-check")
     if config.CODEX_CLI_JSON_EVENTS:
@@ -190,7 +194,9 @@ def start_codex_exec_async(
     add_dirs: list[Path] | None = None,
     resume_thread_id: str | None = None,
     append_logs: bool = False,
+    sandbox_mode: str | None = None,
 ) -> CodexAsyncExecResult:
+    _sanitize_plugin_manifests()
     paths = codex_runtime_paths(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     command = _build_codex_exec_command(
@@ -199,6 +205,7 @@ def start_codex_exec_async(
         add_dirs=add_dirs,
         output_path=paths["output"],
         resume_thread_id=resume_thread_id,
+        sandbox_mode=sandbox_mode,
     )
     stdout_mode = "a" if append_logs else "w"
     stderr_mode = "a" if append_logs else "w"
@@ -226,6 +233,7 @@ def start_codex_exec_async(
             "started_at": _utcnow().isoformat(),
             "cwd": str(cwd),
             "model": resolve_codex_cli_model(model) or "",
+            "sandbox_mode": str(sandbox_mode or ""),
             "thread_id": resume_thread_id or "",
             "resume_thread_id": resume_thread_id or "",
             "command": command,
@@ -336,6 +344,72 @@ def filter_codex_stderr(stderr: str, *, max_lines: int = 10) -> str:
     return "\n".join(head + [f"... [{omitted} more stderr lines omitted]"])
 
 
+def _sanitize_plugin_manifests(
+    plugin_root: Path | None = None,
+    *,
+    max_prompt_len: int = 128,
+    sha_path: Path | None = None,
+) -> None:
+    """Ensure Codex plugin manifests respect default prompt guardrails."""
+
+    root = (plugin_root or _DEFAULT_PLUGIN_ROOT).resolve()
+    sha_file = sha_path or _PLUGIN_SHA_PATH
+    sha_value: str | None = None
+    if sha_file.exists():
+        try:
+            sha_value = sha_file.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            sha_value = None
+
+    cache_key = str(root)
+    if _PLUGIN_SANITIZE_STATE.get(cache_key) == sha_value:
+        return
+
+    if not root.exists():
+        _PLUGIN_SANITIZE_STATE.pop(cache_key, None)
+        return
+
+    for manifest_path in _iter_plugin_manifests(root):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        interface = payload.get("interface")
+        if not isinstance(interface, dict):
+            continue
+        default_prompt = interface.get("defaultPrompt")
+        if not isinstance(default_prompt, str):
+            continue
+        trimmed = default_prompt.strip()
+        if len(trimmed) <= max_prompt_len:
+            continue
+        shortened = trimmed[:max_prompt_len].rstrip()
+        if not shortened:
+            continue
+        interface["defaultPrompt"] = shortened
+        try:
+            manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            continue
+        logger.info(
+            "Trimmed plugin default prompt to %s chars for %s",
+            len(shortened),
+            manifest_path,
+        )
+
+    _PLUGIN_SANITIZE_STATE[cache_key] = sha_value
+
+
+def _iter_plugin_manifests(plugin_root: Path) -> Iterator[Path]:
+    for plugin_dir in plugin_root.iterdir():
+        if not plugin_dir.is_dir():
+            continue
+        manifest_path = plugin_dir / ".codex-plugin" / "plugin.json"
+        if manifest_path.exists():
+            yield manifest_path
+
+
 def load_codex_state(path: Path) -> dict[str, object] | None:
     if not path.exists():
         return None
@@ -375,6 +449,7 @@ def _build_codex_exec_command(
     add_dirs: list[Path] | None,
     output_path: Path,
     resume_thread_id: str | None = None,
+    sandbox_mode: str | None = None,
 ) -> list[str]:
     resolved_model = resolve_codex_cli_model(model)
     if resume_thread_id:
@@ -383,10 +458,7 @@ def _build_codex_exec_command(
         command = [config.CODEX_CLI_BIN, "exec", "-", "-C", str(cwd)]
     if resolved_model:
         command.extend(["-m", resolved_model])
-    if config.CODEX_CLI_FULL_AUTO:
-        command.append("--full-auto")
-    else:
-        command.extend(["--sandbox", config.CODEX_CLI_SANDBOX])
+    _append_codex_execution_mode(command, sandbox_mode=sandbox_mode)
     if config.CODEX_CLI_SKIP_GIT_REPO_CHECK:
         command.append("--skip-git-repo-check")
     if config.CODEX_CLI_JSON_EVENTS:
@@ -396,6 +468,20 @@ def _build_codex_exec_command(
             command.extend(["--add-dir", str(extra_dir)])
     command.extend(["--output-last-message", str(output_path)])
     return command
+
+
+def _append_codex_execution_mode(command: list[str], *, sandbox_mode: str | None = None) -> None:
+    selected_mode = str(sandbox_mode or "").strip().lower()
+    if selected_mode == "read-only":
+        command.extend(["--sandbox", "read-only"])
+        return
+    if selected_mode:
+        command.extend(["--sandbox", selected_mode])
+        return
+    if config.CODEX_CLI_FULL_AUTO:
+        command.append("--full-auto")
+    else:
+        command.extend(["--sandbox", config.CODEX_CLI_SANDBOX])
 
 
 def _watch_codex_process(process: subprocess.Popen[str], state_path: Path) -> None:

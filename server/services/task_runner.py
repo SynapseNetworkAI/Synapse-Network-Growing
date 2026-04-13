@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from pathlib import Path
 from typing import Any, cast
 
 from server.database import SessionLocal, TaskRow, TaskLogRow, ApprovalRow, utcnow
@@ -37,6 +38,16 @@ def _load_task_context_files(task: TaskRow) -> list[str] | None:
     context_files = _task_str(task, "context_files")
     if not context_files:
         return None
+
+
+def _task_project_root(task: TaskRow) -> str:
+    if task.workflow_steps:
+        step = task.workflow_steps[0]
+        requirement = getattr(cast(Any, step), "requirement", None)
+        target_path = str(getattr(cast(Any, requirement), "target_project_path", "") or "").strip()
+        if target_path:
+            return target_path
+    return str(PROJECT_ROOT)
 
     import json
 
@@ -122,6 +133,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         # Parse context_files from task (JSON list stored as text)
         extra_files = _load_task_context_files(task)
         session_hint: dict[str, Any] | None = None
+        execution_root = _task_project_root(task)
         if selection.backend == "codex_cli":
             requirement_id = None
             workflow_run_id = None
@@ -129,7 +141,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 first_step = task.workflow_steps[0]
                 requirement_id = int(getattr(cast(Any, first_step), "requirement_id", 0) or 0) or None
                 workflow_run_id = int(getattr(cast(Any, first_step), "workflow_run_id", 0) or 0) or None
-            cwd, _ = _codex_workdirs(_task_str(task, "description") or "", PROJECT_ROOT, output_dir)
+            cwd, _ = _codex_workdirs(_task_str(task, "description") or "", Path(execution_root), output_dir)
             reusable = find_reusable_session(
                 db,
                 role_key=str(role_id),
@@ -141,6 +153,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 "project_root": str(cwd),
                 "requirement_id": requirement_id,
                 "workflow_run_id": workflow_run_id,
+                "step_type": step_type,
             }
             if reusable is not None:
                 session_hint["session_key"] = reusable.session_key

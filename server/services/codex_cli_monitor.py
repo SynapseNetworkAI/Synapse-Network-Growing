@@ -354,6 +354,7 @@ class CodexCLITaskMonitor:
         cwd = Path(str(metadata.get("cwd") or self.project_root)).resolve()
         add_dirs = [Path(item).resolve() for item in (metadata.get("add_dirs") or []) if str(item).strip()]
         model = str(metadata.get("model") or task.runtime_model or config.CODEX_CLI_MODEL or "").strip() or None
+        sandbox_mode = str(metadata.get("sandbox_mode") or "").strip() or None
         launched = start_codex_exec_async(
             prompt=prompt,
             cwd=cwd,
@@ -362,6 +363,7 @@ class CodexCLITaskMonitor:
             add_dirs=add_dirs,
             resume_thread_id=thread_id,
             append_logs=True,
+            sandbox_mode=sandbox_mode,
         )
         self._update_metadata(
             paths["metadata"],
@@ -374,6 +376,7 @@ class CodexCLITaskMonitor:
                 "stdout_path": str(launched.stdout_path),
                 "stderr_path": str(launched.stderr_path),
                 "prompt_path": str(launched.prompt_path),
+                "sandbox_mode": sandbox_mode or "",
             },
         )
         save_codex_state(

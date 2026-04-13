@@ -33,6 +33,7 @@ _CODEX_SECTION_TITLES = {
     "delivery contract",
     "stale memory verification",
 }
+_CODEX_NON_MUTATING_STEP_TYPES = {"research", "synthesis", "review", "test"}
 
 
 def _runtime_timeout_or_default(value: int | None, default: int) -> int:
@@ -60,6 +61,13 @@ def _codex_selected_timeout_seconds(timeout_seconds: int) -> int:
     if configured > 0:
         return configured
     return 0
+
+
+def _codex_sandbox_mode_for_step(step_type: str | None) -> str | None:
+    normalized = str(step_type or "").strip().lower()
+    if normalized in _CODEX_NON_MUTATING_STEP_TYPES:
+        return "read-only"
+    return None
 
 
 @dataclass
@@ -290,6 +298,7 @@ def _compact_codex_task_packet(task_description: str, *, resume: bool = False) -
                 "",
                 "# Execution Rules",
                 "- Start with Suggested File Scope and only widen search if blocked.",
+                "- Harness already resolved external workspace policies; do not search outside the target repository for parent AGENTS.md or llms.txt files.",
                 "- Prefer changing source code in the target project over writing extra docs.",
                 "- Keep edits minimal and verify the changed behavior before finishing.",
             ]
@@ -506,6 +515,11 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
         session_hint: dict[str, Any] | None = None,
     ) -> TaskExecutionResult:
         t0 = time.monotonic()
+        execution_root = (
+            Path(str((session_hint or {}).get("project_root") or "")).resolve()
+            if str((session_hint or {}).get("project_root") or "").strip()
+            else self.project_root
+        )
         selected_model = runtime_selection.model if runtime_selection else (config.CODEX_CLI_MODEL or config.LLM_MODEL)
         selected_timeout = (
             _codex_selected_timeout_seconds(int(runtime_selection.timeout_seconds or 0))
@@ -513,6 +527,7 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             else _codex_selected_timeout_seconds(0)
         )
         resume_mode = bool(session_hint and session_hint.get("thread_id"))
+        sandbox_mode = _codex_sandbox_mode_for_step((session_hint or {}).get("step_type"))
         instructions = _compact_persona_for_codex(persona, resume=resume_mode)
         task_packet = _compact_codex_task_packet(task_description, resume=resume_mode)
         prompt = "\n\n".join(
@@ -525,8 +540,8 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
                 "Do the work directly in the target repository when appropriate. Return a concise final report of what changed, what was verified, and any remaining blockers.",
             ]
         )
-        resolved_output_dir = (output_dir or (self.project_root / "runtime" / f"codex-task-{int(time.time() * 1000)}")).resolve()
-        cwd, add_dirs = _codex_workdirs(task_description, self.project_root, resolved_output_dir)
+        resolved_output_dir = (output_dir or (execution_root / "runtime" / f"codex-task-{int(time.time() * 1000)}")).resolve()
+        cwd, add_dirs = _codex_workdirs(task_description, execution_root, resolved_output_dir)
         resume_thread_id = str((session_hint or {}).get("thread_id") or "").strip() or None
         session_key = str((session_hint or {}).get("session_key") or "").strip() or None
         launched = start_codex_exec_async(
@@ -537,6 +552,7 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             add_dirs=_dedupe_paths(add_dirs),
             resume_thread_id=resume_thread_id,
             append_logs=bool(resume_thread_id),
+            sandbox_mode=sandbox_mode,
         )
         metadata = {
             "provider": "codex",
@@ -558,6 +574,8 @@ class CodexCLITaskRuntime(BaseTaskRuntime):
             "session_key": session_key or "",
             "resume_thread_id": resume_thread_id or "",
             "resume_count": int((session_hint or {}).get("resume_count") or 0),
+            "step_type": str((session_hint or {}).get("step_type") or ""),
+            "sandbox_mode": sandbox_mode or ("full-auto" if config.CODEX_CLI_FULL_AUTO else config.CODEX_CLI_SANDBOX),
         }
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
         (resolved_output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
