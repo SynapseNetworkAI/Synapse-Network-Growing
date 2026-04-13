@@ -101,14 +101,14 @@ Primary roles:
 Purpose:
 
 1. implement the requirement
-2. review and validate based on real changed projects
-3. close, publish, or escalate
+2. validate based on real changed projects
+3. package delivery / PR / publish readiness and close or escalate
 
 Primary roles:
 
 1. `executor`
-2. `reviewer`
-3. `tester`
+2. `validator`
+3. `delivery_operator`
 
 #### D. Incident Recovery Workflow
 
@@ -229,6 +229,63 @@ Hard rules still force human review for:
 4. concrete implementation and validation tactics
 
 Harness must not overfit content decisions.
+
+## Execution Shape
+
+### Default Step Model
+
+The default requirement workflow is now a 5-step, Markdown-first flow:
+
+1. `research`
+2. `plan`
+3. `implementation`
+4. `validate`
+5. `closeout`
+
+The controller owns the deterministic flow and only `implementation` is mutating by default.
+
+Additional rules:
+
+1. standalone `synthesis` is merged into `plan`
+2. standalone `review` and `test` are merged into `validate`
+3. `bugfix` may branch only from `validate`
+4. `bugfix` always re-enters `validate` before `closeout`
+5. `closeout` only packages delivery evidence, branch/PR state, and publish readiness
+
+### Markdown-First Prompt Contract
+
+Agent-facing execution no longer receives raw template JSON or full contract payloads.
+
+The runtime now sends compact Markdown packets only:
+
+1. `requirement_brief`
+2. `step_brief`
+3. `validate_brief`
+4. `closeout_brief`
+
+The bootstrap brief is emitted once per requirement/session and later steps only receive delta context:
+
+1. current goal
+2. allowed actions
+3. required output
+4. prior handoff summary
+5. changed files / unresolved blockers when relevant
+
+Internal JSON remains for persistence, APIs, and deterministic gates only.
+
+### Requirement Family Dedupe
+
+Requirement intake now runs through a family layer before creating new work.
+
+Rules:
+
+1. every intake item gets a `family_key` and `family_category`
+2. only one active requirement is allowed per family
+3. duplicate signals reuse the existing active requirement instead of creating a new one
+4. validation-only experiment requirements may be soft-archived automatically by cleanup sweep
+5. real bug / incident / release families are merged or reopened, not hard-deleted
+
+This keeps the requirement pool from exploding with the same class of issue.
 
 ## Target State
 

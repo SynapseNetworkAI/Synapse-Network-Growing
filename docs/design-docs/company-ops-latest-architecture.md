@@ -13,6 +13,16 @@
 5. project policy / onboarding / budget / rebalance
 6. 结果回流到 signal、company review 和下一周期 bundle
 
+当前前端信息架构也已经从“一个首页塞满所有经营模块”切换为分页面组织：
+
+1. `/` 只保留轻量运营总览
+2. `/company-review` 承载深度经营复盘
+3. `/role-kpis` 承载角色 KPI 与工作分配
+4. `/autonomy` 承载自治模式看板
+5. `/recurring-workflows` 承载 ritual / scheduler / recurring workflow 管理
+
+这样做的目的，是让首页回到入口页定位，而不是继续膨胀成全量 COO 大盘。
+
 ## 1.0A Bug Detection Topology
 
 当前 bug 自动发现采用混合拓扑，而不是只依赖单一路径：
@@ -225,6 +235,77 @@ planner 只有在 full-plan 结构化输出时才要求 strict JSON；普通 tas
 4. 多代理用于隔离不确定性
 5. runtime / subagent 必须有生命周期与 cleanup
 6. 上下文必须按 budget / compact / stale verify 治理
+
+## 1.1C Five-Step Markdown-First Requirement Flow
+
+当前 requirement 执行主链已经收敛成 5-step：
+
+1. `research`
+2. `plan`
+3. `implementation`
+4. `validate`
+5. `closeout`
+
+这不是文档设想，而是当前代码的默认 step model。
+
+具体约束：
+
+1. `synthesis` 不再是默认一等 step，已经并入 `plan`
+2. `review` 和 `test` 不再作为默认独立 step，统一并入 `validate`
+3. `bugfix` 只能从 `validate` 分叉，并且修复后必须重新回到 `validate`
+4. `closeout` 只负责交付打包、branch / commit / PR / publish readiness，不再重复做验证判断
+5. 兼容历史 workflow run，API 会通过 `step_model_version` 标识当前 run 使用的 step 模型版本
+
+### Markdown-only agent packet
+
+当前 agent-facing prompt 已改成 Markdown-first packet：
+
+1. requirement 级只生成一次 `requirement_brief`
+2. 后续 step 只发 `step_brief / validate_brief / closeout_brief`
+3. 不再把模板 JSON、acceptance JSON、完整 delivery contract 原样塞给模型
+4. runtime 只发送目标、约束、允许动作、handoff 摘要和必要文件范围
+
+这样做的目的，是让程序控制流程，让模型专注执行，而不是在每一步重复理解整套系统规则。
+
+## 1.1D Requirement Status Semantics
+
+需求池页面里出现的状态项，表示系统支持的 requirement 状态枚举，而不是“当前数据库里一定有该状态的数据”。
+
+当前 requirement 可能的状态包括：
+
+1. `draft`
+2. `planned`
+3. `ready`
+4. `in_progress`
+5. `done`
+6. `blocked`
+7. `needs_revision`
+8. `deleted`
+
+左侧需求池子菜单则是面向 operator 的聚合视图：
+
+1. `运行中`
+2. `待审批`
+3. `已结束`
+4. `废弃/删除`
+
+因此，当库里 requirement 被清空时，这些筛选项仍会显示，但它们只代表“可筛选的状态”，不代表当前一定有真实数据覆盖。
+
+## 1.1E Requirement Family Dedupe
+
+当前 requirement intake 之前已经增加 family dedupe 层。
+
+目标是：
+
+1. 一个问题家族只保留一条活跃主 requirement
+2. 防止 validation/incident/approval automation 类问题无限重复入池
+
+当前行为：
+
+1. intake 时先计算 `family_key / family_category`
+2. agent/harness 会给出 `create_new / reuse_existing / archive_experiment`
+3. 若存在同 family 活跃 requirement，则直接复用主单
+4. `requirement_family_cleanup_sweep` 会软归档重复实验需求，而不是物理删除真实主单
 
 ## 1.1A Requirement → Plan → Execution 的边界
 

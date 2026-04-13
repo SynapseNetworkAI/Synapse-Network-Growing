@@ -28,24 +28,32 @@ Company Review
 
 当前操作台的核心页面有：
 
-1. `/` COO 驾驶舱与公司级 review
-2. `/requirements` 需求池
-3. `/requirements/:id` 需求详情
-4. `/optimization-signals` 优化信号
-5. `/project-policies` 项目策略与 onboarding
-6. `/tasks` 任务看板
-7. `/tasks/:id` 任务详情
-8. `/approvals` 审批中心
+1. `/` 运营总览首页
+2. `/company-review` 公司级 review
+3. `/role-kpis` 角色 KPI 与工作分配
+4. `/autonomy` 自治模式
+5. `/recurring-workflows` 定时任务管理
+6. `/requirements` 需求池
+7. `/requirements/:id` 需求详情
+8. `/optimization-signals` 优化信号
+9. `/project-policies` 项目策略与 onboarding
+10. `/tasks` 任务看板
+11. `/tasks/:id` 任务详情
+12. `/approvals` 审批中心
 
 建议按下面的心智模型来理解它们：
 
 1. 首页看“公司现在最该做什么”。
-2. 需求池看“哪些事情已经被系统正式接管”。
-3. 需求详情看“某件事是怎么被规划、执行、验证、交付的”。
-4. 优化信号看“系统自动发现了哪些问题和优化机会”。
-5. 项目策略看“系统在每个仓库里被允许做什么”。
-6. 任务看板和任务详情看“低层执行到底发生了什么”。
-7. 审批中心看“哪些高风险动作需要人来拍板”。
+2. 公司复盘看“经营层到底出了什么问题、要收什么 bundle”。
+3. 角色 KPI 看“谁在积压、谁在成为人工瓶颈”。
+4. 自治模式看“还有多少事情需要 operator 亲自盯”。
+5. 定时任务看“ritual 现在有没有真的在跑”。
+6. 需求池看“哪些事情已经被系统正式接管”。
+7. 需求详情看“某件事是怎么被规划、执行、验证、交付的”。
+8. 优化信号看“系统自动发现了哪些问题和优化机会”。
+9. 项目策略看“系统在每个仓库里被允许做什么”。
+10. 任务看板和任务详情看“低层执行到底发生了什么”。
+11. 审批中心看“哪些高风险动作需要人来拍板”。
 
 ## 1.1 Runtime 选择心智模型
 
@@ -136,6 +144,32 @@ Company Review
 4. 不明确时留空让系统自动路由。
 5. 通过排序和搜索先找到当前最有价值的 requirement，再进入详情页。
 
+### 状态筛选说明
+
+需求池顶部下拉框展示的是系统支持的 requirement 状态枚举，例如：
+
+1. `草稿`
+2. `已规划`
+3. `已暂停`
+4. `执行中`
+5. `已完成`
+6. `阻塞`
+7. `需修订`
+8. `已删除`
+
+左侧子菜单展示的是 operator 视角的聚合 bucket：
+
+1. `运行中`
+2. `待审批`
+3. `已结束`
+4. `废弃/删除`
+
+注意：
+
+1. 这些筛选项会一直显示
+2. 它们不代表当前数据库里一定存在对应状态的数据
+3. 如果 requirement 已被清空，列表可能为空，但筛选项本身仍然有效
+
 ## 2.3 需求详情 `/requirements/:id`
 
 ### 模块功能
@@ -167,14 +201,14 @@ Company Review
 
 1. 先确认 requirement 本身描述是对的。
 2. 再看 workflow 是否合理。
-3. `Steps` 面板里前两步通常是 `Research context → Synthesize plan`，中间 implementation 子步骤的数量、标题和作用域默认由 plan 模型决定，而不是由 harness 固定写死。
+3. 当前默认主链是 `Research context → Plan → Implementation → Validate → Closeout`。`plan` 会吸收旧的 `synthesis` 职责，`validate` 会吸收旧的 `review + test` 职责。
 4. `planning_mode` 默认优先走 agent full-plan；只有 agent 无法产出结构化 step JSON 时，才会退回 generic fallback。
 5. target project 的顺序默认按 requirement 原样保留，不再由 harness 自动改写“主仓”；模型会在这些目标项目范围内决定改代码、改文档或混合改动。
-6. review/test 会结合实现阶段产出的 `project_change_summary` 看本次到底改到了哪些项目，再决定验证重点。
+6. `validate` 会结合实现阶段产出的 `project_change_summary` 和 requirement acceptance 目标，看本次到底改到了哪些项目，再决定验证重点。
 7. 再看 Context Governance，确认 agent 看到的上下文没有失控，也没有吃到陈旧记忆。
 7. 再看 Runtime Lifecycle，确认 runtime/backend/session/subagent 没卡死。
 8. 再看 `Recovery Narrative & Incidents`，确认系统给出的事故分类和恢复建议是否合理。
-9. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan 或 publish。
+9. 最后才看 validation 与 delivery gate，决定是否继续执行、re-plan、publish 或归档。
 
 ## 2.4 优化信号 `/optimization-signals`
 

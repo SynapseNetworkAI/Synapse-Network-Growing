@@ -173,6 +173,22 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
     },
 ]
 
+LEGACY_VALIDATION_PROJECT_KEYS = {
+    "sng-validation",
+    "sng-validation-next",
+    "sng-validation-autochain",
+    "sng-validation-autochain-2",
+    "sng-validation-autochain-3",
+}
+
+LEGACY_VALIDATION_ROOT_PREFIXES = (
+    "/private/tmp/sng-delivery-validation",
+    "/private/tmp/sng-delivery-validation-next",
+    "/private/tmp/sng-delivery-autochain",
+    "/private/tmp/sng-delivery-autochain-2",
+    "/private/tmp/sng-delivery-autochain-3",
+)
+
 
 def _json_dump_list(values: list[str]) -> str:
     return json.dumps(values, ensure_ascii=False)
@@ -213,6 +229,14 @@ def _normalize_globs(values: list[str] | None, *, default: list[str]) -> list[st
 
 def _normalize_root_path(value: str) -> str:
     return str(Path(value.strip()).resolve()) if value.strip() else ""
+
+
+def _is_legacy_validation_policy(project_key: str | None, root_path: str | None) -> bool:
+    key = str(project_key or "").strip().lower()
+    root = _normalize_root_path(str(root_path or "")) if root_path else ""
+    if key in LEGACY_VALIDATION_PROJECT_KEYS:
+        return True
+    return any(root.startswith(prefix) for prefix in LEGACY_VALIDATION_ROOT_PREFIXES)
 
 
 def _normalize_capability_matrix(value: dict[str, Any] | None, *, release_mode: str = "manual") -> dict[str, bool]:
@@ -300,6 +324,18 @@ def aggregate_execution_controls(project_policies: list[dict[str, Any]]) -> dict
 
 
 def ensure_default_project_policies(db: Session) -> None:
+    legacy_rows = (
+        db.query(ProjectPolicyRow)
+        .all()
+    )
+    legacy_changed = False
+    for row in legacy_rows:
+        if _is_legacy_validation_policy(getattr(row, "project_key", None), getattr(row, "root_path", None)):
+            db.delete(row)
+            legacy_changed = True
+    if legacy_changed:
+        db.flush()
+
     rows = db.execute(text("SELECT project_key, root_path FROM project_policies")).all()
     existing = {str(project_key) for project_key, _ in rows if project_key}
     existing_roots = {

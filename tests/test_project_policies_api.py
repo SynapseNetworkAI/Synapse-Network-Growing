@@ -17,6 +17,31 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert synapse_policy["portfolio_budget_points"] >= 20
     assert synapse_policy["capability_matrix"]["shell_access"] is True
     assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
+    assert all(not key.startswith("sng-validation") for key in project_keys)
+
+
+def test_legacy_validation_clone_policies_are_purged_from_registry(db_session, synced_client):
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="sng-validation",
+            display_name="SNG Validation Clone",
+            root_path="/private/tmp/sng-delivery-validation",
+            status="active",
+            allowed_write_globs_json='["**"]',
+            forbidden_globs_json="[]",
+            required_checks_json="[]",
+            release_mode="manual",
+            requires_manual_approval=True,
+            notes="Legacy validation clone",
+        )
+    )
+    db_session.commit()
+
+    resp = synced_client.get("/api/project-policies")
+
+    assert resp.status_code == 200
+    project_keys = {item["project_key"] for item in resp.json()}
+    assert "sng-validation" not in project_keys
 
 
 def test_project_policy_can_be_updated(synced_client):

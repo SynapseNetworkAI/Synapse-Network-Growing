@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import OrgChart from '../src/pages/OrgChart'
+import CompanyReviewPage from '../src/pages/CompanyReviewPage'
+import RoleKpisPage from '../src/pages/RoleKpisPage'
+import AutonomyPage from '../src/pages/AutonomyPage'
+import RecurringWorkflowsPage from '../src/pages/RecurringWorkflowsPage'
+import App from '../src/App'
 import { api, DashboardStats, CompanyOperatingReview, RecurringWorkflow, RoleKpiSnapshot } from '../src/api'
 
 vi.mock('../src/api', async () => {
@@ -494,9 +499,49 @@ const mockRecurringWorkflows: RecurringWorkflow[] = [
 
 function renderOrgChart() {
   return render(
-    <BrowserRouter>
+    <MemoryRouter>
       <OrgChart />
-    </BrowserRouter>
+    </MemoryRouter>
+  )
+}
+
+function renderCompanyReviewPage() {
+  return render(
+    <MemoryRouter>
+      <CompanyReviewPage />
+    </MemoryRouter>
+  )
+}
+
+function renderRoleKpisPage() {
+  return render(
+    <MemoryRouter>
+      <RoleKpisPage />
+    </MemoryRouter>
+  )
+}
+
+function renderAutonomyPage() {
+  return render(
+    <MemoryRouter>
+      <AutonomyPage />
+    </MemoryRouter>
+  )
+}
+
+function renderRecurringWorkflowsPage() {
+  return render(
+    <MemoryRouter>
+      <RecurringWorkflowsPage />
+    </MemoryRouter>
+  )
+}
+
+function renderApp(initialPath = '/overview') {
+  return render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <App />
+    </MemoryRouter>
   )
 }
 
@@ -550,7 +595,7 @@ describe('OrgChart', () => {
     })
   })
 
-  it('renders the operator dashboard', async () => {
+  it('renders the slim overview dashboard', async () => {
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
     renderOrgChart()
 
@@ -559,65 +604,28 @@ describe('OrgChart', () => {
     })
 
     expect(screen.getByText('Company COO Dashboard')).toBeInTheDocument()
-    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('Role KPI & Work Allocation')
-    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('DevRel Engineer')
-    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('reviewer')
     expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('Autonomous COO Mode')
-    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('operator queue')
-    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('Autonomous COO mode keeps `5` daily loops self-running')
-    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('pending human gates: 1')
-    expect(screen.getByTestId('company-review-panel')).toHaveTextContent('Company Operating Review')
-    expect(screen.getAllByText('SDK critical release blocker').length).toBeGreaterThan(0)
-    expect(screen.getByTestId('next-cycle-bundle-panel')).toHaveTextContent('Next Cycle Requirement Bundle')
-    expect(screen.getByTestId('operator-review-package-panel')).toHaveTextContent('Operator Review Package')
-    expect(screen.getByTestId('operator-rituals-panel')).toHaveTextContent('Daily / Weekly Ritual Board')
     expect(screen.getByTestId('operator-priority-panel')).toHaveTextContent('Today Priorities')
     expect(screen.getByTestId('weekly-coo-package-panel')).toHaveTextContent('Weekly COO Review')
-    expect(screen.getByTestId('ritual-bug_log_sweep')).toHaveTextContent('new bugs: 2')
-    expect(screen.getByTestId('ritual-bug_log_sweep')).toHaveTextContent('converted to reqs: 1')
-    expect(screen.getByTestId('ritual-morning_intake_sweep')).toHaveTextContent('operator attention: 2')
-    expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups: 1')
-    expect(screen.getByTestId('ritual-closeout_and_compact_sweep')).toHaveTextContent('snapshots: 2')
-    expect(screen.getByTestId('ritual-weekly_operating_review')).toHaveTextContent('automation: 2')
-    expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('automated_validation_failure')
-    expect(screen.getByTestId('company-review-incidents')).toHaveTextContent('requirement #40')
-    expect(screen.getByTestId('company-review-bug-backlog')).toHaveTextContent('SDK release blocker keeps failing')
-    expect(screen.getByTestId('company-review-bug-backlog')).toHaveTextContent('fp-release-blocker')
-    expect(screen.getByTestId('company-review-cross-project-bugs')).toHaveTextContent('Provider auth desync')
-    expect(screen.getByTestId('company-review-cross-project-bugs')).toHaveTextContent('Synapse-Network-Provider')
-    expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('approval_required')
-    expect(screen.getByTestId('company-review-recommendations')).toHaveTextContent('needs operator approval')
-    expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('max_tier')
-    expect(screen.getByTestId('company-review-human-gates')).toHaveTextContent('count: 2')
-    expect(screen.getByTestId('company-review-automation-candidates')).toHaveTextContent('publish_automation')
-    expect(screen.getByText('open bugs')).toBeInTheDocument()
-    expect(screen.getByText('critical bugs')).toBeInTheDocument()
-    expect(screen.getByText('cross-project bugs')).toBeInTheDocument()
-    expect(screen.getByText('completion %')).toBeInTheDocument()
-    expect(screen.getByText('Prompt Cache')).toBeInTheDocument()
-    expect(screen.getByText(/saved chars: 9200/)).toBeInTheDocument()
-    expect(screen.getByText(/deduped bindings: 7/)).toBeInTheDocument()
-    expect(screen.getByText(/converted bug reqs: 1/)).toBeInTheDocument()
-    expect(screen.getByText(/escalations: 2/)).toBeInTheDocument()
-    expect(screen.getByText(/tier mix: mini 1 \/ std 4 \/ max 1/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('company-review-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('operator-rituals-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('overview-quick-links')).not.toBeInTheDocument()
   })
 
-  it('explains that the homepage is now ritual-driven', async () => {
+  it('explains that the homepage is now a lightweight entry page', async () => {
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
     vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
     renderOrgChart()
 
     await waitFor(() => {
-      expect(screen.getByText('首页聚焦 operating review、ritual、bundle 和 operator decisions。')).toBeInTheDocument()
-      expect(screen.queryByText('同步 Roles')).not.toBeInTheDocument()
-      expect(screen.queryByText('刷新 Review')).not.toBeInTheDocument()
+      expect(screen.getByText('首页现在只保留运营总览与入口，不再承载完整 COO 大盘。')).toBeInTheDocument()
     })
   })
 
-  it('materializes the next cycle bundle', async () => {
+  it('renders the company review page and materializes the next cycle bundle', async () => {
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
     vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
-    renderOrgChart()
+    renderCompanyReviewPage()
 
     await waitFor(() => {
       expect(screen.getByTestId('company-review-panel')).toBeInTheDocument()
@@ -630,19 +638,62 @@ describe('OrgChart', () => {
     })
   })
 
-  it('runs recurring rituals from the operator dashboard', async () => {
+  it('renders the role KPI page', async () => {
     vi.mocked(api.getStats).mockResolvedValue(mockStats)
-    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
-    renderOrgChart()
+    renderRoleKpisPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('ritual-dispatcher_loop')).toBeInTheDocument()
+      expect(screen.getByTestId('role-kpis-page')).toBeInTheDocument()
     })
 
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('Role KPI & Work Allocation')
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('DevRel Engineer')
+    expect(screen.getByTestId('role-kpis-panel')).toHaveTextContent('reviewer')
+  })
+
+  it('renders the autonomy page', async () => {
+    vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    renderAutonomyPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('autonomy-page')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('operator queue')
+    expect(screen.getByTestId('autonomous-coo-panel')).toHaveTextContent('pending human gates: 1')
+  })
+
+  it('runs recurring rituals from the recurring workflows page', async () => {
+    vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    vi.mocked(api.getRecurringWorkflows).mockResolvedValue(mockRecurringWorkflows)
+    renderRecurringWorkflowsPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recurring-workflows-page')).toBeInTheDocument()
+    })
+
+    expect(screen.getByTestId('operator-rituals-panel')).toHaveTextContent('运营自动化控制台')
+    expect(screen.getByTestId('ritual-bug_log_sweep')).toHaveTextContent('new bugs 2')
+    expect(screen.getByTestId('ritual-weekly_operating_review')).toHaveTextContent('bundle 1')
     fireEvent.click(screen.getByTestId('run-dispatcher_loop'))
     await waitFor(() => {
       expect(api.runRecurringWorkflow).toHaveBeenCalledWith('dispatcher_loop', {})
-      expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups: 2')
+      expect(screen.getByTestId('ritual-dispatcher_loop')).toHaveTextContent('follow-ups 2')
     })
+  })
+
+  it('shows the new overview tree and recurring workflow menu in app navigation', async () => {
+    vi.mocked(api.getStats).mockResolvedValue(mockStats)
+    renderApp('/overview')
+
+    await waitFor(() => {
+      expect(screen.getAllByText('运营总览').length).toBeGreaterThan(0)
+    })
+
+    expect(screen.getAllByText('定时任务').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('公司复盘').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('角色 KPI').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('自治模式').length).toBeGreaterThan(0)
+    expect(screen.getByTestId('orgchart-page')).toBeInTheDocument()
   })
 })

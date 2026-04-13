@@ -1,5 +1,9 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import OrgChart from './pages/OrgChart'
+import CompanyReviewPage from './pages/CompanyReviewPage'
+import RoleKpisPage from './pages/RoleKpisPage'
+import AutonomyPage from './pages/AutonomyPage'
+import RecurringWorkflowsPage from './pages/RecurringWorkflowsPage'
 import TaskBoard from './pages/TaskBoard'
 import TaskDetail from './pages/TaskDetail'
 import Approvals from './pages/Approvals'
@@ -9,12 +13,20 @@ import ProjectPolicies from './pages/ProjectPolicies'
 import OptimizationSignals from './pages/OptimizationSignals'
 
 const navItems = [
-  { to: '/', label: '组织架构' },
+  { to: '/overview', label: '运营总览' },
+  { to: '/recurring-workflows', label: '定时任务' },
   { to: '/requirements', label: '需求池' },
   { to: '/optimization-signals', label: '优化信号' },
   { to: '/project-policies', label: '项目策略' },
   { to: '/tasks', label: '任务看板' },
   { to: '/approvals', label: '审批中心' },
+]
+
+const overviewSubNavItems = [
+  { to: '/overview', label: '首页总览' },
+  { to: '/company-review', label: '公司复盘' },
+  { to: '/role-kpis', label: '角色 KPI' },
+  { to: '/autonomy', label: '自治模式' },
 ]
 
 const requirementSubNavItems = [
@@ -26,11 +38,39 @@ const requirementSubNavItems = [
 
 const routeBriefs = [
   {
-    match: (pathname: string) => pathname === '/',
+    match: (pathname: string) => pathname === '/' || pathname === '/overview',
+    eyebrow: 'Company Overview',
+    title: '运营总览入口',
+    description: '首页只保留轻量摘要、今日重点和页面入口，把深度 COO 分析拆到独立页面里。',
+    chips: ['overview', 'priorities', 'navigation'],
+  },
+  {
+    match: (pathname: string) => pathname === '/company-review',
     eyebrow: 'Company Operating Review',
-    title: '公司操作系统工作台',
-    description: '把组织、portfolio scheduler、optimization signals 和 next-cycle bundle 放在同一块决策界面里。',
-    chips: ['live backend', 'company review', 'operator package'],
+    title: '公司复盘与经营分析',
+    description: '集中查看 operating review、incident、bundle、operator package 和项目级经营信号。',
+    chips: ['company review', 'incidents', 'bundle'],
+  },
+  {
+    match: (pathname: string) => pathname === '/role-kpis',
+    eyebrow: 'Role Performance',
+    title: '角色 KPI 与工作分配',
+    description: '聚焦 execution / approval roles 的负载、积压、审批依赖和周转效率。',
+    chips: ['role kpi', 'backlog', 'allocation'],
+  },
+  {
+    match: (pathname: string) => pathname === '/autonomy',
+    eyebrow: 'Autonomous COO',
+    title: '自治模式看板',
+    description: '查看 operator queue、高风险事项、自动审批比例和自治执行覆盖率。',
+    chips: ['autonomy', 'operator queue', 'guardrails'],
+  },
+  {
+    match: (pathname: string) => pathname === '/recurring-workflows',
+    eyebrow: 'Ritual Control',
+    title: '定时任务与运营自动化',
+    description: '单独管理 intake、dispatch、closeout、approval 和 company review 的自动化任务。',
+    chips: ['rituals', 'scheduler', 'automation'],
   },
   {
     match: (pathname: string) => pathname === '/requirements',
@@ -90,6 +130,7 @@ function getRouteBrief(pathname: string) {
 export default function App() {
   const location = useLocation()
   const brief = getRouteBrief(location.pathname)
+  const overviewNavActive = location.pathname === '/' || location.pathname === '/overview' || location.pathname === '/company-review' || location.pathname === '/role-kpis' || location.pathname === '/autonomy'
   const requirementsNavActive = location.pathname.startsWith('/requirements')
 
   return (
@@ -110,10 +151,12 @@ export default function App() {
               <div key={n.to}>
                 <NavLink
                   to={n.to}
-                  end={n.to !== '/requirements'}
+                  end={!['/overview', '/requirements'].includes(n.to)}
                   className={({ isActive }) =>
                     `block rounded-2xl px-4 py-3 text-sm transition ${
-                      isActive || (n.to === '/requirements' && requirementsNavActive)
+                      isActive
+                      || (n.to === '/overview' && overviewNavActive)
+                      || (n.to === '/requirements' && requirementsNavActive)
                         ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
                         : 'text-slate-300 hover:bg-white/6 hover:text-white'
                     }`
@@ -121,6 +164,26 @@ export default function App() {
                 >
                   {n.label}
                 </NavLink>
+                {n.to === '/overview' && overviewNavActive && (
+                  <div className="mt-1 ml-3 space-y-1 border-l border-white/10 pl-3">
+                    {overviewSubNavItems.map((sub) => {
+                      const subActive = location.pathname === sub.to || (sub.to === '/overview' && location.pathname === '/')
+                      return (
+                        <NavLink
+                          key={sub.to}
+                          to={sub.to}
+                          className={`block rounded-xl px-3 py-2 text-xs transition ${
+                            subActive
+                              ? 'bg-white/10 text-white'
+                              : 'text-slate-400 hover:bg-white/6 hover:text-white'
+                          }`}
+                        >
+                          {sub.label}
+                        </NavLink>
+                      )
+                    })}
+                  </div>
+                )}
                 {n.to === '/requirements' && requirementsNavActive && (
                   <div className="mt-1 ml-3 space-y-1 border-l border-white/10 pl-3">
                     {requirementSubNavItems.map((sub) => {
@@ -161,10 +224,12 @@ export default function App() {
                 <NavLink
                   key={n.to}
                   to={n.to}
-                  end={n.to !== '/requirements'}
+                  end={!['/overview', '/requirements'].includes(n.to)}
                   className={({ isActive }) =>
                     `rounded-xl px-3 py-2 text-sm transition ${
-                      isActive || (n.to === '/requirements' && requirementsNavActive)
+                      isActive
+                      || (n.to === '/overview' && overviewNavActive)
+                      || (n.to === '/requirements' && requirementsNavActive)
                         ? 'bg-slate-900 text-white'
                         : 'text-slate-600 hover:bg-slate-100'
                     }`
@@ -174,6 +239,24 @@ export default function App() {
                 </NavLink>
               ))}
             </div>
+            {overviewNavActive && (
+              <div className="mt-2 flex min-w-max items-center gap-2 border-t border-slate-200 pt-2">
+                {overviewSubNavItems.map((sub) => {
+                  const subActive = location.pathname === sub.to || (sub.to === '/overview' && location.pathname === '/')
+                  return (
+                    <NavLink
+                      key={sub.to}
+                      to={sub.to}
+                      className={`rounded-xl px-3 py-1.5 text-xs transition ${
+                        subActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {sub.label}
+                    </NavLink>
+                  )
+                })}
+              </div>
+            )}
             {requirementsNavActive && (
               <div className="mt-2 flex min-w-max items-center gap-2 border-t border-slate-200 pt-2">
                 {requirementSubNavItems.map((sub) => {
@@ -228,6 +311,11 @@ export default function App() {
           <main className="min-h-[calc(100vh-8rem)] rounded-[30px] border border-white/80 bg-white/66 p-4 shadow-[0_20px_64px_rgba(148,163,184,0.18)] backdrop-blur md:p-6">
             <Routes>
               <Route path="/" element={<OrgChart />} />
+              <Route path="/overview" element={<OrgChart />} />
+              <Route path="/company-review" element={<CompanyReviewPage />} />
+              <Route path="/role-kpis" element={<RoleKpisPage />} />
+              <Route path="/autonomy" element={<AutonomyPage />} />
+              <Route path="/recurring-workflows" element={<RecurringWorkflowsPage />} />
               <Route path="/requirements" element={<RequirementPool />} />
               <Route path="/requirements/:id" element={<RequirementDetail />} />
               <Route path="/optimization-signals" element={<OptimizationSignals />} />

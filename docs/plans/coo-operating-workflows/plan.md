@@ -115,6 +115,7 @@
    4. approval reminder
 4. 将 follow-through 结果固化到 recurring workflow `last_result`，供 operator 日常值班查看
 5. 跟踪 `pending_approval` requirement，并把 stale approval backlog 纳入 follow-through
+6. 同项目 slot 释放后，优先启动同项目下一个 `ready` requirement，而不是被异项目抢占
 
 ### P1-R3 End-Of-Day Closeout Sweep
 
@@ -166,6 +167,24 @@
 3. budget pressure 自动生成 routing / budget tuning requirements
 4. 将 `automation_candidate` 接入 requirement source registry、unified intake 和 daily intake loop，稳定回流到 backlog
 5. 将高频人工审批原因沉淀成 `approval_automation_candidate`
+6. family dedupe 现在会在 intake 前判定 `reuse_existing / create_new / archive_experiment`
+
+### P2-R4 Requirement Family Dedupe And Cleanup
+
+状态：已实现
+
+目标：
+
+1. 防止同类 requirement 无限重复入池
+2. 清理 validation / autochain / queue-chain 之类的实验性需求残留
+
+实现：
+
+1. intake 先计算 `family_key / family_category`
+2. 同 family 只保留 1 条 active requirement
+3. 新 signal 默认复用已有主 requirement，而不是继续新建
+4. `requirement_family_cleanup_sweep` 会软归档重复实验需求
+5. requirement 池现在优先保留真实 bug / incident / release gate 主单
 
 ### P2-R3 Operator Dashboard And Rituals
 
@@ -232,3 +251,21 @@
 3. `approval_sweep` / `dispatcher_loop` / `closeout_and_compact_sweep` 的结果会被汇总进 autonomy posture
 4. 首页新增 `Autonomous COO Mode` 面板，直接展示 operator queue、auto-approved、stale approvals、autonomous workflow coverage
 5. 低风险 daily ritual 保持自主运行；失败和高风险事项继续回流 incident / replan / follow-up requirement 链
+
+### P3-R3 Five-Step Markdown-First Execution
+
+状态：已实现
+
+目标：
+
+1. 把 requirement workflow 从冗长 6-step + JSON-heavy 提示，收敛成 5-step + Markdown-first
+2. 最大限度减少重复上下文和无效 token 消耗
+
+实现：
+
+1. 默认 workflow 改为 `research -> plan -> implementation -> validate -> closeout`
+2. `synthesis` 并入 `plan`
+3. `review + test` 并入 `validate`
+4. agent prompt 改成 requirement bootstrap + step delta Markdown packet
+5. `file-changes.json` 只在 mutating step 真有代码变更时生成
+6. workflow/API 增加 `step_model_version=2.0`，兼容历史 6-step run
