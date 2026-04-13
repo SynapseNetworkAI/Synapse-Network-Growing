@@ -572,6 +572,9 @@ export interface DeliveryState {
   vcs_status: string | null
   vcs_remote_name: string | null
   vcs_repositories: Record<string, unknown>[]
+  compare_url: string | null
+  pr_metadata: Record<string, unknown> | null
+  promotion_checklist: Record<string, unknown>[]
 }
 
 export interface WorkflowStep {

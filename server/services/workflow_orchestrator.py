@@ -117,6 +117,110 @@ import logging as _logging
 _logger = _logging.getLogger("ops-dashboard.workflow_orchestrator")
 
 
+def _github_https_remote(remote_url: str | None) -> str | None:
+    value = str(remote_url or "").strip()
+    if not value:
+        return None
+    if value.startswith("git@github.com:"):
+        path = value.split(":", 1)[1]
+        if path.endswith(".git"):
+            path = path[:-4]
+        return f"https://github.com/{path}"
+    match = re.match(r"https?://github\.com/(?P<path>.+?)(?:\.git)?/?$", value)
+    if match:
+        path = match.group("path")
+        return f"https://github.com/{path}"
+    return None
+
+
+def _build_delivery_compare_url(vcs_payload: dict[str, Any], branch_name: str | None, base_branch: str | None) -> str | None:
+    if not isinstance(vcs_payload, dict):
+        return None
+    branch = str(branch_name or "").strip()
+    base = str(base_branch or "").strip()
+    if not branch or not base:
+        return None
+    repositories = vcs_payload.get("repositories") or []
+    if not isinstance(repositories, list):
+        return None
+    for item in repositories:
+        if not isinstance(item, dict):
+            continue
+        remote_base = _github_https_remote(item.get("remote_url"))
+        if remote_base:
+            return f"{remote_base}/compare/{base}...{branch}"
+    return None
+
+
+def _build_delivery_pr_metadata(
+    requirement: RequirementRow,
+    payload: dict[str, Any],
+    compare_url: str | None,
+) -> dict[str, Any]:
+    branch_name = str(payload.get("branch_name") or "").strip() or None
+    base_branch = str(payload.get("base_branch") or "").strip() or None
+    vcs_status = str(payload.get("vcs_status") or "").strip() or None
+    repositories = payload.get("vcs_repositories") or []
+    delivered_repos = 0
+    if isinstance(repositories, list):
+        delivered_repos = sum(1 for item in repositories if isinstance(item, dict) and str(item.get("status") or "") == "delivered")
+    title = f"ops(req-{requirement.id}): {str(requirement.title or '').strip() or 'review-ready bundle'}"
+    summary = str(payload.get("review_surface_summary") or "").strip() or f"Requirement #{requirement.id} review-ready bundle."
+    return {
+        "title": title[:120],
+        "head_branch": branch_name,
+        "base_branch": base_branch,
+        "remote_name": str(payload.get("vcs_remote_name") or "").strip() or None,
+        "status": vcs_status,
+        "draft": True,
+        "compare_url": compare_url,
+        "delivered_repository_count": delivered_repos,
+        "summary": summary,
+    }
+
+
+def _build_promotion_checklist(payload: dict[str, Any], compare_url: str | None) -> list[dict[str, Any]]:
+    pending_checks = [str(item) for item in (payload.get("pending_checks") or []) if str(item).strip()]
+    blockers = [str(item) for item in (payload.get("publish_blockers") or []) if str(item).strip()]
+    vcs_status = str(payload.get("vcs_status") or "").strip()
+    review_status = str(payload.get("review_status") or "").strip()
+    release_mode = str(payload.get("release_mode") or "").strip()
+    return [
+        {
+            "key": "branch_delivery",
+            "label": "Branch delivery pushed",
+            "status": "completed" if vcs_status == "delivered" else "blocked",
+            "detail": "Review branch committed and pushed to remote." if vcs_status == "delivered" else "Delivery branch push is incomplete.",
+        },
+        {
+            "key": "compare_url",
+            "label": "Compare URL ready",
+            "status": "completed" if compare_url else "pending",
+            "detail": compare_url or "No GitHub compare URL could be derived from the configured remote.",
+        },
+        {
+            "key": "required_checks",
+            "label": "Required checks confirmed",
+            "status": "completed" if not pending_checks else "pending",
+            "detail": "All required checks are confirmed." if not pending_checks else f"Pending checks: {', '.join(pending_checks)}",
+        },
+        {
+            "key": "review_bundle",
+            "label": "Review bundle prepared",
+            "status": "completed" if review_status == "review_ready" else "blocked",
+            "detail": "Review-ready bundle is available for promotion." if review_status == "review_ready" else "Review-ready bundle is not yet available.",
+        },
+        {
+            "key": "release_gate",
+            "label": "Release mode allows promotion",
+            "status": "completed" if release_mode == "manual" and not blockers else ("blocked" if blockers else "pending"),
+            "detail": "Manual release mode allows promotion after operator confirmation."
+            if release_mode == "manual" and not blockers
+            else ("Publish blockers must be cleared before promotion." if blockers else f"Release mode is `{release_mode or 'unknown'}`."),
+        },
+    ]
+
+
 def _normalize_runtime_tier(value: str | None) -> str:
     tier = str(value or "").strip().lower()
     if tier in _TIER_ORDER:
@@ -5299,6 +5403,42 @@ def _finalize_requirement(
     publish_status = "published" if auto_publish_allowed and not required_checks else (
         "blocked" if str(delivery_contract.get("release_mode") or "manual") == "disabled" else "review_ready"
     )
+    compare_url = _build_delivery_compare_url(
+        vcs_payload,
+        str(delivery_contract.get("branch_name") or "") or None,
+        str(delivery_contract.get("base_branch") or "") or None,
+    )
+    review_surface_payload = {
+        "requirement_id": _as_int(requirement.id),
+        "workflow_run_id": _as_int(workflow_run.id),
+        "branch_name": delivery_contract.get("branch_name"),
+        "validation_checks": _validation_check_statuses(db, _as_int(requirement.id)),
+        "vcs_delivery": vcs_payload,
+        "compare_url": compare_url,
+        "pr_metadata": _build_delivery_pr_metadata(
+            requirement,
+            {
+                "branch_name": delivery_contract.get("branch_name"),
+                "base_branch": delivery_contract.get("base_branch"),
+                "review_surface_summary": _delivery_review_surface_summary(requirement, db),
+                "vcs_status": vcs_payload.get("status"),
+                "vcs_remote_name": vcs_payload.get("remote_name"),
+                "vcs_repositories": vcs_payload.get("repositories") or [],
+            },
+            compare_url,
+        ),
+        "promotion_checklist": _build_promotion_checklist(
+            {
+                "review_status": "review_ready",
+                "release_mode": delivery_contract.get("release_mode"),
+                "pending_checks": required_checks if publish_status != "published" else [],
+                "publish_blockers": [],
+                "vcs_status": vcs_payload.get("status"),
+            },
+            compare_url,
+        ),
+        "generated_at": utcnow().isoformat(),
+    }
     review_surface = _create_artifact(
         db,
         requirement_id=requirement.id,
@@ -5306,14 +5446,7 @@ def _finalize_requirement(
         artifact_type="review_surface",
         content_summary=f"Review-ready bundle for requirement #{requirement.id}",
         human_readable_body=_delivery_review_surface_summary(requirement, db),
-        machine_readable_payload={
-            "requirement_id": _as_int(requirement.id),
-            "workflow_run_id": _as_int(workflow_run.id),
-            "branch_name": delivery_contract.get("branch_name"),
-            "validation_checks": _validation_check_statuses(db, _as_int(requirement.id)),
-            "vcs_delivery": vcs_payload,
-            "generated_at": utcnow().isoformat(),
-        },
+        machine_readable_payload=review_surface_payload,
     )
     _record_delivery_state(
         db,
@@ -6124,7 +6257,12 @@ def _delivery_state_payload(
     ]
     blockers.extend(vcs_blockers)
     blockers.extend([f"required check pending: {check}" for check in pending])
-    return {
+    compare_url = _build_delivery_compare_url(
+        effective_vcs_payload,
+        str(contract.get("branch_name") or "") or None,
+        str(contract.get("base_branch") or "") or None,
+    )
+    payload = {
         "branch_name": contract.get("branch_name"),
         "branch_strategy": contract.get("branch_strategy"),
         "base_branch": contract.get("base_branch"),
@@ -6149,7 +6287,11 @@ def _delivery_state_payload(
         "vcs_status": str(effective_vcs_payload.get("status") or "") or None,
         "vcs_remote_name": str(effective_vcs_payload.get("remote_name") or "") or None,
         "vcs_repositories": effective_vcs_payload.get("repositories") or [],
+        "compare_url": compare_url,
     }
+    payload["pr_metadata"] = _build_delivery_pr_metadata(requirement, payload, compare_url)
+    payload["promotion_checklist"] = _build_promotion_checklist(payload, compare_url)
+    return payload
 
 
 def _delivery_state_markdown(payload: dict[str, Any]) -> str:
@@ -6170,9 +6312,22 @@ def _delivery_state_markdown(payload: dict[str, Any]) -> str:
     vcs_status = str(payload.get("vcs_status") or "").strip()
     if vcs_status:
         lines.append(f"- VCS status: `{vcs_status}`")
+    compare_url = str(payload.get("compare_url") or "").strip()
+    if compare_url:
+        lines.append(f"- Compare URL: {compare_url}")
     required_checks = payload.get("required_checks") or []
     if isinstance(required_checks, list) and required_checks:
         lines.extend(["", "## Required Checks", *[f"- `{item}`" for item in required_checks]])
+    checklist = payload.get("promotion_checklist") or []
+    if isinstance(checklist, list) and checklist:
+        lines.extend(["", "## Promotion Checklist"])
+        for item in checklist:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip() or "check"
+            status = str(item.get("status") or "pending").strip()
+            detail = str(item.get("detail") or "").strip()
+            lines.append(f"- `{label}`: `{status}`" + (f" — {detail}" if detail else ""))
     blockers = payload.get("publish_blockers") or []
     if isinstance(blockers, list) and blockers:
         lines.extend(["", "## Publish Blockers", *[f"- {item}" for item in blockers]])
@@ -6275,6 +6430,9 @@ def _build_delivery_state(db: Session, requirement: RequirementRow) -> DeliveryS
         vcs_status=str(payload.get("vcs_status") or "") or None,
         vcs_remote_name=str(payload.get("vcs_remote_name") or "") or None,
         vcs_repositories=payload.get("vcs_repositories") or [],
+        compare_url=str(payload.get("compare_url") or "") or None,
+        pr_metadata=payload.get("pr_metadata") if isinstance(payload.get("pr_metadata"), dict) else None,
+        promotion_checklist=payload.get("promotion_checklist") if isinstance(payload.get("promotion_checklist"), list) else [],
     )
 
 

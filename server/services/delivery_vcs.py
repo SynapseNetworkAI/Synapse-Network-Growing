@@ -32,6 +32,16 @@ def _list_remotes(repo_path: str) -> list[str]:
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
+def _remote_url(repo_path: str, remote_name: str) -> str | None:
+    if remote_name not in _list_remotes(repo_path):
+        return None
+    completed = _run_git(repo_path, "remote", "get-url", remote_name, check=False)
+    if completed.returncode != 0:
+        return None
+    value = (completed.stdout or "").strip()
+    return value or None
+
+
 def _is_git_repo(repo_path: str) -> bool:
     completed = _run_git(repo_path, "rev-parse", "--show-toplevel", check=False)
     return completed.returncode == 0
@@ -232,6 +242,7 @@ def execute_requirement_delivery_vcs(
             "branch_name": branch_name,
             "base_branch": base_branch,
             "remote_name": remote_name,
+            "remote_url": None,
             "status": "blocked",
             "blockers": [],
             "committed": False,
@@ -245,6 +256,7 @@ def execute_requirement_delivery_vcs(
                 raise RuntimeError("repository path does not exist")
             if not _is_git_repo(repo_path):
                 raise RuntimeError("target path is not a git repository")
+            repo_result["remote_url"] = _remote_url(repo_path, remote_name)
             repo_result.update(_ensure_delivery_branch(repo_path, branch_name, base_branch, remote_name))
             dirty_before_commit = _working_tree_dirty(repo_path)
             repo_result["dirty_before_commit"] = dirty_before_commit

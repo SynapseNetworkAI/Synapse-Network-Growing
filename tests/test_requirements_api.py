@@ -2653,6 +2653,9 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
                 "repo_path": target_path,
                 "status": "delivered",
                 "branch_name": f"ops/req-{requirement_id}-delivery-branch-success",
+                "base_branch": "main",
+                "remote_name": "origin",
+                "remote_url": "git@github.com:openai/synapse-network-growing.git",
                 "commit_sha": "abc123def456",
                 "remote_sha": "abc123def456",
                 "committed": True,
@@ -2676,9 +2679,16 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
     assert detail["delivery_state"]["review_status"] == "review_ready"
     assert detail["delivery_state"]["vcs_status"] == "delivered"
     assert detail["delivery_state"]["vcs_repositories"][0]["commit_sha"] == "abc123def456"
+    assert detail["delivery_state"]["compare_url"] == (
+        f"https://github.com/openai/synapse-network-growing/compare/main...ops/req-{requirement_id}-delivery-branch-success"
+    )
+    assert detail["delivery_state"]["pr_metadata"]["title"].startswith(f"ops(req-{requirement_id})")
+    assert detail["delivery_state"]["promotion_checklist"][0]["key"] == "branch_delivery"
     review_surface = next(artifact for artifact in detail["artifacts"] if artifact["artifact_type"] == "review_surface")
     review_payload = json.loads(review_surface["machine_readable_payload"])
     assert review_payload["vcs_delivery"]["status"] == "delivered"
+    assert review_payload["compare_url"] == detail["delivery_state"]["compare_url"]
+    assert review_payload["pr_metadata"]["head_branch"] == f"ops/req-{requirement_id}-delivery-branch-success"
 
 
 def test_start_requirement_interrupts_when_capability_matrix_denies_shell_access(synced_client, db_session):

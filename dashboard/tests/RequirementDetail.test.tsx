@@ -350,6 +350,44 @@ const detail = {
     review_ready_at: '2026-04-11T08:05:00Z',
     published_at: null,
     publish_note: null,
+    vcs_status: 'delivered',
+    vcs_remote_name: 'origin',
+    vcs_repositories: [
+      {
+        repo_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        status: 'delivered',
+        branch_name: 'ops/req-1-verification-contract-hardening',
+        remote_url: 'git@github.com:openai/synapse-network-growing.git',
+        commit_sha: 'abc123def456',
+        remote_sha: 'abc123def456',
+        committed: true,
+        pushed: true,
+        blockers: [],
+      },
+    ],
+    compare_url: 'https://github.com/openai/synapse-network-growing/compare/main...ops/req-1-verification-contract-hardening',
+    pr_metadata: {
+      title: 'ops(req-1): Verification contract hardening',
+      head_branch: 'ops/req-1-verification-contract-hardening',
+      base_branch: 'main',
+      status: 'delivered',
+      draft: true,
+      delivered_repository_count: 1,
+    },
+    promotion_checklist: [
+      {
+        key: 'branch_delivery',
+        label: 'Branch delivery pushed',
+        status: 'completed',
+        detail: 'Review branch committed and pushed to remote.',
+      },
+      {
+        key: 'required_checks',
+        label: 'Required checks confirmed',
+        status: 'pending',
+        detail: 'Pending checks: npm run build',
+      },
+    ],
   },
   incidents: [
     {
@@ -447,6 +485,12 @@ describe('RequirementDetail', () => {
     expect(screen.getByText(/Recovery incident: bugfix circuit breaker/)).toBeInTheDocument()
     expect(screen.getByText(/operator_review_required/)).toBeInTheDocument()
     expect(screen.getByText('ops/req-1-verification-contract-hardening')).toBeInTheDocument()
+    expect(screen.getByText('PR Metadata')).toBeInTheDocument()
+    expect(screen.getByText('Compare')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /https:\/\/github.com\/openai\/synapse-network-growing\/compare\/main...ops\/req-1-verification-contract-hardening/i })).toBeInTheDocument()
+    expect(screen.getByText('Promotion Checklist')).toBeInTheDocument()
+    expect(screen.getByText('Branch delivery pushed')).toBeInTheDocument()
+    expect(screen.getByText('Required checks confirmed')).toBeInTheDocument()
     expect(screen.getByText(/required check pending: npm run build/)).toBeInTheDocument()
     expect(screen.getByTestId('publish-requirement-btn')).toBeInTheDocument()
     expect(screen.getByTestId('requirement-approval-panel')).toBeInTheDocument()

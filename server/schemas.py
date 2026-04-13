@@ -892,6 +892,9 @@ class DeliveryStateOut(BaseModel):
     vcs_status: Optional[str] = None
     vcs_remote_name: Optional[str] = None
     vcs_repositories: list[dict[str, object]] = []
+    compare_url: Optional[str] = None
+    pr_metadata: dict[str, object] | None = None
+    promotion_checklist: list[dict[str, object]] = []
 
 
 class ProjectScorecardOut(BaseModel):

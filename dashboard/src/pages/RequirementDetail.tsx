@@ -1119,8 +1119,64 @@ export default function RequirementDetail() {
                     </div>
                   </div>
                 </div>
+                {(deliveryState.compare_url || deliveryState.pr_metadata) && (
+                  <div className="grid gap-3 mt-3 text-xs sm:grid-cols-2">
+                    <div className="p-3 border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">PR Metadata</div>
+                      <div className="space-y-1 text-gray-600">
+                        <div>title: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.title || '-')}</div>
+                        <div>head: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.head_branch || deliveryState.branch_name || '-')}</div>
+                        <div>base: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.base_branch || deliveryState.base_branch || '-')}</div>
+                        <div>status: {String((deliveryState.pr_metadata as Record<string, unknown> | null)?.status || deliveryState.vcs_status || '-')}</div>
+                      </div>
+                    </div>
+                    <div className="p-3 border rounded-lg bg-white">
+                      <div className="mb-2 font-medium text-gray-900">Compare</div>
+                      {deliveryState.compare_url ? (
+                        <a
+                          href={deliveryState.compare_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-blue-600 break-all hover:underline"
+                        >
+                          {deliveryState.compare_url}
+                        </a>
+                      ) : (
+                        <div className="text-gray-500">当前 remote 无法推导 compare URL。</div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {deliveryState.review_surface_summary && (
                   <div className="mt-3 text-xs text-gray-700">{deliveryState.review_surface_summary}</div>
+                )}
+                {deliveryState.promotion_checklist.length > 0 && (
+                  <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
+                    <div className="mb-2 font-medium text-gray-900">Promotion Checklist</div>
+                    <div className="space-y-2">
+                      {deliveryState.promotion_checklist.map((item, idx) => {
+                        const entry = item as Record<string, unknown>
+                        const status = String(entry.status || 'pending')
+                        const tone =
+                          status === 'completed'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : status === 'blocked'
+                              ? 'bg-rose-50 text-rose-700'
+                              : 'bg-amber-50 text-amber-700'
+                        return (
+                          <div key={`${String(entry.key || 'check')}-${idx}`} className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-medium text-gray-900">{String(entry.label || entry.key || 'check')}</div>
+                              <div className="text-gray-500">{String(entry.detail || '')}</div>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
+                              {status}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 )}
                 {deliveryState.required_checks.length > 0 && (
                   <div className="mt-3 p-3 text-xs border rounded-lg bg-white">
