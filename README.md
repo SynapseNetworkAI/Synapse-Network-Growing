@@ -9,6 +9,10 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 
 这套方向对应 [AI 时代的公司架构设计](../cliff-mind/agnet/ai时代公司架构设计.md) 里的核心判断：
 
+## Branch Delivery Note
+
+- `ops/req-23-live-validate-branch-delivery-minimal-ch` — requirement #23 live validates a minimal branch delivery path; README is the only touched artifact in this repo for clarity and traceability.
+
 - 组织要从“职能分工”升级成“能力编排 + 治理边界”。
 - 流程要从给人看的 SOP，升级成“人和 Agent 都能执行的 machine-readable workflow”。
 - 人应该主要站在流程两端：定义目标、设定边界、处理例外，而不是承担大量中间搬运。
