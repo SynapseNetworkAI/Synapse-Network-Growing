@@ -15,9 +15,9 @@ from server.schemas import (
     ExternalLogCenterBatchRequest,
     ExternalLogCenterBatchResultOut,
 )
-from server.services.bug_intake import intake_bug
-from server.services.external_bug_adapter import intake_external_log_center_batch
-from server.services.bug_sources import list_bug_source_registry
+from server.services.bugs.intake import intake_bug
+from server.services.bugs.external_adapter import intake_external_log_center_batch
+from server.services.bugs.sources import list_bug_source_registry
 
 router = APIRouter(prefix="/api/bugs", tags=["bugs"])
 logger = logging.getLogger("ops-dashboard.bugs")

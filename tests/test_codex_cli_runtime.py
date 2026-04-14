@@ -6,15 +6,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server import config
-from server.services.codex_cli import (
+from server.services.runtime.codex_cli import (
     CodexAsyncExecResult,
     CodexExecResult,
     _build_codex_exec_command,
     _sanitize_plugin_manifests,
     run_codex_exec,
 )
-from server.services.llm_adapter import CodexCLIProvider
-from server.services.task_runtime import (
+from server.services.agents.llm_adapter import CodexCLIProvider
+from server.services.runtime.task_runtime import (
     CodexCLITaskRuntime,
     _codex_workdirs,
     get_task_runtime,
@@ -31,7 +31,7 @@ def test_codex_cli_provider_uses_codex_exec(tmp_path):
     output_path.write_text("planned steps", encoding="utf-8")
     provider = CodexCLIProvider()
 
-    with patch("server.services.llm_adapter.run_codex_exec", return_value=CodexExecResult(
+    with patch("server.services.agents.llm_adapter.run_codex_exec", return_value=CodexExecResult(
         text="planned steps",
         stdout="",
         stderr="",
@@ -64,7 +64,7 @@ def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
             thread_id="thread-async-1",
         )
 
-    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={"role": "content_writer", "display_name": "Writer", "goal": "Write", "body": ""},
             skill_name="copywriting",
@@ -152,7 +152,7 @@ def test_codex_cli_runtime_prefers_session_hint_project_root(tmp_path):
             thread_id="thread-async-2",
         )
 
-    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Research", "body": ""},
             skill_name="content-strategy",
@@ -182,7 +182,7 @@ def test_codex_cli_runtime_uses_read_only_sandbox_for_research(tmp_path):
             thread_id="thread-read-only-1",
         )
 
-    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Research", "body": ""},
             skill_name="content-strategy",
@@ -212,7 +212,7 @@ def test_codex_cli_runtime_uses_default_writable_mode_for_implementation(tmp_pat
             thread_id="thread-writable-1",
         )
 
-    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Implement", "body": ""},
             skill_name="content-strategy",
@@ -275,7 +275,7 @@ def test_codex_cli_timeout_returns_structured_error(tmp_path):
         stderr="partial stderr",
     )
 
-    with patch("server.services.codex_cli.subprocess.run", side_effect=timeout_error):
+    with patch("server.services.runtime.codex_cli.subprocess.run", side_effect=timeout_error):
         result = run_codex_exec(
             prompt="do work",
             cwd=tmp_path,
@@ -297,7 +297,7 @@ def test_codex_cli_timeout_accepts_bytes_streams(tmp_path):
         stderr=b"partial stderr",
     )
 
-    with patch("server.services.codex_cli.subprocess.run", side_effect=timeout_error):
+    with patch("server.services.runtime.codex_cli.subprocess.run", side_effect=timeout_error):
         result = run_codex_exec(
             prompt="do work",
             cwd=tmp_path,
@@ -312,7 +312,7 @@ def test_codex_cli_timeout_accepts_bytes_streams(tmp_path):
 
 
 def test_codex_cli_parses_jsonl_thread_and_final_message(tmp_path):
-    with patch("server.services.codex_cli.subprocess.run") as mock_run:
+    with patch("server.services.runtime.codex_cli.subprocess.run") as mock_run:
         mock_run.return_value = subprocess.CompletedProcess(
             args=["codex", "exec"],
             returncode=0,
@@ -357,7 +357,7 @@ def test_codex_cli_task_runtime_uses_compact_prompt_packet(tmp_path):
             thread_id="thread-compact",
         )
 
-    with patch("server.services.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
+    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
         result = runtime.execute(
             persona={
                 "role": "developer",

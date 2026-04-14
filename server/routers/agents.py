@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db, AgentRow, TaskRow
 from server.schemas import AgentOut, AgentMatch, RoleKpiSnapshotOut
-from server.services.agent_loader import ensure_agents_loaded
-from server.services.agent_matcher import match_agents
-from server.services.role_kpis import build_role_kpi_snapshot
+from server.services.agents.loader import ensure_agents_loaded
+from server.services.agents.matcher import match_agents
+from server.services.reviews.role_kpis import build_role_kpi_snapshot
 
 logger = logging.getLogger("ops-dashboard.agents")
 router = APIRouter(prefix="/api/agents", tags=["agents"])

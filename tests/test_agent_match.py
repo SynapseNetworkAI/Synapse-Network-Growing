@@ -2,7 +2,7 @@
 import json
 import pytest
 from unittest.mock import patch
-from server.services.agent_loader import ensure_agents_loaded
+from server.services.agents.loader import ensure_agents_loaded
 
 
 def _mock_agents():
@@ -29,7 +29,7 @@ def _mock_agents():
 @pytest.fixture
 def seeded_client(client, db_session):
     """Seed mocked agents into DB and return the test client."""
-    with patch("server.services.agent_loader.discover_agents", return_value=_mock_agents()):
+    with patch("server.services.agents.loader.discover_agents", return_value=_mock_agents()):
         ensure_agents_loaded(db_session)
         db_session.commit()
     return client

@@ -276,8 +276,8 @@ def test_bug_log_sweep_materializes_runtime_and_failure_candidates(synced_client
         encoding="utf-8",
     )
 
-    with patch("server.services.bug_log_sweep.config.LOG_DIR", str(log_dir)), patch(
-        "server.services.bug_log_sweep.config.LOG_FILE",
+    with patch("server.services.bugs.log_sweep.config.LOG_DIR", str(log_dir)), patch(
+        "server.services.bugs.log_sweep.config.LOG_FILE",
         "ops-dashboard.log",
     ):
         response = synced_client.post("/api/recurring-workflows/bug_log_sweep/run", json={})
@@ -312,8 +312,8 @@ def test_bug_log_sweep_groups_traceback_and_keeps_stack_snippet(synced_client, d
         encoding="utf-8",
     )
 
-    with patch("server.services.bug_log_sweep.config.LOG_DIR", str(log_dir)), patch(
-        "server.services.bug_log_sweep.config.LOG_FILE",
+    with patch("server.services.bugs.log_sweep.config.LOG_DIR", str(log_dir)), patch(
+        "server.services.bugs.log_sweep.config.LOG_FILE",
         "ops-dashboard.log",
     ):
         response = synced_client.post("/api/recurring-workflows/bug_log_sweep/run", json={})

@@ -32,6 +32,15 @@
 4. project policy 负责定义 deploy governance 边界；release center 负责执行和展示这些边界；requirement detail 不得复制这套控制面。
 5. 后续新增 UI / API 时，凡是“环境视角”或“发布视角”的能力，都默认进入独立 release center，而不是回灌到 requirement 页面。
 
+## 3B. 服务层必须按功能面治理
+
+1. `server/services` 不允许继续增长为平铺式万能目录；新增服务必须进入对应功能分包。
+2. requirement、release、runtime、review、project policy、signal、bug intake 必须按业务面拆分，不能继续堆进单一巨型模块。
+3. 服务文件超过规模阈值时必须拆分：
+   `> 500 行` 进入预警，`> 900 行` 必须做职责拆分。
+4. 每个服务分包都必须带 `README.md` 作为地图索引，说明职责、入口、依赖边界和迁移映射。
+5. router 不得直接依赖巨型杂糅模块的私有实现；应该通过分包 facade 或稳定公开入口接入。
+
 ## 4. 多代理的目标是隔离不确定性
 
 1. 多代理不是堆 worker 数量，而是分离 research、synthesis、implementation、verification 的职责。

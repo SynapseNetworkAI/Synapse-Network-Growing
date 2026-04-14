@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.schemas import ProjectPolicyCreate, ProjectPolicyOut, ProjectPolicyPatch
-from server.services.project_policy import (
+from server.services.projects.policy import (
     create_project_policy,
     delete_project_policy,
     get_project_policy,

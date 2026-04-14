@@ -1,7 +1,7 @@
 """Skills API router — lists available agent skills."""
 from fastapi import APIRouter
 
-from server.services.skill_loader import list_skills
+from server.services.agents.skills import list_skills
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 

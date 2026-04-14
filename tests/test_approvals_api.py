@@ -1,8 +1,8 @@
 """Tests for /api/approvals endpoints."""
 from unittest.mock import patch, MagicMock
 
-from server.services.task_runner import _run_task_sync
-from server.services.task_runtime import TaskExecutionResult
+from server.services.runtime.task_runner import _run_task_sync
+from server.services.runtime.task_runtime import TaskExecutionResult
 
 
 def _runtime_result(text: str, execution_time_ms: int = 100):
@@ -26,13 +26,13 @@ def _create_approval_task(client):
     task_id = create.json()["id"]
 
     # Set status to running via API (mocked dispatch)
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         client.post(f"/api/tasks/{task_id}/run")
 
     # Run the task_runner synchronously with mocked engine
     persona = {"role": "growth_lead", "display_name": "GL", "goal": "", "body": ""}
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result("[Mock output] publish content")
         mock_runtime_factory.return_value = mock_runtime
@@ -144,12 +144,12 @@ def test_dashboard_stats(synced_client):
         "description": "t2", "agent_id": "dev_rel", "skill_name": "seo-audit",
     })
     task2_id = create2.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task2_id}/run")
 
     # Complete t2 via task_runner
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result("done", execution_time_ms=50)
         mock_runtime_factory.return_value = mock_runtime
@@ -161,11 +161,11 @@ def test_dashboard_stats(synced_client):
         "requires_approval": True, "skill_name": "social-content",
     })
     task3_id = create3.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task3_id}/run")
 
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result("tweet", execution_time_ms=50)
         mock_runtime_factory.return_value = mock_runtime

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.schemas import ProjectOnboardingCreate, ProjectOnboardingOut
-from server.services.project_onboarding import create_project_onboarding, list_project_onboardings, project_onboarding_to_dict
+from server.services.projects.onboarding import create_project_onboarding, list_project_onboardings, project_onboarding_to_dict
 
 
 router = APIRouter(prefix="/api/project-onboarding", tags=["project-onboarding"])

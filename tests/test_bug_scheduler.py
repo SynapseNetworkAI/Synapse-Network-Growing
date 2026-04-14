@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from server.database import RecurringWorkflowRow, utcnow
-from server.services.bug_log_scheduler import bug_log_sweep_due, maybe_run_bug_log_sweep_once
+from server.services.bugs.log_scheduler import bug_log_sweep_due, maybe_run_bug_log_sweep_once
 
 
 def test_bug_log_sweep_due_checks_interval():
@@ -34,7 +34,7 @@ def test_maybe_run_bug_log_sweep_once_runs_only_when_due(db_session):
     db_session.commit()
 
     with patch(
-        "server.services.bug_log_scheduler.run_recurring_workflow",
+        "server.services.bugs.log_scheduler.run_recurring_workflow",
         return_value={"workflow_key": "bug_log_sweep", "status": "completed", "result": {}},
     ) as mock_run:
         result = maybe_run_bug_log_sweep_once(db_session)
@@ -46,7 +46,7 @@ def test_maybe_run_bug_log_sweep_once_runs_only_when_due(db_session):
     db_session.add(row)
     db_session.commit()
 
-    with patch("server.services.bug_log_scheduler.run_recurring_workflow") as mock_run_recent:
+    with patch("server.services.bugs.log_scheduler.run_recurring_workflow") as mock_run_recent:
         recent_result = maybe_run_bug_log_sweep_once(db_session)
     assert recent_result is None
     assert mock_run_recent.call_count == 0

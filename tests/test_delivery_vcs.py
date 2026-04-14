@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from server.services.delivery_vcs import execute_requirement_delivery_vcs
+from server.services.delivery.vcs import execute_requirement_delivery_vcs
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:

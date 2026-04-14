@@ -4,7 +4,10 @@ import json
 
 from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
 from server.config import PROJECT_ROOT
-from server.services.company_review import materialize_company_review_automation_candidates, refresh_company_operating_review
+from server.services.reviews.company_review import (
+    materialize_company_review_automation_candidates,
+    refresh_company_operating_review,
+)
 
 
 def test_company_review_refresh_serializes_workflow_ritual_datetimes(synced_client, db_session):

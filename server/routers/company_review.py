@@ -13,7 +13,7 @@ from server.schemas import (
     CompanyReviewBundleMaterializeRequest,
     CompanyReviewBundleMaterializeResultOut,
 )
-from server.services.company_review import (
+from server.services.reviews.company_review import (
     company_review_to_dict,
     latest_company_operating_review,
     materialize_company_review_bundle,

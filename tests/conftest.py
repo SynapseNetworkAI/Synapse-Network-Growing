@@ -11,8 +11,8 @@ from sqlalchemy.pool import StaticPool
 from server.database import Base, get_db, SessionLocal as _ProdSession
 from server.main import app
 from server.config import PROJECT_ROOT
-from server.services.agent_loader import ensure_agents_loaded
-from server.services.copilot_sdk_state import task_output_dir
+from server.services.agents.loader import ensure_agents_loaded
+from server.services.runtime.copilot_sdk_state import task_output_dir
 
 # In-memory SQLite for tests — StaticPool ensures all connections share one DB
 TEST_ENGINE = create_engine(
@@ -142,22 +142,22 @@ def setup_db():
     app.dependency_overrides[get_db] = _override_get_db
     Base.metadata.create_all(bind=TEST_ENGINE)
     # Also patch SessionLocal used by task_runner to use test DB
-    with patch("server.services.task_runner.SessionLocal", TestSession), patch(
-        "server.services.copilot_sdk_monitor.SessionLocal", TestSession
+    with patch("server.services.runtime.task_runner.SessionLocal", TestSession), patch(
+        "server.services.runtime.copilot_sdk_monitor.SessionLocal", TestSession
     ), patch(
-        "server.services.workflow_orchestrator.SessionLocal", TestSession
+        "server.services.workflows.orchestrator.SessionLocal", TestSession
     ), patch(
-        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery", _fake_vcs_delivery
+        "server.services.workflows.orchestrator._execute_requirement_vcs_delivery", _fake_vcs_delivery
     ), patch(
-        "server.services.workflow_orchestrator._sync_requirement_review_pr", _fake_review_pr_sync
+        "server.services.workflows.orchestrator._sync_requirement_review_pr", _fake_review_pr_sync
     ), patch(
-        "server.services.workflow_orchestrator.capture_task_file_change_baseline",
+        "server.services.workflows.orchestrator.capture_task_file_change_baseline",
         _fake_capture_task_file_change_baseline,
     ), patch(
-        "server.services.workflow_orchestrator._snapshot_file_changes",
+        "server.services.workflows.orchestrator._snapshot_file_changes",
         _fake_snapshot_file_changes,
     ), patch(
-        "server.services.workflow_orchestrator._schedule_advance_queue", lambda: None
+        "server.services.workflows.orchestrator._schedule_advance_queue", lambda: None
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
         "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
     ), patch(

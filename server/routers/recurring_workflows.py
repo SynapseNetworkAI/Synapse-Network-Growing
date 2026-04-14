@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from server.database import get_db
 from server.logging_utils import timed_operation
 from server.schemas import RecurringWorkflowOut, RecurringWorkflowRunRequest, RecurringWorkflowRunResultOut
-from server.services.recurring_workflows import (
+from server.services.scheduling.recurring_workflows import (
     get_recurring_workflow,
     recurring_workflow_to_dict,
     run_recurring_workflow,

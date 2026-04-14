@@ -8,11 +8,11 @@ from sqlalchemy.orm import sessionmaker
 
 from server import config
 from server.database import TaskRow
-from server.services.workflow_orchestrator import pause_task
-from server.services.llm_adapter import OpenAIProvider
-from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
-from server.services.task_runner import _run_task_sync
-from server.services.task_runtime import OpenAIResponsesTaskRuntime, TaskExecutionResult
+from server.services.workflows.orchestrator import pause_task
+from server.services.agents.llm_adapter import OpenAIProvider
+from server.services.runtime.openai_responses_monitor import OpenAIResponsesTaskMonitor
+from server.services.runtime.task_runner import _run_task_sync
+from server.services.runtime.task_runtime import OpenAIResponsesTaskRuntime, TaskExecutionResult
 
 
 def _runtime_result(
@@ -136,12 +136,12 @@ def test_openai_monitor_completes_detached_task(synced_client, db_session, tmp_p
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
-    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
-        "server.services.task_runner.get_task_runtime"
+    with patch("server.services.runtime.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.runtime.task_runner.get_task_runtime"
     ) as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(
@@ -183,7 +183,7 @@ def test_openai_monitor_marks_incomplete_response_as_failed(synced_client, db_se
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
@@ -220,7 +220,7 @@ def test_openai_monitor_alerts_and_pauses_on_quota_error(synced_client, db_sessi
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
@@ -242,8 +242,8 @@ def test_openai_monitor_alerts_and_pauses_on_quota_error(synced_client, db_sessi
 
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
     monitor = OpenAIResponsesTaskMonitor(project_root=tmp_path, session_factory=session_factory, provider=provider)
-    with patch("server.services.openai_responses_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert, patch(
-        "server.services.llm_adapter.OpenAIProvider.cancel_response",
+    with patch("server.services.runtime.openai_responses_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert, patch(
+        "server.services.agents.llm_adapter.OpenAIProvider.cancel_response",
         return_value={},
     ):
         monitor.poll_once()
@@ -267,10 +267,10 @@ def test_task_runner_pauses_immediate_openai_guard_errors(synced_client, db_sess
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
-        "server.services.task_runner.get_task_runtime"
+    with patch("server.services.runtime.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.runtime.task_runner.get_task_runtime"
     ) as mock_runtime_factory, patch(
-        "server.services.openai_responses_monitor.send_lark_text_alert",
+        "server.services.runtime.openai_responses_monitor.send_lark_text_alert",
         return_value=(True, "ok"),
     ) as mock_alert:
         mock_runtime = MagicMock()
@@ -308,7 +308,7 @@ def test_pause_task_tolerates_openai_response_already_failed(synced_client, db_s
     db_session.commit()
 
     with patch(
-        "server.services.llm_adapter.OpenAIProvider.cancel_response",
+        "server.services.agents.llm_adapter.OpenAIProvider.cancel_response",
         side_effect=RuntimeError("LLM API error 400: Cannot cancel a failed response."),
     ):
         pause_task(db_session, task_id, reason="quota guard", event_detail="Paused after guard")

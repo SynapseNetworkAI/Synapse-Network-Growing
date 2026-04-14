@@ -297,8 +297,8 @@ def test_queue_advance_auto_intakes_best_signal_when_no_ready_requirements(synce
     )
     db_session.commit()
 
-    with patch("server.services.workflow_orchestrator.plan_requirement") as mock_plan, patch(
-        "server.services.workflow_orchestrator.start_requirement"
+    with patch("server.services.workflows.orchestrator.plan_requirement") as mock_plan, patch(
+        "server.services.workflows.orchestrator.start_requirement"
     ) as mock_start:
         resp = synced_client.post("/api/requirements/queue/advance")
 

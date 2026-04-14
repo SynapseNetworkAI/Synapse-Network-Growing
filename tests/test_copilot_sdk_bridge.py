@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from server.services.copilot_sdk_bridge import CopilotSDKBridge
+from server.services.runtime.copilot_sdk_bridge import CopilotSDKBridge
 
 
 def _bridge(tmp_path: Path) -> CopilotSDKBridge:

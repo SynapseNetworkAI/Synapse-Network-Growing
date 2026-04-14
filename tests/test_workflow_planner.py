@@ -4,9 +4,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from server.database import AgentRow, ArtifactRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
-from server.services.optimization_templates import get_optimization_requirement_template
-import server.services.workflow_planner as workflow_planner
-from server.services.workflow_planner import (
+from server.services.signals.optimization_templates import get_optimization_requirement_template
+import server.services.workflows.planner as workflow_planner
+from server.services.workflows.planner import (
     _DetectedPhases,
     _base_file_scope,
     _plan_with_agent,
@@ -116,7 +116,7 @@ def test_full_plan_cools_down_after_copilot_authorization_error(monkeypatch):
     monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "copilot_sdk")
     monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "copilot")
     monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         assert _plan_with_agent("Need a plan", "/tmp/project") is None
         assert _plan_with_agent("Need a plan", "/tmp/project") is None
 
@@ -153,7 +153,7 @@ def test_full_plan_uses_openai_responses_style_call(monkeypatch):
     monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "openai_responses")
     monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         steps = _plan_with_agent("Need a plan", "/tmp/project")
 
     assert steps is not None
@@ -194,7 +194,7 @@ def test_full_plan_uses_codex_provider_call_when_backend_is_codex(monkeypatch):
     monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "openai")
     monkeypatch.setattr(workflow_planner.config, "CODEX_CLI_MODEL", "")
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         steps = _plan_with_agent("Need a plan", "/tmp/project")
 
     assert steps is not None
@@ -360,7 +360,7 @@ def _patch_agent_phases(phases: dict):
         })
     provider = MagicMock()
     provider.call.return_value = (json.dumps({"steps": ordered_steps}), 123)
-    return patch("server.services.workflow_planner.get_provider", return_value=provider)
+    return patch("server.services.workflows.planner.get_provider", return_value=provider)
 
 
 class TestBuildPlannerOutput:
@@ -1012,7 +1012,7 @@ class TestBuildPlannerOutput:
         db_session.add(req)
         db_session.commit()
 
-        with patch("server.services.workflow_planner._plan_with_agent", side_effect=AssertionError("agent planner should not run")):
+        with patch("server.services.workflows.planner._plan_with_agent", side_effect=AssertionError("agent planner should not run")):
             output, assignments = build_planner_output(db_session, req)
 
         assert output["planning_mode"] == "deterministic_validation_clone"

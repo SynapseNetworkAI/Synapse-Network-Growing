@@ -28,11 +28,11 @@ from server.schemas import (
     TaskPatch,
 )
 from server.config import PROJECT_ROOT, ORCHESTRATION_BACKEND
-from server.services.task_metadata import task_metadata_for_agent, project_for_group
-from server.services.agent_loader import ensure_agents_loaded
-from server.services.execution_resolver import suggest_task_execution
-from server.services.codex_cli import filter_codex_stderr
-from server.services.workflow_orchestrator import _normalize_task_file_change_payload
+from server.services.runtime.task_metadata import task_metadata_for_agent, project_for_group
+from server.services.agents.loader import ensure_agents_loaded
+from server.services.agents.execution_resolver import suggest_task_execution
+from server.services.runtime.codex_cli import filter_codex_stderr
+from server.services.workflows.orchestrator import _normalize_task_file_change_payload
 
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -374,7 +374,7 @@ def pause_task_endpoint(
     db: Session = Depends(get_db),
 ):
     """Pause a running task and cascade the pause to parent requirement."""
-    from server.services.workflow_orchestrator import pause_task
+    from server.services.workflows.orchestrator import pause_task
     try:
         row = pause_task(db, task_id)
         return _task_to_out(row)
@@ -492,7 +492,7 @@ def run_task(
     db.refresh(row)
 
     # Dispatch to background thread
-    from server.services.task_runner import dispatch
+    from server.services.runtime.task_runner import dispatch
     dispatch(task_id=_require_task_id(row), agent_persona=persona, skill_name=effective_skill)
 
     return _task_to_out(row)  # returns status=running immediately
@@ -512,7 +512,7 @@ def retry_task(
     db.refresh(row)
 
     if dispatch_payload:
-        from server.services.task_runner import dispatch
+        from server.services.runtime.task_runner import dispatch
 
         retry_task_id, persona, skill_name = dispatch_payload
         dispatch(task_id=retry_task_id, agent_persona=persona, skill_name=skill_name)
@@ -545,7 +545,7 @@ def bulk_retry_tasks(body: TaskBulkRetryRequest, db: Session = Depends(get_db)):
         db.refresh(row)
 
     if dispatch_payloads:
-        from server.services.task_runner import dispatch
+        from server.services.runtime.task_runner import dispatch
 
         for retry_task_id, persona, skill_name in dispatch_payloads:
             dispatch(task_id=retry_task_id, agent_persona=persona, skill_name=skill_name)

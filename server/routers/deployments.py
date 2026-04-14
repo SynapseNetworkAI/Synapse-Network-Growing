@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import get_db
 from server.schemas import DeploymentOverviewOut, DeploymentRecordOut, DeploymentReportRequest, EnvironmentStatusOut
-from server.services.deployment_governance import (
+from server.services.delivery.deployment_governance import (
     build_deployment_overview,
     build_project_environment_statuses,
     report_deployment_result,
 )
-from server.services.project_policy import get_project_policy
+from server.services.projects.policy import get_project_policy
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 

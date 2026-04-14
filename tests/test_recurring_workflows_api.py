@@ -82,7 +82,7 @@ def test_run_approval_sweep_auto_approves_low_risk_pending_requirements(synced_c
 
 def test_run_bug_log_sweep_workflow_updates_bug_backlog(synced_client):
     with patch(
-        "server.services.recurring_workflows.run_bug_log_sweep",
+        "server.services.scheduling.recurring_workflows.run_bug_log_sweep",
         return_value={
             "created_bug_ids": [4, 5],
             "updated_bug_ids": [2],
@@ -92,7 +92,7 @@ def test_run_bug_log_sweep_workflow_updates_bug_backlog(synced_client):
             "intake_results": [],
         },
     ) as mock_run, patch(
-        "server.services.recurring_workflows.intake_requirement_sources",
+        "server.services.scheduling.recurring_workflows.intake_requirement_sources",
         return_value={
             "executed_sources": ["bug_intake"],
             "created_requirement_ids": [21],
@@ -157,7 +157,7 @@ def test_run_requirement_family_cleanup_sweep_archives_duplicate_validation_expe
 
 def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
     with patch(
-        "server.services.recurring_workflows.intake_requirement_sources",
+        "server.services.scheduling.recurring_workflows.intake_requirement_sources",
         return_value={
             "executed_sources": ["optimization_signal", "company_review_bundle"],
             "created_requirement_ids": [11, 12],
@@ -166,7 +166,7 @@ def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
             "items": [],
         },
     ) as mock_intake, patch(
-        "server.services.recurring_workflows.list_optimization_signals",
+        "server.services.scheduling.recurring_workflows.list_optimization_signals",
         return_value=[
             MagicMock(
                 id=7,
@@ -179,7 +179,7 @@ def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
             )
         ],
     ), patch(
-        "server.services.recurring_workflows.list_open_incidents",
+        "server.services.scheduling.recurring_workflows.list_open_incidents",
         return_value=[
             {
                 "incident_key": "incident-1",
@@ -189,10 +189,10 @@ def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
             }
         ],
     ), patch(
-        "server.services.recurring_workflows.latest_company_operating_review",
+        "server.services.scheduling.recurring_workflows.latest_company_operating_review",
         return_value=MagicMock(id=18),
     ), patch(
-        "server.services.recurring_workflows.company_review_to_dict",
+        "server.services.scheduling.recurring_workflows.company_review_to_dict",
         return_value={
             "next_cycle_requirement_bundle": [
                 {
@@ -225,7 +225,7 @@ def test_run_morning_intake_workflow_uses_unified_intake(synced_client):
 
 def test_run_morning_intake_workflow_serializes_datetime_incidents(synced_client):
     with patch(
-        "server.services.recurring_workflows.intake_requirement_sources",
+        "server.services.scheduling.recurring_workflows.intake_requirement_sources",
         return_value={
             "executed_sources": ["optimization_signal"],
             "created_requirement_ids": [],
@@ -234,10 +234,10 @@ def test_run_morning_intake_workflow_serializes_datetime_incidents(synced_client
             "items": [],
         },
     ), patch(
-        "server.services.recurring_workflows.list_optimization_signals",
+        "server.services.scheduling.recurring_workflows.list_optimization_signals",
         return_value=[],
     ), patch(
-        "server.services.recurring_workflows.list_open_incidents",
+        "server.services.scheduling.recurring_workflows.list_open_incidents",
         return_value=[
             {
                 "incident_key": "incident-1",
@@ -248,10 +248,10 @@ def test_run_morning_intake_workflow_serializes_datetime_incidents(synced_client
             }
         ],
     ), patch(
-        "server.services.recurring_workflows.latest_company_operating_review",
+        "server.services.scheduling.recurring_workflows.latest_company_operating_review",
         return_value=MagicMock(id=18),
     ), patch(
-        "server.services.recurring_workflows.company_review_to_dict",
+        "server.services.scheduling.recurring_workflows.company_review_to_dict",
         return_value={"next_cycle_requirement_bundle": []},
     ):
         response = synced_client.post("/api/recurring-workflows/morning_intake_sweep/run", json={})
@@ -264,7 +264,7 @@ def test_run_morning_intake_workflow_serializes_datetime_incidents(synced_client
 
 def test_run_dispatcher_loop_workflow_advances_requirement_queue(synced_client):
     with patch(
-        "server.services.recurring_workflows.advance_requirement_queue",
+        "server.services.scheduling.recurring_workflows.advance_requirement_queue",
         return_value={"started_ids": [31], "created_requirement_ids": [], "rebalanced_ids": [], "preempted_ids": []},
     ) as mock_advance:
         response = synced_client.post("/api/recurring-workflows/dispatcher_loop/run", json={})
@@ -320,10 +320,10 @@ def test_run_dispatcher_loop_workflow_generates_follow_through_actions(synced_cl
     db_session.commit()
 
     with patch(
-        "server.services.recurring_workflows.advance_requirement_queue",
+        "server.services.scheduling.recurring_workflows.advance_requirement_queue",
         return_value={"started_ids": [31], "created_requirement_ids": [], "rebalanced_ids": [], "preempted_ids": []},
     ), patch(
-        "server.services.recurring_workflows.list_open_incidents",
+        "server.services.scheduling.recurring_workflows.list_open_incidents",
         return_value=[
             {
                 "requirement_id": paused_requirement.id,
@@ -356,10 +356,10 @@ def test_run_dispatcher_loop_workflow_generates_follow_through_actions(synced_cl
 def test_run_weekly_operating_review_refreshes_company_review(synced_client):
     fake_review = MagicMock(id=7, cycle_label="2026-W15")
     with patch(
-        "server.services.recurring_workflows.refresh_company_operating_review",
+        "server.services.scheduling.recurring_workflows.refresh_company_operating_review",
         return_value=fake_review,
     ) as mock_refresh, patch(
-        "server.services.recurring_workflows.company_review_to_dict",
+        "server.services.scheduling.recurring_workflows.company_review_to_dict",
         return_value={
             "next_cycle_requirement_bundle": [{"bundle_item_key": "bundle-1"}],
             "next_cycle_recommendations": [{"recommendation_key": "rec-1"}],
@@ -435,10 +435,10 @@ def test_run_closeout_and_compact_workflow_records_review_snapshot_and_compactio
 
     fake_review = MagicMock(id=22, cycle_label="2026-04-12")
     with patch(
-        "server.services.recurring_workflows.dispatch_acceptance_sweep",
+        "server.services.scheduling.recurring_workflows.dispatch_acceptance_sweep",
         return_value={"scanned": 2, "dispatched_requirement_ids": [], "candidates": [{"requirement_id": done_requirement.id}]},
     ), patch(
-        "server.services.recurring_workflows.refresh_company_operating_review",
+        "server.services.scheduling.recurring_workflows.refresh_company_operating_review",
         return_value=fake_review,
     ):
         response = synced_client.post(

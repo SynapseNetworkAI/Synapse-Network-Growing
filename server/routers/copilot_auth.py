@@ -7,7 +7,7 @@ from server.schemas import (
     CopilotDeviceCodePollRequest,
     CopilotDeviceCodePollOut,
 )
-from server.services.copilot_auth import CopilotAuthService
+from server.services.runtime.copilot_auth import CopilotAuthService
 
 router = APIRouter(prefix="/api/copilot-auth", tags=["copilot-auth"])
 auth_service = CopilotAuthService()

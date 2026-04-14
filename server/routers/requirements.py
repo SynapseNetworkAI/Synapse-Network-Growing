@@ -31,11 +31,11 @@ from server.schemas import (
     SchedulerPlanOut,
     WorkflowStepPatch,
 )
-from server.services.deployment_governance import list_requirement_deployment_records, trigger_requirement_deployment
-from server.services.project_intelligence import build_requirement_serialization_context, serialize_requirement
-from server.services.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
-from server.services.requirement_sources import intake_requirement_sources, list_requirement_source_registry
-from server.services.workflow_orchestrator import (
+from server.services.delivery.deployment_governance import list_requirement_deployment_records, trigger_requirement_deployment
+from server.services.projects.intelligence import build_requirement_serialization_context, serialize_requirement
+from server.services.scheduling.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
+from server.services.requirements.sources import intake_requirement_sources, list_requirement_source_registry
+from server.services.workflows.orchestrator import (
     _normalize_target_project_path,
     advance_requirement_queue,
     build_requirement_detail,

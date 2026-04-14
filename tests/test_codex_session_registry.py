@@ -6,8 +6,8 @@ from pathlib import Path
 from sqlalchemy.exc import OperationalError
 
 from server.database import AgentRow, CodexSessionRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
-from server.services.codex_cli import codex_runtime_paths
-from server.services.codex_session_registry import (
+from server.services.runtime.codex_cli import codex_runtime_paths
+from server.services.runtime.codex_session_registry import (
     build_session_key,
     find_reusable_session,
     safe_update_session_state,
@@ -153,7 +153,7 @@ def test_codex_monitor_validate_registry_exposes_report(db_session, tmp_path):
     _seed_codex_session(db_session, tmp_path, suffix="monitor", thread_id="thread-monitor")
     session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
 
-    from server.services.codex_cli_monitor import CodexCLITaskMonitor
+    from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
 
     monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
     report = monitor.validate_registry()

@@ -8,9 +8,9 @@ from unittest.mock import patch
 from sqlalchemy.orm import sessionmaker
 
 from server.database import AgentRow, CodexSessionRow, RequirementRow, TaskLogRow, TaskRow, WorkflowRunRow, WorkflowStepRow, utcnow
-from server.services.codex_cli import CodexAsyncExecResult, codex_runtime_paths, save_codex_state
-from server.services.codex_cli_monitor import CodexCLITaskMonitor
-from server.services.codex_session_registry import upsert_session_launch
+from server.services.runtime.codex_cli import CodexAsyncExecResult, codex_runtime_paths, save_codex_state
+from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
+from server.services.runtime.codex_session_registry import upsert_session_launch
 
 
 def _seed_running_codex_task(db_session, tmp_path: Path) -> tuple[TaskRow, Path]:
@@ -161,10 +161,10 @@ def test_codex_monitor_resumes_stalled_task(db_session, tmp_path):
         os = __import__("os")
         os.utime(file_path, (old_mtime, old_mtime))
 
-    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch(
-        "server.services.codex_cli_monitor.terminate_pid"
+    with patch("server.services.runtime.codex_cli_monitor.pid_is_running", return_value=True), patch(
+        "server.services.runtime.codex_cli_monitor.terminate_pid"
     ) as mock_terminate, patch(
-        "server.services.codex_cli_monitor.start_codex_exec_async", return_value=launched
+        "server.services.runtime.codex_cli_monitor.start_codex_exec_async", return_value=launched
     ):
         monitor.sync_task(task.id)
 
@@ -220,9 +220,9 @@ def test_codex_monitor_skips_hard_timeout_when_disabled(db_session, tmp_path):
         os = __import__("os")
         os.utime(file_path, (now, now))
 
-    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch.object(
+    with patch("server.services.runtime.codex_cli_monitor.pid_is_running", return_value=True), patch.object(
         CodexCLITaskMonitor, "_activity_age_seconds", return_value=0
-    ), patch("server.services.codex_cli_monitor.start_codex_exec_async") as mock_resume:
+    ), patch("server.services.runtime.codex_cli_monitor.start_codex_exec_async") as mock_resume:
         monitor.sync_task(task.id)
 
     check_db = session_factory()
@@ -274,8 +274,8 @@ def test_codex_monitor_treats_timeout_as_soft_when_thread_is_active(db_session, 
         os = __import__("os")
         os.utime(file_path, (now, now))
 
-    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch(
-        "server.services.codex_cli_monitor.start_codex_exec_async"
+    with patch("server.services.runtime.codex_cli_monitor.pid_is_running", return_value=True), patch(
+        "server.services.runtime.codex_cli_monitor.start_codex_exec_async"
     ) as mock_resume:
         monitor.sync_task(task.id)
 
@@ -332,8 +332,8 @@ def test_codex_monitor_ignores_stderr_noise_for_activity_heartbeat(db_session, t
         os.utime(file_path, (old_mtime, old_mtime))
     paths["stderr"].touch()
 
-    with patch("server.services.codex_cli_monitor.pid_is_running", return_value=True), patch(
-        "server.services.codex_cli_monitor.start_codex_exec_async"
+    with patch("server.services.runtime.codex_cli_monitor.pid_is_running", return_value=True), patch(
+        "server.services.runtime.codex_cli_monitor.start_codex_exec_async"
     ) as mock_resume:
         monitor.sync_task(task.id)
 
@@ -393,7 +393,7 @@ def test_codex_monitor_resumes_unexpected_process_exit(db_session, tmp_path):
     session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
     monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
 
-    with patch("server.services.codex_cli_monitor.start_codex_exec_async", return_value=launched):
+    with patch("server.services.runtime.codex_cli_monitor.start_codex_exec_async", return_value=launched):
         monitor.sync_task(task.id)
 
     check_db = session_factory()
@@ -459,7 +459,7 @@ def test_codex_monitor_resume_preserves_read_only_sandbox(db_session, tmp_path):
     session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
     monitor = CodexCLITaskMonitor(project_root=tmp_path, session_factory=session_factory)
 
-    with patch("server.services.codex_cli_monitor.start_codex_exec_async", return_value=launched) as mock_start:
+    with patch("server.services.runtime.codex_cli_monitor.start_codex_exec_async", return_value=launched) as mock_start:
         monitor.sync_task(task.id)
 
     kwargs = mock_start.call_args.kwargs

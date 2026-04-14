@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import server.services.project_intelligence as project_intelligence
-import server.services.portfolio_scheduler as portfolio_scheduler
-import server.services.workflow_orchestrator as workflow_orchestrator
+import server.services.projects.intelligence as project_intelligence
+import server.services.scheduling.portfolio_scheduler as portfolio_scheduler
+import server.services.workflows.orchestrator as workflow_orchestrator
 from sqlalchemy.exc import OperationalError
 from server.database import (
     AgentRow,
@@ -31,12 +31,12 @@ from server.database import (
     WorkflowStepEventRow,
     WorkflowStepRow,
 )
-from server.services.workflow_orchestrator import MAX_BUGFIX_BRANCH_DEPTH
-from server.services.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state
-from server.services.agent_loader import ensure_agents_loaded
-from server.services.requirement_attachments import persist_requirement_attachments
-from server.services.task_runner import _run_task_sync
-from server.services.task_runtime import RuntimeEvent, TaskExecutionResult
+from server.services.workflows.orchestrator import MAX_BUGFIX_BRANCH_DEPTH
+from server.services.runtime.codex_cli import codex_runtime_paths, load_codex_state, save_codex_state
+from server.services.agents.loader import ensure_agents_loaded
+from server.services.requirements.attachments import persist_requirement_attachments
+from server.services.runtime.task_runner import _run_task_sync
+from server.services.runtime.task_runtime import RuntimeEvent, TaskExecutionResult
 
 
 def _runtime_result(*, text: str = "", error: str | None = None, execution_time_ms: int = 5, events=None):
@@ -300,7 +300,7 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     planned = plan_resp.json()
@@ -329,8 +329,8 @@ def test_requirement_workflow_runs_bugfix_loop_to_completion(synced_client, db_s
                 return _runtime_result(text="Bugfix applied to resolve the failed validation.")
             return _runtime_result(text="noop")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -415,7 +415,7 @@ def test_duplicate_approval_automation_requirement_reuses_active_family_requirem
 
 
 def test_legacy_runtime_budget_points_do_not_trip_bugfix_loop_budget_guardrail():
-    from server.services.task_runtime import estimate_runtime_budget_points
+    from server.services.runtime.task_runtime import estimate_runtime_budget_points
 
     assert estimate_runtime_budget_points(
         tier="standard",
@@ -455,7 +455,7 @@ def test_incident_research_task_routes_to_engineering_agent(synced_client, db_se
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -503,10 +503,10 @@ def test_waived_requirement_creation_auto_plans(synced_client, db_session):
             if self._target is not None:
                 self._target(*self._args, **self._kwargs)
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
-        "server.services.workflow_orchestrator.threading.Thread",
+    with patch("server.services.workflows.planner.get_provider", return_value=provider), patch(
+        "server.services.workflows.orchestrator.threading.Thread",
         ImmediateThread,
-    ), patch("server.services.workflow_orchestrator._schedule_advance_queue") as mock_advance_queue:
+    ), patch("server.services.workflows.orchestrator._schedule_advance_queue") as mock_advance_queue:
         create_resp = synced_client.post(
             "/api/requirements",
             json={
@@ -595,11 +595,11 @@ def test_execute_autonomous_project_requirement_auto_starts_on_create(synced_cli
             if self._target is not None:
                 self._target(*self._args, **self._kwargs)
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
-        "server.services.workflow_orchestrator.threading.Thread",
+    with patch("server.services.workflows.planner.get_provider", return_value=provider), patch(
+        "server.services.workflows.orchestrator.threading.Thread",
         ImmediateThread,
-    ), patch("server.services.workflow_orchestrator._schedule_advance_queue") as mock_advance_queue, patch(
-        "server.services.workflow_orchestrator.start_requirement"
+    ), patch("server.services.workflows.orchestrator._schedule_advance_queue") as mock_advance_queue, patch(
+        "server.services.workflows.orchestrator.start_requirement"
     ) as mock_start_requirement:
         create_resp = synced_client.post(
             "/api/requirements",
@@ -657,7 +657,7 @@ def test_approval_automation_research_task_routes_to_engineering_agent(synced_cl
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -701,8 +701,8 @@ def test_requirement_centric_delivery_research_task_routes_to_engineering_agent(
             if self._target is not None:
                 self._target(*self._args, **self._kwargs)
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
-        "server.services.workflow_orchestrator.threading.Thread",
+    with patch("server.services.workflows.planner.get_provider", return_value=provider), patch(
+        "server.services.workflows.orchestrator.threading.Thread",
         ImmediateThread,
     ):
         create_resp = synced_client.post(
@@ -765,7 +765,7 @@ def test_incident_implementation_task_rewrites_legacy_docs_only_scope(synced_cli
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -815,7 +815,7 @@ def test_requirement_plan_can_be_edited_and_rebound(synced_client, db_session):
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     planned_detail = plan_resp.json()
@@ -877,7 +877,7 @@ def test_workflow_step_edit_updates_pending_task_description(synced_client, db_s
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -950,7 +950,7 @@ def test_running_or_completed_workflow_step_cannot_be_edited(synced_client, db_s
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     step = db_session.query(WorkflowStepRow).filter(
@@ -999,7 +999,7 @@ def test_workflow_step_can_be_edited_before_task_exists(synced_client, db_sessio
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -1061,7 +1061,7 @@ def test_requirement_acceptance_contract_roundtrips_and_dispatches(synced_client
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     assert plan_resp.json()["requirement"]["acceptance_contract"]["acceptance_trigger"] == "implementation_completed"
@@ -1126,7 +1126,7 @@ def test_requirement_plan_auto_approves_low_risk_execution(synced_client, db_ses
         ),
         111,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     payload = plan_resp.json()
@@ -1170,7 +1170,7 @@ def test_requirement_serialization_includes_approval_router_and_recommendation(s
         ),
         111,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     assert plan_resp.status_code == 200
@@ -1236,7 +1236,7 @@ def test_requirement_approval_auto_triggers_planning(synced_client, db_session):
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         approve_resp = synced_client.post(
             f"/api/requirements/{requirement_id}/approval/decide",
             json={"action": "approve", "reviewer": "cto", "comment": "Proceed"},
@@ -1279,7 +1279,7 @@ def test_requirement_approval_accepts_null_comment(synced_client):
         ),
         111,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         approve_resp = synced_client.post(
             f"/api/requirements/{requirement_id}/approval/decide",
             json={"action": "approve", "reviewer": "cto", "comment": None},
@@ -1299,7 +1299,7 @@ def test_requirement_approval_sets_plan_failed_when_auto_planning_fails(synced_c
     )
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    with patch("server.services.workflow_orchestrator.build_planner_output", side_effect=RuntimeError("planner unavailable")):
+    with patch("server.services.workflows.orchestrator.build_planner_output", side_effect=RuntimeError("planner unavailable")):
         approve_resp = synced_client.post(
             f"/api/requirements/{requirement_id}/approval/decide",
             json={"action": "approve", "reviewer": "cto", "comment": "Try plan"},
@@ -1350,7 +1350,7 @@ def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_cl
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         approve_resp = synced_client.post(
             f"/api/requirements/{requirement_id}/approval/decide",
             json={"action": "approve", "reviewer": "cto", "comment": "Looks good"},
@@ -1371,8 +1371,8 @@ def test_requirement_start_blocks_until_requirement_approval_then_runs(synced_cl
                 return _runtime_result(text="validate ok")
             return _runtime_result(text="closeout ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
     assert start_resp.status_code == 200
@@ -1394,7 +1394,7 @@ def test_requirement_reject_sets_rejected_approval_status(synced_client, db_sess
         json.dumps({"steps": [{"step_key": "implementation", "title": "Implement", "scope": "backend", "depends_on": [], "done_when": "Done."}]}),
         99,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
     reject_resp = synced_client.post(
         f"/api/requirements/{requirement_id}/approval/decide",
@@ -1430,7 +1430,7 @@ def test_scheduler_excludes_pending_requirement_approvals(synced_client, db_sess
         json.dumps({"steps": [{"step_key": "implementation", "title": "Implement", "scope": "backend", "depends_on": [], "done_when": "Done."}]}),
         77,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{manual_required.json()['requirement']['id']}/plan")
         synced_client.post(f"/api/requirements/{approved.json()['requirement']['id']}/plan")
 
@@ -1538,17 +1538,17 @@ def test_requirement_source_registry_lists_sources_and_counts(synced_client, db_
 
 
 def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
-    with patch("server.services.optimization_signals.refresh_optimization_signals"), patch(
-        "server.services.optimization_signals.auto_intake_optimization_signals",
+    with patch("server.services.signals.optimization_signals.refresh_optimization_signals"), patch(
+        "server.services.signals.optimization_signals.auto_intake_optimization_signals",
         return_value={
             "created": [{"signal_id": 7, "requirement_id": 71, "title": "From signal", "score": 88.0}],
             "skipped": ["signal #8 below threshold"],
         },
     ), patch(
-        "server.services.company_review.refresh_company_operating_review",
+        "server.services.reviews.company_review.refresh_company_operating_review",
         return_value=MagicMock(id=12),
     ), patch(
-        "server.services.company_review.materialize_company_review_bundle",
+        "server.services.reviews.company_review.materialize_company_review_bundle",
         return_value=MagicMock(
             created_requirement_ids=[81],
             reused_requirement_ids=[82],
@@ -1562,7 +1562,7 @@ def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
             },
         ),
     ), patch(
-        "server.services.company_review.materialize_company_review_automation_candidates",
+        "server.services.reviews.company_review.materialize_company_review_automation_candidates",
         return_value=MagicMock(
             created_requirement_ids=[91],
             reused_requirement_ids=[92],
@@ -1576,7 +1576,7 @@ def test_requirement_source_intake_endpoint_aggregates_sources(synced_client):
             },
         ),
     ), patch(
-        "server.services.requirement_sources.materialize_bug_backlog",
+        "server.services.requirements.sources.materialize_bug_backlog",
         return_value={
             "created_requirement_ids": [101],
             "reused_requirement_ids": [102],
@@ -1906,7 +1906,7 @@ def test_bug_intake_requirement_plan_includes_bug_validation_contract(synced_cli
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     assert plan_resp.status_code == 200
@@ -2111,7 +2111,7 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -2202,10 +2202,10 @@ def test_requirement_keeps_target_project_order_and_records_dynamic_project_chan
             encoding="utf-8",
         )
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ), patch(
-        "server.services.workflow_orchestrator._snapshot_file_changes", side_effect=_write_code_snapshot
+        "server.services.workflows.orchestrator._snapshot_file_changes", side_effect=_write_code_snapshot
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2291,8 +2291,8 @@ def test_requirement_bugfix_loop_circuit_breaks_on_repeated_identical_errors(syn
                 return _runtime_result(error=repeated_error)
             return _runtime_result(text="noop")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2365,8 +2365,8 @@ def test_requirement_bugfix_loop_circuit_breaks_on_depth_limit(synced_client, db
                 return _runtime_result(error=next(error_messages))
             return _runtime_result(text="noop")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2429,8 +2429,8 @@ def test_requirement_stays_blocked_until_dependencies_finish(synced_client):
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{blocker_id}/start")
 
@@ -2477,7 +2477,7 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -2489,8 +2489,8 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
                 return _runtime_result(error="Requirement issue: needs revision because the acceptance criteria are ambiguous.")
             return _runtime_result(text="noop")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2513,7 +2513,7 @@ def test_requirement_revision_reopens_and_replans_workflow(synced_client):
     assert revised["requirement"]["active_workflow_run_id"] is None
     assert any(artifact["artifact_type"] == "requirement_revision" for artifact in revised["artifacts"])
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         replan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert replan_resp.status_code == 200
 
@@ -2549,7 +2549,7 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     first_run_id = plan_resp.json()["workflow_run"]["id"]
@@ -2560,8 +2560,8 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
                 return _runtime_result(error="Requirement issue: needs revision after validation.")
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=RevisionRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2587,21 +2587,21 @@ def test_start_after_revision_replaces_cancelled_workflow_run(synced_client):
         def execute(self, **_kwargs):
             return _runtime_result(text="completed")
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
-        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+    with patch("server.services.workflows.planner.get_provider", return_value=provider), patch(
+        "server.services.workflows.orchestrator._execute_requirement_vcs_delivery",
         return_value=(
             {"status": "delivered", "blockers": [], "repositories": [], "remote_name": "origin"},
             None,
         ),
     ), patch(
-        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        "server.services.workflows.orchestrator._sync_requirement_review_pr",
         return_value=(
             {"status": "draft", "blockers": [], "pr_url": "https://example.com/pr/1"},
             None,
         ),
     ), patch(
-        "server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()
-    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
+        "server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()
+    ), patch("server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch):
         restart_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert restart_resp.status_code == 200
@@ -2648,9 +2648,9 @@ def test_start_requirement_auto_plans_unplanned_requirement(synced_client):
         123,
     )
 
-    with patch("server.services.workflow_planner.get_provider", return_value=provider), patch(
-        "server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()
-    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider), patch(
+        "server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()
+    ), patch("server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert start_resp.status_code == 200
@@ -2740,8 +2740,8 @@ def test_requirement_revision_cancels_running_codex_cli_task(synced_client, db_s
     step.compatibility_task_id = task.id
     db_session.commit()
 
-    with patch("server.services.workflow_orchestrator.task_output_dir", return_value=output_dir), patch(
-        "server.services.workflow_orchestrator.terminate_pid"
+    with patch("server.services.workflows.orchestrator.task_output_dir", return_value=output_dir), patch(
+        "server.services.workflows.orchestrator.terminate_pid"
     ) as terminate_pid_mock:
         revise_resp = synced_client.post(
             f"/api/requirements/{requirement.id}/revise",
@@ -2810,7 +2810,7 @@ def test_start_requirement_stays_ready_when_no_step_dispatch_happens(synced_clie
     plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
-    with patch("server.services.workflow_orchestrator._dispatch_next_step_for_requirement", return_value=None):
+    with patch("server.services.workflows.orchestrator._dispatch_next_step_for_requirement", return_value=None):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
     assert start_resp.status_code == 200
@@ -2856,8 +2856,8 @@ def test_paused_requirement_does_not_consume_project_capacity(synced_client, db_
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -2995,8 +2995,8 @@ def test_queue_advance_prefers_automation_ready_projects(synced_client, db_sessi
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         queue_resp = synced_client.post("/api/requirements/queue/advance")
 
@@ -3090,8 +3090,8 @@ def test_queue_advance_can_start_multiple_projects_in_same_window(synced_client)
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         queue_resp = synced_client.post("/api/requirements/queue/advance")
 
@@ -3153,16 +3153,16 @@ def test_manual_scheduler_rebalance_preempts_lower_value_running_requirement(syn
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{running_id}/start")
     assert start_resp.status_code == 200
     assert start_resp.json()["requirement"]["status"] == "in_progress"
 
-    with patch("server.services.portfolio_scheduler.MAX_GLOBAL_CAPACITY", 1), patch(
-        "server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()
-    ), patch("server.services.task_runner.dispatch", side_effect=_sync_dispatch):
+    with patch("server.services.scheduling.portfolio_scheduler.MAX_GLOBAL_CAPACITY", 1), patch(
+        "server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()
+    ), patch("server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch):
         scheduler_resp = synced_client.get("/api/requirements/scheduler")
         rebalance_resp = synced_client.post("/api/requirements/scheduler/rebalance")
 
@@ -3281,7 +3281,7 @@ def test_delivery_state_stops_at_review_ready_when_publish_disabled(synced_clien
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
@@ -3299,8 +3299,8 @@ def test_delivery_state_stops_at_review_ready_when_publish_disabled(synced_clien
         "latest_remote_sha": "abc123def456",
         "blockers": [],
     }
-    with patch("server.services.workflow_orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.workflows.orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -3355,7 +3355,7 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
     assert any(artifact["artifact_type"] == "delivery_contract" for artifact in plan_resp.json()["artifacts"])
@@ -3375,8 +3375,8 @@ def test_publish_endpoint_requires_confirmed_checks_then_promotes(synced_client,
         "latest_remote_sha": "abc123def456",
         "blockers": [],
     }
-    with patch("server.services.workflow_orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.workflows.orchestrator._sync_requirement_review_pr", return_value=(pr_payload, None)), patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -3433,7 +3433,7 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
@@ -3441,7 +3441,7 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
             return _runtime_result(text="ok")
 
     with patch(
-        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+        "server.services.workflows.orchestrator._execute_requirement_vcs_delivery",
         return_value=(
             {
                 "status": "blocked",
@@ -3454,7 +3454,7 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
             None,
         ),
     ), patch(
-        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        "server.services.workflows.orchestrator._sync_requirement_review_pr",
         return_value=(
             {
                 "status": "blocked",
@@ -3463,8 +3463,8 @@ def test_closeout_blocks_when_delivery_vcs_fails(synced_client, db_session):
             },
             None,
         ),
-    ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ), patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -3509,7 +3509,7 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
@@ -3551,13 +3551,13 @@ def test_closeout_records_vcs_delivery_on_success(synced_client, db_session):
         "blockers": [],
     }
     with patch(
-        "server.services.workflow_orchestrator._execute_requirement_vcs_delivery",
+        "server.services.workflows.orchestrator._execute_requirement_vcs_delivery",
         return_value=(vcs_payload, None),
     ), patch(
-        "server.services.workflow_orchestrator._sync_requirement_review_pr",
+        "server.services.workflows.orchestrator._sync_requirement_review_pr",
         return_value=(pr_payload, None),
-    ), patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    ), patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -3712,7 +3712,7 @@ def test_deploy_to_staging_creates_record_and_dispatches_workflow(synced_client,
     _seed_delivery_state_artifact(db_session, requirement.id, commit_sha="deadbeef1234", branch_name="ops/req-deploy")
 
     monkeypatch.setattr(
-        "server.services.deployment_governance._dispatch_github_workflow",
+        "server.services.delivery.deployment_governance._dispatch_github_workflow",
         lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml",
     )
 
@@ -3773,7 +3773,7 @@ def test_production_deploy_requires_successful_staging_for_same_commit(synced_cl
     db_session.commit()
 
     monkeypatch.setattr(
-        "server.services.deployment_governance._dispatch_github_workflow",
+        "server.services.delivery.deployment_governance._dispatch_github_workflow",
         lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-production.yml",
     )
     allowed = synced_client.post(
@@ -3846,7 +3846,7 @@ def test_rollback_deploy_records_target_sha_and_dispatches_workflow(synced_clien
     _seed_delivery_state_artifact(db_session, requirement.id, commit_sha="feedfeed1234", branch_name="ops/req-rollback")
 
     monkeypatch.setattr(
-        "server.services.deployment_governance._dispatch_github_workflow",
+        "server.services.delivery.deployment_governance._dispatch_github_workflow",
         lambda **_kwargs: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-production.yml",
     )
 
@@ -3959,7 +3959,7 @@ def test_implementation_context_omits_prior_plan_handoff(synced_client, db_sessi
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4016,7 +4016,7 @@ def test_implementation_context_includes_research_file_hints(synced_client, db_s
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4118,15 +4118,15 @@ def test_start_requirement_creates_context_compaction_artifact_for_large_prompt(
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         synced_client.post(f"/api/requirements/{requirement_id}/plan")
 
     class SuccessRuntime:
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4177,7 +4177,7 @@ def test_step_context_records_prompt_cache_dedupe_for_duplicate_bindings(synced_
         },
     )
     requirement_id = create_resp.json()["requirement"]["id"]
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4325,7 +4325,7 @@ def test_bug_intake_steps_use_engineering_direct_execution_contract(synced_clien
         ),
         123,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4418,7 +4418,7 @@ def test_standard_step_skips_operator_confirmation_on_start(synced_client, db_se
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4426,8 +4426,8 @@ def test_standard_step_skips_operator_confirmation_on_start(synced_client, db_se
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4500,7 +4500,7 @@ def test_max_tier_step_still_requires_operator_confirmation_on_start(synced_clie
         ),
         42,
     )
-    with patch("server.services.workflow_planner.get_provider", return_value=provider):
+    with patch("server.services.workflows.planner.get_provider", return_value=provider):
         plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
     assert plan_resp.status_code == 200
 
@@ -4508,8 +4508,8 @@ def test_max_tier_step_still_requires_operator_confirmation_on_start(synced_clie
         def execute(self, **_kwargs):
             return _runtime_result(text="ok")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
     assert start_resp.status_code == 200
@@ -4592,8 +4592,8 @@ def test_delete_requirement_soft_deletes_workflow_and_dependents(synced_client, 
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{blocker_id}/start")
 
@@ -4671,8 +4671,8 @@ def test_list_requirements_default_sorting_prioritizes_running_and_pushes_delete
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{running_id}/start")
 
@@ -4744,8 +4744,8 @@ def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, 
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4772,8 +4772,8 @@ def test_pause_requirement_stops_running_step_and_allows_restart(synced_client, 
         def execute(self, **_kwargs):
             return _runtime_result(text="done")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         restart_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4820,8 +4820,8 @@ def test_start_requirement_records_runtime_telemetry_artifacts(synced_client, db
                 ],
             )
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4869,8 +4869,8 @@ def test_requirement_detail_includes_runtime_failure_incident(synced_client, db_
         def execute(self, **_kwargs):
             return _runtime_result(error="simulated runtime failure")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=FailureRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FailureRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4901,8 +4901,8 @@ def test_pause_requirement_handles_state_drift_without_running_step(synced_clien
         def execute(self, **_kwargs):
             return _deferred_runtime_result()
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=DeferredRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         synced_client.post(f"/api/requirements/{requirement_id}/start")
 
@@ -4987,8 +4987,8 @@ def test_workflow_step_events_recorded(synced_client, db_session):
         def execute(self, **_kwargs):
             return _runtime_result(text="done")
 
-    with patch("server.services.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
-        "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+    with patch("server.services.runtime.task_runner.get_task_runtime", return_value=SuccessRuntime()), patch(
+        "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
     ):
         synced_client.post(f"/api/requirements/{requirement_id}/start")
 

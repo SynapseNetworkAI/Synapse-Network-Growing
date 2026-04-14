@@ -10,9 +10,9 @@ from sqlalchemy.orm import sessionmaker
 
 from server.config import ORCHESTRATION_BACKEND
 from server.database import AgentRow, ArtifactRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
-from server.services.copilot_sdk_state import seconds_since_timestamp
-from server.services.task_runtime import TaskExecutionResult
-from server.services.workflow_orchestrator import capture_task_file_change_baseline, _snapshot_file_changes
+from server.services.runtime.copilot_sdk_state import seconds_since_timestamp
+from server.services.runtime.task_runtime import TaskExecutionResult
+from server.services.workflows.orchestrator import capture_task_file_change_baseline, _snapshot_file_changes
 
 
 def _runtime_result(
@@ -201,7 +201,7 @@ def test_list_tasks_only_anomalies(synced_client):
     failed = synced_client.post("/api/tasks", json={
         "description": "t2", "agent_id": "seo_strategist", "skill_name": "seo-audit",
     }).json()
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{failed['id']}/run")
     resp = synced_client.get("/api/tasks?only_anomalies=true")
     assert resp.status_code == 200
@@ -390,7 +390,7 @@ def test_run_task_no_approval(synced_client):
         "skill_name": "content-strategy",
     })
     task_id = create.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         resp = synced_client.post(f"/api/tasks/{task_id}/run")
     assert resp.status_code == 200
@@ -408,7 +408,7 @@ def test_run_task_with_approval(synced_client):
         "skill_name": "social-content",
     })
     task_id = create.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         resp = synced_client.post(f"/api/tasks/{task_id}/run")
     assert resp.status_code == 200
@@ -422,7 +422,7 @@ def test_run_task_already_running(synced_client):
         "description": "t", "agent_id": "dev_rel", "skill_name": "seo-audit",
     })
     task_id = create.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task_id}/run")
     resp = synced_client.post(f"/api/tasks/{task_id}/run?skill=seo-audit")
@@ -434,7 +434,7 @@ def test_task_logs(synced_client):
         "description": "t", "agent_id": "dev_rel", "skill_name": "seo-audit",
     })
     task_id = create.json()["id"]
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         synced_client.post(f"/api/tasks/{task_id}/run")
     resp = synced_client.get(f"/api/tasks/{task_id}/logs")
@@ -446,7 +446,7 @@ def test_task_logs(synced_client):
 
 
 def test_retry_task_run_now_creates_new_running_task(synced_client):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     create = synced_client.post("/api/tasks", json={
         "description": "retry me",
@@ -455,17 +455,17 @@ def test_retry_task_run_now_creates_new_running_task(synced_client):
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(error="boom")
         mock_runtime_factory.return_value = mock_runtime
         _run_task_sync(task_id, persona, "seo-audit")
 
-    with patch("server.services.task_runner.dispatch") as mock_dispatch:
+    with patch("server.services.runtime.task_runner.dispatch") as mock_dispatch:
         mock_dispatch.return_value = MagicMock()
         resp = synced_client.post(f"/api/tasks/{task_id}/retry?mode=run_now")
 
@@ -478,7 +478,7 @@ def test_retry_task_run_now_creates_new_running_task(synced_client):
 
 
 def test_retry_task_edit_first_creates_pending_task(synced_client):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     create = synced_client.post("/api/tasks", json={
         "description": "retry me later",
@@ -487,11 +487,11 @@ def test_retry_task_edit_first_creates_pending_task(synced_client):
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(error="boom")
         mock_runtime_factory.return_value = mock_runtime
@@ -506,7 +506,7 @@ def test_retry_task_edit_first_creates_pending_task(synced_client):
 
 
 def test_get_task_history_returns_retry_chain(synced_client):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     create = synced_client.post("/api/tasks", json={
         "description": "history me",
@@ -515,11 +515,11 @@ def test_get_task_history_returns_retry_chain(synced_client):
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(error="boom")
         mock_runtime_factory.return_value = mock_runtime
@@ -537,7 +537,7 @@ def test_get_task_history_returns_retry_chain(synced_client):
 
 
 def test_bulk_retry_creates_new_retry_tasks(synced_client):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     created_ids = []
     for desc in ("retry one", "retry two"):
@@ -549,11 +549,11 @@ def test_bulk_retry_creates_new_retry_tasks(synced_client):
         task_id = created.json()["id"]
         created_ids.append(task_id)
 
-        with patch("server.services.task_runner.dispatch"):
+        with patch("server.services.runtime.task_runner.dispatch"):
             synced_client.post(f"/api/tasks/{task_id}/run")
 
         persona = {"role": "seo_strategist", "display_name": "SEO", "goal": "", "body": ""}
-        with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+        with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
             mock_runtime = MagicMock()
             mock_runtime.execute.return_value = _runtime_result(error="boom")
             mock_runtime_factory.return_value = mock_runtime
@@ -598,8 +598,8 @@ def test_agent_task_count_after_tasks(synced_client):
 
 
 def test_task_runner_persists_runtime_metadata_and_events(synced_client):
-    from server.services.task_runner import _run_task_sync
-    from server.services.task_runtime import RuntimeEvent
+    from server.services.runtime.task_runner import _run_task_sync
+    from server.services.runtime.task_runtime import RuntimeEvent
 
     create = synced_client.post("/api/tasks", json={
         "description": "Use copilot runtime",
@@ -608,10 +608,10 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
-    with patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(
             text="# Copilot output",
@@ -648,7 +648,7 @@ def test_task_runner_persists_runtime_metadata_and_events(synced_client):
 
 
 def test_task_runner_uses_execution_profile_runtime_selection(synced_client, db_session):
-    from server.services.task_runner import _run_task_sync, PROJECT_ROOT
+    from server.services.runtime.task_runner import _run_task_sync, PROJECT_ROOT
 
     create = synced_client.post("/api/tasks", json={
         "description": "Route this mini task",
@@ -687,8 +687,8 @@ def test_task_runner_uses_execution_profile_runtime_selection(synced_client, db_
     )
     db_session.commit()
 
-    with patch("server.services.task_runner.resolve_runtime_selection") as mock_selection, patch(
-        "server.services.task_runner.get_task_runtime"
+    with patch("server.services.runtime.task_runner.resolve_runtime_selection") as mock_selection, patch(
+        "server.services.runtime.task_runner.get_task_runtime"
     ) as mock_runtime_factory:
         mock_selection.return_value.backend = "openai_responses"
         mock_selection.return_value.provider = "openai"
@@ -722,7 +722,7 @@ def test_task_runner_uses_execution_profile_runtime_selection(synced_client, db_
 
 
 def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_research(synced_client, db_session, tmp_path):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     repo_root = tmp_path / "validation-repo"
     repo_root.mkdir(parents=True, exist_ok=True)
@@ -783,9 +783,9 @@ def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_r
     subprocess.run(["git", "commit", "-m", "init"], cwd=requirement.target_project_path, check=True, capture_output=True, text=True)
     db_session.commit()
 
-    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
-        "server.services.task_runner.PROJECT_ROOT", tmp_path
-    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.workflows.orchestrator.sync_workflow_for_task"), patch(
+        "server.services.runtime.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         _run_task_sync(task_id, {"role": "dev_rel", "display_name": "DevRel", "goal": "", "body": ""}, "__direct_execution__")
 
     mock_runtime_factory.assert_not_called()
@@ -795,7 +795,7 @@ def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_r
 
 
 def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_implementation(synced_client, db_session, tmp_path):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     repo_root = tmp_path / "sng-delivery-validation"
     repo_root.mkdir(parents=True, exist_ok=True)
@@ -847,9 +847,9 @@ def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_i
     )
     db_session.commit()
 
-    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
-        "server.services.task_runner.PROJECT_ROOT", tmp_path
-    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.workflows.orchestrator.sync_workflow_for_task"), patch(
+        "server.services.runtime.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         _run_task_sync(task_id, {"role": "dev_rel", "display_name": "DevRel", "goal": "", "body": ""}, "__direct_execution__")
 
     mock_runtime_factory.assert_not_called()
@@ -861,7 +861,7 @@ def test_task_runner_uses_deterministic_delivery_executor_for_validation_clone_i
 
 
 def test_task_runner_prepares_requirement_branch_before_mutating_runtime_execution(synced_client, db_session, tmp_path):
-    from server.services.task_runner import _run_task_sync
+    from server.services.runtime.task_runner import _run_task_sync
 
     repo_root = tmp_path / "sng-delivery-validation-next"
     repo_root.mkdir(parents=True, exist_ok=True)
@@ -934,9 +934,9 @@ def test_task_runner_prepares_requirement_branch_before_mutating_runtime_executi
     )
     db_session.commit()
 
-    with patch("server.services.workflow_orchestrator.sync_workflow_for_task"), patch(
-        "server.services.task_runner.PROJECT_ROOT", tmp_path
-    ), patch("server.services.task_runner.get_task_runtime") as mock_runtime_factory:
+    with patch("server.services.workflows.orchestrator.sync_workflow_for_task"), patch(
+        "server.services.runtime.task_runner.PROJECT_ROOT", tmp_path
+    ), patch("server.services.runtime.task_runner.get_task_runtime") as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(
             text="implemented",
@@ -965,7 +965,7 @@ def test_task_runner_prepares_requirement_branch_before_mutating_runtime_executi
 
 
 def test_deterministic_delivery_review_and_test_use_review_surface_metadata(db_session, tmp_path):
-    from server.services.task_runner import _deterministic_delivery_validation_result
+    from server.services.runtime.task_runner import _deterministic_delivery_validation_result
 
     repo_root = tmp_path / "sng-delivery-validation"
     repo_root.mkdir(parents=True, exist_ok=True)
@@ -1063,8 +1063,8 @@ def test_deterministic_delivery_review_and_test_use_review_surface_metadata(db_s
 
 
 def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_path):
-    from server.services.task_runner import _run_task_sync
-    from server.services.task_runtime import RuntimeEvent
+    from server.services.runtime.task_runner import _run_task_sync
+    from server.services.runtime.task_runtime import RuntimeEvent
 
     create = synced_client.post("/api/tasks", json={
         "description": "Detach copilot runtime",
@@ -1073,12 +1073,12 @@ def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_pat
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     predicted_output = tmp_path / "roles" / "content_writer" / "outputs" / f"task-{task_id}" / "output.md"
-    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
-        "server.services.task_runner.get_task_runtime"
+    with patch("server.services.runtime.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.runtime.task_runner.get_task_runtime"
     ) as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(
@@ -1105,10 +1105,10 @@ def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_pat
 def test_copilot_monitor_completes_detached_task(synced_client, db_session, tmp_path):
     import json
 
-    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
-    from server.services.task_runner import _run_task_sync
-    from server.services.task_runtime import RuntimeEvent
+    from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.runtime.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.runtime.task_runner import _run_task_sync
+    from server.services.runtime.task_runtime import RuntimeEvent
 
     create = synced_client.post("/api/tasks", json={
         "description": "Complete detached copilot runtime",
@@ -1117,12 +1117,12 @@ def test_copilot_monitor_completes_detached_task(synced_client, db_session, tmp_
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     predicted_output = task_output_dir(tmp_path, "content_writer", task_id) / "output.md"
-    with patch("server.services.task_runner.PROJECT_ROOT", tmp_path), patch(
-        "server.services.task_runner.get_task_runtime"
+    with patch("server.services.runtime.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.runtime.task_runner.get_task_runtime"
     ) as mock_runtime_factory:
         mock_runtime = MagicMock()
         mock_runtime.execute.return_value = _runtime_result(
@@ -1176,8 +1176,8 @@ def test_copilot_monitor_completes_detached_task(synced_client, db_session, tmp_
 def test_copilot_monitor_resumes_stale_task(synced_client, db_session, tmp_path):
     import json
 
-    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.runtime.copilot_sdk_state import copilot_runtime_paths, task_output_dir
 
     create = synced_client.post("/api/tasks", json={
         "description": "Resume stale task",
@@ -1186,7 +1186,7 @@ def test_copilot_monitor_resumes_stale_task(synced_client, db_session, tmp_path)
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     row = db_session.query(TaskRow).filter_by(id=task_id).first()
@@ -1226,8 +1226,8 @@ def test_copilot_monitor_resumes_stale_task(synced_client, db_session, tmp_path)
 def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client, db_session, tmp_path):
     import json
 
-    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.runtime.copilot_sdk_state import copilot_runtime_paths, task_output_dir
 
     create = synced_client.post("/api/tasks", json={
         "description": "Fail detached task",
@@ -1236,7 +1236,7 @@ def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     row = db_session.query(TaskRow).filter_by(id=task_id).first()
@@ -1259,7 +1259,7 @@ def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
     runtime = MagicMock()
     monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
-    with patch("server.services.copilot_sdk_monitor.get_copilot_sdk_runtime", return_value=runtime):
+    with patch("server.services.runtime.copilot_sdk_monitor.get_copilot_sdk_runtime", return_value=runtime):
         monitor.poll_once()
 
     runtime.clear_role_sessions.assert_called_once()
@@ -1270,8 +1270,8 @@ def test_copilot_monitor_clears_role_sessions_on_session_not_found(synced_client
 def test_copilot_monitor_alerts_and_pauses_on_authorization_error(synced_client, db_session, tmp_path):
     import json
 
-    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.runtime.copilot_sdk_state import copilot_runtime_paths, task_output_dir
 
     create = synced_client.post("/api/tasks", json={
         "description": "Authorization guarded task",
@@ -1280,7 +1280,7 @@ def test_copilot_monitor_alerts_and_pauses_on_authorization_error(synced_client,
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     row = db_session.query(TaskRow).filter_by(id=task_id).first()
@@ -1302,7 +1302,7 @@ def test_copilot_monitor_alerts_and_pauses_on_authorization_error(synced_client,
 
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
     monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
-    with patch("server.services.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
+    with patch("server.services.runtime.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
         monitor.poll_once()
 
     mock_alert.assert_called_once()
@@ -1317,8 +1317,8 @@ def test_copilot_monitor_alerts_and_pauses_on_authorization_error(synced_client,
 
 
 def test_copilot_monitor_tolerates_state_file_with_trailing_brace(synced_client, db_session, tmp_path):
-    from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-    from server.services.copilot_sdk_state import copilot_runtime_paths, task_output_dir
+    from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+    from server.services.runtime.copilot_sdk_state import copilot_runtime_paths, task_output_dir
 
     create = synced_client.post("/api/tasks", json={
         "description": "Authorization guarded task with malformed state file",
@@ -1327,7 +1327,7 @@ def test_copilot_monitor_tolerates_state_file_with_trailing_brace(synced_client,
     })
     task_id = create.json()["id"]
 
-    with patch("server.services.task_runner.dispatch"):
+    with patch("server.services.runtime.task_runner.dispatch"):
         synced_client.post(f"/api/tasks/{task_id}/run")
 
     row = db_session.query(TaskRow).filter_by(id=task_id).first()
@@ -1351,7 +1351,7 @@ def test_copilot_monitor_tolerates_state_file_with_trailing_brace(synced_client,
 
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_session.bind)
     monitor = CopilotSDKTaskMonitor(project_root=tmp_path, session_factory=session_factory)
-    with patch("server.services.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
+    with patch("server.services.runtime.copilot_sdk_monitor.send_lark_text_alert", return_value=(True, "ok")) as mock_alert:
         monitor.poll_once()
 
     mock_alert.assert_called_once()

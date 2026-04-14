@@ -832,7 +832,7 @@ def _migrate(engine_):
                     conn.commit()
 
         if "project_id" in {c["name"] for c in insp.get_columns("tasks")} and "agent_group" in {c["name"] for c in insp.get_columns("tasks")}:
-            from server.services.task_metadata import project_for_group
+            from server.services.runtime.task_metadata import project_for_group
 
             with engine_.connect() as conn:
                 rows = conn.execute(text(
@@ -857,7 +857,7 @@ def _migrate(engine_):
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
-    from server.services.project_policy import ensure_default_project_policies
+    from server.services.projects.policy import ensure_default_project_policies
 
     db = SessionLocal()
     try:

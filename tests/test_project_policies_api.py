@@ -207,6 +207,25 @@ def test_deployment_overview_returns_projects_and_release_candidates(synced_clie
     assert candidate["delivery_state"]["staging_status"]["current_commit_sha"] == "candidate-sha-123"
 
 
+def test_deployment_overview_excludes_non_done_requirements_from_release_candidates(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Still running release item",
+        description_markdown="not ready for release",
+        status="in_progress",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.commit()
+
+    resp = synced_client.get("/api/deployments/overview")
+
+    assert resp.status_code == 200
+    candidate_ids = {item["requirement_id"] for item in resp.json()["release_candidates"]}
+    assert requirement.id not in candidate_ids
+
+
 def test_project_policy_can_be_created(synced_client):
     create_resp = synced_client.post(
         "/api/project-policies",

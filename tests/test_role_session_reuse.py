@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from server.database import RequirementRow, TaskRow
-from server.services.task_runner import _run_task_sync
-from server.services.task_runtime import (
+from server.services.runtime.task_runner import _run_task_sync
+from server.services.runtime.task_runtime import (
     CopilotSDKTaskRuntime,
     RoleSessionInfo,
     TaskExecutionResult,
@@ -200,8 +200,8 @@ class TestSerialRequirementExecution:
                     events=[], deferred=True,
                 )
 
-        with patch("server.services.task_runner.get_task_runtime", return_value=HangingRuntime()), patch(
-            "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        with patch("server.services.runtime.task_runner.get_task_runtime", return_value=HangingRuntime()), patch(
+            "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
         ):
             start_a = synced_client.post(f"/api/requirements/{req_a_id}/start")
         assert start_a.status_code == 200
@@ -231,10 +231,10 @@ class TestSerialRequirementExecution:
         req_a_id = resp1.json()["requirement"]["id"]
         synced_client.post(f"/api/requirements/{req_a_id}/plan")
 
-        with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-            "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+            "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
         ), patch(
-            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
+            "server.services.workflows.orchestrator._schedule_advance_queue", return_value=None
         ):
             start_a = synced_client.post(f"/api/requirements/{req_a_id}/start")
         assert start_a.json()["requirement"]["status"] == "done"
@@ -247,10 +247,10 @@ class TestSerialRequirementExecution:
         req_b_id = resp2.json()["requirement"]["id"]
         synced_client.post(f"/api/requirements/{req_b_id}/plan")
 
-        with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-            "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+            "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
         ), patch(
-            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
+            "server.services.workflows.orchestrator._schedule_advance_queue", return_value=None
         ):
             start_b = synced_client.post(f"/api/requirements/{req_b_id}/start")
         assert start_b.status_code == 200
@@ -283,12 +283,12 @@ class TestSessionCleanupOnCompletion:
         req_id = resp.json()["requirement"]["id"]
         synced_client.post(f"/api/requirements/{req_id}/plan")
 
-        with patch("server.services.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
-            "server.services.task_runner.dispatch", side_effect=_sync_dispatch
+        with patch("server.services.runtime.task_runner.get_task_runtime", return_value=FakeRuntime()), patch(
+            "server.services.runtime.task_runner.dispatch", side_effect=_sync_dispatch
         ), patch(
-            "server.services.workflow_orchestrator._schedule_advance_queue", return_value=None
+            "server.services.workflows.orchestrator._schedule_advance_queue", return_value=None
         ), patch(
-            "server.services.workflow_orchestrator._clear_role_sessions", wraps=lambda: call_log.append("cleared")
+            "server.services.workflows.orchestrator._clear_role_sessions", wraps=lambda: call_log.append("cleared")
         ) as mock_clear:
             start_resp = synced_client.post(f"/api/requirements/{req_id}/start")
 

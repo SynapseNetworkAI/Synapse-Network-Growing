@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from server.services.delivery_pr import sync_requirement_review_pr
+from server.services.delivery.pull_request import sync_requirement_review_pr
 
 
 def test_sync_requirement_review_pr_creates_draft_pr():
@@ -35,7 +35,7 @@ def test_sync_requirement_review_pr_creates_draft_pr():
 
         return Ok()
 
-    with patch("server.services.delivery_pr._run_gh", side_effect=fake_run_gh):
+    with patch("server.services.delivery.pull_request._run_gh", side_effect=fake_run_gh):
         payload = sync_requirement_review_pr(
             requirement_id=17,
             requirement_title="Incident recovery",
@@ -86,7 +86,7 @@ def test_sync_requirement_review_pr_updates_existing_pr():
             return View()
         return Ok()
 
-    with patch("server.services.delivery_pr._run_gh", side_effect=fake_run_gh):
+    with patch("server.services.delivery.pull_request._run_gh", side_effect=fake_run_gh):
         payload = sync_requirement_review_pr(
             requirement_id=18,
             requirement_title="Followup",

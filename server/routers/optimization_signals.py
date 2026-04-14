@@ -18,12 +18,12 @@ from server.schemas import (
     OptimizationSignalOut,
     RequirementDetailOut,
 )
-from server.services.optimization_templates import (
+from server.services.signals.optimization_templates import (
     build_template_instance,
     get_optimization_requirement_template,
     list_optimization_requirement_templates,
 )
-from server.services.optimization_signals import (
+from server.services.signals.optimization_signals import (
     _project_map,
     auto_intake_optimization_signals,
     create_requirement_from_signal,
@@ -32,8 +32,8 @@ from server.services.optimization_signals import (
     optimization_signal_to_dict,
     refresh_optimization_signals,
 )
-from server.services.requirement_sources import normalize_requirement_intake_metadata
-from server.services.workflow_orchestrator import create_requirement
+from server.services.requirements.sources import normalize_requirement_intake_metadata
+from server.services.workflows.orchestrator import create_requirement
 
 
 router = APIRouter(prefix="/api/optimization-signals", tags=["optimization-signals"])

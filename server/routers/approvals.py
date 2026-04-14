@@ -59,7 +59,7 @@ def decide_approval(approval_id: int, body: ApprovalDecide, db: Session = Depend
 
     db.commit()
     db.refresh(approval)
-    from server.services.workflow_orchestrator import sync_workflow_for_task
+    from server.services.workflows.orchestrator import sync_workflow_for_task
 
     sync_workflow_for_task(approval.task_id)
     logger.info("Approval #%d %s by %s (task #%d)", approval.id, approval.status, approval.reviewer, approval.task_id)
@@ -90,7 +90,7 @@ def bulk_decide_approvals(body: ApprovalBulkDecide, db: Session = Depends(get_db
         db.refresh(approval)
         _ = approval.task
 
-    from server.services.workflow_orchestrator import sync_workflow_for_task
+    from server.services.workflows.orchestrator import sync_workflow_for_task
 
     for approval in ordered_approvals:
         sync_workflow_for_task(approval.task_id)

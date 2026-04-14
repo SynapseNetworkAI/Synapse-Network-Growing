@@ -12,11 +12,11 @@ from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.logging_utils import log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, deployments
-from server.services.agent_loader import ensure_agents_loaded
-from server.services.bug_log_scheduler import BugLogSweepScheduler
-from server.services.codex_cli_monitor import CodexCLITaskMonitor
-from server.services.copilot_sdk_monitor import CopilotSDKTaskMonitor
-from server.services.openai_responses_monitor import OpenAIResponsesTaskMonitor
+from server.services.agents.loader import ensure_agents_loaded
+from server.services.bugs.log_scheduler import BugLogSweepScheduler
+from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
+from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+from server.services.runtime.openai_responses_monitor import OpenAIResponsesTaskMonitor
 
 setup_ops_logging(
     log_level=config.LOG_LEVEL,
