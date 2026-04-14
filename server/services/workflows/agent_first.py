@@ -96,6 +96,53 @@ def _parse_acceptance_markdown(requirement: RequirementRow) -> str:
     return ""
 
 
+def _fallback_acceptance_markdown(*, target_project_path: str | None = None) -> str:
+    scope_hint = Path(target_project_path).name if str(target_project_path or "").strip() else "target project"
+    return "\n".join(
+        [
+            "- The requested outcome is implemented and visible in the relevant surface or API.",
+            "- Validation evidence shows the change works as intended without unrelated regressions.",
+            f"- Changes stay scoped to `{scope_hint}` unless the requirement explicitly asks for broader coordination.",
+        ]
+    )
+
+
+def _generate_acceptance_markdown(*, title: str, description_markdown: str, target_project_path: str | None = None) -> str:
+    """Generate a concise, validate-oriented acceptance contract for newly created requirements."""
+    subject = str(title or "").strip() or "this requirement"
+    description = " ".join(str(description_markdown or "").split())
+    scope_hint = Path(target_project_path).name if str(target_project_path or "").strip() else "the target project"
+    snippet = description[:220].rstrip(" ,.;")
+    bullets = [
+        f"- `{subject}` is complete in {scope_hint}, matching the requested intent.",
+        "- Validate can confirm the outcome through targeted evidence, checks, or an observable UI/API change.",
+        "- No unrelated regressions or off-scope edits are introduced while delivering the requested result.",
+    ]
+    if snippet:
+        bullets.insert(1, f"- The delivered behavior satisfies this requirement summary: {snippet}.")
+    return "\n".join(bullets)
+
+
+def _acceptance_contract_payload(body) -> dict[str, Any]:
+    provided_contract = dict(body.acceptance_contract or {})
+    provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
+    if provided_markdown and not str(provided_contract.get("markdown") or "").strip():
+        provided_contract["markdown"] = provided_markdown
+    if str(provided_contract.get("markdown") or "").strip():
+        return provided_contract
+    try:
+        provided_contract["markdown"] = _generate_acceptance_markdown(
+            title=str(getattr(body, "title", "") or ""),
+            description_markdown=str(getattr(body, "description_markdown", "") or ""),
+            target_project_path=str(getattr(body, "target_project_path", "") or "") or None,
+        )
+    except Exception:
+        provided_contract["markdown"] = _fallback_acceptance_markdown(
+            target_project_path=str(getattr(body, "target_project_path", "") or "") or None,
+        )
+    return provided_contract
+
+
 def _target_projects_for_requirement(db: Session, requirement: RequirementRow) -> list[str]:
     policies = resolve_project_policies_for_target(
         db,
@@ -275,10 +322,10 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
 
 
 def _policy_summary_markdown(db: Session, requirement: RequirementRow) -> str:
-    return project_policy_summary_markdown(
-        db,
-        getattr(requirement, "target_project_path", None),
-    )
+    target_project_path = getattr(requirement, "target_project_path", None)
+    if not str(target_project_path or "").strip():
+        return ""
+    return project_policy_summary_markdown(db, target_project_path)
 
 
 def _service_name_for_requirement(db: Session, requirement: RequirementRow) -> str:
@@ -486,10 +533,7 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         source_ref=body.source_ref,
         intake_metadata_json=_json_dump(body.intake_metadata or {}),
         target_project_path=(body.target_project_path or "").strip() or None,
-        acceptance_contract_json=_json_dump(
-            body.acceptance_contract
-            or {"markdown": str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()}
-        ),
+        acceptance_contract_json=_json_dump(_acceptance_contract_payload(body)),
         approval_status="pending_approval",
         approval_contract_json=_json_dump(body.approval_contract or {}),
     )

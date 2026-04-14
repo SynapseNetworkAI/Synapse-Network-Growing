@@ -8,7 +8,6 @@ type DrawerMode = 'closed' | 'create' | 'edit'
 type RequirementDraft = {
   title: string
   description_markdown: string
-  acceptance_criteria_markdown: string
   priority: string
   target_project_path: string
 }
@@ -16,7 +15,6 @@ type RequirementDraft = {
 const EMPTY_DRAFT: RequirementDraft = {
   title: '',
   description_markdown: '',
-  acceptance_criteria_markdown: '',
   priority: 'normal',
   target_project_path: '',
 }
@@ -51,7 +49,6 @@ function buildDraft(requirement?: AgentRequirement | null): RequirementDraft {
   return {
     title: requirement.title,
     description_markdown: requirement.description_markdown,
-    acceptance_criteria_markdown: requirement.acceptance_criteria_markdown,
     priority: requirement.priority,
     target_project_path: requirement.target_project_path || '',
   }
@@ -102,17 +99,6 @@ function RequirementForm({
           onChange={(event) => onChange({ description_markdown: event.target.value })}
         />
       </div>
-
-      <div>
-        <FieldLabel>验收标准</FieldLabel>
-        <textarea
-          className="mt-2 min-h-[140px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
-          placeholder="输入验收标准"
-          value={draft.acceptance_criteria_markdown}
-          onChange={(event) => onChange({ acceptance_criteria_markdown: event.target.value })}
-        />
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-[220px,1fr]">
         <div>
           <FieldLabel>优先级</FieldLabel>

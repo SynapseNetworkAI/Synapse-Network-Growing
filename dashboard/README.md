@@ -65,6 +65,7 @@ token 主入口：
 4. 页面是否只有一个主焦点？
 5. inspector 和 activity 是否承担了明确职责？
 6. create / edit 是否继续被做成列表页常驻内联表单？
+7. requirement create 是否只采集最小 intent，而不是把 acceptance 收集前置给用户？
 
 如果答案是“继续堆卡片也能做”，说明方案还没收口。
 
@@ -78,3 +79,4 @@ token 主入口：
 2. `create / edit` 优先通过工具条触发右侧 Drawer。
 3. 只有极短的单字段 quick edit 才允许 inline。
 4. Requirement 列表页的主焦点是 queue 与 selection，不是 intake form。
+5. `新建需求` 默认只采集标题、目标项目、描述和优先级；`验收标准` 由 agent 创建后立即生成，并在详情页可编辑。

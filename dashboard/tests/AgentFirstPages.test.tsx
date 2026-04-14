@@ -188,6 +188,7 @@ describe('agent-first pages smoke', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '新建需求' }))
     expect(screen.getByRole('heading', { name: '新建需求' })).toBeInTheDocument()
+    expect(screen.queryByText('验收标准')).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('输入需求标题'), {
       target: { value: 'Improve Queue Copy' },

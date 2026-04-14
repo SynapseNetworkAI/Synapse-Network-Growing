@@ -180,6 +180,7 @@ Release 负责：
 5. 颜色只承担状态和强调，不承担大面积装饰；工作台不是营销页。
 6. 新 UI 必须优先复用统一的 workbench shell、section、inspector、activity feed 和 state badge 结构。
 7. 列表页默认不承载常驻 create/edit 大表单；新增与编辑应优先采用 `Toolbar + Drawer` 模式。
+8. Requirement create 只采集最小 intent；acceptance 默认由 agent 在创建后生成，并允许在详情页修订。
 
 ## 13. 前端防回潮约束
 

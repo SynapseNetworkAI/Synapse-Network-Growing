@@ -12,13 +12,13 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
         json={
             "title": "Simplify workspace summary copy",
             "description_markdown": "Update the workspace summary copy and keep the change minimal without touching unrelated projects or deployment gates.",
-            "acceptance_criteria_markdown": "- Copy updated\n- No unrelated edits",
             "priority": "normal",
             "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
         },
     )
 
     assert create_resp.status_code == 201
+    assert "Simplify workspace summary copy" in create_resp.json()["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
 
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
@@ -41,19 +41,23 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
 
 
 def test_create_requirement_without_target_project_path_does_not_raise_policy_summary_error(synced_client):
-    create_resp = synced_client.post(
-        "/api/requirements",
-        json={
-            "title": "Create requirement without explicit target path",
-            "description_markdown": "Regression check for requirement detail serialization when no target project path is supplied.",
-            "priority": "normal",
-        },
-    )
+    with patch("server.services.workflows.agent_first.project_policy_summary_markdown") as mock_summary:
+        mock_summary.side_effect = AssertionError("project policy summary should not be generated without target project path")
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Create requirement without explicit target path",
+                "description_markdown": "Regression check for requirement detail serialization when no target project path is supplied.",
+                "priority": "normal",
+            },
+        )
 
     assert create_resp.status_code == 201
     payload = create_resp.json()
     assert payload["requirement"]["title"] == "Create requirement without explicit target path"
     assert payload["policy_summary_markdown"] == ""
+    assert payload["requirement"]["acceptance_criteria_markdown"].strip()
+    mock_summary.assert_not_called()
 
 
 def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, db_session):
