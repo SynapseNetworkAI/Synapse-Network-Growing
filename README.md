@@ -118,10 +118,11 @@ Execution 详情页当前已经支持正式可观测性视图：
 5. validation 结果与 activity timeline
 6. execution plan 与 agent 原始输出
 
-Requirement 与 Execution 当前还有两条正式约束：
+Requirement 与 Execution 当前还有三条正式约束：
 
-1. requirement 创建后会由 agent 生成真实 acceptance contract，而不是模板式验收文案。
-2. requirement submit 通过后会先生成 execution plan，再自动创建并启动 execution。
+1. requirement 创建会先保存记录，然后在后台由 agent 生成真实 acceptance contract 与 execution plan，而不是阻塞页面等待。
+2. requirement submit 通过后会先确保 acceptance / plan 可用，再自动创建并启动 execution。
+3. execution 完成后会自动派发 verification agent；release 只读取 verification verdict，不再走额外的 verification manual review。
 
 ## Browser Automation
 

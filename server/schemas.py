@@ -980,6 +980,11 @@ class ValidationRecordSlimOut(BaseModel):
     status: str
     summary_markdown: str = ""
     checks: list[ValidationCheckResultOut] = []
+    verification_agent_id: Optional[str] = None
+    verification_agent_label: Optional[str] = None
+    evidence_used: list[str] = []
+    reasoning_markdown: str = ""
+    suggested_next_action: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -1048,6 +1053,7 @@ class ExecutionRunDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
+    verification_result: Optional[ValidationRecordSlimOut] = None
     changed_files: list[ExecutionChangedFileOut] = []
     runtime_summary: Optional[ExecutionRuntimeSummaryOut] = None
     delivery_summary: Optional[ReleaseRecordSlimOut] = None

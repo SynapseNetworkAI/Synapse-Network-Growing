@@ -87,7 +87,7 @@ intake -> execute -> validate -> deliver
 1. 从工具条打开 `新建需求` 浮层
 2. 从工具条或列表项打开 `编辑需求` Drawer
 3. 提交 requirement
-4. 低风险 requirement 会先生成 execution plan，再自动进入 execution；高风险 requirement 在需求面等待人工批准
+4. 低风险 requirement 会在后台补齐 acceptance contract 与 execution plan，再自动进入 execution；高风险 requirement 在需求面等待人工批准
 5. 跳转到 release 面
 6. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
 
@@ -105,10 +105,10 @@ intake -> execute -> validate -> deliver
 #### 推荐使用方式
 
 1. 标题写结果，不写动作口号
-2. 描述里明确目标与约束；验收标准由 agent 创建后立即生成真实 acceptance contract
+2. 描述里明确目标与约束；requirement 会先保存，随后在后台由 agent 生成真实 acceptance contract 与 execution plan
 3. requirement 必须先选择正式 `Project`
 4. 路径覆盖只在高级场景使用，不再把裸 `target_project_path` 当作主输入
-5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点，并会先生成 execution plan
+5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点，并会先确保 acceptance contract 与 execution plan 可用
 6. 只有恢复/调试场景才手动创建 execution run
 7. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
 
@@ -141,7 +141,7 @@ intake -> execute -> validate -> deliver
 
 1. 先确认 intent、acceptance contract 与 execution plan 写对
 2. 再跳去 execution 看 agent 执行
-3. validate 成功后再跳去 release 做交付与发布
+3. verification agent 给出 passed verdict 后再跳去 release 做交付与发布
 
 ## 3. 执行面
 
@@ -184,7 +184,7 @@ Execution detail 是当前唯一 execution 主链的工作面。
 2. Execution Plan 区展示当前 run 的计划摘要
 3. Runtime 区展示当前 run 的 node / task 表格
 4. Files 区展示当前 run 的改动文件
-5. Validation 区展示当前 run 的验证记录
+5. Verification 区展示 verification agent 的验证记录
 6. Agent Output 区始终展示原始执行输出
 7. Activity 区展示 lifecycle 时间线与 incidents
 
@@ -197,7 +197,7 @@ Execution detail 是当前唯一 execution 主链的工作面。
 5. execution nodes runtime table
 6. execution plan
 7. changed files / command evidence
-8. validation result
+8. verification result
 9. agent 原始输出
 10. activity timeline
 11. incidents
@@ -207,7 +207,7 @@ Execution detail 是当前唯一 execution 主链的工作面。
 1. 启动 queued execution
 2. 继续 paused execution
 3. 对 failed / blocked execution 创建新 run 重试
-4. 触发 validate
+4. 查看自动 verification 结果
 5. 打开改动文件预览，默认先看 `diff`
 6. 当结构化 summary 不足时，直接查看 agent 原始输出确认实际执行结果
 
@@ -220,12 +220,13 @@ Execution detail 是当前唯一 execution 主链的工作面。
 5. `POST /api/executions/{id}/resume`
 6. `POST /api/executions/{id}/retry`
 7. `POST /api/executions/{id}/validate`
+   主要作为调试 / 重跑入口保留，正常链路由系统在 execution 完成后自动触发 verification agent
 
 #### 推荐使用方式
 
 1. 对简单任务，预期只会看到一个 `execute` 节点
 2. 对复杂任务，才会看到 execution graph
-3. validate 失败时，关注 bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
+3. verification agent 判定失败或需修订时，关注 verification reasoning、bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
 4. `retry` 会创建新的 execution run；旧 run 不会复活
 5. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
 6. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
@@ -246,7 +247,7 @@ Release 列表只展示当前可发布候选。
 
 #### 候选规则
 
-只有 validate 成功的 requirement 才会进入 release candidates。
+只有 verification agent 判定 `passed` 的 requirement 才会进入 release candidates。
 
 #### 后端接口
 
@@ -290,7 +291,7 @@ Release detail 负责交付与发布操作。
 
 #### 推荐使用方式
 
-1. 只有 validate 通过后才进入 release 面做交付
+1. 只有 verification agent 判定通过后才进入 release 面做交付
 2. requirement 页只看 intent，不在那边做发布决策
 3. 发布、promotion、rollback 都在 release 面统一处理
 
@@ -336,7 +337,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 
 1. planner 只做 shape decision
 2. execute 由选定 runtime 驱动
-3. validate 与 deliver 由系统治理，不交给模型随意跳过
+3. verification 与 deliver 由系统治理，不交给模型随意跳过
 
 ## 7. 错误日志页（辅助）
 
@@ -390,8 +391,8 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 1. 在 `/requirements` 创建 requirement
 2. 在 `/requirements/:id` 检查 intent、acceptance contract 与 execution plan
 3. `submit` requirement，低风险会自动审批、先生成 plan，再自动启动 execution
-4. 在 `/executions/:id` 观察执行与 validate
-5. validate 成功后，在 `/releases/:requirementId` 做 PR / deploy / rollback
+4. 在 `/executions/:id` 观察执行与 verification verdict
+5. verification passed 后，在 `/releases/:requirementId` 做 PR / deploy / rollback
 6. 如果来自错误回流，可在 `/errors` 追踪 fingerprint 与通知历史
 
 ## 9. 快速验证清单
@@ -402,7 +403,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 2. 提交 requirement
 3. 确认自动生成 execution plan，并进入 execution 或人工审批
 4. 在执行页继续观察运行状态
-5. 触发 validate
+5. 等待 verification agent 自动给出 verdict
 6. 确认 release candidate 出现在 `/releases`
 7. 打开 release detail，确认可以执行 `prepare` 和 `open-pr`
 
@@ -438,7 +439,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 
 先检查：
 
-1. validate 是否成功
+1. verification agent 是否判定通过
 2. requirement 是否完成执行
 3. release governance 是否满足项目策略
 

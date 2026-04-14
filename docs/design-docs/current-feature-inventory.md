@@ -22,7 +22,7 @@
 4. 删除 requirement。
 5. requirement submit。
    - submit 是 requirement 进入 execution 的唯一正式桥接点。
-   - approval 放行后会先生成 execution plan，再创建并自动启动 execution。
+   - approval 放行后会先确保 acceptance contract 与 execution plan 可用，再创建并自动启动 execution。
 6. requirement 自动审批与人工审批分流。
    - 低风险自动批准，并在 plan 生成后自动启动 execution。
    - 高风险停在 requirement 面等待人工批准。
@@ -48,8 +48,15 @@
 5. paused run 恢复。
 6. failed / blocked run 通过 `retry` 创建新 run。
 7. validate。
-   - 默认读取 acceptance contract 中的 verification checks。
+   - execution 完成后默认自动触发 verification agent。
+   - verification agent 读取 acceptance contract、execution plan、changed files、raw output 与 checks 产出正式 verdict。
+   - `POST /api/executions/{id}/validate` 仍保留为调试 / 重跑入口。
 8. execution evidence、validation summary、incident 展示。
+9. verification result 展示。
+   - verdict
+   - reasoning
+   - evidence_used
+   - suggested_next_action
 9. 运行态清理脚本：
 
 ```bash
@@ -122,6 +129,7 @@
 4. approve / reject 入口。
 5. project policy 驱动的执行与发布治理。
 6. execution 运行态单主链约束。
+7. verification/manual review 已移除；verification agent verdict 是 release 前唯一正式验证信号。
 
 ## 7. 通知与日志
 

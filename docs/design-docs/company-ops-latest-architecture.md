@@ -15,7 +15,7 @@ Requirement -> Execution -> Release
 ```mermaid
 flowchart LR
     R["Requirement Surface"] -->|submit + approval + plan| E["Execution Surface"]
-    E -->|validate passed| L["Release Surface"]
+    E -->|verification agent passed| L["Release Surface"]
     P["Project Center"] --> R
     P --> E
     P --> L
@@ -76,7 +76,7 @@ Requirement 到 Execution 的正式桥接规则：
 
 1. `submit` 时就做 approval decision
 2. 低风险 requirement 默认 auto-approve / waive
-3. 审批放行后先生成 execution plan
+3. 审批放行后先确保 acceptance contract 与 execution plan 可用
 4. execution plan 落库后自动创建 execution 并自动启动
 5. 高风险 requirement 停在 requirement surface 等待人工批准
 6. execution approval 只决定能否执行，不替代 release gate
@@ -105,8 +105,8 @@ Execution 面的默认策略：
 
 1. 简单任务走单一 `execute`
 2. 复杂任务才展开 execution graph
-3. `validate` 永远是唯一质量门
-4. validate 失败只允许进入 `bugfix -> validate` 闭环
+3. `verification agent` 永远是唯一正式质量门
+4. verification 失败只允许进入 `bugfix -> verification` 闭环
 
 Execution 详情页当前正式暴露这些可观测性字段：
 
@@ -127,9 +127,9 @@ Execution 详情页当前正式暴露这些可观测性字段：
 3. 当前 run 改动文件
    - 只统计当前 execution 主链的文件改动
    - 支持 `diff` / 当前文件内容预览
-4. validation 与 activity timeline
-   - 当前 run 的 validate 结果
-   - `run_created / run_started / node_completed / validation_* / paused / resumed / retried`
+4. verification 与 activity timeline
+   - 当前 run 的 verification verdict、reasoning、evidence_used、suggested_next_action
+   - `run_created / run_started / node_completed / verification_* / paused / resumed / retried`
 5. execution detail 不直接堆原始日志，而是展示结构化 observability summary
 6. execution detail 始终补充 agent 原始输出
    - 原始输出是正式证据层，不再只是缺失结构化字段时的临时 fallback
@@ -150,7 +150,7 @@ Release 面只负责交付与发布。
 Release candidate 的硬门槛：
 
 1. requirement 已完成执行
-2. validate 成功
+2. verification agent 判定成功
 3. release governance 满足项目策略
 
 ### 2.4 Error Loop（辅助治理）
@@ -232,10 +232,11 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 
 固定规则：
 
-1. requirement 创建后先生成 acceptance contract
-2. requirement `submit` 放行后再生成 execution plan
-3. validate 默认读取 acceptance contract 的 `verification_checks`
-4. execution detail 同时展示 plan、observability 与 raw output
+1. requirement 创建后先保存记录，并在后台生成 acceptance contract 与 execution plan
+2. requirement `submit` 放行前会确保这两份产物可用
+3. execution 完成后自动派发 verification agent
+4. verification agent 默认读取 acceptance contract 的 `verification_checks`
+5. execution detail 同时展示 plan、observability、verification result 与 raw output
 
 它只做一次轻量决策：
 

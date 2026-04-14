@@ -388,6 +388,10 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     commands = [item["command"] for item in payload["validation"]["checks"]]
     assert commands == ["PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q"]
     assert payload["validation"]["status"] == "passed"
+    assert payload["validation"]["verification_agent_id"] == "verification_agent"
+    assert payload["validation"]["verification_agent_label"] == "Verification Agent"
+    assert payload["validation"]["suggested_next_action"] == "release_ready"
+    assert payload["verification_result"]["verification_agent_id"] == "verification_agent"
     assert payload["requirement"]["status"] == "delivery_ready"
 
 

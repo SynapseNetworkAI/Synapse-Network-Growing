@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,6 +35,7 @@ from server.database import (
     WorkflowStepEventRow,
     WorkflowStepDependencyRow,
     WorkflowStepRow,
+    SessionLocal,
     utcnow,
 )
 from server.schemas import (
@@ -77,6 +79,7 @@ from server.services.requirements.approval import (
 )
 from server.services.workflows.planner import build_planner_output
 from server.services.workflows.planner_provider import call_full_plan_provider, planner_model_name, planner_provider_name
+from server.services.workflows.verification_agent import verify_with_agent
 from server.services.workflows.orchestrator.file_changes import (
     _load_task_file_changes,
     _normalize_task_file_change_payload,
@@ -792,6 +795,10 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         override=str(getattr(body, "target_project_path_override", "") or "") or None,
         fallback=str(getattr(body, "target_project_path", "") or "") or None,
     )
+    initial_acceptance_contract = normalize_acceptance_contract(dict(getattr(body, "acceptance_contract", None) or {}))
+    provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
+    if provided_markdown:
+        initial_acceptance_contract["markdown"] = provided_markdown
     requirement = RequirementRow(
         title=body.title.strip(),
         description_markdown=body.description_markdown.strip(),
@@ -805,23 +812,7 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         project_display_name=str(project.display_name or ""),
         target_project_path=target_project_path,
         target_project_path_override=str(getattr(body, "target_project_path_override", "") or "").strip() or None,
-        acceptance_contract_json=_json_dump(
-            _acceptance_contract_payload(
-                db,
-                type(
-                    "RequirementAcceptanceSource",
-                    (),
-                    {
-                        "acceptance_contract": getattr(body, "acceptance_contract", None),
-                        "acceptance_criteria_markdown": getattr(body, "acceptance_criteria_markdown", ""),
-                        "title": getattr(body, "title", ""),
-                        "description_markdown": getattr(body, "description_markdown", ""),
-                        "target_project_path": target_project_path,
-                    },
-                )(),
-                target_project_path=target_project_path,
-            )
-        ),
+        acceptance_contract_json=_json_dump(initial_acceptance_contract),
         execution_plan_json=_json_dump({}),
         approval_status="pending_approval",
         approval_contract_json=_json_dump(body.approval_contract or {}),
@@ -839,6 +830,12 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     )
     db.commit()
     db.refresh(requirement)
+    if _testing_mode():
+        _ensure_generated_requirement_assets(db, requirement)
+        db.commit()
+        db.refresh(requirement)
+    else:
+        _enqueue_requirement_asset_generation(int(requirement.id))
     _notify_requirement_created(db, requirement)
     _log_workflow_event(
         "requirement_created",
@@ -930,6 +927,7 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
     approval_reason = str(decision.get("reason") or "Requirement requires approval before automatic execution").strip()
     requirement.updated_at = utcnow()
+    _ensure_generated_requirement_assets(db, requirement)
     if approval_status in {"approved", "waived"}:
         requirement.approval_status = approval_status
         requirement.approved_at = requirement.approved_at or utcnow()
@@ -1029,6 +1027,7 @@ def approve_requirement(
     requirement.approval_requested_at = None
     requirement.status = "ready"
     requirement.updated_at = utcnow()
+    _ensure_generated_requirement_assets(db, requirement)
     _resolve_requirement_approval_requests(
         db,
         requirement_id=int(requirement.id),
@@ -1360,6 +1359,65 @@ def _ensure_execution_plan(db: Session, requirement: RequirementRow) -> dict[str
     return plan
 
 
+def _ensure_generated_requirement_assets(db: Session, requirement: RequirementRow) -> None:
+    acceptance = _parse_acceptance_contract(requirement)
+    if not acceptance.get("done_criteria") or not str(acceptance.get("markdown") or "").strip():
+        required_checks = _required_checks_for_target(db, getattr(requirement, "target_project_path", None))
+        try:
+            contract = _generate_acceptance_contract_with_agent(
+                title=str(getattr(requirement, "title", "") or ""),
+                description_markdown=str(getattr(requirement, "description_markdown", "") or ""),
+                target_project_path=str(getattr(requirement, "target_project_path", "") or "") or None,
+                required_checks=required_checks,
+            )
+        except Exception:
+            contract = _fallback_acceptance_contract(
+                title=str(getattr(requirement, "title", "") or ""),
+                description_markdown=str(getattr(requirement, "description_markdown", "") or ""),
+                target_project_path=str(getattr(requirement, "target_project_path", "") or "") or None,
+                required_checks=required_checks,
+            )
+        requirement.acceptance_contract_json = _json_dump(contract)
+    _ensure_execution_plan(db, requirement)
+    requirement.updated_at = utcnow()
+    db.flush()
+
+
+def _background_requirement_asset_generation(requirement_id: int) -> None:
+    db = SessionLocal()
+    try:
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+        if requirement is None:
+            return
+        _ensure_generated_requirement_assets(db, requirement)
+        _log_workflow_event(
+            "requirement_assets_generated",
+            requirement=requirement,
+            acceptance_generated=bool(_parse_acceptance_markdown(requirement)),
+            plan_generated=bool(str(_parse_execution_plan(requirement).get("summary_markdown") or "").strip()),
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log_event(
+            logger,
+            "requirement_assets_generation_failed",
+            requirement_id=requirement_id,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+    finally:
+        db.close()
+
+
+def _enqueue_requirement_asset_generation(requirement_id: int) -> None:
+    threading.Thread(
+        target=_background_requirement_asset_generation,
+        args=(requirement_id,),
+        daemon=True,
+    ).start()
+
+
 def _load_full_persona(agent_id: str) -> dict[str, Any]:
     persona_path = PROJECT_ROOT / "roles" / agent_id / "prompts" / "persona.md"
     if not persona_path.exists():
@@ -1523,6 +1581,10 @@ def _sync_execution_state(db: Session, run: ExecutionRunRow) -> ExecutionRunRow:
             run.status = "validating"
             if requirement is not None:
                 requirement.status = "running"
+            if run.verification_requested_at is None:
+                run.verification_requested_at = utcnow()
+                db.flush()
+                _enqueue_execution_verification(int(run.id))
         elif str(validation.status or "") == "passed":
             run.status = "succeeded"
             if requirement is not None and str(requirement.status or "") != "done":
@@ -1689,6 +1751,33 @@ def _next_running_node(db: Session, run: ExecutionRunRow) -> ExecutionNodeRow | 
     return None
 
 
+def _background_verify_execution(execution_run_id: int) -> None:
+    db = SessionLocal()
+    try:
+        validate_execution_run(db, execution_run_id)
+    except Exception as exc:
+        db.rollback()
+        log_event(
+            logger,
+            "execution_verification_failed",
+            execution_id=execution_run_id,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+    finally:
+        db.close()
+
+
+def _enqueue_execution_verification(execution_run_id: int) -> None:
+    if _testing_mode():
+        return
+    threading.Thread(
+        target=_background_verify_execution,
+        args=(execution_run_id,),
+        daemon=True,
+    ).start()
+
+
 def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -1776,6 +1865,81 @@ def _commands_from_execution_evidence(nodes: list[ExecutionNodeRow], db: Session
     return commands
 
 
+def _verification_payload_for_run(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    nodes: list[ExecutionNodeRow],
+    checks: list[ValidationCheckResultOut],
+) -> dict[str, Any]:
+    changed_files = [item.model_dump() for item in _collect_execution_changed_files(db, nodes)]
+    raw_task_output, _truncated = _execution_raw_output(nodes, db)
+    plan_summary = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
+    activity_stream = [
+        item.model_dump()
+        for item in _build_execution_activity_stream(run, nodes, None, [])
+    ]
+    return {
+        "requirement": {
+            "id": int(requirement.id),
+            "title": str(requirement.title or ""),
+            "description_markdown": str(requirement.description_markdown or ""),
+            "priority": str(requirement.priority or "normal"),
+            "target_project_path": str(requirement.target_project_path or "").strip() or None,
+        },
+        "acceptance_contract": _parse_acceptance_contract(requirement),
+        "execution_plan": plan_summary,
+        "execution_observability": {
+            "execution_id": int(run.id),
+            "status": str(run.status or "validating"),
+            "validation_profile": str(run.validation_profile or "minimal"),
+            "delivery_intent": str(run.delivery_intent or "pr_required"),
+            "branch": str(getattr(_latest_release(db, int(requirement.id)), "branch_name", "") or "").strip() or None,
+            "elapsed_ms": _elapsed_ms(run.started_at, run.completed_at),
+            "nodes": [
+                {
+                    "node_key": str(node.node_key or ""),
+                    "title": str(node.title or ""),
+                    "status": str(node.status or ""),
+                    "task_id": int(node.task_id) if node.task_id is not None else None,
+                    "summary_markdown": str(node.summary_markdown or "").strip() or None,
+                }
+                for node in nodes
+            ],
+        },
+        "check_results": [item.model_dump() for item in checks],
+        "changed_files": changed_files,
+        "raw_task_output": raw_task_output,
+        "activity_stream": activity_stream,
+    }
+
+
+def _persist_verification_result(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    checks: list[ValidationCheckResultOut],
+    result: dict[str, Any],
+) -> ValidationRecordRow:
+    record = ValidationRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(run.id),
+        profile=str(run.validation_profile or "minimal"),
+        status=str(result.get("status") or "inconclusive"),
+        summary_markdown=str(result.get("summary") or "").strip(),
+        checks_json=_json_dump([check.model_dump() for check in checks]),
+        verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
+        verification_agent_label=str(result.get("verification_agent_label") or "Verification Agent"),
+        evidence_json=_json_dump([str(item).strip() for item in result.get("evidence_used") or [] if str(item).strip()]),
+        reasoning_markdown=str(result.get("reasoning") or "").strip(),
+        suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement").strip() or "revise_requirement",
+    )
+    db.add(record)
+    return record
+
+
 def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -1796,74 +1960,51 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     if not nodes or any(str(node.status or "") != "completed" for node in nodes):
         raise ValueError("All execute nodes must complete before validate.")
     checks: list[ValidationCheckResultOut] = []
-    evidence_commands = _commands_from_execution_evidence(nodes, db)
     acceptance_contract = _parse_acceptance_contract(requirement)
     contract_checks = [
         item for item in acceptance_contract.get("verification_checks") or [] if isinstance(item, dict)
     ]
-    profile = str(run.validation_profile or "minimal")
-    policies = resolve_project_policies_for_target(
-        db,
-        getattr(requirement, "target_project_path", None),
-        require_active=False,
-    )
-    if not policies:
+    project_path = str(getattr(requirement, "target_project_path", "") or "").strip()
+    evidence_commands = _commands_from_execution_evidence(nodes, db)
+    contract_commands = [
+        str(item.get("command") or "").strip()
+        for item in contract_checks
+        if str(item.get("command") or "").strip()
+    ]
+    commands_to_run = contract_commands or evidence_commands
+    for command in commands_to_run:
+        checks.append(_run_check(project_path, command))
+    for item in contract_checks:
+        if str(item.get("command") or "").strip():
+            continue
         checks.append(
             ValidationCheckResultOut(
-                label="execution record present",
+                label=str(item.get("label") or "evidence review").strip() or "evidence review",
                 status="passed",
-                output_excerpt="No project policy checks configured; execution evidence exists.",
+                output_excerpt="Evidence-only verification item delegated to verification agent.",
             )
         )
-    else:
-        for policy in policies:
-            payload = project_policy_to_dict(policy)
-            project_path = str(payload.get("root_path") or "")
-            required_checks = list(payload.get("required_checks") or [])
-            contract_commands = [
-                str(item.get("command") or "").strip()
-                for item in contract_checks
-                if str(item.get("command") or "").strip()
-            ]
-            if contract_commands:
-                required_checks = contract_commands
-            elif profile == "minimal" and evidence_commands:
-                required_checks = evidence_commands
-            if not required_checks:
-                checks.append(
-                    ValidationCheckResultOut(
-                        label=f"{payload.get('project_key')}: no required checks",
-                        project_path=project_path or None,
-                        status="passed",
-                        output_excerpt="Project policy does not require deterministic checks.",
-                    )
-                )
-                continue
-            for command in required_checks:
-                checks.append(_run_check(project_path, str(command)))
-    if contract_checks and not any(str(item.get("command") or "").strip() for item in contract_checks):
-        for item in contract_checks:
-            checks.append(
-                ValidationCheckResultOut(
-                    label=str(item.get("label") or "manual evidence"),
-                    status="passed",
-                    output_excerpt="Validated against execution evidence captured for this run.",
-                )
-            )
-    passed = all(check.status == "passed" for check in checks)
-    summary = "Validation passed. Execute evidence and required checks are complete." if passed else "Validation failed. At least one required check did not pass."
-    record = ValidationRecordRow(
-        requirement_id=int(requirement.id),
-        execution_run_id=int(run.id),
-        profile=profile,
-        status="passed" if passed else "failed",
-        summary_markdown=summary,
-        checks_json=_json_dump([check.model_dump() for check in checks]),
+    result = verify_with_agent(
+        _verification_payload_for_run(
+            db,
+            requirement=requirement,
+            run=run,
+            nodes=nodes,
+            checks=checks,
+        ),
+        skip_provider=_testing_mode(),
     )
-    db.add(record)
-    run.status = "succeeded" if passed else "failed"
-    run.completed_at = utcnow()
-    requirement.status = "delivery_ready" if passed else "needs_revision"
+    record = _persist_verification_result(
+        db,
+        requirement=requirement,
+        run=run,
+        checks=checks,
+        result=result,
+    )
+    verdict = str(result.get("status") or "inconclusive")
+    run.status = "succeeded" if verdict == "passed" else ("failed" if verdict in {"failed", "needs_revision"} else "blocked")
+    run.completed_at = run.completed_at or utcnow()
+    requirement.status = "delivery_ready" if verdict == "passed" else "needs_revision"
     _log_workflow_event(
         "execution_run_validated",
         requirement=requirement,
@@ -1871,6 +2012,8 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         validation=record,
         checks_total=len(checks),
         checks_failed=len([check for check in checks if check.status != "passed"]),
+        verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
+        suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement"),
     )
     db.commit()
     return build_execution_detail(db, execution_run_id)
@@ -1978,6 +2121,8 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
         for item in checks_payload:
             if isinstance(item, dict):
                 checks.append(ValidationCheckResultOut(**item))
+    evidence_payload = _json_load(getattr(record, "evidence_json", None), [])
+    evidence_used = [str(item).strip() for item in evidence_payload if str(item).strip()] if isinstance(evidence_payload, list) else []
     return ValidationRecordSlimOut(
         id=int(record.id),
         requirement_id=int(record.requirement_id),
@@ -1986,6 +2131,11 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
         status=str(record.status or "pending"),
         summary_markdown=str(record.summary_markdown or ""),
         checks=checks,
+        verification_agent_id=str(getattr(record, "verification_agent_id", "") or "").strip() or None,
+        verification_agent_label=str(getattr(record, "verification_agent_label", "") or "").strip() or None,
+        evidence_used=evidence_used,
+        reasoning_markdown=str(getattr(record, "reasoning_markdown", "") or ""),
+        suggested_next_action=str(getattr(record, "suggested_next_action", "") or "").strip() or None,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -2396,6 +2546,7 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         requirement=_requirement_to_out(db, requirement),
         nodes=node_out,
         validation=_validation_record_to_out(validation),
+        verification_result=_validation_record_to_out(validation),
         changed_files=changed_files,
         runtime_summary=ExecutionRuntimeSummaryOut(
             tokens_used_total=execution.tokens_used_total,

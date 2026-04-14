@@ -19,7 +19,7 @@
 ## 3. Verification 必须独立于 Execute
 
 1. execute 不能自证正确。
-2. validate 必须独立于 execute。
+2. validate 必须独立于 execute，并默认由独立 verification agent 执行。
 3. “代码存在”不等于“问题解决”；完成定义必须包含验证证据。
 4. deliver 只能发生在 validate 成功之后。
 
@@ -42,8 +42,8 @@
    - 自动化编排
    - 发布治理
 4. 任何新能力如果让程序重新变成“执行内容裁判”而不是“治理与守门者”，都应视为架构倒退。
-5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点；程序应在 submit 时完成审批判定、自动创建 execution、并在放行后自动启动。
-6. 高信号错误必须自动回流到 requirement 主链，错误发现、审批、自动执行、validate、PR、release 必须保持在同一条治理链上。
+5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点；程序应在 submit 时完成审批判定、确保 acceptance / execution plan 可用、自动创建 execution、并在放行后自动启动。
+6. 高信号错误必须自动回流到 requirement 主链，错误发现、审批、自动执行、verification、PR、release 必须保持在同一条治理链上。
 
 ## 6. Planner 是执行形状选择器，不是阶段生成器
 
@@ -146,6 +146,7 @@ Release 负责：
 2. publish、deploy、rollback 必须在 release surface 处理。
 3. requirement 面只能展示 release 摘要与跳转入口。
 4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
+5. 高风险 requirement 的人工 execution approval 必须保留；它控制的是“是否允许 agent 开始高风险动作”，不能被 PR merge 替代。
 
 ## 11. 服务层必须按功能面治理
 
@@ -220,6 +221,7 @@ Release 负责：
 2. transcript、session、artifact、log 和 ownership 必须可追踪。
 3. 父执行结束时，子资源必须可收口、可复盘。
 4. 当 execution 运行态失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置，不保留旧脏数据兼容逻辑。
+5. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
 
 ## 17. 所有关键自动化都必须可观测
 

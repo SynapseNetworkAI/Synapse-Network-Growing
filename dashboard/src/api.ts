@@ -922,6 +922,11 @@ export interface ValidationRecord {
   status: string
   summary_markdown: string
   checks: ValidationCheckResult[]
+  verification_agent_id: string | null
+  verification_agent_label: string | null
+  evidence_used: string[]
+  reasoning_markdown: string
+  suggested_next_action: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -990,6 +995,7 @@ export interface ExecutionDetail {
   requirement: AgentRequirement
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
+  verification_result: ValidationRecord | null
   changed_files: ExecutionChangedFile[]
   runtime_summary: ExecutionRuntimeSummary | null
   delivery_summary: ReleaseRecord | null

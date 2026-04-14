@@ -147,6 +147,7 @@ export default function ExecutionDetailPage() {
     current_branch: execution.current_branch,
   }
   const planMarkdown = String(detail.plan_summary?.summary_markdown || '').trim()
+  const verification = detail.verification_result ?? detail.validation
 
   return (
     <div className="space-y-6" data-testid="execution-detail-page">
@@ -193,15 +194,6 @@ export default function ExecutionDetailPage() {
                 onClick={() => runAction('retry', () => api.retryExecution(execution.id))}
               >
                 创建新 run 重试
-              </button>
-            )}
-            {detail.nodes.length > 0 && detail.nodes.every((node) => node.status === 'completed') && (
-              <button
-                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-60"
-                disabled={busyAction === 'validate'}
-                onClick={() => runAction('validate', () => api.validateExecution(execution.id))}
-              >
-                进入验证
               </button>
             )}
           </div>
@@ -333,24 +325,35 @@ export default function ExecutionDetailPage() {
       </SectionFrame>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr),minmax(0,1fr)]">
-        <SectionFrame eyebrow="Validation" title="验证结果">
-          {detail.validation ? (
+      <SectionFrame eyebrow="Verification" title="验证结果">
+          {verification ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-strong)] p-4">
                 <div className="flex items-center gap-2">
-                  <StateBadge tone={statusTone(detail.validation.status)}>{STATUS_LABEL[detail.validation.status] || detail.validation.status}</StateBadge>
-                  <span className="text-sm text-[color:var(--ops-text-muted)]">{detail.validation.profile}</span>
+                  <StateBadge tone={statusTone(verification.status)}>{STATUS_LABEL[verification.status] || verification.status}</StateBadge>
+                  <span className="text-sm text-[color:var(--ops-text-muted)]">{verification.profile}</span>
+                  <span className="text-sm text-[color:var(--ops-text-muted)]">{verification.verification_agent_label || verification.verification_agent_id || 'Verification Agent'}</span>
                 </div>
                 <div className="mt-3 text-sm text-[color:var(--ops-text-body)]">
-                  <Markdown value={detail.validation.summary_markdown} />
+                  <Markdown value={verification.summary_markdown} />
+                </div>
+                {verification.reasoning_markdown ? (
+                  <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4 text-sm text-[color:var(--ops-text-body)]">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Reasoning</div>
+                    <Markdown value={verification.reasoning_markdown} />
+                  </div>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-[color:var(--ops-text-caption)]">
+                  <span>next action: {verification.suggested_next_action || '-'}</span>
+                  <span>evidence: {verification.evidence_used.length > 0 ? verification.evidence_used.join(' · ') : '-'}</span>
                 </div>
               </div>
               <div className="space-y-3">
-                {detail.validation.checks.map((check) => (
+                {verification.checks.map((check) => (
                   <article key={`${check.label}-${check.command || 'manual'}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
                     <div className="font-medium text-[color:var(--ops-text-title)]">{check.label}</div>
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
-                      {check.command || 'manual evidence'} · {check.project_path || '-'}
+                      {check.command || 'verification evidence'} · {check.project_path || '-'}
                     </div>
                     <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{check.status}</div>
                     {check.output_excerpt ? <pre className="mt-3 overflow-x-auto rounded-xl bg-slate-950/95 p-3 text-xs text-slate-100">{check.output_excerpt}</pre> : null}
@@ -359,7 +362,7 @@ export default function ExecutionDetailPage() {
               </div>
             </div>
           ) : (
-            <div className="text-sm text-[color:var(--ops-text-muted)]">当前还没有验证记录。</div>
+            <div className="text-sm text-[color:var(--ops-text-muted)]">验证 agent 结果生成后会显示在这里。</div>
           )}
         </SectionFrame>
 

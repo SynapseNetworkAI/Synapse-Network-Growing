@@ -707,6 +707,7 @@ class ExecutionRunRow(Base):
     plan_snapshot_json = Column(Text, nullable=False, default="{}")
     target_projects_json = Column(Text, nullable=False, default="[]")
     latest_task_id = Column(Integer, ForeignKey("tasks.id"))
+    verification_requested_at = Column(DateTime)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -762,6 +763,11 @@ class ValidationRecordRow(Base):
     status = Column(Text, nullable=False, default="pending")
     summary_markdown = Column(Text, nullable=False, default="")
     checks_json = Column(Text, nullable=False, default="[]")
+    verification_agent_id = Column(Text)
+    verification_agent_label = Column(Text)
+    evidence_json = Column(Text, nullable=False, default="[]")
+    reasoning_markdown = Column(Text, nullable=False, default="")
+    suggested_next_action = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1072,6 +1078,11 @@ def _migrate(engine_):
         ExecutionRunRow.__table__.create(bind=engine_, checkfirst=True)
     else:
         existing = {c["name"] for c in insp.get_columns("execution_runs")}
+        if "verification_requested_at" not in existing:
+            logger.info("Migrating: adding 'verification_requested_at' column to execution_runs table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE execution_runs ADD COLUMN verification_requested_at DATETIME"))
+                conn.commit()
         if "plan_snapshot_json" not in existing:
             logger.info("Migrating: adding 'plan_snapshot_json' column to execution_runs table")
             with engine_.connect() as conn:
@@ -1085,6 +1096,21 @@ def _migrate(engine_):
     if "validation_records" not in tables:
         logger.info("Migrating: creating 'validation_records' table")
         ValidationRecordRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("validation_records")}
+        validation_cols = {
+            "verification_agent_id": "TEXT",
+            "verification_agent_label": "TEXT",
+            "evidence_json": "TEXT DEFAULT '[]'",
+            "reasoning_markdown": "TEXT DEFAULT ''",
+            "suggested_next_action": "TEXT",
+        }
+        for col, col_type in validation_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to validation_records table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE validation_records ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "release_records" not in tables:
         logger.info("Migrating: creating 'release_records' table")
