@@ -68,6 +68,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "allow_preemption": True,
         "capability_matrix": {
             **default_capability_matrix(release_mode="manual"),
+            "git_push": True,
             "network_access": True,
         },
         "interrupt_policy": default_interrupt_policy(),
