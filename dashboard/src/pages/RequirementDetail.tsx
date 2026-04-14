@@ -51,6 +51,7 @@ export default function RequirementDetail() {
   const [detail, setDetail] = useState<AgentRequirementDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
   const [form, setForm] = useState({
     title: '',
     description_markdown: '',
@@ -58,7 +59,6 @@ export default function RequirementDetail() {
     priority: 'normal',
     target_project_path: '',
   })
-  const [revisionNote, setRevisionNote] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -72,6 +72,7 @@ export default function RequirementDetail() {
         priority: data.requirement.priority,
         target_project_path: data.requirement.target_project_path || '',
       })
+      setIsEditing(false)
     } finally {
       setLoading(false)
     }
@@ -87,16 +88,60 @@ export default function RequirementDetail() {
 
   const requirement = detail.requirement
   const approval = detail.approval
+  const canEdit = !detail.latest_execution_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
       <SectionFrame
         eyebrow="Requirement"
         title={requirement.title}
-        description="需求详情只展示意图、验收和治理摘要，不直接承担执行控制和发布控制。"
         actions={
           <div className="flex flex-wrap gap-2">
-            {requirement.status === 'draft' && (
+            {canEdit && !isEditing && (
+              <button
+                data-testid="toggle-edit-requirement-btn"
+                className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm"
+                onClick={() => setIsEditing(true)}
+              >
+                编辑
+              </button>
+            )}
+            {isEditing && (
+              <>
+                <button
+                  className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm"
+                  onClick={() => {
+                    setForm({
+                      title: requirement.title,
+                      description_markdown: requirement.description_markdown,
+                      acceptance_criteria_markdown: requirement.acceptance_criteria_markdown,
+                      priority: requirement.priority,
+                      target_project_path: requirement.target_project_path || '',
+                    })
+                    setIsEditing(false)
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  data-testid="save-requirement-btn"
+                  className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm text-white disabled:opacity-50"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      await api.updateRequirement(requirement.id, form)
+                      await load()
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                >
+                  保存
+                </button>
+              </>
+            )}
+            {!isEditing && requirement.status === 'draft' && (
               <button
                 className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white"
                 onClick={async () => {
@@ -110,7 +155,7 @@ export default function RequirementDetail() {
                 提交
               </button>
             )}
-            {requirement.status === 'blocked' && approval.approval_status === 'pending_approval' && (
+            {!isEditing && requirement.status === 'blocked' && approval.approval_status === 'pending_approval' && (
               <>
                 <button
                   className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
@@ -135,7 +180,7 @@ export default function RequirementDetail() {
                 </button>
               </>
             )}
-            {approval.pending_execution_start && detail.latest_execution_id && (
+            {!isEditing && approval.pending_execution_start && detail.latest_execution_id && (
               <button
                 className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
                 onClick={async () => {
@@ -148,12 +193,12 @@ export default function RequirementDetail() {
                 恢复启动执行
               </button>
             )}
-            {detail.latest_execution_id && (
+            {!isEditing && detail.latest_execution_id && (
               <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/executions/${detail.latest_execution_id}`)}>
                 查看执行
               </button>
             )}
-            {detail.latest_release_id && (
+            {!isEditing && detail.latest_release_id && (
               <button className="rounded-2xl border border-[color:var(--ops-state-ready-border)] px-4 py-2 text-sm text-[color:var(--ops-state-ready-text)]" onClick={() => navigate(`/releases/${requirement.id}`)}>
                 查看发布
               </button>
@@ -161,106 +206,84 @@ export default function RequirementDetail() {
           </div>
         }
       >
-        <div className="flex flex-wrap gap-2">
-          <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
-          <StateBadge tone="muted">{requirement.priority}</StateBadge>
-          <StateBadge tone="muted">{requirement.source}</StateBadge>
-        </div>
-        <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-3">
-          <div>target: {requirement.target_projects.join(', ') || '-'}</div>
-          <div>approval: {approval.approval_decision}</div>
-          <div>latest execution: {detail.latest_execution_id ?? '-'}</div>
-          <div>latest release: {detail.latest_release_id ?? '-'}</div>
-          <div>created: {formatTime(requirement.created_at)}</div>
-          <div>updated: {formatTime(requirement.updated_at)}</div>
-        </div>
+        {isEditing ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <FieldLabel>标题</FieldLabel>
+              <input
+                data-testid="edit-requirement-title"
+                className="mt-2 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+              />
+            </div>
+            <div>
+              <FieldLabel>目标项目路径</FieldLabel>
+              <input
+                data-testid="edit-requirement-target-project-path"
+                className="mt-2 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+                value={form.target_project_path}
+                onChange={(event) => setForm((current) => ({ ...current, target_project_path: event.target.value }))}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <FieldLabel>优先级</FieldLabel>
+              <select
+                data-testid="edit-requirement-priority"
+                className="mt-2 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm md:max-w-[220px]"
+                value={form.priority}
+                onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}
+              >
+                <option value="low">low</option>
+                <option value="normal">normal</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
+              <StateBadge tone="muted">{requirement.priority}</StateBadge>
+              <StateBadge tone="muted">{requirement.source}</StateBadge>
+            </div>
+            <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-3">
+              <div>target: {requirement.target_projects.join(', ') || '-'}</div>
+              <div>approval: {approval.approval_decision}</div>
+              <div>latest execution: {detail.latest_execution_id ?? '-'}</div>
+              <div>latest release: {detail.latest_release_id ?? '-'}</div>
+              <div>created: {formatTime(requirement.created_at)}</div>
+              <div>updated: {formatTime(requirement.updated_at)}</div>
+            </div>
+          </>
+        )}
       </SectionFrame>
 
       <div className="grid gap-[var(--ops-section-gap)] xl:grid-cols-[minmax(0,1.45fr),minmax(300px,var(--ops-inspector-width))]">
         <div className="space-y-[var(--ops-section-gap)]">
           <SectionFrame eyebrow="Intent" title="需求意图">
-            <Markdown value={requirement.description_markdown} />
+            {isEditing ? (
+              <textarea
+                data-testid="edit-requirement-description"
+                className="min-h-[220px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+                value={form.description_markdown}
+                onChange={(event) => setForm((current) => ({ ...current, description_markdown: event.target.value }))}
+              />
+            ) : (
+              <Markdown value={requirement.description_markdown} />
+            )}
           </SectionFrame>
 
           <SectionFrame eyebrow="Acceptance" title="验收标准">
-            <Markdown value={requirement.acceptance_criteria_markdown} />
-          </SectionFrame>
-
-          <SectionFrame eyebrow="Edit" title="修订需求" description="需求面允许修订意图和约束，但不处理执行日志和发布决策。">
-            <div className="grid gap-3">
-              <div>
-                <FieldLabel>标题</FieldLabel>
-                <input className="mt-2 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} />
-              </div>
-              <div>
-                <FieldLabel>目标项目路径</FieldLabel>
-                <input className="mt-2 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.target_project_path} onChange={(event) => setForm((current) => ({ ...current, target_project_path: event.target.value }))} />
-              </div>
-              <div>
-                <FieldLabel>需求描述</FieldLabel>
-                <textarea className="mt-2 min-h-[130px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.description_markdown} onChange={(event) => setForm((current) => ({ ...current, description_markdown: event.target.value }))} />
-              </div>
-              <div>
-                <FieldLabel>验收标准</FieldLabel>
-                <textarea className="mt-2 min-h-[110px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.acceptance_criteria_markdown} onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))} />
-              </div>
-              <div>
-                <FieldLabel>Revision Note</FieldLabel>
-                <textarea className="mt-2 min-h-[90px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" placeholder="revision note" value={revisionNote} onChange={(event) => setRevisionNote(event.target.value)} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-50"
-                  disabled={saving}
-                  onClick={async () => {
-                    setSaving(true)
-                    try {
-                      await api.updateRequirement(requirement.id, form)
-                      await load()
-                    } finally {
-                      setSaving(false)
-                    }
-                  }}
-                >
-                  保存
-                </button>
-                <button
-                  className="rounded-2xl border border-[color:var(--ops-state-validating-border)] px-4 py-2 text-sm text-[color:var(--ops-state-validating-text)] disabled:opacity-50"
-                  disabled={saving}
-                  onClick={async () => {
-                    setSaving(true)
-                    try {
-                      await api.reviseRequirement(requirement.id, {
-                        title: form.title,
-                        description_markdown: form.description_markdown,
-                        acceptance_criteria_markdown: form.acceptance_criteria_markdown,
-                        revision_note: revisionNote || null,
-                      })
-                      await load()
-                    } finally {
-                      setSaving(false)
-                    }
-                  }}
-                >
-                  标记修订并回到待执行
-                </button>
-                <button
-                  className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-                  disabled={saving}
-                  onClick={async () => {
-                    setSaving(true)
-                    try {
-                      await api.cancelRequirement(requirement.id)
-                      await load()
-                    } finally {
-                      setSaving(false)
-                    }
-                  }}
-                >
-                  取消需求
-                </button>
-              </div>
-            </div>
+            {isEditing ? (
+              <textarea
+                className="min-h-[180px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+                value={form.acceptance_criteria_markdown}
+                onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))}
+              />
+            ) : (
+              <Markdown value={requirement.acceptance_criteria_markdown} />
+            )}
           </SectionFrame>
         </div>
 
@@ -302,12 +325,6 @@ export default function RequirementDetail() {
             <div>
               <FieldLabel>Release</FieldLabel>
               <div className="mt-2 text-[color:var(--ops-text-muted)]">latest release #{detail.latest_release_id ?? '-'}</div>
-            </div>
-            <div>
-              <FieldLabel>治理边界</FieldLabel>
-              <div className="mt-2 leading-6 text-[color:var(--ops-text-muted)]">
-                Requirement 只关心 why / acceptance / policy。执行状态去 Execution，PR 和部署去 Release。
-              </div>
             </div>
           </InspectorRail>
         </div>

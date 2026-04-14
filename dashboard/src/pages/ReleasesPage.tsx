@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ReleaseCandidate, api } from '../api'
-import { EmptyPane, FieldLabel, InspectorRail, SectionFrame, StateBadge } from '../components/workbench'
+import { EmptyPane, StateBadge } from '../components/workbench'
 
 function formatTime(value: string | null) {
   if (!value) return '-'
@@ -31,7 +31,7 @@ export default function ReleasesPage() {
     const needle = search.trim().toLowerCase()
     if (!needle) return candidates
     return candidates.filter((item) =>
-      [String(item.requirement.id), item.requirement.title, item.requirement.target_projects.join('\n'), item.release?.status || '', item.validation.summary_markdown]
+      [String(item.requirement.id), item.requirement.title, item.requirement.target_projects.join('\n'), item.release?.status || '']
         .join('\n')
         .toLowerCase()
         .includes(needle),
@@ -39,92 +39,84 @@ export default function ReleasesPage() {
   }, [candidates, search])
 
   return (
-    <div className="space-y-[var(--ops-section-gap)]" data-testid="releases-page">
-      <SectionFrame
-        eyebrow="Release Center"
-        title="发布面"
-        description="发布面只接收 validate 成功后的 requirement，统一处理 branch、PR、部署和 rollback。"
-        actions={
-          <div className="flex items-center gap-3">
+    <div className="space-y-5" data-testid="releases-page">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Releases</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">发布列表</h2>
+          </div>
+          <div className="flex items-center gap-2">
             <input
-              className="w-72 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
-              placeholder="搜索 requirement / project / release status"
+              className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
+              placeholder="搜索 requirement / project"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2.5 text-sm font-medium text-white" onClick={() => load().catch(() => {})}>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
               刷新
             </button>
           </div>
-        }
-      >
-        <div className="grid gap-4 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-3">
-          <div>
-            <FieldLabel>候选门槛</FieldLabel>
-            <div className="mt-2">只有 validate 成功的 requirement 才进入 release candidates。</div>
-          </div>
-          <div>
-            <FieldLabel>主工作区</FieldLabel>
-            <div className="mt-2">branch / commit / PR / deployment timeline。</div>
-          </div>
-          <div>
-            <FieldLabel>右侧环境栏</FieldLabel>
-            <div className="mt-2">staging / production 状态与 rollback target。</div>
-          </div>
         </div>
-      </SectionFrame>
+      </section>
 
-      <SectionFrame eyebrow="Candidates" title="发布候选" description={loading ? '正在拉取候选…' : `${filtered.length} 个候选`}>
-        <div className="mt-4 grid gap-4">
-          {filtered.map((item) => (
-            <article key={item.requirement.id} className="border-b border-[color:var(--ops-stroke-soft)] pb-5 last:border-b-0 last:pb-0">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr),320px]">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-semibold text-[color:var(--ops-text-title)]">#{item.requirement.id} {item.requirement.title}</h4>
-                    <StateBadge tone="delivered">{item.requirement.status}</StateBadge>
-                    <StateBadge tone={item.release?.status ? 'ready' : 'muted'}>{item.release?.status || 'ready'}</StateBadge>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.validation.summary_markdown}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement.id}`)}>
-                      查看需求
-                    </button>
-                    <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/executions/${item.requirement.latest_execution_run_id}`)} disabled={!item.requirement.latest_execution_run_id}>
-                      查看执行
-                    </button>
-                    <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white" onClick={() => navigate(`/releases/${item.requirement.id}`)}>
-                      打开发布面
-                    </button>
-                  </div>
-                </div>
-                <InspectorRail eyebrow={`Requirement #${item.requirement.id}`} title="Release Summary" className="bg-transparent shadow-none">
-                  <div>
-                    <FieldLabel>Target Projects</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.requirement.target_projects.join(', ') || '-'}</div>
-                  </div>
-                  <div>
-                    <FieldLabel>Validation</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.validation.status}</div>
-                  </div>
-                  <div>
-                    <FieldLabel>Branch / PR</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">
-                      {item.release?.branch_name || '-'} · PR {item.release?.pr_number || '-'}
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse">
+            <thead className="bg-slate-50/90">
+              <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                <th className="px-5 py-4 font-medium">Requirement</th>
+                <th className="px-4 py-4 font-medium">验证</th>
+                <th className="px-4 py-4 font-medium">发布状态</th>
+                <th className="px-4 py-4 font-medium">分支 / PR</th>
+                <th className="px-4 py-4 font-medium">更新时间</th>
+                <th className="px-5 py-4 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => (
+                <tr key={item.requirement.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                  <td className="px-5 py-4">
+                    <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">
+                      #{item.requirement.id} {item.requirement.title}
                     </div>
-                  </div>
-                  <div>
-                    <FieldLabel>Updated</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{formatTime(item.release?.updated_at || item.validation.updated_at)}</div>
-                  </div>
-                </InspectorRail>
-              </div>
-            </article>
-          ))}
-
-          {!loading && filtered.length === 0 && <EmptyPane>当前没有 validate 成功的 release candidate。</EmptyPane>}
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.requirement.target_projects.join(', ') || '-'}</div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <StateBadge tone={item.validation.status === 'passed' ? 'delivered' : 'validating'}>{item.validation.status}</StateBadge>
+                  </td>
+                  <td className="px-4 py-4">
+                    <StateBadge tone={item.release?.status ? 'ready' : 'muted'}>{item.release?.status || 'ready'}</StateBadge>
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    {item.release?.branch_name || '-'} · PR {item.release?.pr_number || '-'}
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.release?.updated_at || item.validation.updated_at)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement.id}`)}>
+                        需求
+                      </button>
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.requirement.latest_execution_run_id}`)} disabled={!item.requirement.latest_execution_run_id}>
+                        执行
+                      </button>
+                      <button type="button" className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white" onClick={() => navigate(`/releases/${item.requirement.id}`)}>
+                        查看
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </SectionFrame>
+
+        {!loading && filtered.length === 0 && (
+          <div className="p-6">
+            <EmptyPane>暂无发布候选。</EmptyPane>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

@@ -1489,6 +1489,7 @@ export const api = {
     revision_note?: string | null
   }) => request<AgentRequirementDetail>(`/requirements/${id}/revise`, { method: 'POST', body: JSON.stringify(data) }),
   cancelRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/cancel`, { method: 'POST' }),
+  deleteRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/delete`, { method: 'POST' }),
 
   getExecutions: () => request<ExecutionRun[]>('/executions'),
   createExecution: (data: { requirement_id: number }) =>

@@ -18,6 +18,7 @@ from server.services.workflows.agent_first import (
     build_requirement_detail,
     cancel_requirement,
     create_requirement,
+    delete_requirement,
     list_requirements,
     reject_requirement,
     revise_requirement,
@@ -113,6 +114,14 @@ def revise_requirement_endpoint(requirement_id: int, body: RequirementRevisionRe
 def cancel_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return cancel_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/delete", response_model=AgentFirstRequirementDetailOut)
+def delete_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return delete_requirement(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
