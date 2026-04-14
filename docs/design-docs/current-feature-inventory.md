@@ -49,15 +49,26 @@
 6. failed / blocked run 通过 `retry` 创建新 run。
 7. validate。
    - execution 完成后默认自动触发 verification agent。
-   - verification agent 读取 acceptance contract、execution plan、changed files、raw output 与 checks 产出正式 verdict。
+   - verification agent 读取 acceptance contract、execution plan、changed files、raw output 与 checks，先生成晚绑定 verification plan，再产出正式 verdict。
    - `POST /api/executions/{id}/validate` 仍保留为调试 / 重跑入口。
 8. execution evidence、validation summary、incident 展示。
 9. verification result 展示。
    - verdict
+   - verification plan
    - reasoning
    - evidence_used
    - suggested_next_action
-9. 运行态清理脚本：
+10. requirement composer 支持 Codex 式附件输入。
+   - 拖拽文件
+   - 粘贴截图
+   - 图片/文件预览卡片
+   - attachments 进入 requirement context，并被 plan / execution / verification 读取
+11. requirement 资产状态治理。
+   - requirement 创建后先保存，再后台异步生成 acceptance contract 与 execution plan
+   - `assets_status = pending | ready | failed`
+   - 资产未 ready 前不能 submit
+   - 失败后可重新生成 requirement assets
+12. 运行态清理脚本：
 
 ```bash
 /Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes

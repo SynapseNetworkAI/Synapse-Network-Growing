@@ -12,7 +12,7 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
     def _fake_call_full_plan_provider(**kwargs):
         observed_prompt["prompt"] = kwargs["prompt"]
         return (
-            '{"status":"passed","summary":"ok","checks_run":[],"evidence_used":[],"reasoning":"ok","suggested_next_action":"release_ready"}',
+            '{"verification_plan":{"mode":"evidence_review","summary":"Review changed files and raw output.","checks":[],"evidence_expectations":["implementation summary"]},"status":"passed","summary":"ok","checks_run":[],"evidence_used":[],"reasoning":"ok","suggested_next_action":"release_ready"}',
             0,
         )
 
@@ -38,6 +38,7 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
         result = verify_with_agent(payload, skip_provider=False)
 
     assert result["status"] == "passed"
+    assert result["verification_plan"]["mode"] == "evidence_review"
     assert '"ts": "2026-04-14T10:58:24+00:00"' in observed_prompt["prompt"]
 
 
@@ -68,4 +69,12 @@ def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution
 
     assert result["status"] == "passed"
     assert result["suggested_next_action"] == "release_ready"
+    assert result["verification_plan"]["mode"] == "evidence_review"
     assert "raw_output" in " ".join(result["evidence_used"])
+
+
+def test_verify_with_agent_returns_none_required_plan_when_no_evidence_exists():
+    result = verify_with_agent({"raw_task_output": "", "changed_files": [], "check_results": []}, skip_provider=True)
+
+    assert result["verification_plan"]["mode"] == "none_required"
+    assert result["verification_plan"]["why_no_verification"]

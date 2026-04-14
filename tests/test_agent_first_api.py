@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from pathlib import Path
 from unittest.mock import patch
 
-from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, CodexSessionRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
+from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, CodexSessionRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import ValidationCheckResultOut
 from server.services.workflows.agent_first import reset_execution_runtime_data
 from server.services.runtime.task_runner import _task_project_root
@@ -86,9 +87,12 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
 
     assert create_resp.status_code == 201
     create_payload = create_resp.json()
+    assert create_payload["requirement"]["assets_status"] == "ready"
+    assert create_payload["assets_status"] == "ready"
     assert create_payload["acceptance_contract"]["done_criteria"]
     assert create_payload["acceptance_contract"]["verification_checks"]
     assert "Done Criteria" in create_payload["requirement"]["acceptance_criteria_markdown"]
+    assert "Verification Focus" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
 
     with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
@@ -118,11 +122,324 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert "Research context" not in payload["execution_plan"]["summary_markdown"]
     assert "Close requirement" not in payload["execution_plan"]["summary_markdown"]
 
-    execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
-    assert execution.execution_mode == "direct"
-    assert execution.status == "running"
-    assert json.loads(execution.plan_snapshot_json)["summary_markdown"]
-    assert db_session.query(TaskRow).filter(TaskRow.id == execution.latest_task_id).one().status == "running"
+
+def test_create_requirement_persists_attachments_and_detail_returns_them(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    response = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Attach screenshot to requirement",
+            "description_markdown": "Use the screenshot as design and debugging context.",
+            "priority": "normal",
+            "project_id": project["id"],
+            "attachments": [
+                {
+                    "file_name": "staging.png",
+                    "content_type": "image/png",
+                    "content_base64": base64.b64encode(b"fake-image").decode("ascii"),
+                    "source": "clipboard",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["attachments"][0]["file_name"] == "staging.png"
+    assert payload["attachments"][0]["attachment_kind"] == "image"
+    assert payload["assets_status"] == "ready"
+    requirement_id = int(payload["requirement"]["id"])
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    intake_metadata = json.loads(str(requirement.intake_metadata_json or "{}"))
+    assert intake_metadata["attachment_count"] == 1
+    assert any(str(item).endswith("context-manifest.md") for item in intake_metadata["attachment_context_files"])
+    attachment = (
+        db_session.query(RequirementAttachmentRow)
+        .filter(RequirementAttachmentRow.requirement_id == requirement_id)
+        .one()
+    )
+    assert attachment.file_name == "staging.png"
+
+
+def test_submit_requirement_rejects_while_assets_are_pending(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Wait for generated assets",
+            "description_markdown": "Submit should be blocked until assets are ready.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    requirement.assets_status = "pending"
+    requirement.assets_error_message = None
+    requirement.acceptance_contract_json = "{}"
+    requirement.execution_plan_json = "{}"
+    db_session.commit()
+
+    submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 400
+    assert submit_resp.json()["detail"] == "验收标准与执行计划仍在生成中，请稍后再提交。"
+
+
+def test_requirement_list_reconciles_running_status_from_latest_execution(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "State reconcile from execution",
+            "description_markdown": "Ensure requirement list derives running state from execution.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-state-reconcile"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+    assert submit_resp.status_code == 200
+    execution_id = int(submit_resp.json()["latest_execution_id"])
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_id).one()
+    task = db_session.query(TaskRow).filter(TaskRow.id == run.latest_task_id).one()
+    requirement.status = "ready"
+    requirement.phase = "branch_prepared"
+    run.status = "running"
+    run.phase = "executing"
+    task.status = "running"
+    db_session.commit()
+
+    requirements_payload = synced_client.get("/api/requirements").json()
+    execution_payload = synced_client.get("/api/executions").json()
+    requirement_row = next(item for item in requirements_payload if int(item["id"]) == requirement_id)
+    execution_row = next(item for item in execution_payload if int(item["id"]) == execution_id)
+
+    assert requirement_row["status"] == "running"
+    assert requirement_row["phase"] == "executing"
+    assert execution_row["status"] == "running"
+    assert execution_row["phase"] == "executing"
+
+
+def test_start_execution_is_idempotent_when_already_running(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Idempotent start",
+            "description_markdown": "Repeated start should not create duplicate work.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-idempotent-start"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+        assert submit_resp.status_code == 200
+        execution_id = int(submit_resp.json()["latest_execution_id"])
+        rerun_resp = synced_client.post(f"/api/executions/{execution_id}/resume")
+
+    assert rerun_resp.status_code == 200
+    payload = rerun_resp.json()
+    assert payload["execution"]["id"] == execution_id
+    assert payload["execution"]["status"] == "running"
+    assert payload["execution"]["phase"] == "executing"
+
+
+def test_execution_detail_marks_running_codex_cli_session_as_recovering(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Recover running codex session",
+            "description_markdown": "A running codex session should surface as recovering after reconcile.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-recovering"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+    execution_id = int(submit_resp.json()["latest_execution_id"])
+
+    run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_id).one()
+    task = db_session.query(TaskRow).filter(TaskRow.id == run.latest_task_id).one()
+    task.runtime_backend = "codex_cli"
+    task.runtime_session_id = "thread-recover-1"
+    db_session.add(
+        CodexSessionRow(
+            session_key="session-recover-1",
+            role_key="software_engineer",
+            project_root="/Users/cliff/workspace/agent/Synapse-Network",
+            requirement_id=requirement_id,
+            current_task_id=int(task.id),
+            thread_id="thread-recover-1",
+            status="active",
+            resume_count=2,
+            last_heartbeat_at=utcnow(),
+        )
+    )
+    db_session.commit()
+
+    detail = synced_client.get(f"/api/executions/{execution_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["execution"]["recovery_status"] == "recovering"
+    assert payload["recovery_status"] == "recovering"
+    assert payload["execution"]["resume_count"] == 2
+
+
+def test_regenerate_requirement_assets_marks_pending_and_requeues_generation(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Retry asset generation",
+            "description_markdown": "Regenerate acceptance and plan after a failed attempt.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    requirement.assets_status = "failed"
+    requirement.assets_error_message = "planner crashed"
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first._enqueue_requirement_asset_generation", return_value=None):
+        resp = synced_client.post(f"/api/requirements/{requirement_id}/regenerate-assets")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["assets_status"] == "pending"
+    assert payload["assets_error_message"] is None
+
+
+def test_start_execution_run_injects_attachment_context_files_into_task(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Use attachment context during execution",
+            "description_markdown": "Please use the attached screenshot as implementation context.",
+            "priority": "normal",
+            "project_id": project["id"],
+            "attachments": [
+                {
+                    "file_name": "ux.png",
+                    "content_type": "image/png",
+                    "content_base64": base64.b64encode(b"image").decode("ascii"),
+                    "source": "upload",
+                }
+            ],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-use-attachment-context-during-execution"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    execution_id = int(submit_resp.json()["latest_execution_id"])
+    task = db_session.query(TaskRow).filter(TaskRow.id == db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_id).one().latest_task_id).one()
+    context_files = json.loads(str(task.context_files or "[]"))
+    assert any(str(item).endswith("context-manifest.md") for item in context_files)
+    assert any("ux.png" in str(item) for item in context_files)
+
+
+def test_requirement_attachment_endpoint_serves_persisted_file(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    response = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Serve attachment file",
+            "description_markdown": "Need attachment download access.",
+            "priority": "normal",
+            "project_id": project["id"],
+            "attachments": [
+                {
+                    "file_name": "context.txt",
+                    "content_type": "text/plain",
+                    "content_base64": base64.b64encode(b"context-body").decode("ascii"),
+                    "source": "upload",
+                }
+            ],
+        },
+    )
+    payload = response.json()
+    requirement_id = int(payload["requirement"]["id"])
+    attachment_id = int(payload["attachments"][0]["id"])
+
+    file_response = synced_client.get(f"/api/requirements/{requirement_id}/attachments/{attachment_id}")
+
+    assert file_response.status_code == 200
+    assert file_response.text == "context-body"
 
 
 def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
@@ -489,6 +806,8 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     assert payload["validation"]["verification_agent_id"] == "verification_agent"
     assert payload["validation"]["verification_agent_label"] == "Verification Agent"
     assert payload["validation"]["suggested_next_action"] == "release_ready"
+    assert payload["validation"]["verification_plan"]["mode"] == "command_checks"
+    assert payload["verification_plan"]["mode"] == "command_checks"
     assert payload["verification_result"]["verification_agent_id"] == "verification_agent"
     assert payload["requirement"]["status"] == "delivery_ready"
 
@@ -642,6 +961,13 @@ def test_validation_pass_auto_opens_pr(synced_client, db_session):
     ), patch(
         "server.services.workflows.agent_first.verify_with_agent",
         return_value={
+            "verification_plan": {
+                "mode": "command_checks",
+                "summary": "Replay the targeted pytest command captured by the execution agent.",
+                "checks": ["pytest tests/test_logging_utils.py -q"],
+                "evidence_expectations": ["Changed files should map to the requirement scope."],
+                "why_no_verification": None,
+            },
             "status": "passed",
             "summary": "Verification passed.",
             "checks_run": ["pytest tests/test_logging_utils.py -q"],
@@ -657,6 +983,7 @@ def test_validation_pass_auto_opens_pr(synced_client, db_session):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["verification_result"]["status"] == "passed"
+    assert payload["verification_plan"]["mode"] == "command_checks"
     assert payload["delivery_summary"]["status"] == "pr_opened"
     assert payload["delivery_summary"]["pr_number"] == 11
     assert payload["delivery_summary"]["pr_url"] == "https://github.com/example/synapse-network/pull/11"

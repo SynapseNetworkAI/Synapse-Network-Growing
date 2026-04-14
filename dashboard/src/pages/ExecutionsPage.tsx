@@ -101,7 +101,11 @@ export default function ExecutionsPage() {
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Requirement #{item.requirement_id}</div>
                   </td>
                   <td className="px-4 py-4">
-                    <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
+                    <div className="flex flex-wrap gap-2">
+                      <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
+                      {item.phase && item.phase !== item.status ? <StateBadge tone="muted">{item.phase}</StateBadge> : null}
+                      {item.recovery_status ? <StateBadge tone="blocked">恢复: {item.recovery_status}</StateBadge> : null}
+                    </div>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.execution_mode}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.complexity}</td>
@@ -109,13 +113,17 @@ export default function ExecutionsPage() {
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap justify-end gap-2">
+                      {(() => {
+                        const allowedActions = item.allowed_actions ?? []
+                        return (
+                          <>
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
                         需求
                       </button>
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
                         查看
                       </button>
-                      {(item.status === 'queued' || item.status === 'paused') && (
+                      {allowedActions.includes('start') && (
                         <button
                           type="button"
                           className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
@@ -127,7 +135,7 @@ export default function ExecutionsPage() {
                           {item.status === 'paused' ? '继续' : '启动'}
                         </button>
                       )}
-                      {(item.status === 'failed' || item.status === 'blocked') && (
+                      {allowedActions.includes('retry') && (
                         <button
                           type="button"
                           className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
@@ -139,6 +147,9 @@ export default function ExecutionsPage() {
                           重试
                         </button>
                       )}
+                          </>
+                        )
+                      })()}
                     </div>
                   </td>
                 </tr>

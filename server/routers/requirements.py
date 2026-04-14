@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from server.database import get_db
@@ -20,7 +21,9 @@ from server.services.workflows.agent_first import (
     create_requirement,
     delete_requirement,
     list_requirements,
+    regenerate_requirement_assets,
     regenerate_requirement_plan,
+    requirement_attachment_file_path,
     reject_requirement,
     revise_requirement,
     submit_requirement,
@@ -59,6 +62,16 @@ def get_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db))
         return build_requirement_detail(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{requirement_id}/attachments/{attachment_id}")
+def get_requirement_attachment_endpoint(requirement_id: int, attachment_id: int, db: Session = Depends(get_db)):
+    try:
+        row, file_path = requirement_attachment_file_path(db, requirement_id, attachment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media_type = str(getattr(row, "content_type", "") or "").strip() or "application/octet-stream"
+    return FileResponse(path=file_path, media_type=media_type, filename=str(row.file_name or file_path.name))
 
 
 @router.patch("/{requirement_id}", response_model=AgentFirstRequirementDetailOut)
@@ -133,6 +146,14 @@ def delete_requirement_endpoint(requirement_id: int, db: Session = Depends(get_d
 def plan_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return regenerate_requirement_plan(db=db, requirement_id=requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/regenerate-assets", response_model=AgentFirstRequirementDetailOut)
+def regenerate_requirement_assets_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return regenerate_requirement_assets(db=db, requirement_id=requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

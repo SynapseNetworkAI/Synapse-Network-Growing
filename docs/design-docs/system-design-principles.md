@@ -148,6 +148,7 @@ Release 负责：
 4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
 5. 高风险 requirement 的人工 execution approval 必须保留；它控制的是“是否允许 agent 开始高风险动作”，不能被 PR merge 替代。
 6. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
+7. acceptance contract 只负责定义完成标准；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
 
 ## 11. 服务层必须按功能面治理
 

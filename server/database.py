@@ -193,6 +193,11 @@ class RequirementRow(Base):
     target_project_path_override = Column(Text)
     acceptance_contract_json = Column(Text, nullable=False, default="{}")
     execution_plan_json = Column(Text, nullable=False, default="{}")
+    assets_status = Column(Text, nullable=False, default="pending")
+    assets_error_message = Column(Text)
+    workflow_family = Column(Text, nullable=False, default="agent_first")
+    phase = Column(Text, nullable=False, default="draft")
+    recovery_status = Column(Text)
     approval_status = Column(Text, nullable=False, default="pending_approval")
     approval_contract_json = Column(Text, nullable=False, default="{}")
     approval_requested_at = Column(DateTime)
@@ -700,6 +705,8 @@ class ExecutionRunRow(Base):
     execution_mode = Column(Text, nullable=False, default="direct")
     complexity = Column(Text, nullable=False, default="simple")
     status = Column(Text, nullable=False, default="queued")
+    phase = Column(Text, nullable=False, default="queued")
+    recovery_status = Column(Text)
     validation_profile = Column(Text, nullable=False, default="minimal")
     delivery_intent = Column(Text, nullable=False, default="pr_required")
     approval_required = Column(Boolean, nullable=False, default=False)
@@ -763,6 +770,7 @@ class ValidationRecordRow(Base):
     status = Column(Text, nullable=False, default="pending")
     summary_markdown = Column(Text, nullable=False, default="")
     checks_json = Column(Text, nullable=False, default="[]")
+    verification_plan_json = Column(Text, nullable=False, default="{}")
     verification_agent_id = Column(Text)
     verification_agent_label = Column(Text)
     evidence_json = Column(Text, nullable=False, default="[]")
@@ -807,6 +815,25 @@ class ReleaseRecordRow(Base):
     requirement = relationship("RequirementRow")
     execution_run = relationship("ExecutionRunRow")
     project = relationship("ProjectRow")
+
+
+class OperationRequestRow(Base):
+    __tablename__ = "operation_requests"
+    __table_args__ = (
+        Index("operation_requests_target_idx", "target_type", "target_id"),
+        Index("operation_requests_key_idx", "operation_key", unique=True),
+        Index("operation_requests_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    operation_key = Column(Text, nullable=False)
+    target_type = Column(Text, nullable=False)
+    target_id = Column(Integer, nullable=False)
+    action = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="applied")
+    result_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class ApprovalRequestRow(Base):
@@ -957,6 +984,9 @@ def _migrate(engine_):
             "project_key": "TEXT",
             "project_display_name": "TEXT",
             "target_project_path_override": "TEXT",
+            "workflow_family": "TEXT DEFAULT 'agent_first'",
+            "phase": "TEXT DEFAULT 'draft'",
+            "recovery_status": "TEXT",
         }
         for col, col_type in requirement_cols.items():
             if col not in existing:
@@ -985,6 +1015,29 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN execution_plan_json TEXT DEFAULT '{}'"))
                 conn.commit()
+        if "assets_status" not in existing:
+            logger.info("Migrating: adding 'assets_status' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN assets_status TEXT DEFAULT 'pending'"))
+                conn.commit()
+        if "assets_error_message" not in existing:
+            logger.info("Migrating: adding 'assets_error_message' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN assets_error_message TEXT"))
+                conn.commit()
+        with engine_.connect() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE requirements
+                    SET assets_status = 'ready'
+                    WHERE COALESCE(assets_status, 'pending') = 'pending'
+                      AND TRIM(COALESCE(acceptance_contract_json, '{}')) NOT IN ('', '{}')
+                      AND TRIM(COALESCE(execution_plan_json, '{}')) NOT IN ('', '{}')
+                    """
+                )
+            )
+            conn.commit()
         if "approval_status" not in existing:
             logger.info("Migrating: adding 'approval_status' column to requirements table")
             with engine_.connect() as conn:
@@ -1005,6 +1058,37 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN approved_at DATETIME"))
                 conn.commit()
+        with engine_.connect() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE requirements
+                    SET workflow_family = 'agent_first'
+                    WHERE COALESCE(NULLIF(TRIM(workflow_family), ''), 'agent_first') != workflow_family
+                       OR workflow_family IS NULL
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE requirements
+                    SET phase = CASE
+                        WHEN status IN ('draft', 'planning') THEN 'draft'
+                        WHEN status IN ('ready', 'waiting_execution', 'queued') THEN 'awaiting_execution_approval'
+                        WHEN status IN ('running', 'validating') THEN 'executing'
+                        WHEN status IN ('blocked', 'paused', 'cancelled') THEN 'blocked'
+                        WHEN status = 'needs_revision' THEN 'needs_revision'
+                        WHEN status IN ('delivery_ready', 'pr_opened') THEN 'delivery_ready'
+                        WHEN status = 'done' THEN 'done'
+                        ELSE COALESCE(NULLIF(phase, ''), 'draft')
+                    END
+                    WHERE COALESCE(NULLIF(TRIM(phase), ''), '') = ''
+                       OR phase IS NULL
+                    """
+                )
+            )
+            conn.commit()
 
     if "recurring_workflows" not in tables:
         logger.info("Migrating: creating 'recurring_workflows' table")
@@ -1078,6 +1162,16 @@ def _migrate(engine_):
         ExecutionRunRow.__table__.create(bind=engine_, checkfirst=True)
     else:
         existing = {c["name"] for c in insp.get_columns("execution_runs")}
+        execution_cols = {
+            "phase": "TEXT DEFAULT 'queued'",
+            "recovery_status": "TEXT",
+        }
+        for col, col_type in execution_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to execution_runs table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE execution_runs ADD COLUMN {col} {col_type}"))
+                    conn.commit()
         if "verification_requested_at" not in existing:
             logger.info("Migrating: adding 'verification_requested_at' column to execution_runs table")
             with engine_.connect() as conn:
@@ -1088,6 +1182,26 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE execution_runs ADD COLUMN plan_snapshot_json TEXT DEFAULT '{}'"))
                 conn.commit()
+        with engine_.connect() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE execution_runs
+                    SET phase = CASE
+                        WHEN status = 'queued' THEN 'queued'
+                        WHEN status = 'running' THEN 'executing'
+                        WHEN status = 'validating' THEN 'verifying'
+                        WHEN status = 'paused' THEN 'blocked'
+                        WHEN status = 'blocked' THEN 'blocked'
+                        WHEN status IN ('succeeded', 'failed') THEN 'completed'
+                        ELSE COALESCE(NULLIF(phase, ''), 'queued')
+                    END
+                    WHERE COALESCE(NULLIF(TRIM(phase), ''), '') = ''
+                       OR phase IS NULL
+                    """
+                )
+            )
+            conn.commit()
 
     if "execution_nodes" not in tables:
         logger.info("Migrating: creating 'execution_nodes' table")
@@ -1099,6 +1213,7 @@ def _migrate(engine_):
     else:
         existing = {c["name"] for c in insp.get_columns("validation_records")}
         validation_cols = {
+            "verification_plan_json": "TEXT DEFAULT '{}'",
             "verification_agent_id": "TEXT",
             "verification_agent_label": "TEXT",
             "evidence_json": "TEXT DEFAULT '[]'",
@@ -1188,6 +1303,10 @@ def _migrate(engine_):
     if "requirement_attachments" not in tables:
         logger.info("Migrating: creating 'requirement_attachments' table")
         RequirementAttachmentRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "operation_requests" not in tables:
+        logger.info("Migrating: creating 'operation_requests' table")
+        OperationRequestRow.__table__.create(bind=engine_, checkfirst=True)
 
 
 def init_db():

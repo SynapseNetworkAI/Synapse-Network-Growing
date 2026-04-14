@@ -148,6 +148,8 @@ export default function ExecutionDetailPage() {
   }
   const planMarkdown = String(detail.plan_summary?.summary_markdown || '').trim()
   const verification = detail.verification_result ?? detail.validation
+  const verificationPlan = detail.verification_plan ?? verification?.verification_plan ?? null
+  const detailAllowedActions = detail.allowed_actions ?? []
 
   return (
     <div className="space-y-6" data-testid="execution-detail-page">
@@ -169,7 +171,7 @@ export default function ExecutionDetailPage() {
                 查看 PR
               </a>
             ) : null}
-            {(execution.status === 'queued' || execution.status === 'paused') && (
+            {detailAllowedActions.includes('start') && (
               <button
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60"
                 disabled={busyAction === 'start'}
@@ -178,7 +180,7 @@ export default function ExecutionDetailPage() {
                 {execution.status === 'paused' ? '继续执行' : '启动执行'}
               </button>
             )}
-            {execution.status === 'running' && (
+            {detailAllowedActions.includes('pause') && (
               <button
                 className="rounded-2xl border border-amber-200 px-4 py-2 text-sm text-amber-700 disabled:opacity-60"
                 disabled={busyAction === 'pause'}
@@ -187,7 +189,7 @@ export default function ExecutionDetailPage() {
                 暂停执行
               </button>
             )}
-            {(execution.status === 'failed' || execution.status === 'blocked') && (
+            {detailAllowedActions.includes('retry') && (
               <button
                 className="rounded-2xl border border-rose-200 px-4 py-2 text-sm text-rose-700 disabled:opacity-60"
                 disabled={busyAction === 'retry'}
@@ -201,6 +203,8 @@ export default function ExecutionDetailPage() {
       >
         <div className="flex flex-wrap items-center gap-2">
           <StateBadge tone={statusTone(execution.status)}>{STATUS_LABEL[execution.status] || execution.status}</StateBadge>
+          {detail.phase && detail.phase !== execution.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
+          {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
           <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
           <StateBadge tone="muted">{execution.complexity}</StateBadge>
           <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
@@ -224,6 +228,8 @@ export default function ExecutionDetailPage() {
           <div>completed: {formatTime(execution.completed_at)}</div>
           <div>updated: {formatTime(execution.updated_at)}</div>
           <div>latest task: {execution.latest_task_id ?? '-'}</div>
+          <div>runtime session: {execution.runtime_session_id || '-'}</div>
+          <div>resume count: {execution.resume_count ?? '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>
         </div>
@@ -280,6 +286,57 @@ export default function ExecutionDetailPage() {
 
       <SectionFrame eyebrow="Plan" title="执行计划">
         <Markdown value={planMarkdown} empty="当前还没有执行计划。" />
+      </SectionFrame>
+
+      <SectionFrame eyebrow="Verification Plan" title="验证方案">
+        {verificationPlan ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-strong)] p-4">
+              <div className="flex items-center gap-2">
+                <StateBadge tone={verificationPlan.mode === 'command_checks' ? 'running' : verificationPlan.mode === 'none_required' ? 'muted' : 'validating'}>
+                  {verificationPlan.mode}
+                </StateBadge>
+              </div>
+              <div className="mt-3 text-sm text-[color:var(--ops-text-body)]">
+                <Markdown value={verificationPlan.summary} />
+              </div>
+              {verificationPlan.why_no_verification ? (
+                <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4 text-sm text-[color:var(--ops-text-body)]">
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Why No Verification</div>
+                  <Markdown value={verificationPlan.why_no_verification} />
+                </div>
+              ) : null}
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Checks</div>
+                {verificationPlan.checks.length > 0 ? (
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-[color:var(--ops-text-body)]">
+                    {verificationPlan.checks.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-[color:var(--ops-text-muted)]">当前验证方案没有额外命令检查。</div>
+                )}
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Evidence Expectations</div>
+                {verificationPlan.evidence_expectations.length > 0 ? (
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-[color:var(--ops-text-body)]">
+                    {verificationPlan.evidence_expectations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-[color:var(--ops-text-muted)]">当前没有额外证据要求。</div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-[color:var(--ops-text-muted)]">verification agent 完成后会生成最终验证方案。</div>
+        )}
       </SectionFrame>
 
       <SectionFrame eyebrow="Files" title="改动文件">

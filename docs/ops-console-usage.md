@@ -142,7 +142,10 @@ intake -> execute -> validate -> deliver
 
 1. 先确认 intent、acceptance contract 与 execution plan 写对
 2. 再跳去 execution 看 agent 执行
-3. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；release 面主要保留 branch / PR / deploy / rollback 的可视化与重试入口
+3. verification agent 会在 execution 完成后基于真实 changed files、raw output 与命令证据生成最终 verification plan，再给出 verdict
+4. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；release 面主要保留 branch / PR / deploy / rollback 的可视化与重试入口
+5. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
+6. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
 
 ## 3. 执行面
 
@@ -231,6 +234,8 @@ Execution detail 是当前唯一 execution 主链的工作面。
 4. `retry` 会创建新的 execution run；旧 run 不会复活
 5. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
 6. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
+7. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准，不再提前写死最终测试方案
+8. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
 
 ## 4. 发布面
 

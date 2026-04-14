@@ -102,6 +102,13 @@ const detail = {
     status: 'passed',
     summary_markdown: 'Validation passed.',
     checks: [],
+    verification_plan: {
+      mode: 'command_checks',
+      summary: 'Replay the targeted pytest command from execution evidence and review the changed file.',
+      checks: ['PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py -q'],
+      evidence_expectations: ['Changed files should match the requested observability scope.'],
+      why_no_verification: null,
+    },
     verification_agent_id: 'verification_agent',
     verification_agent_label: 'Verification Agent',
     evidence_used: ['raw_output:92 chars', 'changed_files:1'],
@@ -118,6 +125,13 @@ const detail = {
     status: 'passed',
     summary_markdown: 'Validation passed.',
     checks: [],
+    verification_plan: {
+      mode: 'command_checks',
+      summary: 'Replay the targeted pytest command from execution evidence and review the changed file.',
+      checks: ['PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py -q'],
+      evidence_expectations: ['Changed files should match the requested observability scope.'],
+      why_no_verification: null,
+    },
     verification_agent_id: 'verification_agent',
     verification_agent_label: 'Verification Agent',
     evidence_used: ['raw_output:92 chars', 'changed_files:1'],
@@ -224,6 +238,8 @@ describe('Execution detail observability', () => {
     expect(screen.getByText('Verification Agent')).toBeInTheDocument()
     expect(screen.getByText(/release_ready/)).toBeInTheDocument()
     expect(screen.getByText('执行计划')).toBeInTheDocument()
+    expect(screen.getByText('验证方案')).toBeInTheDocument()
+    expect(screen.getByText(/Replay the targeted pytest command/)).toBeInTheDocument()
     expect(screen.getByText('原始执行输出')).toBeInTheDocument()
     expect(screen.getByText(/Applied the requested change\./)).toBeInTheDocument()
   })

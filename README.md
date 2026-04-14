@@ -125,6 +125,9 @@ Requirement 与 Execution 当前还有三条正式约束：
 3. execution 完成后会自动派发 verification agent；release 只读取 verification verdict，不再走额外的 verification manual review。
 4. requirement approval 放行后会先在目标项目上 `fetch/pull main` 并准备 requirement delivery branch，然后 execution agent 才在该 branch 上工作。
 5. verification passed 后系统会自动 commit / push / open PR；PR merge 视为最终人工把关。
+6. acceptance contract 在 requirement 创建后前置生成，只负责定义完成标准；最终 `verification_plan` 会在 execution 完成后由 verification agent 基于真实 changed files、raw output 与命令证据晚绑定生成。
+7. 新建 requirement 支持 Codex 式附件输入：可拖拽、粘贴截图或上传文件，附件会持久化为 requirement context 并进入 plan / execution / verification 链路。
+8. requirement 创建后先保存，再在后台异步生成 acceptance contract 与 execution plan；资产未 ready 前不能 submit。
 
 ## Browser Automation
 

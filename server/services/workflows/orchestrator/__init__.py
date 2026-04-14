@@ -3247,6 +3247,8 @@ def _sync_workflow_for_task_db(db: Session, task_id: int):
 
     run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == step.workflow_run_id).first()
     requirement = _require_requirement(db, step.requirement_id)
+    if str(getattr(requirement, "workflow_family", "") or "").strip() == "agent_first":
+        return
     if (
         step.status in DELETED_STEP_STATUSES
         or requirement.status in DELETED_REQUIREMENT_STATUSES

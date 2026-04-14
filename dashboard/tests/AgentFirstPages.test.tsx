@@ -15,6 +15,7 @@ const mockApi = {
   deleteRequirement: vi.fn(),
   updateRequirement: vi.fn(),
   submitRequirement: vi.fn(),
+  regenerateRequirementAssets: vi.fn(),
   createExecution: vi.fn(),
   getExecutions: vi.fn(),
   startExecution: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('../src/api', () => ({
     deleteRequirement: (...args: unknown[]) => mockApi.deleteRequirement(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
     submitRequirement: (...args: unknown[]) => mockApi.submitRequirement(...args),
+    regenerateRequirementAssets: (...args: unknown[]) => mockApi.regenerateRequirementAssets(...args),
     createExecution: (...args: unknown[]) => mockApi.createExecution(...args),
     getExecutions: (...args: unknown[]) => mockApi.getExecutions(...args),
     startExecution: (...args: unknown[]) => mockApi.startExecution(...args),
@@ -82,6 +84,8 @@ describe('agent-first pages smoke', () => {
         acceptance_criteria_markdown: 'Checks pass.',
         approval_required: false,
         approval_status: 'waived',
+        assets_status: 'ready',
+        assets_error_message: null,
         active_execution_run_id: null,
         latest_execution_run_id: null,
         latest_release_status: null,
@@ -191,12 +195,48 @@ describe('agent-first pages smoke', () => {
         acceptance_criteria_markdown: 'Copy updated.',
         approval_required: false,
         approval_status: 'waived',
+        assets_status: 'ready',
+        assets_error_message: null,
         active_execution_run_id: null,
         latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
       },
+      attachments: [],
+      approval: {
+        approval_decision: 'waived',
+        approval_status: 'waived',
+        approval_reason: null,
+        approval_source: 'policy_waived',
+        required_approver_roles: [],
+        risk_flags: [],
+        pending_execution_start: false,
+        auto_started: false,
+        execution_run_id: null,
+      },
+      assets_status: 'ready',
+      assets_error_message: null,
+      policy_summary_markdown: '',
+      acceptance_contract: {
+        done_criteria: [],
+        verification_checks: [],
+        scope_constraints: [],
+        delivery_expectation: '',
+        markdown: '',
+      },
+      execution_plan: {
+        planning_mode: 'agent_plan_brief',
+        goal_summary: 'Improve Queue Copy',
+        summary_markdown: '',
+        steps: [],
+        planned_checks: [],
+        risks: [],
+      },
+      latest_execution_id: null,
+      latest_release_id: null,
+      latest_release: null,
+      project: null,
     })
     mockApi.updateRequirement.mockResolvedValue({
       requirement: {
@@ -216,6 +256,8 @@ describe('agent-first pages smoke', () => {
         acceptance_criteria_markdown: 'Checks pass.',
         approval_required: false,
         approval_status: 'waived',
+        assets_status: 'ready',
+        assets_error_message: null,
         active_execution_run_id: null,
         latest_execution_run_id: null,
         latest_release_status: null,
@@ -288,6 +330,159 @@ describe('agent-first pages smoke', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     await waitFor(() => expect(screen.queryByRole('heading', { name: '删除需求' })).not.toBeInTheDocument())
     expect(mockApi.deleteRequirement).not.toHaveBeenCalled()
+  })
+
+  it('uploads attachment payloads during requirement creation', async () => {
+    mockApi.createRequirement.mockResolvedValue({
+      requirement: {
+        id: 2,
+        title: 'Requirement with screenshot',
+        description_markdown: 'Use screenshot context.',
+        status: 'draft',
+        priority: 'normal',
+        source: 'manual',
+        source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
+        target_projects: ['Synapse-Network'],
+        acceptance_criteria_markdown: '',
+        approval_required: false,
+        approval_status: 'waived',
+        active_execution_run_id: null,
+        latest_execution_run_id: null,
+        latest_release_status: null,
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+      attachments: [],
+      approval: {
+        approval_decision: 'waived',
+        approval_status: 'waived',
+        approval_reason: null,
+        approval_source: 'policy_waived',
+        required_approver_roles: [],
+        risk_flags: [],
+        pending_execution_start: false,
+        auto_started: false,
+        execution_run_id: null,
+      },
+      policy_summary_markdown: '',
+      acceptance_contract: { done_criteria: [], verification_checks: [], scope_constraints: [], delivery_expectation: '', markdown: '' },
+      execution_plan: { planning_mode: 'agent_plan_brief', goal_summary: '', summary_markdown: '', steps: [], planned_checks: [], risks: [] },
+      latest_execution_id: null,
+      latest_release_id: null,
+      latest_release: null,
+      project: null,
+    })
+
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '新建需求' }))
+    fireEvent.change(screen.getByTestId('requirement-title'), { target: { value: 'Requirement with screenshot' } })
+    fireEvent.change(screen.getByTestId('requirement-description'), { target: { value: 'Use screenshot context.' } })
+    fireEvent.change(screen.getByTestId('requirement-project'), { target: { value: '7' } })
+
+    const file = new File(['hello-image'], 'staging.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: vi.fn().mockResolvedValue(new TextEncoder().encode('hello-image').buffer),
+    })
+    fireEvent.change(screen.getByTestId('requirement-attachment-input'), {
+      target: { files: [file] },
+    })
+
+    await waitFor(() => expect(screen.getByText('staging.png')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(mockApi.createRequirement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Requirement with screenshot',
+          attachments: [
+            expect.objectContaining({
+              file_name: 'staging.png',
+              content_type: 'image/png',
+              source: 'upload',
+            }),
+          ],
+        }),
+      ),
+    )
+  })
+
+  it('disables submit while assets are still generating', async () => {
+    mockApi.getRequirements.mockResolvedValueOnce([
+      {
+        id: 4,
+        title: 'Pending assets requirement',
+        description_markdown: 'Wait for generated assets.',
+        status: 'draft',
+        priority: 'normal',
+        source: 'manual',
+        source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
+        target_projects: ['Synapse-Network'],
+        acceptance_criteria_markdown: '',
+        approval_required: false,
+        approval_status: 'waived',
+        assets_status: 'pending',
+        assets_error_message: null,
+        active_execution_run_id: null,
+        latest_execution_run_id: null,
+        latest_release_status: null,
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+    ])
+
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: '生成计划中…' })).toBeDisabled()
+  })
+
+  it('accepts pasted image attachments in the composer', async () => {
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '新建需求' }))
+
+    const file = new File(['clip-image'], 'clipboard.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: vi.fn().mockResolvedValue(new TextEncoder().encode('clip-image').buffer),
+    })
+    fireEvent.paste(screen.getByTestId('requirement-description'), {
+      clipboardData: {
+        files: [file],
+      },
+    })
+
+    await waitFor(() => expect(screen.getByText('clipboard.png')).toBeInTheDocument())
   })
 
   it('renders execution surface', async () => {

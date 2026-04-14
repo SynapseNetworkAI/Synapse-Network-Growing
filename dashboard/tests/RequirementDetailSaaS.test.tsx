@@ -8,6 +8,7 @@ const mockApi = {
   getProjects: vi.fn(),
   updateRequirement: vi.fn(),
   submitRequirement: vi.fn(),
+  regenerateRequirementAssets: vi.fn(),
   approveRequirement: vi.fn(),
   rejectRequirement: vi.fn(),
   startExecution: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('../src/api', () => ({
     getProjects: (...args: unknown[]) => mockApi.getProjects(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
     submitRequirement: (...args: unknown[]) => mockApi.submitRequirement(...args),
+    regenerateRequirementAssets: (...args: unknown[]) => mockApi.regenerateRequirementAssets(...args),
     approveRequirement: (...args: unknown[]) => mockApi.approveRequirement(...args),
     rejectRequirement: (...args: unknown[]) => mockApi.rejectRequirement(...args),
     startExecution: (...args: unknown[]) => mockApi.startExecution(...args),
@@ -60,6 +62,8 @@ const baseDetail = {
     auto_started: false,
     execution_run_id: null,
   },
+  assets_status: 'ready',
+  assets_error_message: null,
   latest_execution_id: null,
   latest_release_id: null,
   latest_release: null,
@@ -99,6 +103,19 @@ const baseDetail = {
     created_at: '2026-04-14T00:00:00Z',
     updated_at: '2026-04-14T00:00:00Z',
   },
+  attachments: [
+    {
+      id: 1,
+      requirement_id: 3,
+      file_name: 'traceback-screenshot.png',
+      stored_path: 'runtime/requirement_attachments/req-3/01-traceback-screenshot.png',
+      content_type: 'image/png',
+      attachment_kind: 'image',
+      source: 'clipboard',
+      size_bytes: 18234,
+      created_at: '2026-04-14T00:00:00Z',
+    },
+  ],
 }
 
 describe('RequirementDetail SaaS editing', () => {
@@ -128,6 +145,7 @@ describe('RequirementDetail SaaS editing', () => {
     expect(screen.getByText('执行计划')).toBeInTheDocument()
     expect(screen.getByText('Traceback no longer appears in runtime intake flow.')).toBeInTheDocument()
     expect(screen.getByText(/Patch the failing runtime path/)).toBeInTheDocument()
+    expect(screen.getByTestId('requirement-attachments')).toHaveTextContent('traceback-screenshot.png')
 
     fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
     fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Bug Fix: Traceback removed' } })
@@ -208,5 +226,25 @@ describe('RequirementDetail SaaS editing', () => {
     expect(screen.getByTestId('requirement-approval-notice')).toBeInTheDocument()
     expect(screen.getByText('High risk requirement needs operator review.')).toBeInTheDocument()
     expect(screen.queryByText('执行许可')).not.toBeInTheDocument()
+  })
+
+  it('shows asset generation notice and disables submit while planning is pending', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...baseDetail,
+      assets_status: 'pending',
+      assets_error_message: null,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/3']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
+    expect(screen.getByText('验收标准与执行计划正在生成，完成前不能提交。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument()
   })
 })

@@ -911,6 +911,12 @@ class AgentFirstRequirementOut(BaseModel):
     target_projects: list[str] = []
     approval_required: bool = False
     approval_status: str = "pending_approval"
+    phase: str = "draft"
+    allowed_actions: list[str] = []
+    pending_operations: list[str] = []
+    recovery_status: Optional[str] = None
+    assets_status: str = "pending"
+    assets_error_message: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     active_execution_run_id: Optional[int] = None
@@ -938,8 +944,15 @@ class AgentFirstRequirementDetailOut(BaseModel):
     latest_release_id: Optional[int] = None
     latest_release: Optional["ReleaseRecordSlimOut"] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
+    phase: str = "draft"
+    allowed_actions: list[str] = []
+    pending_operations: list[str] = []
+    recovery_status: Optional[str] = None
+    assets_status: str = "pending"
+    assets_error_message: Optional[str] = None
     acceptance_contract: dict[str, object] = {}
     execution_plan: dict[str, object] = {}
+    attachments: list["RequirementAttachmentOut"] = []
 
 
 class ExecutionNodeOut(BaseModel):
@@ -973,6 +986,14 @@ class ValidationCheckResultOut(BaseModel):
     output_excerpt: Optional[str] = None
 
 
+class VerificationPlanOut(BaseModel):
+    mode: str = "evidence_review"
+    summary: str = ""
+    checks: list[str] = []
+    evidence_expectations: list[str] = []
+    why_no_verification: Optional[str] = None
+
+
 class ValidationRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
@@ -981,6 +1002,7 @@ class ValidationRecordSlimOut(BaseModel):
     status: str
     summary_markdown: str = ""
     checks: list[ValidationCheckResultOut] = []
+    verification_plan: Optional[VerificationPlanOut] = None
     verification_agent_id: Optional[str] = None
     verification_agent_label: Optional[str] = None
     evidence_used: list[str] = []
@@ -996,6 +1018,10 @@ class ExecutionRunOut(BaseModel):
     execution_mode: str
     complexity: str
     status: str
+    phase: str = "queued"
+    allowed_actions: list[str] = []
+    pending_operations: list[str] = []
+    recovery_status: Optional[str] = None
     validation_profile: str
     delivery_intent: str
     approval_required: bool = False
@@ -1007,6 +1033,9 @@ class ExecutionRunOut(BaseModel):
     runtime_backend: Optional[str] = None
     runtime_provider: Optional[str] = None
     runtime_model: Optional[str] = None
+    runtime_session_id: Optional[str] = None
+    resume_count: Optional[int] = None
+    last_heartbeat_at: Optional[datetime] = None
     tokens_used_total: Optional[int] = None
     elapsed_ms: Optional[int] = None
     current_branch: Optional[str] = None
@@ -1052,9 +1081,14 @@ class ExecutionActivityEventOut(BaseModel):
 class ExecutionRunDetailOut(BaseModel):
     execution: ExecutionRunOut
     requirement: AgentFirstRequirementOut
+    phase: str = "queued"
+    allowed_actions: list[str] = []
+    pending_operations: list[str] = []
+    recovery_status: Optional[str] = None
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
     verification_result: Optional[ValidationRecordSlimOut] = None
+    verification_plan: Optional[VerificationPlanOut] = None
     changed_files: list[ExecutionChangedFileOut] = []
     runtime_summary: Optional[ExecutionRuntimeSummaryOut] = None
     delivery_summary: Optional[ReleaseRecordSlimOut] = None

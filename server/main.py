@@ -16,6 +16,7 @@ from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
 from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.runtime.openai_responses_monitor import OpenAIResponsesTaskMonitor
+from server.services.workflows.agent_first import reconcile_runtime_recovery
 
 setup_ops_logging(
     log_level=config.LOG_LEVEL,
@@ -41,6 +42,14 @@ async def lifespan(app: FastAPI):
     )
     init_db()
     log_event(logger, "database_initialized", db_path=config.DB_PATH)
+    db = None
+    try:
+        from server.database import SessionLocal as _SessionLocal
+        db = _SessionLocal()
+        reconcile_runtime_recovery(db)
+    finally:
+        if db is not None:
+            db.close()
     monitor = None
     bug_scheduler = None
     if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:

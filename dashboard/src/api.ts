@@ -814,6 +814,12 @@ export interface AgentRequirement {
   target_projects: string[]
   approval_required: boolean
   approval_status: string
+  phase: string
+  allowed_actions: string[]
+  pending_operations: string[]
+  recovery_status: string | null
+  assets_status: string
+  assets_error_message: string | null
   created_at: string | null
   updated_at: string | null
   active_execution_run_id: number | null
@@ -880,8 +886,15 @@ export interface AgentRequirementDetail {
   latest_release_id: number | null
   latest_release: ReleaseRecord | null
   approval: AgentRequirementApproval
+  phase: string
+  allowed_actions: string[]
+  pending_operations: string[]
+  recovery_status: string | null
+  assets_status: string
+  assets_error_message: string | null
   acceptance_contract: AcceptanceContract
   execution_plan: ExecutionPlan
+  attachments: RequirementAttachment[]
 }
 
 export interface ExecutionNode {
@@ -915,6 +928,14 @@ export interface ValidationCheckResult {
   output_excerpt: string | null
 }
 
+export interface VerificationPlan {
+  mode: string
+  summary: string
+  checks: string[]
+  evidence_expectations: string[]
+  why_no_verification: string | null
+}
+
 export interface ValidationRecord {
   id: number
   requirement_id: number
@@ -923,6 +944,7 @@ export interface ValidationRecord {
   status: string
   summary_markdown: string
   checks: ValidationCheckResult[]
+  verification_plan: VerificationPlan | null
   verification_agent_id: string | null
   verification_agent_label: string | null
   evidence_used: string[]
@@ -938,6 +960,10 @@ export interface ExecutionRun {
   execution_mode: string
   complexity: string
   status: string
+  phase: string
+  allowed_actions: string[]
+  pending_operations: string[]
+  recovery_status: string | null
   validation_profile: string
   delivery_intent: string
   approval_required: boolean
@@ -949,6 +975,9 @@ export interface ExecutionRun {
   runtime_backend: string | null
   runtime_provider: string | null
   runtime_model: string | null
+  runtime_session_id: string | null
+  resume_count: number | null
+  last_heartbeat_at: string | null
   tokens_used_total: number | null
   elapsed_ms: number | null
   current_branch: string | null
@@ -994,9 +1023,14 @@ export interface ExecutionActivityEvent {
 export interface ExecutionDetail {
   execution: ExecutionRun
   requirement: AgentRequirement
+  phase: string
+  allowed_actions: string[]
+  pending_operations: string[]
+  recovery_status: string | null
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
   verification_result: ValidationRecord | null
+  verification_plan: VerificationPlan | null
   changed_files: ExecutionChangedFile[]
   runtime_summary: ExecutionRuntimeSummary | null
   delivery_summary: ReleaseRecord | null
@@ -1689,6 +1723,7 @@ export const api = {
     target_project_path?: string
   }) => request<AgentRequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/submit`, { method: 'POST' }),
+  regenerateRequirementAssets: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/regenerate-assets`, { method: 'POST' }),
   approveRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
     request<AgentRequirementDetail>(`/requirements/${id}/approve`, { method: 'POST', body: JSON.stringify({ action: 'approve', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
   rejectRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>

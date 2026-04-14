@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AgentRequirement, Project, api } from '../api'
+import { AgentRequirement, Project, RequirementAttachmentInput, api } from '../api'
 import { ConfirmDialog, EmptyPane, FieldLabel, OverlayDrawer, OverlayModal, StateBadge, useToast } from '../components/workbench'
 
 type DrawerMode = 'closed' | 'create' | 'edit'
@@ -11,7 +11,18 @@ type RequirementDraft = {
   priority: string
   project_id: number | null
   target_project_path_override: string
+  attachments: ComposerAttachment[]
 }
+
+type ComposerAttachment = RequirementAttachmentInput & {
+  local_id: string
+  attachment_kind: 'image' | 'file'
+  size_bytes: number
+  preview_url: string | null
+}
+
+const MAX_ATTACHMENTS = 12
+const MAX_ATTACHMENT_SIZE_BYTES = 3 * 1024 * 1024
 
 const EMPTY_DRAFT: RequirementDraft = {
   title: '',
@@ -19,6 +30,42 @@ const EMPTY_DRAFT: RequirementDraft = {
   priority: 'normal',
   project_id: null,
   target_project_path_override: '',
+  attachments: [],
+}
+
+function attachmentKind(contentType: string, fileName: string): 'image' | 'file' {
+  if (contentType.toLowerCase().startsWith('image/')) return 'image'
+  const lower = fileName.toLowerCase()
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].some((suffix) => lower.endsWith(suffix))) return 'image'
+  return 'file'
+}
+
+function formatBytes(size: number) {
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`
+  return `${size} B`
+}
+
+async function fileToAttachment(file: File, source: string): Promise<ComposerAttachment> {
+  const buffer = await file.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  const contentBase64 = btoa(binary)
+  const kind = attachmentKind(file.type || 'application/octet-stream', file.name)
+  return {
+    local_id: `${Date.now()}-${file.name}-${Math.random().toString(36).slice(2, 8)}`,
+    file_name: file.name,
+    content_type: file.type || 'application/octet-stream',
+    content_base64: contentBase64,
+    source,
+    attachment_kind: kind,
+    size_bytes: file.size,
+    preview_url: kind === 'image' ? URL.createObjectURL(file) : null,
+  }
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -46,8 +93,50 @@ function statusTone(status: string) {
   return 'muted'
 }
 
+function assetsLabel(requirement: AgentRequirement) {
+  if (requirement.assets_status === 'ready') return '计划已就绪'
+  if (requirement.assets_status === 'failed') return '计划生成失败'
+  return '生成计划中'
+}
+
 function canEditRequirement(requirement: AgentRequirement) {
-  return !requirement.latest_execution_run_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
+  return (requirement.allowed_actions ?? fallbackRequirementAllowedActions(requirement)).includes('edit')
+}
+
+function fallbackRequirementAllowedActions(requirement: AgentRequirement): string[] {
+  const actions = new Set<string>(['view'])
+  if (requirement.active_execution_run_id != null || requirement.latest_execution_run_id != null) {
+    actions.add('view_execution')
+  }
+  if (requirement.latest_release_status) {
+    actions.add('view_release')
+  }
+  if (requirement.status === 'draft' || requirement.status === 'ready' || requirement.status === 'blocked' || requirement.status === 'needs_revision') {
+    actions.add('edit')
+  }
+  if (requirement.assets_status === 'ready' && (requirement.status === 'draft' || requirement.status === 'needs_revision')) {
+    actions.add('submit')
+  }
+  if (requirement.assets_status === 'failed') {
+    actions.add('regenerate_assets')
+  }
+  if (requirement.approval_status === 'pending_approval') {
+    actions.add('approve')
+    actions.add('reject')
+  }
+  return [...actions]
+}
+
+function phaseLabel(requirement: AgentRequirement) {
+  if (requirement.recovery_status) return `恢复: ${requirement.recovery_status}`
+  const phase = requirement.phase || requirement.status
+  if (phase === 'awaiting_execution_approval') return '等待执行审批'
+  if (phase === 'branch_preparing') return '准备分支中'
+  if (phase === 'branch_prepared') return '分支已就绪'
+  if (phase === 'verifying') return '验证中'
+  if (phase === 'pr_opened') return 'PR 已创建'
+  if (phase === 'recovering') return '恢复中'
+  return phase
 }
 
 function buildDraft(requirement?: AgentRequirement | null): RequirementDraft {
@@ -58,6 +147,7 @@ function buildDraft(requirement?: AgentRequirement | null): RequirementDraft {
     priority: requirement.priority,
     project_id: requirement.project_id,
     target_project_path_override: requirement.target_project_path_override || '',
+    attachments: [],
   }
 }
 
@@ -68,6 +158,7 @@ function RequirementForm({
   onChange,
   onClose,
   onSubmit,
+  onUploadError,
 }: Readonly<{
   draft: RequirementDraft
   projects: Project[]
@@ -75,8 +166,38 @@ function RequirementForm({
   onChange: (patch: Partial<RequirementDraft>) => void
   onClose: () => void
   onSubmit: () => Promise<void>
+  onUploadError: (message: string) => void
 }>) {
   const [showAdvanced, setShowAdvanced] = useState(Boolean(draft.target_project_path_override))
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputId = useId()
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const addFiles = async (files: FileList | File[] | null, source: string) => {
+    if (!files || files.length === 0) return
+    const selected = Array.from(files)
+    if (draft.attachments.length + selected.length > MAX_ATTACHMENTS) {
+      onUploadError(`最多只能添加 ${MAX_ATTACHMENTS} 个附件`)
+      return
+    }
+    const oversized = selected.find((file) => file.size > MAX_ATTACHMENT_SIZE_BYTES)
+    if (oversized) {
+      onUploadError(`${oversized.name} 超过 ${(MAX_ATTACHMENT_SIZE_BYTES / (1024 * 1024)).toFixed(0)} MB 限制`)
+      return
+    }
+    try {
+      const next = await Promise.all(selected.map((file) => fileToAttachment(file, source)))
+      onChange({ attachments: [...draft.attachments, ...next] })
+    } catch {
+      onUploadError('附件读取失败，请重试')
+    }
+  }
+
+  const removeAttachment = (localId: string) => {
+    const removed = draft.attachments.find((item) => item.local_id === localId)
+    if (removed?.preview_url) URL.revokeObjectURL(removed.preview_url)
+    onChange({ attachments: draft.attachments.filter((item) => item.local_id !== localId) })
+  }
 
   return (
     <div className="grid gap-5">
@@ -84,6 +205,7 @@ function RequirementForm({
         <div>
           <FieldLabel>标题</FieldLabel>
           <input
+            data-testid="requirement-title"
             className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
             placeholder="输入需求标题"
             value={draft.title}
@@ -93,6 +215,7 @@ function RequirementForm({
         <div>
           <FieldLabel>所属项目</FieldLabel>
           <select
+            data-testid="requirement-project"
             className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
             value={draft.project_id ?? ''}
             onChange={(event) => onChange({ project_id: event.target.value ? Number(event.target.value) : null })}
@@ -109,12 +232,108 @@ function RequirementForm({
 
       <div>
         <FieldLabel>需求描述</FieldLabel>
-        <textarea
-          className="mt-2 min-h-[200px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
-          placeholder="输入需求描述"
-          value={draft.description_markdown}
-          onChange={(event) => onChange({ description_markdown: event.target.value })}
-        />
+        <div
+          className={[
+            'mt-2 rounded-2xl border bg-white transition',
+            dragActive ? 'border-[color:var(--ops-accent-strong)] ring-2 ring-[color:var(--ops-accent-soft)]' : 'border-[color:var(--ops-stroke-strong)]',
+          ].join(' ')}
+          onDragEnter={(event) => {
+            event.preventDefault()
+            setDragActive(true)
+          }}
+          onDragOver={(event) => {
+            event.preventDefault()
+            setDragActive(true)
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault()
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+            setDragActive(false)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            setDragActive(false)
+            addFiles(event.dataTransfer.files, 'drag_drop').catch(() => {})
+          }}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData?.files || [])
+            if (!files.length) return
+            event.preventDefault()
+            addFiles(files, 'clipboard').catch(() => {})
+          }}
+        >
+          <textarea
+            data-testid="requirement-description"
+            className="min-h-[220px] w-full rounded-t-2xl border-0 px-4 py-3 text-sm outline-none"
+            placeholder="输入需求描述"
+            value={draft.description_markdown}
+            onChange={(event) => onChange({ description_markdown: event.target.value })}
+          />
+          <div className="border-t border-[color:var(--ops-stroke-soft)] px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-[color:var(--ops-text-caption)]">
+                支持拖拽、粘贴截图或上传文件。图片、PDF、日志和设计参考都会作为 requirement context 进入后续 agent 流程。
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id={fileInputId}
+                  ref={fileInputRef}
+                  data-testid="requirement-attachment-input"
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept="image/*,.pdf,.md,.txt,.json,.csv,.log,.zip"
+                  onChange={(event) => {
+                    addFiles(event.target.files, 'upload').catch(() => {})
+                    event.currentTarget.value = ''
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Add photos & files
+                </button>
+              </div>
+            </div>
+            {draft.attachments.length ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {draft.attachments.map((attachment) => (
+                  <div
+                    key={attachment.local_id}
+                    className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80"
+                  >
+                    {attachment.attachment_kind === 'image' && attachment.preview_url ? (
+                      <img
+                        src={attachment.preview_url}
+                        alt={attachment.file_name}
+                        className="h-36 w-full object-cover"
+                      />
+                    ) : null}
+                    <div className="space-y-2 px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-[color:var(--ops-text-title)]">{attachment.file_name}</div>
+                          <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
+                            {attachment.attachment_kind === 'image' ? '图片' : '文件'} · {attachment.content_type || 'application/octet-stream'} · {formatBytes(attachment.size_bytes)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-2 py-1 text-xs"
+                          onClick={() => removeAttachment(attachment.local_id)}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/70 px-4 py-4">
@@ -177,6 +396,7 @@ function RequirementComposer({
   onChange,
   onClose,
   onSubmit,
+  onUploadError,
 }: Readonly<{
   mode: DrawerMode
   open: boolean
@@ -187,13 +407,14 @@ function RequirementComposer({
   onChange: (patch: Partial<RequirementDraft>) => void
   onClose: () => void
   onSubmit: () => Promise<void>
+  onUploadError: (message: string) => void
 }>) {
   const editing = mode === 'edit'
   const Container = editing ? OverlayDrawer : OverlayModal
 
   return (
     <Container open={open} title={editing ? '编辑需求' : '新建需求'} eyebrow={editing ? `Requirement #${selected?.id ?? '-'}` : 'New Requirement'} onClose={onClose}>
-      <RequirementForm draft={draft} projects={projects} saving={saving} onChange={onChange} onClose={onClose} onSubmit={onSubmit} />
+      <RequirementForm draft={draft} projects={projects} saving={saving} onChange={onChange} onClose={onClose} onSubmit={onSubmit} onUploadError={onUploadError} />
     </Container>
   )
 }
@@ -270,6 +491,9 @@ export default function RequirementPool() {
   }
 
   const closeComposer = () => {
+    draft.attachments.forEach((item) => {
+      if (item.preview_url) URL.revokeObjectURL(item.preview_url)
+    })
     setDrawerMode('closed')
     setDraft({ ...EMPTY_DRAFT })
   }
@@ -277,7 +501,7 @@ export default function RequirementPool() {
   const handleSubmit = async () => {
     setSaving(true)
     try {
-      const payload = {
+      const basePayload = {
         title: draft.title,
         description_markdown: draft.description_markdown,
         priority: draft.priority,
@@ -285,10 +509,13 @@ export default function RequirementPool() {
         target_project_path_override: draft.target_project_path_override || undefined,
       }
       if (drawerMode === 'create') {
-        await api.createRequirement(payload)
+        await api.createRequirement({
+          ...basePayload,
+          attachments: draft.attachments.map(({ local_id: _localId, attachment_kind: _attachmentKind, size_bytes: _sizeBytes, preview_url: _previewUrl, ...attachment }) => attachment),
+        })
         toast.success('需求已创建')
       } else if (drawerMode === 'edit' && selectedRequirement) {
-        await api.updateRequirement(selectedRequirement.id, payload)
+        await api.updateRequirement(selectedRequirement.id, basePayload)
         toast.success('需求已更新')
       }
       await load()
@@ -373,15 +600,19 @@ export default function RequirementPool() {
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval_required ? item.approval_status : 'waived'}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                    execution {item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · {item.latest_release_status ?? '-'}
+                    {assetsLabel(item)} · {phaseLabel(item)} · execution {item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · {item.latest_release_status ?? '-'}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap justify-end gap-2">
+                      {(() => {
+                        const allowedActions = item.allowed_actions ?? fallbackRequirementAllowedActions(item)
+                        return (
+                          <>
                       <button
                         type="button"
                         className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
-                        disabled={!canEditRequirement(item)}
+                        disabled={!allowedActions.includes('edit')}
                         onClick={() => openEdit(item)}
                       >
                         编辑
@@ -397,10 +628,35 @@ export default function RequirementPool() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
                         查看
                       </button>
+                      {item.assets_status === 'failed' ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
+                          disabled={submittingId === item.id || !allowedActions.includes('regenerate_assets')}
+                          onClick={async () => {
+                            setSubmittingId(item.id)
+                            try {
+                              await api.regenerateRequirementAssets(item.id)
+                              toast.success('已重新开始生成验收标准与执行计划')
+                            } catch (error) {
+                              const message = error instanceof Error ? error.message : '重新生成失败，请重试'
+                              toast.error(message)
+                            } finally {
+                              await load()
+                              setSubmittingId(null)
+                            }
+                          }}
+                        >
+                          重新生成
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50"
-                        disabled={submittingId === item.id || (item.status !== 'draft' && item.status !== 'needs_revision')}
+                        disabled={
+                          submittingId === item.id ||
+                          !allowedActions.includes('submit')
+                        }
                         onClick={async () => {
                           setSubmittingId(item.id)
                           try {
@@ -411,16 +667,20 @@ export default function RequirementPool() {
                               return
                             }
                             navigate(`/requirements/${item.id}`)
-                          } catch {
-                            toast.error('提交失败，请重试')
+                          } catch (error) {
+                            const message = error instanceof Error ? error.message : '提交失败，请重试'
+                            toast.error(message)
                           } finally {
                             await load()
                             setSubmittingId(null)
                           }
                         }}
                       >
-                        {submittingId === item.id ? '提交中…' : '提交'}
+                        {submittingId === item.id ? '提交中…' : item.assets_status === 'pending' ? '生成计划中…' : item.assets_status === 'failed' ? '计划生成失败' : '提交'}
                       </button>
+                          </>
+                        )
+                      })()}
                     </div>
                   </td>
                 </tr>
@@ -450,6 +710,7 @@ export default function RequirementPool() {
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
         onClose={closeComposer}
         onSubmit={handleSubmit}
+        onUploadError={(message) => toast.error(message)}
       />
 
       <ConfirmDialog

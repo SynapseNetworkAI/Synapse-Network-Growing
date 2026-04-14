@@ -16,6 +16,13 @@ _VERIFICATION_SYSTEM_PROMPT = """You are a verification agent in an agent-first 
 Read the requirement intent, acceptance contract, execution plan, execution evidence, changed files, activity, and raw output.
 Return strict JSON only with this schema:
 {
+  "verification_plan": {
+    "mode": "command_checks|evidence_review|none_required",
+    "summary": "short explanation of how this run should be verified",
+    "checks": ["command or review step"],
+    "evidence_expectations": ["what evidence matters most"],
+    "why_no_verification": "required only when mode is none_required"
+  },
   "status": "passed|failed|needs_revision|inconclusive",
   "summary": "short verdict summary",
   "checks_run": ["short check summary"],
@@ -29,6 +36,10 @@ Rules:
 - Use needs_revision when the implementation is incomplete or misses the requested outcome.
 - Use failed when explicit check evidence shows failure.
 - Use inconclusive when evidence is too thin to justify a pass or a failure.
+- Generate a verification_plan that reflects the actual implementation evidence, changed files, and commands run.
+- Prefer command_checks only when this run actually has concrete commands or obvious automated checks.
+- Use evidence_review for docs/config/governance changes where evidence is the right proof.
+- Use none_required only when no extra verification is needed and explain why.
 - Treat raw execution output, implementation summaries, command transcripts, and changed-file summaries as valid delivery evidence when they are specific and internally consistent.
 - Do not require a separate artifact when the execution output already states what changed and which targeted checks passed, unless there is contradictory evidence.
 - Do not ask for human manual review.
@@ -53,8 +64,41 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
     checks = payload.get("check_results") or []
     raw_output = str(payload.get("raw_task_output") or "").strip()
     changed_files = payload.get("changed_files") or []
+    acceptance_contract = payload.get("acceptance_contract") or {}
+    contract_checks = acceptance_contract.get("verification_checks") or []
     failed_checks = [item for item in checks if str(item.get("status") or "") == "failed"]
     passed_checks = [item for item in checks if str(item.get("status") or "") == "passed"]
+    explicit_commands = [str(item.get("command") or "").strip() for item in checks if str(item.get("command") or "").strip()]
+    evidence_expectations = [
+        str(item.get("label") or "").strip()
+        for item in contract_checks
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    if explicit_commands:
+        verification_plan = {
+            "mode": "command_checks",
+            "summary": "Verify the implementation by replaying the concrete commands captured in execution evidence.",
+            "checks": explicit_commands,
+            "evidence_expectations": evidence_expectations,
+            "why_no_verification": None,
+        }
+    elif changed_files or raw_output:
+        verification_plan = {
+            "mode": "evidence_review",
+            "summary": "Verify the outcome by reviewing changed files, raw execution output, and summarized implementation evidence.",
+            "checks": [],
+            "evidence_expectations": evidence_expectations
+            or ["Changed files should align with the requirement and raw output should describe the delivered outcome."],
+            "why_no_verification": None,
+        }
+    else:
+        verification_plan = {
+            "mode": "none_required",
+            "summary": "No meaningful automated verification signal is available yet.",
+            "checks": [],
+            "evidence_expectations": evidence_expectations,
+            "why_no_verification": "Execution did not produce enough concrete code or runtime evidence to design a stronger verification path.",
+        }
     if failed_checks:
         status = "failed"
         next_action = "retry_execution"
@@ -68,6 +112,7 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
         next_action = "revise_requirement"
         summary = "Verification is inconclusive because execution evidence is too thin."
     return {
+        "verification_plan": verification_plan,
         "status": status,
         "summary": summary,
         "checks_run": [str(item.get("label") or "").strip() for item in checks if str(item.get("label") or "").strip()],
@@ -101,7 +146,19 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
         result = json.loads(str(text or "").strip())
         if not isinstance(result, dict):
             raise ValueError("verification result must be an object")
+        plan = result.get("verification_plan")
+        if not isinstance(plan, dict):
+            plan = {}
         normalized = {
+            "verification_plan": {
+                "mode": str(plan.get("mode") or "evidence_review").strip() or "evidence_review",
+                "summary": str(plan.get("summary") or "").strip(),
+                "checks": [str(item).strip() for item in plan.get("checks") or [] if str(item).strip()],
+                "evidence_expectations": [
+                    str(item).strip() for item in plan.get("evidence_expectations") or [] if str(item).strip()
+                ],
+                "why_no_verification": str(plan.get("why_no_verification") or "").strip() or None,
+            },
             "status": str(result.get("status") or "inconclusive").strip() or "inconclusive",
             "summary": str(result.get("summary") or "").strip(),
             "checks_run": [str(item).strip() for item in result.get("checks_run") or [] if str(item).strip()],
@@ -113,13 +170,18 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
         }
         if normalized["status"] not in {"passed", "failed", "needs_revision", "inconclusive"}:
             normalized["status"] = "inconclusive"
+        if normalized["verification_plan"]["mode"] not in {"command_checks", "evidence_review", "none_required"}:
+            normalized["verification_plan"]["mode"] = "evidence_review"
         if normalized["suggested_next_action"] not in {"release_ready", "retry_execution", "revise_requirement"}:
             normalized["suggested_next_action"] = "revise_requirement"
+        if not normalized["verification_plan"]["summary"]:
+            normalized["verification_plan"] = dict(fallback["verification_plan"])
         if not normalized["summary"]:
             normalized["summary"] = fallback["summary"]
         if not normalized["reasoning"]:
             normalized["reasoning"] = normalized["summary"]
         if normalized["status"] == "inconclusive" and fallback["status"] in {"passed", "failed"}:
+            normalized["verification_plan"] = dict(fallback["verification_plan"])
             normalized["status"] = str(fallback["status"])
             normalized["summary"] = str(fallback["summary"])
             normalized["reasoning"] = str(fallback["reasoning"])

@@ -24,6 +24,12 @@ function statusTone(status: string) {
   return 'muted'
 }
 
+function assetsTone(status: string) {
+  if (status === 'ready') return 'ready'
+  if (status === 'failed') return 'blocked'
+  return 'running'
+}
+
 function Markdown({ value }: Readonly<{ value: string }>) {
   if (!value.trim()) return <div className="text-sm text-slate-400">暂无内容</div>
   return (
@@ -31,6 +37,28 @@ function Markdown({ value }: Readonly<{ value: string }>) {
       <ReactMarkdown>{value}</ReactMarkdown>
     </div>
   )
+}
+
+function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): string[] {
+  const requirement = detail.requirement
+  const actions = new Set<string>(['view'])
+  const status = requirement.status
+  if (detail.latest_execution_id != null) actions.add('view_execution')
+  if (detail.latest_release_id != null) actions.add('view_release')
+  if (status === 'draft' || status === 'ready' || status === 'blocked' || status === 'needs_revision') {
+    actions.add('edit')
+  }
+  if (detail.assets_status === 'ready' && (status === 'draft' || status === 'needs_revision')) {
+    actions.add('submit')
+  }
+  if (detail.assets_status === 'failed') {
+    actions.add('regenerate_assets')
+  }
+  if (detail.approval.approval_status === 'pending_approval') {
+    actions.add('approve')
+    actions.add('reject')
+  }
+  return [...actions]
 }
 
 export default function RequirementDetail() {
@@ -90,10 +118,13 @@ export default function RequirementDetail() {
 
   const requirement = detail.requirement
   const approval = detail.approval
-  const canEdit = !detail.latest_execution_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
+  const requirementAllowedActions = requirement.allowed_actions ?? fallbackRequirementAllowedActions(detail)
+  const detailAllowedActions = detail.allowed_actions ?? requirementAllowedActions
+  const canEdit = requirementAllowedActions.includes('edit')
   const showApprovalNotice = approval.approval_status === 'pending_approval' || approval.approval_status === 'rejected'
   const currentProject = detail.project
   const latestRelease = detail.latest_release
+  const assetsReady = detail.assets_status === 'ready'
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
@@ -165,21 +196,44 @@ export default function RequirementDetail() {
                 </button>
               </>
             ) : null}
-            {!isEditing && requirement.status === 'draft' ? (
+            {!isEditing && requirementAllowedActions.includes('submit') ? (
               <button
-                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white"
+                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-50"
+                disabled={!assetsReady || !requirementAllowedActions.includes('submit')}
                 onClick={async () => {
-                  const next = await api.submitRequirement(requirement.id)
-                  setDetail(next)
-                  if (next.approval.auto_started && next.approval.execution_run_id) {
-                    navigate(`/executions/${next.approval.execution_run_id}`)
+                  try {
+                    const next = await api.submitRequirement(requirement.id)
+                    setDetail(next)
+                    if (next.approval.auto_started && next.approval.execution_run_id) {
+                      navigate(`/executions/${next.approval.execution_run_id}`)
+                    }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : '提交失败，请重试'
+                    toast.error(message)
                   }
                 }}
               >
-                提交
+                {detail.assets_status === 'pending' ? '生成计划中…' : detail.assets_status === 'failed' ? '计划生成失败' : '提交'}
               </button>
             ) : null}
-            {!isEditing && requirement.status === 'blocked' && approval.approval_status === 'pending_approval' ? (
+            {!isEditing && detail.assets_status === 'failed' && requirementAllowedActions.includes('regenerate_assets') ? (
+              <button
+                className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)]"
+                onClick={async () => {
+                  try {
+                    const next = await api.regenerateRequirementAssets(requirement.id)
+                    setDetail(next)
+                    toast.success('已重新开始生成验收标准与执行计划')
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : '重新生成失败，请重试'
+                    toast.error(message)
+                  }
+                }}
+              >
+                重新生成计划
+              </button>
+            ) : null}
+            {!isEditing && requirementAllowedActions.includes('approve') && approval.approval_status === 'pending_approval' ? (
               <>
                 <button
                   className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
@@ -204,7 +258,7 @@ export default function RequirementDetail() {
                 </button>
               </>
             ) : null}
-            {!isEditing && approval.pending_execution_start && detail.latest_execution_id ? (
+            {!isEditing && approval.pending_execution_start && detail.latest_execution_id && detailAllowedActions.includes('view_execution') ? (
               <button
                 className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
                 onClick={async () => {
@@ -240,6 +294,21 @@ export default function RequirementDetail() {
               {approval.required_approver_roles.length ? <span>需要角色：{approval.required_approver_roles.join(' / ')}</span> : null}
             </div>
             {approval.approval_reason ? <div className="mt-2">{approval.approval_reason}</div> : null}
+          </div>
+        ) : null}
+
+        {!isEditing && detail.assets_status !== 'ready' ? (
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone={assetsTone(detail.assets_status)}>
+                {detail.assets_status === 'failed' ? '计划生成失败' : '正在生成计划'}
+              </StateBadge>
+              <span>
+                {detail.assets_status === 'failed'
+                  ? detail.assets_error_message || '验收标准与执行计划生成失败，请重新生成。'
+                  : '验收标准与执行计划正在生成，完成前不能提交。'}
+              </span>
+            </div>
           </div>
         ) : null}
 
@@ -306,6 +375,8 @@ export default function RequirementDetail() {
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
+              {detail.phase && detail.phase !== requirement.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
+              {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
               <StateBadge tone="muted">{requirement.priority}</StateBadge>
               {requirement.project_display_name ? <StateBadge tone="muted">{requirement.project_display_name}</StateBadge> : null}
               {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
@@ -334,6 +405,36 @@ export default function RequirementDetail() {
           <Markdown value={requirement.description_markdown} />
         )}
       </SectionFrame>
+
+      {detail.attachments.length ? (
+        <SectionFrame eyebrow="Attachments" title="附件">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="requirement-attachments">
+            {detail.attachments.map((attachment) => {
+              const href = `/api/requirements/${requirement.id}/attachments/${attachment.id}`
+              return (
+                <a
+                  key={attachment.id}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80"
+                >
+                  {attachment.attachment_kind === 'image' ? (
+                    <img src={href} alt={attachment.file_name} className="h-44 w-full object-cover" />
+                  ) : null}
+                  <div className="space-y-2 px-4 py-4">
+                    <div className="text-sm font-medium text-[color:var(--ops-text-title)]">{attachment.file_name}</div>
+                    <div className="text-xs text-[color:var(--ops-text-caption)]">
+                      {attachment.attachment_kind === 'image' ? '图片' : '文件'} · {attachment.content_type} · {Math.max(1, Math.round(attachment.size_bytes / 1024))} KB
+                    </div>
+                    <div className="text-xs text-[color:var(--ops-text-caption)]">{attachment.stored_path}</div>
+                  </div>
+                </a>
+              )
+            })}
+          </div>
+        </SectionFrame>
+      ) : null}
 
       <SectionFrame eyebrow="Acceptance" title="验收标准">
         {!isEditing && detail.acceptance_contract.done_criteria?.length ? (
