@@ -806,6 +806,9 @@ export interface AgentRequirement {
   priority: string
   source: string
   source_ref: string | null
+  linked_requirement_id?: number | null
+  followup_requirement_id?: number | null
+  resolution_path?: string | null
   project_id: number | null
   project_key: string | null
   project_display_name: string | null
@@ -832,6 +835,10 @@ export interface AgentRequirementApproval {
   approval_status: string
   approval_reason: string | null
   approval_source: string | null
+  approval_agent_id?: string | null
+  approval_agent_label?: string | null
+  approval_recommendation?: string | null
+  approval_confidence?: number | null
   required_approver_roles: string[]
   risk_flags: string[]
   pending_execution_start: boolean
@@ -895,6 +902,8 @@ export interface AgentRequirementDetail {
   acceptance_contract: AcceptanceContract
   execution_plan: ExecutionPlan
   attachments: RequirementAttachment[]
+  followup_requirement_id?: number | null
+  resolution_path?: string | null
 }
 
 export interface ExecutionNode {
@@ -950,6 +959,12 @@ export interface ValidationRecord {
   evidence_used: string[]
   reasoning_markdown: string
   suggested_next_action: string | null
+  resolution_recommendation?: string | null
+  resolution_confidence?: number | null
+  resolution_reason?: string | null
+  resolution_path?: string | null
+  followup_requirement_id?: number | null
+  followup_requirement_payload?: Record<string, unknown>
   created_at: string | null
   updated_at: string | null
 }

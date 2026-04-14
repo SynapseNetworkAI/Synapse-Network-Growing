@@ -130,6 +130,12 @@ const detail = {
     evidence_used: ['raw_output:92 chars', 'changed_files:1'],
     reasoning_markdown: 'The execution evidence satisfies the acceptance contract.',
     suggested_next_action: 'release_ready',
+    resolution_recommendation: null,
+    resolution_confidence: null,
+    resolution_reason: null,
+    resolution_path: 'release_ready',
+    followup_requirement_id: null,
+    followup_requirement_payload: {},
     created_at: '2026-04-14T06:54:10Z',
     updated_at: '2026-04-14T06:54:30Z',
   },
@@ -153,6 +159,12 @@ const detail = {
     evidence_used: ['raw_output:92 chars', 'changed_files:1'],
     reasoning_markdown: 'The execution evidence satisfies the acceptance contract.',
     suggested_next_action: 'release_ready',
+    resolution_recommendation: null,
+    resolution_confidence: null,
+    resolution_reason: null,
+    resolution_path: 'release_ready',
+    followup_requirement_id: null,
+    followup_requirement_payload: {},
     created_at: '2026-04-14T06:54:10Z',
     updated_at: '2026-04-14T06:54:30Z',
   },
@@ -252,7 +264,7 @@ describe('Execution detail observability', () => {
     expect(screen.getAllByText('321').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Validation passed.').length).toBeGreaterThan(0)
     expect(screen.getByText('Verification Agent')).toBeInTheDocument()
-    expect(screen.getByText(/release_ready/)).toBeInTheDocument()
+    expect(screen.getByText(/resolution: release_ready/)).toBeInTheDocument()
     expect(screen.getByText('执行计划')).toBeInTheDocument()
     expect(screen.getByText('验证方案')).toBeInTheDocument()
     expect(screen.getByText(/Replay the targeted pytest command/)).toBeInTheDocument()

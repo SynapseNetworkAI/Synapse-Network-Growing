@@ -414,8 +414,22 @@ export default function ExecutionDetailPage() {
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-[color:var(--ops-text-caption)]">
                   <span>next action: {verification.suggested_next_action || '-'}</span>
+                  <span>resolution: {verification.resolution_path || verification.resolution_recommendation || '-'}</span>
                   <span>evidence: {verification.evidence_used.length > 0 ? verification.evidence_used.join(' · ') : '-'}</span>
                 </div>
+                {verification.resolution_reason ? (
+                  <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">{verification.resolution_reason}</div>
+                ) : null}
+                {verification.followup_requirement_id ? (
+                  <div className="mt-3">
+                    <button
+                      className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                      onClick={() => navigate(`/requirements/${verification.followup_requirement_id}`)}
+                    >
+                      查看 follow-up requirement #{verification.followup_requirement_id}
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-3">
                 {verification.checks.map((check) => (

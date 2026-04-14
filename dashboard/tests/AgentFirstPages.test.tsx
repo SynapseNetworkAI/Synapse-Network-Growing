@@ -184,7 +184,47 @@ describe('agent-first pages smoke', () => {
     expect(screen.getByText('Launch FAQ')).toBeInTheDocument()
   })
 
+  it('does not show delete for requirement rows without delete action', async () => {
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument()
+  })
+
   it('opens create and edit requirement drawers from the toolbar', async () => {
+    mockApi.getRequirements.mockResolvedValueOnce([
+      {
+        id: 1,
+        title: 'Launch FAQ',
+        description_markdown: 'Validate FAQ launch path.',
+        status: 'draft',
+        priority: 'high',
+        source: 'manual',
+        source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
+        target_projects: ['Synapse-Network'],
+        acceptance_criteria_markdown: 'Checks pass.',
+        approval_required: false,
+        approval_status: 'waived',
+        assets_status: 'ready',
+        assets_error_message: null,
+        active_execution_run_id: null,
+        latest_execution_run_id: null,
+        latest_release_status: null,
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+    ])
     mockApi.createRequirement.mockResolvedValue({
       requirement: {
         id: 2,
@@ -251,7 +291,7 @@ describe('agent-first pages smoke', () => {
         id: 1,
         title: 'Launch FAQ Updated',
         description_markdown: 'Validate FAQ launch path.',
-        status: 'ready',
+        status: 'draft',
         priority: 'high',
         source: 'manual',
         source_ref: null,
@@ -315,15 +355,36 @@ describe('agent-first pages smoke', () => {
 
     await waitFor(() => expect(mockApi.updateRequirement).toHaveBeenCalledWith(1, expect.objectContaining({ title: 'Launch FAQ Updated' })))
     expect(await screen.findByText('需求已更新')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '删除' }))
-    expect(screen.getByRole('heading', { name: '删除需求' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
-    await waitFor(() => expect(mockApi.deleteRequirement).toHaveBeenCalledWith(1))
-    expect(await screen.findByText('需求已删除')).toBeInTheDocument()
   })
 
   it('cancels deletion without calling the delete api', async () => {
+    mockApi.getRequirements.mockResolvedValueOnce([
+      {
+        id: 1,
+        title: 'Launch FAQ',
+        description_markdown: 'Validate FAQ launch path.',
+        status: 'draft',
+        priority: 'high',
+        source: 'manual',
+        source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
+        target_projects: ['Synapse-Network'],
+        acceptance_criteria_markdown: 'Checks pass.',
+        approval_required: false,
+        approval_status: 'waived',
+        assets_status: 'ready',
+        assets_error_message: null,
+        active_execution_run_id: null,
+        latest_execution_run_id: null,
+        latest_release_status: null,
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+    ])
     render(
       <ToastProvider>
         <MemoryRouter>

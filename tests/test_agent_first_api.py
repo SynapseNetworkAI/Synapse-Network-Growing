@@ -199,6 +199,75 @@ def test_submit_requirement_rejects_while_assets_are_pending(synced_client, db_s
     assert submit_resp.json()["detail"] == "验收标准与执行计划仍在生成中，请稍后再提交。"
 
 
+def test_delete_requirement_only_allowed_before_execution_starts(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Delete before execution",
+            "description_markdown": "Draft requirements can still be deleted.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    delete_resp = synced_client.post(f"/api/requirements/{requirement_id}/delete")
+
+    assert delete_resp.status_code == 200
+    assert delete_resp.json()["requirement"]["status"] == "deleted"
+
+
+def test_delete_requirement_rejects_when_execution_history_exists(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    requirement = RequirementRow(
+        title="Delete blocked after execution",
+        description_markdown="Anything with execution history should not be deletable.",
+        status="running",
+        phase="executing",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ExecutionRunRow(
+            requirement_id=int(requirement.id),
+            execution_mode="direct",
+            complexity="simple",
+            status="running",
+            phase="executing",
+            validation_profile="minimal",
+            delivery_intent="pr_required",
+            approval_required=False,
+            target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+        )
+    )
+    db_session.commit()
+
+    delete_resp = synced_client.post(f"/api/requirements/{int(requirement.id)}/delete")
+
+    assert delete_resp.status_code == 400
+    assert delete_resp.json()["detail"] == "Requirements with execution history cannot be deleted."
+
+
 def test_requirement_list_reconciles_running_status_from_latest_execution(synced_client, db_session):
     project = _create_project(
         synced_client,
@@ -997,6 +1066,302 @@ def test_validation_pass_auto_opens_pr(synced_client, db_session):
     assert requirement.status == "done"
 
 
+def test_validation_defaults_to_retry_execution_resolution_path(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="Retry within current requirement",
+        description_markdown="A scoped docs fix should retry in place when verification still wants revisions.",
+        status="running",
+        phase="executing",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="implement",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Adjusted the docs validation script in the current repo.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "evidence_review",
+                "summary": "Review the updated script and raw execution output.",
+                "checks": [],
+                "evidence_expectations": ["Current repo docs checks should pass after a retry."],
+                "why_no_verification": None,
+            },
+            "status": "needs_revision",
+            "summary": "The fix is still incomplete but remains in the same requirement scope.",
+            "checks_run": [],
+            "evidence_used": ["changed_files:1"],
+            "reasoning": "The remaining work is still in the same project and scope.",
+            "suggested_next_action": "retry_execution",
+            "resolution_recommendation": "retry_execution",
+            "resolution_confidence": 0.91,
+            "resolution_reason": "The remaining gap is still inside the original requirement scope.",
+            "followup_requirement_payload": {},
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["verification_result"]["resolution_path"] == "retry_execution"
+    assert payload["verification_result"]["followup_requirement_id"] is None
+    db_session.refresh(requirement)
+    assert requirement.status == "needs_revision"
+    assert requirement.followup_requirement_id is None
+
+
+def test_validation_creates_followup_requirement_when_scope_drift_is_explicit(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="Current requirement hit a platform gate issue",
+        description_markdown="The original task was scoped to one service, but verification found a wider docs gate issue.",
+        status="running",
+        phase="executing",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="implement",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Service change completed, but the docs metadata gate is still failing globally.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "evidence_review",
+                "summary": "Review the failing metadata gate evidence.",
+                "checks": [],
+                "evidence_expectations": ["The follow-up should fix the global docs gate."],
+                "why_no_verification": None,
+            },
+            "status": "needs_revision",
+            "summary": "The original service fix is done, but a broader docs metadata gate issue remains.",
+            "checks_run": [],
+            "evidence_used": ["raw_output:120 chars"],
+            "reasoning": "The remaining work is broader than the original service-scoped requirement.",
+            "suggested_next_action": "retry_execution",
+            "resolution_recommendation": "create_followup_requirement",
+            "resolution_confidence": 0.93,
+            "resolution_reason": "The remaining fix is out of scope and should become a dedicated follow-up requirement.",
+            "followup_requirement_payload": {
+                "title": "修复 docs metadata gate 错误",
+                "description_markdown": "Fix the broader docs metadata gate exposed during verification.",
+                "priority": "high",
+                "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network/docs-metadata",
+                "scope_assessment": "out_of_scope",
+                "ownership_change_required": False,
+            },
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["verification_result"]["resolution_path"] == "create_followup_requirement"
+    followup_requirement_id = payload["verification_result"]["followup_requirement_id"]
+    assert followup_requirement_id is not None
+    followup = db_session.query(RequirementRow).filter(RequirementRow.id == followup_requirement_id).one()
+    assert followup.source == "verification_followup"
+    assert followup.linked_requirement_id == requirement.id
+    assert followup.origin_execution_run_id == run.id
+    db_session.refresh(requirement)
+    assert requirement.followup_requirement_id == followup_requirement_id
+    assert requirement.resolution_path == "create_followup_requirement"
+
+
+def test_validation_routes_followup_to_human_for_high_risk_requirement(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="High risk requirement keeps human in the loop",
+        description_markdown="High risk work should not auto-create follow-up requirements.",
+        status="running",
+        phase="executing",
+        approval_status="approved",
+        priority="high",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=True,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="implement",
+        agent_id="software_engineer",
+        status="completed",
+        priority="high",
+        output_content="High risk fix exposed broader ownership changes.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "evidence_review",
+                "summary": "Human should evaluate the broader ownership change.",
+                "checks": [],
+                "evidence_expectations": ["A human should confirm the scope expansion."],
+                "why_no_verification": None,
+            },
+            "status": "needs_revision",
+            "summary": "The remaining work is broader and high risk.",
+            "checks_run": [],
+            "evidence_used": ["raw_output:60 chars"],
+            "reasoning": "The fix crosses ownership boundaries in a high-risk requirement.",
+            "suggested_next_action": "retry_execution",
+            "resolution_recommendation": "create_followup_requirement",
+            "resolution_confidence": 0.94,
+            "resolution_reason": "High-risk ownership changes should be reviewed by a human before branching further.",
+            "followup_requirement_payload": {
+                "title": "follow-up",
+                "description_markdown": "follow-up",
+                "scope_assessment": "out_of_scope",
+                "ownership_change_required": True,
+            },
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["verification_result"]["resolution_path"] == "route_to_human"
+    assert payload["verification_result"]["followup_requirement_id"] is None
+
+
 def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, db_session):
     project = _create_project(
         synced_client,
@@ -1303,6 +1668,61 @@ def test_retry_execution_reports_queue_reason_when_auto_start_is_blocked(synced_
     assert payload["queue_reason"].startswith("启动失败：")
     assert payload["blocking_reason_code"] == "branch_preparation_blocked"
     assert "dirty worktree" in payload["blocking_reason_message"]
+
+
+def test_retry_execution_rejects_when_retry_budget_is_exhausted(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    requirement = RequirementRow(
+        title="Retry limit is one",
+        description_markdown="A requirement should not burn tokens by retrying forever.",
+        status="blocked",
+        phase="blocked",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    original_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="failed",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    retry_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="blocked",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add_all([original_run, retry_run])
+    db_session.commit()
+
+    resp = synced_client.post(f"/api/executions/{retry_run.id}/retry")
+
+    assert resp.status_code == 400
+    assert "Execution retry limit reached (1)." in resp.json()["detail"]
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement.id).count() == 2
 
 
 def test_validate_rejects_non_current_execution_run(synced_client, db_session):

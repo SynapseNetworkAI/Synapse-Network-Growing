@@ -28,7 +28,19 @@ Return strict JSON only with this schema:
   "checks_run": ["short check summary"],
   "evidence_used": ["short evidence summary"],
   "reasoning": "brief explanation of why this verdict is correct",
-  "suggested_next_action": "release_ready|retry_execution|revise_requirement"
+  "suggested_next_action": "release_ready|retry_execution|revise_requirement",
+  "resolution_recommendation": "retry_execution|create_followup_requirement|revise_requirement|route_to_human",
+  "resolution_confidence": 0.0,
+  "resolution_reason": "brief explanation of the recommended resolution path",
+  "followup_requirement_payload": {
+    "title": "optional follow-up title",
+    "description_markdown": "optional follow-up description",
+    "project_key": "optional project key override",
+    "target_project_path": "optional target path override",
+    "priority": "low|normal|high",
+    "scope_assessment": "same_scope|out_of_scope",
+    "ownership_change_required": false
+  }
 }
 
 Rules:
@@ -43,6 +55,9 @@ Rules:
 - Treat raw execution output, implementation summaries, command transcripts, and changed-file summaries as valid delivery evidence when they are specific and internally consistent.
 - Do not require a separate artifact when the execution output already states what changed and which targeted checks passed, unless there is contradictory evidence.
 - Do not ask for human manual review.
+- Prefer retry_execution when the work still belongs to the current requirement.
+- Recommend create_followup_requirement only when the fix clearly drifts beyond the original scope, repo, or ownership boundary.
+- Use route_to_human only when the evidence is too risky or ambiguous to auto-resolve.
 - PR merge is the final human check after a passed verdict.
 - Keep output concise and machine-readable.
 """
@@ -122,6 +137,10 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
         ],
         "reasoning": summary,
         "suggested_next_action": next_action,
+        "resolution_recommendation": "retry_execution" if status in {"failed", "needs_revision"} else "revise_requirement" if status == "inconclusive" else None,
+        "resolution_confidence": 0.7 if status in {"failed", "needs_revision"} else 0.58 if status == "inconclusive" else 0.8,
+        "resolution_reason": summary,
+        "followup_requirement_payload": {},
         "verification_agent_id": "verification_agent",
         "verification_agent_label": "Verification Agent",
     }
@@ -165,6 +184,10 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
             "evidence_used": [str(item).strip() for item in result.get("evidence_used") or [] if str(item).strip()],
             "reasoning": str(result.get("reasoning") or "").strip(),
             "suggested_next_action": str(result.get("suggested_next_action") or "revise_requirement").strip() or "revise_requirement",
+            "resolution_recommendation": str(result.get("resolution_recommendation") or "").strip() or None,
+            "resolution_confidence": float(result.get("resolution_confidence")) if result.get("resolution_confidence") is not None else None,
+            "resolution_reason": str(result.get("resolution_reason") or "").strip() or None,
+            "followup_requirement_payload": result.get("followup_requirement_payload") if isinstance(result.get("followup_requirement_payload"), dict) else {},
             "verification_agent_id": "verification_agent",
             "verification_agent_label": "Verification Agent",
         }
@@ -174,18 +197,37 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
             normalized["verification_plan"]["mode"] = "evidence_review"
         if normalized["suggested_next_action"] not in {"release_ready", "retry_execution", "revise_requirement"}:
             normalized["suggested_next_action"] = "revise_requirement"
+        if normalized["resolution_recommendation"] not in {
+            "retry_execution",
+            "create_followup_requirement",
+            "revise_requirement",
+            "route_to_human",
+            None,
+        }:
+            normalized["resolution_recommendation"] = None
+        if normalized["resolution_confidence"] is not None:
+            normalized["resolution_confidence"] = max(0.0, min(1.0, float(normalized["resolution_confidence"])))
         if not normalized["verification_plan"]["summary"]:
             normalized["verification_plan"] = dict(fallback["verification_plan"])
         if not normalized["summary"]:
             normalized["summary"] = fallback["summary"]
         if not normalized["reasoning"]:
             normalized["reasoning"] = normalized["summary"]
+        if not normalized["resolution_recommendation"]:
+            normalized["resolution_recommendation"] = str(fallback["resolution_recommendation"])
+        if normalized["resolution_confidence"] is None:
+            normalized["resolution_confidence"] = float(fallback["resolution_confidence"])
+        if not normalized["resolution_reason"]:
+            normalized["resolution_reason"] = str(fallback["resolution_reason"])
         if normalized["status"] == "inconclusive" and fallback["status"] in {"passed", "failed"}:
             normalized["verification_plan"] = dict(fallback["verification_plan"])
             normalized["status"] = str(fallback["status"])
             normalized["summary"] = str(fallback["summary"])
             normalized["reasoning"] = str(fallback["reasoning"])
             normalized["suggested_next_action"] = str(fallback["suggested_next_action"])
+            normalized["resolution_recommendation"] = str(fallback["resolution_recommendation"])
+            normalized["resolution_confidence"] = float(fallback["resolution_confidence"])
+            normalized["resolution_reason"] = str(fallback["resolution_reason"])
             normalized["checks_run"] = list(fallback["checks_run"])
             normalized["evidence_used"] = list(fallback["evidence_used"])
         return normalized

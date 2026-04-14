@@ -903,6 +903,9 @@ class AgentFirstRequirementOut(BaseModel):
     priority: str
     source: str
     source_ref: Optional[str] = None
+    linked_requirement_id: Optional[int] = None
+    followup_requirement_id: Optional[int] = None
+    resolution_path: Optional[str] = None
     project_id: Optional[int] = None
     project_key: Optional[str] = None
     project_display_name: Optional[str] = None
@@ -929,6 +932,10 @@ class AgentFirstRequirementApprovalOut(BaseModel):
     approval_status: str = "pending_approval"
     approval_reason: Optional[str] = None
     approval_source: Optional[str] = None
+    approval_agent_id: Optional[str] = None
+    approval_agent_label: Optional[str] = None
+    approval_recommendation: Optional[str] = None
+    approval_confidence: Optional[float] = None
     required_approver_roles: list[str] = []
     risk_flags: list[str] = []
     pending_execution_start: bool = False
@@ -953,6 +960,8 @@ class AgentFirstRequirementDetailOut(BaseModel):
     acceptance_contract: dict[str, object] = {}
     execution_plan: dict[str, object] = {}
     attachments: list["RequirementAttachmentOut"] = []
+    followup_requirement_id: Optional[int] = None
+    resolution_path: Optional[str] = None
 
 
 class ExecutionNodeOut(BaseModel):
@@ -1008,6 +1017,12 @@ class ValidationRecordSlimOut(BaseModel):
     evidence_used: list[str] = []
     reasoning_markdown: str = ""
     suggested_next_action: Optional[str] = None
+    resolution_recommendation: Optional[str] = None
+    resolution_confidence: Optional[float] = None
+    resolution_reason: Optional[str] = None
+    resolution_path: Optional[str] = None
+    followup_requirement_id: Optional[int] = None
+    followup_requirement_payload: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

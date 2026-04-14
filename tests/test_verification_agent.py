@@ -78,3 +78,5 @@ def test_verify_with_agent_returns_none_required_plan_when_no_evidence_exists():
 
     assert result["verification_plan"]["mode"] == "none_required"
     assert result["verification_plan"]["why_no_verification"]
+    assert result["resolution_recommendation"] == "revise_requirement"
+    assert result["resolution_reason"]

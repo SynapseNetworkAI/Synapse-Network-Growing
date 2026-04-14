@@ -202,6 +202,11 @@ class RequirementRow(Base):
     approval_contract_json = Column(Text, nullable=False, default="{}")
     approval_requested_at = Column(DateTime)
     approved_at = Column(DateTime)
+    linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    followup_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    origin_execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    origin_validation_id = Column(Integer, ForeignKey("validation_records.id"))
+    resolution_path = Column(Text)
     current_plan_version = Column(Integer, nullable=False, default=0)
     planned_roles_json = Column(Text, nullable=False, default="[]")
     blocked_by_count = Column(Integer, nullable=False, default=0)
@@ -720,7 +725,7 @@ class ExecutionRunRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
-    requirement = relationship("RequirementRow")
+    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
     latest_task = relationship("TaskRow")
 
 
@@ -750,8 +755,8 @@ class ExecutionNodeRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
-    execution_run = relationship("ExecutionRunRow")
-    requirement = relationship("RequirementRow")
+    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
+    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
     task = relationship("TaskRow", back_populates="execution_nodes")
 
 
@@ -776,11 +781,18 @@ class ValidationRecordRow(Base):
     evidence_json = Column(Text, nullable=False, default="[]")
     reasoning_markdown = Column(Text, nullable=False, default="")
     suggested_next_action = Column(Text)
+    resolution_recommendation = Column(Text)
+    resolution_confidence = Column(Float)
+    resolution_reason = Column(Text)
+    resolution_path = Column(Text)
+    followup_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    followup_requirement_payload_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
-    requirement = relationship("RequirementRow")
-    execution_run = relationship("ExecutionRunRow")
+    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
+    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
+    followup_requirement = relationship("RequirementRow", foreign_keys=[followup_requirement_id])
 
 
 class ReleaseRecordRow(Base):
@@ -812,8 +824,8 @@ class ReleaseRecordRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
-    requirement = relationship("RequirementRow")
-    execution_run = relationship("ExecutionRunRow")
+    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
+    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
     project = relationship("ProjectRow")
 
 
@@ -1058,6 +1070,19 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN approved_at DATETIME"))
                 conn.commit()
+        requirement_cols = {
+            "linked_requirement_id": "INTEGER",
+            "followup_requirement_id": "INTEGER",
+            "origin_execution_run_id": "INTEGER",
+            "origin_validation_id": "INTEGER",
+            "resolution_path": "TEXT",
+        }
+        for col, col_type in requirement_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to requirements table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE requirements ADD COLUMN {col} {col_type}"))
+                    conn.commit()
         with engine_.connect() as conn:
             conn.execute(
                 text(
@@ -1219,6 +1244,12 @@ def _migrate(engine_):
             "evidence_json": "TEXT DEFAULT '[]'",
             "reasoning_markdown": "TEXT DEFAULT ''",
             "suggested_next_action": "TEXT",
+            "resolution_recommendation": "TEXT",
+            "resolution_confidence": "FLOAT",
+            "resolution_reason": "TEXT",
+            "resolution_path": "TEXT",
+            "followup_requirement_id": "INTEGER",
+            "followup_requirement_payload_json": "TEXT DEFAULT '{}'",
         }
         for col, col_type in validation_cols.items():
             if col not in existing:

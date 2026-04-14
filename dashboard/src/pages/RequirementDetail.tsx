@@ -58,6 +58,9 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
     actions.add('approve')
     actions.add('reject')
   }
+  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_execution_approval', 'needs_revision', 'blocked'].includes(requirement.phase || requirement.status)) {
+    actions.add('delete')
+  }
   return [...actions]
 }
 
@@ -294,6 +297,21 @@ export default function RequirementDetail() {
               {approval.required_approver_roles.length ? <span>需要角色：{approval.required_approver_roles.join(' / ')}</span> : null}
             </div>
             {approval.approval_reason ? <div className="mt-2">{approval.approval_reason}</div> : null}
+            {approval.approval_recommendation ? (
+              <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                approval agent: {approval.approval_recommendation}
+                {approval.approval_confidence != null ? ` · confidence ${approval.approval_confidence}` : ''}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!isEditing && (detail.resolution_path || detail.followup_requirement_id) ? (
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-body)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone="muted">{detail.resolution_path || 'resolution'}</StateBadge>
+              {detail.followup_requirement_id ? <span>已转派修复需求 #{detail.followup_requirement_id}</span> : null}
+            </div>
           </div>
         ) : null}
 

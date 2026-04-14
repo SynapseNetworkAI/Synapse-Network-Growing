@@ -96,6 +96,7 @@ from server.services.workflows.orchestrator import pause_task as pause_legacy_ta
 from server.services.agents.llm_adapter import get_provider
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
+_MAX_EXECUTION_RETRIES = 1
 
 
 def _testing_mode() -> bool:
@@ -177,8 +178,19 @@ def _assets_error_message(requirement: RequirementRow) -> str | None:
     return message or None
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _requirement_status_from_phase(phase: str) -> str:
     token = str(phase or "draft").strip() or "draft"
+    if token == "deleted":
+        return "deleted"
     if token in {"draft", "planning"}:
         return "draft"
     if token in {"branch_preparing", "branch_prepared", "ready"}:
@@ -287,6 +299,8 @@ def _requirement_allowed_actions(
         actions.append("regenerate_assets")
     if phase == "awaiting_execution_approval" and str(requirement.approval_status or "") == "pending_approval":
         actions.extend(["approve", "reject"])
+    if latest_execution is None and phase in {"draft", "planning", "awaiting_execution_approval", "needs_revision", "blocked"}:
+        actions.append("delete")
     if latest_execution is not None:
         actions.append("view_execution")
     if latest_release is not None:
@@ -346,6 +360,16 @@ def _execution_reason_payload(
                 summary = str(getattr(validation, "summary_markdown", "") or "").strip()
                 reasoning = str(getattr(validation, "reasoning_markdown", "") or "").strip()
                 suggested = str(getattr(validation, "suggested_next_action", "") or "").strip()
+                resolution_path = str(getattr(validation, "resolution_path", "") or "").strip()
+                resolution_reason = str(getattr(validation, "resolution_reason", "") or "").strip()
+                followup_requirement_id = int(getattr(validation, "followup_requirement_id", 0) or 0) or None
+                if resolution_path == "create_followup_requirement":
+                    message = resolution_reason or summary or reasoning or "Verification created a follow-up requirement."
+                    if followup_requirement_id is not None:
+                        message = f"{message} Follow-up requirement: #{followup_requirement_id}"
+                    return None, "verification_followup_requirement", message
+                if resolution_path == "route_to_human":
+                    return None, "verification_routed_to_human", resolution_reason or summary or reasoning or "Verification requires human review."
                 if validation_status == "needs_revision":
                     message = summary or reasoning or "Verification agent requested revisions before execution can continue."
                     if suggested:
@@ -475,7 +499,7 @@ def reconcile_requirement_state(db: Session, requirement_id: int | RequirementRo
         latest_execution = reconcile_execution_state(db, latest_execution)
         recovery_status = str(getattr(latest_execution, "recovery_status", "") or "").strip() or None
     if str(requirement.status or "") == "deleted":
-        requirement.phase = "blocked"
+        requirement.phase = "deleted"
     elif recovery_status == "recovering":
         requirement.phase = "recovering"
     elif latest_execution is not None:
@@ -489,7 +513,11 @@ def reconcile_requirement_state(db: Session, requirement_id: int | RequirementRo
         elif execution_phase == "completed":
             requirement.phase = "done" if latest_release is not None and str(latest_release.status or "") == "pr_opened" else "delivery_ready"
         elif execution_phase == "blocked":
-            requirement.phase = "needs_revision" if validation is not None and str(validation.status or "") in {"failed", "needs_revision"} else "blocked"
+            resolution_path = str(getattr(validation, "resolution_path", "") or "").strip() if validation is not None else ""
+            if resolution_path in {"create_followup_requirement", "route_to_human"}:
+                requirement.phase = "blocked"
+            else:
+                requirement.phase = "needs_revision" if validation is not None and str(validation.status or "") in {"failed", "needs_revision"} else "blocked"
         else:
             requirement.phase = "branch_prepared"
     elif latest_release is not None and str(latest_release.status or "") == "pr_opened":
@@ -1043,6 +1071,10 @@ def _approval_summary(
         approval_status=approval_status,
         approval_reason=str(decision.get("reason") or "").strip() or None,
         approval_source=_approval_source_label(decision, approval_status),
+        approval_agent_id="approval_agent" if str(decision.get("approval_source") or "") == "agent" else None,
+        approval_agent_label="Approval Agent" if str(decision.get("approval_source") or "") == "agent" else None,
+        approval_recommendation=str((decision.get("approval_recommendation") or {}).get("action") or "").strip() or None,
+        approval_confidence=_float_or_none((decision.get("approval_recommendation") or {}).get("confidence")),
         required_approver_roles=[str(item) for item in decision.get("required_approver_roles") or [] if str(item).strip()],
         risk_flags=_approval_risk_flags(decision),
         pending_execution_start=pending_execution_start,
@@ -1132,6 +1164,9 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         priority=str(requirement.priority or "normal"),
         source=str(requirement.source or "manual"),
         source_ref=str(requirement.source_ref or "").strip() or None,
+        linked_requirement_id=int(getattr(requirement, "linked_requirement_id", 0) or 0) or None,
+        followup_requirement_id=int(getattr(requirement, "followup_requirement_id", 0) or 0) or None,
+        resolution_path=str(getattr(requirement, "resolution_path", "") or "").strip() or None,
         project_id=int(project.id) if project is not None else (int(requirement.project_id) if getattr(requirement, "project_id", None) is not None else None),
         project_key=str(getattr(project, "project_key", "") or "").strip() or (str(getattr(requirement, "project_key", "") or "").strip() or None),
         project_display_name=str(getattr(project, "display_name", "") or "").strip() or (str(getattr(requirement, "project_display_name", "") or "").strip() or None),
@@ -1342,6 +1377,8 @@ def _build_requirement_detail(
             RequirementAttachmentOut(**serialize_requirement_attachment(item))
             for item in _requirement_attachment_rows(db, requirement_id)
         ],
+        followup_requirement_id=int(getattr(requirement, "followup_requirement_id", 0) or 0) or None,
+        resolution_path=str(getattr(requirement, "resolution_path", "") or "").strip() or None,
     )
 
 
@@ -1761,7 +1798,19 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
-    requirement.phase = "blocked"
+    requirement = reconcile_requirement_state(db, requirement)
+    latest_execution = _latest_execution_run(db, int(requirement.id))
+    if latest_execution is not None:
+        raise ValueError("Requirements with execution history cannot be deleted.")
+    if str(getattr(requirement, "phase", "") or requirement.status or "draft") not in {
+        "draft",
+        "planning",
+        "awaiting_execution_approval",
+        "needs_revision",
+        "blocked",
+    }:
+        raise ValueError("Only pre-execution requirements can be deleted.")
+    requirement.phase = "deleted"
     requirement.status = "deleted"
     requirement.updated_at = utcnow()
     _log_workflow_event("requirement_deleted", requirement=requirement)
@@ -2289,6 +2338,10 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         return build_execution_detail(db, execution_run_id)
     if str(run.status or "") not in {"failed", "blocked"}:
         raise ValueError("Only failed or blocked execution runs can be retried.")
+    if _retry_budget_exhausted(db, int(run.requirement_id)):
+        raise ValueError(
+            f"Execution retry limit reached ({_MAX_EXECUTION_RETRIES}). Please revise the requirement or route it to a follow-up flow."
+        )
     active_run = _active_execution_run(db, int(run.requirement_id))
     if active_run is not None and int(active_run.id) != int(run.id):
         raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
@@ -2439,6 +2492,153 @@ def _verification_payload_for_run(
     }
 
 
+def _retry_budget_exhausted(
+    db: Session,
+    requirement_id: int,
+    *,
+    retry_limit: int = _MAX_EXECUTION_RETRIES,
+) -> bool:
+    run_count = (
+        db.query(ExecutionRunRow)
+        .filter(ExecutionRunRow.requirement_id == requirement_id)
+        .count()
+    )
+    return max(0, int(run_count) - 1) >= retry_limit
+
+
+def _normalize_resolution_recommendation(result: dict[str, Any], verdict: str) -> str:
+    if verdict == "passed":
+        return "retry_execution"
+    recommendation = str(result.get("resolution_recommendation") or "").strip()
+    if recommendation in {"retry_execution", "create_followup_requirement", "revise_requirement", "route_to_human"}:
+        return recommendation
+    suggested = str(result.get("suggested_next_action") or "").strip()
+    if suggested == "retry_execution":
+        return "retry_execution"
+    if suggested == "revise_requirement":
+        return "revise_requirement"
+    if verdict == "inconclusive":
+        return "route_to_human"
+    return "retry_execution"
+
+
+def _resolve_validation_resolution(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    result: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    recommendation = _normalize_resolution_recommendation(result, str(result.get("status") or "inconclusive"))
+    confidence = _float_or_none(result.get("resolution_confidence"))
+    payload = dict(result.get("followup_requirement_payload") or {})
+    target_project_path = str(getattr(requirement, "target_project_path", "") or "").strip() or None
+    same_project = not payload.get("project_key") or str(payload.get("project_key") or "").strip() == str(getattr(requirement, "project_key", "") or "").strip()
+    same_repo = not payload.get("target_project_path") or str(payload.get("target_project_path") or "").strip() == (target_project_path or "")
+    scope_assessment = str(payload.get("scope_assessment") or "same_scope").strip() or "same_scope"
+    same_scope = scope_assessment != "out_of_scope"
+    high_risk_requirement = str(getattr(requirement, "priority", "normal") or "normal") == "high"
+    low_confidence_recommendation = confidence is not None and confidence < 0.72
+    retry_budget_hit = _retry_budget_exhausted(db, int(requirement.id))
+    followup_fanout_blocked = bool(getattr(requirement, "followup_requirement_id", None))
+    ownership_change_required = bool(payload.get("ownership_change_required"))
+    rule_snapshot = {
+        "same_project": same_project,
+        "same_repo": same_repo,
+        "same_scope": same_scope,
+        "high_risk_requirement": high_risk_requirement,
+        "low_confidence_recommendation": low_confidence_recommendation,
+        "retry_budget_exhausted": retry_budget_hit,
+        "followup_fanout_blocked": followup_fanout_blocked,
+        "ownership_change_required": ownership_change_required,
+    }
+    verdict = str(result.get("status") or "inconclusive")
+    if verdict == "passed":
+        return "release_ready", rule_snapshot
+    if recommendation == "revise_requirement":
+        return "revise_requirement", rule_snapshot
+    if (
+        recommendation == "create_followup_requirement"
+        and (not same_scope or not same_project or not same_repo or ownership_change_required or retry_budget_hit)
+        and not high_risk_requirement
+        and not low_confidence_recommendation
+        and not followup_fanout_blocked
+    ):
+        return "create_followup_requirement", rule_snapshot
+    if (
+        high_risk_requirement
+        or low_confidence_recommendation
+        or followup_fanout_blocked
+        or (recommendation == "create_followup_requirement" and same_scope and same_project and same_repo and not retry_budget_hit)
+        or verdict == "inconclusive"
+    ):
+        return "route_to_human", rule_snapshot
+    return "retry_execution", rule_snapshot
+
+
+def _create_followup_requirement_from_validation(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    validation: ValidationRecordRow,
+    result: dict[str, Any],
+) -> RequirementRow:
+    project = _project_for_requirement(db, requirement)
+    payload = dict(result.get("followup_requirement_payload") or {})
+    title = str(payload.get("title") or "").strip() or f"修复 verification 暴露的问题：{str(requirement.title or '').strip()}"
+    priority = str(payload.get("priority") or getattr(requirement, "priority", "normal") or "normal").strip() or "normal"
+    target_project_path = str(payload.get("target_project_path") or getattr(requirement, "target_project_path", "") or "").strip() or None
+    description_markdown = str(payload.get("description_markdown") or "").strip() or "\n".join(
+        [
+            f"源需求 #{int(requirement.id)}: {str(requirement.title or '').strip()}",
+            f"源执行 #{int(run.id)} 验证建议派生一个后续修复需求。",
+            "",
+            f"验证结论：{str(result.get('summary') or '').strip()}",
+            "",
+            f"原因：{str(result.get('resolution_reason') or result.get('reasoning') or '').strip()}",
+        ]
+    ).strip()
+    followup = RequirementRow(
+        title=title,
+        description_markdown=description_markdown,
+        status="draft",
+        phase="planning",
+        priority=priority if priority in {"low", "normal", "high"} else "normal",
+        source="verification_followup",
+        source_ref=f"validation:{int(validation.id)}",
+        intake_metadata_json=_json_dump(
+            {
+                "resolution_path": "create_followup_requirement",
+                "origin_requirement_id": int(requirement.id),
+                "origin_execution_run_id": int(run.id),
+                "origin_validation_id": int(validation.id),
+            }
+        ),
+        project_id=int(project.id) if project is not None else (int(requirement.project_id) if getattr(requirement, "project_id", None) is not None else None),
+        project_key=str(getattr(project, "project_key", "") or "").strip() or str(getattr(requirement, "project_key", "") or "").strip(),
+        project_display_name=str(getattr(project, "display_name", "") or "").strip() or str(getattr(requirement, "project_display_name", "") or "").strip(),
+        target_project_path=target_project_path or str(getattr(requirement, "target_project_path", "") or "").strip() or None,
+        acceptance_contract_json=_json_dump({}),
+        execution_plan_json=_json_dump({}),
+        assets_status="pending",
+        assets_error_message=None,
+        approval_status="pending_approval",
+        approval_contract_json=_json_dump({}),
+        linked_requirement_id=int(requirement.id),
+        origin_execution_run_id=int(run.id),
+        origin_validation_id=int(validation.id),
+        resolution_path="verification_followup",
+    )
+    db.add(followup)
+    db.flush()
+    approval_required = _approval_required(db, followup)
+    followup.approval_status = "pending_approval" if approval_required else "waived"
+    db.flush()
+    if _testing_mode():
+        _ensure_generated_requirement_assets(db, followup)
+    return followup
+
+
 def _persist_verification_result(
     db: Session,
     *,
@@ -2460,8 +2660,19 @@ def _persist_verification_result(
         evidence_json=_json_dump([str(item).strip() for item in result.get("evidence_used") or [] if str(item).strip()]),
         reasoning_markdown=str(result.get("reasoning") or "").strip(),
         suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement").strip() or "revise_requirement",
+        resolution_recommendation=(
+            None
+            if str(result.get("status") or "") == "passed"
+            else str(result.get("resolution_recommendation") or "").strip() or None
+        ),
+        resolution_confidence=_float_or_none(result.get("resolution_confidence")),
+        resolution_reason=str(result.get("resolution_reason") or "").strip() or None,
+        resolution_path=str(result.get("resolution_path") or "").strip() or None,
+        followup_requirement_id=int(result.get("followup_requirement_id")) if result.get("followup_requirement_id") is not None else None,
+        followup_requirement_payload_json=_json_dump(result.get("followup_requirement_payload") or {}),
     )
     db.add(record)
+    db.flush()
     return record
 
 
@@ -2518,6 +2729,14 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         ),
         skip_provider=_testing_mode(),
     )
+    resolution_path, resolution_rules = _resolve_validation_resolution(
+        db,
+        requirement=requirement,
+        result=result,
+    )
+    result["resolution_path"] = resolution_path
+    result["resolution_reason"] = str(result.get("resolution_reason") or result.get("reasoning") or result.get("summary") or "").strip()
+    result["resolution_rules"] = resolution_rules
     record = _persist_verification_result(
         db,
         requirement=requirement,
@@ -2526,10 +2745,35 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         result=result,
     )
     verdict = str(result.get("status") or "inconclusive")
+    followup_requirement: RequirementRow | None = None
+    if resolution_path == "create_followup_requirement":
+        followup_requirement = _create_followup_requirement_from_validation(
+            db,
+            requirement=requirement,
+            run=run,
+            validation=record,
+            result=result,
+        )
+        result["followup_requirement_id"] = int(followup_requirement.id)
+        result["followup_requirement_payload"] = {
+            **dict(result.get("followup_requirement_payload") or {}),
+            "created_requirement_id": int(followup_requirement.id),
+        }
+        record.followup_requirement_id = int(followup_requirement.id)
+        record.followup_requirement_payload_json = _json_dump(result.get("followup_requirement_payload") or {})
+        requirement.followup_requirement_id = int(followup_requirement.id)
+    requirement.resolution_path = resolution_path
     run.phase = "delivery_ready" if verdict == "passed" else "blocked"
     run.status = _execution_status_from_phase(run.phase)
     run.completed_at = run.completed_at or utcnow()
-    requirement.phase = "delivery_ready" if verdict == "passed" else "needs_revision"
+    if verdict == "passed":
+        requirement.phase = "delivery_ready"
+    elif resolution_path == "route_to_human":
+        requirement.phase = "blocked"
+    elif resolution_path == "create_followup_requirement":
+        requirement.phase = "blocked"
+    else:
+        requirement.phase = "needs_revision"
     requirement.status = _requirement_status_from_phase(requirement.phase)
     _log_workflow_event(
         "execution_run_validated",
@@ -2540,8 +2784,12 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         checks_failed=len([check for check in checks if check.status != "passed"]),
         verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
         suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement"),
+        resolution_path=resolution_path,
+        followup_requirement_id=int(followup_requirement.id) if followup_requirement is not None else None,
     )
     db.commit()
+    if followup_requirement is not None and not _testing_mode():
+        _enqueue_requirement_asset_generation(int(followup_requirement.id))
     if verdict == "passed":
         _auto_open_pr_after_verification(db, requirement, actor="verification_agent")
     return build_execution_detail(db, execution_run_id)
@@ -2652,6 +2900,7 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
     evidence_payload = _json_load(getattr(record, "evidence_json", None), [])
     evidence_used = [str(item).strip() for item in evidence_payload if str(item).strip()] if isinstance(evidence_payload, list) else []
     verification_plan_payload = _json_load(getattr(record, "verification_plan_json", None), {})
+    followup_payload = _json_load(getattr(record, "followup_requirement_payload_json", None), {})
     return ValidationRecordSlimOut(
         id=int(record.id),
         requirement_id=int(record.requirement_id),
@@ -2666,6 +2915,12 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
         evidence_used=evidence_used,
         reasoning_markdown=str(getattr(record, "reasoning_markdown", "") or ""),
         suggested_next_action=str(getattr(record, "suggested_next_action", "") or "").strip() or None,
+        resolution_recommendation=str(getattr(record, "resolution_recommendation", "") or "").strip() or None,
+        resolution_confidence=_float_or_none(getattr(record, "resolution_confidence", None)),
+        resolution_reason=str(getattr(record, "resolution_reason", "") or "").strip() or None,
+        resolution_path=str(getattr(record, "resolution_path", "") or "").strip() or None,
+        followup_requirement_id=int(getattr(record, "followup_requirement_id", 0) or 0) or None,
+        followup_requirement_payload=followup_payload if isinstance(followup_payload, dict) else {},
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

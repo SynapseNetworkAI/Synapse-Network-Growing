@@ -124,6 +124,9 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
     actions.add('approve')
     actions.add('reject')
   }
+  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'needs_revision', 'blocked'].includes(requirement.phase || requirement.status)) {
+    actions.add('delete')
+  }
   return [...actions]
 }
 
@@ -617,14 +620,16 @@ export default function RequirementPool() {
                       >
                         编辑
                       </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-                        disabled={deletingId === item.id}
-                        onClick={() => setConfirmingRequirement(item)}
-                      >
-                        {deletingId === item.id ? '删除中…' : '删除'}
-                      </button>
+                      {allowedActions.includes('delete') ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
+                          disabled={deletingId === item.id}
+                          onClick={() => setConfirmingRequirement(item)}
+                        >
+                          {deletingId === item.id ? '删除中…' : '删除'}
+                        </button>
+                      ) : null}
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
                         查看
                       </button>
@@ -739,8 +744,9 @@ export default function RequirementPool() {
               toast.success('需求已删除')
               setConfirmingRequirement(null)
               await load()
-            } catch {
-              toast.error('删除失败，请重试')
+            } catch (error) {
+              const message = error instanceof Error ? error.message : '删除失败，请重试'
+              toast.error(message)
             } finally {
               setDeletingId(null)
             }
