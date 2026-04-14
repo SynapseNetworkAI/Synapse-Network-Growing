@@ -218,6 +218,7 @@ export default function ExecutionDetailPage() {
 
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
           <div>delivery: {execution.delivery_intent}</div>
+          <div>delivery status: {detail.delivery_summary?.status || '-'}</div>
           <div>approval: {execution.approval_required ? `${detail.requirement.approval_status} · submit gated` : 'waived'}</div>
           <div>started: {formatTime(execution.started_at)}</div>
           <div>completed: {formatTime(execution.completed_at)}</div>

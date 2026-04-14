@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from typing import Any
 
 from server.services.agents.llm_adapter import get_provider
@@ -28,10 +29,24 @@ Rules:
 - Use needs_revision when the implementation is incomplete or misses the requested outcome.
 - Use failed when explicit check evidence shows failure.
 - Use inconclusive when evidence is too thin to justify a pass or a failure.
+- Treat raw execution output, implementation summaries, command transcripts, and changed-file summaries as valid delivery evidence when they are specific and internally consistent.
+- Do not require a separate artifact when the execution output already states what changed and which targeted checks passed, unless there is contradictory evidence.
 - Do not ask for human manual review.
 - PR merge is the final human check after a passed verdict.
 - Keep output concise and machine-readable.
 """
+
+
+def _json_ready(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
 
 def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
@@ -68,9 +83,10 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -> dict[str, Any]:
+    fallback = _fallback_verification_result(payload)
     if skip_provider:
-        return _fallback_verification_result(payload)
-    prompt = json.dumps(payload, ensure_ascii=False, indent=2)
+        return fallback
+    prompt = json.dumps(_json_ready(payload), ensure_ascii=False, indent=2)
     try:
         provider_name = planner_provider_name()
         provider = get_provider(provider_name)
@@ -100,9 +116,16 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
         if normalized["suggested_next_action"] not in {"release_ready", "retry_execution", "revise_requirement"}:
             normalized["suggested_next_action"] = "revise_requirement"
         if not normalized["summary"]:
-            normalized["summary"] = _fallback_verification_result(payload)["summary"]
+            normalized["summary"] = fallback["summary"]
         if not normalized["reasoning"]:
             normalized["reasoning"] = normalized["summary"]
+        if normalized["status"] == "inconclusive" and fallback["status"] in {"passed", "failed"}:
+            normalized["status"] = str(fallback["status"])
+            normalized["summary"] = str(fallback["summary"])
+            normalized["reasoning"] = str(fallback["reasoning"])
+            normalized["suggested_next_action"] = str(fallback["suggested_next_action"])
+            normalized["checks_run"] = list(fallback["checks_run"])
+            normalized["evidence_used"] = list(fallback["evidence_used"])
         return normalized
     except Exception:
-        return _fallback_verification_result(payload)
+        return fallback

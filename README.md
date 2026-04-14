@@ -123,6 +123,8 @@ Requirement 与 Execution 当前还有三条正式约束：
 1. requirement 创建会先保存记录，然后在后台由 agent 生成真实 acceptance contract 与 execution plan，而不是阻塞页面等待。
 2. requirement submit 通过后会先确保 acceptance / plan 可用，再自动创建并启动 execution。
 3. execution 完成后会自动派发 verification agent；release 只读取 verification verdict，不再走额外的 verification manual review。
+4. requirement approval 放行后会先在目标项目上 `fetch/pull main` 并准备 requirement delivery branch，然后 execution agent 才在该 branch 上工作。
+5. verification passed 后系统会自动 commit / push / open PR；PR merge 视为最终人工把关。
 
 ## Browser Automation
 

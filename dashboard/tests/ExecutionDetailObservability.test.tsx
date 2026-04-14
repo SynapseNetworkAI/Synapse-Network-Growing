@@ -182,10 +182,10 @@ const detail = {
   ],
   incidents: [],
   plan_summary: {
-    planning_mode: 'full_plan',
+    planning_mode: 'agent_plan_brief',
     goal_summary: 'Improve execution observability',
-    summary_markdown: '## Goal\n\nImprove execution observability\n\n## Planned Steps\n\n1. Add execution detail metrics\n   - Done when: tokens and runtime metrics are visible.',
-    steps: [{ step_key: 'metrics', title: 'Add execution detail metrics', done_when: 'tokens and runtime metrics are visible.' }],
+    summary_markdown: '## Summary\n\nImprove execution observability.\n\n## Planned Changes\n\n- Add execution detail metrics and observability fields.\n- Capture files, validation, and raw output in one view.\n\n## Verification Strategy\n\n- Run `pytest tests/test_agent_first_api.py`.\n- Confirm runtime metrics render in the execution detail page.',
+    steps: [{ step_key: 'execute', title: 'Execute requirement' }],
     planned_checks: ['Run `pytest tests/test_agent_first_api.py`'],
     risks: ['Avoid regressing execution detail loading.'],
   },

@@ -13,6 +13,8 @@ Usage:
 """
 import abc
 import logging
+import re
+from pathlib import Path
 
 import httpx
 
@@ -324,6 +326,48 @@ class CodexCLIProvider(LLMProvider):
 
     name = "codex"
 
+    @staticmethod
+    def _candidate_project_paths(text: str) -> list[Path]:
+        paths: list[Path] = []
+        seen: set[str] = set()
+        lines = [str(line or "").strip() for line in str(text or "").splitlines() if str(line or "").strip()]
+        preferred: list[str] = []
+        for line in lines:
+            lowered = line.lower()
+            if "target project path:" in lowered:
+                preferred.append(line.split(":", 1)[1].strip())
+            elif line.startswith("- /") or line.startswith("`/") or line.startswith("/"):
+                preferred.append(line.lstrip("- ").strip("`"))
+        matches = preferred or re.findall(r"/[A-Za-z0-9._/\-]+", str(text or ""))
+        for raw in matches:
+            value = str(raw).rstrip("`.,;:)]}>'\"")
+            if not value.startswith("/"):
+                continue
+            if not value.startswith("/Users/"):
+                # keep generic absolute paths for tests and temp dirs
+                pass
+            path = Path(value)
+            if not path.exists() or not path.is_dir():
+                continue
+            resolved = str(path.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(path.resolve())
+        return paths
+
+    @classmethod
+    def _resolve_codex_context(cls, user: str) -> tuple[Path, list[Path]]:
+        candidates = cls._candidate_project_paths(user)
+        if not candidates:
+            return config.PROJECT_ROOT, [config.PROJECT_ROOT]
+        cwd = candidates[0]
+        add_dirs = [cwd]
+        growing_root = config.PROJECT_ROOT.resolve()
+        if str(growing_root) != str(cwd):
+            add_dirs.append(growing_root)
+        return cwd, add_dirs
+
     def call(self, system: str, user: str, model: str, temperature: float, timeout: int) -> tuple[str, int]:
         del temperature
         prompt = "\n\n".join(
@@ -337,13 +381,14 @@ class CodexCLIProvider(LLMProvider):
             ]
         )
         output_path = config.PROJECT_ROOT / "runtime" / "codex-cli-provider" / "last-message.txt"
+        cwd, add_dirs = self._resolve_codex_context(user)
         result = run_codex_exec(
             prompt=prompt,
-            cwd=config.PROJECT_ROOT,
+            cwd=cwd,
             output_path=output_path,
             model=model,
             timeout=timeout,
-            add_dirs=[config.PROJECT_ROOT],
+            add_dirs=add_dirs,
         )
         if result.exit_code != 0:
             detail = (result.stderr or result.stdout or result.text or "Codex CLI execution failed").strip()

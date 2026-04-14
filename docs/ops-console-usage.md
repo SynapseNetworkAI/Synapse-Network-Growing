@@ -88,8 +88,9 @@ intake -> execute -> validate -> deliver
 2. 从工具条或列表项打开 `编辑需求` Drawer
 3. 提交 requirement
 4. 低风险 requirement 会在后台补齐 acceptance contract 与 execution plan，再自动进入 execution；高风险 requirement 在需求面等待人工批准
-5. 跳转到 release 面
-6. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
+5. execution 真正启动前，系统会先在目标项目上准备 requirement delivery branch；如果目标仓库 worktree 不干净，会阻断自动执行
+6. 跳转到 release 面
+7. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
 
 #### 后端接口
 
@@ -141,7 +142,7 @@ intake -> execute -> validate -> deliver
 
 1. 先确认 intent、acceptance contract 与 execution plan 写对
 2. 再跳去 execution 看 agent 执行
-3. verification agent 给出 passed verdict 后再跳去 release 做交付与发布
+3. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；release 面主要保留 branch / PR / deploy / rollback 的可视化与重试入口
 
 ## 3. 执行面
 
@@ -274,11 +275,12 @@ Release detail 负责交付与发布操作。
 
 #### 典型动作
 
-1. `prepare`
-2. `open-pr`
-3. `deploy-staging`
-4. `deploy-production`
-5. `rollback`
+1. 查看自动 prepare branch / auto PR 的结果
+2. 必要时手动重试 `prepare`
+3. 必要时手动重试 `open-pr`
+4. `deploy-staging`
+5. `deploy-production`
+6. `rollback`
 
 #### 后端接口
 

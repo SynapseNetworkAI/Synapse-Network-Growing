@@ -63,7 +63,7 @@ from server.services.delivery.deployment_governance import (
     trigger_requirement_deployment,
 )
 from server.services.delivery.pull_request import sync_requirement_review_pr
-from server.services.delivery.vcs import execute_requirement_delivery_vcs
+from server.services.delivery.vcs import execute_requirement_delivery_vcs, prepare_requirement_delivery_branch
 from server.services.projects.policy import (
     project_policy_summary_markdown,
     project_policy_to_dict,
@@ -77,7 +77,6 @@ from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
     normalize_requirement_approval_status,
 )
-from server.services.workflows.planner import build_planner_output
 from server.services.workflows.planner_provider import call_full_plan_provider, planner_model_name, planner_provider_name
 from server.services.workflows.verification_agent import verify_with_agent
 from server.services.workflows.orchestrator.file_changes import (
@@ -239,6 +238,18 @@ Rules:
 - Do not add markdown fences or commentary.
 """
 
+_PLAN_BRIEF_SYSTEM_PROMPT = """You are the plan agent in an agent-first software delivery harness.
+Read the requirement, acceptance contract, target paths, and delivery context.
+Return a concise but complete Markdown execution plan that a human can read directly.
+
+Rules:
+- Write a real delivery plan, not JSON and not a workflow skeleton.
+- Do not include generic headings like "Research context", "Plan implementation", or "Close requirement" unless the requirement truly needs them.
+- Focus on the scoped change, likely files or areas, verification approach, risks, and delivery outcome.
+- Prefer direct implementation wording over meta-process wording.
+- Do not wrap the response in code fences.
+"""
+
 
 def _generate_acceptance_contract_with_agent(
     *,
@@ -274,6 +285,115 @@ def _generate_acceptance_contract_with_agent(
     contract = normalize_acceptance_contract(payload)
     contract["markdown"] = _acceptance_contract_markdown(contract)
     return contract
+
+
+def _strip_markdown_fence(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.sub(r"^```(?:markdown|md)?\s*", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s*```$", "", value)
+    return value.strip()
+
+
+def _verification_strategy_lines(contract: dict[str, Any]) -> list[str]:
+    checks = [
+        item for item in contract.get("verification_checks") or []
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    if not checks:
+        return ["Provide execution evidence that proves the requested outcome is complete."]
+    lines: list[str] = []
+    for item in checks:
+        label = str(item.get("label") or "").strip()
+        command = str(item.get("command") or "").strip()
+        kind = str(item.get("kind") or "evidence").strip() or "evidence"
+        if command:
+            lines.append(f"{label} (`{command}`)")
+        elif kind == "manual":
+            lines.append(f"{label} (reason about the result from evidence and raw output)")
+        else:
+            lines.append(label)
+    return lines
+
+
+def _fallback_plan_brief_markdown(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    acceptance_contract: dict[str, Any],
+) -> str:
+    targets = _target_projects_for_requirement(db, requirement)
+    target_lines = "\n".join([f"- `{item}`" for item in targets]) if targets else "- Scope to the selected project."
+    verification_lines = "\n".join([f"- {item}" for item in _verification_strategy_lines(acceptance_contract)])
+    risks = "\n".join(
+        [
+            "- Keep edits scoped to the selected project and avoid unrelated regressions.",
+            "- Capture commands run, changed files, and raw output so the verification agent can make a decision.",
+        ]
+    )
+    delivery_expectation = str(acceptance_contract.get("delivery_expectation") or "").strip() or "Prepare a PR-ready branch when implementation and verification pass."
+    return (
+        f"## Summary\n\n"
+        f"{str(requirement.title or '').strip()}\n\n"
+        f"{str(requirement.description_markdown or '').strip()}\n\n"
+        f"## Planned Changes\n\n"
+        f"{target_lines}\n\n"
+        f"## Implementation Approach\n\n"
+        f"- Implement the requested change directly in the scoped project.\n"
+        f"- Update code, docs, and tests together only where the requirement explicitly calls for them.\n"
+        f"- Keep the final output explicit about files changed, commands run, and remaining risk.\n\n"
+        f"## Verification Strategy\n\n"
+        f"{verification_lines}\n\n"
+        f"## Risks\n\n"
+        f"{risks}\n\n"
+        f"## Delivery\n\n"
+        f"- {delivery_expectation}"
+    ).strip()
+
+
+def _generate_plan_brief_markdown_with_agent(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    acceptance_contract: dict[str, Any],
+) -> str:
+    if _testing_mode():
+        raise RuntimeError("skip_external_plan_generation_during_tests")
+    provider_name = planner_provider_name()
+    provider = get_provider(provider_name)
+    model_name = planner_model_name(provider_name)
+    targets = _target_projects_for_requirement(db, requirement)
+    acceptance_markdown = str(acceptance_contract.get("markdown") or "").strip() or _acceptance_contract_markdown(acceptance_contract)
+    prompt = "\n".join(
+        [
+            f"# Requirement #{int(requirement.id)}",
+            "",
+            "## Title",
+            str(requirement.title or "").strip(),
+            "",
+            "## Description",
+            str(requirement.description_markdown or "").strip(),
+            "",
+            "## Target Projects",
+            *([f"- {item}" for item in targets] or ["- Scope to the selected project."]),
+            "",
+            "## Acceptance Contract",
+            acceptance_markdown or "- Deliver the requested outcome and provide enough evidence for verification.",
+            "",
+            "Write the execution plan as direct Markdown for the operator and execution agent.",
+            "Cover the implementation path, affected areas, verification approach, risks, and delivery outcome.",
+        ]
+    ).strip()
+    text, _tokens = call_full_plan_provider(
+        provider_name=provider_name,
+        provider=provider,
+        prompt=prompt,
+        model_name=model_name,
+        system_prompt=_PLAN_BRIEF_SYSTEM_PROMPT,
+    )
+    plan_markdown = _strip_markdown_fence(text)
+    if not plan_markdown:
+        raise ValueError("plan agent returned empty markdown")
+    return plan_markdown
 
 
 def _required_checks_for_target(db: Session, target_project_path: str | None) -> list[str]:
@@ -748,6 +868,7 @@ def _build_requirement_detail(
         project=ProjectOut(**project_to_dict(project)) if project is not None else None,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,
+        latest_release=_release_to_out(latest_release),
         approval=approval_override or _approval_summary(
             db,
             requirement,
@@ -1171,38 +1292,15 @@ def regenerate_requirement_plan(db: Session, requirement_id: int) -> AgentFirstR
 def _shape_decision(db: Session, requirement: RequirementRow) -> dict[str, Any]:
     target_projects = _target_projects_for_requirement(db, requirement)
     description = str(requirement.description_markdown or "")
-    title = str(requirement.title or "")
-    text = f"{title}\n{description}".lower()
-    deterministic = "validation clone" in text or "deterministic" in text or "branch delivery" in text
-    if deterministic:
-        return {
-            "execution_mode": "deterministic",
-            "complexity": "simple",
-            "validation_profile": "release_candidate",
-            "delivery_intent": "pr_required",
-            "execution_steps": [{"node_key": "execute", "title": "Deterministic execution"}],
-            "planner_summary": "Deterministic delivery validation requirement. Use a single execute node.",
-        }
-    if len(target_projects) > 1 or len(description) > 1600:
-        steps = [
-            {"node_key": f"execute_{index + 1}", "title": f"Execute on {Path(project).name}"}
-            for index, project in enumerate(target_projects[:4] or [str(requirement.target_project_path or PROJECT_ROOT)])
-        ]
-        return {
-            "execution_mode": "graph",
-            "complexity": "complex" if len(target_projects) > 2 else "standard",
-            "validation_profile": "strict" if len(target_projects) > 1 else "standard",
-            "delivery_intent": "pr_required",
-            "execution_steps": steps,
-            "planner_summary": "Multi-project or long-form requirement. Expand execute into per-project nodes.",
-        }
+    complexity = "complex" if len(target_projects) > 1 or len(description) > 1600 else "simple"
+    validation_profile = "strict" if len(target_projects) > 1 else "minimal"
     return {
         "execution_mode": "direct",
-        "complexity": "simple",
-        "validation_profile": "minimal",
+        "complexity": complexity,
+        "validation_profile": validation_profile,
         "delivery_intent": "pr_required",
         "execution_steps": [{"node_key": "execute", "title": "Execute requirement"}],
-        "planner_summary": "Simple requirement. Keep a single execute node and one final validate/deliver gate.",
+        "planner_summary": "Agent-first execution uses a single primary execute node; planning and verification are handled by dedicated agents.",
     }
 
 
@@ -1231,108 +1329,20 @@ def _plan_markdown(payload: dict[str, Any]) -> str:
 
 def _fallback_execution_plan_payload(db: Session, requirement: RequirementRow, shape: dict[str, Any]) -> dict[str, Any]:
     acceptance = _parse_acceptance_contract(requirement)
-    verification_checks = [
-        str(item.get("command") or item.get("label") or "").strip()
-        for item in acceptance.get("verification_checks") or []
-        if isinstance(item, dict) and str(item.get("command") or item.get("label") or "").strip()
-    ]
     targets = _target_projects_for_requirement(db, requirement)
     payload = {
         "planning_mode": "agent_first_fallback",
         "goal_summary": str(requirement.title or "").strip(),
         "target_files_or_areas": targets or [str(getattr(requirement, "target_project_path", "") or "").strip()],
-        "steps": [
-            {
-                "step_key": str(step.get("node_key") or f"step_{index + 1}"),
-                "title": str(step.get("title") or f"Step {index + 1}"),
-                "step_type": "implementation",
-                "scope": "implementation",
-                "done_when": "The requested outcome is implemented and summarized with changed files and commands run.",
-            }
-            for index, step in enumerate(shape.get("execution_steps") or [])
-        ],
-        "planned_checks": verification_checks or ["Capture targeted execution evidence for validate."],
+        "steps": [{"step_key": "execute", "title": "Execute requirement", "step_type": "implementation", "scope": "implementation"}],
+        "planned_checks": _verification_strategy_lines(acceptance),
         "risks": [
             "Keep edits scoped to the selected project and avoid unrelated regressions.",
             "Record sufficient execution evidence so validate and release can operate without guesswork.",
         ],
         "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
     }
-    payload["summary_markdown"] = _plan_markdown(payload)
-    return payload
-
-
-def _default_done_when_for_plan_step(step: dict[str, Any], acceptance: dict[str, Any]) -> str:
-    title = str(step.get("title") or step.get("step_key") or "").strip().lower()
-    step_type = str(step.get("step_type") or "implementation").strip().lower()
-    verification_labels = [
-        str(item.get("label") or item.get("command") or "").strip()
-        for item in acceptance.get("verification_checks") or []
-        if isinstance(item, dict) and str(item.get("label") or item.get("command") or "").strip()
-    ]
-    first_check = verification_labels[0] if verification_labels else "targeted validation evidence is ready"
-    if step_type == "research" or "research" in title:
-        return "Relevant code paths, constraints, and the target repo context are captured before implementation starts."
-    if step_type == "plan" or "plan" in title:
-        return "Implementation scope, affected areas, and the checks to run are clearly listed for execution."
-    if step_type == "validate" or "validat" in title:
-        return f"{first_check} succeeds or equivalent evidence is captured for validate."
-    if step_type == "closeout" or "close" in title:
-        return "Delivery evidence is summarized and the requirement is ready for PR/release handoff."
-    return "The scoped change is implemented and summarized with changed files, commands run, and remaining risk."
-
-
-def _execution_plan_from_planner_output(planner_output: dict[str, Any], *, shape: dict[str, Any]) -> dict[str, Any]:
-    workflow_steps = [
-        item for item in planner_output.get("workflow_steps") or []
-        if isinstance(item, dict) and str(item.get("step_type") or "").strip()
-    ]
-    planned_checks = []
-    validation_plan = dict(planner_output.get("validation_plan") or {})
-    for check in validation_plan.get("validation_checks") or []:
-        if not isinstance(check, dict):
-            continue
-        label = str(check.get("description") or check.get("check_key") or "").strip()
-        command = str(check.get("command") or "").strip()
-        planned_checks.append(f"{label} (`{command}`)" if label and command else label or command)
-    risks = [
-        line.lstrip("- ").strip()
-        for line in str(planner_output.get("known_risks_markdown") or "").splitlines()
-        if line.strip()
-    ]
-    acceptance = normalize_acceptance_contract(dict(planner_output.get("acceptance_contract") or {}))
-    normalized_steps = []
-    for step in workflow_steps:
-        normalized_step = {
-            "step_key": str(step.get("step_key") or ""),
-            "title": str(step.get("title") or ""),
-            "step_type": str(step.get("step_type") or "implementation"),
-            "scope": str(step.get("scope") or ""),
-            "done_when": str(step.get("done_when") or "").strip(),
-        }
-        if not normalized_step["done_when"]:
-            normalized_step["done_when"] = _default_done_when_for_plan_step(normalized_step, acceptance)
-        normalized_steps.append(normalized_step)
-    payload = {
-        "planning_mode": str(planner_output.get("planning_mode") or "full_plan"),
-        "goal_summary": str(planner_output.get("goal_summary") or "").strip(),
-        "target_files_or_areas": list(planner_output.get("delivery_expectation", {}).get("all_target_paths") or []),
-        "steps": normalized_steps,
-        "planned_checks": [item for item in planned_checks if item],
-        "risks": risks,
-        "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
-    }
-    payload["summary_markdown"] = _plan_markdown(
-        {
-            **payload,
-            "summary_markdown": str(planner_output.get("goal_summary_markdown") or "").strip() + "\n\n## Planned Steps\n\n" + "\n".join(
-                [
-                    f"{index}. {str(step.get('title') or step.get('step_key') or '').strip()}\n   - Done when: {str(step.get('done_when') or '').strip()}"
-                    for index, step in enumerate(payload["steps"], start=1)
-                ]
-            ) if payload["steps"] else str(planner_output.get("goal_summary_markdown") or "").strip()
-        }
-    )
+    payload["summary_markdown"] = _fallback_plan_brief_markdown(db, requirement, acceptance_contract=acceptance)
     return payload
 
 
@@ -1341,8 +1351,25 @@ def _generate_execution_plan(db: Session, requirement: RequirementRow) -> dict[s
     if _testing_mode():
         return _fallback_execution_plan_payload(db, requirement, shape)
     try:
-        planner_output, _assignments = build_planner_output(db, requirement)
-        return _execution_plan_from_planner_output(planner_output, shape=shape)
+        acceptance = _parse_acceptance_contract(requirement)
+        targets = _target_projects_for_requirement(db, requirement)
+        return {
+            "planning_mode": "agent_plan_brief",
+            "goal_summary": str(requirement.title or "").strip(),
+            "target_files_or_areas": targets or [str(getattr(requirement, "target_project_path", "") or "").strip()],
+            "steps": [{"step_key": "execute", "title": "Execute requirement", "step_type": "implementation", "scope": "implementation"}],
+            "planned_checks": _verification_strategy_lines(acceptance),
+            "risks": [
+                "Keep edits scoped to the selected project and avoid unrelated regressions.",
+                "Capture explicit execution evidence so the verification agent can make a release decision.",
+            ],
+            "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
+            "summary_markdown": _generate_plan_brief_markdown_with_agent(
+                db,
+                requirement,
+                acceptance_contract=acceptance,
+            ),
+        }
     except Exception:
         return _fallback_execution_plan_payload(db, requirement, shape)
 
@@ -1477,8 +1504,8 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
                 sequence_no=index,
             )
         )
-    requirement.status = "running"
-    requirement.started_at = utcnow()
+    requirement.status = "ready"
+    requirement.started_at = None
     requirement.completed_at = None
     _log_workflow_event(
         "execution_run_created",
@@ -1596,7 +1623,7 @@ def _sync_execution_state(db: Session, run: ExecutionRunRow) -> ExecutionRunRow:
     else:
         run.status = "queued"
         if requirement is not None:
-            requirement.status = "running"
+            requirement.status = "ready"
     run.updated_at = utcnow()
     db.flush()
     return run
@@ -1665,6 +1692,9 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         raise ValueError("Requirement not found.")
     if run.approval_required and str(requirement.approval_status or "") not in {"approved", "waived"}:
         raise ValueError("Requirement must be approved before execution starts.")
+    _prepare_delivery_branch_for_execution(db, requirement, actor="system")
+    db.refresh(run)
+    db.refresh(requirement)
     node = _next_runnable_node(db, run)
     if node is None:
         raise ValueError("No runnable execution node found.")
@@ -1890,6 +1920,7 @@ def _verification_payload_for_run(
         },
         "acceptance_contract": _parse_acceptance_contract(requirement),
         "execution_plan": plan_summary,
+        "verification_strategy": list(plan_summary.get("planned_checks") or []),
         "execution_observability": {
             "execution_id": int(run.id),
             "status": str(run.status or "validating"),
@@ -1966,12 +1997,11 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     ]
     project_path = str(getattr(requirement, "target_project_path", "") or "").strip()
     evidence_commands = _commands_from_execution_evidence(nodes, db)
-    contract_commands = [
-        str(item.get("command") or "").strip()
-        for item in contract_checks
-        if str(item.get("command") or "").strip()
-    ]
-    commands_to_run = contract_commands or evidence_commands
+    # Agent-first validation only auto-runs commands the execution agent actually
+    # reported as part of its evidence. Acceptance contract commands remain
+    # advisory context for the verification agent instead of becoming harness-
+    # mandated root-level test sweeps.
+    commands_to_run = evidence_commands
     for command in commands_to_run:
         checks.append(_run_check(project_path, command))
     for item in contract_checks:
@@ -2016,6 +2046,8 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement"),
     )
     db.commit()
+    if verdict == "passed":
+        _auto_open_pr_after_verification(db, requirement, actor="verification_agent")
     return build_execution_detail(db, execution_run_id)
 
 
@@ -2670,6 +2702,98 @@ def _release_branch_name(requirement: RequirementRow) -> str:
     return f"ops/req-{int(requirement.id)}-{_slugify(str(requirement.title or 'requirement'))}"
 
 
+def _delivery_contract_for_requirement(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    commit_required: bool,
+    push_required: bool,
+) -> tuple[ProjectRow, dict[str, Any]]:
+    project = _project_for_requirement(db, requirement)
+    if project is None:
+        raise ValueError("Requirement must resolve to a project before delivery preparation.")
+    policy = _primary_project_policy(db, requirement)
+    if policy is None:
+        raise ValueError("Requirement project is not governed by a project policy.")
+    policy_payload = project_policy_to_dict(policy)
+    return project, {
+        "branch_name": _release_branch_name(requirement),
+        "base_branch": "main",
+        "remote_name": "origin",
+        "commit_required": commit_required,
+        "push_required": push_required,
+        "capability_matrix": policy_payload.get("capability_matrix") or {},
+        "changed_target_project_paths": _target_projects_for_requirement(db, requirement),
+    }
+
+
+def _prepare_delivery_branch_for_execution(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow:
+    project, delivery_contract = _delivery_contract_for_requirement(
+        db,
+        requirement,
+        commit_required=False,
+        push_required=False,
+    )
+    release = _release_record(db, requirement)
+    vcs = prepare_requirement_delivery_branch(
+        delivery_contract=delivery_contract,
+        fallback_target_path=str(requirement.target_project_path or "").strip() or str(project.root_path or "").strip() or None,
+    )
+    release.execution_run_id = _latest_execution_run(db, int(requirement.id)).id if _latest_execution_run(db, int(requirement.id)) is not None else release.execution_run_id
+    release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
+    blockers = [str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]
+    if blockers:
+        release.status = "release_blocked"
+        release.branch_name = str(vcs.get("branch_name") or release.branch_name or delivery_contract["branch_name"]).strip() or delivery_contract["branch_name"]
+        release.base_branch = str(vcs.get("base_branch") or release.base_branch or delivery_contract["base_branch"]).strip() or delivery_contract["base_branch"]
+        release.notes = "; ".join(blockers)
+        _log_workflow_event(
+            "execution_branch_preparation_blocked",
+            requirement=requirement,
+            release=release,
+            actor=actor,
+            blockers=blockers,
+        )
+        db.commit()
+        raise ValueError("; ".join(blockers))
+
+    release.status = "branch_prepared"
+    release.branch_name = str(vcs.get("branch_name") or "").strip() or delivery_contract["branch_name"]
+    release.base_branch = str(vcs.get("base_branch") or "").strip() or delivery_contract["base_branch"]
+    release.prepared_at = release.prepared_at or utcnow()
+    release.notes = None
+    _log_workflow_event(
+        "execution_branch_prepared",
+        requirement=requirement,
+        release=release,
+        actor=actor,
+        branch_name=release.branch_name,
+    )
+    db.commit()
+    db.refresh(release)
+    return release
+
+
+def _auto_open_pr_after_verification(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow | None:
+    try:
+        detail = open_release_pr(
+            db,
+            int(requirement.id),
+            actor=actor,
+            note="Auto-opened after verification passed",
+        )
+    except ValueError as exc:
+        _log_workflow_event(
+            "release_auto_pr_failed",
+            requirement=requirement,
+            actor=actor,
+            blockers=[str(exc)],
+        )
+        db.commit()
+        return _latest_release(db, int(requirement.id))
+    return _latest_release(db, int(requirement.id)) if detail.release is not None else None
+
+
 def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str | None = None) -> ReleaseDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
@@ -2677,24 +2801,14 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     validation = _latest_validation(db, requirement_id)
     if validation is None or str(validation.status or "") != "passed":
         raise ValueError("Requirement must pass validate before release preparation.")
-    project = _project_for_requirement(db, requirement)
-    if project is None:
-        raise ValueError("Requirement must resolve to a project before release preparation.")
-    policy = _primary_project_policy(db, requirement)
-    if policy is None:
-        raise ValueError("Requirement project is not governed by a project policy.")
+    project, delivery_contract = _delivery_contract_for_requirement(
+        db,
+        requirement,
+        commit_required=False,
+        push_required=False,
+    )
     release = _release_record(db, requirement)
     release.execution_run_id = int(validation.execution_run_id)
-    policy_payload = project_policy_to_dict(policy)
-    delivery_contract = {
-        "branch_name": _release_branch_name(requirement),
-        "base_branch": "main",
-        "remote_name": "origin",
-        "commit_required": False,
-        "push_required": False,
-        "capability_matrix": policy_payload.get("capability_matrix") or {},
-        "changed_target_project_paths": _target_projects_for_requirement(db, requirement),
-    }
     vcs = execute_requirement_delivery_vcs(
         requirement_id=requirement_id,
         requirement_title=str(requirement.title or ""),
@@ -2752,24 +2866,16 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     validation = _latest_validation(db, requirement_id)
     if validation is None or str(validation.status or "") != "passed":
         raise ValueError("Requirement must pass validate before opening a PR.")
-    project = _project_for_requirement(db, requirement)
-    if project is None:
-        raise ValueError("Requirement must resolve to a project before opening a PR.")
-    policy = _primary_project_policy(db, requirement)
-    if policy is None:
-        raise ValueError("Requirement project is not governed by a project policy.")
+    project, delivery_contract = _delivery_contract_for_requirement(
+        db,
+        requirement,
+        commit_required=True,
+        push_required=True,
+    )
     release = _release_record(db, requirement)
     release.execution_run_id = int(validation.execution_run_id)
-    policy_payload = project_policy_to_dict(policy)
-    delivery_contract = {
-        "branch_name": release.branch_name or _release_branch_name(requirement),
-        "base_branch": release.base_branch or "main",
-        "remote_name": "origin",
-        "commit_required": True,
-        "push_required": True,
-        "capability_matrix": policy_payload.get("capability_matrix") or {},
-        "changed_target_project_paths": _target_projects_for_requirement(db, requirement),
-    }
+    delivery_contract["branch_name"] = release.branch_name or str(delivery_contract.get("branch_name") or "")
+    delivery_contract["base_branch"] = release.base_branch or str(delivery_contract.get("base_branch") or "main")
     vcs = execute_requirement_delivery_vcs(
         requirement_id=requirement_id,
         requirement_title=str(requirement.title or ""),

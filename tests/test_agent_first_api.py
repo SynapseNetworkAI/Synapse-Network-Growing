@@ -11,6 +11,17 @@ from server.services.workflows.agent_first import reset_execution_runtime_data
 from server.services.runtime.task_runner import _task_project_root
 
 
+def _branch_ready_payload(branch_name: str) -> dict[str, object]:
+    return {
+        "status": "ready",
+        "branch_name": branch_name,
+        "base_branch": "main",
+        "remote_name": "origin",
+        "blockers": [],
+        "repositories": [],
+    }
+
+
 def _create_project(
     synced_client,
     *,
@@ -80,7 +91,10 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert "Done Criteria" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-simplify-workspace-summary-copy"),
+    ):
         submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
 
     assert submit_resp.status_code == 200
@@ -93,7 +107,16 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert payload["approval"]["execution_run_id"] is not None
     assert payload["latest_execution_id"] == payload["approval"]["execution_run_id"]
     assert payload["execution_plan"]["summary_markdown"]
-    assert payload["execution_plan"]["steps"]
+    assert payload["execution_plan"]["steps"] == [
+        {
+            "step_key": "execute",
+            "title": "Execute requirement",
+            "step_type": "implementation",
+            "scope": "implementation",
+        }
+    ]
+    assert "Research context" not in payload["execution_plan"]["summary_markdown"]
+    assert "Close requirement" not in payload["execution_plan"]["summary_markdown"]
 
     execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
     assert execution.execution_mode == "direct"
@@ -122,7 +145,10 @@ def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None), caplog.at_level(logging.INFO):
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-emit-chain-logs-for-requirement-submit"),
+    ), caplog.at_level(logging.INFO):
         submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
 
     assert submit_resp.status_code == 200
@@ -201,6 +227,59 @@ def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, d
     assert pending.approval_type == "requirement_execution_approval"
 
 
+def test_agent_first_execution_uses_single_execute_node_even_for_multi_target_requirement(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Cross-project rollout plan",
+            "description_markdown": "Coordinate a rollout touching two target paths and keep the delivery evidence unified.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    requirement.target_project_path = "/Users/cliff/workspace/agent/Synapse-Network-Growing\n/Users/cliff/workspace/agent/Synapse-Network"
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    submit_payload = submit_resp.json()
+    assert submit_payload["approval"]["approval_decision"] == "pending_manual_approval"
+    assert submit_payload["approval"]["execution_run_id"] is None
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-cross-project-rollout-plan"),
+    ):
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement_id}/approve",
+            json={"action": "approve", "reviewer": "cto", "comment": "Approved for execution"},
+        )
+
+    assert approve_resp.status_code == 200
+    execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
+    nodes = (
+        db_session.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == execution.id)
+        .order_by(ExecutionNodeRow.sequence_no.asc())
+        .all()
+    )
+    assert execution.execution_mode == "direct"
+    assert [node.node_key for node in nodes] == ["execute"]
+
+
 def test_manual_approval_auto_starts_execution(synced_client, db_session):
     project = _create_project(
         synced_client,
@@ -238,7 +317,10 @@ def test_manual_approval_auto_starts_execution(synced_client, db_session):
     )
     db_session.commit()
 
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-manual-approval-release-prep"),
+    ):
         approve_resp = synced_client.post(
             f"/api/requirements/{requirement.id}/approve",
             json={"action": "approve", "reviewer": "cto", "comment": "Approved"},
@@ -328,6 +410,19 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
         project_key=str(project["project_key"]),
         project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        acceptance_contract_json=json.dumps(
+            {
+                "done_criteria": ["Targeted validation evidence is captured."],
+                "verification_checks": [
+                    {"label": "Repo-wide pytest", "command": "pytest", "kind": "command"},
+                    {"label": "Repo-wide npm", "command": "npm test", "kind": "command"},
+                    {"label": "Review execution evidence", "kind": "evidence"},
+                ],
+                "delivery_expectation": "Prepare a PR-ready branch when implementation succeeds.",
+                "markdown": "### Verification Checks\n- Repo-wide pytest (`pytest`)\n- Repo-wide npm (`npm test`)\n- Review execution evidence",
+            },
+            ensure_ascii=False,
+        ),
     )
     db_session.add(requirement)
     db_session.flush()
@@ -386,13 +481,187 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     assert resp.status_code == 200
     payload = resp.json()
     commands = [item["command"] for item in payload["validation"]["checks"]]
-    assert commands == ["PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q"]
+    assert commands == [
+        "PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q",
+        None,
+    ]
     assert payload["validation"]["status"] == "passed"
     assert payload["validation"]["verification_agent_id"] == "verification_agent"
     assert payload["validation"]["verification_agent_label"] == "Verification Agent"
     assert payload["validation"]["suggested_next_action"] == "release_ready"
     assert payload["verification_result"]["verification_agent_id"] == "verification_agent"
     assert payload["requirement"]["status"] == "delivery_ready"
+
+
+def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Blocked by dirty worktree",
+            "description_markdown": "This requirement should stop before execution when the target repo is dirty.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value={
+            "status": "blocked",
+            "branch_name": "ops/req-1-blocked-by-dirty-worktree",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "blockers": ["dirty worktree on `main` blocks automatic execution branch preparation"],
+            "repositories": [],
+        },
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    payload = submit_resp.json()
+    assert payload["approval"]["auto_started"] is False
+    assert payload["approval"]["pending_execution_start"] is True
+    assert payload["approval"]["execution_run_id"] is not None
+    assert payload["latest_release"]["status"] == "release_blocked"
+    execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
+    assert execution.status == "queued"
+
+
+def test_validation_pass_auto_opens_pr(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
+    requirement = RequirementRow(
+        title="Auto open PR after verification",
+        description_markdown="Verified change should immediately publish a review branch and PR.",
+        status="running",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        acceptance_contract_json=json.dumps(
+            {
+                "done_criteria": ["PR is ready after verification."],
+                "verification_checks": [],
+                "delivery_expectation": "Open a PR when verification passes.",
+                "markdown": "### Done Criteria\n- PR is ready after verification.",
+            }
+        ),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="implement",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Commands run:\n- `pytest tests/test_logging_utils.py -q`\n",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.add(
+        ReleaseRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(run.id),
+            project_id=int(project["id"]),
+            project_key=str(project["project_key"]),
+            project_display_name=str(project["display_name"]),
+            target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+            status="branch_prepared",
+            branch_name="ops/req-1-auto-open-pr-after-verification",
+            base_branch="main",
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.execute_requirement_delivery_vcs",
+        return_value={
+            "branch_name": "ops/req-1-auto-open-pr-after-verification",
+            "base_branch": "main",
+            "blockers": [],
+            "repositories": [
+                {
+                    "remote_url": "https://github.com/example/synapse-network.git",
+                    "commit_sha": "abc123",
+                    "remote_sha": "abc123",
+                }
+            ],
+        },
+    ), patch(
+        "server.services.workflows.agent_first.sync_requirement_review_pr",
+        return_value={
+            "compare_url": "https://github.com/example/synapse-network/compare/main...ops/req-1-auto-open-pr-after-verification",
+            "pr_url": "https://github.com/example/synapse-network/pull/11",
+            "pr_number": 11,
+        },
+    ), patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "status": "passed",
+            "summary": "Verification passed.",
+            "checks_run": ["pytest tests/test_logging_utils.py -q"],
+            "evidence_used": ["changed_files:1", "raw_output:commands"],
+            "reasoning": "Execution evidence matches the requirement and is ready for PR.",
+            "suggested_next_action": "release_ready",
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["verification_result"]["status"] == "passed"
+    assert payload["delivery_summary"]["status"] == "pr_opened"
+    assert payload["delivery_summary"]["pr_number"] == 11
+    assert payload["delivery_summary"]["pr_url"] == "https://github.com/example/synapse-network/pull/11"
+    db_session.refresh(requirement)
+    assert requirement.status == "done"
 
 
 def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, db_session):

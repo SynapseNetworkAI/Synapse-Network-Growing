@@ -22,8 +22,9 @@ from server.services.runtime.task_runtime import (
     resolve_runtime_selection,
 )
 from server.services.runtime.runtime_guards import is_openai_runtime_guard_error
+from server.logging_utils import get_logger, log_event
 
-logger = logging.getLogger("ops-dashboard.task_runner")
+logger = get_logger("ops-dashboard.task_runner")
 
 _DELIVERY_VALIDATION_MARKERS = (
     "commit",
@@ -369,7 +370,14 @@ def _deterministic_delivery_validation_result(db, task: TaskRow, output_dir: Pat
 def dispatch(task_id: int, agent_persona: dict, skill_name: str) -> threading.Thread:
     """Launch task execution in a background thread. Returns the thread."""
     if E2E_SYNC_DISPATCH:
-        logger.info("Dispatching task #%d inline for E2E mode (skill=%s)", task_id, skill_name)
+        log_event(
+            logger,
+            "task_dispatch_inline",
+            level=logging.INFO,
+            task_id=task_id,
+            skill_name=skill_name,
+            dispatch_mode="sync",
+        )
         _run_task_sync(task_id, agent_persona, skill_name)
         return threading.current_thread()
 
@@ -380,7 +388,15 @@ def dispatch(task_id: int, agent_persona: dict, skill_name: str) -> threading.Th
         name=f"task-{task_id}",
     )
     thread.start()
-    logger.info("Dispatched task #%d to background thread (skill=%s)", task_id, skill_name)
+    log_event(
+        logger,
+        "task_dispatch_enqueued",
+        level=logging.INFO,
+        task_id=task_id,
+        skill_name=skill_name,
+        dispatch_mode="thread",
+        thread_name=thread.name,
+    )
     return thread
 
 
@@ -390,7 +406,12 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
     try:
         task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
         if not task:
-            logger.error("Task #%d not found in DB", task_id)
+            log_event(
+                logger,
+                "task_dispatch_db_miss",
+                level=logging.ERROR,
+                task_id=task_id,
+            )
             return
 
         # Output directory
@@ -419,8 +440,14 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
 
                 first_step = task.workflow_steps[0]
                 capture_task_file_change_baseline(db, task, step=first_step)
-            except Exception:
-                logger.debug("Failed to capture task file-change baseline for task #%d", task_id, exc_info=True)
+            except Exception as exc:
+                log_event(
+                    logger,
+                    "task_file_baseline_capture_failed",
+                    level=logging.DEBUG,
+                    task_id=task_id,
+                    exc_info=exc,
+                )
         db.commit()
 
         # Parse context_files from task (JSON list stored as text)
@@ -517,9 +544,13 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                     db.flush()
                 monitor = OpenAIResponsesTaskMonitor(project_root=PROJECT_ROOT)
                 monitor._alert_and_pause_for_runtime_guard(db, task, result.error)  # noqa: SLF001
-                logger.info(
-                    "Task #%d paused by OpenAI runtime guard before terminal failure writeback",
-                    task_id,
+                log_event(
+                    logger,
+                    "task_runtime_guard_paused",
+                    level=logging.INFO,
+                    task_id=task_id,
+                    runtime_backend=result.runtime_backend,
+                    error_message=result.error,
                 )
                 return
             cast(Any, task).status = "failed"
@@ -542,30 +573,50 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             _log(db, task_id, "completed")
 
         db.commit()
-        logger.info(
-            "Task #%d finished: status=%s, output=%d chars, time=%dms",
-            task_id, task.status, len(result.text), result.execution_time_ms,
+        lifecycle_event = "task_execution_detached" if result.deferred else "task_execution_completed"
+        log_event(
+            logger,
+            lifecycle_event,
+            level=logging.INFO,
+            task_id=task_id,
+            status=str(task.status),
+            output_char_count=len(result.text),
+            execution_time_ms=int(result.execution_time_ms or 0),
+            runtime_backend=cast(Any, task).runtime_backend,
+            runtime_provider=cast(Any, task).runtime_provider,
         )
         from server.services.workflows.orchestrator import sync_workflow_for_task
 
         sync_workflow_for_task(task_id)
 
-    except Exception as e:
-        logger.exception("Task #%d crashed", task_id)
+    except Exception as exc:
+        log_event(
+            logger,
+            "task_runtime_crashed",
+            level=logging.ERROR,
+            task_id=task_id,
+            exc_info=exc,
+        )
         try:
             task = db.query(TaskRow).filter(TaskRow.id == task_id).first()
             if task:
                 cast(Any, task).status = "failed"
-                cast(Any, task).last_error_message = str(e)
-                cast(Any, task).output_content = f"[ERROR] {e}"
+                cast(Any, task).last_error_message = str(exc)
+                cast(Any, task).output_content = f"[ERROR] {exc}"
                 cast(Any, task).completed_at = utcnow()
-                _log(db, task_id, "failed", str(e))
+                _log(db, task_id, "failed", str(exc))
                 db.commit()
                 from server.services.workflows.orchestrator import sync_workflow_for_task
 
                 sync_workflow_for_task(task_id)
-        except Exception:
-            logger.exception("Failed to update task #%d status after crash", task_id)
+        except Exception as state_exc:
+            log_event(
+                logger,
+                "task_runtime_state_update_failed",
+                level=logging.ERROR,
+                task_id=task_id,
+                exc_info=state_exc,
+            )
     finally:
         db.close()
 

@@ -1059,7 +1059,8 @@ def test_deterministic_delivery_review_and_test_use_review_surface_metadata(db_s
     step.step_key = "test"
     db_session.commit()
     test_result = _deterministic_delivery_validation_result(db_session, task, tmp_path / "out-test", "test")
-    assert "abc123" in test_result.text
+    assert "ops/req-test" in test_result.text
+    assert "https://example.test/pr/1" in test_result.text
 
 
 def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_path):
@@ -1100,6 +1101,44 @@ def test_task_runner_leaves_deferred_copilot_task_running(synced_client, tmp_pat
     logs = synced_client.get(f"/api/tasks/{task_id}/logs").json()
     event_types = [log["event_type"] for log in logs]
     assert "runtime_detached" in event_types
+
+
+def test_async_runtime_emits_detached_event_not_completed(caplog, synced_client, tmp_path):
+    import logging
+
+    from server.services.runtime.copilot_sdk_state import task_output_dir
+    from server.services.runtime.task_runner import _run_task_sync
+    from server.services.runtime.task_runtime import RuntimeEvent
+
+    create = synced_client.post("/api/tasks", json={
+        "description": "Detached codex runtime should not log completed early",
+        "agent_id": "content_writer",
+        "skill_name": "copywriting",
+    })
+    task_id = create.json()["id"]
+
+    with patch("server.services.runtime.task_runner.dispatch"):
+        synced_client.post(f"/api/tasks/{task_id}/run")
+
+    predicted_output = task_output_dir(tmp_path, "content_writer", task_id) / "output.md"
+    with patch("server.services.runtime.task_runner.PROJECT_ROOT", tmp_path), patch(
+        "server.services.runtime.task_runner.get_task_runtime"
+    ) as mock_runtime_factory, caplog.at_level(logging.INFO):
+        mock_runtime = MagicMock()
+        mock_runtime.execute.return_value = _runtime_result(
+            execution_time_ms=7,
+            runtime_backend="codex_cli",
+            runtime_provider="codex",
+            runtime_session_id="thread-detached-123",
+            events=[RuntimeEvent(event_type="runtime_started", detail="backend=codex_cli")],
+            deferred=True,
+            files=[predicted_output],
+        )
+        mock_runtime_factory.return_value = mock_runtime
+        _run_task_sync(task_id, {"role": "content_writer", "display_name": "Writer", "goal": "", "body": ""}, "copywriting")
+
+    assert "task_execution_detached" in caplog.text
+    assert "task_execution_completed" not in caplog.text
 
 
 def test_copilot_monitor_completes_detached_task(synced_client, db_session, tmp_path):

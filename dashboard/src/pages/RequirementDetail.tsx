@@ -93,6 +93,7 @@ export default function RequirementDetail() {
   const canEdit = !detail.latest_execution_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
   const showApprovalNotice = approval.approval_status === 'pending_approval' || approval.approval_status === 'rejected'
   const currentProject = detail.project
+  const latestRelease = detail.latest_release
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
@@ -302,11 +303,21 @@ export default function RequirementDetail() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
-            <StateBadge tone="muted">{requirement.priority}</StateBadge>
-            {requirement.project_display_name ? <StateBadge tone="muted">{requirement.project_display_name}</StateBadge> : null}
-            {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
+              <StateBadge tone="muted">{requirement.priority}</StateBadge>
+              {requirement.project_display_name ? <StateBadge tone="muted">{requirement.project_display_name}</StateBadge> : null}
+              {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
+              {latestRelease?.branch_name ? <StateBadge tone="ready">{latestRelease.branch_name}</StateBadge> : null}
+            </div>
+            {latestRelease ? (
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
+                <div>交付状态：{latestRelease.status}</div>
+                <div>基线分支：{latestRelease.base_branch || '-'}</div>
+                <div>PR：{latestRelease.pr_url ? <a className="text-blue-600 hover:underline" href={latestRelease.pr_url} target="_blank" rel="noreferrer">查看 PR</a> : '-'}</div>
+              </div>
+            ) : null}
           </div>
         )}
       </SectionFrame>

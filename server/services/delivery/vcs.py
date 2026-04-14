@@ -91,6 +91,34 @@ def _branch_base_ref(repo_path: str, base_branch: str, remote_name: str) -> str 
     return None
 
 
+def _sync_base_branch(repo_path: str, base_branch: str, remote_name: str) -> dict[str, Any]:
+    current = _current_branch(repo_path)
+    dirty = _working_tree_dirty(repo_path)
+    if dirty:
+        raise RuntimeError(f"dirty worktree on `{current}` blocks automatic execution branch preparation")
+
+    remotes = _list_remotes(repo_path)
+    if remote_name in remotes:
+        _run_git(repo_path, "fetch", remote_name)
+
+    local_base_exists = _local_branch_exists(repo_path, base_branch)
+    remote_base_exists = remote_name in remotes and _remote_branch_exists(repo_path, remote_name, base_branch)
+    if current != base_branch:
+        if local_base_exists:
+            _run_git(repo_path, "checkout", base_branch)
+        elif remote_base_exists:
+            _run_git(repo_path, "checkout", "-b", base_branch, f"{remote_name}/{base_branch}")
+
+    if remote_base_exists:
+        _run_git(repo_path, "pull", "--ff-only", remote_name, base_branch)
+
+    return {
+        "base_branch_synced": True,
+        "base_branch_before_sync": current,
+        "base_branch_after_sync": _current_branch(repo_path),
+    }
+
+
 def _ahead_of_base_count(repo_path: str, base_branch: str, remote_name: str) -> int:
     base_ref = _branch_base_ref(repo_path, base_branch, remote_name)
     if not base_ref:
@@ -356,6 +384,7 @@ def prepare_requirement_delivery_branch(
             if not _is_git_repo(repo_path):
                 raise RuntimeError("target path is not a git repository")
             repo_result["remote_url"] = _remote_url(repo_path, remote_name)
+            repo_result.update(_sync_base_branch(repo_path, base_branch, remote_name))
             repo_result.update(_ensure_delivery_branch(repo_path, branch_name, base_branch, remote_name))
             repo_result["current_branch_after"] = _current_branch(repo_path)
             repo_result["status"] = "ready"

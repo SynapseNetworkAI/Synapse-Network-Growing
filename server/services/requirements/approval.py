@@ -308,8 +308,14 @@ def build_requirement_approval_recommendation(
     completeness_gaps: list[str] = []
     if not bool(context.get("description_complete")):
         completeness_gaps.append("description is too short")
-    has_active_plan = bool(getattr(requirement, "active_workflow_run_id", None)) or int(getattr(requirement, "current_plan_version", 0) or 0) > 0
-    if has_active_plan and int(context.get("workflow_step_count") or 0) == 0:
+    plan_payload = _json_loads(getattr(requirement, "execution_plan_json", None), {})
+    has_plan_brief = isinstance(plan_payload, dict) and bool(str(plan_payload.get("summary_markdown") or "").strip())
+    has_active_plan = (
+        bool(getattr(requirement, "active_workflow_run_id", None))
+        or int(getattr(requirement, "current_plan_version", 0) or 0) > 0
+        or has_plan_brief
+    )
+    if has_active_plan and not has_plan_brief and int(context.get("workflow_step_count") or 0) == 0:
         completeness_gaps.append("workflow plan is missing")
     if int(context.get("target_project_count") or 0) == 0:
         completeness_gaps.append("target project is missing")

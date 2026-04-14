@@ -47,6 +47,41 @@ def test_codex_cli_provider_uses_codex_exec(tmp_path):
     mock_run.assert_called_once()
 
 
+def test_codex_cli_provider_prefers_target_project_path_for_planner_context(tmp_path):
+    output_path = tmp_path / "last-message.txt"
+    output_path.write_text("markdown plan", encoding="utf-8")
+    provider = CodexCLIProvider()
+    target_project = tmp_path / "Synapse-Network"
+    target_project.mkdir()
+
+    with patch(
+        "server.services.agents.llm_adapter.run_codex_exec",
+        return_value=CodexExecResult(
+            text="markdown plan",
+            stdout="",
+            stderr="",
+            exit_code=0,
+            execution_time_ms=12,
+            command=["codex", "exec"],
+            output_path=output_path,
+        ),
+    ) as mock_run:
+        text, tokens = provider.call(
+            "system prompt",
+            f"Requirement context\n\nTarget project path: {target_project}",
+            "gpt-5-codex",
+            0.1,
+            30,
+        )
+
+    assert text == "markdown plan"
+    assert tokens == 0
+    _, kwargs = mock_run.call_args
+    assert kwargs["cwd"] == target_project.resolve()
+    assert target_project.resolve() in kwargs["add_dirs"]
+    assert config.PROJECT_ROOT.resolve() in kwargs["add_dirs"]
+
+
 def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
     runtime = CodexCLITaskRuntime(project_root=tmp_path)
 

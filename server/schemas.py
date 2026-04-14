@@ -936,6 +936,7 @@ class AgentFirstRequirementDetailOut(BaseModel):
     project: Optional[ProjectOut] = None
     latest_execution_id: Optional[int] = None
     latest_release_id: Optional[int] = None
+    latest_release: Optional["ReleaseRecordSlimOut"] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
     acceptance_contract: dict[str, object] = {}
     execution_plan: dict[str, object] = {}

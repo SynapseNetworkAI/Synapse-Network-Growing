@@ -878,6 +878,7 @@ export interface AgentRequirementDetail {
   project: Project | null
   latest_execution_id: number | null
   latest_release_id: number | null
+  latest_release: ReleaseRecord | null
   approval: AgentRequirementApproval
   acceptance_contract: AcceptanceContract
   execution_plan: ExecutionPlan

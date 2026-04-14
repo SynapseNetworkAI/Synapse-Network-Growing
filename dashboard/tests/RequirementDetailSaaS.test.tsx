@@ -62,6 +62,7 @@ const baseDetail = {
   },
   latest_execution_id: null,
   latest_release_id: null,
+  latest_release: null,
   policy_summary_markdown: '',
   acceptance_contract: {
     done_criteria: ['Traceback no longer appears in runtime intake flow.'],
@@ -71,11 +72,11 @@ const baseDetail = {
     markdown: '### Done Criteria\n- Traceback no longer appears in runtime intake flow.',
   },
   execution_plan: {
-    planning_mode: 'full_plan',
+    planning_mode: 'agent_plan_brief',
     goal_summary: 'Bug Fix: Runtime traceback detected',
-    summary_markdown: '## Goal\n\nFix the runtime traceback surfaced by the intake pipeline.\n\n## Planned Steps\n\n1. Patch the failing runtime path\n   - Done when: traceback path is closed.',
-    steps: [{ step_key: 'patch_runtime', title: 'Patch the failing runtime path', done_when: 'traceback path is closed.' }],
-    planned_checks: ['Run `pytest tests/test_runtime.py`'],
+    summary_markdown: '## Summary\n\nFix the runtime traceback surfaced by the intake pipeline.\n\n## Planned Changes\n\n- Patch the failing runtime path in the scoped project.\n- Keep the change narrow and capture clear execution evidence.\n\n## Verification Strategy\n\n- Run `pytest tests/test_runtime.py`.\n- Confirm the traceback no longer appears in the intake flow.',
+    steps: [{ step_key: 'execute', title: 'Execute requirement' }],
+    planned_checks: ['Run `pytest tests/test_runtime.py`', 'Confirm the traceback no longer appears in the intake flow.'],
     risks: ['Avoid changing unrelated projects.'],
   },
   project: {
@@ -126,7 +127,7 @@ describe('RequirementDetail SaaS editing', () => {
     expect(screen.queryByTestId('requirement-approval-notice')).not.toBeInTheDocument()
     expect(screen.getByText('执行计划')).toBeInTheDocument()
     expect(screen.getByText('Traceback no longer appears in runtime intake flow.')).toBeInTheDocument()
-    expect(screen.getByText('Patch the failing runtime path')).toBeInTheDocument()
+    expect(screen.getByText(/Patch the failing runtime path/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
     fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Bug Fix: Traceback removed' } })

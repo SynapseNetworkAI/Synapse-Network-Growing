@@ -22,7 +22,7 @@
 4. 删除 requirement。
 5. requirement submit。
    - submit 是 requirement 进入 execution 的唯一正式桥接点。
-   - approval 放行后会先确保 acceptance contract 与 execution plan 可用，再创建并自动启动 execution。
+   - approval 放行后会先确保 acceptance contract 与 execution plan 可用，再在目标项目上 prepare branch，随后创建并自动启动 execution。
 6. requirement 自动审批与人工审批分流。
    - 低风险自动批准，并在 plan 生成后自动启动 execution。
    - 高风险停在 requirement 面等待人工批准。
@@ -69,8 +69,8 @@
 
 1. Release candidate 列表。
 2. Release detail。
-3. prepare branch。
-4. open PR。
+3. execution approval 放行后自动 prepare branch。
+4. verification passed 后自动 commit / push / open PR。
 5. staging deploy。
 6. production deploy。
 7. rollback。

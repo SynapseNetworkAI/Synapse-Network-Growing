@@ -77,7 +77,7 @@ Requirement 到 Execution 的正式桥接规则：
 1. `submit` 时就做 approval decision
 2. 低风险 requirement 默认 auto-approve / waive
 3. 审批放行后先确保 acceptance contract 与 execution plan 可用
-4. execution plan 落库后自动创建 execution 并自动启动
+4. execution plan 落库后自动创建 execution，并在目标项目上先准备 requirement branch，再自动启动 execution
 5. 高风险 requirement 停在 requirement surface 等待人工批准
 6. execution approval 只决定能否执行，不替代 release gate
 
@@ -151,7 +151,8 @@ Release candidate 的硬门槛：
 
 1. requirement 已完成执行
 2. verification agent 判定成功
-3. release governance 满足项目策略
+3. verification passed 后已自动 commit / push / open PR，或至少留下明确的 release blocker
+4. release governance 满足项目策略
 
 ### 2.4 Error Loop（辅助治理）
 
