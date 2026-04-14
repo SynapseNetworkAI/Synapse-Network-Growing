@@ -108,6 +108,14 @@ Release 负责：
 2. execution 主控制入口
 3. release 主决策入口
 
+## 7.5 Project 是正式主对象
+
+1. Requirement 必须挂到正式 `Project`，不再把 `target_project_path` 当作用户侧主输入。
+2. `Project` 是 GitHub、默认分支、部署策略、环境标签和仓库根路径的主入口。
+3. `project policy` 是挂在 `Project` 上的治理子配置，不再代表项目本身。
+4. Requirement 创建默认先选项目，只在高级场景允许填写 `target_project_path_override`。
+5. Release / Deployment 必须以 Project 为边界执行，不得再从 requirement 零散字段拼接仓库与环境配置。
+
 ## 8. Execution 必须只有一条当前主链
 
 1. 同一 requirement 任何时刻只允许一条当前 execution 主链。
@@ -231,12 +239,19 @@ Release 负责：
 7. 不允许记录 token、secret、webhook url、authorization header 等敏感信息；traceback 可以保留，但必须避免把敏感配置直接拼进错误消息。
 8. 当前阶段先按“各服务内实现、同一规范”落地，不假设已经存在可复用的共享 Python logging 包。
 
-## 19. 治理优先于更强自主性
+## 19. 正式功能列表必须同步维护
+
+1. 系统当前正式具备的功能，必须维护在 `docs/design-docs/current-feature-inventory.md`。
+2. 每次新增、删除、重构正式功能时，必须同步更新功能清单。
+3. 功能清单描述的是“当前真实能力”，不是候选想法、计划或 bugfix 草稿。
+4. 如果代码已经变更，但功能清单没有同步更新，应视为设计文档未完成。
+
+## 20. 治理优先于更强自主性
 
 1. 自主性提升必须建立在 policy、validation、delivery、incident、observability 已经收口的前提上。
 2. 如果治理能力不足，优先补治理，不优先补更复杂的 agent 自主决策。
 
-## 20. 当前正式实现顺序
+## 21. 当前正式实现顺序
 
 后续默认优先顺序为：
 

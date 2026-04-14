@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AgentRequirement, api } from '../api'
+import { AgentRequirement, Project, api } from '../api'
 import { ConfirmDialog, EmptyPane, FieldLabel, OverlayDrawer, OverlayModal, StateBadge, useToast } from '../components/workbench'
 
 type DrawerMode = 'closed' | 'create' | 'edit'
@@ -9,14 +9,16 @@ type RequirementDraft = {
   title: string
   description_markdown: string
   priority: string
-  target_project_path: string
+  project_id: number | null
+  target_project_path_override: string
 }
 
 const EMPTY_DRAFT: RequirementDraft = {
   title: '',
   description_markdown: '',
   priority: 'normal',
-  target_project_path: '',
+  project_id: null,
+  target_project_path_override: '',
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -44,29 +46,38 @@ function statusTone(status: string) {
   return 'muted'
 }
 
+function canEditRequirement(requirement: AgentRequirement) {
+  return !requirement.latest_execution_run_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
+}
+
 function buildDraft(requirement?: AgentRequirement | null): RequirementDraft {
   if (!requirement) return { ...EMPTY_DRAFT }
   return {
     title: requirement.title,
     description_markdown: requirement.description_markdown,
     priority: requirement.priority,
-    target_project_path: requirement.target_project_path || '',
+    project_id: requirement.project_id,
+    target_project_path_override: requirement.target_project_path_override || '',
   }
 }
 
 function RequirementForm({
   draft,
+  projects,
   saving,
   onChange,
   onClose,
   onSubmit,
 }: Readonly<{
   draft: RequirementDraft
+  projects: Project[]
   saving: boolean
   onChange: (patch: Partial<RequirementDraft>) => void
   onClose: () => void
   onSubmit: () => Promise<void>
 }>) {
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(draft.target_project_path_override))
+
   return (
     <div className="grid gap-5">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -80,13 +91,19 @@ function RequirementForm({
           />
         </div>
         <div>
-          <FieldLabel>目标项目</FieldLabel>
-          <input
+          <FieldLabel>所属项目</FieldLabel>
+          <select
             className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
-            placeholder="输入项目路径"
-            value={draft.target_project_path}
-            onChange={(event) => onChange({ target_project_path: event.target.value })}
-          />
+            value={draft.project_id ?? ''}
+            onChange={(event) => onChange({ project_id: event.target.value ? Number(event.target.value) : null })}
+          >
+            <option value="">选择项目</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.display_name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -99,6 +116,24 @@ function RequirementForm({
           onChange={(event) => onChange({ description_markdown: event.target.value })}
         />
       </div>
+
+      <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/70 px-4 py-4">
+        <button type="button" className="text-sm font-medium text-[color:var(--ops-text-title)]" onClick={() => setShowAdvanced((current) => !current)}>
+          {showAdvanced ? '隐藏高级设置' : '显示高级设置'}
+        </button>
+        {showAdvanced ? (
+          <div className="mt-4">
+            <FieldLabel>路径覆盖（可选）</FieldLabel>
+            <input
+              className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+              placeholder="仅在当前需求需要覆盖项目默认路径时填写"
+              value={draft.target_project_path_override}
+              onChange={(event) => onChange({ target_project_path_override: event.target.value })}
+            />
+          </div>
+        ) : null}
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[220px,1fr]">
         <div>
           <FieldLabel>优先级</FieldLabel>
@@ -119,7 +154,7 @@ function RequirementForm({
           <button
             type="button"
             className="rounded-xl bg-[color:var(--ops-accent-strong)] px-5 py-3 text-sm font-medium text-white disabled:opacity-60"
-            disabled={saving || !draft.title.trim() || !draft.description_markdown.trim()}
+            disabled={saving || !draft.title.trim() || !draft.description_markdown.trim() || !draft.project_id}
             onClick={() => {
               onSubmit().catch(() => {})
             }}
@@ -136,6 +171,7 @@ function RequirementComposer({
   mode,
   open,
   draft,
+  projects,
   saving,
   selected,
   onChange,
@@ -145,6 +181,7 @@ function RequirementComposer({
   mode: DrawerMode
   open: boolean
   draft: RequirementDraft
+  projects: Project[]
   saving: boolean
   selected: AgentRequirement | null
   onChange: (patch: Partial<RequirementDraft>) => void
@@ -156,7 +193,7 @@ function RequirementComposer({
 
   return (
     <Container open={open} title={editing ? '编辑需求' : '新建需求'} eyebrow={editing ? `Requirement #${selected?.id ?? '-'}` : 'New Requirement'} onClose={onClose}>
-      <RequirementForm draft={draft} saving={saving} onChange={onChange} onClose={onClose} onSubmit={onSubmit} />
+      <RequirementForm draft={draft} projects={projects} saving={saving} onChange={onChange} onClose={onClose} onSubmit={onSubmit} />
     </Container>
   )
 }
@@ -164,6 +201,7 @@ function RequirementComposer({
 export default function RequirementPool() {
   const navigate = useNavigate()
   const [requirements, setRequirements] = useState<AgentRequirement[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -179,7 +217,12 @@ export default function RequirementPool() {
   const load = async () => {
     setLoading(true)
     try {
-      setRequirements(await api.getRequirements(status || undefined, undefined, search || undefined))
+      const [nextRequirements, nextProjects] = await Promise.all([
+        api.getRequirements(status || undefined, undefined, search || undefined),
+        api.getProjects('active'),
+      ])
+      setRequirements(nextRequirements)
+      setProjects(nextProjects)
     } finally {
       setLoading(false)
     }
@@ -193,7 +236,17 @@ export default function RequirementPool() {
     const needle = search.trim().toLowerCase()
     if (!needle) return requirements
     return requirements.filter((item) =>
-      [item.title, item.source_ref || '', item.target_project_path || '', String(item.id)].join('\n').toLowerCase().includes(needle),
+      [
+        item.title,
+        item.source_ref || '',
+        item.project_display_name || '',
+        item.project_key || '',
+        item.target_project_path || '',
+        String(item.id),
+      ]
+        .join('\n')
+        .toLowerCase()
+        .includes(needle),
     )
   }, [requirements, search])
 
@@ -210,6 +263,7 @@ export default function RequirementPool() {
   }
 
   const openEdit = (requirement: AgentRequirement) => {
+    if (!canEditRequirement(requirement)) return
     setSelectedRequirementId(requirement.id)
     setDraft(buildDraft(requirement))
     setDrawerMode('edit')
@@ -223,11 +277,18 @@ export default function RequirementPool() {
   const handleSubmit = async () => {
     setSaving(true)
     try {
+      const payload = {
+        title: draft.title,
+        description_markdown: draft.description_markdown,
+        priority: draft.priority,
+        project_id: draft.project_id ?? undefined,
+        target_project_path_override: draft.target_project_path_override || undefined,
+      }
       if (drawerMode === 'create') {
-        await api.createRequirement(draft)
+        await api.createRequirement(payload)
         toast.success('需求已创建')
       } else if (drawerMode === 'edit' && selectedRequirement) {
-        await api.updateRequirement(selectedRequirement.id, draft)
+        await api.updateRequirement(selectedRequirement.id, payload)
         toast.success('需求已更新')
       }
       await load()
@@ -280,6 +341,7 @@ export default function RequirementPool() {
             <thead className="bg-slate-50/90">
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <th className="px-5 py-4 font-medium">标题</th>
+                <th className="px-4 py-4 font-medium">项目</th>
                 <th className="px-4 py-4 font-medium">状态</th>
                 <th className="px-4 py-4 font-medium">优先级</th>
                 <th className="px-4 py-4 font-medium">审批</th>
@@ -289,82 +351,85 @@ export default function RequirementPool() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
-                const selected = item.id === selectedRequirementId
-                return (
-                  <tr
-                    key={item.id}
-                    className={[
-                      'border-t border-[color:var(--ops-stroke-soft)] transition',
-                      selected ? 'bg-[color:var(--ops-accent-soft)]/40' : 'hover:bg-slate-50/80',
-                    ].join(' ')}
-                    onClick={() => setSelectedRequirementId(item.id)}
-                  >
-                    <td className="px-5 py-4">
-                      <button type="button" className="text-left" onClick={() => navigate(`/requirements/${item.id}`)}>
-                        <div className="text-base font-semibold text-[color:var(--ops-text-title)]">{item.title}</div>
-                        <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">#{item.id}</div>
+              {filtered.map((item) => (
+                <tr
+                  key={item.id}
+                  className={[
+                    'border-t border-[color:var(--ops-stroke-soft)] transition hover:bg-slate-50/80',
+                    item.id === selectedRequirementId ? 'bg-slate-50/70' : '',
+                  ].join(' ')}
+                  onClick={() => setSelectedRequirementId(item.id)}
+                >
+                  <td className="px-5 py-4">
+                    <button type="button" className="text-left" onClick={() => navigate(`/requirements/${item.id}`)}>
+                      <div className="text-base font-semibold text-[color:var(--ops-text-title)]">{item.title}</div>
+                      <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">#{item.id}</div>
+                    </button>
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.project_display_name || item.project_key || '-'}</td>
+                  <td className="px-4 py-4">
+                    <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval_required ? item.approval_status : 'waived'}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    execution {item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · {item.latest_release_status ?? '-'}
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
+                        disabled={!canEditRequirement(item)}
+                        onClick={() => openEdit(item)}
+                      >
+                        编辑
                       </button>
-                    </td>
-                    <td className="px-4 py-4">
-                      <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
-                    <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval_required ? item.approval_status : 'waived'}</td>
-                    <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                      execution {item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · {item.latest_release_status ?? '-'}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => openEdit(item)}>
-                          编辑
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-                          disabled={deletingId === item.id}
-                          onClick={() => setConfirmingRequirement(item)}
-                        >
-                          {deletingId === item.id ? '删除中…' : '删除'}
-                        </button>
-                        <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
-                          查看
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50"
-                          disabled={submittingId === item.id || (item.status !== 'draft' && item.status !== 'needs_revision')}
-                          onClick={async () => {
-                            setSubmittingId(item.id)
-                            try {
-                              const detail = await api.submitRequirement(item.id)
-                              toast.success('需求已提交')
-                              if (detail.approval.execution_run_id && detail.approval.auto_started) {
-                                navigate(`/executions/${detail.approval.execution_run_id}`)
-                                return
-                              }
-                              navigate(`/requirements/${item.id}`)
-                            } catch {
-                              toast.error('提交失败，请重试')
-                            } finally {
-                              await load()
-                              setSubmittingId(null)
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
+                        disabled={deletingId === item.id}
+                        onClick={() => setConfirmingRequirement(item)}
+                      >
+                        {deletingId === item.id ? '删除中…' : '删除'}
+                      </button>
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
+                        查看
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50"
+                        disabled={submittingId === item.id || (item.status !== 'draft' && item.status !== 'needs_revision')}
+                        onClick={async () => {
+                          setSubmittingId(item.id)
+                          try {
+                            const detail = await api.submitRequirement(item.id)
+                            toast.success('需求已提交')
+                            if (detail.approval.execution_run_id && detail.approval.auto_started) {
+                              navigate(`/executions/${detail.approval.execution_run_id}`)
+                              return
                             }
-                          }}
-                        >
-                          {submittingId === item.id ? '提交中…' : '提交'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+                            navigate(`/requirements/${item.id}`)
+                          } catch {
+                            toast.error('提交失败，请重试')
+                          } finally {
+                            await load()
+                            setSubmittingId(null)
+                          }
+                        }}
+                      >
+                        {submittingId === item.id ? '提交中…' : '提交'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
-        {!loading && filtered.length === 0 && (
+        {!loading && filtered.length === 0 ? (
           <div className="p-6">
             <EmptyPane>
               <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-medium text-white" onClick={openCreate}>
@@ -372,13 +437,14 @@ export default function RequirementPool() {
               </button>
             </EmptyPane>
           </div>
-        )}
+        ) : null}
       </section>
 
       <RequirementComposer
         mode={drawerMode}
         open={drawerMode !== 'closed'}
         draft={draft}
+        projects={projects}
         saving={saving}
         selected={selectedRequirement}
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}

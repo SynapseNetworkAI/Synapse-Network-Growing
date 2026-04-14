@@ -94,6 +94,7 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
 
     return {
         "id": int(row.id),
+        "project_id": int(getattr(row, "project_id", 0)) if getattr(row, "project_id", None) is not None else None,
         "project_key": str(row.project_key),
         "display_name": str(row.display_name),
         "root_path": str(row.root_path),

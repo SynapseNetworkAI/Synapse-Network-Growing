@@ -14,17 +14,20 @@ from server.services.projects.policy import (
     project_policy_to_dict,
     update_project_policy,
 )
+from server.services.projects.project_center import ensure_projects_materialized
 
 router = APIRouter(prefix="/api/project-policies", tags=["project-policies"])
 
 
 @router.get("", response_model=list[ProjectPolicyOut])
 def list_project_policies_endpoint(db: Session = Depends(get_db)):
+    ensure_projects_materialized(db)
     return [ProjectPolicyOut(**project_policy_to_dict(row)) for row in list_project_policies(db)]
 
 
 @router.get("/{policy_id}", response_model=ProjectPolicyOut)
 def get_project_policy_endpoint(policy_id: int, db: Session = Depends(get_db)):
+    ensure_projects_materialized(db)
     row = get_project_policy(db, policy_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Project policy not found.")
@@ -72,6 +75,7 @@ def create_project_policy_endpoint(body: ProjectPolicyCreate, db: Session = Depe
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_projects_materialized(db)
     return ProjectPolicyOut(**project_policy_to_dict(row))
 
 
@@ -117,6 +121,7 @@ def update_project_policy_endpoint(policy_id: int, body: ProjectPolicyPatch, db:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_projects_materialized(db)
     return ProjectPolicyOut(**project_policy_to_dict(updated))
 
 
@@ -129,3 +134,4 @@ def delete_project_policy_endpoint(policy_id: int, db: Session = Depends(get_db)
         delete_project_policy(db, row)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    ensure_projects_materialized(db)

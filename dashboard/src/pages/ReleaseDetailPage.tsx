@@ -67,13 +67,16 @@ export default function ReleaseDetailPage() {
       >
         <div className="flex flex-wrap gap-2">
           <StateBadge tone="muted">{detail.requirement.title}</StateBadge>
+          {release?.project_display_name || detail.requirement.project_display_name ? (
+            <StateBadge tone="muted">{release?.project_display_name || detail.requirement.project_display_name}</StateBadge>
+          ) : null}
           <StateBadge tone={release?.status ? 'ready' : 'muted'}>{release?.status || 'not_ready'}</StateBadge>
           <StateBadge tone={detail.validation?.status === 'passed' ? 'delivered' : 'validating'}>
             {detail.validation?.status || 'pending_validation'}
           </StateBadge>
         </div>
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
-          <div>target: {detail.requirement.target_projects.join(', ') || '-'}</div>
+          <div>project: {release?.project_display_name || detail.requirement.project_display_name || detail.requirement.project_key || '-'}</div>
           <div>release status: {release?.status || '-'}</div>
           <div>validation: {detail.validation?.status || '-'}</div>
           <div>latest deploy: {detail.deployments[0]?.environment || '-'}</div>

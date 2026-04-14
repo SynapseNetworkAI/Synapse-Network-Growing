@@ -10,7 +10,7 @@ from server import config
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
 from server.logging_utils import bind_context, clear_context, get_logger, log_event, setup_ops_logging
 from server.schemas import DashboardStats
-from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, executions, releases, errors
+from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, executions, releases, errors, projects
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
@@ -88,6 +88,7 @@ app.include_router(requirements.router)
 app.include_router(executions.router)
 app.include_router(releases.router)
 app.include_router(errors.router)
+app.include_router(projects.router)
 app.include_router(project_policies.router)
 app.include_router(project_onboarding.router)
 app.include_router(optimization_signals.router)

@@ -47,6 +47,8 @@ def create_requirement_endpoint(body: RequirementCreate, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="title is required")
     if not body.description_markdown.strip():
         raise HTTPException(status_code=400, detail="description_markdown is required")
+    if body.project_id is None:
+        raise HTTPException(status_code=400, detail="project_id is required")
     return create_requirement(db, body)
 
 

@@ -564,6 +564,7 @@ class ProjectPolicyPatch(BaseModel):
 
 class ProjectPolicyOut(BaseModel):
     id: int
+    project_id: Optional[int] = None
     project_key: str
     display_name: str
     root_path: str
@@ -591,6 +592,65 @@ class ProjectPolicyOut(BaseModel):
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class ProjectCreate(BaseModel):
+    project_key: str
+    display_name: str
+    root_path: str
+    status: str = "active"
+    repo_full_name: Optional[str] = None
+    default_branch: str = "main"
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: str = "disabled"
+    deploy_trigger_enabled: bool = False
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: str = "deploy-staging.yml"
+    production_workflow_file: str = "deploy-production.yml"
+    notes: Optional[str] = None
+
+
+class ProjectPatch(BaseModel):
+    project_key: Optional[str] = None
+    display_name: Optional[str] = None
+    root_path: Optional[str] = None
+    status: Optional[str] = None
+    repo_full_name: Optional[str] = None
+    default_branch: Optional[str] = None
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: Optional[str] = None
+    deploy_trigger_enabled: Optional[bool] = None
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: Optional[str] = None
+    production_workflow_file: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ProjectOut(BaseModel):
+    id: int
+    project_key: str
+    display_name: str
+    root_path: str
+    status: str
+    repo_full_name: Optional[str] = None
+    default_branch: str = "main"
+    deploy_repo_full_name: Optional[str] = None
+    deploy_strategy: str = "disabled"
+    deploy_trigger_enabled: bool = False
+    staging_host_label: Optional[str] = None
+    production_host_label: Optional[str] = None
+    staging_workflow_file: str = "deploy-staging.yml"
+    production_workflow_file: str = "deploy-production.yml"
+    notes: Optional[str] = None
+    policy_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ProjectWithPolicyOut(ProjectOut):
+    policy: Optional[ProjectPolicyOut] = None
 
 
 class ProjectReadinessItemOut(BaseModel):
@@ -772,6 +832,8 @@ class RequirementCreate(BaseModel):
     source: str = "manual"
     source_ref: Optional[str] = None
     intake_metadata: Optional[dict[str, object]] = None
+    project_id: Optional[int] = None
+    target_project_path_override: Optional[str] = None
     target_project_path: Optional[str] = None
     depends_on_requirement_ids: list[int] = []
     auto_start: bool = False
@@ -803,6 +865,8 @@ class RequirementPatch(BaseModel):
     priority: Optional[str] = None
     source_ref: Optional[str] = None
     intake_metadata: Optional[dict[str, object]] = None
+    project_id: Optional[int] = None
+    target_project_path_override: Optional[str] = None
     target_project_path: Optional[str] = None
     acceptance_contract: Optional[dict[str, object]] = None
     approval_contract: Optional[dict[str, object]] = None
@@ -838,7 +902,11 @@ class AgentFirstRequirementOut(BaseModel):
     priority: str
     source: str
     source_ref: Optional[str] = None
+    project_id: Optional[int] = None
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
     target_project_path: Optional[str] = None
+    target_project_path_override: Optional[str] = None
     target_projects: list[str] = []
     approval_required: bool = False
     approval_status: str = "pending_approval"
@@ -864,6 +932,7 @@ class AgentFirstRequirementApprovalOut(BaseModel):
 class AgentFirstRequirementDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     policy_summary_markdown: str = ""
+    project: Optional[ProjectOut] = None
     latest_execution_id: Optional[int] = None
     latest_release_id: Optional[int] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
@@ -942,7 +1011,9 @@ class ReleaseRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
     execution_run_id: Optional[int] = None
+    project_id: Optional[int] = None
     project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
     target_project_path: Optional[str] = None
     status: str
     branch_name: Optional[str] = None

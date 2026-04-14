@@ -31,7 +31,14 @@ export default function ReleasesPage() {
     const needle = search.trim().toLowerCase()
     if (!needle) return candidates
     return candidates.filter((item) =>
-      [String(item.requirement.id), item.requirement.title, item.requirement.target_projects.join('\n'), item.release?.status || '']
+      [
+        String(item.requirement.id),
+        item.requirement.title,
+        item.requirement.project_display_name || '',
+        item.requirement.project_key || '',
+        item.release?.project_display_name || '',
+        item.release?.status || '',
+      ]
         .join('\n')
         .toLowerCase()
         .includes(needle),
@@ -80,7 +87,9 @@ export default function ReleasesPage() {
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">
                       #{item.requirement.id} {item.requirement.title}
                     </div>
-                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.requirement.target_projects.join(', ') || '-'}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
+                      {item.release?.project_display_name || item.requirement.project_display_name || item.requirement.project_key || '-'}
+                    </div>
                   </td>
                   <td className="px-4 py-4">
                     <StateBadge tone={item.validation.status === 'passed' ? 'delivered' : 'validating'}>{item.validation.status}</StateBadge>

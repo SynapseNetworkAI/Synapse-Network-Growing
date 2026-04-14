@@ -1,10 +1,11 @@
 # `projects/` 地图
 
-负责项目策略、项目 onboarding、跨项目 intelligence 与路由支撑。
+负责正式 Project 主数据、治理策略、项目 onboarding、跨项目 intelligence 与路由支撑。
 
 ## 公开入口
 
 - `policy.py`
+- `project_center.py`
 - `onboarding.py`
 - `intelligence.py`
 
@@ -16,6 +17,7 @@
 ## 常见改动
 
 - 默认项目策略与 capability matrix：`policy.py`
+- 正式项目中心与 Project API 支撑：`project_center.py`
 - onboarding manifest：`onboarding.py`
 - 路由评分与 requirement 序列化：`intelligence.py`
 

@@ -293,6 +293,7 @@ export interface DashboardStats {
 
 export interface ProjectPolicy {
   id: number
+  project_id: number | null
   project_key: string
   display_name: string
   root_path: string
@@ -331,6 +332,31 @@ export interface ProjectPolicy {
   notes: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface Project {
+  id: number
+  project_key: string
+  display_name: string
+  root_path: string
+  status: string
+  repo_full_name: string | null
+  default_branch: string
+  deploy_repo_full_name: string | null
+  deploy_strategy: string
+  deploy_trigger_enabled: boolean
+  staging_host_label: string | null
+  production_host_label: string | null
+  staging_workflow_file: string
+  production_workflow_file: string
+  notes: string | null
+  policy_id: number | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface ProjectWithPolicy extends Project {
+  policy: ProjectPolicy | null
 }
 
 export interface EnvironmentStatus {
@@ -780,7 +806,11 @@ export interface AgentRequirement {
   priority: string
   source: string
   source_ref: string | null
+  project_id: number | null
+  project_key: string | null
+  project_display_name: string | null
   target_project_path: string | null
+  target_project_path_override: string | null
   target_projects: string[]
   approval_required: boolean
   approval_status: string
@@ -806,6 +836,7 @@ export interface AgentRequirementApproval {
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
   policy_summary_markdown: string
+  project: Project | null
   latest_execution_id: number | null
   latest_release_id: number | null
   approval: AgentRequirementApproval
@@ -880,7 +911,9 @@ export interface ReleaseRecord {
   id: number
   requirement_id: number
   execution_run_id: number | null
+  project_id: number | null
   project_key: string | null
+  project_display_name: string | null
   target_project_path: string | null
   status: string
   branch_name: string | null
@@ -1341,6 +1374,79 @@ export const api = {
   getStats: () => request<DashboardStats>('/dashboard/stats'),
 
   // Project policies
+  getProjects: (status?: string) => request<Project[]>(`/projects${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  getProject: (id: number) => request<ProjectWithPolicy>(`/projects/${id}`),
+  createProject: (data: {
+    project_key: string
+    display_name: string
+    root_path: string
+    status?: string
+    repo_full_name?: string | null
+    default_branch?: string
+    deploy_repo_full_name?: string | null
+    deploy_strategy?: string
+    deploy_trigger_enabled?: boolean
+    staging_host_label?: string | null
+    production_host_label?: string | null
+    staging_workflow_file?: string
+    production_workflow_file?: string
+    notes?: string | null
+  }) => request<ProjectWithPolicy>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  updateProject: (id: number, data: {
+    project_key?: string
+    display_name?: string
+    root_path?: string
+    status?: string
+    repo_full_name?: string | null
+    default_branch?: string
+    deploy_repo_full_name?: string | null
+    deploy_strategy?: string
+    deploy_trigger_enabled?: boolean
+    staging_host_label?: string | null
+    production_host_label?: string | null
+    staging_workflow_file?: string
+    production_workflow_file?: string
+    notes?: string | null
+  }) => request<ProjectWithPolicy>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  archiveProject: (id: number) => request<ProjectWithPolicy>(`/projects/${id}`, { method: 'DELETE' }),
+  getProjectPolicyForProject: (id: number) => request<ProjectPolicy>(`/projects/${id}/policy`),
+  updateProjectPolicyForProject: (id: number, data: {
+    display_name?: string
+    root_path?: string
+    status?: string
+    allowed_write_globs?: string[]
+    forbidden_globs?: string[]
+    required_checks?: string[]
+    release_mode?: string
+    requires_manual_approval?: boolean
+    autonomy_mode?: string
+    allow_rebalance?: boolean
+    allow_preemption?: boolean
+    capability_matrix?: {
+      shell_access?: boolean
+      git_read?: boolean
+      git_write?: boolean
+      git_push?: boolean
+      network_access?: boolean
+      publish?: boolean
+    }
+    interrupt_policy?: {
+      operator_confirmation_actions?: string[]
+      auto_pause_on_events?: string[]
+      auto_abort_on_events?: string[]
+    }
+    scheduler_weight?: number
+    max_parallel_requirements?: number
+    portfolio_budget_points?: number
+    deploy_repo_full_name?: string | null
+    deploy_strategy?: string
+    deploy_trigger_enabled?: boolean
+    staging_host_label?: string | null
+    production_host_label?: string | null
+    staging_workflow_file?: string
+    production_workflow_file?: string
+    notes?: string | null
+  }) => request<ProjectPolicy>(`/projects/${id}/policy`, { method: 'PATCH', body: JSON.stringify(data) }),
   getProjectPolicies: () => request<ProjectPolicy[]>('/project-policies'),
   getDeploymentOverview: () => request<DeploymentOverview>('/deployments/overview'),
   getProjectPolicyEnvironmentStatus: (id: number) => request<EnvironmentStatus[]>(`/deployments/project-policies/${id}/environment-status`),
@@ -1465,6 +1571,8 @@ export const api = {
     priority?: string
     source?: string
     source_ref?: string | null
+    project_id?: number
+    target_project_path_override?: string | null
     target_project_path?: string
     attachments?: RequirementAttachmentInput[]
   }) =>
@@ -1474,6 +1582,8 @@ export const api = {
     description_markdown?: string
     acceptance_criteria_markdown?: string
     priority?: string
+    project_id?: number
+    target_project_path_override?: string | null
     target_project_path?: string
   }) => request<AgentRequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/submit`, { method: 'POST' }),

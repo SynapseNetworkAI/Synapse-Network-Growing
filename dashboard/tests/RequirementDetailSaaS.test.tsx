@@ -5,6 +5,7 @@ import RequirementDetail from '../src/pages/RequirementDetail'
 
 const mockApi = {
   getRequirement: vi.fn(),
+  getProjects: vi.fn(),
   updateRequirement: vi.fn(),
   submitRequirement: vi.fn(),
   approveRequirement: vi.fn(),
@@ -15,6 +16,7 @@ const mockApi = {
 vi.mock('../src/api', () => ({
   api: {
     getRequirement: (...args: unknown[]) => mockApi.getRequirement(...args),
+    getProjects: (...args: unknown[]) => mockApi.getProjects(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
     submitRequirement: (...args: unknown[]) => mockApi.submitRequirement(...args),
     approveRequirement: (...args: unknown[]) => mockApi.approveRequirement(...args),
@@ -33,7 +35,11 @@ const baseDetail = {
     priority: 'high',
     source: 'bug_intake',
     source_ref: 'error-fingerprint:runtime_log_error:abc123',
+    project_id: 3,
+    project_key: 'synapse-network-growing',
+    project_display_name: 'Synapse-Network-Growing',
     target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+    target_project_path_override: null,
     target_projects: ['/Users/cliff/workspace/agent/Synapse-Network-Growing'],
     approval_required: false,
     approval_status: 'waived',
@@ -57,12 +63,33 @@ const baseDetail = {
   latest_execution_id: null,
   latest_release_id: null,
   policy_summary_markdown: '',
+  project: {
+    id: 3,
+    project_key: 'synapse-network-growing',
+    display_name: 'Synapse-Network-Growing',
+    root_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+    status: 'active',
+    repo_full_name: 'cliff-personal/Synapse-Network-Growing',
+    default_branch: 'main',
+    deploy_repo_full_name: 'cliff-personal/Synapse-Network-Growing',
+    deploy_strategy: 'github_actions',
+    deploy_trigger_enabled: true,
+    staging_host_label: 'staging',
+    production_host_label: 'production',
+    staging_workflow_file: 'deploy-staging.yml',
+    production_workflow_file: 'deploy-production.yml',
+    notes: null,
+    policy_id: 4,
+    created_at: '2026-04-14T00:00:00Z',
+    updated_at: '2026-04-14T00:00:00Z',
+  },
 }
 
 describe('RequirementDetail SaaS editing', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mockApi.getRequirement.mockResolvedValue(baseDetail)
+    mockApi.getProjects.mockResolvedValue([baseDetail.project])
     mockApi.updateRequirement.mockResolvedValue(baseDetail)
   })
 
@@ -85,7 +112,8 @@ describe('RequirementDetail SaaS editing', () => {
 
     fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
     fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Bug Fix: Traceback removed' } })
-    fireEvent.change(screen.getByTestId('edit-requirement-target-project-path'), { target: { value: '/tmp/project-a' } })
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }))
+    fireEvent.change(screen.getByTestId('edit-requirement-path-override'), { target: { value: '/tmp/project-a' } })
     fireEvent.change(screen.getByTestId('edit-requirement-priority'), { target: { value: 'normal' } })
     fireEvent.change(screen.getByTestId('edit-requirement-description'), { target: { value: 'Updated description' } })
     fireEvent.change(screen.getByTestId('edit-requirement-acceptance'), { target: { value: '- Updated acceptance' } })
@@ -99,7 +127,8 @@ describe('RequirementDetail SaaS editing', () => {
           description_markdown: 'Updated description',
           acceptance_criteria_markdown: '- Updated acceptance',
           priority: 'normal',
-          target_project_path: '/tmp/project-a',
+          project_id: 3,
+          target_project_path_override: '/tmp/project-a',
         }),
       ),
     )

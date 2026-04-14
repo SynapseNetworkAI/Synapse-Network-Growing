@@ -185,7 +185,11 @@ class RequirementRow(Base):
     source = Column(Text, nullable=False, default="manual")
     source_ref = Column(Text)
     intake_metadata_json = Column(Text, nullable=False, default="{}")
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    project_key = Column(Text)
+    project_display_name = Column(Text)
     target_project_path = Column(Text)
+    target_project_path_override = Column(Text)
     acceptance_contract_json = Column(Text, nullable=False, default="{}")
     approval_status = Column(Text, nullable=False, default="pending_approval")
     approval_contract_json = Column(Text, nullable=False, default="{}")
@@ -207,6 +211,7 @@ class RequirementRow(Base):
         order_by="WorkflowRunRow.id",
     )
     active_workflow_run = relationship("WorkflowRunRow", foreign_keys=[active_workflow_run_id], post_update=True)
+    project = relationship("ProjectRow")
     acceptance_checks = relationship(
         "RequirementAcceptanceCheckRow",
         back_populates="requirement",
@@ -225,10 +230,12 @@ class ProjectPolicyRow(Base):
     __table_args__ = (
         Index("project_policies_project_key_idx", "project_key", unique=True),
         Index("project_policies_root_path_idx", "root_path", unique=True),
+        Index("project_policies_project_idx", "project_id"),
         Index("project_policies_status_idx", "status"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
     project_key = Column(Text, nullable=False)
     display_name = Column(Text, nullable=False)
     root_path = Column(Text, nullable=False)
@@ -248,6 +255,35 @@ class ProjectPolicyRow(Base):
     portfolio_budget_points = Column(Integer, nullable=False, default=100)
     deploy_repo_full_name = Column(Text)
     deploy_strategy = Column(Text, nullable=False, default="github_actions_ssh")
+    deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
+    staging_host_label = Column(Text)
+    production_host_label = Column(Text)
+    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
+    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
+    notes = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    project = relationship("ProjectRow")
+
+
+class ProjectRow(Base):
+    __tablename__ = "projects"
+    __table_args__ = (
+        Index("projects_project_key_idx", "project_key", unique=True),
+        Index("projects_root_path_idx", "root_path", unique=True),
+        Index("projects_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_key = Column(Text, nullable=False)
+    display_name = Column(Text, nullable=False)
+    root_path = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active")
+    repo_full_name = Column(Text)
+    default_branch = Column(Text, nullable=False, default="main")
+    deploy_repo_full_name = Column(Text)
+    deploy_strategy = Column(Text, nullable=False, default="disabled")
     deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
     staging_host_label = Column(Text)
     production_host_label = Column(Text)
@@ -741,7 +777,9 @@ class ReleaseRecordRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
     execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    project_id = Column(Integer, ForeignKey("projects.id"))
     project_key = Column(Text)
+    project_display_name = Column(Text)
     target_project_path = Column(Text)
     status = Column(Text, nullable=False, default="not_ready")
     branch_name = Column(Text)
@@ -759,6 +797,7 @@ class ReleaseRecordRow(Base):
 
     requirement = relationship("RequirementRow")
     execution_run = relationship("ExecutionRunRow")
+    project = relationship("ProjectRow")
 
 
 class ApprovalRequestRow(Base):
@@ -883,6 +922,12 @@ def _migrate(engine_):
     insp = inspect(engine_)
     tables = insp.get_table_names()
 
+    if "projects" not in tables:
+        logger.info("Migrating: creating 'projects' table")
+        ProjectRow.__table__.create(bind=engine_, checkfirst=True)
+        insp = inspect(engine_)
+        tables = insp.get_table_names()
+
     if "agents" in tables:
         existing = {c["name"] for c in insp.get_columns("agents")}
         if "group" not in existing:
@@ -897,6 +942,19 @@ def _migrate(engine_):
                 conn.commit()
 
     if "requirements" in tables:
+        existing = {c["name"] for c in insp.get_columns("requirements")}
+        requirement_cols = {
+            "project_id": "INTEGER",
+            "project_key": "TEXT",
+            "project_display_name": "TEXT",
+            "target_project_path_override": "TEXT",
+        }
+        for col, col_type in requirement_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to requirements table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE requirements ADD COLUMN {col} {col_type}"))
+                    conn.commit()
         existing = {c["name"] for c in insp.get_columns("requirements")}
         if "intake_metadata_json" not in existing:
             logger.info("Migrating: adding 'intake_metadata_json' column to requirements table")
@@ -941,6 +999,7 @@ def _migrate(engine_):
     if "project_policies" in tables:
         existing = {c["name"] for c in insp.get_columns("project_policies")}
         project_policy_cols = {
+            "project_id": "INTEGER",
             "autonomy_mode": "TEXT DEFAULT 'recommend'",
             "allow_rebalance": "BOOLEAN DEFAULT 1",
             "allow_preemption": "BOOLEAN DEFAULT 0",
@@ -1015,6 +1074,18 @@ def _migrate(engine_):
     if "release_records" not in tables:
         logger.info("Migrating: creating 'release_records' table")
         ReleaseRecordRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("release_records")}
+        release_cols = {
+            "project_id": "INTEGER",
+            "project_display_name": "TEXT",
+        }
+        for col, col_type in release_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to release_records table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE release_records ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "error_fingerprints" not in tables:
         logger.info("Migrating: creating 'error_fingerprints' table")
@@ -1082,10 +1153,12 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate(engine)
     from server.services.projects.policy import ensure_default_project_policies
+    from server.services.projects.project_center import ensure_projects_materialized
 
     db = SessionLocal()
     try:
         ensure_default_project_policies(db)
+        ensure_projects_materialized(db)
     finally:
         db.close()
 

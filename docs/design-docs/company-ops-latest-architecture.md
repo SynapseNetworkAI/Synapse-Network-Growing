@@ -10,6 +10,22 @@
 Requirement -> Execution -> Release
 ```
 
+当前正式拓扑图：
+
+```mermaid
+flowchart LR
+    R["Requirement Surface"] -->|submit + approval| E["Execution Surface"]
+    E -->|validate passed| L["Release Surface"]
+    P["Project Center"] --> R
+    P --> E
+    P --> L
+    X["Error Loop"] -->|materialize / reuse requirement| R
+    N["Structured Logging + Lark Notifications"] --> R
+    N --> E
+    N --> L
+    N --> X
+```
+
 默认执行流也只保留最小核心形状：
 
 ```text
@@ -43,10 +59,17 @@ Requirement 保存的核心事实：
 
 1. 标题与描述
 2. 验收条件
-3. target project / target repos
+3. 所属 Project 与实际执行路径
 4. priority / source / family
 5. approval need / policy summary
 6. 当前 requirement 状态
+
+Requirement 现在默认先绑定正式 `Project`：
+
+1. `Project` 提供 `project_key / display_name / root_path`
+2. Requirement 创建默认先选项目
+3. `target_project_path_override` 只作为高级覆盖字段存在
+4. 项目级 GitHub、分支和部署配置不再散落在 requirement 自己身上
 
 Requirement 到 Execution 的正式桥接规则：
 
@@ -118,6 +141,24 @@ error event -> fingerprint -> requirement -> approval -> execution -> validate -
 4. 低风险自动审批并自动启动 execution
 5. 高风险 requirement 停在 requirement 面等待人工批准
 6. `/errors` 只作为稳定性治理辅助页，不替代三大主面
+
+### 2.5 Project Center
+
+Project 现在是正式一等对象，不再把“项目”隐藏在 `target_project_path` 和 `project policy` 里。
+
+它负责：
+
+1. `project_key / display_name / root_path`
+2. GitHub repo 与默认分支
+3. deploy repo、deploy strategy、环境标签
+4. 1:1 挂载的 `project policy`
+
+固定关系：
+
+1. `Project` 是主对象
+2. `ProjectPolicy` 是治理子资源
+3. Requirement 必须挂到 Project
+4. Release / Deployment 必须从 Project 读取仓库和环境配置
 
 ## 3. Core Execution Model
 
@@ -253,15 +294,21 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 1. `release_records`
 2. `deployment_records`
 
-这意味着旧的固定 `workflow_run / workflow_step` 5-step 语义已经退出正式主线，不再作为当前架构的中心对象。
+### 4.4 Project
+
+1. `projects`
+2. `project_policies`
+
+这意味着旧的固定 `workflow_run / workflow_step` 5-step 语义已经退出正式主线，不再作为当前架构的中心对象；同时 `target_project_path` 也不再是用户侧项目管理的主入口。
 
 ## 5. Product Surface
 
-当前控制台正式导航只保留三面：
+当前控制台正式导航保留三面主链，并新增项目中心：
 
 1. `/requirements`
 2. `/executions`
 3. `/releases`
+4. `/projects`
 
 页面职责：
 
@@ -277,6 +324,10 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
    release candidate 列表
 6. `/releases/:requirementId`
    prepare branch、open PR、deploy、rollback、deployment history
+7. `/projects`
+   项目列表、GitHub 配置、部署配置、治理配置
+8. `/projects/:id`
+   单个项目的基础信息、交付配置与 policy
 
 辅助治理页：
 
@@ -284,6 +335,12 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 2. `/errors/:fingerprintKey`
 
 它们只承担错误聚合、关联 requirement/execution 和通知历史展示。
+
+### 5.3 功能清单
+
+当前正式功能范围以这份清单为准，并要求后续迭代同步更新：
+
+`docs/design-docs/current-feature-inventory.md`
 
 ### 5.1 Runtime Reset
 

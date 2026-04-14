@@ -16,6 +16,7 @@ from server.database import (
     DeploymentRecordRow,
     ExecutionNodeRow,
     ExecutionRunRow,
+    ProjectRow,
     ReleaseRecordRow,
     RequirementRow,
     TaskRow,
@@ -32,6 +33,7 @@ from server.schemas import (
     ReleaseCandidateOut,
     ReleaseDetailOut,
     ReleaseRecordSlimOut,
+    ProjectOut,
     ValidationCheckResultOut,
     ValidationRecordSlimOut,
 )
@@ -48,6 +50,7 @@ from server.services.projects.policy import (
     project_policy_to_dict,
     resolve_project_policies_for_target,
 )
+from server.services.projects.project_center import ensure_projects_materialized, get_project, project_to_dict, resolve_project
 from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
 from server.services.runtime.task_runner import dispatch
 from server.services.requirements.approval import (
@@ -179,7 +182,48 @@ def _acceptance_contract_payload(body) -> dict[str, Any]:
     return provided_contract
 
 
+def _project_for_requirement(db: Session, requirement: RequirementRow) -> ProjectRow | None:
+    ensure_projects_materialized(db)
+    return resolve_project(
+        db,
+        project_id=int(requirement.project_id) if getattr(requirement, "project_id", None) is not None else None,
+        project_key=str(getattr(requirement, "project_key", "") or "") or None,
+        target_project_path=str(getattr(requirement, "target_project_path", "") or "") or None,
+    )
+
+
+def _resolve_project_for_body(db: Session, body) -> ProjectRow | None:
+    ensure_projects_materialized(db)
+    body_project_id = getattr(body, "project_id", None)
+    if body_project_id is not None:
+        return get_project(db, int(body_project_id))
+    return resolve_project(
+        db,
+        project_key=None,
+        target_project_path=str(getattr(body, "target_project_path", "") or "") or None,
+    )
+
+
+def _resolved_target_project_path(project: ProjectRow | None, *, override: str | None = None, fallback: str | None = None) -> str | None:
+    cleaned_override = str(override or "").strip()
+    if cleaned_override:
+        return cleaned_override
+    if project is not None and str(getattr(project, "root_path", "") or "").strip():
+        return str(project.root_path or "").strip() or None
+    cleaned_fallback = str(fallback or "").strip()
+    return cleaned_fallback or None
+
+
 def _target_projects_for_requirement(db: Session, requirement: RequirementRow) -> list[str]:
+    project = _project_for_requirement(db, requirement)
+    if project is not None:
+        resolved = _resolved_target_project_path(
+            project,
+            override=str(getattr(requirement, "target_project_path_override", "") or "") or None,
+            fallback=str(getattr(requirement, "target_project_path", "") or "") or None,
+        )
+        if resolved:
+            return [resolved]
     policies = resolve_project_policies_for_target(
         db,
         getattr(requirement, "target_project_path", None),
@@ -191,6 +235,10 @@ def _target_projects_for_requirement(db: Session, requirement: RequirementRow) -
 
 
 def _primary_project_policy(db: Session, requirement: RequirementRow):
+    project = _project_for_requirement(db, requirement)
+    if project is not None:
+        policies = resolve_project_policies_for_target(db, str(getattr(project, "root_path", "") or "") or None, require_active=False)
+        return policies[0] if policies else None
     policies = resolve_project_policies_for_target(
         db,
         getattr(requirement, "target_project_path", None),
@@ -200,6 +248,15 @@ def _primary_project_policy(db: Session, requirement: RequirementRow):
 
 
 def _approval_required(db: Session, requirement: RequirementRow) -> bool:
+    project = _project_for_requirement(db, requirement)
+    if project is not None:
+        policies = resolve_project_policies_for_target(
+            db,
+            str(getattr(project, "root_path", "") or "") or None,
+            require_active=False,
+        )
+        if any(bool(getattr(policy, "requires_manual_approval", False)) for policy in policies):
+            return True
     policies = resolve_project_policies_for_target(
         db,
         getattr(requirement, "target_project_path", None),
@@ -331,6 +388,7 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
+    project = _project_for_requirement(db, requirement)
     return AgentFirstRequirementOut(
         id=int(requirement.id),
         title=str(requirement.title or ""),
@@ -340,7 +398,11 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         priority=str(requirement.priority or "normal"),
         source=str(requirement.source or "manual"),
         source_ref=str(requirement.source_ref or "").strip() or None,
+        project_id=int(project.id) if project is not None else (int(requirement.project_id) if getattr(requirement, "project_id", None) is not None else None),
+        project_key=str(getattr(project, "project_key", "") or "").strip() or (str(getattr(requirement, "project_key", "") or "").strip() or None),
+        project_display_name=str(getattr(project, "display_name", "") or "").strip() or (str(getattr(requirement, "project_display_name", "") or "").strip() or None),
         target_project_path=str(requirement.target_project_path or "").strip() or None,
+        target_project_path_override=str(getattr(requirement, "target_project_path_override", "") or "").strip() or None,
         target_projects=_target_projects_for_requirement(db, requirement),
         approval_required=_approval_required(db, requirement),
         approval_status=str(requirement.approval_status or "pending_approval"),
@@ -512,9 +574,11 @@ def _build_requirement_detail(
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
+    project = _project_for_requirement(db, requirement)
     return AgentFirstRequirementDetailOut(
         requirement=_requirement_to_out(db, requirement),
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
+        project=ProjectOut(**project_to_dict(project)) if project is not None else None,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,
         approval=approval_override or _approval_summary(
@@ -526,6 +590,7 @@ def _build_requirement_detail(
 
 
 def list_requirements(db: Session, *, status: str | None = None, search: str | None = None) -> list[AgentFirstRequirementOut]:
+    ensure_projects_materialized(db)
     query = db.query(RequirementRow)
     if status:
         query = query.filter(RequirementRow.status == status)
@@ -540,6 +605,8 @@ def list_requirements(db: Session, *, status: str | None = None, search: str | N
                     item.title.lower(),
                     item.description_markdown.lower(),
                     (item.source_ref or "").lower(),
+                    (item.project_display_name or "").lower(),
+                    (item.project_key or "").lower(),
                     (item.target_project_path or "").lower(),
                 ]
             )
@@ -550,6 +617,15 @@ def list_requirements(db: Session, *, status: str | None = None, search: str | N
 
 
 def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
+    ensure_projects_materialized(db)
+    project = _resolve_project_for_body(db, body)
+    if project is None:
+        raise ValueError("Requirement must be attached to a valid project.")
+    target_project_path = _resolved_target_project_path(
+        project,
+        override=str(getattr(body, "target_project_path_override", "") or "") or None,
+        fallback=str(getattr(body, "target_project_path", "") or "") or None,
+    )
     requirement = RequirementRow(
         title=body.title.strip(),
         description_markdown=body.description_markdown.strip(),
@@ -558,8 +634,26 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         source=body.source,
         source_ref=body.source_ref,
         intake_metadata_json=_json_dump(body.intake_metadata or {}),
-        target_project_path=(body.target_project_path or "").strip() or None,
-        acceptance_contract_json=_json_dump(_acceptance_contract_payload(body)),
+        project_id=int(project.id),
+        project_key=str(project.project_key or ""),
+        project_display_name=str(project.display_name or ""),
+        target_project_path=target_project_path,
+        target_project_path_override=str(getattr(body, "target_project_path_override", "") or "").strip() or None,
+        acceptance_contract_json=_json_dump(
+            _acceptance_contract_payload(
+                type(
+                    "RequirementAcceptanceSource",
+                    (),
+                    {
+                        "acceptance_contract": getattr(body, "acceptance_contract", None),
+                        "acceptance_criteria_markdown": getattr(body, "acceptance_criteria_markdown", ""),
+                        "title": getattr(body, "title", ""),
+                        "description_markdown": getattr(body, "description_markdown", ""),
+                        "target_project_path": target_project_path,
+                    },
+                )()
+            )
+        ),
         approval_status="pending_approval",
         approval_contract_json=_json_dump(body.approval_contract or {}),
     )
@@ -589,9 +683,11 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
 
 
 def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequirementDetailOut:
+    ensure_projects_materialized(db)
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    project = _project_for_requirement(db, requirement)
     if body.title is not None:
         requirement.title = body.title.strip()
     if body.description_markdown is not None:
@@ -607,15 +703,30 @@ def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequ
         requirement.priority = body.priority
     if body.source_ref is not None:
         requirement.source_ref = body.source_ref
+    if getattr(body, "project_id", None) is not None:
+        next_project = get_project(db, int(body.project_id))
+        if next_project is None:
+            raise ValueError("Project not found.")
+        project = next_project
+        requirement.project_id = int(next_project.id)
+        requirement.project_key = str(next_project.project_key or "")
+        requirement.project_display_name = str(next_project.display_name or "")
+    if getattr(body, "target_project_path_override", None) is not None:
+        requirement.target_project_path_override = str(body.target_project_path_override or "").strip() or None
     if body.target_project_path is not None:
         requirement.target_project_path = body.target_project_path.strip() or None
+    requirement.target_project_path = _resolved_target_project_path(
+        project,
+        override=str(getattr(requirement, "target_project_path_override", "") or "") or None,
+        fallback=str(getattr(requirement, "target_project_path", "") or "") or None,
+    )
     requirement.updated_at = utcnow()
     _log_workflow_event(
         "requirement_updated",
         requirement=requirement,
         edited_fields=[
             field
-            for field in ["title", "description_markdown", "acceptance_criteria_markdown", "priority", "source_ref", "target_project_path"]
+            for field in ["title", "description_markdown", "acceptance_criteria_markdown", "priority", "source_ref", "project_id", "target_project_path_override", "target_project_path"]
             if getattr(body, field, None) is not None
         ],
     )
@@ -1534,7 +1645,9 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         id=int(release.id),
         requirement_id=int(release.requirement_id),
         execution_run_id=int(release.execution_run_id) if release.execution_run_id is not None else None,
+        project_id=int(release.project_id) if getattr(release, "project_id", None) is not None else None,
         project_key=str(release.project_key or "").strip() or None,
+        project_display_name=str(getattr(release, "project_display_name", "") or "").strip() or None,
         target_project_path=str(release.target_project_path or "").strip() or None,
         status=str(release.status or "not_ready"),
         branch_name=str(release.branch_name or "").strip() or None,
@@ -1577,6 +1690,7 @@ def _release_record(db: Session, requirement: RequirementRow) -> ReleaseRecordRo
     release = _latest_release(db, int(requirement.id))
     validation = _latest_validation(db, int(requirement.id))
     latest_execution = _latest_execution_run(db, int(requirement.id))
+    project = _project_for_requirement(db, requirement)
     current_execution_id = (
         int(validation.execution_run_id)
         if validation is not None and validation.execution_run_id is not None
@@ -1585,13 +1699,19 @@ def _release_record(db: Session, requirement: RequirementRow) -> ReleaseRecordRo
     if release is not None:
         if current_execution_id is not None and release.execution_run_id != current_execution_id:
             release.execution_run_id = current_execution_id
+        if project is not None:
+            release.project_id = int(project.id)
+            release.project_key = str(project.project_key or "")
+            release.project_display_name = str(project.display_name or "")
+            release.target_project_path = str(requirement.target_project_path or "").strip() or str(project.root_path or "").strip() or None
         return release
-    primary = _primary_project_policy(db, requirement)
     release = ReleaseRecordRow(
         requirement_id=int(requirement.id),
         execution_run_id=current_execution_id,
-        project_key=str(getattr(primary, "project_key", "") or "").strip() or None,
-        target_project_path=str(requirement.target_project_path or "").strip() or None,
+        project_id=int(project.id) if project is not None else None,
+        project_key=str(getattr(project, "project_key", "") or "").strip() or None,
+        project_display_name=str(getattr(project, "display_name", "") or "").strip() or None,
+        target_project_path=str(requirement.target_project_path or "").strip() or (str(getattr(project, "root_path", "") or "").strip() or None),
         status="ready",
     )
     db.add(release)
@@ -1610,9 +1730,12 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     validation = _latest_validation(db, requirement_id)
     if validation is None or str(validation.status or "") != "passed":
         raise ValueError("Requirement must pass validate before release preparation.")
+    project = _project_for_requirement(db, requirement)
+    if project is None:
+        raise ValueError("Requirement must resolve to a project before release preparation.")
     policy = _primary_project_policy(db, requirement)
     if policy is None:
-        raise ValueError("Requirement target project is not governed by a project policy.")
+        raise ValueError("Requirement project is not governed by a project policy.")
     release = _release_record(db, requirement)
     release.execution_run_id = int(validation.execution_run_id)
     policy_payload = project_policy_to_dict(policy)
@@ -1629,7 +1752,7 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
         requirement_id=requirement_id,
         requirement_title=str(requirement.title or ""),
         delivery_contract=delivery_contract,
-        fallback_target_path=str(requirement.target_project_path or "").strip() or None,
+        fallback_target_path=str(requirement.target_project_path or "").strip() or str(project.root_path or "").strip() or None,
     )
     blockers = [str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]
     if blockers:
@@ -1682,9 +1805,12 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     validation = _latest_validation(db, requirement_id)
     if validation is None or str(validation.status or "") != "passed":
         raise ValueError("Requirement must pass validate before opening a PR.")
+    project = _project_for_requirement(db, requirement)
+    if project is None:
+        raise ValueError("Requirement must resolve to a project before opening a PR.")
     policy = _primary_project_policy(db, requirement)
     if policy is None:
-        raise ValueError("Requirement target project is not governed by a project policy.")
+        raise ValueError("Requirement project is not governed by a project policy.")
     release = _release_record(db, requirement)
     release.execution_run_id = int(validation.execution_run_id)
     policy_payload = project_policy_to_dict(policy)
@@ -1701,7 +1827,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
         requirement_id=requirement_id,
         requirement_title=str(requirement.title or ""),
         delivery_contract=delivery_contract,
-        fallback_target_path=str(requirement.target_project_path or "").strip() or None,
+        fallback_target_path=str(requirement.target_project_path or "").strip() or str(project.root_path or "").strip() or None,
     )
     blockers = [str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]
     if blockers:

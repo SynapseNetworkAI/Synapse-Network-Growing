@@ -8,14 +8,65 @@ from server.schemas import ValidationCheckResultOut
 from server.services.workflows.agent_first import reset_execution_runtime_data
 
 
+def _create_project(
+    synced_client,
+    *,
+    project_key: str,
+    display_name: str,
+    root_path: str,
+    repo_full_name: str | None = None,
+    deploy_strategy: str = "disabled",
+    deploy_repo_full_name: str | None = None,
+    deploy_trigger_enabled: bool = False,
+    git_push_enabled: bool = False,
+):
+    response = synced_client.post(
+        "/api/projects",
+        json={
+            "project_key": project_key,
+            "display_name": display_name,
+            "root_path": root_path,
+            "repo_full_name": repo_full_name,
+            "deploy_strategy": deploy_strategy,
+            "deploy_repo_full_name": deploy_repo_full_name,
+            "deploy_trigger_enabled": deploy_trigger_enabled,
+        },
+    )
+    assert response.status_code == 201
+    project = response.json()
+    if git_push_enabled:
+        policy_response = synced_client.patch(
+            f"/api/projects/{project['id']}/policy",
+            json={
+                "capability_matrix": {
+                    "git_push": True,
+                    "git_read": True,
+                    "git_write": True,
+                    "shell_access": True,
+                    "network_access": False,
+                    "publish": False,
+                }
+            },
+        )
+        assert policy_response.status_code == 200
+    return project
+
+
 def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     create_resp = synced_client.post(
         "/api/requirements",
         json={
             "title": "Simplify workspace summary copy",
             "description_markdown": "Update the workspace summary copy and keep the change minimal without touching unrelated projects or deployment gates.",
             "priority": "normal",
-            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+            "project_id": project["id"],
         },
     )
 
@@ -43,13 +94,20 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
 
 
 def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     create_resp = synced_client.post(
         "/api/requirements",
         json={
             "title": "Emit chain logs for requirement submit",
             "description_markdown": "Verify the critical requirement to execution chain emits structured events.",
             "priority": "normal",
-            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+            "project_id": project["id"],
         },
     )
     assert create_resp.status_code == 201
@@ -67,26 +125,42 @@ def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
 
 
 def test_create_requirement_without_target_project_path_does_not_raise_policy_summary_error(synced_client):
-    with patch("server.services.workflows.agent_first.project_policy_summary_markdown") as mock_summary:
-        mock_summary.side_effect = AssertionError("project policy summary should not be generated without target project path")
-        create_resp = synced_client.post(
-            "/api/requirements",
-            json={
-                "title": "Create requirement without explicit target path",
-                "description_markdown": "Regression check for requirement detail serialization when no target project path is supplied.",
-                "priority": "normal",
-            },
-        )
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Create requirement without explicit target path",
+            "description_markdown": "Regression check for requirement detail serialization when no target project path is supplied.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
 
     assert create_resp.status_code == 201
     payload = create_resp.json()
     assert payload["requirement"]["title"] == "Create requirement without explicit target path"
-    assert payload["policy_summary_markdown"] == ""
+    assert payload["requirement"]["project_id"] == project["id"]
+    assert payload["requirement"]["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network-Growing"
     assert payload["requirement"]["acceptance_criteria_markdown"].strip()
-    mock_summary.assert_not_called()
 
 
 def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+        deploy_repo_full_name="cliff-personal/Synapse-Network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+    )
     create_resp = synced_client.post(
         "/api/requirements",
         json={
@@ -94,7 +168,7 @@ def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, d
             "description_markdown": "Prepare a production release rollout with publish impact, release checklist, and production coordination evidence.",
             "acceptance_criteria_markdown": "- rollout plan captured\n- release risks documented",
             "priority": "high",
-            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            "project_id": project["id"],
         },
     )
     assert create_resp.status_code == 201
@@ -119,6 +193,13 @@ def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, d
 
 
 def test_manual_approval_auto_starts_execution(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
     requirement = RequirementRow(
         title="Manual approval release prep",
         description_markdown="Production rollout change with publish impact and multi-stakeholder coordination.",
@@ -126,6 +207,9 @@ def test_manual_approval_auto_starts_execution(synced_client, db_session):
         approval_status="pending_approval",
         priority="high",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
         acceptance_contract_json='{"markdown":"- rollout approved"}',
         approval_requested_at=None,
@@ -170,6 +254,13 @@ def test_manual_approval_auto_starts_execution(synced_client, db_session):
 
 
 def test_manual_reject_marks_requirement_needs_revision(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Reject execution until clarified",
         description_markdown="Need more detailed execution constraints.",
@@ -177,6 +268,9 @@ def test_manual_reject_marks_requirement_needs_revision(synced_client, db_sessio
         approval_status="pending_approval",
         priority="high",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
         acceptance_contract_json='{"markdown":"- clarified"}',
     )
@@ -207,6 +301,13 @@ def test_manual_reject_marks_requirement_needs_revision(synced_client, db_sessio
 
 
 def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Validate using execution evidence",
         description_markdown="Backend bugfix with targeted validation evidence.",
@@ -214,6 +315,9 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
         approval_status="approved",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
     )
     db_session.add(requirement)
@@ -279,6 +383,17 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
 
 
 def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
     requirement = RequirementRow(
         title="Promote validated change",
         description_markdown="Validated change ready for release.",
@@ -286,6 +401,9 @@ def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, 
         approval_status="waived",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
     )
     db_session.add(requirement)
@@ -370,6 +488,13 @@ def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, 
 
 
 def test_create_execution_run_rejects_when_requirement_already_has_active_run(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Existing active execution",
         description_markdown="Do not create a second execution run while one is active.",
@@ -377,6 +502,9 @@ def test_create_execution_run_rejects_when_requirement_already_has_active_run(sy
         approval_status="approved",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
     )
     db_session.add(requirement)
@@ -402,6 +530,13 @@ def test_create_execution_run_rejects_when_requirement_already_has_active_run(sy
 
 
 def test_start_execution_rejects_finished_run(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Finished execution cannot restart",
         description_markdown="Completed runs should never start again.",
@@ -409,6 +544,9 @@ def test_start_execution_rejects_finished_run(synced_client, db_session):
         approval_status="approved",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
     )
     db_session.add(requirement)
@@ -433,6 +571,13 @@ def test_start_execution_rejects_finished_run(synced_client, db_session):
 
 
 def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Retry creates a new execution",
         description_markdown="Failed execution must stay failed; retry should create a new run.",
@@ -440,6 +585,9 @@ def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client,
         approval_status="approved",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
     )
     db_session.add(requirement)
@@ -468,6 +616,13 @@ def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client,
 
 
 def test_validate_rejects_non_current_execution_run(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
     requirement = RequirementRow(
         title="Old execution cannot validate",
         description_markdown="Only the latest execution chain can validate.",
@@ -475,6 +630,9 @@ def test_validate_rejects_non_current_execution_run(synced_client, db_session):
         approval_status="approved",
         priority="normal",
         source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
     )
     db_session.add(requirement)

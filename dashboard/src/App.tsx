@@ -5,6 +5,8 @@ import ExecutionsPage from './pages/ExecutionsPage'
 import ExecutionDetailPage from './pages/ExecutionDetailPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
+import ProjectsPage from './pages/ProjectsPage'
+import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
 import ErrorDetailPage from './pages/ErrorDetailPage'
 
@@ -12,6 +14,7 @@ const primaryNav = [
   { to: '/requirements', label: '需求' },
   { to: '/executions', label: '执行' },
   { to: '/releases', label: '发布' },
+  { to: '/projects', label: '项目' },
   { to: '/errors', label: '错误' },
 ]
 
@@ -22,6 +25,8 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname.startsWith('/executions/'), title: '执行详情', meta: 'Execution detail' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
+  { match: (pathname) => pathname === '/projects', title: '项目', meta: 'Project list' },
+  { match: (pathname) => pathname.startsWith('/projects/'), title: '项目详情', meta: 'Project detail' },
   { match: (pathname) => pathname === '/errors', title: '错误', meta: 'Error list' },
   { match: (pathname) => pathname.startsWith('/errors/'), title: '错误详情', meta: 'Error detail' },
 ]
@@ -101,6 +106,8 @@ export default function App() {
                 <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
+                <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/projects/:id" element={<ProjectDetailPage />} />
                 <Route path="/errors" element={<ErrorsPage />} />
                 <Route path="/errors/:fingerprintKey" element={<ErrorDetailPage />} />
                 <Route path="*" element={<Navigate to="/requirements" replace />} />

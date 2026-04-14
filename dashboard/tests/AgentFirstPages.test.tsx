@@ -4,11 +4,13 @@ import { MemoryRouter } from 'react-router-dom'
 import RequirementPool from '../src/pages/RequirementPool'
 import ExecutionsPage from '../src/pages/ExecutionsPage'
 import ReleasesPage from '../src/pages/ReleasesPage'
+import ProjectsPage from '../src/pages/ProjectsPage'
 import ErrorsPage from '../src/pages/ErrorsPage'
 import { ToastProvider } from '../src/components/workbench'
 
 const mockApi = {
   getRequirements: vi.fn(),
+  getProjects: vi.fn(),
   createRequirement: vi.fn(),
   deleteRequirement: vi.fn(),
   updateRequirement: vi.fn(),
@@ -23,6 +25,7 @@ const mockApi = {
 vi.mock('../src/api', () => ({
   api: {
     getRequirements: (...args: unknown[]) => mockApi.getRequirements(...args),
+    getProjects: (...args: unknown[]) => mockApi.getProjects(...args),
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
     deleteRequirement: (...args: unknown[]) => mockApi.deleteRequirement(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
@@ -39,6 +42,28 @@ describe('agent-first pages smoke', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mockApi.deleteRequirement.mockResolvedValue(undefined)
+    mockApi.getProjects.mockResolvedValue([
+      {
+        id: 7,
+        project_key: 'synapse-network',
+        display_name: 'Synapse-Network',
+        root_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        status: 'active',
+        repo_full_name: 'cliff-personal/Synapse-Network',
+        default_branch: 'main',
+        deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+        deploy_strategy: 'github_actions',
+        deploy_trigger_enabled: true,
+        staging_host_label: 'staging',
+        production_host_label: 'production',
+        staging_workflow_file: 'deploy-staging.yml',
+        production_workflow_file: 'deploy-production.yml',
+        notes: null,
+        policy_id: 3,
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+    ])
     mockApi.getRequirements.mockResolvedValue([
       {
         id: 1,
@@ -48,7 +73,11 @@ describe('agent-first pages smoke', () => {
         priority: 'high',
         source: 'manual',
         source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
         target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
         target_projects: ['Synapse-Network'],
         acceptance_criteria_markdown: 'Checks pass.',
         approval_required: false,
@@ -83,16 +112,23 @@ describe('agent-first pages smoke', () => {
         requirement: {
           id: 1,
           title: 'Launch FAQ',
-          status: 'done',
-          target_projects: ['Synapse-Network'],
-          latest_execution_run_id: 11,
-        },
-        validation: {
+        status: 'done',
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        target_projects: ['Synapse-Network'],
+        target_project_path_override: null,
+        latest_execution_run_id: 11,
+      },
+      validation: {
           status: 'passed',
           summary_markdown: 'All checks green.',
           updated_at: '2026-04-14T00:00:00Z',
         },
         release: {
+          project_id: 7,
+          project_key: 'synapse-network',
+          project_display_name: 'Synapse-Network',
           status: 'ready',
           branch_name: 'ops/req-1-launch-faq',
           commit_sha: 'abc1234',
@@ -146,7 +182,11 @@ describe('agent-first pages smoke', () => {
         priority: 'normal',
         source: 'manual',
         source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
         target_project_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        target_project_path_override: null,
         target_projects: ['Synapse-Network-Growing'],
         acceptance_criteria_markdown: 'Copy updated.',
         approval_required: false,
@@ -167,7 +207,11 @@ describe('agent-first pages smoke', () => {
         priority: 'high',
         source: 'manual',
         source_ref: null,
+        project_id: 7,
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
         target_project_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        target_project_path_override: null,
         target_projects: ['Synapse-Network'],
         acceptance_criteria_markdown: 'Checks pass.',
         approval_required: false,
@@ -201,9 +245,12 @@ describe('agent-first pages smoke', () => {
     fireEvent.change(screen.getByPlaceholderText('输入需求描述'), {
       target: { value: 'Tighten the requirement queue copy.' },
     })
+    fireEvent.change(screen.getByDisplayValue('选择项目'), {
+      target: { value: '7' },
+    })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await waitFor(() => expect(mockApi.createRequirement).toHaveBeenCalled())
+    await waitFor(() => expect(mockApi.createRequirement).toHaveBeenCalledWith(expect.objectContaining({ project_id: 7 })))
     await waitFor(() => expect(screen.queryByRole('heading', { name: '新建需求' })).not.toBeInTheDocument())
     expect(await screen.findByText('需求已创建')).toBeInTheDocument()
 
@@ -267,6 +314,19 @@ describe('agent-first pages smoke', () => {
     await waitFor(() => expect(mockApi.getReleaseCandidates).toHaveBeenCalled())
     expect(screen.getByText('发布列表')).toBeInTheDocument()
     expect(screen.getByText(/Launch FAQ/)).toBeInTheDocument()
+  })
+
+  it('renders project surface', async () => {
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <ProjectsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+    await waitFor(() => expect(mockApi.getProjects).toHaveBeenCalled())
+    expect(screen.getByText('项目列表')).toBeInTheDocument()
+    expect(screen.getByText('Synapse-Network')).toBeInTheDocument()
   })
 
   it('renders error surface', async () => {

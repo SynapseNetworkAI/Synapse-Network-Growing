@@ -7,6 +7,8 @@
 1. `需求`
 2. `执行`
 3. `发布`
+4. `项目`
+5. `错误`
 
 默认执行流只有：
 
@@ -24,7 +26,7 @@ intake -> execute -> validate -> deliver
 
 ## 1. 页面总览
 
-当前正式页面只有 6 个：
+当前正式页面包括：
 
 1. `/requirements`
 2. `/requirements/:id`
@@ -32,6 +34,8 @@ intake -> execute -> validate -> deliver
 4. `/executions/:id`
 5. `/releases`
 6. `/releases/:requirementId`
+7. `/projects`
+8. `/projects/:id`
 
 辅助治理页：
 
@@ -43,6 +47,11 @@ intake -> execute -> validate -> deliver
 1. 在 `需求` 定义为什么做
 2. 在 `执行` 观察 agent 怎么做、做到什么程度、验证是否通过
 3. 在 `发布` 处理 branch / PR / deploy / rollback
+4. 在 `项目` 统一管理仓库、GitHub、部署与治理配置
+
+当前正式功能范围请同时参考：
+
+`docs/design-docs/current-feature-inventory.md`
 
 ### 1.1 页面骨架规则
 
@@ -97,10 +106,11 @@ intake -> execute -> validate -> deliver
 
 1. 标题写结果，不写动作口号
 2. 描述里明确目标与约束；验收标准由 agent 创建后立即生成
-3. target project 尽量明确
-4. requirement submit 是 requirement 进入 execution 的唯一正式桥接点
-5. 只有恢复/调试场景才手动创建 execution run
-6. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
+3. requirement 必须先选择正式 `Project`
+4. 路径覆盖只在高级场景使用，不再把裸 `target_project_path` 当作主输入
+5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点
+6. 只有恢复/调试场景才手动创建 execution run
+7. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
 
 ### 2.2 `/requirements/:id`
 
@@ -117,7 +127,7 @@ intake -> execute -> validate -> deliver
 #### 页面内容
 
 1. 标题、描述、验收条件
-2. target project / source / priority
+2. 所属项目 / source / priority
 3. 顶部执行 / 发布动作
 4. 仅在人工审批场景显示审批提示
 
@@ -272,7 +282,35 @@ Release detail 负责交付与发布操作。
 2. requirement 页只看 intent，不在那边做发布决策
 3. 发布、promotion、rollback 都在 release 面统一处理
 
-## 5. Runtime 选择心智模型
+## 5. 项目面
+
+### 5.1 `/projects`
+
+#### 页面职责
+
+项目列表页是正式项目中心，负责管理仓库、GitHub 与部署配置。
+
+#### 页面内容
+
+1. 项目标识与显示名称
+2. root path
+3. GitHub repo / default branch
+4. deploy strategy / env label
+5. 项目状态
+
+### 5.2 `/projects/:id`
+
+#### 页面职责
+
+项目详情页负责查看和更新单个 Project 的基础配置与治理配置。
+
+#### 推荐使用方式
+
+1. 先在项目中心录入正式 Project
+2. 再在 requirement 创建时选择项目
+3. release / deployment 默认从项目配置读取 repo、分支和环境标签
+
+## 6. Runtime 选择心智模型
 
 planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 
@@ -288,7 +326,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 2. execute 由选定 runtime 驱动
 3. validate 与 deliver 由系统治理，不交给模型随意跳过
 
-## 6. 错误日志页（辅助）
+## 7. 错误日志页（辅助）
 
 ### 6.1 `/errors`
 
@@ -311,7 +349,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 
 1. `GET /api/errors/{fingerprintKey}`
 
-## 7. Lark 通知
+## 8. Lark 通知
 
 当前外部通知统一分三路：
 
