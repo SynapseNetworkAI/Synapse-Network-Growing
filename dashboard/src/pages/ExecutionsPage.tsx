@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ExecutionRun, api } from '../api'
+import { EmptyPane, FieldLabel, InspectorRail, SectionFrame, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
@@ -15,6 +16,15 @@ const STATUS_LABEL: Record<string, string> = {
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
+}
+
+function statusTone(status: string) {
+  if (status === 'succeeded') return 'delivered'
+  if (status === 'running') return 'running'
+  if (status === 'blocked' || status === 'failed') return 'blocked'
+  if (status === 'validating') return 'validating'
+  if (status === 'queued') return 'ready'
+  return 'muted'
 }
 
 export default function ExecutionsPage() {
@@ -48,94 +58,99 @@ export default function ExecutionsPage() {
   }, [executions, search])
 
   return (
-    <div className="space-y-6" data-testid="executions-page">
-      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Execution</div>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">执行面</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              只看 agent 如何执行、跑了哪些节点、什么时候进入 validate，以及哪里发生了 blocked / failed incident。
-            </p>
-          </div>
+    <div className="space-y-[var(--ops-section-gap)]" data-testid="executions-page">
+      <SectionFrame
+        eyebrow="Execution Console"
+        title="执行面"
+        description="执行面聚焦 agent 的实际工作面：执行模式、运行时、验证结果和恢复信号。"
+        actions={
           <div className="flex items-center gap-3">
             <input
-              className="w-72 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
+              className="w-72 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
               placeholder="搜索 execution / requirement / target"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <button className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white" onClick={() => load().catch(() => {})}>
+            <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2.5 text-sm font-medium text-white" onClick={() => load().catch(() => {})}>
               刷新
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-        <div className="flex items-center justify-between gap-4">
+        }
+      >
+        <div className="grid gap-4 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-3">
           <div>
-            <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Runs</div>
-            <h3 className="mt-2 text-xl font-semibold text-slate-950">执行队列</h3>
+            <FieldLabel>默认流</FieldLabel>
+            <div className="mt-2">{'intake -> execute -> validate -> deliver'}</div>
           </div>
-          <div className="text-sm text-slate-500">{loading ? '加载中…' : `${filtered.length} 个 execution run`}</div>
+          <div>
+            <FieldLabel>主工作区</FieldLabel>
+            <div className="mt-2">Execution graph、evidence、checks 和 incidents。</div>
+          </div>
+          <div>
+            <FieldLabel>治理边界</FieldLabel>
+            <div className="mt-2">submit 放行后 execution 默认自动启动；这里主要负责观察、恢复和 validate。</div>
+          </div>
         </div>
+      </SectionFrame>
 
+      <SectionFrame eyebrow="Runs" title="执行队列" description={loading ? '正在拉取 execution run…' : `${filtered.length} 个 execution run`}>
         <div className="mt-4 grid gap-4">
           {filtered.map((item) => (
-            <article key={item.id} className="rounded-3xl border border-slate-200/80 bg-slate-50/80 p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
+            <article key={item.id} className="border-b border-[color:var(--ops-stroke-soft)] pb-5 last:border-b-0 last:pb-0">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr),320px]">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-semibold text-slate-950">Execution #{item.id}</h4>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{STATUS_LABEL[item.status] || item.status}</span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{item.execution_mode}</span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{item.complexity}</span>
+                    <h4 className="text-lg font-semibold text-[color:var(--ops-text-title)]">Execution #{item.id}</h4>
+                    <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
+                    <StateBadge tone="muted">{item.execution_mode}</StateBadge>
+                    <StateBadge tone="muted">{item.complexity}</StateBadge>
                   </div>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{item.planner_summary || 'No planner summary'}</p>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.planner_summary || 'No planner summary'}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
+                      查看需求
+                    </button>
+                    <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white" onClick={() => navigate(`/executions/${item.id}`)}>
+                      打开执行面
+                    </button>
+                    {(item.status === 'queued' || item.status === 'paused' || item.status === 'blocked') && (
+                      <button
+                        className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)]"
+                        onClick={async () => {
+                          await api.startExecution(item.id)
+                          await load()
+                        }}
+                      >
+                        {item.status === 'paused' ? '恢复执行' : '恢复/重启执行'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="text-right text-xs text-slate-500">
-                  <div>requirement #{item.requirement_id}</div>
-                  <div>{formatTime(item.updated_at)}</div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-2 text-xs text-slate-500 md:grid-cols-2 xl:grid-cols-4">
-                <div>targets: {item.target_projects.join(', ') || '-'}</div>
-                <div>validation: {item.validation_profile}</div>
-                <div>delivery: {item.delivery_intent}</div>
-                <div>approval: {item.approval_required ? 'required' : 'waived'}</div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
-                  查看需求
-                </button>
-                <button className="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white" onClick={() => navigate(`/executions/${item.id}`)}>
-                  打开执行面
-                </button>
-                {(item.status === 'queued' || item.status === 'paused' || item.status === 'blocked') && (
-                  <button
-                    className="rounded-2xl border border-blue-200 px-4 py-2 text-sm text-blue-700"
-                    onClick={async () => {
-                      await api.startExecution(item.id)
-                      await load()
-                    }}
-                  >
-                    {item.status === 'paused' ? '恢复执行' : '启动执行'}
-                  </button>
-                )}
+                <InspectorRail eyebrow={`Requirement #${item.requirement_id}`} title="Run Summary" className="bg-transparent shadow-none">
+                  <div>
+                    <FieldLabel>Targets</FieldLabel>
+                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.target_projects.join(', ') || '-'}</div>
+                  </div>
+                  <div>
+                    <FieldLabel>Validation / Delivery</FieldLabel>
+                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.validation_profile} · {item.delivery_intent}</div>
+                  </div>
+                  <div>
+                    <FieldLabel>Approval</FieldLabel>
+                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.approval_required ? 'required' : 'waived'}</div>
+                  </div>
+                  <div>
+                    <FieldLabel>Updated</FieldLabel>
+                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</div>
+                  </div>
+                </InspectorRail>
               </div>
             </article>
           ))}
 
-          {!loading && filtered.length === 0 && (
-            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
-              当前没有 execution run。
-            </div>
-          )}
+          {!loading && filtered.length === 0 && <EmptyPane>当前没有 execution run。</EmptyPane>}
         </div>
-      </section>
+      </SectionFrame>
     </div>
   )
 }

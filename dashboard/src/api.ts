@@ -791,11 +791,24 @@ export interface AgentRequirement {
   latest_release_status: string | null
 }
 
+export interface AgentRequirementApproval {
+  approval_decision: string
+  approval_status: string
+  approval_reason: string | null
+  approval_source: string | null
+  required_approver_roles: string[]
+  risk_flags: string[]
+  pending_execution_start: boolean
+  auto_started: boolean
+  execution_run_id: number | null
+}
+
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
   policy_summary_markdown: string
   latest_execution_id: number | null
   latest_release_id: number | null
+  approval: AgentRequirementApproval
 }
 
 export interface ExecutionNode {
@@ -894,6 +907,68 @@ export interface ReleaseDetail {
   validation: ValidationRecord | null
   release: ReleaseRecord | null
   deployments: DeploymentRecord[]
+}
+
+export interface NotificationDelivery {
+  id: number
+  channel: string
+  event_type: string
+  event_key: string
+  object_type: string
+  object_key: string
+  service_name: string | null
+  status: string
+  payload: Record<string, unknown>
+  response_excerpt: string | null
+  delivered_at: string | null
+  created_at: string | null
+}
+
+export interface ErrorEvent {
+  id: number
+  fingerprint_key: string
+  source_kind: string
+  service_name: string
+  project_key: string | null
+  project_root_path: string | null
+  incident_code: string | null
+  severity: string
+  summary: string
+  message: string
+  stack_trace: string | null
+  source_ref: string | null
+  environment: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string | null
+  created_at: string | null
+}
+
+export interface ErrorFingerprint {
+  fingerprint_key: string
+  source_kind: string
+  service_name: string
+  project_key: string | null
+  project_root_path: string | null
+  incident_code: string | null
+  severity: string
+  summary: string
+  evidence_excerpt: string | null
+  status: string
+  occurrence_count: number
+  first_seen_at: string | null
+  latest_seen_at: string | null
+  latest_error_event_id: number | null
+  linked_requirement_id: number | null
+  latest_execution_run_id: number | null
+}
+
+export interface ErrorFingerprintDetail {
+  fingerprint: ErrorFingerprint
+  requirement: AgentRequirement | null
+  latest_execution: ExecutionRun | null
+  release: ReleaseRecord | null
+  events: ErrorEvent[]
+  notifications: NotificationDelivery[]
 }
 
 export interface RequirementAttachment {
@@ -1402,6 +1477,10 @@ export const api = {
     target_project_path?: string
   }) => request<AgentRequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/submit`, { method: 'POST' }),
+  approveRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
+    request<AgentRequirementDetail>(`/requirements/${id}/approve`, { method: 'POST', body: JSON.stringify({ action: 'approve', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
+  rejectRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
+    request<AgentRequirementDetail>(`/requirements/${id}/reject`, { method: 'POST', body: JSON.stringify({ action: 'reject', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
   reviseRequirement: (id: number, data: {
     title?: string
     description_markdown: string
@@ -1433,6 +1512,9 @@ export const api = {
     request<ReleaseDetail>(`/releases/${requirementId}/deploy/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rollbackRelease: (requirementId: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/rollback`, { method: 'POST', body: JSON.stringify(data) }),
+
+  getErrors: () => request<ErrorFingerprint[]>('/errors'),
+  getErrorDetail: (fingerprintKey: string) => request<ErrorFingerprintDetail>(`/errors/${encodeURIComponent(fingerprintKey)}`),
 
   // Skills
   getSkills: () => request<string[]>('/skills'),

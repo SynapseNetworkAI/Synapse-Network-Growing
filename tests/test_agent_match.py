@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import patch
 from server.services.agents.loader import ensure_agents_loaded
+from server.services.agents.execution_resolver import suggest_task_execution
 
 
 def _mock_agents():
@@ -23,6 +24,9 @@ def _mock_agents():
         {"id": "growth_lead", "display_name": "Growth Lead",
          "goal": "增长策略", "group": "growth", "persona_path": None,
          "skills": json.dumps(["marketing-ideas", "launch-strategy"])},
+        {"id": "software_engineer", "display_name": "Software Engineer",
+         "goal": "代码修复与验证", "group": "engineering", "persona_path": None,
+         "skills": json.dumps([])},
     ]
 
 
@@ -88,7 +92,7 @@ def test_match_case_insensitive(seeded_client):
 
 
 def test_match_limit_param(seeded_client):
-    # All 5 agents have at least one skill; search for a broad set
+    # The skill-matching endpoint only considers agents that expose listed skills.
     resp = seeded_client.get(
         "/api/agents/match?skills=seo-audit,copywriting,content-strategy,page-cro,marketing-ideas&limit=2"
     )
@@ -117,3 +121,21 @@ def test_match_includes_agent_metadata(seeded_client):
     assert agent["display_name"] == "Growth Lead"
     assert agent["goal"] == "增长策略"
     assert agent["group"] == "growth"
+
+
+def test_execution_resolver_prefers_engineering_direct_execution_for_bugfix(db_session):
+    with patch("server.services.agents.loader.discover_agents", return_value=_mock_agents()):
+        ensure_agents_loaded(db_session)
+        db_session.commit()
+
+    suggestion = suggest_task_execution(
+        db_session,
+        description=(
+            "Bug Fix: Runtime traceback detected in FastAPI endpoint. "
+            "Fix backend Python code and validate the API error path."
+        ),
+    )
+
+    assert suggestion.agent_id == "software_engineer"
+    assert suggestion.skill_name == "__direct_execution__"
+    assert suggestion.requires_confirmation is False

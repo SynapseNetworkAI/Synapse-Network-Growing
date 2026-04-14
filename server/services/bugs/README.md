@@ -9,10 +9,12 @@
 - `external_adapter.py`
 - `log_sweep.py`
 - `log_scheduler.py`
+- `error_loop.py`
 
 ## 依赖边界
 
 - 可以产出 requirement 输入，但不直接承担 requirement 调度。
+- `error_loop.py` 允许触发 requirement submit，但不接管 execution / release 主面。
 
 ## 迁移映射
 

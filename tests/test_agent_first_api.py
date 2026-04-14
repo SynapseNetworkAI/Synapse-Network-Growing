@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from server.database import ExecutionRunRow, RequirementRow, ValidationRecordRow
+from server.database import ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, RequirementRow, TaskRow, ValidationRecordRow
+from server.schemas import ValidationCheckResultOut
 
 
-def test_agent_first_requirement_creates_direct_execution_flow(synced_client):
+def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(synced_client, db_session):
     create_resp = synced_client.post(
         "/api/requirements",
         json={
-            "title": "Simplify release summary",
-            "description_markdown": "Update the release summary copy and keep the change minimal.",
+            "title": "Simplify workspace summary copy",
+            "description_markdown": "Update the workspace summary copy and keep the change minimal without touching unrelated projects or deployment gates.",
             "acceptance_criteria_markdown": "- Copy updated\n- No unrelated edits",
             "priority": "normal",
             "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
@@ -20,18 +21,231 @@ def test_agent_first_requirement_creates_direct_execution_flow(synced_client):
     assert create_resp.status_code == 201
     requirement_id = create_resp.json()["requirement"]["id"]
 
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    payload = submit_resp.json()
+    assert payload["requirement"]["status"] == "running"
+    assert payload["requirement"]["approval_status"] == "approved"
+    assert payload["approval"]["approval_decision"] == "approved"
+    assert payload["approval"]["approval_source"] == "agent_auto_approved"
+    assert payload["approval"]["auto_started"] is True
+    assert payload["approval"]["execution_run_id"] is not None
+    assert payload["latest_execution_id"] == payload["approval"]["execution_run_id"]
+
+    execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
+    assert execution.execution_mode == "direct"
+    assert execution.status == "running"
+    assert db_session.query(TaskRow).filter(TaskRow.id == execution.latest_task_id).one().status == "running"
+
+
+def test_create_requirement_without_target_project_path_does_not_raise_policy_summary_error(synced_client):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Create requirement without explicit target path",
+            "description_markdown": "Regression check for requirement detail serialization when no target project path is supplied.",
+            "priority": "normal",
+        },
+    )
+
+    assert create_resp.status_code == 201
+    payload = create_resp.json()
+    assert payload["requirement"]["title"] == "Create requirement without explicit target path"
+    assert payload["policy_summary_markdown"] == ""
+
+
+def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, db_session):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Prepare production release rollout",
+            "description_markdown": "Prepare a production release rollout with publish impact, release checklist, and production coordination evidence.",
+            "acceptance_criteria_markdown": "- rollout plan captured\n- release risks documented",
+            "priority": "high",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
     submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
     assert submit_resp.status_code == 200
-    assert submit_resp.json()["requirement"]["status"] == "ready"
+    payload = submit_resp.json()
+    assert payload["requirement"]["status"] == "blocked"
+    assert payload["requirement"]["approval_status"] == "pending_approval"
+    assert payload["approval"]["approval_decision"] == "pending_manual_approval"
+    assert payload["approval"]["approval_source"] == "manual_required"
+    assert payload["approval"]["auto_started"] is False
+    assert payload["approval"]["execution_run_id"] is None
 
-    execution_resp = synced_client.post("/api/executions", json={"requirement_id": requirement_id})
+    pending = (
+        db_session.query(ApprovalRequestRow)
+        .filter(ApprovalRequestRow.requirement_id == requirement_id, ApprovalRequestRow.status == "pending")
+        .one()
+    )
+    assert pending.approval_type == "requirement_execution_approval"
 
-    assert execution_resp.status_code == 201
-    payload = execution_resp.json()
-    assert payload["execution"]["execution_mode"] == "direct"
-    assert payload["execution"]["validation_profile"] == "minimal"
-    assert [node["node_type"] for node in payload["nodes"]] == ["execute"]
-    assert [node["node_key"] for node in payload["nodes"]] == ["execute"]
+
+def test_manual_approval_auto_starts_execution(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Manual approval release prep",
+        description_markdown="Production rollout change with publish impact and multi-stakeholder coordination.",
+        status="blocked",
+        approval_status="pending_approval",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        acceptance_contract_json='{"markdown":"- rollout approved"}',
+        approval_requested_at=None,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ApprovalRequestRow(
+            requirement_id=int(requirement.id),
+            workflow_run_id=None,
+            step_id=None,
+            approval_type="requirement_execution_approval",
+            status="pending",
+            reviewer="operator",
+            comment="Need manual approval",
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        approve_resp = synced_client.post(
+            f"/api/requirements/{requirement.id}/approve",
+            json={"action": "approve", "reviewer": "cto", "comment": "Approved"},
+        )
+
+    assert approve_resp.status_code == 200
+    payload = approve_resp.json()
+    assert payload["requirement"]["status"] == "running"
+    assert payload["requirement"]["approval_status"] == "approved"
+    assert payload["approval"]["auto_started"] is True
+    assert payload["approval"]["execution_run_id"] is not None
+
+    pending = (
+        db_session.query(ApprovalRequestRow)
+        .filter(ApprovalRequestRow.requirement_id == requirement.id)
+        .order_by(ApprovalRequestRow.id.desc())
+        .first()
+    )
+    assert pending is not None
+    assert pending.status == "approved"
+    assert pending.reviewer == "cto"
+
+
+def test_manual_reject_marks_requirement_needs_revision(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Reject execution until clarified",
+        description_markdown="Need more detailed execution constraints.",
+        status="blocked",
+        approval_status="pending_approval",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        acceptance_contract_json='{"markdown":"- clarified"}',
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ApprovalRequestRow(
+            requirement_id=int(requirement.id),
+            workflow_run_id=None,
+            step_id=None,
+            approval_type="requirement_execution_approval",
+            status="pending",
+            reviewer="operator",
+            comment="Need review",
+        )
+    )
+    db_session.commit()
+
+    reject_resp = synced_client.post(
+        f"/api/requirements/{requirement.id}/reject",
+        json={"action": "reject", "reviewer": "cto", "comment": "Clarify scope first"},
+    )
+    assert reject_resp.status_code == 200
+    payload = reject_resp.json()
+    assert payload["requirement"]["status"] == "needs_revision"
+    assert payload["requirement"]["approval_status"] == "rejected"
+    assert payload["approval"]["approval_decision"] == "rejected"
+
+
+def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Validate using execution evidence",
+        description_markdown="Backend bugfix with targeted validation evidence.",
+        status="running",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    task = TaskRow(
+        description="bugfix",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content=(
+            "Commands run:\n"
+            "- `PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q`\n"
+            "- `curl -s -X POST http://localhost:9700/api/requirements ...`\n"
+        ),
+    )
+    db_session.add(task)
+    db_session.flush()
+
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first._run_check") as run_check:
+        run_check.side_effect = lambda project_path, command: ValidationCheckResultOut(
+            label=f"check:{command}",
+            command=command,
+            project_path=project_path,
+            status="passed",
+            output_excerpt=None,
+        )
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    commands = [item["command"] for item in payload["validation"]["checks"]]
+    assert commands == ["PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q"]
+    assert payload["validation"]["status"] == "passed"
+    assert payload["requirement"]["status"] == "delivery_ready"
 
 
 def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, db_session):
@@ -116,3 +330,10 @@ def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, 
         assert release["status"] == "pr_opened"
         assert release["pr_number"] == 7
         assert release["commit_sha"] == "abc123"
+        delivery = (
+            db_session.query(NotificationDeliveryRow)
+            .filter(NotificationDeliveryRow.channel == "release", NotificationDeliveryRow.event_type == "pr_opened")
+            .order_by(NotificationDeliveryRow.id.desc())
+            .first()
+        )
+        assert delivery is not None

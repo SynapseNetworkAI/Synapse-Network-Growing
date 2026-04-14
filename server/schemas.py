@@ -849,11 +849,24 @@ class AgentFirstRequirementOut(BaseModel):
     latest_release_status: Optional[str] = None
 
 
+class AgentFirstRequirementApprovalOut(BaseModel):
+    approval_decision: str = "pending_manual_approval"
+    approval_status: str = "pending_approval"
+    approval_reason: Optional[str] = None
+    approval_source: Optional[str] = None
+    required_approver_roles: list[str] = []
+    risk_flags: list[str] = []
+    pending_execution_start: bool = False
+    auto_started: bool = False
+    execution_run_id: Optional[int] = None
+
+
 class AgentFirstRequirementDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     policy_summary_markdown: str = ""
     latest_execution_id: Optional[int] = None
     latest_release_id: Optional[int] = None
+    approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
 
 
 class ExecutionNodeOut(BaseModel):
@@ -967,6 +980,84 @@ class ReleaseRollbackRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None
     rollback_target_sha: str
+
+
+class ErrorIntakeRequest(BaseModel):
+    source_kind: str
+    service_name: str
+    summary: str
+    message: str
+    severity: str = "normal"
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    incident_code: Optional[str] = None
+    stack_trace: Optional[str] = None
+    source_ref: Optional[str] = None
+    environment: Optional[str] = None
+    occurred_at: Optional[datetime] = None
+    metadata: dict[str, object] = {}
+
+
+class NotificationDeliveryOut(BaseModel):
+    id: int
+    channel: str
+    event_type: str
+    event_key: str
+    object_type: str
+    object_key: str
+    service_name: Optional[str] = None
+    status: str
+    payload: dict[str, object] = {}
+    response_excerpt: Optional[str] = None
+    delivered_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class ErrorEventOut(BaseModel):
+    id: int
+    fingerprint_key: str
+    source_kind: str
+    service_name: str
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    incident_code: Optional[str] = None
+    severity: str
+    summary: str
+    message: str
+    stack_trace: Optional[str] = None
+    source_ref: Optional[str] = None
+    environment: Optional[str] = None
+    metadata: dict[str, object] = {}
+    occurred_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class ErrorFingerprintOut(BaseModel):
+    fingerprint_key: str
+    source_kind: str
+    service_name: str
+    project_key: Optional[str] = None
+    project_root_path: Optional[str] = None
+    incident_code: Optional[str] = None
+    severity: str
+    summary: str
+    evidence_excerpt: Optional[str] = None
+    status: str
+    occurrence_count: int
+    first_seen_at: Optional[datetime] = None
+    latest_seen_at: Optional[datetime] = None
+    latest_error_event_id: Optional[int] = None
+    linked_requirement_id: Optional[int] = None
+    latest_execution_run_id: Optional[int] = None
+
+
+class ErrorFingerprintDetailOut(BaseModel):
+    fingerprint: ErrorFingerprintOut
+    requirement: Optional[AgentFirstRequirementOut] = None
+    latest_execution: Optional[ExecutionRunOut] = None
+    release: Optional[ReleaseRecordSlimOut] = None
+    events: list[ErrorEventOut] = []
+    notifications: list[NotificationDeliveryOut] = []
 
 
 class TaskPatch(BaseModel):

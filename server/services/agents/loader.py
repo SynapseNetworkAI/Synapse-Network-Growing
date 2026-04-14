@@ -99,10 +99,10 @@ def sync_agents_to_db(db: Session) -> list[AgentRow]:
 def ensure_agents_loaded(db: Session) -> list[AgentRow]:
     """Ensure the agents table reflects the current roles/ directory."""
     existing = db.query(AgentRow).order_by(AgentRow.id.asc()).all()
-    if existing:
-        return existing
-    rows = sync_agents_to_db(db)
-    db.commit()
-    for row in rows:
-        db.refresh(row)
-    return rows
+    if not existing:
+        rows = sync_agents_to_db(db)
+        db.commit()
+        for row in rows:
+            db.refresh(row)
+        return rows
+    return existing

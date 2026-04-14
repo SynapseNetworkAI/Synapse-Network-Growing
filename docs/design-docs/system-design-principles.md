@@ -31,7 +31,21 @@
 3. 复杂任务才允许展开 execution graph。
 4. `research / plan / review / test / closeout` 不再是默认一等 workflow step。
 
-## 5. Planner 是执行形状选择器，不是阶段生成器
+## 5. Agent 主导执行，程序只做治理
+
+1. agent 决定执行内容、研究顺序、实现路径和按需展开的复杂度。
+2. 程序不替 agent 生成仪式性计划，不替 agent 规定固定执行阶段数。
+3. 程序当前只拥有 5 类职责：
+   - 需求治理
+   - 运行时治理
+   - 稳定性治理
+   - 自动化编排
+   - 发布治理
+4. 任何新能力如果让程序重新变成“执行内容裁判”而不是“治理与守门者”，都应视为架构倒退。
+5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点；程序应在 submit 时完成审批判定、自动创建 execution、并在放行后自动启动。
+6. 高信号错误必须自动回流到 requirement 主链，错误发现、审批、自动执行、validate、PR、release 必须保持在同一条治理链上。
+
+## 6. Planner 是执行形状选择器，不是阶段生成器
 
 1. planner 只负责 shape decision：
    - execution mode
@@ -42,7 +56,7 @@
 2. planner 不得强制生成固定 research/plan/closeout 仪式。
 3. harness 不负责替 agent 决定执行顺序。
 
-## 6. Requirement / Execution / Release 必须分面治理
+## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement
 
@@ -78,7 +92,23 @@ Release 负责：
 
 凡是环境视角或发布视角能力，默认进入 release surface，不得回灌到 requirement 页面。
 
-## 7. Artifact 必须面向消费方
+### 6.4 Errors（辅助治理页）
+
+`/errors` 是稳定性治理辅助面，不是第四个主业务面。
+
+它只负责：
+
+1. 高信号错误事件与 fingerprint 聚合
+2. linked requirement / execution / release 的追踪
+3. 告警发送历史
+
+它不得承担：
+
+1. requirement 意图编辑
+2. execution 主控制入口
+3. release 主决策入口
+
+## 8. Artifact 必须面向消费方
 
 当前默认只保留最小证据集：
 
@@ -93,13 +123,14 @@ Release 负责：
 2. artifact 必须明确服务于 Requirement、Execution、Release 其中一面。
 3. 禁止制造“为了阶段完整性而存在”的仪式性 artifact。
 
-## 8. Release Candidate 只接受 Validate 成功的 Requirement
+## 9. Release Candidate 只接受 Validate 成功的 Requirement
 
 1. release candidate 不得来自未验证 requirement。
 2. publish、deploy、rollback 必须在 release surface 处理。
 3. requirement 面只能展示 release 摘要与跳转入口。
+4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
 
-## 9. 服务层必须按功能面治理
+## 10. 服务层必须按功能面治理
 
 1. `server/services` 不允许继续回到平铺式万能目录。
 2. requirement、release、runtime、review、project policy、signal、bug intake 必须分面拆分。
@@ -107,7 +138,7 @@ Release 负责：
 4. 每个服务分包都必须有 `README.md`，说明职责、入口、依赖边界和禁止依赖。
 5. router 只能依赖 facade 或稳定公开入口，不得直接抓私有 helper。
 
-## 10. 防膨胀工程约束
+## 11. 防膨胀工程约束
 
 ### 10.1 单一职责
 
@@ -134,30 +165,53 @@ Release 负责：
 1. 上层编排只依赖稳定 facade 和 schema。
 2. 不得依赖底层实现拆分文件。
 
-## 11. 上下文是预算，不是垃圾桶
+## 12. 前端必须是 Enterprise Workbench，而不是平铺卡片后台
+
+1. 默认禁止整页卡片化；卡片只能用于独立对象，而不是整页每个区块的万能容器。
+2. 页面必须先有工作台骨架，再有组件。标准骨架包括：
+   - shell
+   - page header
+   - primary workspace
+   - secondary inspector
+   - activity/feed rail
+   - command bar / filters
+3. 一个页面只能有一个主焦点，不得把表单、列表、摘要、状态、日志做成同权重平铺块。
+4. Requirement、Execution、Release 三面必须使用各自独立的页面模板，不得继续复用万能卡片页模板。
+5. 颜色只承担状态和强调，不承担大面积装饰；工作台不是营销页。
+6. 新 UI 必须优先复用统一的 workbench shell、section、inspector、activity feed 和 state badge 结构。
+
+## 13. 前端防回潮约束
+
+1. UI 变更 PR 必须说明页面属于 Requirement、Execution、Release 哪一面。
+2. UI 变更 PR 必须说明是否复用了 workbench 模板与 token。
+3. 如果继续引入 dashboard-card mosaic、同权重白卡拼盘、装饰性 chips/pills，应直接视为 review 拒绝项。
+4. 前端 token 必须同时支持 surface hierarchy、text hierarchy、stroke hierarchy、state colors 和 layout tokens。
+
+## 14. 上下文是预算，不是垃圾桶
 
 1. 长期规则、项目 policy、会话上下文和临时证据必须分层治理。
 2. 需要为 context budget、compaction 和 stale-memory verification 预留机制。
 3. 不允许把未经验证的旧记忆直接继续传播为当前事实。
 
-## 12. Runtime / Subagent 必须有生命周期
+## 15. Runtime / Subagent 必须有生命周期
 
 1. 所有 runtime 都必须可 start、running、pause、fail、cleanup、abort。
 2. transcript、session、artifact、log 和 ownership 必须可追踪。
 3. 父执行结束时，子资源必须可收口、可复盘。
 
-## 13. 所有关键自动化都必须可观测
+## 16. 所有关键自动化都必须可观测
 
 1. requirement、execution、release、incident、publish、rollback 都必须留下结构化证据。
 2. 调度决策、熔断原因、恢复动作、operator 接管都应有日志。
 3. 没有 telemetry 的自动化，不应进入默认主路径。
+4. requirement、alert、release 三类对外通知必须使用统一 envelope，至少包含服务、事件类型、发生时间、发生了什么、下一步动作和关联链接。
 
-## 14. 治理优先于更强自主性
+## 17. 治理优先于更强自主性
 
 1. 自主性提升必须建立在 policy、validation、delivery、incident、observability 已经收口的前提上。
 2. 如果治理能力不足，优先补治理，不优先补更复杂的 agent 自主决策。
 
-## 15. 当前正式实现顺序
+## 18. 当前正式实现顺序
 
 后续默认优先顺序为：
 

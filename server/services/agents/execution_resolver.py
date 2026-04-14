@@ -9,12 +9,19 @@ from sqlalchemy.orm import Session
 
 from server.database import AgentRow
 from server.schemas import TaskExecutionCandidate, TaskExecutionSuggestion
-from server.services.agents.loader import ensure_agents_loaded
+from server.services.agents.loader import ensure_agents_loaded, sync_agents_to_db
 from server.services.agents.skills import list_skills, load_skill_metadata
 
 AUTO_SELECTION_THRESHOLD = 0.72
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]{1,}")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
+_ENGINEERING_HINTS = {
+    "bug", "bugfix", "fix", "traceback", "exception", "error", "failure", "failed", "backend",
+    "server", "python", "fastapi", "api", "endpoint", "sqlite", "sqlalchemy", "runtime",
+    "incident", "log", "logs", "stack", "stacktrace", "test", "tests", "pytest", "code",
+    "implementation", "validate", "validation",
+    "修复", "报错", "异常", "接口", "后端", "代码", "日志", "堆栈", "测试",
+}
 _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "into", "your", "need", "make",
     "give", "work", "plan", "task", "user", "page", "write", "build", "create", "help",
@@ -83,10 +90,29 @@ def _candidate_reason(agent: AgentRow, skill_name: str, matched_terms: list[str]
     return f"{agent.display_name} / {skill_name} 命中任务语义: {terms}"
 
 
-def _candidate_score(description_tokens: set[str], agent: AgentRow, skill_name: str, preferred_agent_id: str | None) -> tuple[float, list[str]]:
-    skill_meta = load_skill_metadata(skill_name)
-    skill_name_tokens = _tokenize(skill_name)
-    skill_desc_tokens = _tokenize(f"{skill_meta.description} {skill_meta.body[:1200]}")
+def _is_engineering_request(description_tokens: set[str], description: str) -> bool:
+    lowered = description.lower()
+    if any(token in description_tokens for token in _ENGINEERING_HINTS):
+        return True
+    return any(token in lowered for token in _ENGINEERING_HINTS)
+
+
+def _candidate_score(
+    description_tokens: set[str],
+    description: str,
+    agent: AgentRow,
+    skill_name: str,
+    preferred_agent_id: str | None,
+) -> tuple[float, list[str]]:
+    if skill_name == "__direct_execution__":
+        skill_name_tokens = _tokenize("direct execution engineering bugfix code validation")
+        skill_desc_tokens = _tokenize(
+            "direct engineering execution minimal code change bugfix runtime traceback api backend validation"
+        )
+    else:
+        skill_meta = load_skill_metadata(skill_name)
+        skill_name_tokens = _tokenize(skill_name)
+        skill_desc_tokens = _tokenize(f"{skill_meta.description} {skill_meta.body[:1200]}")
     agent_tokens = _tokenize(f"{agent.display_name} {agent.goal} {_read_persona_body(agent.persona_path)[:1200]}")
 
     name_overlap = description_tokens & skill_name_tokens
@@ -104,6 +130,9 @@ def _candidate_score(description_tokens: set[str], agent: AgentRow, skill_name: 
         score += 3.0
     if preferred_agent_id and preferred_agent_id == agent.id:
         score += 2.0
+    if skill_name == "__direct_execution__" and str(agent.group or "") == "engineering" and _is_engineering_request(description_tokens, description):
+        score += 12.0
+        matched_terms = sorted(set(matched_terms) | {"engineering", "bugfix", "direct_execution"})
 
     return score, matched_terms
 
@@ -116,7 +145,13 @@ def suggest_task_execution(
     limit: int = 3,
 ) -> TaskExecutionSuggestion:
     description_tokens = _tokenize(description)
+    engineering_request = _is_engineering_request(description_tokens, description)
     agents = ensure_agents_loaded(db)
+    if engineering_request and not any(str(agent.group or "") == "engineering" for agent in agents):
+        agents = sync_agents_to_db(db)
+        db.commit()
+        for row in agents:
+            db.refresh(row)
     available_skills = set(list_skills())
     candidates: list[tuple[float, TaskExecutionCandidate]] = []
 
@@ -125,13 +160,15 @@ def suggest_task_execution(
             continue
 
         agent_skills = [skill for skill in _parse_json_list(agent.skills) if skill in available_skills]
+        if engineering_request and str(agent.group or "") == "engineering":
+            agent_skills = ["__direct_execution__", *agent_skills]
         if preferred_skill_name:
             if preferred_skill_name not in agent_skills:
                 continue
             agent_skills = [preferred_skill_name]
 
         for skill_name in agent_skills:
-            score, matched_terms = _candidate_score(description_tokens, agent, skill_name, preferred_agent_id)
+            score, matched_terms = _candidate_score(description_tokens, description, agent, skill_name, preferred_agent_id)
             if score <= 0 and not preferred_agent_id and not preferred_skill_name:
                 continue
 

@@ -8,15 +8,18 @@ from server.database import get_db
 from server.schemas import (
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
+    RequirementApprovalDecisionRequest,
     RequirementCreate,
     RequirementPatch,
     RequirementRevisionRequest,
 )
 from server.services.workflows.agent_first import (
+    approve_requirement,
     build_requirement_detail,
     cancel_requirement,
     create_requirement,
     list_requirements,
+    reject_requirement,
     revise_requirement,
     submit_requirement,
     update_requirement,
@@ -66,6 +69,34 @@ def patch_requirement_endpoint(requirement_id: int, body: RequirementPatch, db: 
 def submit_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return submit_requirement(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/approve", response_model=AgentFirstRequirementDetailOut)
+def approve_requirement_endpoint(
+    requirement_id: int,
+    body: RequirementApprovalDecisionRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    reviewer = str((body.reviewer if body is not None else "operator") or "operator")
+    comment = body.comment if body is not None else None
+    try:
+        return approve_requirement(db, requirement_id, reviewer=reviewer, comment=comment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/reject", response_model=AgentFirstRequirementDetailOut)
+def reject_requirement_endpoint(
+    requirement_id: int,
+    body: RequirementApprovalDecisionRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    reviewer = str((body.reviewer if body is not None else "operator") or "operator")
+    comment = body.comment if body is not None else None
+    try:
+        return reject_requirement(db, requirement_id, reviewer=reviewer, comment=comment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

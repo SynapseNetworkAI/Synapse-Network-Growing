@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { ExecutionDetail, api } from '../api'
+import { ActivityFeed, FieldLabel, InspectorRail, LoadingPane, SectionFrame, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
@@ -17,6 +18,15 @@ const STATUS_LABEL: Record<string, string> = {
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
+}
+
+function statusTone(status: string) {
+  if (status === 'succeeded' || status === 'completed') return 'delivered'
+  if (status === 'running') return 'running'
+  if (status === 'blocked' || status === 'failed') return 'blocked'
+  if (status === 'validating') return 'validating'
+  if (status === 'queued') return 'ready'
+  return 'muted'
 }
 
 function Markdown({ value }: Readonly<{ value: string | null | undefined }>) {
@@ -60,25 +70,18 @@ export default function ExecutionDetailPage() {
   }
 
   if (loading || !detail) {
-    return <div className="rounded-3xl border border-slate-200 bg-white p-8 text-sm text-slate-500">正在加载执行详情…</div>
+    return <LoadingPane>正在加载执行详情…</LoadingPane>
   }
 
   const execution = detail.execution
 
   return (
-    <div className="space-y-6" data-testid="execution-detail-page">
-      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Execution Run</div>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Execution #{execution.id}</h2>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-              <span className="rounded-full bg-slate-100 px-3 py-1">{STATUS_LABEL[execution.status] || execution.status}</span>
-              <span className="rounded-full bg-slate-100 px-3 py-1">{execution.execution_mode}</span>
-              <span className="rounded-full bg-slate-100 px-3 py-1">{execution.complexity}</span>
-              <span className="rounded-full bg-slate-100 px-3 py-1">{execution.validation_profile}</span>
-            </div>
-          </div>
+    <div className="space-y-[var(--ops-section-gap)]" data-testid="execution-detail-page">
+      <SectionFrame
+        eyebrow="Execution Run"
+        title={`Execution #${execution.id}`}
+        description="执行面承载 agent 当前工作状态、验证结果与恢复动作。"
+        actions={
           <div className="flex flex-wrap gap-2">
             <button className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${execution.requirement_id}`)}>
               查看需求
@@ -89,7 +92,7 @@ export default function ExecutionDetailPage() {
                 disabled={busyAction === 'start'}
                 onClick={() => runAction('start', () => api.startExecution(execution.id))}
               >
-                {execution.status === 'paused' ? '恢复执行' : '启动执行'}
+                {execution.status === 'paused' ? '恢复执行' : '恢复/重启执行'}
               </button>
             )}
             {execution.status === 'running' && (
@@ -112,7 +115,7 @@ export default function ExecutionDetailPage() {
             )}
             {detail.nodes.length > 0 && detail.nodes.every((node) => node.status === 'completed') && (
               <button
-                className="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60"
+                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-60"
                 disabled={busyAction === 'validate'}
                 onClick={() => runAction('validate', () => api.validateExecution(execution.id))}
               >
@@ -120,12 +123,19 @@ export default function ExecutionDetailPage() {
               </button>
             )}
           </div>
+        }
+      >
+        <div className="flex flex-wrap gap-2">
+          <StateBadge tone={statusTone(execution.status)}>{STATUS_LABEL[execution.status] || execution.status}</StateBadge>
+          <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
+          <StateBadge tone="muted">{execution.complexity}</StateBadge>
+          <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
         </div>
 
-        <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
           <div>requirement: #{execution.requirement_id}</div>
           <div>delivery: {execution.delivery_intent}</div>
-          <div>approval: {execution.approval_required ? detail.requirement.approval_status : 'waived'}</div>
+          <div>approval: {execution.approval_required ? `${detail.requirement.approval_status} · submit gated` : 'waived'}</div>
           <div>latest task: {execution.latest_task_id ?? '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
           <div>started: {formatTime(execution.started_at)}</div>
@@ -133,56 +143,52 @@ export default function ExecutionDetailPage() {
           <div>completed: {formatTime(execution.completed_at)}</div>
         </div>
 
-        <div className="mt-4 text-sm text-slate-600">
+        <div className="mt-4 text-sm text-[color:var(--ops-text-muted)]">
           <Markdown value={execution.planner_summary} />
         </div>
-      </section>
+      </SectionFrame>
 
-      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-        <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Execution Graph</div>
-        <h3 className="mt-2 text-xl font-semibold text-slate-950">执行节点</h3>
+      <SectionFrame eyebrow="Execution Graph" title="执行节点" description="复杂任务会在这里展开节点图；简单任务一般只会有一个 execute 节点。">
         <div className="mt-4 grid gap-4">
           {detail.nodes.map((node) => (
-            <article key={node.id} className="rounded-3xl border border-slate-200/80 bg-slate-50/80 p-5">
+            <article key={node.id} className="border-b border-[color:var(--ops-stroke-soft)] pb-5 last:border-b-0 last:pb-0">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-semibold text-slate-950">{node.title}</h4>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{STATUS_LABEL[node.status] || node.status}</span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{node.node_key}</span>
+                    <h4 className="text-lg font-semibold text-[color:var(--ops-text-title)]">{node.title}</h4>
+                    <StateBadge tone={statusTone(node.status)}>{STATUS_LABEL[node.status] || node.status}</StateBadge>
+                    <StateBadge tone="muted">{node.node_key}</StateBadge>
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
                     task #{node.task_id ?? '-'} · backend {node.runtime_backend || '-'} · model {node.runtime_model || '-'}
                   </div>
                 </div>
-                <div className="text-right text-xs text-slate-500">
+                <div className="text-right text-xs text-[color:var(--ops-text-caption)]">
                   <div>seq {node.sequence_no}</div>
                   <div>{formatTime(node.completed_at || node.started_at)}</div>
                 </div>
               </div>
-              <div className="mt-4 text-sm text-slate-600">
+              <div className="mt-4 text-sm text-[color:var(--ops-text-muted)]">
                 <Markdown value={node.summary_markdown} />
               </div>
             </article>
           ))}
         </div>
-      </section>
+      </SectionFrame>
 
-      <section className="grid gap-6 xl:grid-cols-[1fr,0.9fr]">
-        <div className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-          <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Validation</div>
-          <h3 className="mt-2 text-xl font-semibold text-slate-950">验证记录</h3>
+      <div className="grid gap-[var(--ops-section-gap)] xl:grid-cols-[minmax(0,1.45fr),minmax(300px,var(--ops-inspector-width))]">
+        <SectionFrame eyebrow="Validation" title="验证记录" description="validate 永远独立于 execute，execution 不能自证正确。">
           {detail.validation ? (
             <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                <div className="font-medium text-slate-900">{STATUS_LABEL[detail.validation.status] || detail.validation.status}</div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-workspace-bg)] p-4 text-sm text-[color:var(--ops-text-muted)]">
+                <div className="font-medium text-[color:var(--ops-text-title)]">{STATUS_LABEL[detail.validation.status] || detail.validation.status}</div>
                 <div className="mt-2">{detail.validation.summary_markdown}</div>
               </div>
               <div className="space-y-3">
                 {detail.validation.checks.map((check) => (
-                  <div key={`${check.label}-${check.command || 'no-command'}`} className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-                    <div className="font-medium text-slate-900">{check.label}</div>
-                    <div className="mt-1 text-xs text-slate-500">{check.command || 'manual evidence'} · {check.project_path || '-'}</div>
+                  <div key={`${check.label}-${check.command || 'no-command'}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/74 p-4 text-sm text-[color:var(--ops-text-muted)]">
+                    <div className="font-medium text-[color:var(--ops-text-title)]">{check.label}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{check.command || 'manual evidence'} · {check.project_path || '-'}</div>
                     <div className="mt-2">{check.status}</div>
                     {check.output_excerpt ? <pre className="mt-3 overflow-x-auto rounded-xl bg-slate-950/95 p-3 text-xs text-slate-100">{check.output_excerpt}</pre> : null}
                   </div>
@@ -190,27 +196,44 @@ export default function ExecutionDetailPage() {
               </div>
             </div>
           ) : (
-            <div className="mt-4 text-sm text-slate-500">当前还没有验证记录。</div>
+            <div className="mt-4 text-sm text-[color:var(--ops-text-muted)]">当前还没有验证记录。</div>
           )}
-        </div>
+        </SectionFrame>
 
-        <div className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-          <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Incidents</div>
-          <h3 className="mt-2 text-xl font-semibold text-slate-950">恢复信号</h3>
-          <div className="mt-4 space-y-3">
+        <div className="space-y-[var(--ops-section-gap)]">
+          <InspectorRail eyebrow="Inspector" title="执行摘要">
+            <div>
+              <FieldLabel>Requirement</FieldLabel>
+              <div className="mt-2 text-[color:var(--ops-text-muted)]">#{execution.requirement_id}</div>
+            </div>
+            <div>
+              <FieldLabel>Targets</FieldLabel>
+              <div className="mt-2 text-[color:var(--ops-text-muted)]">{execution.target_projects.join(', ') || '-'}</div>
+            </div>
+            <div>
+              <FieldLabel>Latest Task</FieldLabel>
+              <div className="mt-2 text-[color:var(--ops-text-muted)]">{execution.latest_task_id ?? '-'}</div>
+            </div>
+            <div>
+              <FieldLabel>Delivery Intent</FieldLabel>
+              <div className="mt-2 text-[color:var(--ops-text-muted)]">{execution.delivery_intent}</div>
+            </div>
+          </InspectorRail>
+
+          <ActivityFeed eyebrow="Incidents" title="恢复信号">
             {detail.incidents.length > 0 ? (
               detail.incidents.map((incident, index) => (
-                <div key={`${String(incident.kind || 'incident')}-${index}`} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div key={`${String(incident.kind || 'incident')}-${index}`} className="rounded-2xl border border-[color:var(--ops-state-validating-border)] bg-[color:var(--ops-state-validating-bg)] p-4 text-sm text-[color:var(--ops-state-validating-text)]">
                   <div className="font-medium">{String(incident.kind || 'incident')}</div>
                   <div className="mt-2">{String(incident.summary || '')}</div>
                 </div>
               ))
             ) : (
-              <div className="text-sm text-slate-500">当前没有 incident。</div>
+              <div className="text-sm text-[color:var(--ops-text-muted)]">当前没有 incident。</div>
             )}
-          </div>
+          </ActivityFeed>
         </div>
-      </section>
+      </div>
     </div>
   )
 }

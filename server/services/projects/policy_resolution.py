@@ -153,7 +153,7 @@ def apply_project_policies_to_scope(
     return scope
 
 
-def project_policy_summary_markdown(db: Session, target_project_path: str | None) -> str:
+def project_policy_summary_markdown(db: Session, target_project_path: str | None = None) -> str:
     """Render matching project policies as a concise Markdown block."""
 
     policies = resolve_project_policies_for_target(db, target_project_path, require_active=False)
