@@ -25,15 +25,11 @@ DEFAULT_INTAKE_CONFIDENCE_BY_SOURCE = {
 FOLLOWUP_SOURCES = {"bugfix_circuit_breaker"}
 ACTIVE_BUG_REQUIREMENT_STATUSES = {
     "draft",
-    "pending_approval",
-    "approved",
-    "planning",
-    "plan_failed",
     "ready",
-    "in_progress",
+    "running",
     "blocked",
-    "paused",
     "needs_revision",
+    "delivery_ready",
 }
 
 
@@ -352,7 +348,7 @@ def materialize_bug_backlog(
     max_created: int = 1,
 ) -> dict[str, Any]:
     from server.services.bugs.log_sweep import run_bug_log_sweep
-    from server.services.workflows.orchestrator import create_requirement
+    from server.services.workflows.agent_first import create_requirement
 
     if refresh:
         run_bug_log_sweep(db)
@@ -472,20 +468,6 @@ def materialize_bug_backlog(
         row.status = "converted"
         db.add(row)
         db.commit()
-        family_action = str((detail.requirement.intake_metadata or {}).get("family_recommendation", {}).get("action") or "")
-        if family_action in {"reuse_existing", "archive_experiment"} or str(detail.requirement.source_ref or "") != source_ref:
-            reused_requirement_ids.append(int(detail.requirement.id))
-            items.append(
-                {
-                    "source_key": "bug_intake",
-                    "status": "deduped_to_active_requirement",
-                    "action": "reuse_existing",
-                    "bug_id": bug_id,
-                    "requirement_id": int(detail.requirement.id),
-                    "source_ref": source_ref,
-                }
-            )
-            continue
         created_requirement_ids.append(int(detail.requirement.id))
         items.append(
             {

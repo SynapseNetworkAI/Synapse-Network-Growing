@@ -121,7 +121,7 @@ agent-browser install
 Reusable workflow:
 
 ```bash
-agent-browser open http://127.0.0.1:9700/tasks
+agent-browser open http://127.0.0.1:9700/requirements
 agent-browser snapshot -i
 agent-browser screenshot
 ```
@@ -145,7 +145,7 @@ Systematic inspection entry point:
 
 ```bash
 # Read .agents/skills/dogfood/SKILL.md first, then inspect the local dashboard
-agent-browser open http://127.0.0.1:9700/tasks
+agent-browser open http://127.0.0.1:9700/requirements
 ```
 
 ## Runtime Config
@@ -194,7 +194,7 @@ When Copilot SDK returns an explicit enterprise-policy / authorization error, th
 2. `docs/ops-console-usage.md` - 控制台页面用途、后端接口映射与 `/requirements` 空白排查
 3. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
 4. `docs/design-docs/company-ops-latest-architecture.md` - 最新模块交互、signal 来源、日志与数据库策略
-5. `docs/design-docs/taskboard-ux-redesign.md` - TaskBoard UX and retry/history design
+5. `docs/design-docs/system-design-principles.md` - 当前正式硬约束，包括三面分治与最小执行流
 6. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
 7. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
 8. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design

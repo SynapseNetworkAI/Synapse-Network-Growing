@@ -1,1115 +1,246 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, ProjectPolicy, Requirement, RequirementAttachmentInput, SchedulerDecision, SchedulerPlan } from '../api'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { AgentRequirement, api } from '../api'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
-  planning: '规划中',
-  plan_failed: '规划失败',
-  ready: '已规划',
-  paused: '已暂停',
-  in_progress: '执行中',
-  done: '已完成',
-  needs_revision: '需修订',
+  ready: '待执行',
+  running: '执行中',
   blocked: '阻塞',
+  needs_revision: '需修订',
+  delivery_ready: '待发布',
+  done: '已完成',
+  cancelled: '已取消',
   deleted: '已删除',
-}
-
-const STATUS_CLASS: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  planning: 'bg-indigo-100 text-indigo-700',
-  plan_failed: 'bg-rose-100 text-rose-700',
-  ready: 'bg-sky-100 text-sky-700',
-  paused: 'bg-slate-200 text-slate-700',
-  in_progress: 'bg-blue-100 text-blue-700',
-  done: 'bg-green-100 text-green-700',
-  needs_revision: 'bg-amber-100 text-amber-700',
-  blocked: 'bg-red-100 text-red-700',
-  deleted: 'bg-zinc-200 text-zinc-700',
-}
-
-const APPROVAL_LABEL: Record<string, string> = {
-  pending_approval: '待审批',
-  approved: '已批准',
-  rejected: '已拒绝',
-  waived: '已豁免',
-}
-
-const APPROVAL_CLASS: Record<string, string> = {
-  pending_approval: 'bg-yellow-100 text-yellow-700',
-  approved: 'bg-green-100 text-green-700',
-  rejected: 'bg-red-100 text-red-700',
-  waived: 'bg-slate-200 text-slate-700',
-}
-
-function getRequirementDisplayState(requirement: Requirement) {
-  return {
-    label: STATUS_LABEL[requirement.status] || requirement.status,
-    className: STATUS_CLASS[requirement.status] || STATUS_CLASS.draft,
-  }
 }
 
 function formatTime(value: string | null) {
   if (!value) return '-'
-  const d = new Date(value.endsWith('Z') ? value : value + 'Z')
-  return d.toLocaleString('zh-CN')
-}
-
-function getTargetProjectPaths(value: string | null) {
-  if (!value) return []
-  return value.split('\n').map((item) => item.trim()).filter(Boolean)
-}
-
-function setTargetProjectPaths(currentValue: string, projectPath: string, enabled: boolean) {
-  const current = getTargetProjectPaths(currentValue)
-  const next = enabled
-    ? [...current, projectPath]
-    : current.filter((item) => item !== projectPath)
-  return Array.from(new Set(next)).join('\n')
-}
-
-function policySelected(targetProjectPath: string, projectPath: string) {
-  return getTargetProjectPaths(targetProjectPath).includes(projectPath)
-}
-
-function getRequirementSortRank(requirement: Requirement) {
-  if (requirement.status === 'in_progress') return 0
-  if (requirement.status === 'deleted') return 2
-  return 1
-}
-
-function getRequirementSortTimestamp(requirement: Requirement) {
-  const timestamp = Date.parse(requirement.updated_at ?? requirement.created_at ?? '')
-  return Number.isNaN(timestamp) ? 0 : timestamp
-}
-
-function sortRequirements(requirements: Requirement[], sortMode: string) {
-  return [...requirements].sort((a, b) => {
-    const rankDiff = getRequirementSortRank(a) - getRequirementSortRank(b)
-    if (rankDiff !== 0) return rankDiff
-
-    if (sortMode === 'score') {
-      const scoreDiff = (b.score_breakdown?.total ?? 0) - (a.score_breakdown?.total ?? 0)
-      if (scoreDiff !== 0) return scoreDiff
-    }
-
-    const timeDiff = getRequirementSortTimestamp(b) - getRequirementSortTimestamp(a)
-    if (timeDiff !== 0) return timeDiff
-
-    return b.id - a.id
-  })
-}
-
-function queueSkipMessage(value: string | string[] | undefined) {
-  if (!value) return ''
-  if (typeof value === 'string') return value
-  return value[0] || ''
-}
-
-async function fileToAttachment(file: File, source: string): Promise<RequirementAttachmentInput> {
-  const buffer = await file.arrayBuffer()
-  let binary = ''
-  const bytes = new Uint8Array(buffer)
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value)
-  })
-  return {
-    file_name: file.name,
-    content_type: file.type || 'application/octet-stream',
-    content_base64: window.btoa(binary),
-    source,
-  }
+  return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
 export default function RequirementPool() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const PAGE_SIZE = 10
-  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
-  const [requirements, setRequirements] = useState<Requirement[]>([])
-  const [projectPolicies, setProjectPolicies] = useState<ProjectPolicy[]>([])
-  const [scheduler, setScheduler] = useState<SchedulerPlan | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
-  const [sortMode, setSortMode] = useState('score')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [actioningRequirementId, setActioningRequirementId] = useState<number | null>(null)
-  const [editingRequirement, setEditingRequirement] = useState<{
-    id: number
-    title: string
-    description_markdown: string
-    priority: string
-    target_project_path: string
-  } | null>(null)
-  const [editRequirementSaving, setEditRequirementSaving] = useState(false)
-  const [deleteRequirementSavingId, setDeleteRequirementSavingId] = useState<number | null>(null)
-  const [page, setPage] = useState(1)
-  const [showCreate, setShowCreate] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [titleError, setTitleError] = useState(false)
-  const [queueMessage, setQueueMessage] = useState('')
-  const [depQuery, setDepQuery] = useState('')
-  const [depOpen, setDepOpen] = useState(false)
-  const [attachments, setAttachments] = useState<RequirementAttachmentInput[]>([])
+  const [requirements, setRequirements] = useState<AgentRequirement[]>([])
+  const [status, setStatus] = useState('')
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [submittingId, setSubmittingId] = useState<number | null>(null)
   const [form, setForm] = useState({
     title: '',
     description_markdown: '',
+    acceptance_criteria_markdown: '',
     priority: 'normal',
     target_project_path: '',
-    depends_on_requirement_ids: [] as number[],
-    auto_start: true,
   })
 
-  const navBucket = searchParams.get('bucket') || ''
+  const load = async () => {
+    setLoading(true)
+    try {
+      const data = await api.getRequirements(status || undefined, undefined, search || undefined)
+      setRequirements(data)
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const loadRequirements = useCallback(async () => {
-    const data = await api.getRequirements(
-      undefined,
-      sortMode === 'score' ? 'score' : undefined,
-      searchQuery.trim() || undefined,
+  useEffect(() => {
+    load().catch(() => {})
+  }, [status])
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return requirements
+    const needle = search.trim().toLowerCase()
+    return requirements.filter((item) =>
+      [item.title, item.description_markdown, item.source_ref || '', item.target_project_path || '', String(item.id)]
+        .join('\n')
+        .toLowerCase()
+        .includes(needle),
     )
-    const sorted = sortRequirements(data, sortMode)
-    setRequirements(sorted)
-    setPage((currentPage) => {
-      const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
-      return Math.min(currentPage, totalPages)
-    })
-  }, [PAGE_SIZE, searchQuery, sortMode])
-
-  const loadScheduler = useCallback(async () => {
-    const data = await api.getRequirementScheduler()
-    setScheduler(data)
-  }, [])
-
-  const loadProjectPolicies = useCallback(async () => {
-    const data = await api.getProjectPolicies()
-    setProjectPolicies(data)
-  }, [])
-
-  const loadPool = useCallback(async () => {
-    await Promise.all([loadRequirements(), loadScheduler(), loadProjectPolicies()])
-  }, [loadProjectPolicies, loadRequirements, loadScheduler])
-
-  useEffect(() => {
-    loadPool().catch(() => {})
-  }, [loadPool])
-
-  useEffect(() => {
-    setPage(1)
-  }, [statusFilter, sortMode, searchQuery, navBucket])
-
-  const visibleRequirements = useMemo(() => {
-    return requirements.filter((requirement) => {
-      if (navBucket === 'running') {
-        return requirement.status === 'in_progress' || requirement.status === 'planning'
-      }
-      if (navBucket === 'pending') {
-        return requirement.approval_status === 'pending_approval' && requirement.status !== 'deleted'
-      }
-      if (navBucket === 'closed') {
-        return ['done', 'needs_revision', 'plan_failed'].includes(requirement.status)
-          || requirement.approval_status === 'rejected'
-      }
-      if (navBucket === 'deleted') {
-        return requirement.status === 'deleted'
-      }
-      if (!statusFilter) return true
-      return requirement.status === statusFilter
-    })
-  }, [navBucket, requirements, statusFilter])
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(visibleRequirements.length / PAGE_SIZE))
-    setPage((currentPage) => Math.min(currentPage, totalPages))
-  }, [PAGE_SIZE, visibleRequirements.length])
-
-  // Auto-advance queue on first load if nothing in_progress
-  useEffect(() => {
-    api.advanceQueue()
-      .then((result) => {
-        setQueueMessage(queueSkipMessage(result.skipped))
-        return loadPool()
-      })
-      .catch(() => {})
-  }, [loadPool])
-
-  // Poll while any planning or in_progress
-  useEffect(() => {
-    const needsPoll = requirements.some((r) => r.status === 'in_progress' || r.status === 'planning')
-    if (!needsPoll) return
-    const timer = setInterval(() => { loadPool().catch(() => {}) }, 3000)
-    return () => clearInterval(timer)
-  }, [requirements, loadPool])
-
-  const handleCreate = async () => {
-    if (!form.title.trim()) {
-      setTitleError(true)
-      return
-    }
-    if (!form.description_markdown.trim()) return
-    setTitleError(false)
-    setSubmitting(true)
-    try {
-      const created = await api.createRequirement({
-        title: form.title.trim(),
-        description_markdown: form.description_markdown.trim(),
-        priority: form.priority,
-        target_project_path: form.target_project_path.trim() || undefined,
-        depends_on_requirement_ids: form.depends_on_requirement_ids,
-        auto_start: form.auto_start,
-        attachments,
-      })
-      setShowCreate(false)
-      setTitleError(false)
-      setDepQuery('')
-      setDepOpen(false)
-      setAttachments([])
-      setForm({ title: '', description_markdown: '', priority: 'normal', target_project_path: '', depends_on_requirement_ids: [], auto_start: true })
-      setPage(1)
-      await loadPool()
-      navigate(`/requirements/${created.requirement.id}`)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const toggleDependency = (values: number[], requirementId: number) => {
-    if (values.includes(requirementId)) return values.filter((v) => v !== requirementId)
-    return [...values, requirementId]
-  }
-
-  const appendAttachments = useCallback(async (files: File[], source: string) => {
-    if (files.length === 0) return
-    const nextItems = await Promise.all(files.map((file) => fileToAttachment(file, source)))
-    setAttachments((current) => {
-      const merged = [...current]
-      for (const item of nextItems) {
-        const duplicate = merged.some((existing) =>
-          existing.file_name === item.file_name
-          && existing.content_base64 === item.content_base64
-        )
-        if (!duplicate) {
-          merged.push(item)
-        }
-      }
-      return merged
-    })
-  }, [])
-
-  const handleAttachmentFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    await appendAttachments(files, 'upload')
-    event.target.value = ''
-  }
-
-  const handleCreateFormPaste = async (event: ReactClipboardEvent<HTMLDivElement | HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData?.items || [])
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => Boolean(file))
-    if (files.length === 0) return
-    event.preventDefault()
-    await appendAttachments(files, 'clipboard')
-  }
-
-  const handleExecutionToggle = async (requirement: Requirement) => {
-    setActioningRequirementId(requirement.id)
-    try {
-      if (requirement.status === 'in_progress') {
-        await api.pauseRequirement(requirement.id)
-      } else {
-        await api.startRequirement(requirement.id)
-      }
-      await loadPool()
-    } finally {
-      setActioningRequirementId(null)
-    }
-  }
-
-  const handleOpenEditRequirement = (requirement: Requirement) => {
-    setEditingRequirement({
-      id: requirement.id,
-      title: requirement.title,
-      description_markdown: requirement.description_markdown,
-      priority: requirement.priority,
-      target_project_path: requirement.target_project_path || '',
-    })
-  }
-
-  const handleSaveRequirement = async () => {
-    if (!editingRequirement) return
-    setEditRequirementSaving(true)
-    try {
-      await api.updateRequirement(editingRequirement.id, {
-        title: editingRequirement.title,
-        description_markdown: editingRequirement.description_markdown,
-        priority: editingRequirement.priority,
-        target_project_path: editingRequirement.target_project_path || undefined,
-      })
-      setEditingRequirement(null)
-      await loadPool()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : '保存失败')
-    } finally {
-      setEditRequirementSaving(false)
-    }
-  }
-
-  const handleDeleteRequirement = async (requirement: Requirement) => {
-    const confirmed = window.confirm(`确认逻辑删除需求「${requirement.title}」吗？这会把关联 workflow 和下游依赖需求一起标记为已删除。`)
-    if (!confirmed) return
-    setDeleteRequirementSavingId(requirement.id)
-    try {
-      await api.deleteRequirement(requirement.id)
-      if (editingRequirement?.id === requirement.id) {
-        setEditingRequirement(null)
-      }
-      await loadPool()
-    } catch (error) {
-      alert(error instanceof Error ? error.message : '删除失败')
-    } finally {
-      setDeleteRequirementSavingId(null)
-    }
-  }
-
-  const managedProjectPolicies = projectPolicies
-    .filter((policy) => policy.status === 'active')
-    .sort((a, b) => a.display_name.localeCompare(b.display_name))
-
-  const decisionByRequirementId = new Map<number, SchedulerDecision>()
-  ;(scheduler?.decisions || []).forEach((decision) => {
-    if (decision.requirement_id != null) {
-      decisionByRequirementId.set(decision.requirement_id, decision)
-    }
-  })
+  }, [requirements, search])
 
   return (
-    <>
-    <div data-testid="requirements-page" className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">需求池</h2>
-          <p className="text-sm text-gray-500">Requirement-first workflow orchestration with validation and bugfix loop.</p>
+    <div className="space-y-6" data-testid="agent-first-requirements-page">
+      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Requirement</div>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">需求面</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              这里只管理为什么做、要做到什么、作用在哪个项目。执行和发布分别进入独立的 Execution / Release 页面。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <select className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="">全部状态</option>
+              <option value="draft">草稿</option>
+              <option value="ready">待执行</option>
+              <option value="running">执行中</option>
+              <option value="blocked">阻塞</option>
+              <option value="needs_revision">需修订</option>
+              <option value="delivery_ready">待发布</option>
+              <option value="done">已完成</option>
+            </select>
+            <input
+              className="w-72 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm"
+              placeholder="搜索标题 / 项目 / source_ref / ID"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <button
+              className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white"
+              onClick={() => load().catch(() => {})}
+            >
+              刷新
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            data-testid="requirement-status-filter"
-            className="px-3 py-2 text-sm border rounded"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="">全部状态</option>
-            <option value="draft">草稿</option>
-            <option value="ready">已规划</option>
-            <option value="paused">已暂停</option>
-            <option value="in_progress">执行中</option>
-            <option value="done">已完成</option>
-            <option value="blocked">阻塞</option>
-            <option value="needs_revision">需修订</option>
-            <option value="deleted">已删除</option>
-          </select>
-          <select
-            data-testid="requirement-sort-mode"
-            className="px-3 py-2 text-sm border rounded"
-            value={sortMode}
-            onChange={(e) => setSortMode(e.target.value)}
-          >
-            <option value="score">智能排序</option>
-            <option value="updated">最近更新</option>
-          </select>
-          <input
-            data-testid="requirement-search"
-            className="w-52 px-3 py-2 text-sm border rounded"
-            placeholder="搜索需求 / 项目 / ID"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      </section>
+
+      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-400">New Requirement</div>
+            <h3 className="mt-2 text-xl font-semibold text-slate-950">新建需求</h3>
+          </div>
           <button
-            data-testid="create-requirement-btn"
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
-            onClick={() => setShowCreate((v) => !v)}
+            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-700"
+            onClick={() => setForm({ title: '', description_markdown: '', acceptance_criteria_markdown: '', priority: 'normal', target_project_path: '' })}
           >
-            新建需求
+            清空
           </button>
         </div>
-      </div>
-
-      {showCreate && (
-        <div data-testid="requirement-create-form" className="p-5 space-y-3 bg-white border shadow-sm rounded-xl">
-          <div>
-            <input
-              data-testid="requirement-title"
-              className={`w-full rounded border px-3 py-2 ${titleError ? 'border-red-500 ring-1 ring-red-500' : ''}`}
-              placeholder="需求标题"
-              value={form.title}
-              onChange={(e) => {
-                setTitleError(false)
-                setForm((prev) => ({ ...prev, title: e.target.value }))
-              }}
-            />
-            {titleError && (
-              <p className="mt-1 text-xs text-red-500">请填写需求标题</p>
-            )}
-          </div>
-          <textarea
-            data-testid="requirement-description"
-            className="w-full px-3 py-2 border rounded min-h-32"
-            placeholder="用 Markdown 描述需求、目标和约束"
-            value={form.description_markdown}
-            onPaste={handleCreateFormPaste}
-            onChange={(e) => setForm((prev) => ({ ...prev, description_markdown: e.target.value }))}
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <input
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            placeholder="标题"
+            value={form.title}
+            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
           />
-          <div
-            className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4"
-            onPaste={handleCreateFormPaste}
-            data-testid="requirement-attachments-dropzone"
+          <input
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            placeholder="目标项目路径，可换行写多个"
+            value={form.target_project_path}
+            onChange={(event) => setForm((current) => ({ ...current, target_project_path: event.target.value }))}
+          />
+          <textarea
+            className="min-h-[160px] rounded-2xl border border-slate-200 px-4 py-3 text-sm lg:col-span-2"
+            placeholder="需求描述"
+            value={form.description_markdown}
+            onChange={(event) => setForm((current) => ({ ...current, description_markdown: event.target.value }))}
+          />
+          <textarea
+            className="min-h-[120px] rounded-2xl border border-slate-200 px-4 py-3 text-sm lg:col-span-2"
+            placeholder="验收标准"
+            value={form.acceptance_criteria_markdown}
+            onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))}
+          />
+          <select
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm"
+            value={form.priority}
+            onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-slate-800">需求上下文附件</div>
-                <div className="mt-1 text-xs text-slate-500">支持上传文件，也支持在这里或描述框中直接粘贴图片，执行时会作为 agent 上下文。</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={attachmentInputRef}
-                  type="file"
-                  multiple
-                  data-testid="requirement-attachment-input"
-                  className="hidden"
-                  onChange={(event) => { handleAttachmentFileChange(event).catch(() => {}) }}
-                />
-                <button
-                  type="button"
-                  data-testid="requirement-attachment-upload-btn"
-                  className="rounded border px-3 py-2 text-sm hover:bg-white"
-                  onClick={() => attachmentInputRef.current?.click()}
-                >
-                  上传文件
-                </button>
-              </div>
-            </div>
-            {attachments.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {attachments.map((attachment, index) => (
-                  <span
-                    key={`${attachment.file_name}-${index}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-violet-100 px-3 py-1 text-xs text-violet-900"
-                  >
-                    <span>{attachment.file_name}</span>
-                    <span className="text-violet-600">{attachment.source}</span>
-                    <button
-                      type="button"
-                      className="text-violet-500 hover:text-violet-800"
-                      onClick={() => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-3 text-xs text-slate-400">当前没有附件。可上传文档、截图，或直接粘贴图片。</div>
-            )}
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs text-gray-500">目标项目（推荐直接关联项目策略；留空时会按项目 readiness 和语义自动路由）</div>
-            {managedProjectPolicies.length > 0 && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-xs font-medium text-slate-700">受管项目策略</div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {managedProjectPolicies.map((policy) => {
-                    const selected = policySelected(form.target_project_path, policy.root_path)
-                    return (
-                      <label
-                        key={`create-policy-${policy.id}`}
-                        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-                          selected
-                            ? 'border-blue-300 bg-blue-50 text-blue-900'
-                            : 'border-slate-200 bg-white text-slate-700'
-                        }`}
-                      >
-                        <input
-                          data-testid={`requirement-target-policy-${policy.id}`}
-                          type="checkbox"
-                          checked={selected}
-                          onChange={(e) => setForm((prev) => ({
-                            ...prev,
-                            target_project_path: setTargetProjectPaths(prev.target_project_path, policy.root_path, e.target.checked),
-                          }))}
-                        />
-                        <span>
-                          <span className="block font-medium">{policy.display_name}</span>
-                          <span className="block font-mono text-[11px] text-slate-500">{policy.root_path}</span>
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            <div className="text-[11px] text-gray-400">高级模式：仍可手动补充或调整多项目路径，每行一个路径。</div>
-            <textarea
-              data-testid="requirement-target-project"
-              className="w-full px-3 py-2 font-mono text-sm leading-relaxed border rounded"
-              rows={3}
-              placeholder={`/Users/cliff/workspace/agent/Synapse-Network\n/Users/cliff/workspace/agent/Synapse-Network-Growing`}
-              value={form.target_project_path}
-              onChange={(e) => setForm((prev) => ({ ...prev, target_project_path: e.target.value }))}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">优先级</label>
-              <select
-                data-testid="requirement-priority"
-                className="px-3 py-2 text-sm border rounded"
-                value={form.priority}
-                onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
-              >
-                <option value="low">low</option>
-                <option value="normal">normal</option>
-                <option value="high">high</option>
-              </select>
-            </div>
-            <div className="flex flex-col flex-1 gap-1">
-              <div className="text-xs text-gray-500">前置依赖（选后等依赖完成才启动）</div>
-              <div data-testid="create-dependencies" className="relative">
-                {/* Selected chips */}
-                {form.depends_on_requirement_ids.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-1">
-                    {form.depends_on_requirement_ids.map((rid) => {
-                      const r = requirements.find((x) => x.id === rid)
-                      return (
-                        <span key={rid} className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">
-                          <span className="max-w-[140px] truncate">{r?.title ?? `#${rid}`}</span>
-                          <button
-                            type="button"
-                            className="ml-0.5 text-blue-400 hover:text-blue-700 leading-none"
-                            onMouseDown={() => setForm((prev) => ({
-                              ...prev,
-                              depends_on_requirement_ids: prev.depends_on_requirement_ids.filter((v) => v !== rid),
-                            }))}
-                          >×</button>
-                        </span>
-                      )
-                    })}
-                  </div>
-                )}
-                {/* Search input */}
-                <input
-                  data-testid="create-dependency-search"
-                  className="w-full px-3 py-2 text-sm border rounded"
-                  placeholder="搜索需求名称…"
-                  value={depQuery}
-                  onFocus={() => setDepOpen(true)}
-                  onChange={(e) => { setDepQuery(e.target.value); setDepOpen(true) }}
-                  onBlur={() => setTimeout(() => setDepOpen(false), 150)}
-                />
-                {/* Dropdown list */}
-                {depOpen && (() => {
-                  const q = depQuery.toLowerCase()
-                  const filtered = requirements.filter((r) =>
-                    r.status !== 'deleted' && (
-                    !q || r.title.toLowerCase().includes(q) || String(r.id).includes(q)
-                    )
-                  )
-                  return (
-                    <div className="absolute z-20 w-full mt-1 overflow-auto bg-white border rounded-lg shadow-lg max-h-48">
-                      {filtered.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-400">无匹配需求</div>
-                      ) : filtered.map((r) => {
-                        const selected = form.depends_on_requirement_ids.includes(r.id)
-                        return (
-                          <button
-                            key={r.id}
-                            type="button"
-                            data-testid={`create-dependency-${r.id}`}
-                            className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition hover:bg-blue-50 ${
-                              selected ? 'bg-blue-50' : ''
-                            }`}
-                            onMouseDown={() => setForm((prev) => ({
-                              ...prev,
-                              depends_on_requirement_ids: toggleDependency(prev.depends_on_requirement_ids, r.id),
-                            }))}
-                          >
-                            <span className="flex-1 truncate">{r.title}</span>
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_CLASS[r.status] || ''}`}>
-                              {STATUS_LABEL[r.status] || r.status}
-                            </span>
-                            {selected && <span className="text-xs text-blue-600 shrink-0">✓</span>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-            <label className="flex items-center gap-2 py-2">
-              <input
-                data-testid="auto-start-checkbox"
-                type="checkbox"
-                checked={form.auto_start}
-                onChange={() => setForm((prev) => ({ ...prev, auto_start: !prev.auto_start }))}
-              />
-              <span className="text-sm">审批通过后自动生成计划，并在允许时继续启动执行</span>
-            </label>
+            <option value="low">low</option>
+            <option value="normal">normal</option>
+            <option value="high">high</option>
+          </select>
+          <div className="flex items-center justify-end">
             <button
-              data-testid="submit-requirement-btn"
-              className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded hover:bg-black disabled:opacity-50"
-              disabled={submitting}
-              onClick={() => { handleCreate().catch(() => {}) }}
+              className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-medium text-white disabled:opacity-60"
+              disabled={creating || !form.title.trim() || !form.description_markdown.trim()}
+              onClick={async () => {
+                setCreating(true)
+                try {
+                  const detail = await api.createRequirement(form)
+                  await load()
+                  navigate(`/requirements/${detail.requirement.id}`)
+                } finally {
+                  setCreating(false)
+                }
+              }}
             >
-              {form.auto_start ? '创建并进入自动流转' : '创建并保存'}
+              {creating ? '创建中…' : '创建需求'}
             </button>
           </div>
         </div>
-      )}
+      </section>
 
-      <div className="space-y-3">
-        {scheduler && !navBucket && (
-          <section data-testid="scheduler-panel" className="rounded-2xl border border-slate-200 bg-slate-950 px-5 py-4 text-slate-100 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">Multi-Project Scheduler</div>
-                <div className="mt-1 text-xs text-slate-300">
-                  全局槽位 {scheduler.active_count}/{scheduler.global_capacity}，当前可再启动 {scheduler.available_slots} 个 requirement。
+      <section className="rounded-[28px] border border-slate-200/70 bg-white/80 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Queue</div>
+            <h3 className="mt-2 text-xl font-semibold text-slate-950">需求列表</h3>
+          </div>
+          <div className="text-sm text-slate-500">{loading ? '加载中…' : `${filtered.length} 条需求`}</div>
+        </div>
+        <div className="mt-4 grid gap-4">
+          {filtered.map((item) => (
+            <article key={item.id} className="rounded-3xl border border-slate-200/80 bg-slate-50/80 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-lg font-semibold text-slate-950">{item.title}</h4>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{STATUS_LABEL[item.status] || item.status}</span>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">{item.priority}</span>
+                  </div>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 line-clamp-3">{item.description_markdown}</p>
                 </div>
-                {queueMessage && (
-                  <div className="mt-2 text-xs text-amber-300">最近一次队列推进: {queueMessage}</div>
+                <div className="text-right text-xs text-slate-500">
+                  <div>#{item.id}</div>
+                  <div>{formatTime(item.updated_at)}</div>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2 text-xs text-slate-500 md:grid-cols-2">
+                <div>target: {item.target_projects.join(', ') || '-'}</div>
+                <div>approval: {item.approval_required ? item.approval_status : 'waived'}</div>
+                <div>active execution: {item.active_execution_run_id ?? '-'}</div>
+                <div>latest release: {item.latest_release_status ?? '-'}</div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
+                  查看需求
+                </button>
+                <button
+                  className="rounded-2xl bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                  disabled={submittingId === item.id || item.status !== 'draft'}
+                  onClick={async () => {
+                    setSubmittingId(item.id)
+                    try {
+                      await api.submitRequirement(item.id)
+                      await load()
+                    } finally {
+                      setSubmittingId(null)
+                    }
+                  }}
+                >
+                  提交到执行
+                </button>
+                <button
+                  className="rounded-2xl border border-blue-200 px-4 py-2 text-sm text-blue-700 disabled:opacity-50"
+                  disabled={item.status !== 'ready' && item.status !== 'needs_revision'}
+                  onClick={async () => {
+                    const detail = await api.createExecution({ requirement_id: item.id })
+                    navigate(`/executions/${detail.execution.id}`)
+                  }}
+                >
+                  创建执行
+                </button>
+                {item.latest_release_status && (
+                  <button className="rounded-2xl border border-emerald-200 px-4 py-2 text-sm text-emerald-700" onClick={() => navigate(`/releases/${item.id}`)}>
+                    查看发布
+                  </button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  data-testid="scheduler-rebalance-btn"
-                  className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-medium text-rose-100 hover:bg-rose-950/50"
-                  onClick={() => {
-                    api.rebalanceRequirementScheduler()
-                      .then((result) => {
-                        setQueueMessage(queueSkipMessage(result.skipped))
-                        return loadPool()
-                      })
-                      .catch(() => {})
-                  }}
-                >
-                  执行再平衡
-                </button>
-                <button
-                  data-testid="scheduler-advance-btn"
-                  className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800"
-                  onClick={() => {
-                    api.advanceQueue()
-                      .then((result) => {
-                        setQueueMessage(queueSkipMessage(result.skipped))
-                        return loadPool()
-                      })
-                      .catch(() => {})
-                  }}
-                >
-                  运行调度器
-                </button>
-              </div>
+            </article>
+          ))}
+          {!loading && filtered.length === 0 && (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
+              当前没有符合条件的 requirement。
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {scheduler.project_states.map((project) => (
-                <div key={project.project_key} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-xs">
-                  <div className="font-medium text-slate-100">{project.display_name}</div>
-                  <div className="mt-1 text-slate-300">readiness: {project.readiness_status} ({project.readiness_score})</div>
-                  <div className="text-slate-300">autonomy: {project.autonomy_mode}</div>
-                  <div className="text-slate-300">slots: {project.active_count}/{project.max_parallel_requirements}</div>
-                  <div className="text-slate-300">queued: {project.queued_count} / weight x{project.scheduler_weight}</div>
-                  <div className="text-slate-300">budget: {project.budget_used}/{project.portfolio_budget_points} (left {project.budget_remaining})</div>
-                  <div className="text-slate-400">rebalance: {project.allow_rebalance ? 'on' : 'off'} / preempt: {project.allow_preemption ? 'on' : 'off'}</div>
-                </div>
-              ))}
-            </div>
-            {scheduler.decisions.length > 0 && (
-              <div className="mt-4 space-y-2">
-                {scheduler.decisions.slice(0, 6).map((decision, index) => (
-                  <div
-                    key={`${decision.candidate_type}-${decision.requirement_id ?? decision.signal_id ?? index}`}
-                    className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs text-slate-200"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-medium text-slate-100">{decision.title}</div>
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                        {decision.project_display_name} / {decision.action}
-                      </div>
-                    </div>
-                    <div className="mt-1 text-slate-300">
-                      score {decision.score} (base {decision.base_score}) / budget {decision.budget_cost}{decision.template_key ? ` / template ${decision.template_key}` : ''}
-                    </div>
-                    <div className="mt-1 text-slate-400">
-                      {decision.reason || decision.reasons[0] || 'scheduler observed this candidate'}
-                      {decision.approval_required ? ' / approval required' : ''}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-        {/* Queue status banner */}
-        {!showCreate && (() => {
-          const inProgress = requirements.filter((r) => r.status === 'in_progress')
-          const planningCount = requirements.filter((r) => r.status === 'planning').length
-          const readyCount = requirements.filter((r) => r.status === 'ready').length
-          if (inProgress.length > 0) return (
-            <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
-              <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-              <span>正在执行：<span className="font-medium">{inProgress[0].title}</span></span>
-              {readyCount + planningCount > 0 && <span className="ml-auto text-blue-400">队列中还有 {readyCount + planningCount} 个需求</span>}
-            </div>
-          )
-          if (planningCount > 0) return (
-            <div className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-700">
-              <span>系统正在为 <span className="font-medium">{planningCount}</span> 个需求自动生成计划</span>
-              {readyCount > 0 && <span className="ml-3 text-indigo-400">另有 {readyCount} 个已规划需求待执行</span>}
-            </div>
-          )
-          if (readyCount > 0) return (
-            <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
-              <span>队列中有 <span className="font-medium">{readyCount}</span> 个待执行需求</span>
-              <button
-                className="ml-3 rounded bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
-                onClick={() => {
-                  api.advanceQueue()
-                    .then((result) => {
-                      setQueueMessage(queueSkipMessage(result.skipped))
-                      return loadPool()
-                    })
-                    .catch(() => {})
-                }}
-              >启动下一个</button>
-            </div>
-          )
-          return null
-        })()}
-        {visibleRequirements.length === 0 && (
-          <div data-testid="requirements-empty" className="p-6 text-sm text-gray-500 bg-white border border-dashed rounded-xl">
-            {searchQuery.trim()
-              ? `没有匹配“${searchQuery.trim()}”的 requirement。`
-              : '还没有 requirement。先创建一条需求，再规划和启动 workflow。'}
-          </div>
-        )}
-        {visibleRequirements.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((requirement) => {
-          const showToggle = requirement.status === 'in_progress' || requirement.status === 'ready' || requirement.status === 'paused'
-          const isRunning = requirement.status === 'in_progress'
-          const isDeleted = requirement.status === 'deleted'
-          const displayState = getRequirementDisplayState(requirement)
-          const targetProjectPaths = getTargetProjectPaths(requirement.target_project_path)
-          const routingContext = requirement.routing_context
-          const projectScorecards = routingContext?.project_scorecards || []
-          const schedulerDecision = decisionByRequirementId.get(requirement.id)
-          const approvalBlockedReason = !['approved', 'waived'].includes(requirement.approval_status)
-            ? `当前审批状态为 ${APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}`
-            : ''
-          const schedulerBlockedReason = !isRunning && schedulerDecision && schedulerDecision.action !== 'start'
-            ? (schedulerDecision.reason || schedulerDecision.reasons[0] || '')
-            : ''
-          const startBlockedReason = approvalBlockedReason || schedulerBlockedReason
-          let toggleLabel = '启动'
-          if (actioningRequirementId === requirement.id) {
-            toggleLabel = '处理中…'
-          } else if (isRunning) {
-            toggleLabel = '暂停'
-          }
-
-          return (
-            <div
-              key={requirement.id}
-              data-testid={`requirement-card-${requirement.id}`}
-              className="w-full p-4 text-left transition bg-white border shadow-sm rounded-xl hover:border-blue-300 hover:shadow-md"
-            >
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  className="flex-1 text-left"
-                  onClick={() => navigate(`/requirements/${requirement.id}`)}
-                >
-                    <div className="mb-2">
-                    <div className="text-sm font-semibold text-gray-900">{requirement.title}</div>
-                    <div className="mt-1 text-xs text-gray-500">
-                      {requirement.status === 'planning'
-                        ? '系统自动生成 workflow plan 中'
-                        : requirement.status === 'plan_failed'
-                          ? 'workflow plan 生成失败'
-                          : requirement.current_plan_version > 0
-                            ? `Plan v${requirement.current_plan_version}`
-                            : '待审批后自动生成 workflow plan'}
-                    </div>
-                  </div>
-                  {targetProjectPaths.length > 0 && (
-                    <div className="mb-2 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                      <div className="mb-1 font-medium">目标项目:</div>
-                      <div className="space-y-1 font-mono">
-                        {targetProjectPaths.map((projectPath) => (
-                          <div key={projectPath} className="break-all">{projectPath}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {routingContext?.summary && (
-                    <div
-                      className={`mb-2 rounded-md px-3 py-2 text-xs ${
-                        routingContext.automation_ready
-                          ? 'bg-emerald-50 text-emerald-800'
-                          : 'bg-amber-50 text-amber-800'
-                      }`}
-                    >
-                      <div className="font-medium">
-                        路由: {routingContext.routing_mode} / readiness: {routingContext.readiness_status}
-                      </div>
-                      <div className="mt-1">{routingContext.summary}</div>
-                    </div>
-                  )}
-                  {projectScorecards.length > 0 && (
-                    <div className="mb-2 grid gap-2 md:grid-cols-2">
-                      {projectScorecards.map((project) => (
-                        <div
-                          key={`${requirement.id}-${project.project_key}`}
-                          className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-700"
-                        >
-                          <div className="font-medium">{project.display_name}</div>
-                          <div>readiness: {project.readiness_status} ({project.readiness_score})</div>
-                          <div>bug pressure: {project.bug_report_count}</div>
-                          <div>blocked publish: {project.blocked_publish_count}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray-600 line-clamp-3">{requirement.description_markdown}</div>
-                  {schedulerDecision && (
-                    <div
-                      className={`mt-2 rounded-md px-3 py-2 text-[11px] ${
-                        schedulerDecision.action === 'start'
-                          ? 'bg-blue-50 text-blue-800'
-                          : schedulerDecision.action === 'preempt_candidate'
-                            ? 'bg-rose-50 text-rose-800'
-                            : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      <div className="font-medium">
-                        调度决策: {schedulerDecision.action} / score {schedulerDecision.score} / budget {schedulerDecision.budget_cost}
-                      </div>
-                      <div className="mt-1">
-                        {(schedulerDecision.reason || schedulerDecision.reasons[0] || 'scheduler waiting') +
-                          (schedulerDecision.approval_required ? ' / approval required' : '')}
-                      </div>
-                    </div>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                    <span>bug: {requirement.score_breakdown?.bug_pressure ?? 0}</span>
-                    <span>delivery: {requirement.score_breakdown?.delivery_pressure ?? 0}</span>
-                    <span>manual: {requirement.score_breakdown?.manual_escalation_pressure ?? 0}</span>
-                    {Number(requirement.score_breakdown?.signal_impact ?? 0) > 0 && (
-                      <span>signal impact: {requirement.score_breakdown?.signal_impact ?? 0}</span>
-                    )}
-                    {Number(requirement.score_breakdown?.signal_urgency ?? 0) > 0 && (
-                      <span>signal urgency: {requirement.score_breakdown?.signal_urgency ?? 0}</span>
-                    )}
-                  </div>
-                  {!['approved', 'waived'].includes(requirement.approval_status) && (
-                    <div className="mt-2 rounded-md bg-yellow-50 px-3 py-2 text-[11px] text-yellow-800">
-                      执行审批：{APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}。审批通过后系统会自动生成计划。
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
-                    <span>优先级: {requirement.priority}</span>
-                    <span>阻塞: {requirement.blocked_by_count}</span>
-                    <span>Score: {requirement.score_breakdown?.total ?? 0}</span>
-                    <span>{formatTime(requirement.updated_at)}</span>
-                  </div>
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    data-testid={`requirement-edit-${requirement.id}`}
-                    className="rounded-lg px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
-                    disabled={isDeleted}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleOpenEditRequirement(requirement)
-                    }}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`requirement-delete-${requirement.id}`}
-                    className="rounded-lg px-3 py-1.5 text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 transition disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isDeleted || deleteRequirementSavingId === requirement.id}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleDeleteRequirement(requirement).catch(() => {})
-                    }}
-                  >
-                    {deleteRequirementSavingId === requirement.id ? '删除中…' : '删除'}
-                  </button>
-                  {showToggle && (
-                    <button
-                      type="button"
-                      data-testid={`requirement-toggle-${requirement.id}`}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        isRunning
-                          ? 'border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                          : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
-                      }`}
-                      disabled={isDeleted || actioningRequirementId === requirement.id || (!isRunning && !!startBlockedReason)}
-                      title={startBlockedReason || undefined}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        handleExecutionToggle(requirement).catch(() => {})
-                      }}
-                    >
-                      {toggleLabel}
-                    </button>
-                  )}
-                  <span className={`rounded-full px-2 py-1 text-xs font-medium ${displayState.className}`}>
-                    {displayState.label}
-                  </span>
-                  <span
-                    data-testid={`requirement-approval-badge-${requirement.id}`}
-                    className={`rounded-full px-2 py-1 text-xs font-medium ${APPROVAL_CLASS[requirement.approval_status] || APPROVAL_CLASS.pending_approval}`}
-                  >
-                    {APPROVAL_LABEL[requirement.approval_status] || requirement.approval_status}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-
-        {/* Pagination */}
-        {visibleRequirements.length > PAGE_SIZE && (() => {
-          const totalPages = Math.ceil(visibleRequirements.length / PAGE_SIZE)
-          const start = (page - 1) * PAGE_SIZE + 1
-          const end = Math.min(page * PAGE_SIZE, visibleRequirements.length)
-          return (
-            <div data-testid="requirements-pagination" className="flex items-center justify-between pt-1 text-xs text-gray-500">
-              <span>{start}–{end} / {visibleRequirements.length} 条需求</span>
-              <div className="flex items-center gap-1">
-                <button
-                  className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
-                  disabled={page === 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >‹ 上一页</button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    className={`rounded border px-2.5 py-1 ${
-                      p === page ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-gray-50'
-                    }`}
-                    onClick={() => setPage(p)}
-                  >{p}</button>
-                ))}
-                <button
-                  className="rounded border px-2 py-1 hover:bg-gray-50 disabled:opacity-40"
-                  disabled={page === totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >下一页 ›</button>
-              </div>
-            </div>
-          )
-        })()}
-      </div>
+          )}
+        </div>
+      </section>
     </div>
-
-    {editingRequirement && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setEditingRequirement(null)}>
-        <div className="bg-white rounded-xl p-6 max-w-xl w-full max-h-[80vh] overflow-auto shadow-xl space-y-4" onClick={(e) => e.stopPropagation()} data-testid="edit-requirement-modal">
-          <h3 className="font-bold text-base">编辑需求 #{editingRequirement.id}</h3>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">标题</label>
-            <input
-              data-testid="edit-requirement-title"
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={editingRequirement.title}
-              onChange={(e) => setEditingRequirement({ ...editingRequirement, title: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">需求描述 (Markdown)</label>
-            <textarea
-              data-testid="edit-requirement-description"
-              className="w-full border rounded px-3 py-2 text-sm min-h-[120px] font-mono resize-y"
-              value={editingRequirement.description_markdown}
-              onChange={(e) => setEditingRequirement({ ...editingRequirement, description_markdown: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">优先级</label>
-            <select
-              data-testid="edit-requirement-priority"
-              className="w-full border rounded px-3 py-2 text-sm"
-              value={editingRequirement.priority}
-              onChange={(e) => setEditingRequirement({ ...editingRequirement, priority: e.target.value })}
-            >
-              <option value="low">低</option>
-              <option value="normal">普通</option>
-              <option value="high">⚡ 高</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">目标项目（优先关联项目策略；高级模式可继续手动编辑路径）</label>
-            {managedProjectPolicies.length > 0 && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-xs font-medium text-slate-700">受管项目策略</div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {managedProjectPolicies.map((policy) => {
-                    const selected = policySelected(editingRequirement.target_project_path, policy.root_path)
-                    return (
-                      <label
-                        key={`edit-policy-${policy.id}`}
-                        className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-                          selected
-                            ? 'border-blue-300 bg-blue-50 text-blue-900'
-                            : 'border-slate-200 bg-white text-slate-700'
-                        }`}
-                      >
-                        <input
-                          data-testid={`edit-requirement-target-policy-${policy.id}`}
-                          type="checkbox"
-                          checked={selected}
-                          onChange={(e) => setEditingRequirement({
-                            ...editingRequirement,
-                            target_project_path: setTargetProjectPaths(editingRequirement.target_project_path, policy.root_path, e.target.checked),
-                          })}
-                        />
-                        <span>
-                          <span className="block font-medium">{policy.display_name}</span>
-                          <span className="block font-mono text-[11px] text-slate-500">{policy.root_path}</span>
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-            <textarea
-              data-testid="edit-requirement-target"
-              className="w-full border rounded px-3 py-2 text-sm font-mono min-h-[64px] resize-y"
-              value={editingRequirement.target_project_path}
-              onChange={(e) => setEditingRequirement({ ...editingRequirement, target_project_path: e.target.value })}
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setEditingRequirement(null)}
-              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-            >
-              取消
-            </button>
-            <button
-              data-testid="save-requirement-btn"
-              disabled={editRequirementSaving || !editingRequirement.title.trim() || !editingRequirement.description_markdown.trim()}
-              onClick={() => { handleSaveRequirement().catch(() => {}) }}
-              className="px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {editRequirementSaving ? '保存中…' : '保存'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-  </>
   )
 }

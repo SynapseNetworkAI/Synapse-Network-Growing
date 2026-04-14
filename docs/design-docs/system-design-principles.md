@@ -1,203 +1,170 @@
 # Synapse Company Ops 系统设计原则
 
-这份文档定义 `Synapse-Network-Growing` 后续设计与实现的硬约束。
+这份文档定义 `Synapse-Network-Growing` 当前的硬约束。
 
-后续新增功能、workflow、runtime、UI、测试和自动化策略，**不得违背这些原则**。如果某个实现需要例外，必须在设计文档里明确写出原因、风险和补偿机制。
+后续新增功能、流程、API、页面和自动化策略，默认都必须遵守这些原则。例外只能通过专门设计文档说明原因、风险和补偿机制。
 
 ## 1. 把模型当不稳定部件，不当同事
 
-1. 不允许假设模型会持续正确、持续记住上下文、持续做出稳定判断。
-2. 可靠性必须来自 harness：状态机、权限、恢复、验证、回滚、日志和预算。
-3. 所有自动化能力都要以“出错也可收口”为前提。
+1. 不允许假设模型会持续正确、持续稳定、持续理解上下文。
+2. 可靠性必须来自状态机、权限、验证、恢复、日志和预算。
+3. 自动化必须以“失败也能收口”为前提。
 
 ## 2. 错误路径按主路径设计
 
-1. 错误恢复不是异常补丁，而是主路径的一部分。
-2. 所有关键 workflow 都必须定义失败分支、恢复分支、熔断条件和 operator 接管点。
-3. 不允许出现无限重试、无限 bugfix、无限 resume 这类无预算循环。
+1. 恢复不是补丁，而是主路径的一部分。
+2. 每条核心执行链都必须定义失败分支、恢复分支、熔断条件和 operator 接管点。
+3. 禁止无限重试、无限 bugfix、无限 resume。
 
-## 3. Verification 必须独立于 Implementation
+## 3. Verification 必须独立于 Execute
 
-1. implementation 不能自证正确。
-2. review / validation / closeout 必须是独立阶段，且默认对 implementation 保持怀疑。
+1. execute 不能自证正确。
+2. validate 必须独立于 execute。
 3. “代码存在”不等于“问题解决”；完成定义必须包含验证证据。
-4. harness 负责定义验证流程与治理边界，不负责替模型预判“这次应该改文档还是改代码”。
-5. requirement 负责给出目标、约束和目标项目；具体改动形态与步骤展开默认由 plan 模型决定。
+4. deliver 只能发生在 validate 成功之后。
 
-## 3A. Requirement 与 Release 必须分面治理
+## 4. 默认 workflow 必须最小化
 
-1. requirement 页面只负责 requirement 本身的目标、workflow、validation、context governance、runtime evidence 与 incident narrative。
-2. 环境状态、部署记录、publish、staging / production promotion、rollback 必须进入独立的 release surface，不得继续混在 requirement detail 中。
-3. requirement 可以展示 release handoff 摘要与跳转入口，但不能承担环境控制台职责。
-4. project policy 负责定义 deploy governance 边界；release center 负责执行和展示这些边界；requirement detail 不得复制这套控制面。
-5. 后续新增 UI / API 时，凡是“环境视角”或“发布视角”的能力，都默认进入独立 release center，而不是回灌到 requirement 页面。
+1. 当前正式核心流只有：
+   `intake -> execute -> validate -> deliver`
+2. simple task 不得被治理框架强制扩成多步流程。
+3. 复杂任务才允许展开 execution graph。
+4. `research / plan / review / test / closeout` 不再是默认一等 workflow step。
 
-## 3B. 服务层必须按功能面治理
+## 5. Planner 是执行形状选择器，不是阶段生成器
 
-1. `server/services` 不允许继续增长为平铺式万能目录；新增服务必须进入对应功能分包。
-2. requirement、release、runtime、review、project policy、signal、bug intake 必须按业务面拆分，不能继续堆进单一巨型模块。
-3. 服务文件超过规模阈值时必须拆分：
-   `> 500 行` 进入预警，`> 900 行` 必须做职责拆分。
-4. 每个服务分包都必须带 `README.md` 作为地图索引，说明职责、入口、依赖边界和迁移映射。
-5. router 不得直接依赖巨型杂糅模块的私有实现；应该通过分包 facade 或稳定公开入口接入。
+1. planner 只负责 shape decision：
+   - execution mode
+   - complexity
+   - validation profile
+   - delivery intent
+   - approval requirement
+2. planner 不得强制生成固定 research/plan/closeout 仪式。
+3. harness 不负责替 agent 决定执行顺序。
 
-## 4. 多代理的目标是隔离不确定性
+## 6. Requirement / Execution / Release 必须分面治理
 
-1. 多代理不是堆 worker 数量，而是分离 research、synthesis、implementation、verification 的职责。
-2. 各阶段默认隔离上下文、记忆和可变状态，只有明确声明的结果才允许共享。
-3. coordinator / orchestrator 必须负责综合，不得把“理解责任”继续外包给下游 worker。
+### 6.1 Requirement
 
-## 5. Runtime / Subagent 必须有生命周期
+Requirement 只负责：
 
-1. 所有 runtime / subagent 都必须有 start / running / stop / cleanup / abort 传播语义。
-2. 要能追踪 transcript、session、artifact、log 和 ownership。
-3. 父任务结束时，子任务和后台资源必须可清理、可回收、可复盘。
+1. 为什么做
+2. 要达到什么结果
+3. 在什么约束下做
 
-## 6. 上下文是预算，不是垃圾桶
+Requirement 不得直接承载：
 
-1. 长期规则、项目 policy、Agents-Memory、会话上下文和临时证据必须分层治理。
-2. 需要为 context budget、compact、stale memory verification 预留产品与 runtime 机制。
-3. 不允许把未经验证的旧记忆直接当当前事实继续传播。
+1. 运行时 telemetry 明细
+2. deploy / rollback 控制
+3. 环境状态面板
 
-## 7. 权限是系统器官，不是附属选项
+### 6.2 Execution
 
-1. shell、git、network、publish、rollback、delete 等高风险能力必须明确授权。
-2. capability matrix 和 interrupt policy 必须先于更强自动化能力落地。
-3. 越危险的能力，越不能走默认直通。
-4. project policy 必须显式声明：
-   `shell_access`、`git_read`、`git_write`、`git_push`、`network_access`、`publish`。
-5. interrupt policy 必须显式声明：
-   哪些动作需要 operator confirmation，哪些事件要自动暂停，哪些事件要自动终止。
-6. workflow step 不得隐式继承高风险能力；必须在 planner 输出和 step policy 中可见、可追踪。
+Execution 负责：
 
-## 8. 所有关键自动化都必须可观测
+1. agent 工作过程
+2. execution graph 或 direct execute
+3. validate 结果
+4. incidents / pause / resume / retry
 
-1. requirement、workflow、task、signal、review、publish、rollback 都要有事件日志。
-2. 调度决策、熔断原因、恢复动作、operator 接管都应留下结构化证据。
+### 6.3 Release
+
+Release 负责：
+
+1. branch / commit / PR
+2. delivery readiness
+3. deployment promotion
+4. rollback
+
+凡是环境视角或发布视角能力，默认进入 release surface，不得回灌到 requirement 页面。
+
+## 7. Artifact 必须面向消费方
+
+当前默认只保留最小证据集：
+
+1. `requirement_brief`
+2. `execution_record`
+3. `validation_record`
+4. `delivery_record`
+
+规则：
+
+1. 没有消费方的 artifact 不生成。
+2. artifact 必须明确服务于 Requirement、Execution、Release 其中一面。
+3. 禁止制造“为了阶段完整性而存在”的仪式性 artifact。
+
+## 8. Release Candidate 只接受 Validate 成功的 Requirement
+
+1. release candidate 不得来自未验证 requirement。
+2. publish、deploy、rollback 必须在 release surface 处理。
+3. requirement 面只能展示 release 摘要与跳转入口。
+
+## 9. 服务层必须按功能面治理
+
+1. `server/services` 不允许继续回到平铺式万能目录。
+2. requirement、release、runtime、review、project policy、signal、bug intake 必须分面拆分。
+3. 新服务文件 `> 500 行` 进入预警，`> 900 行` 必须拆分。
+4. 每个服务分包都必须有 `README.md`，说明职责、入口、依赖边界和禁止依赖。
+5. router 只能依赖 facade 或稳定公开入口，不得直接抓私有 helper。
+
+## 10. 防膨胀工程约束
+
+### 10.1 单一职责
+
+1. 一个模块只能服务一个业务面。
+2. requirement、release、runtime、review、signal、project policy 不得混写进同一个主文件。
+
+### 10.2 接口隔离
+
+1. 每个分包必须有最小公开入口。
+2. `routers/` 只能依赖 facade，不得跨目录点对点抓内部函数。
+
+### 10.3 迪米特法则
+
+1. 禁止跨两层以上目录直接取内部实现。
+2. 出现这种需要时，应补 facade 或提取公共 helper。
+
+### 10.4 合成复用优先
+
+1. 新能力优先通过 helper / service / policy 组合实现。
+2. 默认不通过复杂继承树做扩展。
+
+### 10.5 依赖倒转
+
+1. 上层编排只依赖稳定 facade 和 schema。
+2. 不得依赖底层实现拆分文件。
+
+## 11. 上下文是预算，不是垃圾桶
+
+1. 长期规则、项目 policy、会话上下文和临时证据必须分层治理。
+2. 需要为 context budget、compaction 和 stale-memory verification 预留机制。
+3. 不允许把未经验证的旧记忆直接继续传播为当前事实。
+
+## 12. Runtime / Subagent 必须有生命周期
+
+1. 所有 runtime 都必须可 start、running、pause、fail、cleanup、abort。
+2. transcript、session、artifact、log 和 ownership 必须可追踪。
+3. 父执行结束时，子资源必须可收口、可复盘。
+
+## 13. 所有关键自动化都必须可观测
+
+1. requirement、execution、release、incident、publish、rollback 都必须留下结构化证据。
+2. 调度决策、熔断原因、恢复动作、operator 接管都应有日志。
 3. 没有 telemetry 的自动化，不应进入默认主路径。
 
-## 9. 先让系统可治理，再让系统更自主
+## 14. 治理优先于更强自主性
 
-1. 自主性提升必须建立在 policy、validation、delivery、incident 和 observability 已经收口的前提上。
-2. 如果治理能力不够，优先补治理，不优先补“更聪明”的自动化。
-3. autonomy mode 应始终受 policy、budget 和 operator review 约束。
+1. 自主性提升必须建立在 policy、validation、delivery、incident、observability 已经收口的前提上。
+2. 如果治理能力不足，优先补治理，不优先补更复杂的 agent 自主决策。
 
-## 10. 后续实现优先顺序
+## 15. 当前正式实现顺序
 
-当前约定的实现顺序如下：
+后续默认优先顺序为：
 
-1. 把 `research + synthesis` 显式加进 requirement workflow。
-2. 给 tool / shell / git / publish 做 capability matrix 和 interrupt policy。
-3. 做 context budget + compact + stale memory verify。
-4. 把 runtime / subagent lifecycle 做成 artifacts 和 telemetry。
-5. 把 recovery narrative / incident taxonomy 做到详情页和 signal 里。
+1. Requirement 面的意图与治理收口
+2. Execution 面的最小执行闭环
+3. Release 面的交付与发布闭环
+4. incident / recovery 的可观察性
+5. 更复杂的 execution graph 与 deterministic runtime 能力
 
-当前状态：
-
-1. `research + synthesis` 已落地。
-2. capability matrix + interrupt policy 已落地到 `project policy -> planner -> workflow step -> delivery contract` 链路。
-3. `context budget + compact + stale memory verify` 已落地到 `planner -> workflow step -> orchestrator -> artifacts -> requirement detail` 链路。
-4. `runtime / subagent lifecycle` 已落地到 `task logs -> runtime state -> workflow artifacts -> requirement detail` 链路。
-5. `recovery narrative / incident taxonomy` 已落地到 `failure artifacts -> unified incident view -> requirement detail / optimization signals` 链路。
-6. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
-
-## 11. Context Governance 落地要求
-
-为了保证第 6 条原则不是停留在口号层，后续所有 workflow / runtime 设计都要满足下面这些实现要求。
-
-### 11.1 每个 workflow step 都必须声明 context policy
-
-至少应显式声明：
-
-1. `max_prompt_chars`
-2. `compact_after_chars`
-3. `max_artifact_body_chars`
-4. `max_handoff_chars`
-5. `stale_after_minutes`
-6. `stale_sensitive_artifact_types`
-7. `block_on_stale_memory`
-
-不允许再使用“默认把所有 artifact 和历史描述拼进 prompt”这种隐式上下文策略。
-
-### 11.2 Compact 必须是确定性的
-
-1. compact 的输入来源、截断规则和摘要结构必须可复盘。
-2. compact 不是任意删减，而是按照 requirement / policy / handoff / artifact 分层收敛。
-3. compact 结果必须留下 artifact 证据，便于 operator 追查“为什么这次 agent 看到的是这一版上下文”。
-
-### 11.3 Stale Memory Verify 必须先于 dispatch
-
-1. stale memory verification 必须发生在 step dispatch 前，而不是失败后补做。
-2. 发现陈旧上下文时，默认先阻断 step，再转 operator review。
-3. `implementation`、`review`、`test` 这类关键阶段默认应开启 `block_on_stale_memory`。
-
-### 11.4 Context Governance 必须可见
-
-1. requirement detail 必须能看到当前 step 的 context policy。
-2. requirement detail 必须能看到最近一次 `context_compaction` 的结果。
-3. requirement detail 必须能看到最近一次 `stale_memory_verification` 的状态与发现。
-
-### 11.5 后续能力不得绕开这套治理
-
-后续新增的 runtime、subagent、memory、scheduler、signal、incident 模块：
-
-1. 不得绕开 step-level context policy。
-2. 不得绕过 compact artifact。
-3. 不得省略 stale memory verification。
-
-## 12. Runtime / Subagent Lifecycle 落地要求
-
-为了保证第 5 条原则可执行，运行期治理必须满足下面这些要求。
-
-### 12.1 生命周期必须有结构化证据
-
-每个 workflow step 对应的 runtime，至少要能记录这些阶段：
-
-1. `dispatch_requested`
-2. `running`
-3. `waiting_approval`
-4. `completed`
-5. `failed`
-6. `paused`
-
-这些状态不能只存在于日志字符串里，必须沉淀成 artifact。
-
-### 12.2 Telemetry 必须汇总 subagent 事件
-
-1. runtime backend / session id / selected agent 必须可见。
-2. subagent 的 selected / started / completed / failed 计数必须可追踪。
-3. 最近 runtime event 必须可回放到 requirement 详情页和后续 incident / signal 流程。
-
-### 12.3 Cleanup 与 abort propagation 必须可复盘
-
-1. pause / cancel / abort 时，要能看到 cleanup 何时被请求。
-2. 如果 runtime backend 支持外部 state，state snapshot 也应进入 telemetry。
-3. operator 需要能从 artifact 判断“这次是正常结束，还是被中断收口”。
-
-## 13. Recovery Narrative / Incident Taxonomy 落地要求
-
-为了保证错误路径是真正的主路径，事故与恢复信息必须满足下面这些要求。
-
-### 13.1 Incident taxonomy 必须统一
-
-不能让 `bug_report`、`capability_interrupt`、`stale_memory_verification`、`bugfix_circuit_breaker`、`runtime_lifecycle` 各说各话。
-
-后续设计必须把这些证据归一到统一 incident 视图，至少包含：
-
-1. `incident_family`
-2. `incident_code`
-3. `severity`
-4. `recovery_status`
-5. `recommended_action`
-
-### 13.2 Recovery narrative 必须面向 operator
-
-1. narrative 要回答“发生了什么、为什么值得停下来、下一步该怎么处理”。
-2. narrative 不能只是把原始错误字符串复读一遍。
-3. incident summary 要能直接进入 requirement detail、optimization signal 和 company review。
-
-### 13.3 Signal 必须能读 incident
-
-1. optimization signal 不只看 bug / blocker / approval，也要能看 workflow/runtime/context incident。
-2. signal 里的 taxonomy 与 detail 页必须一致，不能出现两套分类规则。
-3. incident signal 默认应导向 recovery / stabilization 类型 requirement，而不是把所有事故都粗暴映射成“修 bug”。
+任何新设计如果会把系统重新拉回“大而全的单页面控制台”或“固定多阶段仪式流程”，都应视为违反当前正式架构。

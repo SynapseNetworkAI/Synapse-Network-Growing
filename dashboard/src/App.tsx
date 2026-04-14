@@ -1,134 +1,59 @@
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import OrgChart from './pages/OrgChart'
-import CompanyReviewPage from './pages/CompanyReviewPage'
-import RoleKpisPage from './pages/RoleKpisPage'
-import AutonomyPage from './pages/AutonomyPage'
-import RecurringWorkflowsPage from './pages/RecurringWorkflowsPage'
-import TaskBoard from './pages/TaskBoard'
-import TaskDetail from './pages/TaskDetail'
-import Approvals from './pages/Approvals'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
-import ProjectPolicies from './pages/ProjectPolicies'
-import OptimizationSignals from './pages/OptimizationSignals'
-import DeploymentsPage from './pages/DeploymentsPage'
+import ExecutionsPage from './pages/ExecutionsPage'
+import ExecutionDetailPage from './pages/ExecutionDetailPage'
+import ReleasesPage from './pages/ReleasesPage'
+import ReleaseDetailPage from './pages/ReleaseDetailPage'
 
 const navItems = [
-  { to: '/overview', label: '运营总览' },
-  { to: '/recurring-workflows', label: '定时任务' },
-  { to: '/requirements', label: '需求池' },
-  { to: '/deployments', label: '发布中心' },
-  { to: '/optimization-signals', label: '优化信号' },
-  { to: '/project-policies', label: '项目策略' },
-  { to: '/tasks', label: '任务看板' },
-  { to: '/approvals', label: '审批中心' },
-]
-
-const overviewSubNavItems = [
-  { to: '/overview', label: '首页总览' },
-  { to: '/company-review', label: '公司复盘' },
-  { to: '/role-kpis', label: '角色 KPI' },
-  { to: '/autonomy', label: '自治模式' },
-]
-
-const requirementSubNavItems = [
-  { to: '/requirements?bucket=running', label: '运行中' },
-  { to: '/requirements?bucket=pending', label: '待审批' },
-  { to: '/requirements?bucket=closed', label: '已结束' },
-  { to: '/requirements?bucket=deleted', label: '废弃/删除' },
+  { to: '/requirements', label: '需求' },
+  { to: '/executions', label: '执行' },
+  { to: '/releases', label: '发布' },
 ]
 
 const routeBriefs = [
   {
-    match: (pathname: string) => pathname === '/' || pathname === '/overview',
-    eyebrow: 'Company Overview',
-    title: '运营总览入口',
-    description: '首页只保留轻量摘要、今日重点和页面入口，把深度 COO 分析拆到独立页面里。',
-    chips: ['overview', 'priorities', 'navigation'],
-  },
-  {
-    match: (pathname: string) => pathname === '/company-review',
-    eyebrow: 'Company Operating Review',
-    title: '公司复盘与经营分析',
-    description: '集中查看 operating review、incident、bundle、operator package 和项目级经营信号。',
-    chips: ['company review', 'incidents', 'bundle'],
-  },
-  {
-    match: (pathname: string) => pathname === '/role-kpis',
-    eyebrow: 'Role Performance',
-    title: '角色 KPI 与工作分配',
-    description: '聚焦 execution / approval roles 的负载、积压、审批依赖和周转效率。',
-    chips: ['role kpi', 'backlog', 'allocation'],
-  },
-  {
-    match: (pathname: string) => pathname === '/autonomy',
-    eyebrow: 'Autonomous COO',
-    title: '自治模式看板',
-    description: '查看 operator queue、高风险事项、自动审批比例和自治执行覆盖率。',
-    chips: ['autonomy', 'operator queue', 'guardrails'],
-  },
-  {
-    match: (pathname: string) => pathname === '/recurring-workflows',
-    eyebrow: 'Ritual Control',
-    title: '定时任务与运营自动化',
-    description: '单独管理 intake、dispatch、closeout、approval 和 company review 的自动化任务。',
-    chips: ['rituals', 'scheduler', 'automation'],
-  },
-  {
-    match: (pathname: string) => pathname === '/requirements',
-    eyebrow: 'Execution Queue',
-    title: '需求池与交付节奏',
-    description: '围绕优先级、验证闭环和跨项目调度，管理每一条可执行 requirement 的状态和顺序。',
-    chips: ['queue', 'validation', 'delivery gate'],
-  },
-  {
-    match: (pathname: string) => pathname === '/deployments',
-    eyebrow: 'Release Center',
-    title: '环境与发布总览',
-    description: '把环境状态、部署记录、publish、staging/prod promotion 与 rollback 从 requirement 页面里独立出来。',
-    chips: ['deployments', 'environments', 'rollback'],
+    match: (pathname: string) => pathname === '/requirements' || pathname === '/',
+    eyebrow: 'Requirement Surface',
+    title: '需求面',
+    description: '只管理为什么做、要做到什么、作用在哪个项目。执行与发布跳转到各自独立页面。',
+    chips: ['intent', 'acceptance', 'priority'],
   },
   {
     match: (pathname: string) => pathname.startsWith('/requirements/'),
     eyebrow: 'Requirement Detail',
-    title: '单条 Requirement 指挥台',
-    description: '查看 workflow、validation contract、上下文治理和执行证据；发布与环境 promotion 统一在发布中心处理。',
-    chips: ['workflow', 'artifacts', 'validation'],
+    title: '需求详情',
+    description: '查看单条 requirement 的业务意图、验收标准和策略摘要，不混入执行控制或发布操作。',
+    chips: ['intent', 'policy', 'handoff'],
   },
   {
-    match: (pathname: string) => pathname === '/optimization-signals',
-    eyebrow: 'Optimization Signal Ingestion',
-    title: '优化信号收束面',
-    description: '汇总 bug report、manual override 和 delivery blocker，把问题沉淀成可转 requirement 的优化机会。',
-    chips: ['signals', 'auto intake', 'templates'],
+    match: (pathname: string) => pathname === '/executions',
+    eyebrow: 'Execution Console',
+    title: '执行面',
+    description: '聚焦 agent 执行图、运行时、验证结果和事件恢复，让模型在最小治理下完成工作。',
+    chips: ['execute', 'validate', 'incident'],
   },
   {
-    match: (pathname: string) => pathname === '/project-policies',
-    eyebrow: 'Policy Registry',
-    title: '项目策略与接入治理',
-    description: '定义每个项目的边界、调度权重、自治模式和预算，决定 agent 能安全走到哪一步。',
-    chips: ['policy', 'autonomy', 'budget'],
+    match: (pathname: string) => pathname.startsWith('/executions/'),
+    eyebrow: 'Execution Detail',
+    title: '执行详情',
+    description: '按单次 execution run 查看节点进展、任务证据、验证结果和恢复动作。',
+    chips: ['nodes', 'runtime', 'validation'],
   },
   {
-    match: (pathname: string) => pathname === '/tasks',
-    eyebrow: 'Task Runtime',
-    title: '任务执行面板',
-    description: '观察 agent runtime、批量重试、输出文件和 requirement 关联，让执行细节保持可追踪。',
-    chips: ['runtime', 'taskboard', 'evidence'],
+    match: (pathname: string) => pathname === '/releases',
+    eyebrow: 'Release Center',
+    title: '发布面',
+    description: '集中处理 release candidate、分支准备、PR、staging / production promotion 与 rollback。',
+    chips: ['release', 'deploy', 'rollback'],
   },
   {
-    match: (pathname: string) => pathname.startsWith('/tasks/'),
-    eyebrow: 'Task Detail',
-    title: '任务实例细节',
-    description: '从单次运行视角检查日志、文件变更和 requirement 回链，定位具体任务的执行结果。',
-    chips: ['logs', 'file changes', 'history'],
-  },
-  {
-    match: (pathname: string) => pathname === '/approvals',
-    eyebrow: 'Operator Decisions',
-    title: '审批中心',
-    description: '处理需要人工判断的动作，把高风险变更、批量审批和 operator comment 集中到一个地方。',
-    chips: ['approval', 'operator', 'risk gate'],
+    match: (pathname: string) => pathname.startsWith('/releases/'),
+    eyebrow: 'Release Detail',
+    title: '发布详情',
+    description: '查看单条 requirement 的 release record、PR、部署历史与 promotion 动作。',
+    chips: ['branch', 'pr', 'deployment'],
   },
 ]
 
@@ -139,165 +64,74 @@ function getRouteBrief(pathname: string) {
 export default function App() {
   const location = useLocation()
   const brief = getRouteBrief(location.pathname)
-  const overviewNavActive = location.pathname === '/' || location.pathname === '/overview' || location.pathname === '/company-review' || location.pathname === '/role-kpis' || location.pathname === '/autonomy'
-  const requirementsNavActive = location.pathname.startsWith('/requirements')
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(64,97,255,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(32,201,151,0.14),_transparent_24%),linear-gradient(180deg,_#f6f8fc_0%,_#eef2f7_100%)] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-[1560px] gap-4 px-3 py-3 md:px-5 md:py-5">
-        <aside className="hidden w-[270px] shrink-0 flex-col rounded-[30px] border border-white/70 bg-[rgba(10,18,36,0.92)] px-5 py-5 text-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.24)] lg:flex">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.12),_transparent_24%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)] text-slate-900">
+      <div className="mx-auto flex min-h-screen max-w-[1500px] gap-4 px-3 py-3 md:px-5 md:py-5">
+        <aside className="hidden w-[270px] shrink-0 flex-col rounded-[30px] border border-white/70 bg-[rgba(10,18,36,0.94)] px-5 py-5 text-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.24)] lg:flex">
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
             <div className="text-[11px] uppercase tracking-[0.24em] text-sky-200/80">Synapse Network Growing</div>
-            <div className="mt-3 text-2xl font-semibold tracking-tight">Synapse Ops</div>
+            <div className="mt-3 text-2xl font-semibold tracking-tight">Agent-First Ops</div>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              AI company operating system for routing work, supervising delivery, and compounding operational knowledge.
+              程序只做 intake、执行编排、validate 和 release 记录，不替 agent 决定执行内容。
             </p>
           </div>
 
-          <div className="mt-5 text-[11px] uppercase tracking-[0.22em] text-slate-400">Workspace</div>
+          <div className="mt-5 text-[11px] uppercase tracking-[0.22em] text-slate-400">Surfaces</div>
           <nav className="mt-3 space-y-1.5">
-            {navItems.map((n) => (
-              <div key={n.to}>
-                <NavLink
-                  to={n.to}
-                  end={!['/overview', '/requirements'].includes(n.to)}
-                  className={({ isActive }) =>
-                    `block rounded-2xl px-4 py-3 text-sm transition ${
-                      isActive
-                      || (n.to === '/overview' && overviewNavActive)
-                      || (n.to === '/requirements' && requirementsNavActive)
-                        ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
-                        : 'text-slate-300 hover:bg-white/6 hover:text-white'
-                    }`
-                  }
-                >
-                  {n.label}
-                </NavLink>
-                {n.to === '/overview' && overviewNavActive && (
-                  <div className="mt-1 ml-3 space-y-1 border-l border-white/10 pl-3">
-                    {overviewSubNavItems.map((sub) => {
-                      const subActive = location.pathname === sub.to || (sub.to === '/overview' && location.pathname === '/')
-                      return (
-                        <NavLink
-                          key={sub.to}
-                          to={sub.to}
-                          className={`block rounded-xl px-3 py-2 text-xs transition ${
-                            subActive
-                              ? 'bg-white/10 text-white'
-                              : 'text-slate-400 hover:bg-white/6 hover:text-white'
-                          }`}
-                        >
-                          {sub.label}
-                        </NavLink>
-                      )
-                    })}
-                  </div>
-                )}
-                {n.to === '/requirements' && requirementsNavActive && (
-                  <div className="mt-1 ml-3 space-y-1 border-l border-white/10 pl-3">
-                    {requirementSubNavItems.map((sub) => {
-                      const subActive = `${location.pathname}${location.search}` === sub.to
-                      return (
-                        <NavLink
-                          key={sub.to}
-                          to={sub.to}
-                          className={`block rounded-xl px-3 py-2 text-xs transition ${
-                            subActive
-                              ? 'bg-white/10 text-white'
-                              : 'text-slate-400 hover:bg-white/6 hover:text-white'
-                          }`}
-                        >
-                          {sub.label}
-                        </NavLink>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `block rounded-2xl px-4 py-3 text-sm transition ${
+                    isActive
+                      ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
+                      : 'text-slate-300 hover:bg-white/6 hover:text-white'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
             ))}
           </nav>
 
           <div className="mt-auto rounded-[24px] border border-white/10 bg-white/5 p-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Mode</div>
-            <div className="mt-2 text-sm font-medium text-white">Live backend connected</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Core Flow</div>
+            <div className="mt-2 text-sm font-medium text-white">intake - execute - validate - deliver</div>
             <p className="mt-2 text-xs leading-5 text-slate-300">
-              当前界面优先展示调度、验证和 operator decision，而不是传统的卡片仪表盘。
+              simple task 默认直接进入 execute；复杂任务只在 execution 面展开节点图。
             </p>
           </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="overflow-x-auto rounded-[26px] border border-white/80 bg-white/70 px-3 py-2 shadow-[0_12px_44px_rgba(148,163,184,0.14)] backdrop-blur md:px-5 lg:hidden">
+          <div className="overflow-x-auto rounded-[26px] border border-white/80 bg-white/70 px-3 py-2 shadow-[0_12px_44px_rgba(148,163,184,0.14)] backdrop-blur lg:hidden">
             <div className="flex min-w-max items-center gap-2">
-              {navItems.map((n) => (
+              {navItems.map((item) => (
                 <NavLink
-                  key={n.to}
-                  to={n.to}
-                  end={!['/overview', '/requirements'].includes(n.to)}
+                  key={item.to}
+                  to={item.to}
                   className={({ isActive }) =>
                     `rounded-xl px-3 py-2 text-sm transition ${
-                      isActive
-                      || (n.to === '/overview' && overviewNavActive)
-                      || (n.to === '/requirements' && requirementsNavActive)
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600 hover:bg-slate-100'
+                      isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                     }`
                   }
                 >
-                  {n.label}
+                  {item.label}
                 </NavLink>
               ))}
             </div>
-            {overviewNavActive && (
-              <div className="mt-2 flex min-w-max items-center gap-2 border-t border-slate-200 pt-2">
-                {overviewSubNavItems.map((sub) => {
-                  const subActive = location.pathname === sub.to || (sub.to === '/overview' && location.pathname === '/')
-                  return (
-                    <NavLink
-                      key={sub.to}
-                      to={sub.to}
-                      className={`rounded-xl px-3 py-1.5 text-xs transition ${
-                        subActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      {sub.label}
-                    </NavLink>
-                  )
-                })}
-              </div>
-            )}
-            {requirementsNavActive && (
-              <div className="mt-2 flex min-w-max items-center gap-2 border-t border-slate-200 pt-2">
-                {requirementSubNavItems.map((sub) => {
-                  const subActive = `${location.pathname}${location.search}` === sub.to
-                  return (
-                    <NavLink
-                      key={sub.to}
-                      to={sub.to}
-                      className={`rounded-xl px-3 py-1.5 text-xs transition ${
-                        subActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      {sub.label}
-                    </NavLink>
-                  )
-                })}
-              </div>
-            )}
           </div>
 
           <header className="rounded-[30px] border border-white/80 bg-white/72 px-5 py-5 shadow-[0_18px_60px_rgba(148,163,184,0.16)] backdrop-blur md:px-7 md:py-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
                 <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">{brief.eyebrow}</div>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.35rem]">
-                  {brief.title}
-                </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 md:text-[15px]">
-                  {brief.description}
-                </p>
+                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.35rem]">{brief.title}</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 md:text-[15px]">{brief.description}</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3 xl:w-[440px]">
+              <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
                 {brief.chips.map((chip, index) => (
                   <div
                     key={chip}
@@ -305,8 +139,8 @@ export default function App() {
                       index === 0
                         ? 'border-sky-200 bg-sky-50 text-sky-900'
                         : index === 1
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                        : 'border-amber-200 bg-amber-50 text-amber-900'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-amber-200 bg-amber-50 text-amber-900'
                     }`}
                   >
                     <div className="text-[11px] uppercase tracking-[0.22em] opacity-60">Focus</div>
@@ -319,20 +153,14 @@ export default function App() {
 
           <main className="min-h-[calc(100vh-8rem)] rounded-[30px] border border-white/80 bg-white/66 p-4 shadow-[0_20px_64px_rgba(148,163,184,0.18)] backdrop-blur md:p-6">
             <Routes>
-              <Route path="/" element={<OrgChart />} />
-              <Route path="/overview" element={<OrgChart />} />
-              <Route path="/company-review" element={<CompanyReviewPage />} />
-              <Route path="/role-kpis" element={<RoleKpisPage />} />
-              <Route path="/autonomy" element={<AutonomyPage />} />
-              <Route path="/recurring-workflows" element={<RecurringWorkflowsPage />} />
+              <Route path="/" element={<Navigate to="/requirements" replace />} />
               <Route path="/requirements" element={<RequirementPool />} />
               <Route path="/requirements/:id" element={<RequirementDetail />} />
-              <Route path="/deployments" element={<DeploymentsPage />} />
-              <Route path="/optimization-signals" element={<OptimizationSignals />} />
-              <Route path="/project-policies" element={<ProjectPolicies />} />
-              <Route path="/tasks" element={<TaskBoard />} />
-              <Route path="/tasks/:id" element={<TaskDetail />} />
-              <Route path="/approvals" element={<Approvals />} />
+              <Route path="/executions" element={<ExecutionsPage />} />
+              <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+              <Route path="/releases" element={<ReleasesPage />} />
+              <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
+              <Route path="*" element={<Navigate to="/requirements" replace />} />
             </Routes>
           </main>
         </div>

@@ -22,7 +22,7 @@ from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.projects.intelligence import build_project_catalog
 from server.services.requirements.sources import normalize_requirement_intake_metadata
-from server.services.workflows.orchestrator import create_requirement
+from server.services.workflows.agent_first import create_requirement
 
 logger = logging.getLogger("ops-dashboard.optimization_signals")
 

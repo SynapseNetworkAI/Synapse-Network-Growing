@@ -767,6 +767,7 @@ class SchedulerPlanOut(BaseModel):
 class RequirementCreate(BaseModel):
     title: str
     description_markdown: str
+    acceptance_criteria_markdown: str = ""
     priority: str = "normal"
     source: str = "manual"
     source_ref: Optional[str] = None
@@ -789,6 +790,7 @@ class RequirementDependencyUpdate(BaseModel):
 class RequirementRevisionRequest(BaseModel):
     title: Optional[str] = None
     description_markdown: str
+    acceptance_criteria_markdown: Optional[str] = None
     source_ref: Optional[str] = None
     revision_note: Optional[str] = None
     depends_on_requirement_ids: Optional[list[int]] = None
@@ -797,6 +799,7 @@ class RequirementRevisionRequest(BaseModel):
 class RequirementPatch(BaseModel):
     title: Optional[str] = None
     description_markdown: Optional[str] = None
+    acceptance_criteria_markdown: Optional[str] = None
     priority: Optional[str] = None
     source_ref: Optional[str] = None
     intake_metadata: Optional[dict[str, object]] = None
@@ -824,6 +827,146 @@ class RequirementApprovalDecisionRequest(BaseModel):
 class RequirementPublishRequest(BaseModel):
     completed_checks: list[str] = []
     note: Optional[str] = None
+
+
+class AgentFirstRequirementOut(BaseModel):
+    id: int
+    title: str
+    description_markdown: str
+    acceptance_criteria_markdown: str = ""
+    status: str
+    priority: str
+    source: str
+    source_ref: Optional[str] = None
+    target_project_path: Optional[str] = None
+    target_projects: list[str] = []
+    approval_required: bool = False
+    approval_status: str = "pending_approval"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    active_execution_run_id: Optional[int] = None
+    latest_execution_run_id: Optional[int] = None
+    latest_release_status: Optional[str] = None
+
+
+class AgentFirstRequirementDetailOut(BaseModel):
+    requirement: AgentFirstRequirementOut
+    policy_summary_markdown: str = ""
+    latest_execution_id: Optional[int] = None
+    latest_release_id: Optional[int] = None
+
+
+class ExecutionNodeOut(BaseModel):
+    id: int
+    execution_run_id: int
+    requirement_id: int
+    node_key: str
+    node_type: str
+    title: str
+    status: str
+    sequence_no: int
+    task_id: Optional[int] = None
+    task_status: Optional[str] = None
+    runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
+    summary_markdown: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class ValidationCheckResultOut(BaseModel):
+    label: str
+    command: Optional[str] = None
+    project_path: Optional[str] = None
+    status: str
+    output_excerpt: Optional[str] = None
+
+
+class ValidationRecordSlimOut(BaseModel):
+    id: int
+    requirement_id: int
+    execution_run_id: int
+    profile: str
+    status: str
+    summary_markdown: str = ""
+    checks: list[ValidationCheckResultOut] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ExecutionRunOut(BaseModel):
+    id: int
+    requirement_id: int
+    execution_mode: str
+    complexity: str
+    status: str
+    validation_profile: str
+    delivery_intent: str
+    approval_required: bool = False
+    planner_summary: Optional[str] = None
+    target_projects: list[str] = []
+    latest_task_id: Optional[int] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ExecutionRunDetailOut(BaseModel):
+    execution: ExecutionRunOut
+    requirement: AgentFirstRequirementOut
+    nodes: list[ExecutionNodeOut] = []
+    validation: Optional[ValidationRecordSlimOut] = None
+    incidents: list[dict[str, object]] = []
+
+
+class ExecutionCreateRequest(BaseModel):
+    requirement_id: int
+
+
+class ReleaseRecordSlimOut(BaseModel):
+    id: int
+    requirement_id: int
+    execution_run_id: Optional[int] = None
+    project_key: Optional[str] = None
+    target_project_path: Optional[str] = None
+    status: str
+    branch_name: Optional[str] = None
+    base_branch: Optional[str] = None
+    commit_sha: Optional[str] = None
+    compare_url: Optional[str] = None
+    pr_url: Optional[str] = None
+    pr_number: Optional[int] = None
+    notes: Optional[str] = None
+    prepared_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ReleaseCandidateOut(BaseModel):
+    requirement: AgentFirstRequirementOut
+    validation: ValidationRecordSlimOut
+    release: Optional[ReleaseRecordSlimOut] = None
+
+
+class ReleaseDetailOut(BaseModel):
+    requirement: AgentFirstRequirementOut
+    validation: Optional[ValidationRecordSlimOut] = None
+    release: Optional[ReleaseRecordSlimOut] = None
+    deployments: list[DeploymentRecordOut] = []
+
+
+class ReleaseActionRequest(BaseModel):
+    actor: str = "operator"
+    note: Optional[str] = None
+
+
+class ReleaseRollbackRequest(BaseModel):
+    actor: str = "operator"
+    note: Optional[str] = None
+    rollback_target_sha: str
 
 
 class TaskPatch(BaseModel):

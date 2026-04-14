@@ -10,13 +10,13 @@ from sqlalchemy.orm import Session
 from server.database import get_db
 from server.logging_utils import timed_operation
 from server.schemas import (
+    AgentFirstRequirementDetailOut,
     OptimizationSignalAutoIntakeRequest,
     OptimizationSignalAutoIntakeResultOut,
     OptimizationSignalCreateRequirementRequest,
     OptimizationRequirementTemplateOut,
     OptimizationTemplateCreateRequirementRequest,
     OptimizationSignalOut,
-    RequirementDetailOut,
 )
 from server.services.signals.optimization_templates import (
     build_template_instance,
@@ -33,7 +33,7 @@ from server.services.signals.optimization_signals import (
     refresh_optimization_signals,
 )
 from server.services.requirements.sources import normalize_requirement_intake_metadata
-from server.services.workflows.orchestrator import create_requirement
+from server.services.workflows.agent_first import create_requirement
 
 
 router = APIRouter(prefix="/api/optimization-signals", tags=["optimization-signals"])
@@ -91,7 +91,7 @@ def dismiss_optimization_signal_endpoint(signal_id: int, db: Session = Depends(g
     return OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=_project_map(db)))
 
 
-@router.post("/{signal_id}/create-requirement", response_model=RequirementDetailOut)
+@router.post("/{signal_id}/create-requirement", response_model=AgentFirstRequirementDetailOut)
 def create_requirement_from_signal_endpoint(
     signal_id: int,
     body: OptimizationSignalCreateRequirementRequest,
@@ -109,7 +109,7 @@ def create_requirement_from_signal_endpoint(
     return detail
 
 
-@router.post("/templates/{template_key}/create-requirement", response_model=RequirementDetailOut)
+@router.post("/templates/{template_key}/create-requirement", response_model=AgentFirstRequirementDetailOut)
 def create_requirement_from_template_endpoint(
     template_key: str,
     body: OptimizationTemplateCreateRequirementRequest,

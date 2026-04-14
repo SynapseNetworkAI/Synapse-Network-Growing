@@ -771,6 +771,131 @@ export interface RequirementDetail {
   attachments: RequirementAttachment[]
 }
 
+export interface AgentRequirement {
+  id: number
+  title: string
+  description_markdown: string
+  acceptance_criteria_markdown: string
+  status: string
+  priority: string
+  source: string
+  source_ref: string | null
+  target_project_path: string | null
+  target_projects: string[]
+  approval_required: boolean
+  approval_status: string
+  created_at: string | null
+  updated_at: string | null
+  active_execution_run_id: number | null
+  latest_execution_run_id: number | null
+  latest_release_status: string | null
+}
+
+export interface AgentRequirementDetail {
+  requirement: AgentRequirement
+  policy_summary_markdown: string
+  latest_execution_id: number | null
+  latest_release_id: number | null
+}
+
+export interface ExecutionNode {
+  id: number
+  execution_run_id: number
+  requirement_id: number
+  node_key: string
+  node_type: string
+  title: string
+  status: string
+  sequence_no: number
+  task_id: number | null
+  task_status: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  summary_markdown: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface ValidationCheckResult {
+  label: string
+  command: string | null
+  project_path: string | null
+  status: string
+  output_excerpt: string | null
+}
+
+export interface ValidationRecord {
+  id: number
+  requirement_id: number
+  execution_run_id: number
+  profile: string
+  status: string
+  summary_markdown: string
+  checks: ValidationCheckResult[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface ExecutionRun {
+  id: number
+  requirement_id: number
+  execution_mode: string
+  complexity: string
+  status: string
+  validation_profile: string
+  delivery_intent: string
+  approval_required: boolean
+  planner_summary: string | null
+  target_projects: string[]
+  latest_task_id: number | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface ExecutionDetail {
+  execution: ExecutionRun
+  requirement: AgentRequirement
+  nodes: ExecutionNode[]
+  validation: ValidationRecord | null
+  incidents: Array<Record<string, unknown>>
+}
+
+export interface ReleaseRecord {
+  id: number
+  requirement_id: number
+  execution_run_id: number | null
+  project_key: string | null
+  target_project_path: string | null
+  status: string
+  branch_name: string | null
+  base_branch: string | null
+  commit_sha: string | null
+  compare_url: string | null
+  pr_url: string | null
+  pr_number: number | null
+  notes: string | null
+  prepared_at: string | null
+  delivered_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface ReleaseCandidate {
+  requirement: AgentRequirement
+  validation: ValidationRecord
+  release: ReleaseRecord | null
+}
+
+export interface ReleaseDetail {
+  requirement: AgentRequirement
+  validation: ValidationRecord | null
+  release: ReleaseRecord | null
+  deployments: DeploymentRecord[]
+}
+
 export interface RequirementAttachment {
   id: number
   requirement_id: number
@@ -1247,69 +1372,67 @@ export const api = {
     request<OptimizationSignalAutoIntakeResult>('/optimization-signals/auto-intake', { method: 'POST', body: JSON.stringify(data || {}) }),
   dismissOptimizationSignal: (id: number) => request<OptimizationSignal>(`/optimization-signals/${id}/dismiss`, { method: 'POST' }),
   createRequirementFromSignal: (id: number, data?: { title?: string; auto_start?: boolean }) =>
-    request<RequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    request<AgentRequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
-  // Requirements
-  getRequirements: (status?: string, sort?: string, search?: string) => {
+  // Agent-first requirements / executions / releases
+  getRequirements: (status?: string, _sort?: string, search?: string) => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
-    if (sort) params.set('sort', sort)
     if (search) params.set('search', search)
     const q = params.toString() ? `?${params.toString()}` : ''
-    return request<Requirement[]>(`/requirements${q}`)
+    return request<AgentRequirement[]>(`/requirements${q}`)
   },
-  getRequirementScheduler: () => request<SchedulerPlan>('/requirements/scheduler'),
-  rebalanceRequirementScheduler: () => request<SchedulerPlan>('/requirements/scheduler/rebalance', { method: 'POST' }),
-  getRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`),
+  getRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}`),
   createRequirement: (data: {
     title: string
     description_markdown: string
+    acceptance_criteria_markdown?: string
     priority?: string
     source?: string
     source_ref?: string | null
     target_project_path?: string
-    depends_on_requirement_ids?: number[]
-    auto_start?: boolean
     attachments?: RequirementAttachmentInput[]
   }) =>
-    request<RequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
-  planRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'POST' }),
-  startRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/start`, { method: 'POST' }),
-  decideRequirementApproval: (id: number, data: RequirementApprovalDecision) =>
-    request<RequirementDetail>(`/requirements/${id}/approval/decide`, { method: 'POST', body: JSON.stringify(data) }),
-  pauseRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}/pause`, { method: 'POST' }),
-  publishRequirement: (id: number, data: { completed_checks?: string[]; note?: string | null }) =>
-    request<RequirementDetail>(`/requirements/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }),
-  syncRequirementReviewPr: (id: number) =>
-    request<RequirementDetail>(`/requirements/${id}/review-pr/sync`, { method: 'POST' }),
-  listRequirementDeployments: (id: number) =>
-    request<DeploymentRecord[]>(`/requirements/${id}/deployments`),
-  deployRequirementToStaging: (id: number, data?: { actor?: string; note?: string | null; commit_sha?: string | null }) =>
-    request<DeploymentRecord>(`/requirements/${id}/deployments/staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  promoteRequirementToProduction: (id: number, data?: { actor?: string; note?: string | null; commit_sha?: string | null }) =>
-    request<DeploymentRecord>(`/requirements/${id}/deployments/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  rollbackRequirementDeployment: (id: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
-    request<DeploymentRecord>(`/requirements/${id}/deployments/rollback`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteRequirement: (id: number) => request<RequirementDetail>(`/requirements/${id}`, { method: 'DELETE' }),
-  updateRequirement: (id: number, data: { title?: string; description_markdown?: string; priority?: string; target_project_path?: string }) =>
-    request<RequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  updateRequirementPlan: (id: number, data: RequirementPlanPatch) =>
-    request<RequirementDetail>(`/requirements/${id}/plan`, { method: 'PATCH', body: JSON.stringify(data) }),
-  updateWorkflowStep: (requirementId: number, stepId: number, data: WorkflowStepPatch) =>
-    request<RequirementDetail>(`/requirements/${requirementId}/workflow-steps/${stepId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  advanceQueue: () => request<QueueAdvanceResult>('/requirements/queue/advance', { method: 'POST' }),
+    request<AgentRequirementDetail>('/requirements', { method: 'POST', body: JSON.stringify(data) }),
+  updateRequirement: (id: number, data: {
+    title?: string
+    description_markdown?: string
+    acceptance_criteria_markdown?: string
+    priority?: string
+    target_project_path?: string
+  }) => request<AgentRequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  submitRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/submit`, { method: 'POST' }),
   reviseRequirement: (id: number, data: {
     title?: string
     description_markdown: string
+    acceptance_criteria_markdown?: string
     source_ref?: string | null
     revision_note?: string | null
-    depends_on_requirement_ids?: number[]
-  }) => request<RequirementDetail>(`/requirements/${id}/revise`, { method: 'POST', body: JSON.stringify(data) }),
-  updateRequirementDependencies: (id: number, depends_on_requirement_ids: number[]) =>
-    request<RequirementDetail>(`/requirements/${id}/dependencies`, {
-      method: 'PUT',
-      body: JSON.stringify({ depends_on_requirement_ids }),
-    }),
+  }) => request<AgentRequirementDetail>(`/requirements/${id}/revise`, { method: 'POST', body: JSON.stringify(data) }),
+  cancelRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/cancel`, { method: 'POST' }),
+
+  getExecutions: () => request<ExecutionRun[]>('/executions'),
+  createExecution: (data: { requirement_id: number }) =>
+    request<ExecutionDetail>('/executions', { method: 'POST', body: JSON.stringify(data) }),
+  getExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}`),
+  startExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/start`, { method: 'POST' }),
+  pauseExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/pause`, { method: 'POST' }),
+  resumeExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/resume`, { method: 'POST' }),
+  retryExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/retry`, { method: 'POST' }),
+  validateExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/validate`, { method: 'POST' }),
+
+  getReleaseCandidates: () => request<ReleaseCandidate[]>('/releases/candidates'),
+  getReleaseDetail: (requirementId: number) => request<ReleaseDetail>(`/releases/${requirementId}`),
+  prepareRelease: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/prepare`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  openReleasePr: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/open-pr`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  deployReleaseToStaging: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/deploy/staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  deployReleaseToProduction: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/deploy/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  rollbackRelease: (requirementId: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/rollback`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Skills
   getSkills: () => request<string[]>('/skills'),

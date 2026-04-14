@@ -650,6 +650,117 @@ class RequirementAttachmentRow(Base):
     requirement = relationship("RequirementRow", back_populates="attachments")
 
 
+class ExecutionRunRow(Base):
+    __tablename__ = "execution_runs"
+    __table_args__ = (
+        Index("execution_runs_requirement_idx", "requirement_id"),
+        Index("execution_runs_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    execution_mode = Column(Text, nullable=False, default="direct")
+    complexity = Column(Text, nullable=False, default="simple")
+    status = Column(Text, nullable=False, default="queued")
+    validation_profile = Column(Text, nullable=False, default="minimal")
+    delivery_intent = Column(Text, nullable=False, default="pr_required")
+    approval_required = Column(Boolean, nullable=False, default=False)
+    planner_summary = Column(Text)
+    target_projects_json = Column(Text, nullable=False, default="[]")
+    latest_task_id = Column(Integer, ForeignKey("tasks.id"))
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow")
+    latest_task = relationship("TaskRow")
+
+
+class ExecutionNodeRow(Base):
+    __tablename__ = "execution_nodes"
+    __table_args__ = (
+        Index("execution_nodes_run_idx", "execution_run_id"),
+        Index("execution_nodes_status_idx", "status"),
+        Index("execution_nodes_task_idx", "task_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    node_key = Column(Text, nullable=False)
+    node_type = Column(Text, nullable=False, default="execute")
+    title = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="queued")
+    sequence_no = Column(Integer, nullable=False, default=1)
+    task_id = Column(Integer, ForeignKey("tasks.id"))
+    runtime_backend = Column(Text)
+    runtime_provider = Column(Text)
+    runtime_model = Column(Text)
+    summary_markdown = Column(Text)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    execution_run = relationship("ExecutionRunRow")
+    requirement = relationship("RequirementRow")
+    task = relationship("TaskRow")
+
+
+class ValidationRecordRow(Base):
+    __tablename__ = "validation_records"
+    __table_args__ = (
+        Index("validation_records_requirement_idx", "requirement_id"),
+        Index("validation_records_execution_idx", "execution_run_id"),
+        Index("validation_records_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
+    profile = Column(Text, nullable=False, default="minimal")
+    status = Column(Text, nullable=False, default="pending")
+    summary_markdown = Column(Text, nullable=False, default="")
+    checks_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow")
+    execution_run = relationship("ExecutionRunRow")
+
+
+class ReleaseRecordRow(Base):
+    __tablename__ = "release_records"
+    __table_args__ = (
+        Index("release_records_requirement_idx", "requirement_id"),
+        Index("release_records_execution_idx", "execution_run_id"),
+        Index("release_records_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    project_key = Column(Text)
+    target_project_path = Column(Text)
+    status = Column(Text, nullable=False, default="not_ready")
+    branch_name = Column(Text)
+    base_branch = Column(Text)
+    commit_sha = Column(Text)
+    compare_url = Column(Text)
+    pr_url = Column(Text)
+    pr_number = Column(Integer)
+    notes = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    prepared_at = Column(DateTime)
+    delivered_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow")
+    execution_run = relationship("ExecutionRunRow")
+
+
 class ApprovalRequestRow(Base):
     __tablename__ = "approval_requests"
     __table_args__ = (
@@ -803,6 +914,22 @@ def _migrate(engine_):
     if "deployment_records" not in tables:
         logger.info("Migrating: creating 'deployment_records' table")
         DeploymentRecordRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "execution_runs" not in tables:
+        logger.info("Migrating: creating 'execution_runs' table")
+        ExecutionRunRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "execution_nodes" not in tables:
+        logger.info("Migrating: creating 'execution_nodes' table")
+        ExecutionNodeRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "validation_records" not in tables:
+        logger.info("Migrating: creating 'validation_records' table")
+        ValidationRecordRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "release_records" not in tables:
+        logger.info("Migrating: creating 'release_records' table")
+        ReleaseRecordRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}
