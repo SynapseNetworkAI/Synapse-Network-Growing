@@ -33,6 +33,8 @@
 5. `Activity feed`
 6. `State badge`
 7. `Section frame`
+8. `Workbench toolbar`
+9. `Overlay drawer`
 
 当前共享骨架组件入口：
 
@@ -62,5 +64,17 @@ token 主入口：
 3. 是否继续引入了平铺式大白卡布局？
 4. 页面是否只有一个主焦点？
 5. inspector 和 activity 是否承担了明确职责？
+6. create / edit 是否继续被做成列表页常驻内联表单？
 
 如果答案是“继续堆卡片也能做”，说明方案还没收口。
+
+## 6. List Page Pattern
+
+列表型页面默认采用 `Toolbar + Drawer` 模式，而不是把大表单常驻铺在列表上方。
+
+固定规则：
+
+1. 列表页负责浏览、筛选、选择和轻操作。
+2. `create / edit` 优先通过工具条触发右侧 Drawer。
+3. 只有极短的单字段 quick edit 才允许 inline。
+4. Requirement 列表页的主焦点是 queue 与 selection，不是 intake form。

@@ -69,15 +69,16 @@ intake -> execute -> validate -> deliver
 
 #### 页面布局
 
-1. 顶部是 requirement workspace 与 filter / intake toolbar
-2. 中间主工作区是新建 requirement 表单
-3. 右侧 inspector 展示 requirement health
-4. 底部列表区展示 requirement queue
+1. 顶部是 requirement workspace 与 filter bar
+2. 列表上方是 `Toolbar`
+3. 主工作区是 requirement queue
+4. 右侧 inspector 展示当前选中 requirement 的治理摘要
+5. `新建 / 编辑` 通过右侧 Drawer 完成，而不是常驻内联表单
 
 #### 典型动作
 
-1. 创建 requirement
-2. 编辑 requirement
+1. 从工具条打开 `新建需求` Drawer
+2. 从工具条或列表项打开 `编辑需求` Drawer
 3. 提交 requirement
 4. 低风险 requirement 自动进入 execution；高风险 requirement 在需求面等待人工批准
 5. 跳转到 release 面
@@ -102,6 +103,7 @@ intake -> execute -> validate -> deliver
 3. target project 尽量明确
 4. requirement submit 是 requirement 进入 execution 的唯一正式桥接点
 5. 只有恢复/调试场景才手动创建 execution run
+6. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
 
 ### 2.2 `/requirements/:id`
 

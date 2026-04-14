@@ -179,6 +179,7 @@ Release 负责：
 4. Requirement、Execution、Release 三面必须使用各自独立的页面模板，不得继续复用万能卡片页模板。
 5. 颜色只承担状态和强调，不承担大面积装饰；工作台不是营销页。
 6. 新 UI 必须优先复用统一的 workbench shell、section、inspector、activity feed 和 state badge 结构。
+7. 列表页默认不承载常驻 create/edit 大表单；新增与编辑应优先采用 `Toolbar + Drawer` 模式。
 
 ## 13. 前端防回潮约束
 
@@ -186,6 +187,7 @@ Release 负责：
 2. UI 变更 PR 必须说明是否复用了 workbench 模板与 token。
 3. 如果继续引入 dashboard-card mosaic、同权重白卡拼盘、装饰性 chips/pills，应直接视为 review 拒绝项。
 4. 前端 token 必须同时支持 surface hierarchy、text hierarchy、stroke hierarchy、state colors 和 layout tokens。
+5. 如果在列表页重新引入长驻内联 create/edit 表单，而没有明确的 quick-edit 例外说明，应直接视为 review 拒绝项。
 
 ## 14. 上下文是预算，不是垃圾桶
 

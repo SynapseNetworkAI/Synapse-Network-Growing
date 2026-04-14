@@ -15,6 +15,8 @@
 - [ ] If UI changed, I reused the workbench shell, section, inspector, activity feed, and token system where applicable.
 - [ ] This PR does not reintroduce a dashboard-card mosaic or same-weight white-card layout.
 - [ ] This page has one clear primary workspace instead of multiple competing focal blocks.
+- [ ] This PR does not put a long-lived create/edit form inline on a list page when `Toolbar + Drawer` would fit.
+- [ ] If this is a list page, create/edit actions use the standard drawer pattern unless there is a documented quick-edit exception.
 
 ## Structure Checks
 
