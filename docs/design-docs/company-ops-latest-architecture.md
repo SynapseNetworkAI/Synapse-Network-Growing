@@ -23,6 +23,12 @@ intake -> execute -> validate -> deliver
 3. 把 requirement、execution、release 三种职责拆开，不再混在一个页面或一个状态机里。
 4. 让简单任务默认走最短路径，复杂任务再按需展开。
 
+补充的正式 UI 约束：
+
+1. 控制台必须采用 Enterprise Workbench，而不是平铺卡片后台。
+2. 视觉方向固定为克制型工程工作台，接近 Linear 风格，而不是营销化运营页。
+3. Requirement / Execution / Release 三面必须各自有独立页面模板和信息密度策略。
+
 ## 2. Topology
 
 ### 2.1 Requirement Surface
@@ -41,6 +47,14 @@ Requirement 保存的核心事实：
 4. priority / source / family
 5. approval need / policy summary
 6. 当前 requirement 状态
+
+Requirement 到 Execution 的正式桥接规则：
+
+1. `submit` 时就做 approval decision
+2. 低风险 requirement 默认 auto-approve / waive
+3. 审批放行后自动创建 execution 并自动启动
+4. 高风险 requirement 停在 requirement surface 等待人工批准
+5. execution approval 只决定能否执行，不替代 release gate
 
 Requirement 面不再承担：
 
@@ -87,6 +101,23 @@ Release candidate 的硬门槛：
 1. requirement 已完成执行
 2. validate 成功
 3. release governance 满足项目策略
+
+### 2.4 Error Loop（辅助治理）
+
+错误发现不再停留在独立日志系统里，而是进入正式主链：
+
+```text
+error event -> fingerprint -> requirement -> approval -> execution -> validate -> release
+```
+
+规则：
+
+1. 只接高信号错误源：`runtime_log_error`、`task_failure`、`workflow_incident`
+2. 同一 fingerprint 同时最多只能有一条未完成 requirement
+3. 新错误 requirement 创建后立即 `submit`
+4. 低风险自动审批并自动启动 execution
+5. 高风险 requirement 停在 requirement 面等待人工批准
+6. `/errors` 只作为稳定性治理辅助页，不替代三大主面
 
 ## 3. Core Execution Model
 
@@ -202,6 +233,38 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 6. `/releases/:requirementId`
    prepare branch、open PR、deploy、rollback、deployment history
 
+辅助治理页：
+
+1. `/errors`
+2. `/errors/:fingerprintKey`
+
+它们只承担错误聚合、关联 requirement/execution 和通知历史展示。
+
+### 5.1 Frontend Workbench Anatomy
+
+当前页面骨架必须遵守下面的工作台结构：
+
+1. `shell`
+   负责全局导航、环境感和页面边界。
+2. `page header`
+   负责页面定位、主说明和单页 focus strip。
+3. `primary workspace`
+   负责主要工作对象：
+   - requirement intent
+   - execution evidence / graph
+   - release timeline
+4. `secondary inspector`
+   负责健康状态、策略摘要、环境状态、最近信号。
+5. `activity / feed rail`
+   负责 history、incidents、deployment records、system interventions。
+
+禁止的工作台模式：
+
+1. 同权重大白卡瀑布流
+2. 每个 section 都用圆角白卡包裹
+3. 依赖 chips/pills 代替真正的信息层级
+4. Requirement 页面重新混入 deploy / rollback 控制
+
 不再作为当前正式主入口的页面：
 
 1. 运营总览首页
@@ -224,6 +287,7 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 5. validate 必须独立于 execute
 6. deliver 只能发生在 validate 成功之后
 7. release candidate 只接受 validate 成功的 requirement
+8. requirement、alert、release 三类 Lark 通知必须统一走结构化交互卡片
 
 ## 7. Current Status
 

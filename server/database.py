@@ -781,6 +781,91 @@ class ApprovalRequestRow(Base):
     decided_at = Column(DateTime)
 
 
+class ErrorFingerprintRow(Base):
+    __tablename__ = "error_fingerprints"
+    __table_args__ = (
+        Index("error_fingerprints_key_idx", "fingerprint_key", unique=True),
+        Index("error_fingerprints_status_idx", "status"),
+        Index("error_fingerprints_latest_seen_idx", "latest_seen_at"),
+        Index("error_fingerprints_project_idx", "project_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fingerprint_key = Column(Text, nullable=False)
+    source_kind = Column(Text, nullable=False)
+    service_name = Column(Text)
+    project_key = Column(Text)
+    project_root_path = Column(Text)
+    incident_code = Column(Text)
+    status = Column(Text, nullable=False, default="open")
+    severity = Column(Text, nullable=False, default="normal")
+    summary = Column(Text, nullable=False, default="")
+    normalized_message = Column(Text, nullable=False, default="")
+    stack_signature = Column(Text, nullable=False, default="")
+    evidence_excerpt = Column(Text, nullable=False, default="")
+    occurrence_count = Column(Integer, nullable=False, default=1)
+    latest_error_event_id = Column(Integer)
+    linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    metadata_json = Column(Text, nullable=False, default="{}")
+    first_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    latest_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    linked_requirement = relationship("RequirementRow")
+
+
+class ErrorEventRow(Base):
+    __tablename__ = "error_events"
+    __table_args__ = (
+        Index("error_events_fingerprint_idx", "fingerprint_key"),
+        Index("error_events_source_kind_idx", "source_kind"),
+        Index("error_events_occurred_at_idx", "occurred_at"),
+        Index("error_events_project_idx", "project_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fingerprint_key = Column(Text, nullable=False)
+    source_kind = Column(Text, nullable=False)
+    service_name = Column(Text)
+    project_key = Column(Text)
+    project_root_path = Column(Text)
+    incident_code = Column(Text)
+    severity = Column(Text, nullable=False, default="normal")
+    summary = Column(Text, nullable=False, default="")
+    message = Column(Text, nullable=False, default="")
+    stack_trace = Column(Text)
+    source_ref = Column(Text)
+    environment = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    occurred_at = Column(DateTime, nullable=False, default=utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class NotificationDeliveryRow(Base):
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (
+        Index("notification_deliveries_event_key_idx", "event_key", unique=True),
+        Index("notification_deliveries_channel_idx", "channel"),
+        Index("notification_deliveries_object_idx", "object_type", "object_key"),
+        Index("notification_deliveries_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    channel = Column(Text, nullable=False)
+    event_type = Column(Text, nullable=False)
+    event_key = Column(Text, nullable=False)
+    object_type = Column(Text, nullable=False)
+    object_key = Column(Text, nullable=False)
+    service_name = Column(Text)
+    status = Column(Text, nullable=False, default="pending")
+    payload_json = Column(Text, nullable=False, default="{}")
+    response_excerpt = Column(Text)
+    delivered_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class WorkflowStepEventRow(Base):
     __tablename__ = "workflow_step_events"
 
@@ -930,6 +1015,18 @@ def _migrate(engine_):
     if "release_records" not in tables:
         logger.info("Migrating: creating 'release_records' table")
         ReleaseRecordRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "error_fingerprints" not in tables:
+        logger.info("Migrating: creating 'error_fingerprints' table")
+        ErrorFingerprintRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "error_events" not in tables:
+        logger.info("Migrating: creating 'error_events' table")
+        ErrorEventRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "notification_deliveries" not in tables:
+        logger.info("Migrating: creating 'notification_deliveries' table")
+        NotificationDeliveryRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}

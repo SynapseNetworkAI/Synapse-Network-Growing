@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import RequirementPool from '../src/pages/RequirementPool'
 import ExecutionsPage from '../src/pages/ExecutionsPage'
 import ReleasesPage from '../src/pages/ReleasesPage'
+import ErrorsPage from '../src/pages/ErrorsPage'
 
 const mockApi = {
   getRequirements: vi.fn(),
@@ -13,6 +14,7 @@ const mockApi = {
   getExecutions: vi.fn(),
   startExecution: vi.fn(),
   getReleaseCandidates: vi.fn(),
+  getErrors: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
@@ -24,6 +26,7 @@ vi.mock('../src/api', () => ({
     getExecutions: (...args: unknown[]) => mockApi.getExecutions(...args),
     startExecution: (...args: unknown[]) => mockApi.startExecution(...args),
     getReleaseCandidates: (...args: unknown[]) => mockApi.getReleaseCandidates(...args),
+    getErrors: (...args: unknown[]) => mockApi.getErrors(...args),
   },
 }))
 
@@ -92,6 +95,26 @@ describe('agent-first pages smoke', () => {
         },
       },
     ])
+    mockApi.getErrors.mockResolvedValue([
+      {
+        fingerprint_key: 'runtime_log_error:abc123',
+        source_kind: 'runtime_log_error',
+        service_name: 'Synapse Gateway',
+        project_key: 'synapse-network',
+        project_root_path: '/Users/cliff/workspace/agent/Synapse-Network',
+        incident_code: 'gateway_timeout',
+        severity: 'high',
+        summary: 'Gateway timeout while opening FAQ route',
+        evidence_excerpt: 'TimeoutError: gateway request exceeded budget',
+        status: 'open',
+        occurrence_count: 3,
+        first_seen_at: '2026-04-14T00:00:00Z',
+        latest_seen_at: '2026-04-14T01:00:00Z',
+        latest_error_event_id: 9,
+        linked_requirement_id: 1,
+        latest_execution_run_id: 11,
+      },
+    ])
   })
 
   it('renders requirement surface', async () => {
@@ -125,5 +148,16 @@ describe('agent-first pages smoke', () => {
     await waitFor(() => expect(mockApi.getReleaseCandidates).toHaveBeenCalled())
     expect(screen.getByText('发布面')).toBeInTheDocument()
     expect(screen.getByText(/Launch FAQ/)).toBeInTheDocument()
+  })
+
+  it('renders error surface', async () => {
+    render(
+      <MemoryRouter>
+        <ErrorsPage />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(mockApi.getErrors).toHaveBeenCalled())
+    expect(screen.getByText('错误日志')).toBeInTheDocument()
+    expect(screen.getByText('Synapse Gateway')).toBeInTheDocument()
   })
 })

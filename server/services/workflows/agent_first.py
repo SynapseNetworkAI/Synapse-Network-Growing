@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from server.config import ORCHESTRATION_BACKEND, PROJECT_ROOT
 from server.database import (
+    ApprovalRequestRow,
     DeploymentRecordRow,
     ExecutionNodeRow,
     ExecutionRunRow,
@@ -22,6 +23,7 @@ from server.database import (
     utcnow,
 )
 from server.schemas import (
+    AgentFirstRequirementApprovalOut,
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
     ExecutionNodeOut,
@@ -45,7 +47,12 @@ from server.services.projects.policy import (
     project_policy_to_dict,
     resolve_project_policies_for_target,
 )
+from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
 from server.services.runtime.task_runner import dispatch
+from server.services.requirements.approval import (
+    evaluate_requirement_execution_approval,
+    normalize_requirement_approval_status,
+)
 from server.services.workflows.orchestrator import pause_task as pause_legacy_task
 
 
@@ -120,6 +127,119 @@ def _approval_required(db: Session, requirement: RequirementRow) -> bool:
     return str(getattr(requirement, "priority", "normal")) == "high"
 
 
+def _approval_source_label(decision: dict[str, Any], approval_status: str) -> str:
+    if approval_status == "waived" or str(decision.get("approval_source") or "") == "waived":
+        return "policy_waived"
+    if approval_status == "approved":
+        if bool(decision.get("needs_human_gate")) or str(decision.get("approval_source") or "") == "human":
+            return "manual_required"
+        return "agent_auto_approved"
+    return "manual_required"
+
+
+def _approval_risk_flags(decision: dict[str, Any]) -> list[str]:
+    router = dict(decision.get("approval_router") or {})
+    flags = [
+        str(item).strip()
+        for item in [*(router.get("hard_rule_hits") or []), *(router.get("soft_rule_hits") or [])]
+        if str(item).strip()
+    ]
+    recommendation = dict(decision.get("approval_recommendation") or {})
+    if str(recommendation.get("action") or "") == "revise":
+        flags.append("clarification_required")
+    return flags
+
+
+def _approval_summary(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    latest_execution_id: int | None = None,
+    auto_started: bool = False,
+    pending_execution_start: bool = False,
+) -> AgentFirstRequirementApprovalOut:
+    """Build a stable approval summary for requirement and submit/detail responses."""
+    decision = evaluate_requirement_execution_approval(requirement)
+    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
+    if approval_status == "rejected":
+        approval_decision = "rejected"
+    elif approval_status in {"approved", "waived"}:
+        approval_decision = approval_status
+    else:
+        approval_decision = "pending_manual_approval"
+    return AgentFirstRequirementApprovalOut(
+        approval_decision=approval_decision,
+        approval_status=approval_status,
+        approval_reason=str(decision.get("reason") or "").strip() or None,
+        approval_source=_approval_source_label(decision, approval_status),
+        required_approver_roles=[str(item) for item in decision.get("required_approver_roles") or [] if str(item).strip()],
+        risk_flags=_approval_risk_flags(decision),
+        pending_execution_start=pending_execution_start,
+        auto_started=auto_started,
+        execution_run_id=latest_execution_id,
+    )
+
+
+def _latest_pending_requirement_approval(db: Session, requirement_id: int) -> ApprovalRequestRow | None:
+    return (
+        db.query(ApprovalRequestRow)
+        .filter(
+            ApprovalRequestRow.requirement_id == requirement_id,
+            ApprovalRequestRow.approval_type == "requirement_execution_approval",
+            ApprovalRequestRow.status == "pending",
+        )
+        .order_by(ApprovalRequestRow.id.desc())
+        .first()
+    )
+
+
+def _resolve_requirement_approval_requests(
+    db: Session,
+    *,
+    requirement_id: int,
+    status: str,
+    reviewer: str,
+    comment: str,
+) -> None:
+    rows = db.query(ApprovalRequestRow).filter(
+        ApprovalRequestRow.requirement_id == requirement_id,
+        ApprovalRequestRow.approval_type == "requirement_execution_approval",
+        ApprovalRequestRow.status == "pending",
+    ).all()
+    decided_at = utcnow()
+    for row in rows:
+        row.status = status
+        row.reviewer = reviewer
+        row.comment = comment
+        row.decided_at = decided_at
+
+
+def _ensure_requirement_approval_request(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    reviewer: str,
+    comment: str,
+) -> None:
+    pending = _latest_pending_requirement_approval(db, int(requirement.id))
+    requirement.approval_requested_at = requirement.approval_requested_at or utcnow()
+    if pending is None:
+        db.add(
+            ApprovalRequestRow(
+                requirement_id=int(requirement.id),
+                workflow_run_id=None,
+                step_id=None,
+                approval_type="requirement_execution_approval",
+                status="pending",
+                reviewer=reviewer,
+                comment=comment,
+            )
+        )
+        return
+    pending.reviewer = reviewer
+    pending.comment = comment
+
+
 def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstRequirementOut:
     latest_execution = (
         db.query(ExecutionRunRow)
@@ -161,7 +281,149 @@ def _policy_summary_markdown(db: Session, requirement: RequirementRow) -> str:
     )
 
 
+def _service_name_for_requirement(db: Session, requirement: RequirementRow) -> str:
+    policy = _primary_project_policy(db, requirement)
+    return notification_service_label(
+        display_name=str(getattr(policy, "display_name", "") or "").strip() or None,
+        project_key=str(getattr(policy, "project_key", "") or "").strip() or None,
+    )
+
+
+def _notify_requirement_created(db: Session, requirement: RequirementRow) -> None:
+    service_name = _service_name_for_requirement(db, requirement)
+    deliver_lark_notification(
+        db,
+        channel="requirement",
+        event_type="requirement_created",
+        event_key=f"requirement:requirement_created:{int(requirement.id)}",
+        object_type="requirement",
+        object_key=str(int(requirement.id)),
+        service_name=service_name,
+        status_or_severity=str(requirement.priority or "normal"),
+        summary=f"Requirement #{int(requirement.id)} 已创建：{str(requirement.title or '').strip()}",
+        next_action="确认 requirement 描述与验收标准完整，然后通过 submit 进入自动审批与执行。",
+        actor_or_source=str(requirement.source or "system"),
+        occurred_at=requirement.created_at,
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "project_key": str(getattr(_primary_project_policy(db, requirement), "project_key", "") or "").strip() or None,
+        },
+        links={"需求": build_ops_url(f"/requirements/{int(requirement.id)}") or ""},
+    )
+
+
+def _notify_requirement_approval(
+    db: Session,
+    requirement: RequirementRow,
+    approval: AgentFirstRequirementApprovalOut,
+) -> None:
+    if approval.approval_decision not in {"approved", "waived", "pending_manual_approval"}:
+        return
+    event_type = "approval_auto_approved" if approval.approval_decision in {"approved", "waived"} else "approval_manual_required"
+    event_key = f"requirement:{event_type}:{int(requirement.id)}:{approval.approval_status}"
+    next_action = (
+        "Execution 已自动创建并启动，进入执行面观察 run、validate 和 incident。"
+        if approval.auto_started
+        else "请在需求面查看原因，并决定是否批准执行。"
+    )
+    deliver_lark_notification(
+        db,
+        channel="requirement",
+        event_type=event_type,
+        event_key=event_key,
+        object_type="requirement",
+        object_key=str(int(requirement.id)),
+        service_name=_service_name_for_requirement(db, requirement),
+        status_or_severity=approval.approval_status,
+        summary=approval.approval_reason or f"Requirement #{int(requirement.id)} approval updated.",
+        next_action=next_action,
+        actor_or_source=approval.approval_source or "system",
+        occurred_at=utcnow(),
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "execution_id": approval.execution_run_id,
+        },
+        links={
+            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
+            "执行": build_ops_url(f"/executions/{approval.execution_run_id}") or "" if approval.execution_run_id else "",
+        },
+    )
+
+
+def _notify_execution_error(db: Session, run: ExecutionRunRow, requirement: RequirementRow, node: ExecutionNodeRow | None) -> None:
+    service_name = _service_name_for_requirement(db, requirement)
+    object_key = str(int(run.id))
+    task_token = str(int(node.task_id)) if node is not None and node.task_id is not None else str(int(run.latest_task_id)) if run.latest_task_id is not None else "no-task"
+    status_token = str(run.status or "blocked")
+    summary = (
+        f"Execution #{int(run.id)} for requirement #{int(requirement.id)} entered {status_token}."
+        if node is None
+        else f"Execution #{int(run.id)} node `{str(node.node_key or '')}` entered {str(node.status or status_token)}."
+    )
+    next_action = "查看执行面确认失败节点、错误摘要与恢复动作；必要时进入错误日志页继续排查。"
+    deliver_lark_notification(
+        db,
+        channel="alert",
+        event_type="execution_error",
+        event_key=f"alert:execution_error:run:{object_key}:task:{task_token}:status:{status_token}",
+        object_type="execution_run",
+        object_key=object_key,
+        service_name=service_name,
+        status_or_severity=str(run.status or "blocked"),
+        summary=summary,
+        next_action=next_action,
+        actor_or_source="runtime",
+        occurred_at=utcnow(),
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "execution_id": int(run.id),
+        },
+        links={
+            "执行": build_ops_url(f"/executions/{int(run.id)}") or "",
+            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
+        },
+    )
+
+
+def _notify_pr_opened(db: Session, requirement: RequirementRow, release: ReleaseRecordRow) -> None:
+    service_name = _service_name_for_requirement(db, requirement)
+    deliver_lark_notification(
+        db,
+        channel="release",
+        event_type="pr_opened",
+        event_key=f"release:pr_opened:{int(requirement.id)}:{str(release.pr_number or release.pr_url or release.branch_name or '')}",
+        object_type="release",
+        object_key=str(int(release.id)),
+        service_name=service_name,
+        status_or_severity=str(release.status or "pr_opened"),
+        summary=f"Requirement #{int(requirement.id)} 已创建 PR：{str(requirement.title or '').strip()}",
+        next_action="进入发布面确认 PR、对比链接与后续 staging / production promotion。",
+        actor_or_source="system",
+        occurred_at=release.delivered_at or utcnow(),
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "release_id": int(release.id),
+        },
+        links={
+            "发布": build_ops_url(f"/releases/{int(requirement.id)}") or "",
+            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
+            "PR": str(release.pr_url or "").strip(),
+            "Compare": str(release.compare_url or "").strip(),
+        },
+    )
+
+
 def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
+    return _build_requirement_detail(db, requirement_id)
+
+
+def _build_requirement_detail(
+    db: Session,
+    requirement_id: int,
+    *,
+    latest_execution_id_override: int | None = None,
+    approval_override: AgentFirstRequirementApprovalOut | None = None,
+) -> AgentFirstRequirementDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
@@ -180,8 +442,13 @@ def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequ
     return AgentFirstRequirementDetailOut(
         requirement=_requirement_to_out(db, requirement),
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
-        latest_execution_id=int(latest_execution.id) if latest_execution is not None else None,
+        latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,
+        approval=approval_override or _approval_summary(
+            db,
+            requirement,
+            latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
+        ),
     )
 
 
@@ -239,6 +506,8 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     )
     db.commit()
     db.refresh(requirement)
+    _notify_requirement_created(db, requirement)
+    db.commit()
     return build_requirement_detail(db, int(requirement.id))
 
 
@@ -274,10 +543,152 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         raise ValueError("Requirement not found.")
     if str(requirement.status or "") == "deleted":
         raise ValueError("Deleted requirement cannot be submitted.")
+    if not str(requirement.title or "").strip():
+        raise ValueError("Requirement title is required before submit.")
+    if not str(requirement.description_markdown or "").strip():
+        raise ValueError("Requirement description is required before submit.")
+    decision = evaluate_requirement_execution_approval(requirement)
+    approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
+    approval_reason = str(decision.get("reason") or "Requirement requires approval before automatic execution").strip()
+    requirement.updated_at = utcnow()
+    if approval_status in {"approved", "waived"}:
+        requirement.approval_status = approval_status
+        requirement.approved_at = requirement.approved_at or utcnow()
+        requirement.approval_requested_at = None
+        requirement.status = "ready"
+        _resolve_requirement_approval_requests(
+            db,
+            requirement_id=int(requirement.id),
+            status="approved",
+            reviewer="system",
+            comment=approval_reason or "Automatically approved for execution",
+        )
+        db.commit()
+        execution = create_execution_run(db, int(requirement.id))
+        auto_started = False
+        pending_execution_start = False
+        try:
+            start_execution_run(db, int(execution.execution.id))
+            auto_started = True
+        except ValueError:
+            pending_execution_start = True
+        detail = _build_requirement_detail(
+            db,
+            requirement_id,
+            latest_execution_id_override=int(execution.execution.id),
+            approval_override=_approval_summary(
+                db,
+                requirement,
+                latest_execution_id=int(execution.execution.id),
+                auto_started=auto_started,
+                pending_execution_start=pending_execution_start,
+            ),
+        )
+        _notify_requirement_approval(db, requirement, detail.approval)
+        db.commit()
+        return detail
+
+    requirement.approval_status = "pending_approval"
+    requirement.approved_at = None
+    requirement.status = "blocked"
+    reviewer = str(decision.get("reviewer") or "operator").strip() or "operator"
+    _ensure_requirement_approval_request(
+        db,
+        requirement=requirement,
+        reviewer=reviewer,
+        comment=approval_reason,
+    )
+    db.commit()
+    detail = _build_requirement_detail(
+        db,
+        requirement_id,
+        approval_override=_approval_summary(db, requirement, pending_execution_start=False),
+    )
+    _notify_requirement_approval(db, requirement, detail.approval)
+    db.commit()
+    return detail
+
+
+def approve_requirement(
+    db: Session,
+    requirement_id: int,
+    *,
+    reviewer: str = "operator",
+    comment: str | None = None,
+) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    if str(requirement.approval_status or "") not in {"pending_approval", "rejected"}:
+        raise ValueError("Requirement is not awaiting manual approval.")
+    requirement.approval_status = "approved"
+    requirement.approved_at = utcnow()
+    requirement.approval_requested_at = None
     requirement.status = "ready"
     requirement.updated_at = utcnow()
+    _resolve_requirement_approval_requests(
+        db,
+        requirement_id=int(requirement.id),
+        status="approved",
+        reviewer=reviewer,
+        comment=str(comment or "Approved for autonomous execution"),
+    )
     db.commit()
-    return build_requirement_detail(db, requirement_id)
+    execution = create_execution_run(db, int(requirement.id))
+    auto_started = False
+    pending_execution_start = False
+    try:
+        start_execution_run(db, int(execution.execution.id))
+        auto_started = True
+    except ValueError:
+        pending_execution_start = True
+    detail = _build_requirement_detail(
+        db,
+        requirement_id,
+        latest_execution_id_override=int(execution.execution.id),
+        approval_override=_approval_summary(
+            db,
+            requirement,
+            latest_execution_id=int(execution.execution.id),
+            auto_started=auto_started,
+            pending_execution_start=pending_execution_start,
+        ),
+    )
+    _notify_requirement_approval(db, requirement, detail.approval)
+    db.commit()
+    return detail
+
+
+def reject_requirement(
+    db: Session,
+    requirement_id: int,
+    *,
+    reviewer: str = "operator",
+    comment: str | None = None,
+) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    requirement.approval_status = "rejected"
+    requirement.approved_at = None
+    requirement.approval_requested_at = None
+    requirement.status = "needs_revision"
+    requirement.updated_at = utcnow()
+    _resolve_requirement_approval_requests(
+        db,
+        requirement_id=int(requirement.id),
+        status="rejected",
+        reviewer=reviewer,
+        comment=str(comment or "Rejected pending revision"),
+    )
+    db.commit()
+    detail = _build_requirement_detail(
+        db,
+        requirement_id,
+        approval_override=_approval_summary(db, requirement),
+    )
+    db.commit()
+    return detail
 
 
 def revise_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequirementDetailOut:
@@ -365,6 +776,8 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         raise ValueError("Requirement not found.")
     if str(requirement.status or "") not in {"ready", "blocked", "needs_revision"}:
         raise ValueError("Requirement must be ready before creating execution.")
+    if _approval_required(db, requirement) and str(requirement.approval_status or "") not in {"approved", "waived"}:
+        raise ValueError("Requirement must be approved before creating execution.")
     shape = _shape_decision(db, requirement)
     run = ExecutionRunRow(
         requirement_id=int(requirement.id),
@@ -786,6 +1199,7 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         updated_at=run.updated_at,
     )
     incidents: list[dict[str, object]] = []
+    failed_node = next((node for node in nodes if str(node.status or "") == "failed"), None)
     if execution.status in {"blocked", "failed"}:
         incidents.append(
             {
@@ -793,6 +1207,8 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
                 "summary": "Execution is blocked or failed. Retry or revise before validating again.",
             }
         )
+        _notify_execution_error(db, run, requirement, failed_node)
+        db.commit()
     return ExecutionRunDetailOut(
         execution=execution,
         requirement=_requirement_to_out(db, requirement),
@@ -1007,6 +1423,8 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs, "pr_sync": pr_sync})
     requirement.status = "done"
     requirement.completed_at = utcnow()
+    db.commit()
+    _notify_pr_opened(db, requirement, release)
     db.commit()
     return build_release_detail(db, requirement_id)
 

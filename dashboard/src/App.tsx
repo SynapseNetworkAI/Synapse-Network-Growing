@@ -5,11 +5,17 @@ import ExecutionsPage from './pages/ExecutionsPage'
 import ExecutionDetailPage from './pages/ExecutionDetailPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
+import ErrorsPage from './pages/ErrorsPage'
+import ErrorDetailPage from './pages/ErrorDetailPage'
 
 const navItems = [
   { to: '/requirements', label: '需求' },
   { to: '/executions', label: '执行' },
   { to: '/releases', label: '发布' },
+]
+
+const utilityNavItems = [
+  { to: '/errors', label: '错误日志' },
 ]
 
 const routeBriefs = [
@@ -55,6 +61,20 @@ const routeBriefs = [
     description: '查看单条 requirement 的 release record、PR、部署历史与 promotion 动作。',
     chips: ['branch', 'pr', 'deployment'],
   },
+  {
+    match: (pathname: string) => pathname === '/errors',
+    eyebrow: 'Stability Console',
+    title: '错误日志',
+    description: '辅助治理页，聚合高信号错误、关联 requirement 与执行状态，不替代三大主业务面。',
+    chips: ['errors', 'fingerprints', 'alerts'],
+  },
+  {
+    match: (pathname: string) => pathname.startsWith('/errors/'),
+    eyebrow: 'Error Fingerprint',
+    title: '错误详情',
+    description: '查看单个 error fingerprint 的事件证据、关联 requirement / execution 和通知历史。',
+    chips: ['evidence', 'requirement', 'notifications'],
+  },
 ]
 
 function getRouteBrief(pathname: string) {
@@ -66,19 +86,19 @@ export default function App() {
   const brief = getRouteBrief(location.pathname)
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.14),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(16,185,129,0.12),_transparent_24%),linear-gradient(180deg,_#f8fafc_0%,_#eef2f7_100%)] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-[1500px] gap-4 px-3 py-3 md:px-5 md:py-5">
-        <aside className="hidden w-[270px] shrink-0 flex-col rounded-[30px] border border-white/70 bg-[rgba(10,18,36,0.94)] px-5 py-5 text-slate-100 shadow-[0_24px_80px_rgba(15,23,42,0.24)] lg:flex">
+    <div className="min-h-screen text-[color:var(--ops-text-body)]">
+      <div className="mx-auto flex min-h-screen max-w-[var(--ops-page-max)] gap-[var(--ops-content-gutter)] px-3 py-3 md:px-5 md:py-5">
+        <aside className="hidden w-[var(--ops-sidebar-width)] shrink-0 flex-col rounded-[var(--ops-radius-shell)] border border-white/8 bg-[color:var(--ops-shell-bg)] px-5 py-5 text-[color:var(--ops-text-on-dark)] shadow-[0_28px_90px_rgba(15,23,42,0.28)] lg:flex">
           <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
             <div className="text-[11px] uppercase tracking-[0.24em] text-sky-200/80">Synapse Network Growing</div>
             <div className="mt-3 text-2xl font-semibold tracking-tight">Agent-First Ops</div>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="mt-2 text-sm leading-6 text-slate-300/92">
               程序只做 intake、执行编排、validate 和 release 记录，不替 agent 决定执行内容。
             </p>
           </div>
 
-          <div className="mt-5 text-[11px] uppercase tracking-[0.22em] text-slate-400">Surfaces</div>
-          <nav className="mt-3 space-y-1.5">
+          <div className="mt-6 text-[11px] uppercase tracking-[0.22em] text-slate-400">Surfaces</div>
+          <nav className="mt-3 space-y-1.5 border-y border-white/8 py-4">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -86,7 +106,26 @@ export default function App() {
                 className={({ isActive }) =>
                   `block rounded-2xl px-4 py-3 text-sm transition ${
                     isActive
-                      ? 'bg-[linear-gradient(135deg,rgba(91,124,250,0.96),rgba(48,180,255,0.92))] text-white shadow-[0_16px_32px_rgba(59,130,246,0.25)]'
+                      ? 'bg-[linear-gradient(135deg,rgba(71,102,255,0.96),rgba(46,164,255,0.82))] text-white shadow-[0_12px_28px_rgba(59,130,246,0.22)]'
+                      : 'text-slate-300 hover:bg-white/6 hover:text-white'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="mt-4 text-[11px] uppercase tracking-[0.22em] text-slate-400">Stability</div>
+          <nav className="mt-3 space-y-1.5">
+            {utilityNavItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `block rounded-2xl px-4 py-3 text-sm transition ${
+                    isActive
+                      ? 'bg-white/10 text-white shadow-[0_10px_24px_rgba(15,23,42,0.18)]'
                       : 'text-slate-300 hover:bg-white/6 hover:text-white'
                   }`
                 }
@@ -97,8 +136,8 @@ export default function App() {
           </nav>
 
           <div className="mt-auto rounded-[24px] border border-white/10 bg-white/5 p-4">
-            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Core Flow</div>
-            <div className="mt-2 text-sm font-medium text-white">intake - execute - validate - deliver</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Governance</div>
+            <div className="mt-2 text-sm font-medium text-white">需求治理 · 稳定性治理 · 发布治理</div>
             <p className="mt-2 text-xs leading-5 text-slate-300">
               simple task 默认直接进入 execute；复杂任务只在 execution 面展开节点图。
             </p>
@@ -106,7 +145,7 @@ export default function App() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <div className="overflow-x-auto rounded-[26px] border border-white/80 bg-white/70 px-3 py-2 shadow-[0_12px_44px_rgba(148,163,184,0.14)] backdrop-blur lg:hidden">
+          <div className="ops-shell overflow-x-auto rounded-[var(--ops-radius-shell)] px-3 py-2 lg:hidden">
             <div className="flex min-w-max items-center gap-2">
               {navItems.map((item) => (
                 <NavLink
@@ -114,7 +153,20 @@ export default function App() {
                   to={item.to}
                   className={({ isActive }) =>
                     `rounded-xl px-3 py-2 text-sm transition ${
-                      isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      isActive ? 'bg-[color:var(--ops-shell-bg)] text-white' : 'text-[color:var(--ops-text-muted)] hover:bg-white/70'
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+              {utilityNavItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `rounded-xl px-3 py-2 text-sm transition ${
+                      isActive ? 'bg-white/70 text-[color:var(--ops-text-title)]' : 'text-[color:var(--ops-text-muted)] hover:bg-white/70'
                     }`
                   }
                 >
@@ -124,23 +176,23 @@ export default function App() {
             </div>
           </div>
 
-          <header className="rounded-[30px] border border-white/80 bg-white/72 px-5 py-5 shadow-[0_18px_60px_rgba(148,163,184,0.16)] backdrop-blur md:px-7 md:py-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <header className="ops-shell rounded-[var(--ops-radius-shell)] px-5 py-5 md:px-7 md:py-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div className="max-w-3xl">
-                <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">{brief.eyebrow}</div>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.35rem]">{brief.title}</h1>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 md:text-[15px]">{brief.description}</p>
+                <div className="text-[11px] uppercase tracking-[0.28em] text-[color:var(--ops-text-caption)]">{brief.eyebrow}</div>
+                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[color:var(--ops-text-title)] md:text-[2.4rem]">{brief.title}</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-[color:var(--ops-text-muted)] md:text-[15px]">{brief.description}</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
+              <div className="grid gap-0 overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white/78 sm:grid-cols-3 xl:w-[420px]">
                 {brief.chips.map((chip, index) => (
                   <div
                     key={chip}
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                    className={`border-l px-4 py-3 text-sm first:border-l-0 ${
                       index === 0
-                        ? 'border-sky-200 bg-sky-50 text-sky-900'
+                        ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]'
                         : index === 1
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                          : 'border-amber-200 bg-amber-50 text-amber-900'
+                          ? 'border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] text-[color:var(--ops-state-ready-text)]'
+                          : 'border-[color:var(--ops-state-validating-border)] bg-[color:var(--ops-state-validating-bg)] text-[color:var(--ops-state-validating-text)]'
                     }`}
                   >
                     <div className="text-[11px] uppercase tracking-[0.22em] opacity-60">Focus</div>
@@ -151,7 +203,7 @@ export default function App() {
             </div>
           </header>
 
-          <main className="min-h-[calc(100vh-8rem)] rounded-[30px] border border-white/80 bg-white/66 p-4 shadow-[0_20px_64px_rgba(148,163,184,0.18)] backdrop-blur md:p-6">
+          <main className="ops-shell min-h-[calc(100vh-8rem)] rounded-[var(--ops-radius-shell)] p-4 md:p-6">
             <Routes>
               <Route path="/" element={<Navigate to="/requirements" replace />} />
               <Route path="/requirements" element={<RequirementPool />} />
@@ -160,6 +212,8 @@ export default function App() {
               <Route path="/executions/:id" element={<ExecutionDetailPage />} />
               <Route path="/releases" element={<ReleasesPage />} />
               <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
+              <Route path="/errors" element={<ErrorsPage />} />
+              <Route path="/errors/:fingerprintKey" element={<ErrorDetailPage />} />
               <Route path="*" element={<Navigate to="/requirements" replace />} />
             </Routes>
           </main>

@@ -46,6 +46,10 @@ LOG_MAX_BYTES = int(os.environ.get("OPS_LOG_MAX_BYTES", str(5 * 1024 * 1024)))
 LOG_BACKUP_COUNT = int(os.environ.get("OPS_LOG_BACKUP_COUNT", "5"))
 LARK_BOT_WEBHOOK_URL = os.environ.get("OPS_LARK_BOT_WEBHOOK_URL", "").strip()
 LARK_BOT_KEYWORD = os.environ.get("OPS_LARK_BOT_KEYWORD", "告警").strip() or "告警"
+LARK_REQUIREMENT_WEBHOOK_URL = os.environ.get("OPS_LARK_REQUIREMENT_WEBHOOK_URL", "").strip()
+LARK_ALERT_WEBHOOK_URL = os.environ.get("OPS_LARK_ALERT_WEBHOOK_URL", LARK_BOT_WEBHOOK_URL).strip()
+LARK_RELEASE_WEBHOOK_URL = os.environ.get("OPS_LARK_RELEASE_WEBHOOK_URL", "").strip()
+OPS_BASE_URL = os.environ.get("OPS_BASE_URL", "").strip().rstrip("/")
 RUNTIME_AUTH_ALERTS_ENABLED = os.environ.get("OPS_RUNTIME_AUTH_ALERTS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 BUG_LOG_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_BUG_LOG_SWEEP_SCHEDULER_ENABLED",
