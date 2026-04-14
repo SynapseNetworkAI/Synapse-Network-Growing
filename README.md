@@ -109,6 +109,14 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 
 后续新增、删除或重构正式功能时，应与代码一起同步更新这份清单。
 
+Execution 详情页当前已经支持正式可观测性视图：
+
+1. 当前主链 run 的 agent、model、backend、provider
+2. 当前 branch 与交付上下文
+3. 每个 node / task 的 token 与执行时长
+4. 当前 run 改动文件列表与 diff 预览
+5. validation 结果与 activity timeline
+
 ## Browser Automation
 
 This repository now includes the upstream `vercel-labs/agent-browser` and `dogfood` skills for project-scoped browser automation and systematic QA.

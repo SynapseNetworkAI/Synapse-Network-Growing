@@ -35,6 +35,11 @@
 
 1. Execution run 列表。
 2. Execution detail。
+   - 顶部展示当前主链 run 的 `agent / backend / provider / model / branch / tokens_used_total / elapsed_ms`
+   - Runtime 区展示每个 node / task 的 token、时长和运行时元信息
+   - Files 区展示当前 run 的改动文件
+   - 点击文件可打开预览浮层，默认看 `diff`
+   - Activity 区展示结构化时间线
 3. 单 requirement 单 execution 主链治理。
 4. queued run 启动。
 5. paused run 恢复。

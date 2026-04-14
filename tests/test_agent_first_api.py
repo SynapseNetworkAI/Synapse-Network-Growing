@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from unittest.mock import patch
 
-from server.database import ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementRow, TaskRow, ValidationRecordRow
+from server.database import AgentRow, ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementRow, TaskRow, ValidationRecordRow, utcnow
 from server.schemas import ValidationCheckResultOut
 from server.services.workflows.agent_first import reset_execution_runtime_data
 
@@ -757,3 +759,160 @@ def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirem
     db_session.refresh(blocked_requirement)
     assert ready_requirement.status == "ready"
     assert blocked_requirement.status == "blocked"
+
+
+def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[RequirementRow, ExecutionRunRow]:
+    target_root = tmp_path / "target-project"
+    target_root.mkdir(parents=True, exist_ok=True)
+    changed_file = target_root / "src" / "feature.py"
+    changed_file.parent.mkdir(parents=True, exist_ok=True)
+    changed_file.write_text("print('after')\n", encoding="utf-8")
+
+    output_dir = tmp_path / "task-output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "output.md"
+    output_path.write_text("execution summary", encoding="utf-8")
+    (output_dir / "file-changes.json").write_text(
+        json.dumps(
+            {
+                "changed_files": [
+                    {
+                        "filename": "src/feature.py",
+                        "additions": 3,
+                        "deletions": 1,
+                        "patch": "@@ -1 +1 @@\n-print('before')\n+print('after')\n",
+                        "target_project_path": str(target_root),
+                    }
+                ],
+                "target_project_path": str(target_root),
+                "source": "snapshot",
+                "captured_at": "2026-04-14T00:00:00Z",
+                "baseline_captured_at": "2026-04-14T00:00:00Z",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    agent = AgentRow(
+        id="execution_observability_agent",
+        display_name="Software Engineer",
+        goal="Implement and validate engineering changes.",
+        group="engineering",
+        skills='["execution"]',
+    )
+    requirement = RequirementRow(
+        title="Execution observability fixture",
+        description_markdown="Render runtime observability fields.",
+        status="running",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_key="synapse-network-growing",
+        project_display_name="Synapse-Network-Growing",
+        target_project_path=str(target_root),
+        acceptance_contract_json='{"markdown":"- Runtime metrics visible"}',
+    )
+    db_session.add_all([agent, requirement])
+    db_session.flush()
+
+    started_at = utcnow()
+    completed_at = utcnow()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        planner_summary="Direct execution fixture.",
+        target_projects_json=json.dumps([str(target_root)]),
+        started_at=started_at,
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    task = TaskRow(
+        description="Execute requirement",
+        agent_id=agent.id,
+        status="completed",
+        runtime_backend="codex_cli",
+        runtime_provider="openai",
+        runtime_model="gpt-5.4",
+        output_path=str(output_path),
+        output_content="done",
+        execution_time_ms=42000,
+        tokens_used=321,
+        project_id="synapse-network-growing",
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    db_session.add(task)
+    db_session.flush()
+
+    run.latest_task_id = int(task.id)
+    node = ExecutionNodeRow(
+        execution_run_id=int(run.id),
+        requirement_id=int(requirement.id),
+        node_key="execute",
+        node_type="execute",
+        title="Execute requirement",
+        status="completed",
+        sequence_no=1,
+        task_id=int(task.id),
+        runtime_backend="codex_cli",
+        runtime_provider="openai",
+        runtime_model="gpt-5.4",
+        summary_markdown="Applied the requested change.",
+        started_at=started_at,
+        completed_at=completed_at,
+    )
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(run.id),
+        status="ready",
+        branch_name="feature/execution-observability",
+        compare_url="https://github.com/example/repo/compare/main...feature/execution-observability",
+    )
+    db_session.add_all([node, release])
+    db_session.commit()
+    return requirement, run
+
+
+def test_execution_detail_exposes_runtime_observability_fields(synced_client, db_session, tmp_path):
+    requirement, run = _seed_execution_observability_fixture(db_session, tmp_path)
+
+    response = synced_client.get(f"/api/executions/{run.id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution"]["requirement_id"] == int(requirement.id)
+    assert payload["execution"]["tokens_used_total"] == 321
+    assert payload["execution"]["runtime_backend"] == "codex_cli"
+    assert payload["execution"]["runtime_provider"] == "openai"
+    assert payload["execution"]["runtime_model"] == "gpt-5.4"
+    assert payload["execution"]["agent_id"] == "execution_observability_agent"
+    assert payload["execution"]["agent_label"] == "Software Engineer"
+    assert payload["execution"]["current_branch"] == "feature/execution-observability"
+    assert payload["execution"]["elapsed_ms"] is not None
+    assert payload["runtime_summary"]["tokens_used_total"] == 321
+    assert payload["nodes"][0]["tokens_used"] == 321
+    assert payload["nodes"][0]["agent_label"] == "Software Engineer"
+    assert payload["changed_files"][0]["path"] == "src/feature.py"
+    assert payload["changed_files"][0]["preview_available"] is True
+    assert any(event["event"] == "run_created" for event in payload["activity_stream"])
+    assert payload["delivery_summary"]["branch_name"] == "feature/execution-observability"
+
+
+def test_execution_file_preview_endpoint_returns_diff_and_current_content(synced_client, db_session, tmp_path):
+    _, run = _seed_execution_observability_fixture(db_session, tmp_path)
+
+    response = synced_client.get(f"/api/executions/{run.id}/files/src/feature.py")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == "src/feature.py"
+    assert "print('before')" in payload["diff_patch"]
+    assert "print('after')" in payload["current_content"]
+    assert payload["truncated"] is False

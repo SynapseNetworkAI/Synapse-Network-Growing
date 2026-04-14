@@ -853,9 +853,13 @@ export interface ExecutionNode {
   sequence_no: number
   task_id: number | null
   task_status: string | null
+  agent_id: string | null
+  agent_label: string | null
   runtime_backend: string | null
   runtime_provider: string | null
   runtime_model: string | null
+  tokens_used: number | null
+  elapsed_ms: number | null
   summary_markdown: string | null
   started_at: string | null
   completed_at: string | null
@@ -893,10 +897,51 @@ export interface ExecutionRun {
   planner_summary: string | null
   target_projects: string[]
   latest_task_id: number | null
+  agent_id: string | null
+  agent_label: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  tokens_used_total: number | null
+  elapsed_ms: number | null
+  current_branch: string | null
   started_at: string | null
   completed_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface ExecutionChangedFile {
+  path: string
+  change_type: string
+  additions: number
+  deletions: number
+  preview_available: boolean
+}
+
+export interface ExecutionFilePreview {
+  path: string
+  diff_patch: string | null
+  current_content: string | null
+  truncated: boolean
+}
+
+export interface ExecutionRuntimeSummary {
+  tokens_used_total: number | null
+  elapsed_ms: number | null
+  agent_id: string | null
+  agent_label: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  current_branch: string | null
+}
+
+export interface ExecutionActivityEvent {
+  ts: string | null
+  event: string
+  status: string | null
+  message: string
 }
 
 export interface ExecutionDetail {
@@ -904,6 +949,10 @@ export interface ExecutionDetail {
   requirement: AgentRequirement
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
+  changed_files: ExecutionChangedFile[]
+  runtime_summary: ExecutionRuntimeSummary | null
+  delivery_summary: ReleaseRecord | null
+  activity_stream: ExecutionActivityEvent[]
   incidents: Array<Record<string, unknown>>
 }
 
@@ -1605,6 +1654,8 @@ export const api = {
   createExecution: (data: { requirement_id: number }) =>
     request<ExecutionDetail>('/executions', { method: 'POST', body: JSON.stringify(data) }),
   getExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}`),
+  getExecutionFilePreview: (id: number, filePath: string) =>
+    request<ExecutionFilePreview>(`/executions/${id}/files/${encodeURIComponent(filePath)}`),
   startExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/start`, { method: 'POST' }),
   pauseExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/pause`, { method: 'POST' }),
   resumeExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/resume`, { method: 'POST' }),

@@ -949,9 +949,13 @@ class ExecutionNodeOut(BaseModel):
     sequence_no: int
     task_id: Optional[int] = None
     task_status: Optional[str] = None
+    agent_id: Optional[str] = None
+    agent_label: Optional[str] = None
     runtime_backend: Optional[str] = None
     runtime_provider: Optional[str] = None
     runtime_model: Optional[str] = None
+    tokens_used: Optional[int] = None
+    elapsed_ms: Optional[int] = None
     summary_markdown: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -989,10 +993,51 @@ class ExecutionRunOut(BaseModel):
     planner_summary: Optional[str] = None
     target_projects: list[str] = []
     latest_task_id: Optional[int] = None
+    agent_id: Optional[str] = None
+    agent_label: Optional[str] = None
+    runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
+    tokens_used_total: Optional[int] = None
+    elapsed_ms: Optional[int] = None
+    current_branch: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class ExecutionChangedFileOut(BaseModel):
+    path: str
+    change_type: str = "modified"
+    additions: int = 0
+    deletions: int = 0
+    preview_available: bool = False
+
+
+class ExecutionFilePreviewOut(BaseModel):
+    path: str
+    diff_patch: Optional[str] = None
+    current_content: Optional[str] = None
+    truncated: bool = False
+
+
+class ExecutionRuntimeSummaryOut(BaseModel):
+    tokens_used_total: Optional[int] = None
+    elapsed_ms: Optional[int] = None
+    agent_id: Optional[str] = None
+    agent_label: Optional[str] = None
+    runtime_backend: Optional[str] = None
+    runtime_provider: Optional[str] = None
+    runtime_model: Optional[str] = None
+    current_branch: Optional[str] = None
+
+
+class ExecutionActivityEventOut(BaseModel):
+    ts: Optional[datetime] = None
+    event: str
+    status: Optional[str] = None
+    message: str = ""
 
 
 class ExecutionRunDetailOut(BaseModel):
@@ -1000,6 +1045,10 @@ class ExecutionRunDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
+    changed_files: list[ExecutionChangedFileOut] = []
+    runtime_summary: Optional[ExecutionRuntimeSummaryOut] = None
+    delivery_summary: Optional[ReleaseRecordSlimOut] = None
+    activity_stream: list[ExecutionActivityEventOut] = []
     incidents: list[dict[str, object]] = []
 
 

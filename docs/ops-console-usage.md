@@ -180,20 +180,23 @@ Execution detail 是当前唯一 execution 主链的工作面。
 
 #### 页面布局
 
-1. 顶部是 run header 与控制动作
-2. 主工作区展示 execution graph 与 validation evidence
-3. 右侧 inspector 展示 run summary
-4. activity 区展示 incidents / recovery 信号
+1. 顶部是 run header、KPI 与控制动作
+2. Runtime 区展示当前 run 的 node / task 表格
+3. Files 区展示当前 run 的改动文件
+4. Validation 区展示当前 run 的验证记录
+5. Activity 区展示 lifecycle 时间线与 incidents
 
 #### 页面内容
 
 1. execution status
 2. execution mode / complexity / validation profile
-3. execution nodes
-4. agent summary
-5. changed files / command evidence
-6. validation result
-7. incidents
+3. 当前 agent / backend / provider / model
+4. 当前 branch / 总 token / 执行时长
+5. execution nodes runtime table
+6. changed files / command evidence
+7. validation result
+8. activity timeline
+9. incidents
 
 #### 典型动作
 
@@ -201,15 +204,17 @@ Execution detail 是当前唯一 execution 主链的工作面。
 2. 继续 paused execution
 3. 对 failed / blocked execution 创建新 run 重试
 4. 触发 validate
+5. 打开改动文件预览，默认先看 `diff`
 
 #### 后端接口
 
 1. `GET /api/executions/{id}`
-2. `POST /api/executions/{id}/start`
-3. `POST /api/executions/{id}/pause`
-4. `POST /api/executions/{id}/resume`
-5. `POST /api/executions/{id}/retry`
-6. `POST /api/executions/{id}/validate`
+2. `GET /api/executions/{id}/files/{encoded_path}`
+3. `POST /api/executions/{id}/start`
+4. `POST /api/executions/{id}/pause`
+5. `POST /api/executions/{id}/resume`
+6. `POST /api/executions/{id}/retry`
+7. `POST /api/executions/{id}/validate`
 
 #### 推荐使用方式
 
@@ -217,6 +222,7 @@ Execution detail 是当前唯一 execution 主链的工作面。
 2. 对复杂任务，才会看到 execution graph
 3. validate 失败时，关注 bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
 4. `retry` 会创建新的 execution run；旧 run 不会复活
+5. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
 
 ## 4. 发布面
 

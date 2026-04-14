@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db
-from server.schemas import ExecutionCreateRequest, ExecutionRunDetailOut, ExecutionRunOut
+from server.schemas import ExecutionCreateRequest, ExecutionFilePreviewOut, ExecutionRunDetailOut, ExecutionRunOut
 from server.services.workflows.agent_first import (
+    _execution_file_preview,
     build_execution_detail,
     create_execution_run,
     list_execution_runs,
@@ -37,6 +38,14 @@ def create_execution_endpoint(body: ExecutionCreateRequest, db: Session = Depend
 def get_execution_endpoint(execution_run_id: int, db: Session = Depends(get_db)):
     try:
         return build_execution_detail(db, execution_run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{execution_run_id}/files/{file_path:path}", response_model=ExecutionFilePreviewOut)
+def get_execution_file_preview_endpoint(execution_run_id: int, file_path: str, db: Session = Depends(get_db)):
+    try:
+        return _execution_file_preview(db, execution_run_id, file_path)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

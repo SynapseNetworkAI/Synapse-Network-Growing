@@ -5,13 +5,14 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from sqlalchemy.orm import Session
 
 from server.config import ORCHESTRATION_BACKEND, PROJECT_ROOT
 from server.database import (
+    AgentRow,
     ApprovalRequestRow,
     DeploymentRecordRow,
     ExecutionNodeRow,
@@ -27,7 +28,11 @@ from server.schemas import (
     AgentFirstRequirementApprovalOut,
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
+    ExecutionActivityEventOut,
+    ExecutionChangedFileOut,
+    ExecutionFilePreviewOut,
     ExecutionNodeOut,
+    ExecutionRuntimeSummaryOut,
     ExecutionRunDetailOut,
     ExecutionRunOut,
     ReleaseCandidateOut,
@@ -56,6 +61,11 @@ from server.services.runtime.task_runner import dispatch
 from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
     normalize_requirement_approval_status,
+)
+from server.services.workflows.orchestrator.file_changes import (
+    _load_task_file_changes,
+    _normalize_task_file_change_payload,
+    _task_changed_files_from_payload,
 )
 from server.services.workflows.orchestrator import pause_task as pause_legacy_task
 
@@ -1542,6 +1552,239 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
     )
 
 
+def _elapsed_ms(started_at, completed_at) -> int | None:
+    if started_at is None:
+        return None
+    def _normalize_dt(value):
+        if value is None:
+            return None
+        if getattr(value, "tzinfo", None) is None:
+            return value.replace(tzinfo=utcnow().tzinfo)
+        return value
+
+    start = _normalize_dt(started_at)
+    end_at = _normalize_dt(completed_at) or utcnow()
+    return max(0, int((end_at - start).total_seconds() * 1000))
+
+
+def _agent_label(db: Session, agent_id: str | None) -> str | None:
+    cleaned = str(agent_id or "").strip()
+    if not cleaned:
+        return None
+    row = db.query(AgentRow).filter(AgentRow.id == cleaned).first()
+    if row is None:
+        return cleaned
+    return str(row.display_name or cleaned).strip() or cleaned
+
+
+def _execution_node_task_payload(db: Session, node: ExecutionNodeRow) -> tuple[TaskRow | None, str | None, str | None]:
+    task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first() if node.task_id else None
+    task_status = _node_task_status(task) if task is not None else None
+    agent_id = str(task.agent_id or "").strip() or None if task is not None else None
+    return task, task_status, agent_id
+
+
+def _change_type(additions: int, deletions: int) -> str:
+    if additions > 0 and deletions == 0:
+        return "added"
+    if deletions > 0 and additions == 0:
+        return "deleted"
+    return "modified"
+
+
+def _collect_execution_changed_files(db: Session, nodes: list[ExecutionNodeRow]) -> list[ExecutionChangedFileOut]:
+    merged: dict[tuple[str, str | None], dict[str, object]] = {}
+    for node in nodes:
+        if not node.task_id:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        if task is None:
+            continue
+        payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+        for change in _task_changed_files_from_payload(payload):
+            path = str(change.get("filename") or "").strip()
+            if not path:
+                continue
+            target_project_path = str(change.get("target_project_path") or "").strip() or None
+            key = (path, target_project_path)
+            current = merged.setdefault(
+                key,
+                {
+                    "path": path,
+                    "target_project_path": target_project_path,
+                    "additions": 0,
+                    "deletions": 0,
+                    "patches": [],
+                },
+            )
+            current["additions"] = int(current.get("additions") or 0) + int(change.get("additions") or 0)
+            current["deletions"] = int(current.get("deletions") or 0) + int(change.get("deletions") or 0)
+            patch = str(change.get("patch") or "")
+            if patch:
+                cast(list[str], current["patches"]).append(patch)
+    results: list[ExecutionChangedFileOut] = []
+    for (_, _), item in sorted(merged.items(), key=lambda pair: pair[0][0]):
+        additions = int(item.get("additions") or 0)
+        deletions = int(item.get("deletions") or 0)
+        patches = cast(list[str], item.get("patches") or [])
+        target_project_path = str(item.get("target_project_path") or "").strip() or None
+        preview_available = bool(patches) or bool(target_project_path)
+        results.append(
+            ExecutionChangedFileOut(
+                path=str(item.get("path") or ""),
+                change_type=_change_type(additions, deletions),
+                additions=additions,
+                deletions=deletions,
+                preview_available=preview_available,
+            )
+        )
+    return results
+
+
+def _build_execution_activity_stream(
+    run: ExecutionRunRow,
+    nodes: list[ExecutionNodeRow],
+    validation: ValidationRecordRow | None,
+    incidents: list[dict[str, object]],
+) -> list[ExecutionActivityEventOut]:
+    events: list[ExecutionActivityEventOut] = [
+        ExecutionActivityEventOut(
+            ts=run.created_at,
+            event="run_created",
+            status="completed",
+            message="Execution run created.",
+        )
+    ]
+    if run.started_at is not None:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=run.started_at,
+                event="run_started",
+                status=str(run.status or "running"),
+                message="Execution run started.",
+            )
+        )
+    for node in nodes:
+        if node.started_at is not None:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=node.started_at,
+                    event="node_started",
+                    status=str(node.status or "running"),
+                    message=f"{str(node.title or node.node_key or 'Node')} started.",
+                )
+            )
+        if node.completed_at is not None:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=node.completed_at,
+                    event="node_completed",
+                    status=str(node.status or "completed"),
+                    message=f"{str(node.title or node.node_key or 'Node')} completed.",
+                )
+            )
+    if validation is not None:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=validation.created_at,
+                event="validation_started",
+                status=str(validation.status or "pending"),
+                message="Validation started.",
+            )
+        )
+        if str(validation.status or "") in {"passed", "failed"}:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=validation.updated_at or validation.created_at,
+                    event="validation_completed",
+                    status=str(validation.status or "pending"),
+                    message=f"Validation {str(validation.status or 'completed')}.",
+                )
+            )
+    for incident in incidents:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=run.updated_at,
+                event=str(incident.get("kind") or "incident"),
+                status=str(run.status or ""),
+                message=str(incident.get("summary") or "Execution incident recorded."),
+            )
+        )
+    def _event_sort_key(item: ExecutionActivityEventOut):
+        timestamp = item.ts
+        if timestamp is None:
+            return utcnow()
+        if getattr(timestamp, "tzinfo", None) is None:
+            return timestamp.replace(tzinfo=utcnow().tzinfo)
+        return timestamp
+
+    events.sort(key=_event_sort_key)
+    return events
+
+
+def _execution_file_preview(
+    db: Session,
+    execution_run_id: int,
+    relative_path: str,
+) -> ExecutionFilePreviewOut:
+    run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
+    if run is None:
+        raise ValueError("Execution run not found.")
+    nodes = (
+        db.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == run.id)
+        .order_by(ExecutionNodeRow.sequence_no.asc(), ExecutionNodeRow.id.asc())
+        .all()
+    )
+    normalized_path = str(relative_path or "").strip().lstrip("/")
+    if not normalized_path:
+        raise ValueError("Execution file path is required.")
+    diff_chunks: list[str] = []
+    target_project_path: str | None = None
+    for node in nodes:
+        if not node.task_id:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        if task is None:
+            continue
+        payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+        for change in _task_changed_files_from_payload(payload):
+            if str(change.get("filename") or "").strip() != normalized_path:
+                continue
+            patch = str(change.get("patch") or "")
+            if patch:
+                diff_chunks.append(patch)
+            if not target_project_path:
+                target_project_path = str(change.get("target_project_path") or "").strip() or None
+    if not diff_chunks and not target_project_path:
+        raise ValueError("Execution file preview not found.")
+
+    current_content: str | None = None
+    truncated = False
+    if target_project_path:
+        target = (Path(target_project_path) / normalized_path).resolve()
+        target_root = Path(target_project_path).resolve()
+        if target_root == target or target_root in target.parents:
+            if target.exists() and target.is_file():
+                raw = target.read_text(encoding="utf-8", errors="replace")
+                if len(raw) > 20000:
+                    current_content = raw[:20000]
+                    truncated = True
+                else:
+                    current_content = raw
+
+    diff_patch = "\n".join(chunk for chunk in diff_chunks if chunk).strip() or None
+    if diff_patch and len(diff_patch) > 20000:
+        diff_patch = diff_patch[:20000]
+        truncated = True
+    return ExecutionFilePreviewOut(
+        path=normalized_path,
+        diff_patch=diff_patch,
+        current_content=current_content,
+        truncated=truncated,
+    )
+
+
 def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -1562,27 +1805,63 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         .order_by(ValidationRecordRow.id.desc())
         .first()
     )
-    node_out = [
-        ExecutionNodeOut(
-            id=int(node.id),
-            execution_run_id=int(node.execution_run_id),
-            requirement_id=int(node.requirement_id),
-            node_key=str(node.node_key or ""),
-            node_type=str(node.node_type or "execute"),
-            title=str(node.title or ""),
-            status=str(node.status or "queued"),
-            sequence_no=int(node.sequence_no or 1),
-            task_id=int(node.task_id) if node.task_id is not None else None,
-            task_status=_node_task_status(db.query(TaskRow).filter(TaskRow.id == node.task_id).first()) if node.task_id else None,
-            runtime_backend=str(node.runtime_backend or "").strip() or None,
-            runtime_provider=str(node.runtime_provider or "").strip() or None,
-            runtime_model=str(node.runtime_model or "").strip() or None,
-            summary_markdown=str(node.summary_markdown or "").strip() or None,
-            started_at=node.started_at,
-            completed_at=node.completed_at,
+    release = _latest_release(db, int(requirement.id))
+    node_out: list[ExecutionNodeOut] = []
+    tokens_used_total = 0
+    token_seen = False
+    current_agent_id: str | None = None
+    current_agent_label: str | None = None
+    current_runtime_backend: str | None = None
+    current_runtime_provider: str | None = None
+    current_runtime_model: str | None = None
+    for node in nodes:
+        task, task_status, agent_id = _execution_node_task_payload(db, node)
+        agent_label = _agent_label(db, agent_id)
+        node_tokens = int(getattr(task, "tokens_used", 0) or 0) if task is not None else None
+        if node_tokens is not None:
+            tokens_used_total += node_tokens
+            token_seen = True
+        current_agent_id = agent_id or current_agent_id
+        current_agent_label = agent_label or current_agent_label
+        current_runtime_backend = (
+            str(getattr(task, "runtime_backend", "") or "").strip()
+            or str(node.runtime_backend or "").strip()
+            or current_runtime_backend
         )
-        for node in nodes
-    ]
+        current_runtime_provider = (
+            str(getattr(task, "runtime_provider", "") or "").strip()
+            or str(node.runtime_provider or "").strip()
+            or current_runtime_provider
+        )
+        current_runtime_model = (
+            str(getattr(task, "runtime_model", "") or "").strip()
+            or str(node.runtime_model or "").strip()
+            or current_runtime_model
+        )
+        node_out.append(
+            ExecutionNodeOut(
+                id=int(node.id),
+                execution_run_id=int(node.execution_run_id),
+                requirement_id=int(node.requirement_id),
+                node_key=str(node.node_key or ""),
+                node_type=str(node.node_type or "execute"),
+                title=str(node.title or ""),
+                status=str(node.status or "queued"),
+                sequence_no=int(node.sequence_no or 1),
+                task_id=int(node.task_id) if node.task_id is not None else None,
+                task_status=task_status,
+                agent_id=agent_id,
+                agent_label=agent_label,
+                runtime_backend=str(getattr(task, "runtime_backend", "") or "").strip() or str(node.runtime_backend or "").strip() or None,
+                runtime_provider=str(getattr(task, "runtime_provider", "") or "").strip() or str(node.runtime_provider or "").strip() or None,
+                runtime_model=str(getattr(task, "runtime_model", "") or "").strip() or str(node.runtime_model or "").strip() or None,
+                tokens_used=node_tokens,
+                elapsed_ms=_elapsed_ms(node.started_at, node.completed_at),
+                summary_markdown=str(node.summary_markdown or "").strip() or None,
+                started_at=node.started_at,
+                completed_at=node.completed_at,
+            )
+        )
     execution = ExecutionRunOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
@@ -1595,6 +1874,14 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         planner_summary=str(run.planner_summary or "").strip() or None,
         target_projects=_json_load(run.target_projects_json, []),
         latest_task_id=int(run.latest_task_id) if run.latest_task_id is not None else None,
+        agent_id=current_agent_id,
+        agent_label=current_agent_label,
+        runtime_backend=current_runtime_backend,
+        runtime_provider=current_runtime_provider,
+        runtime_model=current_runtime_model,
+        tokens_used_total=tokens_used_total if token_seen else None,
+        elapsed_ms=_elapsed_ms(run.started_at, run.completed_at),
+        current_branch=str(getattr(release, "branch_name", "") or "").strip() or None,
         started_at=run.started_at,
         completed_at=run.completed_at,
         created_at=run.created_at,
@@ -1611,11 +1898,26 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         )
         _notify_execution_error(db, run, requirement, failed_node)
         db.commit()
+    changed_files = _collect_execution_changed_files(db, nodes)
+    activity_stream = _build_execution_activity_stream(run, nodes, validation, incidents)
     return ExecutionRunDetailOut(
         execution=execution,
         requirement=_requirement_to_out(db, requirement),
         nodes=node_out,
         validation=_validation_record_to_out(validation),
+        changed_files=changed_files,
+        runtime_summary=ExecutionRuntimeSummaryOut(
+            tokens_used_total=execution.tokens_used_total,
+            elapsed_ms=execution.elapsed_ms,
+            agent_id=execution.agent_id,
+            agent_label=execution.agent_label,
+            runtime_backend=execution.runtime_backend,
+            runtime_provider=execution.runtime_provider,
+            runtime_model=execution.runtime_model,
+            current_branch=execution.current_branch,
+        ),
+        delivery_summary=_release_to_out(release),
+        activity_stream=activity_stream,
         incidents=incidents,
     )
 

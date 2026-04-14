@@ -106,6 +106,30 @@ Execution 面的默认策略：
 3. `validate` 永远是唯一质量门
 4. validate 失败只允许进入 `bugfix -> validate` 闭环
 
+Execution 详情页当前正式暴露这些可观测性字段：
+
+1. run 概览
+   - `status`
+   - `agent`
+   - `runtime_backend / runtime_provider / runtime_model`
+   - `current_branch`
+   - `tokens_used_total`
+   - `elapsed_ms`
+2. node 级运行时明细
+   - `task_id`
+   - `task_status`
+   - `agent`
+   - `runtime_*`
+   - `tokens_used`
+   - `elapsed_ms`
+3. 当前 run 改动文件
+   - 只统计当前 execution 主链的文件改动
+   - 支持 `diff` / 当前文件内容预览
+4. validation 与 activity timeline
+   - 当前 run 的 validate 结果
+   - `run_created / run_started / node_completed / validation_* / paused / resumed / retried`
+5. execution detail 不直接堆原始日志，而是展示结构化 observability summary
+
 ### 2.3 Release Surface
 
 Release 面只负责交付与发布。
@@ -159,6 +183,35 @@ Project 现在是正式一等对象，不再把“项目”隐藏在 `target_pro
 2. `ProjectPolicy` 是治理子资源
 3. Requirement 必须挂到 Project
 4. Release / Deployment 必须从 Project 读取仓库和环境配置
+
+### 2.6 Execution Observability Layer
+
+Execution 现在除了“能跑”，还要求“可解释、可展示、可审计”。
+
+正式观测面包括：
+
+1. token 使用量
+   - 每个 task / node 的 `tokens_used`
+   - 当前 run 的 `tokens_used_total`
+2. agent 与模型信息
+   - `agent_id / agent_label`
+   - `runtime_backend / runtime_provider / runtime_model`
+3. 运行时长
+   - node 与 run 都输出 `elapsed_ms`
+4. branch 与交付上下文
+   - branch 优先从当前 release / delivery 记录读取
+5. changed files
+   - 当前 execution run 实际改了哪些文件
+   - 默认可预览 `diff`
+6. activity timeline
+   - 运行态事件时间线，而不是非结构化日志堆叠
+
+固定原则：
+
+1. Execution observability 只解释当前唯一 execution 主链
+2. 不混入历史 run
+3. 不做实时 git 探测来拼展示字段
+4. token 真源固定为 task 记录中的 `tokens_used`
 
 ## 3. Core Execution Model
 
