@@ -8,8 +8,8 @@ from server.database import get_db
 from server.schemas import ProjectCreate, ProjectOut, ProjectPatch, ProjectPolicyOut, ProjectPolicyPatch, ProjectWithPolicyOut
 from server.services.projects.policy import project_policy_to_dict
 from server.services.projects.project_center import (
-    archive_project,
     create_project,
+    delete_project,
     get_project,
     get_project_policy_for_project,
     list_projects,
@@ -98,11 +98,15 @@ def patch_project_endpoint(project_id: int, body: ProjectPatch, db: Session = De
 
 
 @router.delete("/{project_id}", response_model=ProjectWithPolicyOut)
-def archive_project_endpoint(project_id: int, db: Session = Depends(get_db)):
+def delete_project_endpoint(project_id: int, db: Session = Depends(get_db)):
     row = get_project(db, project_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Project not found.")
-    return ProjectWithPolicyOut(**project_with_policy_to_dict(archive_project(db, row)))
+    try:
+        delete_project(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ProjectWithPolicyOut(**project_with_policy_to_dict(row))
 
 
 @router.get("/{project_id}/policy", response_model=ProjectPolicyOut)

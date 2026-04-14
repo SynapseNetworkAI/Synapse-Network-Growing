@@ -197,6 +197,8 @@ def list_projects(db: Session, *, status: str | None = None) -> list[ProjectRow]
     query = db.query(ProjectRow)
     if status:
         query = query.filter(ProjectRow.status == status)
+    else:
+        query = query.filter(ProjectRow.status != "deleted")
     rows = query.order_by(ProjectRow.display_name.asc(), ProjectRow.id.asc()).all()
     for row in rows:
         _attach_policy(row, _find_project_policy(db, int(row.id)))
@@ -205,7 +207,7 @@ def list_projects(db: Session, *, status: str | None = None) -> list[ProjectRow]
 
 def get_project(db: Session, project_id: int) -> ProjectRow | None:
     ensure_projects_materialized(db)
-    row = db.query(ProjectRow).filter(ProjectRow.id == project_id).first()
+    row = db.query(ProjectRow).filter(ProjectRow.id == project_id, ProjectRow.status != "deleted").first()
     if row is None:
         return None
     return _attach_policy(row, _find_project_policy(db, int(row.id)))
@@ -386,6 +388,27 @@ def archive_project(db: Session, row: ProjectRow) -> ProjectRow:
     return updated
 
 
+def _project_requirement_count(db: Session, project_id: int) -> int:
+    return int(db.query(RequirementRow).filter(RequirementRow.project_id == project_id).count())
+
+
+def _project_release_count(db: Session, project_id: int) -> int:
+    return int(db.query(ReleaseRecordRow).filter(ReleaseRecordRow.project_id == project_id).count())
+
+
+def delete_project(db: Session, row: ProjectRow) -> None:
+    if _project_requirement_count(db, int(row.id)) > 0:
+        raise ValueError("Project cannot be deleted because requirements exist")
+    if _project_release_count(db, int(row.id)) > 0:
+        raise ValueError("Project cannot be deleted because releases exist")
+
+    row.status = "deleted"
+    policy = _find_project_policy(db, int(row.id))
+    if policy is not None:
+        policy.status = "deleted"
+    db.commit()
+
+
 def get_project_policy_for_project(db: Session, project_id: int) -> ProjectPolicyRow | None:
     ensure_projects_materialized(db)
     return _find_project_policy(db, project_id)
@@ -420,4 +443,3 @@ def project_with_policy_to_dict(row: ProjectRow, *, policy: ProjectPolicyRow | N
     payload = project_to_dict(row, policy=current_policy)
     payload["policy"] = project_policy_to_dict(current_policy) if current_policy is not None else None
     return payload
-

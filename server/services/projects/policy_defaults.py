@@ -167,25 +167,6 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "portfolio_budget_points": 80,
         "notes": "Memory and standards repo. Keep profile and standards changes auditable.",
     },
-    {
-        "project_key": "spec2flow",
-        "display_name": "Spec2Flow",
-        "root_path": "/Users/cliff/workspace/agent/Spec2Flow",
-        "allowed_write_globs": ["**"],
-        "forbidden_globs": [".git/**", "node_modules/**", ".venv/**", "packages/**/dist/**"],
-        "required_checks": ["npm run test:unit", "npm run typecheck"],
-        "release_mode": "manual",
-        "requires_manual_approval": True,
-        "autonomy_mode": "execute_with_approval",
-        "allow_rebalance": True,
-        "allow_preemption": False,
-        "capability_matrix": default_capability_matrix(release_mode="manual"),
-        "interrupt_policy": default_interrupt_policy(),
-        "scheduler_weight": 1.0,
-        "max_parallel_requirements": 1,
-        "portfolio_budget_points": 90,
-        "notes": "Workflow orchestrator repo. Changes should stay reviewable and reproducible.",
-    },
 ]
 
 LEGACY_VALIDATION_PROJECT_KEYS = {
