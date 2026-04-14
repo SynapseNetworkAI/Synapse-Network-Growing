@@ -108,7 +108,16 @@ Release 负责：
 2. execution 主控制入口
 3. release 主决策入口
 
-## 8. Artifact 必须面向消费方
+## 8. Execution 必须只有一条当前主链
+
+1. 同一 requirement 任何时刻只允许一条当前 execution 主链。
+2. `queued / running / paused / validating` 是唯一活跃 execution 状态。
+3. 已完成、已失败、已验证的 run 不能再次 `start`。
+4. `retry` 必须创建新的 execution run，不得复活旧 run。
+5. requirement、execution、release 三面的读模型必须指向同一条当前 execution 主链。
+6. 旧 execution / release 脏数据不做兼容；需要时直接重置运行态数据。
+
+## 9. Artifact 必须面向消费方
 
 当前默认只保留最小证据集：
 
@@ -123,14 +132,14 @@ Release 负责：
 2. artifact 必须明确服务于 Requirement、Execution、Release 其中一面。
 3. 禁止制造“为了阶段完整性而存在”的仪式性 artifact。
 
-## 9. Release Candidate 只接受 Validate 成功的 Requirement
+## 10. Release Candidate 只接受 Validate 成功的 Requirement
 
 1. release candidate 不得来自未验证 requirement。
 2. publish、deploy、rollback 必须在 release surface 处理。
 3. requirement 面只能展示 release 摘要与跳转入口。
 4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
 
-## 10. 服务层必须按功能面治理
+## 11. 服务层必须按功能面治理
 
 1. `server/services` 不允许继续回到平铺式万能目录。
 2. requirement、release、runtime、review、project policy、signal、bug intake 必须分面拆分。
@@ -138,34 +147,34 @@ Release 负责：
 4. 每个服务分包都必须有 `README.md`，说明职责、入口、依赖边界和禁止依赖。
 5. router 只能依赖 facade 或稳定公开入口，不得直接抓私有 helper。
 
-## 11. 防膨胀工程约束
+## 12. 防膨胀工程约束
 
-### 10.1 单一职责
+### 12.1 单一职责
 
 1. 一个模块只能服务一个业务面。
 2. requirement、release、runtime、review、signal、project policy 不得混写进同一个主文件。
 
-### 10.2 接口隔离
+### 12.2 接口隔离
 
 1. 每个分包必须有最小公开入口。
 2. `routers/` 只能依赖 facade，不得跨目录点对点抓内部函数。
 
-### 10.3 迪米特法则
+### 12.3 迪米特法则
 
 1. 禁止跨两层以上目录直接取内部实现。
 2. 出现这种需要时，应补 facade 或提取公共 helper。
 
-### 10.4 合成复用优先
+### 12.4 合成复用优先
 
 1. 新能力优先通过 helper / service / policy 组合实现。
 2. 默认不通过复杂继承树做扩展。
 
-### 10.5 依赖倒转
+### 12.5 依赖倒转
 
 1. 上层编排只依赖稳定 facade 和 schema。
 2. 不得依赖底层实现拆分文件。
 
-## 12. 前端必须是 Enterprise Workbench，而不是平铺卡片后台
+## 13. 前端必须是 Enterprise Workbench，而不是平铺卡片后台
 
 1. 默认禁止整页卡片化；卡片只能用于独立对象，而不是整页每个区块的万能容器。
 2. 页面必须先有工作台骨架，再有组件。标准骨架包括：
@@ -183,7 +192,7 @@ Release 负责：
 8. Requirement create 只采集最小 intent；acceptance 默认由 agent 在创建后生成，并允许在详情页修订。
 9. 禁止继续使用浏览器原生 `alert / confirm`；危险操作必须使用统一确认弹窗，成功/失败反馈优先使用统一 toast。
 
-## 13. 前端防回潮约束
+## 14. 前端防回潮约束
 
 1. UI 变更 PR 必须说明页面属于 Requirement、Execution、Release 哪一面。
 2. UI 变更 PR 必须说明是否复用了 workbench 模板与 token。
@@ -191,31 +200,32 @@ Release 负责：
 4. 前端 token 必须同时支持 surface hierarchy、text hierarchy、stroke hierarchy、state colors 和 layout tokens。
 5. 如果在列表页重新引入长驻内联 create/edit 表单，而没有明确的 quick-edit 例外说明，应直接视为 review 拒绝项。
 
-## 14. 上下文是预算，不是垃圾桶
+## 15. 上下文是预算，不是垃圾桶
 
 1. 长期规则、项目 policy、会话上下文和临时证据必须分层治理。
 2. 需要为 context budget、compaction 和 stale-memory verification 预留机制。
 3. 不允许把未经验证的旧记忆直接继续传播为当前事实。
 
-## 15. Runtime / Subagent 必须有生命周期
+## 16. Runtime / Subagent 必须有生命周期
 
 1. 所有 runtime 都必须可 start、running、pause、fail、cleanup、abort。
 2. transcript、session、artifact、log 和 ownership 必须可追踪。
 3. 父执行结束时，子资源必须可收口、可复盘。
+4. 当 execution 运行态失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置，不保留旧脏数据兼容逻辑。
 
-## 16. 所有关键自动化都必须可观测
+## 17. 所有关键自动化都必须可观测
 
 1. requirement、execution、release、incident、publish、rollback 都必须留下结构化证据。
 2. 调度决策、熔断原因、恢复动作、operator 接管都应有日志。
 3. 没有 telemetry 的自动化，不应进入默认主路径。
 4. requirement、alert、release 三类对外通知必须使用统一 envelope，至少包含服务、事件类型、发生时间、发生了什么、下一步动作和关联链接。
 
-## 17. 治理优先于更强自主性
+## 18. 治理优先于更强自主性
 
 1. 自主性提升必须建立在 policy、validation、delivery、incident、observability 已经收口的前提上。
 2. 如果治理能力不足，优先补治理，不优先补更复杂的 agent 自主决策。
 
-## 18. 当前正式实现顺序
+## 19. 当前正式实现顺序
 
 后续默认优先顺序为：
 

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from server.database import ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, RequirementRow, TaskRow, ValidationRecordRow
+from server.database import ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementRow, TaskRow, ValidationRecordRow
 from server.schemas import ValidationCheckResultOut
+from server.services.workflows.agent_first import reset_execution_runtime_data
 
 
 def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(synced_client, db_session):
@@ -341,3 +342,235 @@ def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, 
             .first()
         )
         assert delivery is not None
+
+
+def test_create_execution_run_rejects_when_requirement_already_has_active_run(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Existing active execution",
+        description_markdown="Do not create a second execution run while one is active.",
+        status="ready",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add(
+        ExecutionRunRow(
+            requirement_id=int(requirement.id),
+            execution_mode="direct",
+            complexity="simple",
+            status="queued",
+            validation_profile="minimal",
+            delivery_intent="pr_required",
+            approval_required=False,
+            target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+        )
+    )
+    db_session.commit()
+
+    resp = synced_client.post("/api/executions", json={"requirement_id": requirement.id})
+
+    assert resp.status_code == 400
+    assert "active execution run" in resp.json()["detail"]
+
+
+def test_start_execution_rejects_finished_run(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Finished execution cannot restart",
+        description_markdown="Completed runs should never start again.",
+        status="delivery_ready",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="succeeded",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.commit()
+
+    resp = synced_client.post(f"/api/executions/{run.id}/start")
+
+    assert resp.status_code == 400
+    assert "Only queued or paused execution runs can start." == resp.json()["detail"]
+
+
+def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Retry creates a new execution",
+        description_markdown="Failed execution must stay failed; retry should create a new run.",
+        status="blocked",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="failed",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.commit()
+
+    resp = synced_client.post(f"/api/executions/{run.id}/retry")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["execution"]["id"] != run.id
+    db_session.refresh(run)
+    assert run.status == "failed"
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement.id).count() == 2
+
+
+def test_validate_rejects_non_current_execution_run(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Old execution cannot validate",
+        description_markdown="Only the latest execution chain can validate.",
+        status="running",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    old_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="validating",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    new_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="queued",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add_all([old_run, new_run])
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(old_run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    db_session.commit()
+
+    resp = synced_client.post(f"/api/executions/{old_run.id}/validate")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Only the current execution run can be validated."
+
+
+def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirements(db_session):
+    ready_requirement = RequirementRow(
+        title="Reset runtime state",
+        description_markdown="Execution runtime data can be dropped.",
+        status="done",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    blocked_requirement = RequirementRow(
+        title="Pending approval survives as blocked",
+        description_markdown="Keep manual approval status after cleanup.",
+        status="running",
+        approval_status="pending_approval",
+        priority="high",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add_all([ready_requirement, blocked_requirement])
+    db_session.flush()
+
+    run = ExecutionRunRow(
+        requirement_id=int(ready_requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="succeeded",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(ready_requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    db_session.add(
+        ValidationRecordRow(
+            requirement_id=int(ready_requirement.id),
+            execution_run_id=int(run.id),
+            profile="minimal",
+            status="passed",
+            summary_markdown="Validation passed.",
+            checks_json="[]",
+        )
+    )
+    db_session.add(
+        ReleaseRecordRow(
+            requirement_id=int(ready_requirement.id),
+            execution_run_id=int(run.id),
+            status="pr_opened",
+        )
+    )
+    db_session.commit()
+
+    summary = reset_execution_runtime_data(db_session)
+
+    assert summary["execution_runs_deleted"] == 1
+    assert summary["execution_nodes_deleted"] == 1
+    assert summary["validation_records_deleted"] == 1
+    assert summary["release_records_deleted"] == 1
+    assert db_session.query(ExecutionRunRow).count() == 0
+    assert db_session.query(ExecutionNodeRow).count() == 0
+    assert db_session.query(ValidationRecordRow).count() == 0
+    assert db_session.query(ReleaseRecordRow).count() == 0
+
+    db_session.refresh(ready_requirement)
+    db_session.refresh(blocked_requirement)
+    assert ready_requirement.status == "ready"
+    assert blocked_requirement.status == "blocked"

@@ -19,7 +19,7 @@ intake -> execute -> validate -> deliver
 当前视觉与布局也采用统一的 **Enterprise Workbench** 规则：
 
 1. 不再把页面组织成同权重卡片拼盘。
-2. 每个页面必须先建立主工作区、侧栏、活动流和工具区。
+2. 页面默认采用简洁 SaaS 结构，优先突出列表、详情和轻量操作。
 3. Requirement、Execution、Release 三面使用不同的信息密度和页面模板。
 
 ## 1. 页面总览
@@ -49,13 +49,13 @@ intake -> execute -> validate -> deliver
 当前正式工作台骨架统一为：
 
 1. `Page Header`
-   用来解释当前面和本页 focus，不承载业务操作大杂烩。
+   用来表达当前页面和主操作。
 2. `Primary Workspace`
    承载当前页面的唯一主工作对象。
-3. `Inspector Rail`
-   承载状态、摘要、环境与健康信号。
-4. `Activity Feed`
-   承载事件、历史记录、incident、deployment 轨迹。
+3. `Secondary Actions`
+   承载筛选、搜索、删除确认、toast 等轻量交互。
+4. `Context Areas`
+   只在确实需要时展示运行态、incident 或 deployment 轨迹。
 
 如果一个页面看起来像“很多大白卡平铺”，说明它偏离了当前正式设计方向。
 
@@ -69,11 +69,9 @@ intake -> execute -> validate -> deliver
 
 #### 页面布局
 
-1. 顶部是 requirement workspace 与 filter bar
-2. 列表上方是 `Toolbar`
-3. 主工作区是 requirement queue
-4. 右侧 inspector 展示当前选中 requirement 的治理摘要
-5. `新建 / 编辑` 通过右侧 Drawer 完成，而不是常驻内联表单
+1. 顶部是 filter bar 与主操作
+2. 主工作区是 requirement table/list
+3. `新建` 通过居中浮层完成，`编辑` 通过右侧 Drawer 完成
 
 #### 典型动作
 
@@ -92,9 +90,8 @@ intake -> execute -> validate -> deliver
 4. `POST /api/requirements/{id}/submit`
 5. `POST /api/requirements/{id}/approve`
 6. `POST /api/requirements/{id}/reject`
-7. `POST /api/requirements/{id}/revise`
-8. `POST /api/requirements/{id}/cancel`
-9. `POST /api/executions`
+7. `POST /api/requirements/{id}/cancel`
+8. `POST /api/executions`
 
 #### 推荐使用方式
 
@@ -113,24 +110,22 @@ intake -> execute -> validate -> deliver
 
 #### 页面布局
 
-1. 主工作区展示 intent 和 agent 生成的 acceptance
-2. 右侧 inspector 展示 policy、治理边界与跳转
-3. 编辑表单仍属于 requirement 面，但不混入 execution telemetry
+1. 页面收敛成单列主内容
+2. 主工作区展示 intent 和 agent 生成的 acceptance
+3. 编辑只在未执行 requirement 上开放
 
 #### 页面内容
 
 1. 标题、描述、验收条件
 2. target project / source / priority
-3. policy / approval 摘要
-4. latest execution link
-5. release link
+3. 顶部执行 / 发布动作
+4. 仅在人工审批场景显示审批提示
 
 #### 页面不负责
 
-1. pause / resume execution graph
-2. 运行时 telemetry 明细
-3. deploy / rollback
-4. 环境状态
+1. 运行时 telemetry 明细
+2. deploy / rollback
+3. 环境状态
 
 #### 推荐使用方式
 
@@ -144,7 +139,7 @@ intake -> execute -> validate -> deliver
 
 #### 页面职责
 
-执行列表展示所有 execution run，而不是 requirement 列表。
+执行列表展示当前系统中的 execution run；同一 requirement 任何时刻只有一条当前执行主链。
 
 #### 页面布局
 
@@ -158,7 +153,8 @@ intake -> execute -> validate -> deliver
 1. 查看 execution mode
 2. 查看复杂度与 validation profile
 3. 启动 queued execution
-4. 跳转到 requirement 或 release
+4. 对 failed / blocked run 创建新 run 重试
+5. 跳转到 requirement 或 release
 
 #### 后端接口
 
@@ -170,7 +166,7 @@ intake -> execute -> validate -> deliver
 
 #### 页面职责
 
-Execution detail 是 agent 工作面。
+Execution detail 是当前唯一 execution 主链的工作面。
 
 #### 页面布局
 
@@ -191,9 +187,9 @@ Execution detail 是 agent 工作面。
 
 #### 典型动作
 
-1. 启动执行
-2. 暂停执行
-3. 重试执行
+1. 启动 queued execution
+2. 继续 paused execution
+3. 对 failed / blocked execution 创建新 run 重试
 4. 触发 validate
 
 #### 后端接口
@@ -210,6 +206,7 @@ Execution detail 是 agent 工作面。
 1. 对简单任务，预期只会看到一个 `execute` 节点
 2. 对复杂任务，才会看到 execution graph
 3. validate 失败时，关注 bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
+4. `retry` 会创建新的 execution run；旧 run 不会复活
 
 ## 4. 发布面
 

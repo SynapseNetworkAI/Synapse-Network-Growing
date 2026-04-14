@@ -288,12 +288,7 @@ def _ensure_requirement_approval_request(
 
 
 def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstRequirementOut:
-    latest_execution = (
-        db.query(ExecutionRunRow)
-        .filter(ExecutionRunRow.requirement_id == requirement.id)
-        .order_by(ExecutionRunRow.id.desc())
-        .first()
-    )
+    latest_execution = _latest_execution_run(db, int(requirement.id))
     latest_release = (
         db.query(ReleaseRecordRow)
         .filter(ReleaseRecordRow.requirement_id == requirement.id)
@@ -474,12 +469,7 @@ def _build_requirement_detail(
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
-    latest_execution = (
-        db.query(ExecutionRunRow)
-        .filter(ExecutionRunRow.requirement_id == requirement_id)
-        .order_by(ExecutionRunRow.id.desc())
-        .first()
-    )
+    latest_execution = _latest_execution_run(db, requirement_id)
     latest_release = (
         db.query(ReleaseRecordRow)
         .filter(ReleaseRecordRow.requirement_id == requirement_id)
@@ -832,6 +822,9 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         raise ValueError("Requirement must be ready before creating execution.")
     if _approval_required(db, requirement) and str(requirement.approval_status or "") not in {"approved", "waived"}:
         raise ValueError("Requirement must be approved before creating execution.")
+    active_run = _active_execution_run(db, int(requirement.id))
+    if active_run is not None:
+        raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
     shape = _shape_decision(db, requirement)
     run = ExecutionRunRow(
         requirement_id=int(requirement.id),
@@ -860,6 +853,7 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         )
     requirement.status = "running"
     requirement.started_at = utcnow()
+    requirement.completed_at = None
     db.commit()
     return build_execution_detail(db, int(run.id))
 
@@ -867,6 +861,27 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
 def list_execution_runs(db: Session) -> list[ExecutionRunOut]:
     rows = db.query(ExecutionRunRow).order_by(ExecutionRunRow.updated_at.desc(), ExecutionRunRow.id.desc()).all()
     return [build_execution_detail(db, int(row.id)).execution for row in rows]
+
+
+def _latest_execution_run(db: Session, requirement_id: int) -> ExecutionRunRow | None:
+    return (
+        db.query(ExecutionRunRow)
+        .filter(ExecutionRunRow.requirement_id == requirement_id)
+        .order_by(ExecutionRunRow.id.desc())
+        .first()
+    )
+
+
+def _active_execution_run(db: Session, requirement_id: int) -> ExecutionRunRow | None:
+    return (
+        db.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == requirement_id,
+            ExecutionRunRow.status.in_(["queued", "running", "paused", "validating"]),
+        )
+        .order_by(ExecutionRunRow.id.desc())
+        .first()
+    )
 
 
 def _node_task_status(task: TaskRow | None) -> str | None:
@@ -912,6 +927,9 @@ def _sync_execution_state(db: Session, run: ExecutionRunRow) -> ExecutionRunRow:
         .first()
     )
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
+    current_execution = _latest_execution_run(db, int(run.requirement_id))
+    if current_execution is not None and int(current_execution.id) != int(run.id):
+        return run
     if "running" in statuses:
         run.status = "running"
         if requirement is not None:
@@ -994,6 +1012,11 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     if run is None:
         raise ValueError("Execution run not found.")
     _sync_execution_state(db, run)
+    current_execution = _latest_execution_run(db, int(run.requirement_id))
+    if current_execution is None or int(current_execution.id) != int(run.id):
+        raise ValueError("Only the current execution run can start.")
+    if str(run.status or "") not in {"queued", "paused"}:
+        raise ValueError("Only queued or paused execution runs can start.")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
@@ -1029,7 +1052,9 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.latest_task_id = int(task.id)
     run.status = "running"
     run.started_at = run.started_at or utcnow()
+    run.completed_at = None
     requirement.status = "running"
+    requirement.completed_at = None
     db.commit()
     dispatch(task_id=int(task.id), agent_persona=persona, skill_name=str(task.skill_name or "__direct_execution__"))
     return build_execution_detail(db, execution_run_id)
@@ -1070,23 +1095,20 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     if run is None:
         raise ValueError("Execution run not found.")
     _sync_execution_state(db, run)
-    node = (
-        db.query(ExecutionNodeRow)
-        .filter(ExecutionNodeRow.execution_run_id == run.id)
-        .order_by(ExecutionNodeRow.sequence_no.desc(), ExecutionNodeRow.id.desc())
-        .first()
-    )
-    if node is None:
-        raise ValueError("Execution node not found.")
-    node.status = "queued"
-    node.task_id = None
-    node.summary_markdown = None
-    run.status = "queued"
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
-    if requirement is not None:
-        requirement.status = "running"
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    if str(run.status or "") not in {"failed", "blocked"}:
+        raise ValueError("Only failed or blocked execution runs can be retried.")
+    active_run = _active_execution_run(db, int(run.requirement_id))
+    if active_run is not None and int(active_run.id) != int(run.id):
+        raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
+    run.status = "failed"
+    run.completed_at = run.completed_at or utcnow()
+    requirement.status = "needs_revision" if str(requirement.approval_status or "") == "rejected" else "ready"
+    requirement.updated_at = utcnow()
     db.commit()
-    return build_execution_detail(db, execution_run_id)
+    return create_execution_run(db, int(run.requirement_id))
 
 
 def _run_check(project_path: str, command: str) -> ValidationCheckResultOut:
@@ -1147,6 +1169,9 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     if run is None:
         raise ValueError("Execution run not found.")
     _sync_execution_state(db, run)
+    current_execution = _latest_execution_run(db, int(run.requirement_id))
+    if current_execution is None or int(current_execution.id) != int(run.id):
+        raise ValueError("Only the current execution run can be validated.")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
@@ -1205,9 +1230,50 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     )
     db.add(record)
     run.status = "succeeded" if passed else "failed"
+    run.completed_at = utcnow()
     requirement.status = "delivery_ready" if passed else "needs_revision"
     db.commit()
     return build_execution_detail(db, execution_run_id)
+
+
+def reset_execution_runtime_data(db: Session) -> dict[str, int]:
+    release_count = db.query(ReleaseRecordRow).count()
+    validation_count = db.query(ValidationRecordRow).count()
+    node_count = db.query(ExecutionNodeRow).count()
+    run_count = db.query(ExecutionRunRow).count()
+
+    db.query(ReleaseRecordRow).delete(synchronize_session=False)
+    db.query(ValidationRecordRow).delete(synchronize_session=False)
+    db.query(ExecutionNodeRow).delete(synchronize_session=False)
+    db.query(ExecutionRunRow).delete(synchronize_session=False)
+
+    updated_requirements = 0
+    for requirement in db.query(RequirementRow).all():
+        current_status = str(requirement.status or "draft")
+        if current_status in {"draft", "cancelled", "deleted"}:
+            continue
+        approval_status = str(requirement.approval_status or "pending_approval")
+        if approval_status == "pending_approval":
+            next_status = "blocked"
+        elif approval_status == "rejected":
+            next_status = "needs_revision"
+        else:
+            next_status = "ready"
+        if current_status != next_status or requirement.started_at is not None or requirement.completed_at is not None:
+            requirement.status = next_status
+            requirement.started_at = None
+            requirement.completed_at = None
+            requirement.updated_at = utcnow()
+            updated_requirements += 1
+
+    db.commit()
+    return {
+        "execution_runs_deleted": int(run_count),
+        "execution_nodes_deleted": int(node_count),
+        "validation_records_deleted": int(validation_count),
+        "release_records_deleted": int(release_count),
+        "requirements_reset": int(updated_requirements),
+    }
 
 
 def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationRecordSlimOut | None:
@@ -1376,12 +1442,21 @@ def list_release_candidates(db: Session) -> list[ReleaseCandidateOut]:
 
 def _release_record(db: Session, requirement: RequirementRow) -> ReleaseRecordRow:
     release = _latest_release(db, int(requirement.id))
+    validation = _latest_validation(db, int(requirement.id))
+    latest_execution = _latest_execution_run(db, int(requirement.id))
+    current_execution_id = (
+        int(validation.execution_run_id)
+        if validation is not None and validation.execution_run_id is not None
+        else (int(latest_execution.id) if latest_execution is not None else None)
+    )
     if release is not None:
+        if current_execution_id is not None and release.execution_run_id != current_execution_id:
+            release.execution_run_id = current_execution_id
         return release
     primary = _primary_project_policy(db, requirement)
     release = ReleaseRecordRow(
         requirement_id=int(requirement.id),
-        execution_run_id=None,
+        execution_run_id=current_execution_id,
         project_key=str(getattr(primary, "project_key", "") or "").strip() or None,
         target_project_path=str(requirement.target_project_path or "").strip() or None,
         status="ready",
@@ -1406,6 +1481,7 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     if policy is None:
         raise ValueError("Requirement target project is not governed by a project policy.")
     release = _release_record(db, requirement)
+    release.execution_run_id = int(validation.execution_run_id)
     policy_payload = project_policy_to_dict(policy)
     delivery_contract = {
         "branch_name": _release_branch_name(requirement),
@@ -1463,6 +1539,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     if policy is None:
         raise ValueError("Requirement target project is not governed by a project policy.")
     release = _release_record(db, requirement)
+    release.execution_run_id = int(validation.execution_run_id)
     policy_payload = project_policy_to_dict(policy)
     delivery_contract = {
         "branch_name": release.branch_name or _release_branch_name(requirement),

@@ -80,19 +80,19 @@ export default function ExecutionDetailPage() {
       <SectionFrame
         eyebrow="Execution Run"
         title={`Execution #${execution.id}`}
-        description="执行面承载 agent 当前工作状态、验证结果与恢复动作。"
+        description="执行面只展示当前 execution 主链、验证结果与恢复动作。"
         actions={
           <div className="flex flex-wrap gap-2">
             <button className="rounded-2xl border border-slate-200 px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${execution.requirement_id}`)}>
               查看需求
             </button>
-            {(execution.status === 'queued' || execution.status === 'paused' || execution.status === 'blocked') && (
+            {(execution.status === 'queued' || execution.status === 'paused') && (
               <button
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60"
                 disabled={busyAction === 'start'}
                 onClick={() => runAction('start', () => api.startExecution(execution.id))}
               >
-                {execution.status === 'paused' ? '恢复执行' : '恢复/重启执行'}
+                {execution.status === 'paused' ? '继续执行' : '启动执行'}
               </button>
             )}
             {execution.status === 'running' && (
@@ -110,7 +110,7 @@ export default function ExecutionDetailPage() {
                 disabled={busyAction === 'retry'}
                 onClick={() => runAction('retry', () => api.retryExecution(execution.id))}
               >
-                重试
+                创建新 run 重试
               </button>
             )}
             {detail.nodes.length > 0 && detail.nodes.every((node) => node.status === 'completed') && (

@@ -115,7 +115,7 @@ export default function ExecutionsPage() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
                         查看
                       </button>
-                      {(item.status === 'queued' || item.status === 'paused' || item.status === 'blocked') && (
+                      {(item.status === 'queued' || item.status === 'paused') && (
                         <button
                           type="button"
                           className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
@@ -124,7 +124,19 @@ export default function ExecutionsPage() {
                             await load()
                           }}
                         >
-                          启动
+                          {item.status === 'paused' ? '继续' : '启动'}
+                        </button>
+                      )}
+                      {(item.status === 'failed' || item.status === 'blocked') && (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                          onClick={async () => {
+                            await api.retryExecution(item.id)
+                            await load()
+                          }}
+                        >
+                          重试
                         </button>
                       )}
                     </div>

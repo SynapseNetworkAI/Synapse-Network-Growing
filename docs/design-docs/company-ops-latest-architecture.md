@@ -168,7 +168,18 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 2. artifact 必须服务于 Requirement、Execution、Release 其中一面
 3. 禁止为阶段完整性制造仪式性产物
 
-### 3.3 Runtime Governance
+### 3.3 Execution Lifecycle
+
+Execution 现在采用严格的单主链模型：
+
+1. 同一 requirement 同时只允许一条当前 execution 主链
+2. `queued / running / paused / validating` 才算当前活跃 execution
+3. 已完成、已失败、已验证的 run 不能再次 `start`
+4. `retry` 不会复活旧 run，而是创建一条新的 execution run
+5. requirement、execution、release 三面都只按当前唯一主链解释
+6. 旧脏 execution / release 运行态数据不做兼容，直接通过重置脚本删除
+
+### 3.4 Runtime Governance
 
 程序保留的 deterministic 职责只有：
 
@@ -199,9 +210,8 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 
 1. `execution_runs`
 2. `execution_nodes`
-3. `execution_artifacts`
-4. `validation_records`
-5. `incidents`
+3. `validation_records`
+4. `incidents`
 
 ### 4.3 Release
 
@@ -221,13 +231,13 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 页面职责：
 
 1. `/requirements`
-   requirement 列表、创建、编辑、提交、修订、取消
+   requirement 列表、创建、编辑、提交、取消
 2. `/requirements/:id`
-   requirement 意图、验收、策略摘要、执行/发布跳转
+   requirement 意图、验收与顶部执行/发布动作
 3. `/executions`
-   execution run 列表与启动入口
+   execution run 列表与当前主链入口
 4. `/executions/:id`
-   execution 节点、状态、evidence、validate、incident、pause/resume/retry
+   execution 节点、状态、evidence、validate、pause、继续执行、创建新 run 重试
 5. `/releases`
    release candidate 列表
 6. `/releases/:requirementId`
@@ -240,9 +250,26 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 
 它们只承担错误聚合、关联 requirement/execution 和通知历史展示。
 
-### 5.1 Frontend Workbench Anatomy
+### 5.1 Runtime Reset
 
-当前页面骨架必须遵守下面的工作台结构：
+当前不兼容旧脏 execution 数据。需要重置运行态时，使用：
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes
+```
+
+该命令会清空：
+
+1. `execution_runs`
+2. `execution_nodes`
+3. `validation_records`
+4. `release_records`
+
+并把 requirement 状态重置回可重新推导的基线。
+
+### 5.2 Frontend Surface Anatomy
+
+当前页面骨架必须遵守下面的简洁 SaaS 结构：
 
 1. `shell`
    负责全局导航、环境感和页面边界。
@@ -253,10 +280,10 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
    - requirement intent
    - execution evidence / graph
    - release timeline
-4. `secondary inspector`
-   负责健康状态、策略摘要、环境状态、最近信号。
-5. `activity / feed rail`
-   负责 history、incidents、deployment records、system interventions。
+4. `secondary actions`
+   负责筛选、搜索、确认弹窗和轻量反馈。
+5. `context areas`
+   只在确实需要时展示 incidents、deployment records 和系统轨迹。
 
 禁止的工作台模式：
 
