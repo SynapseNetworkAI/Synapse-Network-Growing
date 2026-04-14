@@ -1054,6 +1054,40 @@ def _run_check(project_path: str, command: str) -> ValidationCheckResultOut:
     )
 
 
+def _commands_from_execution_evidence(nodes: list[ExecutionNodeRow], db: Session) -> list[str]:
+    """Extract deterministic check commands from completed execution evidence."""
+
+    commands: list[str] = []
+    seen: set[str] = set()
+    for node in nodes:
+        if node.task_id is None:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        body = str(getattr(task, "output_content", "") or node.summary_markdown or "")
+        if not body:
+            continue
+        in_commands = False
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if in_commands:
+                    break
+                continue
+            if line.lower().startswith("commands run:"):
+                in_commands = True
+                continue
+            if in_commands and line.startswith("- `") and line.endswith("`"):
+                command = line[3:-1].strip()
+                if "..." in command:
+                    continue
+                if command and command not in seen:
+                    seen.add(command)
+                    commands.append(command)
+            elif in_commands and not line.startswith("- "):
+                break
+    return commands
+
+
 def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -1071,6 +1105,8 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     if not nodes or any(str(node.status or "") != "completed" for node in nodes):
         raise ValueError("All execute nodes must complete before validate.")
     checks: list[ValidationCheckResultOut] = []
+    evidence_commands = _commands_from_execution_evidence(nodes, db)
+    profile = str(run.validation_profile or "minimal")
     policies = resolve_project_policies_for_target(
         db,
         getattr(requirement, "target_project_path", None),
@@ -1089,6 +1125,8 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
             payload = project_policy_to_dict(policy)
             project_path = str(payload.get("root_path") or "")
             required_checks = list(payload.get("required_checks") or [])
+            if profile == "minimal" and evidence_commands:
+                required_checks = evidence_commands
             if not required_checks:
                 checks.append(
                     ValidationCheckResultOut(
@@ -1106,7 +1144,7 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     record = ValidationRecordRow(
         requirement_id=int(requirement.id),
         execution_run_id=int(run.id),
-        profile=str(run.validation_profile or "minimal"),
+        profile=profile,
         status="passed" if passed else "failed",
         summary_markdown=summary,
         checks_json=_json_dump([check.model_dump() for check in checks]),
