@@ -81,6 +81,7 @@ Requirement 到 Execution 的正式桥接规则：
 5. 高风险 requirement 停在 requirement surface 等待人工批准
 6. execution approval 只决定能否执行，不替代 release gate
 7. acceptance contract 只定义完成标准；最终 verification plan 在 execution 完成后由 verification agent 基于真实执行证据晚绑定生成
+8. requirement 只跟踪最新 execution run；replacement run 创建后旧 run 会降级为历史 run，queued / blocked 的真实原因通过正式接口字段返回，而不是由前端猜测
 
 Requirement 面不再承担：
 

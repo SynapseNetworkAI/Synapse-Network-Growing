@@ -29,6 +29,9 @@
 7. requirement 详情页。
    - 展示需求意图、acceptance contract、execution plan、所属项目。
    - 顶部提供执行 / 发布跳转动作。
+8. requirement 始终只跟踪最新 execution run。
+   - replacement run 创建后，旧 run 会降级为历史 run。
+   - requirement 的执行态只由最新 run 派生。
 
 ## 2. Execution 面
 
@@ -46,7 +49,8 @@
 3. 单 requirement 单 execution 主链治理。
 4. queued run 启动。
 5. paused run 恢复。
-6. failed / blocked run 通过 `retry` 创建新 run。
+6. 当前 failed / blocked run 通过 `retry` 创建 replacement run，并立即自动尝试启动。
+   - 历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
 7. validate。
    - execution 完成后默认自动触发 verification agent。
    - verification agent 读取 acceptance contract、execution plan、changed files、raw output 与 checks，先生成晚绑定 verification plan，再产出正式 verdict。
@@ -68,6 +72,11 @@
    - `assets_status = pending | ready | failed`
    - 资产未 ready 前不能 submit
    - 失败后可重新生成 requirement assets
+12. execution 当前 / 历史 run 语义与原因解释。
+   - execution API 返回 `is_current_execution`
+   - execution API 返回 `queue_reason`
+   - execution API 返回 `blocking_reason_code / blocking_reason_message`
+   - 页面会直接展示“等待启动 / 等待审批 / 启动失败：dirty worktree / verification needs revision”等原因
 12. 运行态清理脚本：
 
 ```bash

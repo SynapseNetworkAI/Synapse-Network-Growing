@@ -167,8 +167,18 @@ intake -> execute -> validate -> deliver
 1. 查看 execution mode
 2. 查看复杂度与 validation profile
 3. 启动 queued execution
-4. 对 failed / blocked run 创建新 run 重试
+4. 对当前 failed / blocked run 创建新 run 重试
 5. 跳转到 requirement 或 release
+
+#### 状态说明
+
+1. 同一 requirement 任意时刻只有一个 `current run`
+2. replacement run 创建后，旧 run 会立即降级为历史 run
+3. 历史 run 只允许查看，不再显示 `启动 / 重试 / 暂停 / 恢复 / 提交 PR`
+4. queued / blocked execution 会额外显示原因：
+   - `queue_reason`
+   - `blocking_reason_code`
+   - `blocking_reason_message`
 
 #### 后端接口
 
@@ -210,7 +220,7 @@ Execution detail 是当前唯一 execution 主链的工作面。
 
 1. 启动 queued execution
 2. 继续 paused execution
-3. 对 failed / blocked execution 创建新 run 重试
+3. 对当前 failed / blocked execution 创建新 run 重试
 4. 查看自动 verification 结果
 5. 打开改动文件预览，默认先看 `diff`
 6. 当结构化 summary 不足时，直接查看 agent 原始输出确认实际执行结果
@@ -231,11 +241,12 @@ Execution detail 是当前唯一 execution 主链的工作面。
 1. 对简单任务，预期只会看到一个 `execute` 节点
 2. 对复杂任务，才会看到 execution graph
 3. verification agent 判定失败或需修订时，关注 verification reasoning、bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
-4. `retry` 会创建新的 execution run；旧 run 不会复活
-5. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
-6. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
-7. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准，不再提前写死最终测试方案
-8. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
+4. `retry` 会创建 replacement run，并立即自动尝试启动；如果启动失败，会明确展示等待审批、分支准备阻塞、恢复中等原因
+5. 一旦 replacement run 出现，旧 run 会降级为历史 run，只保留查看能力
+6. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
+7. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
+8. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准，不再提前写死最终测试方案
+9. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
 
 ## 4. 发布面
 

@@ -205,11 +205,22 @@ export default function ExecutionDetailPage() {
           <StateBadge tone={statusTone(execution.status)}>{STATUS_LABEL[execution.status] || execution.status}</StateBadge>
           {detail.phase && detail.phase !== execution.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
           {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
+          {!detail.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
           <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
           <StateBadge tone="muted">{execution.complexity}</StateBadge>
           <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
           {runtimeSummary.current_branch ? <StateBadge tone="ready">{runtimeSummary.current_branch}</StateBadge> : null}
         </div>
+        {detail.queue_reason ? <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{detail.queue_reason}</div> : null}
+        {detail.blocking_reason_message ? (
+          <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="font-medium">阻塞原因</div>
+            <div className="mt-1">
+              {detail.blocking_reason_code ? `${detail.blocking_reason_code}: ` : ''}
+              {detail.blocking_reason_message}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-5 grid gap-4 border-b border-[color:var(--ops-stroke-soft)] pb-5 md:grid-cols-3 xl:grid-cols-6">
           <Metric label="Requirement" value={`#${execution.requirement_id}`} />

@@ -105,7 +105,15 @@ export default function ExecutionsPage() {
                       <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
                       {item.phase && item.phase !== item.status ? <StateBadge tone="muted">{item.phase}</StateBadge> : null}
                       {item.recovery_status ? <StateBadge tone="blocked">恢复: {item.recovery_status}</StateBadge> : null}
+                      {!item.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
                     </div>
+                    {item.queue_reason ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.queue_reason}</div> : null}
+                    {item.blocking_reason_message ? (
+                      <div className="mt-2 text-xs text-rose-600">
+                        {item.blocking_reason_code ? `${item.blocking_reason_code}: ` : ''}
+                        {item.blocking_reason_message}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.execution_mode}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.complexity}</td>

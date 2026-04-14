@@ -961,9 +961,13 @@ export interface ExecutionRun {
   complexity: string
   status: string
   phase: string
+  is_current_execution: boolean
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  queue_reason: string | null
+  blocking_reason_code: string | null
+  blocking_reason_message: string | null
   validation_profile: string
   delivery_intent: string
   approval_required: boolean
@@ -1024,9 +1028,13 @@ export interface ExecutionDetail {
   execution: ExecutionRun
   requirement: AgentRequirement
   phase: string
+  is_current_execution: boolean
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  queue_reason: string | null
+  blocking_reason_code: string | null
+  blocking_reason_message: string | null
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
   verification_result: ValidationRecord | null

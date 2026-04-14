@@ -128,6 +128,8 @@ Requirement 与 Execution 当前还有三条正式约束：
 6. acceptance contract 在 requirement 创建后前置生成，只负责定义完成标准；最终 `verification_plan` 会在 execution 完成后由 verification agent 基于真实 changed files、raw output 与命令证据晚绑定生成。
 7. 新建 requirement 支持 Codex 式附件输入：可拖拽、粘贴截图或上传文件，附件会持久化为 requirement context 并进入 plan / execution / verification 链路。
 8. requirement 创建后先保存，再在后台异步生成 acceptance contract 与 execution plan；资产未 ready 前不能 submit。
+9. 同一 requirement 任意时刻只认最新 execution run 为当前主链；历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
+10. `retry` 的产品语义是“创建 replacement run 并立即自动尝试启动”；若启动失败，execution 会返回明确的 `queue_reason / blocking_reason_*`，而不是只显示 `queued / blocked`。
 
 ## Browser Automation
 

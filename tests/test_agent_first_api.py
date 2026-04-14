@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, CodexSessionRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
-from server.schemas import ValidationCheckResultOut
+from server.schemas import TaskExecutionSuggestion, ValidationCheckResultOut
 from server.services.workflows.agent_first import reset_execution_runtime_data
 from server.services.runtime.task_runner import _task_project_root
 
@@ -853,6 +853,12 @@ def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced
     assert payload["latest_release"]["status"] == "release_blocked"
     execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
     assert execution.status == "queued"
+    detail_resp = synced_client.get(f"/api/executions/{int(execution.id)}")
+    assert detail_resp.status_code == 200
+    detail_payload = detail_resp.json()
+    assert detail_payload["queue_reason"].startswith("启动失败：")
+    assert detail_payload["blocking_reason_code"] == "branch_preparation_blocked"
+    assert "dirty worktree" in detail_payload["blocking_reason_message"]
 
 
 def test_validation_pass_auto_opens_pr(synced_client, db_session):
@@ -1179,7 +1185,7 @@ def test_start_execution_rejects_finished_run(synced_client, db_session):
     assert "Only queued or paused execution runs can start." == resp.json()["detail"]
 
 
-def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client, db_session):
+def test_retry_execution_creates_new_run_and_auto_starts_replacement(synced_client, db_session):
     project = _create_project(
         synced_client,
         project_key="synapse-network-growing",
@@ -1214,14 +1220,89 @@ def test_retry_execution_creates_new_run_and_keeps_old_run_failed(synced_client,
     db_session.add(run)
     db_session.commit()
 
-    resp = synced_client.post(f"/api/executions/{run.id}/retry")
+    with patch("server.services.workflows.agent_first.prepare_requirement_delivery_branch", return_value=_branch_ready_payload("ops/req-1-retry-creates-a-new-execution")), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="test",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/retry")
 
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["execution"]["id"] != run.id
+    assert payload["execution"]["status"] == "running"
     db_session.refresh(run)
     assert run.status == "failed"
     assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement.id).count() == 2
+    historical_resp = synced_client.get(f"/api/executions/{int(run.id)}")
+    assert historical_resp.status_code == 200
+    assert historical_resp.json()["is_current_execution"] is False
+    assert historical_resp.json()["allowed_actions"] == ["view", "view_requirement"]
+
+
+def test_retry_execution_reports_queue_reason_when_auto_start_is_blocked(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    requirement = RequirementRow(
+        title="Retry blocked by dirty worktree",
+        description_markdown="Retry should explain why the replacement run cannot start.",
+        status="blocked",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="blocked",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value={
+            "status": "blocked",
+            "branch_name": "ops/req-1-retry-blocked",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "blockers": ["dirty worktree on `main` blocks automatic execution branch preparation"],
+            "repositories": [],
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/retry")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["execution"]["id"] != run.id
+    assert payload["execution"]["status"] == "queued"
+    assert payload["queue_reason"].startswith("启动失败：")
+    assert payload["blocking_reason_code"] == "branch_preparation_blocked"
+    assert "dirty worktree" in payload["blocking_reason_message"]
 
 
 def test_validate_rejects_non_current_execution_run(synced_client, db_session):

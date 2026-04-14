@@ -1019,9 +1019,13 @@ class ExecutionRunOut(BaseModel):
     complexity: str
     status: str
     phase: str = "queued"
+    is_current_execution: bool = True
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    queue_reason: Optional[str] = None
+    blocking_reason_code: Optional[str] = None
+    blocking_reason_message: Optional[str] = None
     validation_profile: str
     delivery_intent: str
     approval_required: bool = False
@@ -1082,9 +1086,13 @@ class ExecutionRunDetailOut(BaseModel):
     execution: ExecutionRunOut
     requirement: AgentFirstRequirementOut
     phase: str = "queued"
+    is_current_execution: bool = True
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    queue_reason: Optional[str] = None
+    blocking_reason_code: Optional[str] = None
+    blocking_reason_message: Optional[str] = None
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
     verification_result: Optional[ValidationRecordSlimOut] = None

@@ -28,6 +28,14 @@ const detail = {
     execution_mode: 'direct',
     complexity: 'simple',
     status: 'running',
+    phase: 'executing',
+    is_current_execution: true,
+    allowed_actions: ['pause'],
+    pending_operations: [],
+    recovery_status: null,
+    queue_reason: null,
+    blocking_reason_code: null,
+    blocking_reason_message: null,
     validation_profile: 'minimal',
     delivery_intent: 'pr_required',
     approval_required: false,
@@ -70,6 +78,14 @@ const detail = {
     created_at: '2026-04-14T06:53:00Z',
     updated_at: '2026-04-14T06:53:32Z',
   },
+  phase: 'executing',
+  is_current_execution: true,
+  allowed_actions: ['pause'],
+  pending_operations: [],
+  recovery_status: null,
+  queue_reason: null,
+  blocking_reason_code: null,
+  blocking_reason_message: null,
   nodes: [
     {
       id: 1,
@@ -242,6 +258,41 @@ describe('Execution detail observability', () => {
     expect(screen.getByText(/Replay the targeted pytest command/)).toBeInTheDocument()
     expect(screen.getByText('原始执行输出')).toBeInTheDocument()
     expect(screen.getByText(/Applied the requested change\./)).toBeInTheDocument()
+  })
+
+  it('renders blocking reason for historical blocked run', async () => {
+    mockApi.getExecution.mockResolvedValue({
+      ...detail,
+      execution: {
+        ...detail.execution,
+        status: 'blocked',
+        phase: 'blocked',
+        is_current_execution: false,
+        allowed_actions: ['view', 'view_requirement'],
+        queue_reason: null,
+        blocking_reason_code: 'verification_needs_revision',
+        blocking_reason_message: 'Verification agent requested revisions before retrying.',
+      },
+      phase: 'blocked',
+      is_current_execution: false,
+      allowed_actions: ['view', 'view_requirement'],
+      blocking_reason_code: 'verification_needs_revision',
+      blocking_reason_message: 'Verification agent requested revisions before retrying.',
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/executions/1']}>
+        <Routes>
+          <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getExecution).toHaveBeenCalledWith(1))
+    expect(screen.getByText('历史 run')).toBeInTheDocument()
+    expect(screen.getByText(/verification_needs_revision/)).toBeInTheDocument()
+    expect(screen.getByText(/Verification agent requested revisions/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 
   it('opens file preview modal with diff first', async () => {
