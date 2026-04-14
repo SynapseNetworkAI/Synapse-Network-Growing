@@ -32,7 +32,7 @@ from server.services.runtime.task_metadata import task_metadata_for_agent, proje
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.agents.execution_resolver import suggest_task_execution
 from server.services.runtime.codex_cli import filter_codex_stderr
-from server.services.workflows.orchestrator import _normalize_task_file_change_payload
+from server.services.workflows.orchestrator import normalize_task_file_change_payload
 
 logger = logging.getLogger("ops-dashboard.tasks")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -666,7 +666,7 @@ def get_task_file_changes(task_id: int, db: Session = Depends(get_db)):
             try:
                 payload = json.loads(cache_file.read_text())
                 if isinstance(payload, dict):
-                    return _normalize_task_file_change_payload(payload)
+                    return normalize_task_file_change_payload(payload)
             except Exception:
                 logger.warning("Failed to parse task file-change snapshot for task %s", task_id, exc_info=True)
 

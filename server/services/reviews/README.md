@@ -12,6 +12,11 @@
 - 可以聚合 portfolio、signals、requirements、tasks 数据。
 - 不直接控制 workflow dispatch。
 
+## 禁止依赖
+
+- 不得直接 dispatch workflow 或控制 runtime。
+- 不得承载 requirement CRUD / release promotion 入口。
+
 ## 迁移映射
 
 - `server.services.company_review` -> `server.services.reviews.company_review`

@@ -17,6 +17,11 @@
 - 可以依赖 `server.database`、`server.config`。
 - 不应直接依赖 `workflows/orchestrator`。
 
+## 禁止依赖
+
+- 不得直接依赖 `workflows/orchestrator/*` 深层子模块。
+- 不得承担 requirement / release / scheduling 的业务决策。
+
 ## 常见改动
 
 - 增加 skill 加载逻辑：改 `skills.py`

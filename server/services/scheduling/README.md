@@ -12,6 +12,11 @@
 - 可以依赖 requirement、signal、project policy 数据。
 - 不直接承载 requirement CRUD。
 
+## 禁止依赖
+
+- 不得直接修改 requirement 语义 contract。
+- 不得把 scheduling 和 runtime/provider 细节强耦合到同一模块。
+
 ## 迁移映射
 
 - `server.services.portfolio_scheduler` -> `server.services.scheduling.portfolio_scheduler`

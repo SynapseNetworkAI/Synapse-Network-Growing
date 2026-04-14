@@ -13,6 +13,11 @@
 - 可以依赖 requirement、signal 等只读数据。
 - 不负责 workflow orchestration。
 
+## 禁止依赖
+
+- 不得承载 workflow dispatch、task runtime 或 release closeout 逻辑。
+- 不得让上层直接绕过 `policy.py` 访问底层 policy 子模块。
+
 ## 常见改动
 
 - 默认项目策略与 capability matrix：`policy.py`

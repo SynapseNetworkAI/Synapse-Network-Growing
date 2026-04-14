@@ -72,6 +72,12 @@ def _project_map(db: Session) -> dict[str, dict[str, Any]]:
     return result
 
 
+def build_signal_project_map(db: Session) -> dict[str, dict[str, Any]]:
+    """Return project metadata used by optimization-signal API surfaces."""
+
+    return _project_map(db)
+
+
 def _split_target_paths(value: str | None) -> list[str]:
     if not value:
         return []

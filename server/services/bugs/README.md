@@ -14,6 +14,11 @@
 
 - 可以产出 requirement 输入，但不直接承担 requirement 调度。
 
+## 禁止依赖
+
+- 不得直接调度 workflow。
+- 不得承载 release/runtime 控制逻辑。
+
 ## 迁移映射
 
 - `server.services.bug_intake` -> `server.services.bugs.intake`

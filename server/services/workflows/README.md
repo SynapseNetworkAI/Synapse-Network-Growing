@@ -12,6 +12,11 @@
 - 可以依赖其他服务面。
 - 是服务层里唯一允许跨 requirement/runtime/delivery 多面协同的编排层。
 
+## 禁止依赖
+
+- `routers/` 不得越过本目录 facade 直接依赖更深层子模块。
+- 不得把项目策略、requirement 语义、delivery 控制逻辑重新堆回单一巨型文件。
+
 ## 常见改动
 
 - 规划输出与 step policy：`planner.py`

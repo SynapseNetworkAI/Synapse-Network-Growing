@@ -36,7 +36,6 @@ from server.services.projects.intelligence import build_requirement_serializatio
 from server.services.scheduling.portfolio_scheduler import build_portfolio_schedule, execute_portfolio_rebalance
 from server.services.requirements.sources import intake_requirement_sources, list_requirement_source_registry
 from server.services.workflows.orchestrator import (
-    _normalize_target_project_path,
     advance_requirement_queue,
     build_requirement_detail,
     close_requirement,
@@ -51,6 +50,7 @@ from server.services.workflows.orchestrator import (
     plan_requirement,
     publish_requirement,
     revise_requirement,
+    normalize_target_project_path,
     sync_requirement_review_pr_surface,
     start_requirement,
     update_requirement_dependencies,
@@ -104,7 +104,7 @@ def list_requirements(
         rows = query.all()
         changed = False
         for row in rows:
-            normalized_target = _normalize_target_project_path(row.target_project_path)
+            normalized_target = normalize_target_project_path(row.target_project_path)
             if normalized_target != row.target_project_path:
                 row.target_project_path = normalized_target
                 changed = True

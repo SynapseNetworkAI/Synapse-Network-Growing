@@ -24,8 +24,8 @@ from server.services.signals.optimization_templates import (
     list_optimization_requirement_templates,
 )
 from server.services.signals.optimization_signals import (
-    _project_map,
     auto_intake_optimization_signals,
+    build_signal_project_map,
     create_requirement_from_signal,
     dismiss_optimization_signal,
     list_optimization_signals,
@@ -55,7 +55,7 @@ def list_optimization_signals_endpoint(
         rows = refresh_optimization_signals(db) if refresh else list_optimization_signals(db, status=status)
         if status:
             rows = [row for row in rows if row.status == status]
-        project_map = _project_map(db)
+        project_map = build_signal_project_map(db)
         op["count"] = len(rows)
         return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in rows]
 
@@ -63,7 +63,7 @@ def list_optimization_signals_endpoint(
 @router.post("/refresh", response_model=list[OptimizationSignalOut])
 def refresh_optimization_signals_endpoint(db: Session = Depends(get_db)):
     with timed_operation(logger, "optimization_signals_refresh_endpoint", slow_ms=1000) as op:
-        project_map = _project_map(db)
+        project_map = build_signal_project_map(db)
         rows = refresh_optimization_signals(db)
         op["count"] = len(rows)
         return [OptimizationSignalOut(**optimization_signal_to_dict(row, project_map=project_map)) for row in rows]

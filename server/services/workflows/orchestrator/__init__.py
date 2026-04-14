@@ -148,6 +148,10 @@ DELETED_WORKFLOW_STATUSES = {"deleted"}
 DELETED_STEP_STATUSES = {"deleted"}
 DELETED_TASK_STATUSES = {"deleted"}
 PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
+
+# Public facade used by routers and other top-level callers. Internal modules
+# continue to use the underscored helper to keep refactor scope narrow.
+normalize_task_file_change_payload = _normalize_task_file_change_payload
 PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
 MAX_BUGFIX_BRANCH_DEPTH = 5
 REPEATED_ERROR_CIRCUIT_BREAKER_THRESHOLD = 3
@@ -847,6 +851,12 @@ def _normalize_target_project_path(raw_path: str | None) -> str | None:
     if not lines:
         return None
     return "\n".join(lines)
+
+
+def normalize_target_project_path(raw_path: str | None) -> str | None:
+    """Normalize target project path strings for API- and router-facing use."""
+
+    return _normalize_target_project_path(raw_path)
 
 
 def _split_target_project_paths(raw_path: str | None) -> list[str]:

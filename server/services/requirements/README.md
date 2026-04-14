@@ -15,6 +15,11 @@
 - 负责 requirement 本身的语义层，不负责 workflow 调度。
 - 可以为 `workflows/` 提供 contract 和 metadata。
 
+## 禁止依赖
+
+- 不得依赖 `scheduling/`。
+- 不得直接承担环境发布、promotion 或 rollback 控制面。
+
 ## 常见改动
 
 - acceptance contract：`acceptance.py`

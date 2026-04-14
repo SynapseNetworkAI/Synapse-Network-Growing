@@ -41,6 +41,39 @@
 4. 每个服务分包都必须带 `README.md` 作为地图索引，说明职责、入口、依赖边界和迁移映射。
 5. router 不得直接依赖巨型杂糅模块的私有实现；应该通过分包 facade 或稳定公开入口接入。
 
+## 3C. 经典设计原则必须翻译成工程硬约束
+
+这些原则可以保留，但必须改写成仓库级规则，不能只保留术语表。
+
+1. `单一职责`：
+   一个模块只能服务一个业务面。requirement、release、runtime、review、signal、project policy 不得混写进同一个主文件。
+2. `接口隔离`：
+   每个服务分包都必须提供最小公开入口。`routers/` 只能依赖 facade，不得直接抓内部 helper。
+3. `迪米特法则`：
+   上层调用只接稳定入口，不跨多层目录直取内部实现。尤其禁止 `routers/` 直接依赖 `workflows/*` 的深层子模块。
+4. `合成复用优先`：
+   新能力优先通过 helper / service / policy 组合实现，不为了复用去堆继承树或多层 subclass。
+5. `依赖倒转`：
+   编排层依赖 facade 和 schema，不依赖具体子实现文件。例如 `workflows` 应依赖 `projects.policy`，而不是 `policy_defaults/policy_registry/policy_resolution`。
+
+## 3D. 复杂度治理是硬门禁，不是建议
+
+1. 文件规模阈值必须进入自动检查：
+   `> 500 行` 进入结构债务名单，`> 900 行` 进入强制拆分名单。
+2. 结构债务必须显式登记：
+   当前允许超阈值的文件必须在测试/文档中列出理由，避免“越写越大但没人知道”。
+3. wrapper 只能短期存在：
+   一旦 `server/` 和 `tests/` 的引用迁完，旧入口必须删除，不能无限保留。
+4. 分包之间不允许双向依赖：
+   出现循环 import 时，必须抽公共 helper 或下沉到更低层，而不是靠延迟 import 无限兜底。
+5. 新增功能必须先选业务面：
+   开始编码前必须先回答它属于 `requirements / delivery / runtime / reviews / signals / projects / scheduling / workflows` 的哪一层；没有归属，不允许下手写代码。
+
+## 3E. 非主约束原则
+
+1. `开闭原则` 可以作为补充说明，但不作为 code review 的一线判定标准。
+2. `里氏代换` 仅在确实引入稳定继承抽象时才重要；当前仓库以函数模块和服务编排为主，不作为主约束。
+
 ## 4. 多代理的目标是隔离不确定性
 
 1. 多代理不是堆 worker 数量，而是分离 research、synthesis、implementation、verification 的职责。
@@ -100,6 +133,15 @@
 4. `runtime / subagent lifecycle` 已落地到 `task logs -> runtime state -> workflow artifacts -> requirement detail` 链路。
 5. `recovery narrative / incident taxonomy` 已落地到 `failure artifacts -> unified incident view -> requirement detail / optimization signals` 链路。
 6. 后续新增设计默认必须复用这套约束，而不是绕开它重新做“隐式直通”能力。
+
+## 10A. PR 结构审查要求
+
+每个 PR 在提交或 review 时，至少要回答下面这些问题：
+
+1. 这次改动属于哪个业务面？
+2. 是否新增了公开入口？如果有，入口在哪里？
+3. 是否引入了跨面依赖？如果有，为什么不能通过 facade 解决？
+4. 是否让某个文件越过 `500 / 900` 行阈值？如果有，拆分计划是什么？
 
 ## 11. Context Governance 落地要求
 
