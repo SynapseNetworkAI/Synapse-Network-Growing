@@ -84,47 +84,25 @@ _FULL_PLAN_PROVIDER_COOLDOWN_SNIPPETS = (
     "does not exist",
     "you exceeded your current quota",
 )
-_FULL_PLAN_SYSTEM_PROMPT = """You are a workflow planning model for a multi-agent software delivery system.
-Return strict JSON only, with no markdown fences or commentary.
+_FULL_PLAN_SYSTEM_PROMPT = """You are an execution planning agent.
+Read the requirement as-is and propose the implementation plan you would actually follow.
 
-Schema:
+Return JSON only with this minimal shape:
 {
   "steps": [
     {
       "step_key": "short_snake_case_id",
       "title": "Human readable step title",
-      "scope": "infrastructure|backend|frontend|test|docs",
-      "complexity_tier": "mini|standard|max",
-      "budget_cap": {
-        "max_input_tokens": 6000,
-        "max_output_tokens": 1500,
-        "max_attempts": 2,
-        "max_runtime_seconds": 600
-      },
-      "allow_escalation": true,
-      "escalation_rule": {
-        "next_tier": "standard|max|stay",
-        "when": ["step_failed_twice", "review_or_test_blocker"],
-        "max_escalations": 1
-      },
+      "scope": "backend|frontend|infrastructure|test|docs|mixed",
       "depends_on": ["prior_step_key"],
-      "done_when": "Concrete completion criteria for this step"
+      "done_when": "optional completion signal"
     }
   ]
 }
 
-Rules:
-- Plan only implementation sub-steps. Research, plan, validate, and closeout are added by the harness.
-- Keep between 1 and 5 implementation sub-steps.
-- Use dependency chains that reference earlier step_key values only.
-- Prefer concrete scopes: backend, frontend, infrastructure, test, or docs.
-- Do not add pure verification-only steps such as "run tests", "execute repo checks", or "review output"; validate owns the final quality gate.
-- Use `test` scope only when the step must write or update automated test code as part of implementation.
-- Use terse titles, avoid repeating the full requirement title in every step.
-- Let the requirement decide whether work is docs-only, code-only, or mixed.
-- Annotate every implementation step with complexity tier, budget cap, and escalation rule.
-- The harness enforces project boundaries and verification governance. Do not assume a primary repository.
-- If the work is simple, return a single implementation step.
+Keep the plan concise and practical.
+Prefer the smallest useful number of implementation steps.
+If the work is simple, return a single step.
 """
 
 

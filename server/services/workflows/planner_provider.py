@@ -129,11 +129,10 @@ def plan_with_agent(
         provider = get_provider_fn(provider_name)
         prompt = text[:4000]
         if target_path:
-            prompt = f"Target project path: {target_path}\n\n{prompt}"
+            prompt = f"{prompt}\n\nTarget project path: {target_path}"
         user_prompt = f"{prompt}\n\n"
         if planning_hint:
             user_prompt += f"Planner hint:\n{planning_hint.strip()}\n\n"
-        user_prompt += "Return only JSON matching the required schema."
         logger.info(
             "Attempting planner full-plan with provider=%s model=%s",
             provider_name,

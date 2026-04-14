@@ -131,7 +131,8 @@ def _candidate_score(
     if preferred_agent_id and preferred_agent_id == agent.id:
         score += 2.0
     if skill_name == "__direct_execution__" and str(agent.group or "") == "engineering" and _is_engineering_request(description_tokens, description):
-        score += 12.0
+        engineering_hits = len(description_tokens & _ENGINEERING_HINTS)
+        score += 20.0 + engineering_hits * 2.0
         matched_terms = sorted(set(matched_terms) | {"engineering", "bugfix", "direct_execution"})
 
     return score, matched_terms

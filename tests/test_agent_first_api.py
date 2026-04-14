@@ -5,9 +5,10 @@ import logging
 from pathlib import Path
 from unittest.mock import patch
 
-from server.database import AgentRow, ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementRow, TaskRow, ValidationRecordRow, utcnow
+from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, CodexSessionRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import ValidationCheckResultOut
 from server.services.workflows.agent_first import reset_execution_runtime_data
+from server.services.runtime.task_runner import _task_project_root
 
 
 def _create_project(
@@ -720,6 +721,28 @@ def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirem
     )
     db_session.add(run)
     db_session.flush()
+    workflow_run = WorkflowRunRow(
+        requirement_id=int(ready_requirement.id),
+        plan_version=1,
+        status="running",
+        triggered_by="system",
+    )
+    db_session.add(workflow_run)
+    db_session.flush()
+    db_session.add(AgentRow(id="backend", display_name="Backend Agent", goal="Execute backend tasks"))
+    db_session.flush()
+    task = TaskRow(
+        description="Implement reset runtime cleanup",
+        agent_id="backend",
+        status="completed",
+        project_id="synapse-network-growing",
+        runtime_backend="codex_cli",
+        runtime_provider="openai",
+        runtime_model="gpt-5.4",
+    )
+    db_session.add(task)
+    db_session.flush()
+    ready_requirement.active_workflow_run_id = int(workflow_run.id)
     db_session.add(
         ExecutionNodeRow(
             execution_run_id=int(run.id),
@@ -729,6 +752,79 @@ def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirem
             title="Execute requirement",
             status="completed",
             sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    workflow_step = WorkflowStepRow(
+        workflow_run_id=int(workflow_run.id),
+        requirement_id=int(ready_requirement.id),
+        step_key="execute",
+        step_type="execute",
+        title="Execute requirement",
+        status="completed",
+        sequence_no=1,
+        compatibility_task_id=int(task.id),
+    )
+    db_session.add(workflow_step)
+    db_session.flush()
+    db_session.add(
+        WorkflowStepDependencyRow(
+            step_id=int(workflow_step.id),
+            depends_on_step_id=int(workflow_step.id),
+            dependency_kind="self",
+        )
+    )
+    db_session.add(
+        RequirementAcceptanceCheckRow(
+            requirement_id=int(ready_requirement.id),
+            check_key="verify-logs",
+            description="Verify runtime logs are emitted.",
+            check_type="command",
+            owner_role="validator",
+            status="passed",
+            verified_by_step_id=int(workflow_step.id),
+        )
+    )
+    db_session.add(
+        ApprovalRow(
+            task_id=int(task.id),
+            status="approved",
+            reviewer="operator",
+        )
+    )
+    db_session.add(
+        TaskLogRow(
+            task_id=int(task.id),
+            event_type="completed",
+            detail="Task finished.",
+        )
+    )
+    db_session.add(
+        CodexSessionRow(
+            session_key="sess-reset",
+            role_key="backend",
+            project_root="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+            requirement_id=int(ready_requirement.id),
+            workflow_run_id=int(workflow_run.id),
+            current_task_id=int(task.id),
+            status="active",
+            metadata_json="{}",
+        )
+    )
+    db_session.add(
+        ApprovalRequestRow(
+            requirement_id=int(ready_requirement.id),
+            workflow_run_id=int(workflow_run.id),
+            step_id=int(workflow_step.id),
+            approval_type="manual_gate",
+            status="pending",
+        )
+    )
+    db_session.add(
+        WorkflowStepEventRow(
+            step_id=int(workflow_step.id),
+            event_type="step_started",
+            detail="Started executing step.",
         )
     )
     db_session.add(
@@ -756,14 +852,35 @@ def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirem
     assert summary["execution_nodes_deleted"] == 1
     assert summary["validation_records_deleted"] == 1
     assert summary["release_records_deleted"] == 1
+    assert summary["tasks_deleted"] == 1
+    assert summary["task_logs_deleted"] == 1
+    assert summary["approvals_deleted"] == 1
+    assert summary["workflow_runs_deleted"] == 1
+    assert summary["workflow_steps_deleted"] == 1
+    assert summary["workflow_step_dependencies_deleted"] == 1
+    assert summary["workflow_step_events_deleted"] == 1
+    assert summary["acceptance_checks_deleted"] == 1
+    assert summary["approval_requests_deleted"] == 1
+    assert summary["codex_sessions_deleted"] == 1
     assert db_session.query(ExecutionRunRow).count() == 0
     assert db_session.query(ExecutionNodeRow).count() == 0
     assert db_session.query(ValidationRecordRow).count() == 0
     assert db_session.query(ReleaseRecordRow).count() == 0
+    assert db_session.query(TaskRow).count() == 0
+    assert db_session.query(TaskLogRow).count() == 0
+    assert db_session.query(ApprovalRow).count() == 0
+    assert db_session.query(WorkflowRunRow).count() == 0
+    assert db_session.query(WorkflowStepRow).count() == 0
+    assert db_session.query(WorkflowStepDependencyRow).count() == 0
+    assert db_session.query(WorkflowStepEventRow).count() == 0
+    assert db_session.query(RequirementAcceptanceCheckRow).count() == 0
+    assert db_session.query(ApprovalRequestRow).count() == 0
+    assert db_session.query(CodexSessionRow).count() == 0
 
     db_session.refresh(ready_requirement)
     db_session.refresh(blocked_requirement)
     assert ready_requirement.status == "ready"
+    assert ready_requirement.active_workflow_run_id is None
     assert blocked_requirement.status == "blocked"
 
 
@@ -954,3 +1071,63 @@ def test_execution_file_preview_endpoint_returns_diff_and_current_content(synced
     assert "print('before')" in payload["diff_patch"]
     assert "print('after')" in payload["current_content"]
     assert payload["truncated"] is False
+
+
+def test_direct_execution_task_uses_requirement_target_project_path(db_session):
+    agent = AgentRow(
+        id="software_engineer",
+        display_name="Software Engineer",
+        goal="Implement code changes safely.",
+        group="engineering",
+    )
+    requirement = RequirementRow(
+        title="Implement logging plan in target repo",
+        description_markdown="Apply the requested logging changes in the target repository.",
+        status="running",
+        approval_status="approved",
+        source="manual",
+        priority="normal",
+        project_key="synapse-network",
+        project_display_name="Synapse-Network",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        acceptance_contract_json='{"markdown":"- verify logging output"}',
+    )
+    db_session.add_all([agent, requirement])
+    db_session.flush()
+
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+    )
+    db_session.add(run)
+    db_session.flush()
+
+    task = TaskRow(
+        description="Execute requirement",
+        agent_id=str(agent.id),
+        status="running",
+        priority="normal",
+        runtime_backend="codex_cli",
+    )
+    db_session.add(task)
+    db_session.flush()
+
+    node = ExecutionNodeRow(
+        execution_run_id=int(run.id),
+        requirement_id=int(requirement.id),
+        node_key="execute",
+        node_type="execute",
+        title="Execute requirement",
+        status="running",
+        sequence_no=1,
+        task_id=int(task.id),
+    )
+    db_session.add(node)
+    db_session.commit()
+    db_session.refresh(task)
+
+    assert _task_project_root(task) == "/Users/cliff/workspace/agent/Synapse-Network"

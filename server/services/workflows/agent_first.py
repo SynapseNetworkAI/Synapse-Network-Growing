@@ -9,20 +9,31 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server.config import ORCHESTRATION_BACKEND, PROJECT_ROOT
 from server.database import (
     AgentRow,
+    ApprovalRow,
     ApprovalRequestRow,
+    ArtifactRow,
+    CodexSessionRow,
     DeploymentRecordRow,
     ExecutionNodeRow,
     ExecutionRunRow,
     ProjectRow,
     ReleaseRecordRow,
     RequirementRow,
+    RequirementAcceptanceCheckRow,
+    StepInputBindingRow,
+    TaskLogRow,
     TaskRow,
     ValidationRecordRow,
+    WorkflowRunRow,
+    WorkflowStepEventRow,
+    WorkflowStepDependencyRow,
+    WorkflowStepRow,
     utcnow,
 )
 from server.schemas import (
@@ -1252,6 +1263,26 @@ def _fallback_execution_plan_payload(db: Session, requirement: RequirementRow, s
     return payload
 
 
+def _default_done_when_for_plan_step(step: dict[str, Any], acceptance: dict[str, Any]) -> str:
+    title = str(step.get("title") or step.get("step_key") or "").strip().lower()
+    step_type = str(step.get("step_type") or "implementation").strip().lower()
+    verification_labels = [
+        str(item.get("label") or item.get("command") or "").strip()
+        for item in acceptance.get("verification_checks") or []
+        if isinstance(item, dict) and str(item.get("label") or item.get("command") or "").strip()
+    ]
+    first_check = verification_labels[0] if verification_labels else "targeted validation evidence is ready"
+    if step_type == "research" or "research" in title:
+        return "Relevant code paths, constraints, and the target repo context are captured before implementation starts."
+    if step_type == "plan" or "plan" in title:
+        return "Implementation scope, affected areas, and the checks to run are clearly listed for execution."
+    if step_type == "validate" or "validat" in title:
+        return f"{first_check} succeeds or equivalent evidence is captured for validate."
+    if step_type == "closeout" or "close" in title:
+        return "Delivery evidence is summarized and the requirement is ready for PR/release handoff."
+    return "The scoped change is implemented and summarized with changed files, commands run, and remaining risk."
+
+
 def _execution_plan_from_planner_output(planner_output: dict[str, Any], *, shape: dict[str, Any]) -> dict[str, Any]:
     workflow_steps = [
         item for item in planner_output.get("workflow_steps") or []
@@ -1270,20 +1301,24 @@ def _execution_plan_from_planner_output(planner_output: dict[str, Any], *, shape
         for line in str(planner_output.get("known_risks_markdown") or "").splitlines()
         if line.strip()
     ]
+    acceptance = normalize_acceptance_contract(dict(planner_output.get("acceptance_contract") or {}))
+    normalized_steps = []
+    for step in workflow_steps:
+        normalized_step = {
+            "step_key": str(step.get("step_key") or ""),
+            "title": str(step.get("title") or ""),
+            "step_type": str(step.get("step_type") or "implementation"),
+            "scope": str(step.get("scope") or ""),
+            "done_when": str(step.get("done_when") or "").strip(),
+        }
+        if not normalized_step["done_when"]:
+            normalized_step["done_when"] = _default_done_when_for_plan_step(normalized_step, acceptance)
+        normalized_steps.append(normalized_step)
     payload = {
         "planning_mode": str(planner_output.get("planning_mode") or "full_plan"),
         "goal_summary": str(planner_output.get("goal_summary") or "").strip(),
         "target_files_or_areas": list(planner_output.get("delivery_expectation", {}).get("all_target_paths") or []),
-        "steps": [
-            {
-                "step_key": str(step.get("step_key") or ""),
-                "title": str(step.get("title") or ""),
-                "step_type": str(step.get("step_type") or "implementation"),
-                "scope": str(step.get("scope") or ""),
-                "done_when": str(step.get("done_when") or "").strip(),
-            }
-            for step in workflow_steps
-        ],
+        "steps": normalized_steps,
         "planned_checks": [item for item in planned_checks if item],
         "risks": risks,
         "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
@@ -1842,15 +1877,49 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
 
 
 def reset_execution_runtime_data(db: Session) -> dict[str, int]:
+    runtime_artifact_query = db.query(ArtifactRow).filter(
+        or_(
+            ArtifactRow.workflow_run_id.is_not(None),
+            ArtifactRow.step_id.is_not(None),
+            ArtifactRow.producer_step_id.is_not(None),
+        )
+    )
+    codex_session_count = db.query(CodexSessionRow).count()
+    workflow_run_count = db.query(WorkflowRunRow).count()
+    workflow_step_count = db.query(WorkflowStepRow).count()
+    workflow_step_dependency_count = db.query(WorkflowStepDependencyRow).count()
+    workflow_step_event_count = db.query(WorkflowStepEventRow).count()
+    step_input_binding_count = db.query(StepInputBindingRow).count()
+    runtime_artifact_count = runtime_artifact_query.count()
+    acceptance_check_count = db.query(RequirementAcceptanceCheckRow).count()
+    approval_request_count = db.query(ApprovalRequestRow).count()
+    approval_count = db.query(ApprovalRow).count()
+    task_log_count = db.query(TaskLogRow).count()
+    task_count = db.query(TaskRow).count()
     release_count = db.query(ReleaseRecordRow).count()
     validation_count = db.query(ValidationRecordRow).count()
     node_count = db.query(ExecutionNodeRow).count()
     run_count = db.query(ExecutionRunRow).count()
 
+    db.query(RequirementRow).update({"active_workflow_run_id": None}, synchronize_session=False)
+    db.query(WorkflowRunRow).update({"planner_artifact_id": None}, synchronize_session=False)
     db.query(ReleaseRecordRow).delete(synchronize_session=False)
     db.query(ValidationRecordRow).delete(synchronize_session=False)
     db.query(ExecutionNodeRow).delete(synchronize_session=False)
     db.query(ExecutionRunRow).delete(synchronize_session=False)
+    db.query(CodexSessionRow).delete(synchronize_session=False)
+    db.query(ApprovalRequestRow).delete(synchronize_session=False)
+    db.query(WorkflowStepEventRow).delete(synchronize_session=False)
+    db.query(StepInputBindingRow).delete(synchronize_session=False)
+    db.query(WorkflowStepDependencyRow).delete(synchronize_session=False)
+    db.query(RequirementAcceptanceCheckRow).delete(synchronize_session=False)
+    runtime_artifact_query.delete(synchronize_session=False)
+    db.query(WorkflowStepRow).update({"branch_from_step_id": None}, synchronize_session=False)
+    db.query(WorkflowStepRow).delete(synchronize_session=False)
+    db.query(WorkflowRunRow).delete(synchronize_session=False)
+    db.query(ApprovalRow).delete(synchronize_session=False)
+    db.query(TaskLogRow).delete(synchronize_session=False)
+    db.query(TaskRow).delete(synchronize_session=False)
 
     updated_requirements = 0
     for requirement in db.query(RequirementRow).all():
@@ -1864,14 +1933,31 @@ def reset_execution_runtime_data(db: Session) -> dict[str, int]:
             next_status = "needs_revision"
         else:
             next_status = "ready"
-        if current_status != next_status or requirement.started_at is not None or requirement.completed_at is not None:
+        if (
+            current_status != next_status
+            or requirement.started_at is not None
+            or requirement.completed_at is not None
+        ):
             requirement.status = next_status
             requirement.started_at = None
             requirement.completed_at = None
+            requirement.active_workflow_run_id = None
             requirement.updated_at = utcnow()
             updated_requirements += 1
 
     result = {
+        "codex_sessions_deleted": int(codex_session_count),
+        "workflow_runs_deleted": int(workflow_run_count),
+        "workflow_steps_deleted": int(workflow_step_count),
+        "workflow_step_dependencies_deleted": int(workflow_step_dependency_count),
+        "workflow_step_events_deleted": int(workflow_step_event_count),
+        "step_input_bindings_deleted": int(step_input_binding_count),
+        "runtime_artifacts_deleted": int(runtime_artifact_count),
+        "acceptance_checks_deleted": int(acceptance_check_count),
+        "approval_requests_deleted": int(approval_request_count),
+        "approvals_deleted": int(approval_count),
+        "task_logs_deleted": int(task_log_count),
+        "tasks_deleted": int(task_count),
         "execution_runs_deleted": int(run_count),
         "execution_nodes_deleted": int(node_count),
         "validation_records_deleted": int(validation_count),

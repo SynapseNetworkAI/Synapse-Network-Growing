@@ -140,6 +140,7 @@ class TaskRow(Base):
     approvals = relationship("ApprovalRow", back_populates="task")
     logs = relationship("TaskLogRow", back_populates="task", order_by="TaskLogRow.created_at")
     workflow_steps = relationship("WorkflowStepRow", back_populates="compatibility_task")
+    execution_nodes = relationship("ExecutionNodeRow", back_populates="task")
 
 
 class ApprovalRow(Base):
@@ -743,7 +744,7 @@ class ExecutionNodeRow(Base):
 
     execution_run = relationship("ExecutionRunRow")
     requirement = relationship("RequirementRow")
-    task = relationship("TaskRow")
+    task = relationship("TaskRow", back_populates="execution_nodes")
 
 
 class ValidationRecordRow(Base):

@@ -18,13 +18,13 @@ from server.services.workflows.agent_first import reset_execution_runtime_data
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reset execution and release runtime state without preserving dirty history.")
+    parser = argparse.ArgumentParser(description="Reset task, execution, validation, and release runtime state without preserving dirty history.")
     parser.add_argument("--yes", action="store_true", help="Apply the reset immediately.")
     parser.add_argument("--skip-backup", action="store_true", help="Skip creating a SQLite file backup before reset.")
     args = parser.parse_args()
 
     if not args.yes:
-        parser.error("Pass --yes to confirm execution runtime reset.")
+        parser.error("Pass --yes to confirm runtime reset.")
 
     db_path = Path(DB_PATH)
     if db_path.exists() and not args.skip_backup:
