@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AgentRequirement, api } from '../api'
-import { EmptyPane, FieldLabel, OverlayDrawer, OverlayModal, StateBadge } from '../components/workbench'
+import { ConfirmDialog, EmptyPane, FieldLabel, OverlayDrawer, OverlayModal, StateBadge, useToast } from '../components/workbench'
 
 type DrawerMode = 'closed' | 'create' | 'edit'
 
@@ -170,9 +170,11 @@ export default function RequirementPool() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [submittingId, setSubmittingId] = useState<number | null>(null)
+  const [confirmingRequirement, setConfirmingRequirement] = useState<AgentRequirement | null>(null)
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | null>(null)
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed')
   const [draft, setDraft] = useState<RequirementDraft>({ ...EMPTY_DRAFT })
+  const toast = useToast()
 
   const load = async () => {
     setLoading(true)
@@ -223,11 +225,15 @@ export default function RequirementPool() {
     try {
       if (drawerMode === 'create') {
         await api.createRequirement(draft)
+        toast.success('需求已创建')
       } else if (drawerMode === 'edit' && selectedRequirement) {
         await api.updateRequirement(selectedRequirement.id, draft)
+        toast.success('需求已更新')
       }
       await load()
       closeComposer()
+    } catch {
+      toast.error(drawerMode === 'create' ? '创建失败，请重试' : '保存失败，请重试')
     } finally {
       setSaving(false)
     }
@@ -318,16 +324,7 @@ export default function RequirementPool() {
                           type="button"
                           className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
                           disabled={deletingId === item.id}
-                          onClick={async () => {
-                            if (!window.confirm(`确认删除需求 #${item.id} 吗？`)) return
-                            setDeletingId(item.id)
-                            try {
-                              await api.deleteRequirement(item.id)
-                              await load()
-                            } finally {
-                              setDeletingId(null)
-                            }
-                          }}
+                          onClick={() => setConfirmingRequirement(item)}
                         >
                           {deletingId === item.id ? '删除中…' : '删除'}
                         </button>
@@ -342,11 +339,14 @@ export default function RequirementPool() {
                             setSubmittingId(item.id)
                             try {
                               const detail = await api.submitRequirement(item.id)
+                              toast.success('需求已提交')
                               if (detail.approval.execution_run_id && detail.approval.auto_started) {
                                 navigate(`/executions/${detail.approval.execution_run_id}`)
                                 return
                               }
                               navigate(`/requirements/${item.id}`)
+                            } catch {
+                              toast.error('提交失败，请重试')
                             } finally {
                               await load()
                               setSubmittingId(null)
@@ -384,6 +384,41 @@ export default function RequirementPool() {
         onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
         onClose={closeComposer}
         onSubmit={handleSubmit}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmingRequirement)}
+        title="删除需求"
+        description={
+          confirmingRequirement
+            ? `删除后，需求 #${confirmingRequirement.id} 会进入 deleted 状态，并从当前主队列视图中移除。`
+            : undefined
+        }
+        confirmLabel="确认删除"
+        cancelLabel="取消"
+        tone="destructive"
+        loading={Boolean(confirmingRequirement && deletingId === confirmingRequirement.id)}
+        onClose={() => {
+          if (deletingId) return
+          setConfirmingRequirement(null)
+        }}
+        onConfirm={() => {
+          if (!confirmingRequirement) return
+          const requirementId = confirmingRequirement.id
+          setDeletingId(requirementId)
+          ;(async () => {
+            try {
+              await api.deleteRequirement(requirementId)
+              toast.success('需求已删除')
+              setConfirmingRequirement(null)
+              await load()
+            } catch {
+              toast.error('删除失败，请重试')
+            } finally {
+              setDeletingId(null)
+            }
+          })().catch(() => {})
+        }}
       />
     </div>
   )

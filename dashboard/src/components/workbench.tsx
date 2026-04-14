@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 type Tone = 'default' | 'ready' | 'running' | 'blocked' | 'validating' | 'delivered' | 'muted'
+type ConfirmTone = 'default' | 'destructive'
+type ToastTone = 'success' | 'error' | 'info'
 
 function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ')
@@ -15,6 +17,26 @@ const badgeToneClasses: Record<Tone, string> = {
   delivered: 'border-[color:var(--ops-state-delivered-border)] bg-[color:var(--ops-state-delivered-bg)] text-[color:var(--ops-state-delivered-text)]',
   muted: 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]',
 }
+
+const toastToneClasses: Record<ToastTone, string> = {
+  success: 'border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] text-[color:var(--ops-state-ready-text)]',
+  error: 'border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] text-[color:var(--ops-state-blocked-text)]',
+  info: 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]',
+}
+
+type ToastItem = {
+  id: number
+  tone: ToastTone
+  message: string
+}
+
+type ToastContextValue = {
+  success: (message: string) => void
+  error: (message: string) => void
+  info: (message: string) => void
+}
+
+const ToastContext = createContext<ToastContextValue | null>(null)
 
 export function StateBadge({
   children,
@@ -32,6 +54,61 @@ export function StateBadge({
       {children}
     </span>
   )
+}
+
+export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+
+  const pushToast = useCallback((tone: ToastTone, message: string) => {
+    setToasts((current) => [...current, { id: Date.now() + Math.random(), tone, message }])
+  }, [])
+
+  const api = useMemo<ToastContextValue>(
+    () => ({
+      success: (message) => pushToast('success', message),
+      error: (message) => pushToast('error', message),
+      info: (message) => pushToast('info', message),
+    }),
+    [pushToast],
+  )
+
+  useEffect(() => {
+    if (!toasts.length) return
+    const timer = window.setTimeout(() => {
+      setToasts((current) => current.slice(1))
+    }, 2800)
+    return () => window.clearTimeout(timer)
+  }, [toasts])
+
+  return (
+    <ToastContext.Provider value={api}>
+      {children}
+      <div className="pointer-events-none fixed right-5 top-5 z-[70] flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            role="status"
+            className={cx(
+              'rounded-2xl border px-4 py-3 text-sm font-medium shadow-[0_18px_60px_rgba(15,23,42,0.12)] backdrop-blur-xl',
+              toastToneClasses[toast.tone],
+            )}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  )
+}
+
+export function useToast() {
+  const context = useContext(ToastContext)
+  if (context) return context
+  return {
+    success: () => {},
+    error: () => {},
+    info: () => {},
+  }
 }
 
 export function SectionFrame({
@@ -257,6 +334,80 @@ export function OverlayModal({
             </div>
           </div>
           <div className="max-h-[calc(100vh-12rem)] overflow-y-auto px-6 py-6">{children}</div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = '确认',
+  cancelLabel = '取消',
+  tone = 'default',
+  loading = false,
+  onConfirm,
+  onClose,
+}: Readonly<{
+  open: boolean
+  title: string
+  description?: ReactNode
+  confirmLabel?: string
+  cancelLabel?: string
+  tone?: ConfirmTone
+  loading?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}>) {
+  return (
+    <div
+      className={cx(
+        'pointer-events-none fixed inset-0 z-50 transition-opacity duration-200',
+        open ? 'opacity-100' : 'opacity-0',
+      )}
+      aria-hidden={!open}
+    >
+      <button
+        type="button"
+        aria-label="关闭确认弹窗"
+        className={cx(
+          'absolute inset-0 bg-slate-950/28 backdrop-blur-[2px] transition-opacity duration-200',
+          open ? 'pointer-events-auto opacity-100' : 'opacity-0',
+        )}
+        onClick={onClose}
+      />
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <section
+          className={cx(
+            'w-full max-w-[460px] translate-y-4 rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] px-6 py-6 shadow-[0_28px_90px_rgba(15,23,42,0.18)] transition duration-200',
+            open ? 'pointer-events-auto translate-y-0' : '',
+          )}
+        >
+          <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Confirm action</div>
+          <h2 className="mt-3 text-xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{title}</h2>
+          {description ? <div className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{description}</div> : null}
+          <div className="mt-6 flex justify-end gap-3">
+            <button
+              type="button"
+              className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm text-[color:var(--ops-text-body)]"
+              onClick={onClose}
+            >
+              {cancelLabel}
+            </button>
+            <button
+              type="button"
+              className={cx(
+                'rounded-xl px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60',
+                tone === 'destructive' ? 'bg-[color:var(--ops-state-blocked-text)]' : 'bg-[color:var(--ops-accent-strong)]',
+              )}
+              disabled={loading}
+              onClick={onConfirm}
+            >
+              {loading ? '处理中…' : confirmLabel}
+            </button>
+          </div>
         </section>
       </div>
     </div>

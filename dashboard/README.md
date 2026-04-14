@@ -80,3 +80,4 @@ token 主入口：
 3. 只有极短的单字段 quick edit 才允许 inline。
 4. Requirement 列表页的主焦点是 queue 与 selection，不是 intake form。
 5. `新建需求` 默认只采集标题、目标项目、描述和优先级；`验收标准` 由 agent 创建后立即生成，并在详情页可编辑。
+6. 禁止使用浏览器原生 `alert / confirm`；destructive 动作使用统一确认弹窗，轻量反馈使用 toast。

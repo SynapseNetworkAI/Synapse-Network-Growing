@@ -78,12 +78,17 @@ describe('RequirementDetail SaaS editing', () => {
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
     expect(screen.getByTestId('toggle-edit-requirement-btn')).toBeInTheDocument()
     expect(screen.queryByText('修订需求')).not.toBeInTheDocument()
+    expect(screen.queryByText('执行许可')).not.toBeInTheDocument()
+    expect(screen.queryByText('策略摘要')).not.toBeInTheDocument()
+    expect(screen.queryByText('执行 / 发布跳转')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('requirement-approval-notice')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
     fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Bug Fix: Traceback removed' } })
     fireEvent.change(screen.getByTestId('edit-requirement-target-project-path'), { target: { value: '/tmp/project-a' } })
     fireEvent.change(screen.getByTestId('edit-requirement-priority'), { target: { value: 'normal' } })
     fireEvent.change(screen.getByTestId('edit-requirement-description'), { target: { value: 'Updated description' } })
+    fireEvent.change(screen.getByTestId('edit-requirement-acceptance'), { target: { value: '- Updated acceptance' } })
     fireEvent.click(screen.getByTestId('save-requirement-btn'))
 
     await waitFor(() =>
@@ -92,6 +97,7 @@ describe('RequirementDetail SaaS editing', () => {
         expect.objectContaining({
           title: 'Bug Fix: Traceback removed',
           description_markdown: 'Updated description',
+          acceptance_criteria_markdown: '- Updated acceptance',
           priority: 'normal',
           target_project_path: '/tmp/project-a',
         }),
@@ -120,5 +126,35 @@ describe('RequirementDetail SaaS editing', () => {
 
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
     expect(screen.queryByTestId('toggle-edit-requirement-btn')).not.toBeInTheDocument()
+  })
+
+  it('shows a compact approval notice only when manual approval is pending', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...baseDetail,
+      requirement: {
+        ...baseDetail.requirement,
+        status: 'blocked',
+      },
+      approval: {
+        ...baseDetail.approval,
+        approval_decision: 'pending_manual_approval',
+        approval_status: 'pending_approval',
+        approval_reason: 'High risk requirement needs operator review.',
+        required_approver_roles: ['operator'],
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/3']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
+    expect(screen.getByTestId('requirement-approval-notice')).toBeInTheDocument()
+    expect(screen.getByText('High risk requirement needs operator review.')).toBeInTheDocument()
+    expect(screen.queryByText('执行许可')).not.toBeInTheDocument()
   })
 })

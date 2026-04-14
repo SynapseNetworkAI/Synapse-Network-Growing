@@ -5,6 +5,7 @@ import RequirementPool from '../src/pages/RequirementPool'
 import ExecutionsPage from '../src/pages/ExecutionsPage'
 import ReleasesPage from '../src/pages/ReleasesPage'
 import ErrorsPage from '../src/pages/ErrorsPage'
+import { ToastProvider } from '../src/components/workbench'
 
 const mockApi = {
   getRequirements: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../src/api', () => ({
 describe('agent-first pages smoke', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    mockApi.deleteRequirement.mockResolvedValue(undefined)
     mockApi.getRequirements.mockResolvedValue([
       {
         id: 1,
@@ -123,9 +125,11 @@ describe('agent-first pages smoke', () => {
 
   it('renders requirement surface', async () => {
     render(
-      <MemoryRouter>
-        <RequirementPool />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
     )
     await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
     expect(screen.getByText('需求列表')).toBeInTheDocument()
@@ -133,7 +137,6 @@ describe('agent-first pages smoke', () => {
   })
 
   it('opens create and edit requirement drawers from the toolbar', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockApi.createRequirement.mockResolvedValue({
       requirement: {
         id: 2,
@@ -178,9 +181,11 @@ describe('agent-first pages smoke', () => {
     })
 
     render(
-      <MemoryRouter>
-        <RequirementPool />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
     )
 
     await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
@@ -200,6 +205,7 @@ describe('agent-first pages smoke', () => {
 
     await waitFor(() => expect(mockApi.createRequirement).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByRole('heading', { name: '新建需求' })).not.toBeInTheDocument())
+    expect(await screen.findByText('需求已创建')).toBeInTheDocument()
 
     const editButton = screen.getAllByRole('button', { name: '编辑' })[0]
     expect(editButton).toBeEnabled()
@@ -211,16 +217,39 @@ describe('agent-first pages smoke', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(mockApi.updateRequirement).toHaveBeenCalledWith(1, expect.objectContaining({ title: 'Launch FAQ Updated' })))
+    expect(await screen.findByText('需求已更新')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('heading', { name: '删除需求' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(mockApi.deleteRequirement).toHaveBeenCalledWith(1))
+    expect(await screen.findByText('需求已删除')).toBeInTheDocument()
+  })
+
+  it('cancels deletion without calling the delete api', async () => {
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <RequirementPool />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('heading', { name: '删除需求' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '删除需求' })).not.toBeInTheDocument())
+    expect(mockApi.deleteRequirement).not.toHaveBeenCalled()
   })
 
   it('renders execution surface', async () => {
     render(
-      <MemoryRouter>
-        <ExecutionsPage />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <ExecutionsPage />
+        </MemoryRouter>
+      </ToastProvider>,
     )
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
     expect(screen.getByText('执行列表')).toBeInTheDocument()
@@ -229,9 +258,11 @@ describe('agent-first pages smoke', () => {
 
   it('renders release surface', async () => {
     render(
-      <MemoryRouter>
-        <ReleasesPage />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <ReleasesPage />
+        </MemoryRouter>
+      </ToastProvider>,
     )
     await waitFor(() => expect(mockApi.getReleaseCandidates).toHaveBeenCalled())
     expect(screen.getByText('发布列表')).toBeInTheDocument()
@@ -240,9 +271,11 @@ describe('agent-first pages smoke', () => {
 
   it('renders error surface', async () => {
     render(
-      <MemoryRouter>
-        <ErrorsPage />
-      </MemoryRouter>,
+      <ToastProvider>
+        <MemoryRouter>
+          <ErrorsPage />
+        </MemoryRouter>
+      </ToastProvider>,
     )
     await waitFor(() => expect(mockApi.getErrors).toHaveBeenCalled())
     expect(screen.getByText('错误列表')).toBeInTheDocument()

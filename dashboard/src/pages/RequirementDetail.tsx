@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { AgentRequirementDetail, api } from '../api'
-import { EmptyPane, FieldLabel, InspectorRail, LoadingPane, SectionFrame, StateBadge } from '../components/workbench'
+import { FieldLabel, LoadingPane, SectionFrame, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -16,23 +16,12 @@ const STATUS_LABEL: Record<string, string> = {
   deleted: '已删除',
 }
 
-function formatTime(value: string | null) {
-  if (!value) return '-'
-  return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
-}
-
 function statusTone(status: string) {
   if (status === 'done' || status === 'delivery_ready') return 'delivered'
   if (status === 'running') return 'running'
   if (status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
   if (status === 'ready') return 'ready'
   return 'muted'
-}
-
-function approvalTone(status: string) {
-  if (status === 'approved' || status === 'waived') return 'ready'
-  if (status === 'rejected') return 'blocked'
-  return 'validating'
 }
 
 function Markdown({ value }: Readonly<{ value: string }>) {
@@ -89,6 +78,7 @@ export default function RequirementDetail() {
   const requirement = detail.requirement
   const approval = detail.approval
   const canEdit = !detail.latest_execution_id && ['draft', 'ready', 'blocked', 'needs_revision'].includes(requirement.status)
+  const showApprovalNotice = approval.approval_status === 'pending_approval' || approval.approval_status === 'rejected'
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
@@ -206,6 +196,18 @@ export default function RequirementDetail() {
           </div>
         }
       >
+        {showApprovalNotice ? (
+          <div
+            data-testid="requirement-approval-notice"
+            className="mb-5 rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone="blocked">{approval.approval_decision}</StateBadge>
+              {approval.required_approver_roles.length ? <span>需要角色：{approval.required_approver_roles.join(' / ')}</span> : null}
+            </div>
+            {approval.approval_reason ? <div className="mt-2">{approval.approval_reason}</div> : null}
+          </div>
+        ) : null}
         {isEditing ? (
           <div className="grid gap-4 md:grid-cols-2">
             <div>
@@ -246,88 +248,38 @@ export default function RequirementDetail() {
               <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
               <StateBadge tone="muted">{requirement.priority}</StateBadge>
               <StateBadge tone="muted">{requirement.source}</StateBadge>
-            </div>
-            <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-3">
-              <div>target: {requirement.target_projects.join(', ') || '-'}</div>
-              <div>approval: {approval.approval_decision}</div>
-              <div>latest execution: {detail.latest_execution_id ?? '-'}</div>
-              <div>latest release: {detail.latest_release_id ?? '-'}</div>
-              <div>created: {formatTime(requirement.created_at)}</div>
-              <div>updated: {formatTime(requirement.updated_at)}</div>
+              {requirement.target_projects.length ? <StateBadge tone="muted">{requirement.target_projects[0]}</StateBadge> : null}
             </div>
           </>
         )}
       </SectionFrame>
 
-      <div className="grid gap-[var(--ops-section-gap)] xl:grid-cols-[minmax(0,1.45fr),minmax(300px,var(--ops-inspector-width))]">
-        <div className="space-y-[var(--ops-section-gap)]">
-          <SectionFrame eyebrow="Intent" title="需求意图">
-            {isEditing ? (
-              <textarea
-                data-testid="edit-requirement-description"
-                className="min-h-[220px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
-                value={form.description_markdown}
-                onChange={(event) => setForm((current) => ({ ...current, description_markdown: event.target.value }))}
-              />
-            ) : (
-              <Markdown value={requirement.description_markdown} />
-            )}
-          </SectionFrame>
+      <div className="space-y-[var(--ops-section-gap)]">
+        <SectionFrame eyebrow="Intent" title="需求意图">
+          {isEditing ? (
+            <textarea
+              data-testid="edit-requirement-description"
+              className="min-h-[220px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+              value={form.description_markdown}
+              onChange={(event) => setForm((current) => ({ ...current, description_markdown: event.target.value }))}
+            />
+          ) : (
+            <Markdown value={requirement.description_markdown} />
+          )}
+        </SectionFrame>
 
-          <SectionFrame eyebrow="Acceptance" title="验收标准">
-            {isEditing ? (
-              <textarea
-                className="min-h-[180px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
-                value={form.acceptance_criteria_markdown}
-                onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))}
-              />
-            ) : (
-              <Markdown value={requirement.acceptance_criteria_markdown} />
-            )}
-          </SectionFrame>
-        </div>
-
-        <div className="space-y-[var(--ops-section-gap)]">
-          <InspectorRail eyebrow="Approval" title="执行许可">
-            <div className="flex flex-wrap gap-2">
-              <StateBadge tone={approvalTone(approval.approval_status)}>{approval.approval_decision}</StateBadge>
-              {approval.approval_source ? <StateBadge tone="muted">{approval.approval_source}</StateBadge> : null}
-            </div>
-            <div>
-              <FieldLabel>Reason</FieldLabel>
-              <div className="mt-2 leading-6 text-[color:var(--ops-text-muted)]">{approval.approval_reason || '当前没有审批说明。'}</div>
-            </div>
-            <div>
-              <FieldLabel>Roles</FieldLabel>
-              <div className="mt-2 text-[color:var(--ops-text-muted)]">{approval.required_approver_roles.join(', ') || '-'}</div>
-            </div>
-            <div>
-              <FieldLabel>Risk Flags</FieldLabel>
-              <div className="mt-2 text-[color:var(--ops-text-muted)]">{approval.risk_flags.join(', ') || 'none'}</div>
-            </div>
-            <div>
-              <FieldLabel>Bridge</FieldLabel>
-              <div className="mt-2 leading-6 text-[color:var(--ops-text-muted)]">
-                submit 是 requirement 进入 execution 的唯一正式桥接点。低风险自动放行并自动启动，高风险停在这里等待人工批准。
-              </div>
-            </div>
-          </InspectorRail>
-
-          <InspectorRail eyebrow="Policy" title="策略摘要">
-            {detail.policy_summary_markdown.trim() ? <Markdown value={detail.policy_summary_markdown} /> : <EmptyPane>当前没有策略摘要。</EmptyPane>}
-          </InspectorRail>
-
-          <InspectorRail eyebrow="Links" title="执行 / 发布跳转">
-            <div>
-              <FieldLabel>Execution</FieldLabel>
-              <div className="mt-2 text-[color:var(--ops-text-muted)]">latest execution #{detail.latest_execution_id ?? '-'}</div>
-            </div>
-            <div>
-              <FieldLabel>Release</FieldLabel>
-              <div className="mt-2 text-[color:var(--ops-text-muted)]">latest release #{detail.latest_release_id ?? '-'}</div>
-            </div>
-          </InspectorRail>
-        </div>
+        <SectionFrame eyebrow="Acceptance" title="验收标准">
+          {isEditing ? (
+            <textarea
+              data-testid="edit-requirement-acceptance"
+              className="min-h-[180px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+              value={form.acceptance_criteria_markdown}
+              onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))}
+            />
+          ) : (
+            <Markdown value={requirement.acceptance_criteria_markdown} />
+          )}
+        </SectionFrame>
       </div>
     </div>
   )

@@ -17,6 +17,7 @@
 - [ ] This page has one clear primary workspace instead of multiple competing focal blocks.
 - [ ] This PR does not put a long-lived create/edit form inline on a list page when `Toolbar + Drawer` would fit.
 - [ ] If this is a list page, create/edit actions use the standard drawer pattern unless there is a documented quick-edit exception.
+- [ ] This PR does not introduce browser-native `alert / confirm`; destructive actions use the shared confirm dialog and lightweight feedback uses toast.
 
 ## Structure Checks
 

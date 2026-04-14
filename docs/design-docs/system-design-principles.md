@@ -181,6 +181,7 @@ Release 负责：
 6. 新 UI 必须优先复用统一的 workbench shell、section、inspector、activity feed 和 state badge 结构。
 7. 列表页默认不承载常驻 create/edit 大表单；新增与编辑应优先采用 `Toolbar + Drawer` 模式。
 8. Requirement create 只采集最小 intent；acceptance 默认由 agent 在创建后生成，并允许在详情页修订。
+9. 禁止继续使用浏览器原生 `alert / confirm`；危险操作必须使用统一确认弹窗，成功/失败反馈优先使用统一 toast。
 
 ## 13. 前端防回潮约束
 
