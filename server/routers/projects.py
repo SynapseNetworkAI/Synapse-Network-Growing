@@ -8,6 +8,7 @@ from server.database import get_db
 from server.schemas import ProjectCreate, ProjectOut, ProjectPatch, ProjectPolicyOut, ProjectPolicyPatch, ProjectWithPolicyOut
 from server.services.projects.policy import project_policy_to_dict
 from server.services.projects.project_center import (
+    archive_project,
     create_project,
     delete_project,
     get_project,
