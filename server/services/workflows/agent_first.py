@@ -712,6 +712,16 @@ def cancel_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     return build_requirement_detail(db, requirement_id)
 
 
+def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    requirement.status = "deleted"
+    requirement.updated_at = utcnow()
+    db.commit()
+    return build_requirement_detail(db, requirement_id)
+
+
 def _shape_decision(db: Session, requirement: RequirementRow) -> dict[str, Any]:
     target_projects = _target_projects_for_requirement(db, requirement)
     description = str(requirement.description_markdown or "")

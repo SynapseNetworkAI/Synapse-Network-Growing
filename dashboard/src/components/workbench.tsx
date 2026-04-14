@@ -198,6 +198,71 @@ export function OverlayDrawer({
   )
 }
 
+export function OverlayModal({
+  open,
+  eyebrow,
+  title,
+  description,
+  actions,
+  onClose,
+  children,
+}: Readonly<{
+  open: boolean
+  eyebrow?: string
+  title: string
+  description?: ReactNode
+  actions?: ReactNode
+  onClose: () => void
+  children: ReactNode
+}>) {
+  return (
+    <div
+      className={cx(
+        'pointer-events-none fixed inset-0 z-40 transition-opacity duration-200',
+        open ? 'opacity-100' : 'opacity-0',
+      )}
+      aria-hidden={!open}
+    >
+      <button
+        type="button"
+        aria-label="关闭浮层"
+        className={cx(
+          'absolute inset-0 bg-slate-950/32 backdrop-blur-[2px] transition-opacity duration-200',
+          open ? 'pointer-events-auto opacity-100' : 'opacity-0',
+        )}
+        onClick={onClose}
+      />
+      <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
+        <section
+          className={cx(
+            'w-full max-w-[980px] translate-y-6 rounded-[calc(var(--ops-radius-shell)-4px)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] shadow-[0_28px_90px_rgba(15,23,42,0.24)] backdrop-blur-xl transition duration-200',
+            open ? 'pointer-events-auto translate-y-0' : '',
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-6 py-5">
+            <div className="min-w-0">
+              {eyebrow ? <div className="text-[11px] uppercase tracking-[0.24em] text-[color:var(--ops-text-caption)]">{eyebrow}</div> : null}
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{title}</h2>
+              {description ? <div className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{description}</div> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {actions}
+              <button
+                type="button"
+                className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]"
+                onClick={onClose}
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-12rem)] overflow-y-auto px-6 py-6">{children}</div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
 export function ActivityFeed({
   eyebrow,
   title,

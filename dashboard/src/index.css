@@ -3,30 +3,32 @@
 @tailwind utilities;
 
 :root {
-  --ops-bg: #edf1f6;
-  --ops-shell-bg: #0f1728;
-  --ops-workspace-bg: rgba(248, 250, 252, 0.92);
-  --ops-panel-subtle: rgba(255, 255, 255, 0.7);
-  --ops-panel-strong: rgba(255, 255, 255, 0.92);
+  --ops-bg: #f5f7fb;
+  --ops-sidebar-bg: #f9fbff;
+  --ops-workspace-bg: #ffffff;
+  --ops-panel-subtle: #ffffff;
+  --ops-panel-strong: #ffffff;
 
   --ops-text-title: #0f172a;
-  --ops-text-body: #243144;
-  --ops-text-muted: #5f6f86;
-  --ops-text-caption: #7f8ca2;
+  --ops-text-body: #233247;
+  --ops-text-muted: #64748b;
+  --ops-text-caption: #94a3b8;
   --ops-text-on-dark: #e8eef8;
 
   --ops-stroke-soft: rgba(148, 163, 184, 0.18);
-  --ops-stroke-strong: rgba(148, 163, 184, 0.32);
-  --ops-focus-ring: rgba(65, 112, 255, 0.28);
+  --ops-stroke-strong: rgba(148, 163, 184, 0.34);
+  --ops-focus-ring: rgba(59, 130, 246, 0.22);
+  --ops-accent-soft: rgba(59, 130, 246, 0.12);
+  --ops-accent-strong: #2563eb;
 
-  --ops-state-ready-bg: rgba(45, 212, 191, 0.12);
-  --ops-state-ready-border: rgba(20, 184, 166, 0.22);
-  --ops-state-ready-text: #0f766e;
-  --ops-state-running-bg: rgba(59, 130, 246, 0.1);
+  --ops-state-ready-bg: rgba(16, 185, 129, 0.12);
+  --ops-state-ready-border: rgba(16, 185, 129, 0.2);
+  --ops-state-ready-text: #047857;
+  --ops-state-running-bg: rgba(59, 130, 246, 0.12);
   --ops-state-running-border: rgba(59, 130, 246, 0.2);
   --ops-state-running-text: #1d4ed8;
   --ops-state-blocked-bg: rgba(248, 113, 113, 0.12);
-  --ops-state-blocked-border: rgba(239, 68, 68, 0.2);
+  --ops-state-blocked-border: rgba(239, 68, 68, 0.22);
   --ops-state-blocked-text: #b91c1c;
   --ops-state-validating-bg: rgba(245, 158, 11, 0.12);
   --ops-state-validating-border: rgba(245, 158, 11, 0.22);
@@ -34,19 +36,11 @@
   --ops-state-delivered-bg: rgba(99, 102, 241, 0.12);
   --ops-state-delivered-border: rgba(99, 102, 241, 0.22);
   --ops-state-delivered-text: #4338ca;
-  --ops-state-failed-bg: rgba(251, 113, 133, 0.12);
-  --ops-state-failed-border: rgba(244, 63, 94, 0.22);
-  --ops-state-failed-text: #be123c;
 
-  --ops-sidebar-width: 284px;
   --ops-inspector-width: 360px;
-  --ops-page-max: 1540px;
-  --ops-content-gutter: 24px;
-  --ops-section-gap: 20px;
-  --ops-radius-panel: 22px;
-  --ops-radius-shell: 28px;
-  --ops-shadow-shell: 0 18px 48px rgba(15, 23, 42, 0.12);
-  --ops-shadow-panel: 0 6px 20px rgba(15, 23, 42, 0.04);
+  --ops-section-gap: 18px;
+  --ops-radius-panel: 18px;
+  --ops-radius-shell: 24px;
 }
 
 html {
@@ -57,11 +51,10 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at top left, rgba(49, 94, 255, 0.12), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 18%),
-    linear-gradient(180deg, #f6f8fb 0%, #edf1f6 100%);
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 24%),
+    linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
   color: var(--ops-text-body);
-  font-family: "Manrope", "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Inter", "IBM Plex Sans", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -71,7 +64,7 @@ body {
 }
 
 ::selection {
-  background: rgba(64, 97, 255, 0.18);
+  background: rgba(59, 130, 246, 0.18);
 }
 
 button,
@@ -84,7 +77,7 @@ textarea {
 input,
 select,
 textarea {
-  background: rgba(255, 255, 255, 0.78);
+  background: white;
   color: var(--ops-text-body);
 }
 
@@ -105,13 +98,13 @@ a:focus-visible {
 
 @layer components {
   .ops-shell {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.42));
-    border: 1px solid rgba(255, 255, 255, 0.75);
-    box-shadow: var(--ops-shadow-shell);
-    backdrop-filter: blur(24px);
+    background: white;
+    border: 1px solid var(--ops-stroke-soft);
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.04);
   }
 
   .ops-section-frame {
-    box-shadow: var(--ops-shadow-panel);
+    background: white;
+    box-shadow: none;
   }
 }

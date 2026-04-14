@@ -9,6 +9,7 @@ import ErrorsPage from '../src/pages/ErrorsPage'
 const mockApi = {
   getRequirements: vi.fn(),
   createRequirement: vi.fn(),
+  deleteRequirement: vi.fn(),
   updateRequirement: vi.fn(),
   submitRequirement: vi.fn(),
   createExecution: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../src/api', () => ({
   api: {
     getRequirements: (...args: unknown[]) => mockApi.getRequirements(...args),
     createRequirement: (...args: unknown[]) => mockApi.createRequirement(...args),
+    deleteRequirement: (...args: unknown[]) => mockApi.deleteRequirement(...args),
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
     submitRequirement: (...args: unknown[]) => mockApi.submitRequirement(...args),
     createExecution: (...args: unknown[]) => mockApi.createExecution(...args),
@@ -126,11 +128,12 @@ describe('agent-first pages smoke', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(mockApi.getRequirements).toHaveBeenCalled())
-    expect(screen.getByText('需求面')).toBeInTheDocument()
+    expect(screen.getByText('需求列表')).toBeInTheDocument()
     expect(screen.getByText('Launch FAQ')).toBeInTheDocument()
   })
 
   it('opens create and edit requirement drawers from the toolbar', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockApi.createRequirement.mockResolvedValue({
       requirement: {
         id: 2,
@@ -186,27 +189,30 @@ describe('agent-first pages smoke', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建需求' }))
     expect(screen.getByRole('heading', { name: '新建需求' })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByPlaceholderText('用结果描述 requirement'), {
+    fireEvent.change(screen.getByPlaceholderText('输入需求标题'), {
       target: { value: 'Improve Queue Copy' },
     })
-    fireEvent.change(screen.getByPlaceholderText('为什么做、要做到什么、主要约束是什么'), {
+    fireEvent.change(screen.getByPlaceholderText('输入需求描述'), {
       target: { value: 'Tighten the requirement queue copy.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '创建需求' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(mockApi.createRequirement).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByRole('heading', { name: '新建需求' })).not.toBeInTheDocument())
 
-    const editButton = screen.getByRole('button', { name: '编辑需求' })
+    const editButton = screen.getAllByRole('button', { name: '编辑' })[0]
     expect(editButton).toBeEnabled()
     fireEvent.click(editButton)
     expect(screen.getByRole('heading', { name: '编辑需求' })).toBeInTheDocument()
     fireEvent.change(screen.getByDisplayValue('Launch FAQ'), {
       target: { value: 'Launch FAQ Updated' },
     })
-    fireEvent.click(screen.getByRole('button', { name: '保存更新' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(mockApi.updateRequirement).toHaveBeenCalledWith(1, expect.objectContaining({ title: 'Launch FAQ Updated' })))
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(mockApi.deleteRequirement).toHaveBeenCalledWith(1))
   })
 
   it('renders execution surface', async () => {
@@ -216,7 +222,7 @@ describe('agent-first pages smoke', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
-    expect(screen.getByText('执行面')).toBeInTheDocument()
+    expect(screen.getByText('执行列表')).toBeInTheDocument()
     expect(screen.getByText('Execution #11')).toBeInTheDocument()
   })
 
@@ -227,7 +233,7 @@ describe('agent-first pages smoke', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(mockApi.getReleaseCandidates).toHaveBeenCalled())
-    expect(screen.getByText('发布面')).toBeInTheDocument()
+    expect(screen.getByText('发布列表')).toBeInTheDocument()
     expect(screen.getByText(/Launch FAQ/)).toBeInTheDocument()
   })
 
@@ -238,7 +244,7 @@ describe('agent-first pages smoke', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(mockApi.getErrors).toHaveBeenCalled())
-    expect(screen.getByText('错误日志')).toBeInTheDocument()
+    expect(screen.getByText('错误列表')).toBeInTheDocument()
     expect(screen.getByText('Synapse Gateway')).toBeInTheDocument()
   })
 })

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ExecutionRun, api } from '../api'
-import { EmptyPane, FieldLabel, InspectorRail, SectionFrame, StateBadge } from '../components/workbench'
+import { EmptyPane, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
@@ -50,7 +50,7 @@ export default function ExecutionsPage() {
     const needle = search.trim().toLowerCase()
     if (!needle) return executions
     return executions.filter((item) =>
-      [String(item.id), String(item.requirement_id), item.execution_mode, item.complexity, item.planner_summary || '', item.target_projects.join('\n')]
+      [String(item.id), String(item.requirement_id), item.execution_mode, item.complexity, item.target_projects.join('\n')]
         .join('\n')
         .toLowerCase()
         .includes(needle),
@@ -58,99 +58,89 @@ export default function ExecutionsPage() {
   }, [executions, search])
 
   return (
-    <div className="space-y-[var(--ops-section-gap)]" data-testid="executions-page">
-      <SectionFrame
-        eyebrow="Execution Console"
-        title="执行面"
-        description="执行面聚焦 agent 的实际工作面：执行模式、运行时、验证结果和恢复信号。"
-        actions={
-          <div className="flex items-center gap-3">
+    <div className="space-y-5" data-testid="executions-page">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Executions</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">执行列表</h2>
+          </div>
+          <div className="flex items-center gap-2">
             <input
-              className="w-72 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
-              placeholder="搜索 execution / requirement / target"
+              className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
+              placeholder="搜索 execution / requirement"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2.5 text-sm font-medium text-white" onClick={() => load().catch(() => {})}>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
               刷新
             </button>
           </div>
-        }
-      >
-        <div className="grid gap-4 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-3">
-          <div>
-            <FieldLabel>默认流</FieldLabel>
-            <div className="mt-2">{'intake -> execute -> validate -> deliver'}</div>
-          </div>
-          <div>
-            <FieldLabel>主工作区</FieldLabel>
-            <div className="mt-2">Execution graph、evidence、checks 和 incidents。</div>
-          </div>
-          <div>
-            <FieldLabel>治理边界</FieldLabel>
-            <div className="mt-2">submit 放行后 execution 默认自动启动；这里主要负责观察、恢复和 validate。</div>
-          </div>
         </div>
-      </SectionFrame>
+      </section>
 
-      <SectionFrame eyebrow="Runs" title="执行队列" description={loading ? '正在拉取 execution run…' : `${filtered.length} 个 execution run`}>
-        <div className="mt-4 grid gap-4">
-          {filtered.map((item) => (
-            <article key={item.id} className="border-b border-[color:var(--ops-stroke-soft)] pb-5 last:border-b-0 last:pb-0">
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr),320px]">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="text-lg font-semibold text-[color:var(--ops-text-title)]">Execution #{item.id}</h4>
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse">
+            <thead className="bg-slate-50/90">
+              <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                <th className="px-5 py-4 font-medium">Execution</th>
+                <th className="px-4 py-4 font-medium">状态</th>
+                <th className="px-4 py-4 font-medium">模式</th>
+                <th className="px-4 py-4 font-medium">复杂度</th>
+                <th className="px-4 py-4 font-medium">验证</th>
+                <th className="px-4 py-4 font-medium">更新时间</th>
+                <th className="px-5 py-4 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => (
+                <tr key={item.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                  <td className="px-5 py-4">
+                    <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">Execution #{item.id}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Requirement #{item.requirement_id}</div>
+                  </td>
+                  <td className="px-4 py-4">
                     <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
-                    <StateBadge tone="muted">{item.execution_mode}</StateBadge>
-                    <StateBadge tone="muted">{item.complexity}</StateBadge>
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.planner_summary || 'No planner summary'}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
-                      查看需求
-                    </button>
-                    <button className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white" onClick={() => navigate(`/executions/${item.id}`)}>
-                      打开执行面
-                    </button>
-                    {(item.status === 'queued' || item.status === 'paused' || item.status === 'blocked') && (
-                      <button
-                        className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)]"
-                        onClick={async () => {
-                          await api.startExecution(item.id)
-                          await load()
-                        }}
-                      >
-                        {item.status === 'paused' ? '恢复执行' : '恢复/重启执行'}
+                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.execution_mode}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.complexity}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.validation_profile}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
+                  <td className="px-5 py-4">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
+                        需求
                       </button>
-                    )}
-                  </div>
-                </div>
-                <InspectorRail eyebrow={`Requirement #${item.requirement_id}`} title="Run Summary" className="bg-transparent shadow-none">
-                  <div>
-                    <FieldLabel>Targets</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.target_projects.join(', ') || '-'}</div>
-                  </div>
-                  <div>
-                    <FieldLabel>Validation / Delivery</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.validation_profile} · {item.delivery_intent}</div>
-                  </div>
-                  <div>
-                    <FieldLabel>Approval</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{item.approval_required ? 'required' : 'waived'}</div>
-                  </div>
-                  <div>
-                    <FieldLabel>Updated</FieldLabel>
-                    <div className="mt-2 text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</div>
-                  </div>
-                </InspectorRail>
-              </div>
-            </article>
-          ))}
-
-          {!loading && filtered.length === 0 && <EmptyPane>当前没有 execution run。</EmptyPane>}
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
+                        查看
+                      </button>
+                      {(item.status === 'queued' || item.status === 'paused' || item.status === 'blocked') && (
+                        <button
+                          type="button"
+                          className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
+                          onClick={async () => {
+                            await api.startExecution(item.id)
+                            await load()
+                          }}
+                        >
+                          启动
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </SectionFrame>
+
+        {!loading && filtered.length === 0 && (
+          <div className="p-6">
+            <EmptyPane>暂无 execution。</EmptyPane>
+          </div>
+        )}
+      </section>
     </div>
   )
 }
