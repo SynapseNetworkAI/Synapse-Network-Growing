@@ -63,6 +63,21 @@ const baseDetail = {
   latest_execution_id: null,
   latest_release_id: null,
   policy_summary_markdown: '',
+  acceptance_contract: {
+    done_criteria: ['Traceback no longer appears in runtime intake flow.'],
+    verification_checks: [{ label: 'Run targeted regression check', command: 'pytest tests/test_runtime.py', kind: 'command' }],
+    scope_constraints: ['Keep changes scoped to the runtime intake path.'],
+    delivery_expectation: 'Prepare a PR-ready delivery record.',
+    markdown: '### Done Criteria\n- Traceback no longer appears in runtime intake flow.',
+  },
+  execution_plan: {
+    planning_mode: 'full_plan',
+    goal_summary: 'Bug Fix: Runtime traceback detected',
+    summary_markdown: '## Goal\n\nFix the runtime traceback surfaced by the intake pipeline.\n\n## Planned Steps\n\n1. Patch the failing runtime path\n   - Done when: traceback path is closed.',
+    steps: [{ step_key: 'patch_runtime', title: 'Patch the failing runtime path', done_when: 'traceback path is closed.' }],
+    planned_checks: ['Run `pytest tests/test_runtime.py`'],
+    risks: ['Avoid changing unrelated projects.'],
+  },
   project: {
     id: 3,
     project_key: 'synapse-network-growing',
@@ -109,6 +124,9 @@ describe('RequirementDetail SaaS editing', () => {
     expect(screen.queryByText('策略摘要')).not.toBeInTheDocument()
     expect(screen.queryByText('执行 / 发布跳转')).not.toBeInTheDocument()
     expect(screen.queryByTestId('requirement-approval-notice')).not.toBeInTheDocument()
+    expect(screen.getByText('执行计划')).toBeInTheDocument()
+    expect(screen.getByText('Traceback no longer appears in runtime intake flow.')).toBeInTheDocument()
+    expect(screen.getByText('Patch the failing runtime path')).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('toggle-edit-requirement-btn'))
     fireEvent.change(screen.getByTestId('edit-requirement-title'), { target: { value: 'Bug Fix: Traceback removed' } })
@@ -117,6 +135,7 @@ describe('RequirementDetail SaaS editing', () => {
     fireEvent.change(screen.getByTestId('edit-requirement-priority'), { target: { value: 'normal' } })
     fireEvent.change(screen.getByTestId('edit-requirement-description'), { target: { value: 'Updated description' } })
     fireEvent.change(screen.getByTestId('edit-requirement-acceptance'), { target: { value: '- Updated acceptance' } })
+    fireEvent.change(screen.getByTestId('edit-requirement-plan'), { target: { value: '## Goal\n\nUpdated plan body.' } })
     fireEvent.click(screen.getByTestId('save-requirement-btn'))
 
     await waitFor(() =>
@@ -126,6 +145,9 @@ describe('RequirementDetail SaaS editing', () => {
           title: 'Bug Fix: Traceback removed',
           description_markdown: 'Updated description',
           acceptance_criteria_markdown: '- Updated acceptance',
+          execution_plan: expect.objectContaining({
+            summary_markdown: '## Goal\n\nUpdated plan body.',
+          }),
           priority: 'normal',
           project_id: 3,
           target_project_path_override: '/tmp/project-a',

@@ -15,18 +15,19 @@
 1. Requirement 列表、搜索、状态筛选。
 2. 新建 requirement。
    - 最小输入为标题、所属项目、需求描述、优先级。
-   - 验收标准默认由 agent 创建后自动生成。
+   - 验收标准默认由 agent 创建后自动生成真实 acceptance contract。
 3. 编辑 requirement。
    - 仅未进入 execution 主链的 requirement 可编辑。
    - 可修改标题、项目、描述、验收标准、优先级与高级路径覆盖。
 4. 删除 requirement。
 5. requirement submit。
    - submit 是 requirement 进入 execution 的唯一正式桥接点。
+   - approval 放行后会先生成 execution plan，再创建并自动启动 execution。
 6. requirement 自动审批与人工审批分流。
-   - 低风险自动批准并自动启动 execution。
+   - 低风险自动批准，并在 plan 生成后自动启动 execution。
    - 高风险停在 requirement 面等待人工批准。
 7. requirement 详情页。
-   - 展示需求意图、验收标准、所属项目。
+   - 展示需求意图、acceptance contract、execution plan、所属项目。
    - 顶部提供执行 / 发布跳转动作。
 
 ## 2. Execution 面
@@ -35,11 +36,19 @@
 
 1. Execution run 列表。
 2. Execution detail。
+   - 顶部展示当前主链 run 的 `agent / backend / provider / model / branch / tokens_used_total / elapsed_ms`
+   - 展示当前 run 关联的 execution plan
+   - Runtime 区展示每个 node / task 的 token、时长和运行时元信息
+   - Files 区展示当前 run 的改动文件
+   - 点击文件可打开预览浮层，默认看 `diff`
+   - Agent Output 区始终展示原始 task 输出
+   - Activity 区展示结构化时间线
 3. 单 requirement 单 execution 主链治理。
 4. queued run 启动。
 5. paused run 恢复。
 6. failed / blocked run 通过 `retry` 创建新 run。
 7. validate。
+   - 默认读取 acceptance contract 中的 verification checks。
 8. execution evidence、validation summary、incident 展示。
 9. 运行态清理脚本：
 
@@ -100,6 +109,7 @@
 4. 同一 fingerprint 只允许一条未完成 requirement。
 5. 错误自动回流为 requirement。
 6. 回流 requirement 自动 submit 并进入审批 / execution 主链。
+   - 自动审批放行后同样先生成 execution plan，再自动执行。
 7. 错误、执行失败、PR 打开等 Lark 通知。
 
 ## 6. 审批与治理

@@ -191,6 +191,7 @@ class RequirementRow(Base):
     target_project_path = Column(Text)
     target_project_path_override = Column(Text)
     acceptance_contract_json = Column(Text, nullable=False, default="{}")
+    execution_plan_json = Column(Text, nullable=False, default="{}")
     approval_status = Column(Text, nullable=False, default="pending_approval")
     approval_contract_json = Column(Text, nullable=False, default="{}")
     approval_requested_at = Column(DateTime)
@@ -702,6 +703,7 @@ class ExecutionRunRow(Base):
     delivery_intent = Column(Text, nullable=False, default="pr_required")
     approval_required = Column(Boolean, nullable=False, default=False)
     planner_summary = Column(Text)
+    plan_snapshot_json = Column(Text, nullable=False, default="{}")
     target_projects_json = Column(Text, nullable=False, default="[]")
     latest_task_id = Column(Integer, ForeignKey("tasks.id"))
     started_at = Column(DateTime)
@@ -971,6 +973,11 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE requirements ADD COLUMN acceptance_contract_json TEXT DEFAULT '{}'"))
                 conn.commit()
+        if "execution_plan_json" not in existing:
+            logger.info("Migrating: adding 'execution_plan_json' column to requirements table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE requirements ADD COLUMN execution_plan_json TEXT DEFAULT '{}'"))
+                conn.commit()
         if "approval_status" not in existing:
             logger.info("Migrating: adding 'approval_status' column to requirements table")
             with engine_.connect() as conn:
@@ -1062,6 +1069,13 @@ def _migrate(engine_):
     if "execution_runs" not in tables:
         logger.info("Migrating: creating 'execution_runs' table")
         ExecutionRunRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("execution_runs")}
+        if "plan_snapshot_json" not in existing:
+            logger.info("Migrating: adding 'plan_snapshot_json' column to execution_runs table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE execution_runs ADD COLUMN plan_snapshot_json TEXT DEFAULT '{}'"))
+                conn.commit()
 
     if "execution_nodes" not in tables:
         logger.info("Migrating: creating 'execution_nodes' table")

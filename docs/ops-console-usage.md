@@ -87,9 +87,9 @@ intake -> execute -> validate -> deliver
 1. 从工具条打开 `新建需求` 浮层
 2. 从工具条或列表项打开 `编辑需求` Drawer
 3. 提交 requirement
-4. 低风险 requirement 自动进入 execution；高风险 requirement 在需求面等待人工批准
+4. 低风险 requirement 会先生成 execution plan，再自动进入 execution；高风险 requirement 在需求面等待人工批准
 5. 跳转到 release 面
-6. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批与执行
+6. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
 
 #### 后端接口
 
@@ -105,10 +105,10 @@ intake -> execute -> validate -> deliver
 #### 推荐使用方式
 
 1. 标题写结果，不写动作口号
-2. 描述里明确目标与约束；验收标准由 agent 创建后立即生成
+2. 描述里明确目标与约束；验收标准由 agent 创建后立即生成真实 acceptance contract
 3. requirement 必须先选择正式 `Project`
 4. 路径覆盖只在高级场景使用，不再把裸 `target_project_path` 当作主输入
-5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点
+5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点，并会先生成 execution plan
 6. 只有恢复/调试场景才手动创建 execution run
 7. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
 
@@ -121,12 +121,12 @@ intake -> execute -> validate -> deliver
 #### 页面布局
 
 1. 页面收敛成单列主内容
-2. 主工作区展示 intent 和 agent 生成的 acceptance
+2. 主工作区展示 intent、agent 生成的 acceptance contract 与 execution plan
 3. 编辑只在未执行 requirement 上开放
 
 #### 页面内容
 
-1. 标题、描述、验收条件
+1. 标题、描述、验收契约、执行计划
 2. 所属项目 / source / priority
 3. 顶部执行 / 发布动作
 4. 仅在人工审批场景显示审批提示
@@ -139,7 +139,7 @@ intake -> execute -> validate -> deliver
 
 #### 推荐使用方式
 
-1. 先确认 intent 与 acceptance 写对
+1. 先确认 intent、acceptance contract 与 execution plan 写对
 2. 再跳去 execution 看 agent 执行
 3. validate 成功后再跳去 release 做交付与发布
 
@@ -180,20 +180,27 @@ Execution detail 是当前唯一 execution 主链的工作面。
 
 #### 页面布局
 
-1. 顶部是 run header 与控制动作
-2. 主工作区展示 execution graph 与 validation evidence
-3. 右侧 inspector 展示 run summary
-4. activity 区展示 incidents / recovery 信号
+1. 顶部是 run header、KPI 与控制动作
+2. Execution Plan 区展示当前 run 的计划摘要
+3. Runtime 区展示当前 run 的 node / task 表格
+4. Files 区展示当前 run 的改动文件
+5. Validation 区展示当前 run 的验证记录
+6. Agent Output 区始终展示原始执行输出
+7. Activity 区展示 lifecycle 时间线与 incidents
 
 #### 页面内容
 
 1. execution status
 2. execution mode / complexity / validation profile
-3. execution nodes
-4. agent summary
-5. changed files / command evidence
-6. validation result
-7. incidents
+3. 当前 agent / backend / provider / model
+4. 当前 branch / 总 token / 执行时长
+5. execution nodes runtime table
+6. execution plan
+7. changed files / command evidence
+8. validation result
+9. agent 原始输出
+10. activity timeline
+11. incidents
 
 #### 典型动作
 
@@ -201,15 +208,18 @@ Execution detail 是当前唯一 execution 主链的工作面。
 2. 继续 paused execution
 3. 对 failed / blocked execution 创建新 run 重试
 4. 触发 validate
+5. 打开改动文件预览，默认先看 `diff`
+6. 当结构化 summary 不足时，直接查看 agent 原始输出确认实际执行结果
 
 #### 后端接口
 
 1. `GET /api/executions/{id}`
-2. `POST /api/executions/{id}/start`
-3. `POST /api/executions/{id}/pause`
-4. `POST /api/executions/{id}/resume`
-5. `POST /api/executions/{id}/retry`
-6. `POST /api/executions/{id}/validate`
+2. `GET /api/executions/{id}/files/{encoded_path}`
+3. `POST /api/executions/{id}/start`
+4. `POST /api/executions/{id}/pause`
+5. `POST /api/executions/{id}/resume`
+6. `POST /api/executions/{id}/retry`
+7. `POST /api/executions/{id}/validate`
 
 #### 推荐使用方式
 
@@ -217,6 +227,8 @@ Execution detail 是当前唯一 execution 主链的工作面。
 2. 对复杂任务，才会看到 execution graph
 3. validate 失败时，关注 bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
 4. `retry` 会创建新的 execution run；旧 run 不会复活
+5. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
+6. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
 
 ## 4. 发布面
 
@@ -376,8 +388,8 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 推荐操作顺序：
 
 1. 在 `/requirements` 创建 requirement
-2. 在 `/requirements/:id` 检查 intent 与 acceptance
-3. `submit` requirement，低风险会自动审批并自动启动 execution
+2. 在 `/requirements/:id` 检查 intent、acceptance contract 与 execution plan
+3. `submit` requirement，低风险会自动审批、先生成 plan，再自动启动 execution
 4. 在 `/executions/:id` 观察执行与 validate
 5. validate 成功后，在 `/releases/:requirementId` 做 PR / deploy / rollback
 6. 如果来自错误回流，可在 `/errors` 追踪 fingerprint 与通知历史
@@ -388,7 +400,7 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 
 1. 创建一条 requirement
 2. 提交 requirement
-3. 确认自动进入 execution 或进入人工审批
+3. 确认自动生成 execution plan，并进入 execution 或人工审批
 4. 在执行页继续观察运行状态
 5. 触发 validate
 6. 确认 release candidate 出现在 `/releases`

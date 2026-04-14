@@ -15,6 +15,11 @@ DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
     "acceptance_trigger": "implementation_completed",
     "workflow_step_types": ["review", "test", "closeout"],
     "required_evidence_artifact_types": ["project_change_summary", "validation_plan"],
+    "done_criteria": [],
+    "verification_checks": [],
+    "scope_constraints": [],
+    "delivery_expectation": "",
+    "markdown": "",
 }
 
 
@@ -43,6 +48,32 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
                 payload[key] = values
+        for key in {"done_criteria", "scope_constraints"}:
+            values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
+            if values:
+                payload[key] = values
+        verification_checks: list[dict[str, Any]] = []
+        for item in raw.get("verification_checks") or []:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label:
+                continue
+            verification_checks.append(
+                {
+                    "label": label,
+                    "command": str(item.get("command") or "").strip() or None,
+                    "kind": str(item.get("kind") or "evidence").strip() or "evidence",
+                }
+            )
+        if verification_checks:
+            payload["verification_checks"] = verification_checks
+        delivery_expectation = str(raw.get("delivery_expectation") or "").strip()
+        if delivery_expectation:
+            payload["delivery_expectation"] = delivery_expectation
+        markdown = str(raw.get("markdown") or "").strip()
+        if markdown:
+            payload["markdown"] = markdown
     return payload
 
 

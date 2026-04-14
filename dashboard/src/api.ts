@@ -833,6 +833,45 @@ export interface AgentRequirementApproval {
   execution_run_id: number | null
 }
 
+export interface AcceptanceContractCheck {
+  label: string
+  command: string | null
+  kind: string
+}
+
+export interface AcceptanceContract {
+  acceptance_owner_role?: string
+  review_owner_role?: string
+  acceptance_mode?: string
+  acceptance_trigger?: string
+  workflow_step_types?: string[]
+  required_evidence_artifact_types?: string[]
+  done_criteria?: string[]
+  verification_checks?: AcceptanceContractCheck[]
+  scope_constraints?: string[]
+  delivery_expectation?: string
+  markdown?: string
+}
+
+export interface ExecutionPlanStep {
+  step_key: string
+  title: string
+  step_type?: string
+  scope?: string
+  done_when?: string
+}
+
+export interface ExecutionPlan {
+  planning_mode?: string
+  goal_summary?: string
+  summary_markdown?: string
+  target_files_or_areas?: string[]
+  steps?: ExecutionPlanStep[]
+  planned_checks?: string[]
+  risks?: string[]
+  delivery_intent?: string
+}
+
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
   policy_summary_markdown: string
@@ -840,6 +879,8 @@ export interface AgentRequirementDetail {
   latest_execution_id: number | null
   latest_release_id: number | null
   approval: AgentRequirementApproval
+  acceptance_contract: AcceptanceContract
+  execution_plan: ExecutionPlan
 }
 
 export interface ExecutionNode {
@@ -853,9 +894,13 @@ export interface ExecutionNode {
   sequence_no: number
   task_id: number | null
   task_status: string | null
+  agent_id: string | null
+  agent_label: string | null
   runtime_backend: string | null
   runtime_provider: string | null
   runtime_model: string | null
+  tokens_used: number | null
+  elapsed_ms: number | null
   summary_markdown: string | null
   started_at: string | null
   completed_at: string | null
@@ -893,10 +938,51 @@ export interface ExecutionRun {
   planner_summary: string | null
   target_projects: string[]
   latest_task_id: number | null
+  agent_id: string | null
+  agent_label: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  tokens_used_total: number | null
+  elapsed_ms: number | null
+  current_branch: string | null
   started_at: string | null
   completed_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface ExecutionChangedFile {
+  path: string
+  change_type: string
+  additions: number
+  deletions: number
+  preview_available: boolean
+}
+
+export interface ExecutionFilePreview {
+  path: string
+  diff_patch: string | null
+  current_content: string | null
+  truncated: boolean
+}
+
+export interface ExecutionRuntimeSummary {
+  tokens_used_total: number | null
+  elapsed_ms: number | null
+  agent_id: string | null
+  agent_label: string | null
+  runtime_backend: string | null
+  runtime_provider: string | null
+  runtime_model: string | null
+  current_branch: string | null
+}
+
+export interface ExecutionActivityEvent {
+  ts: string | null
+  event: string
+  status: string | null
+  message: string
 }
 
 export interface ExecutionDetail {
@@ -904,7 +990,14 @@ export interface ExecutionDetail {
   requirement: AgentRequirement
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
+  changed_files: ExecutionChangedFile[]
+  runtime_summary: ExecutionRuntimeSummary | null
+  delivery_summary: ReleaseRecord | null
+  activity_stream: ExecutionActivityEvent[]
   incidents: Array<Record<string, unknown>>
+  plan_summary: ExecutionPlan
+  raw_task_output: string | null
+  raw_task_output_truncated: boolean
 }
 
 export interface ReleaseRecord {
@@ -1581,6 +1674,8 @@ export const api = {
     title?: string
     description_markdown?: string
     acceptance_criteria_markdown?: string
+    acceptance_contract?: AcceptanceContract
+    execution_plan?: ExecutionPlan
     priority?: string
     project_id?: number
     target_project_path_override?: string | null
@@ -1605,6 +1700,8 @@ export const api = {
   createExecution: (data: { requirement_id: number }) =>
     request<ExecutionDetail>('/executions', { method: 'POST', body: JSON.stringify(data) }),
   getExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}`),
+  getExecutionFilePreview: (id: number, filePath: string) =>
+    request<ExecutionFilePreview>(`/executions/${id}/files/${encodeURIComponent(filePath)}`),
   startExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/start`, { method: 'POST' }),
   pauseExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/pause`, { method: 'POST' }),
   resumeExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/resume`, { method: 'POST' }),

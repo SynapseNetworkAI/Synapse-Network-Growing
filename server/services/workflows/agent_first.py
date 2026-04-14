@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from sqlalchemy.orm import Session
 
 from server.config import ORCHESTRATION_BACKEND, PROJECT_ROOT
 from server.database import (
+    AgentRow,
     ApprovalRequestRow,
     DeploymentRecordRow,
     ExecutionNodeRow,
@@ -27,7 +29,11 @@ from server.schemas import (
     AgentFirstRequirementApprovalOut,
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
+    ExecutionActivityEventOut,
+    ExecutionChangedFileOut,
+    ExecutionFilePreviewOut,
     ExecutionNodeOut,
+    ExecutionRuntimeSummaryOut,
     ExecutionRunDetailOut,
     ExecutionRunOut,
     ReleaseCandidateOut,
@@ -51,15 +57,28 @@ from server.services.projects.policy import (
     resolve_project_policies_for_target,
 )
 from server.services.projects.project_center import ensure_projects_materialized, get_project, project_to_dict, resolve_project
+from server.services.requirements.acceptance import normalize_acceptance_contract
 from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
 from server.services.runtime.task_runner import dispatch
 from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
     normalize_requirement_approval_status,
 )
+from server.services.workflows.planner import build_planner_output
+from server.services.workflows.planner_provider import call_full_plan_provider, planner_model_name, planner_provider_name
+from server.services.workflows.orchestrator.file_changes import (
+    _load_task_file_changes,
+    _normalize_task_file_change_payload,
+    _task_changed_files_from_payload,
+)
 from server.services.workflows.orchestrator import pause_task as pause_legacy_task
+from server.services.agents.llm_adapter import get_provider
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
+
+
+def _testing_mode() -> bool:
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def _json_load(raw: str | None, fallback: Any) -> Any:
@@ -102,15 +121,185 @@ def _parse_acceptance_markdown(requirement: RequirementRow) -> str:
     return ""
 
 
-def _fallback_acceptance_markdown(*, target_project_path: str | None = None) -> str:
-    scope_hint = Path(target_project_path).name if str(target_project_path or "").strip() else "target project"
-    return "\n".join(
-        [
-            "- The requested outcome is implemented and visible in the relevant surface or API.",
-            "- Validation evidence shows the change works as intended without unrelated regressions.",
-            f"- Changes stay scoped to `{scope_hint}` unless the requirement explicitly asks for broader coordination.",
-        ]
+def _parse_acceptance_contract(requirement: RequirementRow) -> dict[str, Any]:
+    return normalize_acceptance_contract(
+        _json_load(getattr(requirement, "acceptance_contract_json", None), {})
     )
+
+
+def _parse_execution_plan(requirement: RequirementRow) -> dict[str, Any]:
+    payload = _json_load(getattr(requirement, "execution_plan_json", None), {})
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _parse_run_plan_snapshot(run: ExecutionRunRow) -> dict[str, Any]:
+    payload = _json_load(getattr(run, "plan_snapshot_json", None), {})
+    return dict(payload) if isinstance(payload, dict) else {}
+def _acceptance_contract_markdown(payload: dict[str, Any]) -> str:
+    lines: list[str] = []
+    done_criteria = [str(item).strip() for item in payload.get("done_criteria") or [] if str(item).strip()]
+    verification_checks = [
+        item for item in payload.get("verification_checks") or [] if isinstance(item, dict) and str(item.get("label") or "").strip()
+    ]
+    scope_constraints = [str(item).strip() for item in payload.get("scope_constraints") or [] if str(item).strip()]
+    delivery_expectation = str(payload.get("delivery_expectation") or "").strip()
+
+    if done_criteria:
+        lines.append("### Done Criteria")
+        lines.extend([f"- {item}" for item in done_criteria])
+    if verification_checks:
+        if lines:
+            lines.append("")
+        lines.append("### Verification Checks")
+        for item in verification_checks:
+            label = str(item.get("label") or "").strip()
+            command = str(item.get("command") or "").strip()
+            if command:
+                lines.append(f"- {label} (`{command}`)")
+            else:
+                lines.append(f"- {label}")
+    if scope_constraints:
+        if lines:
+            lines.append("")
+        lines.append("### Scope Constraints")
+        lines.extend([f"- {item}" for item in scope_constraints])
+    if delivery_expectation:
+        if lines:
+            lines.append("")
+        lines.append("### Delivery Expectation")
+        lines.append(f"- {delivery_expectation}")
+    return "\n".join(lines).strip()
+
+
+def _fallback_acceptance_contract(
+    *,
+    title: str,
+    description_markdown: str,
+    target_project_path: str | None,
+    required_checks: list[str] | None = None,
+) -> dict[str, Any]:
+    subject = str(title or "").strip() or "this requirement"
+    description = " ".join(str(description_markdown or "").split())
+    scope_hint = Path(target_project_path).name if str(target_project_path or "").strip() else "the target project"
+    checks = [str(item).strip() for item in required_checks or [] if str(item).strip()]
+    contract = normalize_acceptance_contract(
+        {
+            "done_criteria": [
+                f"{subject} is delivered in {scope_hint} and matches the requested outcome.",
+                "The change is observable in code, UI, API behavior, or persisted runtime evidence.",
+                "No unrelated regressions are introduced outside the requested scope.",
+            ],
+            "verification_checks": (
+                [{"label": f"Run `{command}`", "command": command, "kind": "command"} for command in checks]
+                or [{"label": "Review execution evidence and targeted outputs for the requested outcome.", "command": None, "kind": "evidence"}]
+            ),
+            "scope_constraints": [
+                f"Keep edits scoped to `{scope_hint}` unless the requirement explicitly calls for wider coordination.",
+                "Do not introduce unrelated refactors while delivering this requirement.",
+            ],
+            "delivery_expectation": "Prepare a branch and PR-ready delivery record when implementation succeeds.",
+        }
+    )
+    if description:
+        contract["done_criteria"] = list(contract.get("done_criteria") or []) + [f"Delivered behavior satisfies: {description[:220].rstrip(' ,.;')}."]
+    contract["markdown"] = _acceptance_contract_markdown(contract)
+    return contract
+
+
+_ACCEPTANCE_SYSTEM_PROMPT = """You generate requirement acceptance contracts for an agent-driven software delivery system.
+Return strict JSON only with this schema:
+{
+  "done_criteria": ["short, observable completion criteria"],
+  "verification_checks": [
+    {"label": "what to verify", "command": "optional command", "kind": "command|evidence|manual"}
+  ],
+  "scope_constraints": ["scope boundary"],
+  "delivery_expectation": "short delivery expectation"
+}
+
+Rules:
+- Produce 3 to 5 concrete acceptance items total.
+- Focus on outcome and verification, not implementation steps.
+- Keep wording concise and actionable.
+- If the requirement implies repo checks, include explicit commands when known.
+- Do not add markdown fences or commentary.
+"""
+
+
+def _generate_acceptance_contract_with_agent(
+    *,
+    title: str,
+    description_markdown: str,
+    target_project_path: str | None,
+    required_checks: list[str] | None = None,
+) -> dict[str, Any]:
+    if _testing_mode():
+        raise RuntimeError("skip_external_acceptance_generation_during_tests")
+    prompt = "\n".join(
+        [
+            f"Title: {title}",
+            f"Target project path: {target_project_path or '-'}",
+            f"Known required checks: {', '.join(required_checks or []) or 'none'}",
+            "",
+            description_markdown.strip(),
+        ]
+    ).strip()
+    provider_name = planner_provider_name()
+    provider = get_provider(provider_name)
+    model_name = planner_model_name(provider_name)
+    text, _tokens = call_full_plan_provider(
+        provider_name=provider_name,
+        provider=provider,
+        prompt=prompt,
+        model_name=model_name,
+        system_prompt=_ACCEPTANCE_SYSTEM_PROMPT,
+    )
+    payload = json.loads(str(text or "").strip())
+    if not isinstance(payload, dict):
+        raise ValueError("acceptance contract payload must be an object")
+    contract = normalize_acceptance_contract(payload)
+    contract["markdown"] = _acceptance_contract_markdown(contract)
+    return contract
+
+
+def _required_checks_for_target(db: Session, target_project_path: str | None) -> list[str]:
+    policies = resolve_project_policies_for_target(db, target_project_path, require_active=False)
+    commands: list[str] = []
+    seen: set[str] = set()
+    for policy in policies:
+        for command in list(project_policy_to_dict(policy).get("required_checks") or []):
+            cleaned = str(command).strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                commands.append(cleaned)
+    return commands
+
+
+def _acceptance_contract_payload(db: Session, body, *, target_project_path: str | None = None) -> dict[str, Any]:
+    provided_contract = normalize_acceptance_contract(dict(body.acceptance_contract or {}))
+    provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
+    if provided_markdown:
+        provided_contract["markdown"] = provided_markdown
+    if str(provided_contract.get("markdown") or "").strip() and list(provided_contract.get("done_criteria") or []):
+        return provided_contract
+    required_checks = _required_checks_for_target(db, target_project_path or str(getattr(body, "target_project_path", "") or "") or None)
+    try:
+        contract = _generate_acceptance_contract_with_agent(
+            title=str(getattr(body, "title", "") or ""),
+            description_markdown=str(getattr(body, "description_markdown", "") or ""),
+            target_project_path=target_project_path or str(getattr(body, "target_project_path", "") or "") or None,
+            required_checks=required_checks,
+        )
+    except Exception:
+        contract = _fallback_acceptance_contract(
+            title=str(getattr(body, "title", "") or ""),
+            description_markdown=str(getattr(body, "description_markdown", "") or ""),
+            target_project_path=target_project_path or str(getattr(body, "target_project_path", "") or "") or None,
+            required_checks=required_checks,
+        )
+    if provided_markdown:
+        contract["markdown"] = provided_markdown
+    return normalize_acceptance_contract(contract)
 
 
 def _log_workflow_event(
@@ -144,42 +333,6 @@ def _log_workflow_event(
         payload.setdefault("validation_status", str(validation.status or ""))
         payload.setdefault("validation_profile", str(validation.profile or ""))
     log_event(logger, event, **payload)
-
-
-def _generate_acceptance_markdown(*, title: str, description_markdown: str, target_project_path: str | None = None) -> str:
-    """Generate a concise, validate-oriented acceptance contract for newly created requirements."""
-    subject = str(title or "").strip() or "this requirement"
-    description = " ".join(str(description_markdown or "").split())
-    scope_hint = Path(target_project_path).name if str(target_project_path or "").strip() else "the target project"
-    snippet = description[:220].rstrip(" ,.;")
-    bullets = [
-        f"- `{subject}` is complete in {scope_hint}, matching the requested intent.",
-        "- Validate can confirm the outcome through targeted evidence, checks, or an observable UI/API change.",
-        "- No unrelated regressions or off-scope edits are introduced while delivering the requested result.",
-    ]
-    if snippet:
-        bullets.insert(1, f"- The delivered behavior satisfies this requirement summary: {snippet}.")
-    return "\n".join(bullets)
-
-
-def _acceptance_contract_payload(body) -> dict[str, Any]:
-    provided_contract = dict(body.acceptance_contract or {})
-    provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
-    if provided_markdown and not str(provided_contract.get("markdown") or "").strip():
-        provided_contract["markdown"] = provided_markdown
-    if str(provided_contract.get("markdown") or "").strip():
-        return provided_contract
-    try:
-        provided_contract["markdown"] = _generate_acceptance_markdown(
-            title=str(getattr(body, "title", "") or ""),
-            description_markdown=str(getattr(body, "description_markdown", "") or ""),
-            target_project_path=str(getattr(body, "target_project_path", "") or "") or None,
-        )
-    except Exception:
-        provided_contract["markdown"] = _fallback_acceptance_markdown(
-            target_project_path=str(getattr(body, "target_project_path", "") or "") or None,
-        )
-    return provided_contract
 
 
 def _project_for_requirement(db: Session, requirement: RequirementRow) -> ProjectRow | None:
@@ -586,6 +739,8 @@ def _build_requirement_detail(
             requirement,
             latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
         ),
+        acceptance_contract=_parse_acceptance_contract(requirement),
+        execution_plan=_parse_execution_plan(requirement),
     )
 
 
@@ -641,6 +796,7 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         target_project_path_override=str(getattr(body, "target_project_path_override", "") or "").strip() or None,
         acceptance_contract_json=_json_dump(
             _acceptance_contract_payload(
+                db,
                 type(
                     "RequirementAcceptanceSource",
                     (),
@@ -651,9 +807,11 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
                         "description_markdown": getattr(body, "description_markdown", ""),
                         "target_project_path": target_project_path,
                     },
-                )()
+                )(),
+                target_project_path=target_project_path,
             )
         ),
+        execution_plan_json=_json_dump({}),
         approval_status="pending_approval",
         approval_contract_json=_json_dump(body.approval_contract or {}),
     )
@@ -699,6 +857,11 @@ def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequ
                 "markdown": str(body.acceptance_criteria_markdown or "").strip(),
             }
         )
+    if getattr(body, "acceptance_contract", None) is not None:
+        contract = normalize_acceptance_contract(dict(getattr(body, "acceptance_contract", None) or {}))
+        if not str(contract.get("markdown") or "").strip():
+            contract["markdown"] = _acceptance_contract_markdown(contract)
+        requirement.acceptance_contract_json = _json_dump(contract)
     if body.priority is not None:
         requirement.priority = body.priority
     if body.source_ref is not None:
@@ -726,10 +889,18 @@ def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequ
         requirement=requirement,
         edited_fields=[
             field
-            for field in ["title", "description_markdown", "acceptance_criteria_markdown", "priority", "source_ref", "project_id", "target_project_path_override", "target_project_path"]
+            for field in ["title", "description_markdown", "acceptance_criteria_markdown", "priority", "source_ref", "project_id", "target_project_path_override", "target_project_path", "execution_plan"]
             if getattr(body, field, None) is not None
         ],
     )
+    if getattr(body, "execution_plan", None) is not None:
+        current_plan = _parse_execution_plan(requirement)
+        next_plan = dict(current_plan)
+        incoming_plan = dict(getattr(body, "execution_plan", None) or {})
+        next_plan.update({key: value for key, value in incoming_plan.items() if value is not None})
+        if str(next_plan.get("summary_markdown") or "").strip():
+            requirement.execution_plan_json = _json_dump(next_plan)
+            requirement.current_plan_version = int(getattr(requirement, "current_plan_version", 0) or 0) + 1
     db.commit()
     return build_requirement_detail(db, requirement_id)
 
@@ -760,7 +931,15 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
             reviewer="system",
             comment=approval_reason or "Automatically approved for execution",
         )
+        execution_plan = _ensure_execution_plan(db, requirement)
         db.commit()
+        _log_workflow_event(
+            "requirement_execution_plan_generated",
+            requirement=requirement,
+            planning_mode=str(execution_plan.get("planning_mode") or "fallback"),
+            planned_steps=len(list(execution_plan.get("steps") or [])),
+            planned_checks=len(list(execution_plan.get("planned_checks") or [])),
+        )
         execution = create_execution_run(db, int(requirement.id))
         auto_started = False
         pending_execution_start = False
@@ -846,7 +1025,15 @@ def approve_requirement(
         reviewer=reviewer,
         comment=str(comment or "Approved for autonomous execution"),
     )
+    execution_plan = _ensure_execution_plan(db, requirement)
     db.commit()
+    _log_workflow_event(
+        "requirement_execution_plan_generated",
+        requirement=requirement,
+        planning_mode=str(execution_plan.get("planning_mode") or "fallback"),
+        planned_steps=len(list(execution_plan.get("steps") or [])),
+        planned_checks=len(list(execution_plan.get("planned_checks") or [])),
+    )
     execution = create_execution_run(db, int(requirement.id))
     auto_started = False
     pending_execution_start = False
@@ -951,6 +1138,26 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     return build_requirement_detail(db, requirement_id)
 
 
+def regenerate_requirement_plan(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    plan = _generate_execution_plan(db, requirement)
+    requirement.execution_plan_json = _json_dump(plan)
+    requirement.current_plan_version = int(getattr(requirement, "current_plan_version", 0) or 0) + 1
+    requirement.updated_at = utcnow()
+    _log_workflow_event(
+        "requirement_execution_plan_generated",
+        requirement=requirement,
+        planning_mode=str(plan.get("planning_mode") or "fallback"),
+        planned_steps=len(list(plan.get("steps") or [])),
+        planned_checks=len(list(plan.get("planned_checks") or [])),
+        regenerated=True,
+    )
+    db.commit()
+    return build_requirement_detail(db, requirement_id)
+
+
 def _shape_decision(db: Session, requirement: RequirementRow) -> dict[str, Any]:
     target_projects = _target_projects_for_requirement(db, requirement)
     description = str(requirement.description_markdown or "")
@@ -989,6 +1196,135 @@ def _shape_decision(db: Session, requirement: RequirementRow) -> dict[str, Any]:
     }
 
 
+def _plan_markdown(payload: dict[str, Any]) -> str:
+    summary = str(payload.get("summary_markdown") or "").strip()
+    if summary:
+        return summary
+    lines = [f"## Goal\n\n{str(payload.get('goal_summary') or '').strip()}"]
+    targets = [str(item).strip() for item in payload.get("target_files_or_areas") or [] if str(item).strip()]
+    if targets:
+        lines.extend(["", "## Target Areas", *[f"- {item}" for item in targets]])
+    steps = [item for item in payload.get("steps") or [] if isinstance(item, dict)]
+    if steps:
+        lines.extend(["", "## Planned Steps"])
+        for index, step in enumerate(steps, start=1):
+            title = str(step.get("title") or step.get("step_key") or f"step_{index}").strip()
+            done_when = str(step.get("done_when") or "").strip()
+            lines.append(f"{index}. {title}")
+            if done_when:
+                lines.append(f"   - Done when: {done_when}")
+    checks = [str(item).strip() for item in payload.get("planned_checks") or [] if str(item).strip()]
+    if checks:
+        lines.extend(["", "## Planned Checks", *[f"- {item}" for item in checks]])
+    return "\n".join(lines).strip()
+
+
+def _fallback_execution_plan_payload(db: Session, requirement: RequirementRow, shape: dict[str, Any]) -> dict[str, Any]:
+    acceptance = _parse_acceptance_contract(requirement)
+    verification_checks = [
+        str(item.get("command") or item.get("label") or "").strip()
+        for item in acceptance.get("verification_checks") or []
+        if isinstance(item, dict) and str(item.get("command") or item.get("label") or "").strip()
+    ]
+    targets = _target_projects_for_requirement(db, requirement)
+    payload = {
+        "planning_mode": "agent_first_fallback",
+        "goal_summary": str(requirement.title or "").strip(),
+        "target_files_or_areas": targets or [str(getattr(requirement, "target_project_path", "") or "").strip()],
+        "steps": [
+            {
+                "step_key": str(step.get("node_key") or f"step_{index + 1}"),
+                "title": str(step.get("title") or f"Step {index + 1}"),
+                "step_type": "implementation",
+                "scope": "implementation",
+                "done_when": "The requested outcome is implemented and summarized with changed files and commands run.",
+            }
+            for index, step in enumerate(shape.get("execution_steps") or [])
+        ],
+        "planned_checks": verification_checks or ["Capture targeted execution evidence for validate."],
+        "risks": [
+            "Keep edits scoped to the selected project and avoid unrelated regressions.",
+            "Record sufficient execution evidence so validate and release can operate without guesswork.",
+        ],
+        "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
+    }
+    payload["summary_markdown"] = _plan_markdown(payload)
+    return payload
+
+
+def _execution_plan_from_planner_output(planner_output: dict[str, Any], *, shape: dict[str, Any]) -> dict[str, Any]:
+    workflow_steps = [
+        item for item in planner_output.get("workflow_steps") or []
+        if isinstance(item, dict) and str(item.get("step_type") or "").strip()
+    ]
+    planned_checks = []
+    validation_plan = dict(planner_output.get("validation_plan") or {})
+    for check in validation_plan.get("validation_checks") or []:
+        if not isinstance(check, dict):
+            continue
+        label = str(check.get("description") or check.get("check_key") or "").strip()
+        command = str(check.get("command") or "").strip()
+        planned_checks.append(f"{label} (`{command}`)" if label and command else label or command)
+    risks = [
+        line.lstrip("- ").strip()
+        for line in str(planner_output.get("known_risks_markdown") or "").splitlines()
+        if line.strip()
+    ]
+    payload = {
+        "planning_mode": str(planner_output.get("planning_mode") or "full_plan"),
+        "goal_summary": str(planner_output.get("goal_summary") or "").strip(),
+        "target_files_or_areas": list(planner_output.get("delivery_expectation", {}).get("all_target_paths") or []),
+        "steps": [
+            {
+                "step_key": str(step.get("step_key") or ""),
+                "title": str(step.get("title") or ""),
+                "step_type": str(step.get("step_type") or "implementation"),
+                "scope": str(step.get("scope") or ""),
+                "done_when": str(step.get("done_when") or "").strip(),
+            }
+            for step in workflow_steps
+        ],
+        "planned_checks": [item for item in planned_checks if item],
+        "risks": risks,
+        "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
+    }
+    payload["summary_markdown"] = _plan_markdown(
+        {
+            **payload,
+            "summary_markdown": str(planner_output.get("goal_summary_markdown") or "").strip() + "\n\n## Planned Steps\n\n" + "\n".join(
+                [
+                    f"{index}. {str(step.get('title') or step.get('step_key') or '').strip()}\n   - Done when: {str(step.get('done_when') or '').strip()}"
+                    for index, step in enumerate(payload["steps"], start=1)
+                ]
+            ) if payload["steps"] else str(planner_output.get("goal_summary_markdown") or "").strip()
+        }
+    )
+    return payload
+
+
+def _generate_execution_plan(db: Session, requirement: RequirementRow) -> dict[str, Any]:
+    shape = _shape_decision(db, requirement)
+    if _testing_mode():
+        return _fallback_execution_plan_payload(db, requirement, shape)
+    try:
+        planner_output, _assignments = build_planner_output(db, requirement)
+        return _execution_plan_from_planner_output(planner_output, shape=shape)
+    except Exception:
+        return _fallback_execution_plan_payload(db, requirement, shape)
+
+
+def _ensure_execution_plan(db: Session, requirement: RequirementRow) -> dict[str, Any]:
+    existing = _parse_execution_plan(requirement)
+    if existing and str(existing.get("summary_markdown") or "").strip():
+        return existing
+    plan = _generate_execution_plan(db, requirement)
+    requirement.execution_plan_json = _json_dump(plan)
+    requirement.current_plan_version = int(getattr(requirement, "current_plan_version", 0) or 0) + 1
+    requirement.updated_at = utcnow()
+    db.flush()
+    return plan
+
+
 def _load_full_persona(agent_id: str) -> dict[str, Any]:
     persona_path = PROJECT_ROOT / "roles" / agent_id / "prompts" / "persona.md"
     if not persona_path.exists():
@@ -1021,6 +1357,7 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
     if active_run is not None:
         raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
     shape = _shape_decision(db, requirement)
+    plan_snapshot = _ensure_execution_plan(db, requirement)
     run = ExecutionRunRow(
         requirement_id=int(requirement.id),
         execution_mode=str(shape["execution_mode"]),
@@ -1029,7 +1366,8 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         validation_profile=str(shape["validation_profile"]),
         delivery_intent=str(shape["delivery_intent"]),
         approval_required=_approval_required(db, requirement),
-        planner_summary=str(shape["planner_summary"]),
+        planner_summary=str(plan_snapshot.get("summary_markdown") or shape["planner_summary"]),
+        plan_snapshot_json=_json_dump(plan_snapshot),
         target_projects_json=_json_dump(_target_projects_for_requirement(db, requirement)),
     )
     db.add(run)
@@ -1055,7 +1393,7 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         execution=run,
         target_projects=_target_projects_for_requirement(db, requirement),
         node_count=len(shape["execution_steps"]),
-        planner_summary=str(shape["planner_summary"]),
+        planner_summary=str(plan_snapshot.get("summary_markdown") or shape["planner_summary"]),
     )
     db.commit()
     return build_execution_detail(db, int(run.id))
@@ -1169,7 +1507,10 @@ def _sync_execution_state(db: Session, run: ExecutionRunRow) -> ExecutionRunRow:
 
 def _build_task_description(db: Session, requirement: RequirementRow, run: ExecutionRunRow, node: ExecutionNodeRow) -> str:
     targets = _target_projects_for_requirement(db, requirement)
-    acceptance = _parse_acceptance_markdown(requirement) or "Deliver the requested outcome and leave enough evidence for validate."
+    acceptance_contract = _parse_acceptance_contract(requirement)
+    acceptance = str(acceptance_contract.get("markdown") or "").strip() or "Deliver the requested outcome and leave enough evidence for validate."
+    plan = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
+    plan_markdown = str(plan.get("summary_markdown") or "").strip()
     return "\n".join(
         [
             f"# Requirement #{int(requirement.id)}",
@@ -1181,6 +1522,8 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
             f"## Requirement Description\n{requirement.description_markdown}",
             "",
             f"## Acceptance\n{acceptance}",
+            "",
+            f"## Execution Plan\n{plan_markdown or 'Follow the generated execution plan and keep the change minimal.'}",
             "",
             "## Target Projects",
             *[f"- {item}" for item in targets],
@@ -1419,6 +1762,10 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         raise ValueError("All execute nodes must complete before validate.")
     checks: list[ValidationCheckResultOut] = []
     evidence_commands = _commands_from_execution_evidence(nodes, db)
+    acceptance_contract = _parse_acceptance_contract(requirement)
+    contract_checks = [
+        item for item in acceptance_contract.get("verification_checks") or [] if isinstance(item, dict)
+    ]
     profile = str(run.validation_profile or "minimal")
     policies = resolve_project_policies_for_target(
         db,
@@ -1438,7 +1785,14 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
             payload = project_policy_to_dict(policy)
             project_path = str(payload.get("root_path") or "")
             required_checks = list(payload.get("required_checks") or [])
-            if profile == "minimal" and evidence_commands:
+            contract_commands = [
+                str(item.get("command") or "").strip()
+                for item in contract_checks
+                if str(item.get("command") or "").strip()
+            ]
+            if contract_commands:
+                required_checks = contract_commands
+            elif profile == "minimal" and evidence_commands:
                 required_checks = evidence_commands
             if not required_checks:
                 checks.append(
@@ -1452,6 +1806,15 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
                 continue
             for command in required_checks:
                 checks.append(_run_check(project_path, str(command)))
+    if contract_checks and not any(str(item.get("command") or "").strip() for item in contract_checks):
+        for item in contract_checks:
+            checks.append(
+                ValidationCheckResultOut(
+                    label=str(item.get("label") or "manual evidence"),
+                    status="passed",
+                    output_excerpt="Validated against execution evidence captured for this run.",
+                )
+            )
     passed = all(check.status == "passed" for check in checks)
     summary = "Validation passed. Execute evidence and required checks are complete." if passed else "Validation failed. At least one required check did not pass."
     record = ValidationRecordRow(
@@ -1542,6 +1905,289 @@ def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationR
     )
 
 
+def _elapsed_ms(started_at, completed_at) -> int | None:
+    if started_at is None:
+        return None
+    def _normalize_dt(value):
+        if value is None:
+            return None
+        if getattr(value, "tzinfo", None) is None:
+            return value.replace(tzinfo=utcnow().tzinfo)
+        return value
+
+    start = _normalize_dt(started_at)
+    end_at = _normalize_dt(completed_at) or utcnow()
+    return max(0, int((end_at - start).total_seconds() * 1000))
+
+
+def _agent_label(db: Session, agent_id: str | None) -> str | None:
+    cleaned = str(agent_id or "").strip()
+    if not cleaned:
+        return None
+    row = db.query(AgentRow).filter(AgentRow.id == cleaned).first()
+    if row is None:
+        return cleaned
+    return str(row.display_name or cleaned).strip() or cleaned
+
+
+def _execution_node_task_payload(db: Session, node: ExecutionNodeRow) -> tuple[TaskRow | None, str | None, str | None]:
+    task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first() if node.task_id else None
+    task_status = _node_task_status(task) if task is not None else None
+    agent_id = str(task.agent_id or "").strip() or None if task is not None else None
+    return task, task_status, agent_id
+
+
+def _change_type(additions: int, deletions: int) -> str:
+    if additions > 0 and deletions == 0:
+        return "added"
+    if deletions > 0 and additions == 0:
+        return "deleted"
+    return "modified"
+
+
+def _collect_execution_changed_files(db: Session, nodes: list[ExecutionNodeRow]) -> list[ExecutionChangedFileOut]:
+    merged: dict[tuple[str, str | None], dict[str, object]] = {}
+    for node in nodes:
+        if not node.task_id:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        if task is None:
+            continue
+        payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+        for change in _task_changed_files_from_payload(payload):
+            path = str(change.get("filename") or "").strip()
+            if not path:
+                continue
+            target_project_path = str(change.get("target_project_path") or "").strip() or None
+            key = (path, target_project_path)
+            current = merged.setdefault(
+                key,
+                {
+                    "path": path,
+                    "target_project_path": target_project_path,
+                    "additions": 0,
+                    "deletions": 0,
+                    "patches": [],
+                },
+            )
+            current["additions"] = int(current.get("additions") or 0) + int(change.get("additions") or 0)
+            current["deletions"] = int(current.get("deletions") or 0) + int(change.get("deletions") or 0)
+            patch = str(change.get("patch") or "")
+            if patch:
+                cast(list[str], current["patches"]).append(patch)
+    results: list[ExecutionChangedFileOut] = []
+    for (_, _), item in sorted(merged.items(), key=lambda pair: pair[0][0]):
+        additions = int(item.get("additions") or 0)
+        deletions = int(item.get("deletions") or 0)
+        patches = cast(list[str], item.get("patches") or [])
+        target_project_path = str(item.get("target_project_path") or "").strip() or None
+        preview_available = bool(patches) or bool(target_project_path)
+        results.append(
+            ExecutionChangedFileOut(
+                path=str(item.get("path") or ""),
+                change_type=_change_type(additions, deletions),
+                additions=additions,
+                deletions=deletions,
+                preview_available=preview_available,
+            )
+        )
+    return results
+
+
+def _build_execution_activity_stream(
+    run: ExecutionRunRow,
+    nodes: list[ExecutionNodeRow],
+    validation: ValidationRecordRow | None,
+    incidents: list[dict[str, object]],
+) -> list[ExecutionActivityEventOut]:
+    events: list[ExecutionActivityEventOut] = [
+        ExecutionActivityEventOut(
+            ts=run.created_at,
+            event="run_created",
+            status="completed",
+            message="Execution run created.",
+        )
+    ]
+    if run.started_at is not None:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=run.started_at,
+                event="run_started",
+                status=str(run.status or "running"),
+                message="Execution run started.",
+            )
+        )
+    for node in nodes:
+        if node.started_at is not None:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=node.started_at,
+                    event="node_started",
+                    status=str(node.status or "running"),
+                    message=f"{str(node.title or node.node_key or 'Node')} started.",
+                )
+            )
+        if node.completed_at is not None:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=node.completed_at,
+                    event="node_completed",
+                    status=str(node.status or "completed"),
+                    message=f"{str(node.title or node.node_key or 'Node')} completed.",
+                )
+            )
+    if validation is not None:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=validation.created_at,
+                event="validation_started",
+                status=str(validation.status or "pending"),
+                message="Validation started.",
+            )
+        )
+        if str(validation.status or "") in {"passed", "failed"}:
+            events.append(
+                ExecutionActivityEventOut(
+                    ts=validation.updated_at or validation.created_at,
+                    event="validation_completed",
+                    status=str(validation.status or "pending"),
+                    message=f"Validation {str(validation.status or 'completed')}.",
+                )
+            )
+    for incident in incidents:
+        events.append(
+            ExecutionActivityEventOut(
+                ts=run.updated_at,
+                event=str(incident.get("kind") or "incident"),
+                status=str(run.status or ""),
+                message=str(incident.get("summary") or "Execution incident recorded."),
+            )
+        )
+    def _event_sort_key(item: ExecutionActivityEventOut):
+        timestamp = item.ts
+        if timestamp is None:
+            return utcnow()
+        if getattr(timestamp, "tzinfo", None) is None:
+            return timestamp.replace(tzinfo=utcnow().tzinfo)
+        return timestamp
+
+    events.sort(key=_event_sort_key)
+    return events
+
+
+def _task_raw_output(task: TaskRow | None) -> tuple[str | None, bool]:
+    if task is None:
+        return None, False
+    content = str(getattr(task, "output_content", "") or "")
+    truncated = False
+    if not content.strip():
+        output_path = str(getattr(task, "output_path", "") or "").strip()
+        if output_path:
+            try:
+                content = Path(output_path).read_text(encoding="utf-8")
+            except Exception:
+                content = ""
+    if not content.strip():
+        return None, False
+    if len(content) > 16000:
+        truncated = True
+        content = content[:16000].rstrip() + "\n\n...[truncated]"
+    return content, truncated
+
+
+def _execution_raw_output(nodes: list[ExecutionNodeRow], db: Session) -> tuple[str | None, bool]:
+    sections: list[str] = []
+    truncated = False
+    for node in nodes:
+        if not node.task_id:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        content, content_truncated = _task_raw_output(task)
+        if not content:
+            continue
+        truncated = truncated or content_truncated
+        sections.append(
+            "\n".join(
+                [
+                    f"## {str(node.title or node.node_key or 'Task')}",
+                    f"task #{int(node.task_id)} · {str(getattr(task, 'status', '') or node.status or '-')} · {str(getattr(task, 'runtime_model', '') or '').strip() or '-'}",
+                    "",
+                    content,
+                ]
+            ).strip()
+        )
+    if not sections:
+        return None, False
+    body = "\n\n".join(sections).strip()
+    if len(body) > 24000:
+        truncated = True
+        body = body[:24000].rstrip() + "\n\n...[truncated]"
+    return body, truncated
+
+
+def _execution_file_preview(
+    db: Session,
+    execution_run_id: int,
+    relative_path: str,
+) -> ExecutionFilePreviewOut:
+    run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
+    if run is None:
+        raise ValueError("Execution run not found.")
+    nodes = (
+        db.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == run.id)
+        .order_by(ExecutionNodeRow.sequence_no.asc(), ExecutionNodeRow.id.asc())
+        .all()
+    )
+    normalized_path = str(relative_path or "").strip().lstrip("/")
+    if not normalized_path:
+        raise ValueError("Execution file path is required.")
+    diff_chunks: list[str] = []
+    target_project_path: str | None = None
+    for node in nodes:
+        if not node.task_id:
+            continue
+        task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
+        if task is None:
+            continue
+        payload = _normalize_task_file_change_payload(_load_task_file_changes(task))
+        for change in _task_changed_files_from_payload(payload):
+            if str(change.get("filename") or "").strip() != normalized_path:
+                continue
+            patch = str(change.get("patch") or "")
+            if patch:
+                diff_chunks.append(patch)
+            if not target_project_path:
+                target_project_path = str(change.get("target_project_path") or "").strip() or None
+    if not diff_chunks and not target_project_path:
+        raise ValueError("Execution file preview not found.")
+
+    current_content: str | None = None
+    truncated = False
+    if target_project_path:
+        target = (Path(target_project_path) / normalized_path).resolve()
+        target_root = Path(target_project_path).resolve()
+        if target_root == target or target_root in target.parents:
+            if target.exists() and target.is_file():
+                raw = target.read_text(encoding="utf-8", errors="replace")
+                if len(raw) > 20000:
+                    current_content = raw[:20000]
+                    truncated = True
+                else:
+                    current_content = raw
+
+    diff_patch = "\n".join(chunk for chunk in diff_chunks if chunk).strip() or None
+    if diff_patch and len(diff_patch) > 20000:
+        diff_patch = diff_patch[:20000]
+        truncated = True
+    return ExecutionFilePreviewOut(
+        path=normalized_path,
+        diff_patch=diff_patch,
+        current_content=current_content,
+        truncated=truncated,
+    )
+
+
 def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -1562,27 +2208,63 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         .order_by(ValidationRecordRow.id.desc())
         .first()
     )
-    node_out = [
-        ExecutionNodeOut(
-            id=int(node.id),
-            execution_run_id=int(node.execution_run_id),
-            requirement_id=int(node.requirement_id),
-            node_key=str(node.node_key or ""),
-            node_type=str(node.node_type or "execute"),
-            title=str(node.title or ""),
-            status=str(node.status or "queued"),
-            sequence_no=int(node.sequence_no or 1),
-            task_id=int(node.task_id) if node.task_id is not None else None,
-            task_status=_node_task_status(db.query(TaskRow).filter(TaskRow.id == node.task_id).first()) if node.task_id else None,
-            runtime_backend=str(node.runtime_backend or "").strip() or None,
-            runtime_provider=str(node.runtime_provider or "").strip() or None,
-            runtime_model=str(node.runtime_model or "").strip() or None,
-            summary_markdown=str(node.summary_markdown or "").strip() or None,
-            started_at=node.started_at,
-            completed_at=node.completed_at,
+    release = _latest_release(db, int(requirement.id))
+    node_out: list[ExecutionNodeOut] = []
+    tokens_used_total = 0
+    token_seen = False
+    current_agent_id: str | None = None
+    current_agent_label: str | None = None
+    current_runtime_backend: str | None = None
+    current_runtime_provider: str | None = None
+    current_runtime_model: str | None = None
+    for node in nodes:
+        task, task_status, agent_id = _execution_node_task_payload(db, node)
+        agent_label = _agent_label(db, agent_id)
+        node_tokens = int(getattr(task, "tokens_used", 0) or 0) if task is not None else None
+        if node_tokens is not None:
+            tokens_used_total += node_tokens
+            token_seen = True
+        current_agent_id = agent_id or current_agent_id
+        current_agent_label = agent_label or current_agent_label
+        current_runtime_backend = (
+            str(getattr(task, "runtime_backend", "") or "").strip()
+            or str(node.runtime_backend or "").strip()
+            or current_runtime_backend
         )
-        for node in nodes
-    ]
+        current_runtime_provider = (
+            str(getattr(task, "runtime_provider", "") or "").strip()
+            or str(node.runtime_provider or "").strip()
+            or current_runtime_provider
+        )
+        current_runtime_model = (
+            str(getattr(task, "runtime_model", "") or "").strip()
+            or str(node.runtime_model or "").strip()
+            or current_runtime_model
+        )
+        node_out.append(
+            ExecutionNodeOut(
+                id=int(node.id),
+                execution_run_id=int(node.execution_run_id),
+                requirement_id=int(node.requirement_id),
+                node_key=str(node.node_key or ""),
+                node_type=str(node.node_type or "execute"),
+                title=str(node.title or ""),
+                status=str(node.status or "queued"),
+                sequence_no=int(node.sequence_no or 1),
+                task_id=int(node.task_id) if node.task_id is not None else None,
+                task_status=task_status,
+                agent_id=agent_id,
+                agent_label=agent_label,
+                runtime_backend=str(getattr(task, "runtime_backend", "") or "").strip() or str(node.runtime_backend or "").strip() or None,
+                runtime_provider=str(getattr(task, "runtime_provider", "") or "").strip() or str(node.runtime_provider or "").strip() or None,
+                runtime_model=str(getattr(task, "runtime_model", "") or "").strip() or str(node.runtime_model or "").strip() or None,
+                tokens_used=node_tokens,
+                elapsed_ms=_elapsed_ms(node.started_at, node.completed_at),
+                summary_markdown=str(node.summary_markdown or "").strip() or None,
+                started_at=node.started_at,
+                completed_at=node.completed_at,
+            )
+        )
     execution = ExecutionRunOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
@@ -1595,6 +2277,14 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         planner_summary=str(run.planner_summary or "").strip() or None,
         target_projects=_json_load(run.target_projects_json, []),
         latest_task_id=int(run.latest_task_id) if run.latest_task_id is not None else None,
+        agent_id=current_agent_id,
+        agent_label=current_agent_label,
+        runtime_backend=current_runtime_backend,
+        runtime_provider=current_runtime_provider,
+        runtime_model=current_runtime_model,
+        tokens_used_total=tokens_used_total if token_seen else None,
+        elapsed_ms=_elapsed_ms(run.started_at, run.completed_at),
+        current_branch=str(getattr(release, "branch_name", "") or "").strip() or None,
         started_at=run.started_at,
         completed_at=run.completed_at,
         created_at=run.created_at,
@@ -1611,12 +2301,32 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         )
         _notify_execution_error(db, run, requirement, failed_node)
         db.commit()
+    changed_files = _collect_execution_changed_files(db, nodes)
+    activity_stream = _build_execution_activity_stream(run, nodes, validation, incidents)
+    raw_task_output, raw_task_output_truncated = _execution_raw_output(nodes, db)
+    plan_summary = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
     return ExecutionRunDetailOut(
         execution=execution,
         requirement=_requirement_to_out(db, requirement),
         nodes=node_out,
         validation=_validation_record_to_out(validation),
+        changed_files=changed_files,
+        runtime_summary=ExecutionRuntimeSummaryOut(
+            tokens_used_total=execution.tokens_used_total,
+            elapsed_ms=execution.elapsed_ms,
+            agent_id=execution.agent_id,
+            agent_label=execution.agent_label,
+            runtime_backend=execution.runtime_backend,
+            runtime_provider=execution.runtime_provider,
+            runtime_model=execution.runtime_model,
+            current_branch=execution.current_branch,
+        ),
+        delivery_summary=_release_to_out(release),
+        activity_stream=activity_stream,
         incidents=incidents,
+        plan_summary=plan_summary,
+        raw_task_output=raw_task_output,
+        raw_task_output_truncated=raw_task_output_truncated,
     )
 
 

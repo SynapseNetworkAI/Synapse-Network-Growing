@@ -20,6 +20,7 @@ from server.services.workflows.agent_first import (
     create_requirement,
     delete_requirement,
     list_requirements,
+    regenerate_requirement_plan,
     reject_requirement,
     revise_requirement,
     submit_requirement,
@@ -128,9 +129,12 @@ def delete_requirement_endpoint(requirement_id: int, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/{requirement_id}/plan")
-def removed_plan_endpoint(requirement_id: int):
-    raise HTTPException(status_code=410, detail="Legacy plan endpoint was removed. Use /api/executions to create execution runs.")
+@router.post("/{requirement_id}/plan", response_model=AgentFirstRequirementDetailOut)
+def plan_requirement_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return regenerate_requirement_plan(db=db, requirement_id=requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{requirement_id}/start")
