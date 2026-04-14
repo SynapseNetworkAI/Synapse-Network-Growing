@@ -220,12 +220,23 @@ Release 负责：
 3. 没有 telemetry 的自动化，不应进入默认主路径。
 4. requirement、alert、release 三类对外通知必须使用统一 envelope，至少包含服务、事件类型、发生时间、发生了什么、下一步动作和关联链接。
 
-## 18. 治理优先于更强自主性
+## 18. Python 日志必须结构化
+
+1. workspace 内的 Python 服务默认使用 `structlog + logging`，不继续把自由文本日志作为主输出。
+2. 主输出必须是 `stdout` JSON；本地文件日志只作为备份，采用 `JSONL` 并按天切分。
+3. 文件轮转默认按天执行并保留 14 天，除非专门设计文档说明不同保留策略。
+4. 新增日志时必须优先绑定链路字段：`request_id`、`task_id`、`requirement_id`、`execution_id`、`release_id`、`fingerprint_key`。
+5. 每条结构化日志至少包含基础字段：`ts`、`level`、`event`、`service`、`env`、`logger`、`message`。
+6. 运行结果类日志应优先补充：`outcome`、`status`、`duration_ms`、`error_type`、`error_message`。
+7. 不允许记录 token、secret、webhook url、authorization header 等敏感信息；traceback 可以保留，但必须避免把敏感配置直接拼进错误消息。
+8. 当前阶段先按“各服务内实现、同一规范”落地，不假设已经存在可复用的共享 Python logging 包。
+
+## 19. 治理优先于更强自主性
 
 1. 自主性提升必须建立在 policy、validation、delivery、incident、observability 已经收口的前提上。
 2. 如果治理能力不足，优先补治理，不优先补更复杂的 agent 自主决策。
 
-## 19. 当前正式实现顺序
+## 20. 当前正式实现顺序
 
 后续默认优先顺序为：
 

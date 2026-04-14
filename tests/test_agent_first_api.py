@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 from server.database import ApprovalRequestRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementRow, TaskRow, ValidationRecordRow
@@ -39,6 +40,30 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert execution.execution_mode == "direct"
     assert execution.status == "running"
     assert db_session.query(TaskRow).filter(TaskRow.id == execution.latest_task_id).one().status == "running"
+
+
+def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Emit chain logs for requirement submit",
+            "description_markdown": "Verify the critical requirement to execution chain emits structured events.",
+            "priority": "normal",
+            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), caplog.at_level(logging.INFO):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    text = caplog.text
+    assert "requirement_submitted" in text
+    assert "execution_run_created" in text
+    assert "execution_run_started" in text
+    assert f"'requirement_id': {requirement_id}" in text
 
 
 def test_create_requirement_without_target_project_path_does_not_raise_policy_summary_error(synced_client):

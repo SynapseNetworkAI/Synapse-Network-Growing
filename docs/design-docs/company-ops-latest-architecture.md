@@ -197,6 +197,41 @@ Execution 现在采用严格的单主链模型：
 3. 强制输出长篇结构化计划
 4. 用阶段名驱动 artifact 生成
 
+### 3.5 Logging Layer
+
+Python 服务的日志层现在采用统一约束，而不是各自随意输出文本日志。
+
+固定标准：
+
+1. `structlog` 负责结构化事件与上下文绑定。
+2. 标准库 `logging` 负责 handler、级别和轮转。
+3. 主输出是 `stdout` JSON，供容器、采集器和告警链路直接消费。
+4. 本地文件日志只做备份，格式为 `JSONL`，按天切分并默认保留 14 天。
+5. 当前阶段按“各服务内实现、同一规范”落地，不假设已有共享 Python logging 包。
+
+统一字段契约：
+
+1. 基础字段：`ts`、`level`、`event`、`service`、`env`、`logger`、`message`
+2. 主链字段：`request_id`、`task_id`、`requirement_id`、`execution_id`、`release_id`、`fingerprint_key`
+3. 结果字段：`outcome`、`status`、`duration_ms`、`error_type`、`error_message`
+
+统一事件分层：
+
+1. `audit`
+   requirement created、approval decided、execution started、release pr opened
+2. `runtime`
+   http request、task runtime、scheduler、external call、timed operation
+3. `error`
+   runtime failure、validation failure、workflow incident、bug intake
+
+日志在三面架构中的职责：
+
+1. Requirement 面依赖结构化日志记录创建、审批和 submit 桥接，不依赖自由文本解析。
+2. Execution 面依赖结构化日志串起 runtime backend、command evidence、validate 和 retry。
+3. Release 面依赖结构化日志记录 prepare branch、open PR、deploy、rollback。
+4. Error Loop 依赖结构化字段而不是原始文本尾行做指纹、告警和 requirement 回流。
+5. Lark requirement / alert / release 通知应直接消费结构化日志字段，不依赖非结构化 message 解析。
+
 ## 4. Data Model
 
 当前一等对象分为三组：

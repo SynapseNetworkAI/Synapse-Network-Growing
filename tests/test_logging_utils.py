@@ -1,21 +1,73 @@
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
-from server.logging_utils import timed_operation
+from server.logging_utils import (
+    bind_context,
+    clear_context,
+    get_logger,
+    log_event,
+    setup_ops_logging,
+    timed_operation,
+    _reset_logging_for_tests,
+)
 
 
-def test_timed_operation_logs_traceback_on_error(caplog):
-    logger = logging.getLogger("ops-dashboard.test.logging")
+def _flush_handlers() -> None:
+    for handler in logging.getLogger().handlers:
+        handler.flush()
 
-    with caplog.at_level(logging.ERROR):
-        try:
-            with timed_operation(logger, "failing_operation", workflow_key="demo"):
-                raise RuntimeError("boom")
-        except RuntimeError:
-            pass
 
-    text = caplog.text
+def test_log_event_writes_structured_json_and_merges_context(tmp_path: Path):
+    _reset_logging_for_tests()
+    setup_ops_logging(
+        log_level="INFO",
+        log_dir=str(tmp_path),
+        log_file="ops-dashboard.jsonl",
+        backup_days=2,
+        service_name="ops-dashboard",
+        env="test",
+    )
+    logger = get_logger("ops-dashboard.test.logging")
+
+    bind_context(request_id="req-123")
+    log_event(logger, "requirement_created", requirement_id=7, execution_id=11, outcome="ok")
+    clear_context()
+    _flush_handlers()
+
+    payload = json.loads((tmp_path / "ops-dashboard.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert payload["event"] == "requirement_created"
+    assert payload["message"] == "requirement_created"
+    assert payload["service"] == "ops-dashboard"
+    assert payload["env"] == "test"
+    assert payload["logger"] == "ops-dashboard.test.logging"
+    assert payload["request_id"] == "req-123"
+    assert payload["requirement_id"] == 7
+    assert payload["execution_id"] == 11
+    assert payload["outcome"] == "ok"
+
+
+def test_timed_operation_logs_structured_traceback_on_error(capsys):
+    _reset_logging_for_tests()
+    setup_ops_logging(
+        log_level="INFO",
+        log_dir="/tmp",
+        log_file="ops-dashboard-test.jsonl",
+        backup_days=1,
+        service_name="ops-dashboard",
+        env="test",
+    )
+    logger = get_logger("ops-dashboard.test.logging")
+
+    try:
+        with timed_operation(logger, "failing_operation", workflow_key="demo"):
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    text = capsys.readouterr().err
     assert "failing_operation" in text
-    assert "Traceback" in text
     assert "RuntimeError: boom" in text
+    assert "\"workflow_key\": \"demo\"" in text

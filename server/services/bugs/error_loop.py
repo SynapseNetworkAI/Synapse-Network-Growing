@@ -30,6 +30,7 @@ from server.schemas import (
     ExecutionRunOut,
     RequirementCreate,
 )
+from server.logging_utils import get_logger, log_event
 from server.services.requirements.sources import ACTIVE_BUG_REQUIREMENT_STATUSES, normalize_requirement_intake_metadata
 from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
 from server.services.workflows.agent_first import (
@@ -42,6 +43,7 @@ from server.services.workflows.agent_first import (
 
 ALLOWED_ERROR_SOURCE_KINDS = {"runtime_log_error", "task_failure", "workflow_incident"}
 _SEVERITY_RANK = {"low": 0, "normal": 1, "warning": 1, "high": 2, "critical": 3}
+logger = get_logger("ops-dashboard.error_loop")
 
 
 def _json_load(raw: str | None, fallback: Any) -> Any:
@@ -492,6 +494,17 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
 
     fingerprint.latest_error_event_id = int(event.id)
     fingerprint.occurrence_count = int(fingerprint.occurrence_count or 0) + 1
+    log_event(
+        logger,
+        "error_event_ingested",
+        fingerprint_key=fingerprint_key,
+        source_kind=source_kind,
+        service_name=body.service_name.strip(),
+        project_key=str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
+        severity=severity,
+        error_event_id=int(event.id),
+        occurrence_count=int(fingerprint.occurrence_count or 1),
+    )
 
     source_ref = f"error-fingerprint:{fingerprint_key}"
     requirement = _active_requirement_for_fingerprint(db, fingerprint_key)
@@ -541,6 +554,16 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
         requirement = create_requirement(db, body_payload).requirement
         requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
         created_requirement = requirement is not None
+        if requirement is not None:
+            log_event(
+                logger,
+                "error_requirement_materialized",
+                fingerprint_key=fingerprint_key,
+                requirement_id=int(requirement.id),
+                source_kind=source_kind,
+                severity=severity,
+                created_from_error=True,
+            )
 
     if requirement is None:
         raise ValueError("Failed to materialize requirement for error fingerprint.")
@@ -561,6 +584,15 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     if created_requirement or active_status in {"draft", "ready", "blocked", "needs_revision"}:
         detail = submit_requirement(db, int(requirement.id))
         execution_id = detail.approval.execution_run_id
+        log_event(
+            logger,
+            "error_requirement_submitted",
+            fingerprint_key=fingerprint_key,
+            requirement_id=int(requirement.id),
+            execution_id=execution_id,
+            approval_status=str(detail.requirement.approval_status or ""),
+            requirement_status=str(detail.requirement.status or ""),
+        )
     else:
         detail = build_requirement_detail(db, int(requirement.id))
         execution_id = detail.latest_execution_id

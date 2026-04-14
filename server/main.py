@@ -1,5 +1,4 @@
 """FastAPI main application for Agentic Ops Dashboard."""
-import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -9,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
-from server.logging_utils import log_event, setup_ops_logging
+from server.logging_utils import bind_context, clear_context, get_logger, log_event, setup_ops_logging
 from server.schemas import DashboardStats
 from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, executions, releases, errors
 from server.services.agents.loader import ensure_agents_loaded
@@ -22,10 +21,11 @@ setup_ops_logging(
     log_level=config.LOG_LEVEL,
     log_dir=config.LOG_DIR,
     log_file=config.LOG_FILE,
-    max_bytes=config.LOG_MAX_BYTES,
-    backup_count=config.LOG_BACKUP_COUNT,
+    backup_days=config.LOG_BACKUP_DAYS,
+    service_name="ops-dashboard",
+    env=config.ENV,
 )
-logger = logging.getLogger("ops-dashboard")
+logger = get_logger("ops-dashboard")
 
 
 @asynccontextmanager
@@ -100,39 +100,42 @@ app.include_router(bugs.router)
 async def log_requests(request: Request, call_next):
     request_id = uuid.uuid4().hex[:12]
     started = time.perf_counter()
+    bind_context(request_id=request_id)
     try:
         response = await call_next(request)
     except Exception as exc:
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
         log_event(
             logger,
-            "http_request",
-            level=logging.ERROR,
+            "http_request_failed",
+            level=40,
             exc_info=exc,
-            request_id=request_id,
             method=request.method,
             path=request.url.path,
-            query=str(request.url.query or ""),
+            query_string=str(request.url.query or ""),
             status=500,
             duration_ms=duration_ms,
             error_type=exc.__class__.__name__,
-            error=str(exc),
+            error_message=str(exc),
         )
         raise
-    duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    level = logging.WARNING if duration_ms >= 2000 else logging.INFO
-    log_event(
-        logger,
-        "http_request",
-        level=level,
-        request_id=request_id,
-        method=request.method,
-        path=request.url.path,
-        query=str(request.url.query or ""),
-        status=response.status_code,
-        duration_ms=duration_ms,
-    )
-    response.headers["X-Request-ID"] = request_id
+    finally:
+        response = locals().get("response")
+        if response is not None:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            level = 30 if duration_ms >= 2000 else 20
+            log_event(
+                logger,
+                "http_request_completed",
+                level=level,
+                method=request.method,
+                path=request.url.path,
+                query_string=str(request.url.query or ""),
+                status=response.status_code,
+                duration_ms=duration_ms,
+            )
+            response.headers["X-Request-ID"] = request_id
+        clear_context()
     return response
 
 

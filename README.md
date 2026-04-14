@@ -188,6 +188,44 @@ OPS_LARK_BOT_KEYWORD=告警
 
 When Copilot SDK returns an explicit enterprise-policy / authorization error, the system now sends a Lark alert and pauses the task + parent requirement instead of continuing into a misleading failure loop.
 
+## Python Logging Standard
+
+`Synapse-Network-Growing` 当前把 Python 日志视为正式运行时契约，而不是辅助文本输出。
+
+固定标准：
+
+1. Python 服务默认使用 `structlog + logging`
+2. 主输出是 `stdout` JSON
+3. 本地文件只做 `JSONL` 备份，并按天切分
+4. 默认优先绑定链路字段：
+   - `request_id`
+   - `task_id`
+   - `requirement_id`
+   - `execution_id`
+   - `release_id`
+   - `fingerprint_key`
+5. 每条日志至少应包含：
+   - `ts`
+   - `level`
+   - `event`
+   - `service`
+   - `env`
+   - `logger`
+   - `message`
+
+安装新增 Python 依赖时，先执行：
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/pip install -r requirements.txt
+```
+
+开发者约束：
+
+1. 新增 Python 服务日志时，不继续扩展自由文本日志为主输出。
+2. traceback 可以保留，但不要把 token、secret、authorization header、webhook url 等敏感信息写入日志。
+3. 当前阶段先在各服务内按同一规范实现，不把日志能力塞进 SDK 文档或假设已有共享 logging 包。
+4. requirement、execution、release、error loop 的自动化治理、告警和通知，应优先依赖结构化字段而不是非结构化 message 解析。
+
 ## Key Docs
 
 1. `docs/phase2-plan.md` - Phase 2 dashboard implementation baseline

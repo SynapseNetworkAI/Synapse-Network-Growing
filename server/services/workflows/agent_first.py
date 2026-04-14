@@ -35,6 +35,7 @@ from server.schemas import (
     ValidationCheckResultOut,
     ValidationRecordSlimOut,
 )
+from server.logging_utils import get_logger, log_event
 from server.services.agents.execution_resolver import suggest_task_execution
 from server.services.delivery.deployment_governance import (
     list_requirement_deployment_records,
@@ -54,6 +55,8 @@ from server.services.requirements.approval import (
     normalize_requirement_approval_status,
 )
 from server.services.workflows.orchestrator import pause_task as pause_legacy_task
+
+logger = get_logger("ops-dashboard.workflow_agent_first")
 
 
 def _json_load(raw: str | None, fallback: Any) -> Any:
@@ -105,6 +108,39 @@ def _fallback_acceptance_markdown(*, target_project_path: str | None = None) -> 
             f"- Changes stay scoped to `{scope_hint}` unless the requirement explicitly asks for broader coordination.",
         ]
     )
+
+
+def _log_workflow_event(
+    event: str,
+    *,
+    requirement: RequirementRow | None = None,
+    execution: ExecutionRunRow | None = None,
+    release: ReleaseRecordRow | None = None,
+    validation: ValidationRecordRow | None = None,
+    **fields: Any,
+) -> None:
+    payload = dict(fields)
+    if requirement is not None:
+        payload.setdefault("requirement_id", int(requirement.id))
+        payload.setdefault("requirement_status", str(requirement.status or ""))
+        payload.setdefault("approval_status", str(requirement.approval_status or ""))
+        payload.setdefault("priority", str(requirement.priority or ""))
+        payload.setdefault("target_project_path", str(requirement.target_project_path or "").strip() or None)
+    if execution is not None:
+        payload.setdefault("execution_id", int(execution.id))
+        payload.setdefault("execution_status", str(execution.status or ""))
+        payload.setdefault("execution_mode", str(execution.execution_mode or ""))
+        payload.setdefault("validation_profile", str(execution.validation_profile or ""))
+    if release is not None:
+        payload.setdefault("release_id", int(release.id))
+        payload.setdefault("release_status", str(release.status or ""))
+        payload.setdefault("branch_name", str(release.branch_name or "").strip() or None)
+        payload.setdefault("pr_number", int(release.pr_number) if release.pr_number is not None else None)
+    if validation is not None:
+        payload.setdefault("validation_id", int(validation.id) if validation.id is not None else None)
+        payload.setdefault("validation_status", str(validation.status or ""))
+        payload.setdefault("validation_profile", str(validation.profile or ""))
+    log_event(logger, event, **payload)
 
 
 def _generate_acceptance_markdown(*, title: str, description_markdown: str, target_project_path: str | None = None) -> str:
@@ -541,6 +577,13 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     db.commit()
     db.refresh(requirement)
     _notify_requirement_created(db, requirement)
+    _log_workflow_event(
+        "requirement_created",
+        requirement=requirement,
+        source=str(requirement.source or "").strip() or None,
+        source_ref=str(requirement.source_ref or "").strip() or None,
+        acceptance_generated=bool(_parse_acceptance_markdown(requirement)),
+    )
     db.commit()
     return build_requirement_detail(db, int(requirement.id))
 
@@ -567,6 +610,15 @@ def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequ
     if body.target_project_path is not None:
         requirement.target_project_path = body.target_project_path.strip() or None
     requirement.updated_at = utcnow()
+    _log_workflow_event(
+        "requirement_updated",
+        requirement=requirement,
+        edited_fields=[
+            field
+            for field in ["title", "description_markdown", "acceptance_criteria_markdown", "priority", "source_ref", "target_project_path"]
+            if getattr(body, field, None) is not None
+        ],
+    )
     db.commit()
     return build_requirement_detail(db, requirement_id)
 
@@ -618,6 +670,15 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
                 pending_execution_start=pending_execution_start,
             ),
         )
+        _log_workflow_event(
+            "requirement_submitted",
+            requirement=requirement,
+            execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(execution.execution.id)).first(),
+            approval_decision=approval_status,
+            approval_reason=approval_reason,
+            auto_started=auto_started,
+            pending_execution_start=pending_execution_start,
+        )
         _notify_requirement_approval(db, requirement, detail.approval)
         db.commit()
         return detail
@@ -637,6 +698,13 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         db,
         requirement_id,
         approval_override=_approval_summary(db, requirement, pending_execution_start=False),
+    )
+    _log_workflow_event(
+        "requirement_submitted",
+        requirement=requirement,
+        approval_decision=approval_status,
+        approval_reason=approval_reason,
+        pending_execution_start=False,
     )
     _notify_requirement_approval(db, requirement, detail.approval)
     db.commit()
@@ -688,6 +756,15 @@ def approve_requirement(
             pending_execution_start=pending_execution_start,
         ),
     )
+    _log_workflow_event(
+        "requirement_approved",
+        requirement=requirement,
+        execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(execution.execution.id)).first(),
+        reviewer=reviewer,
+        approval_comment=str(comment or "").strip() or None,
+        auto_started=auto_started,
+        pending_execution_start=pending_execution_start,
+    )
     _notify_requirement_approval(db, requirement, detail.approval)
     db.commit()
     return detail
@@ -721,6 +798,12 @@ def reject_requirement(
         requirement_id,
         approval_override=_approval_summary(db, requirement),
     )
+    _log_workflow_event(
+        "requirement_rejected",
+        requirement=requirement,
+        reviewer=reviewer,
+        approval_comment=str(comment or "").strip() or None,
+    )
     db.commit()
     return detail
 
@@ -752,6 +835,7 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         raise ValueError("Requirement not found.")
     requirement.status = "deleted"
     requirement.updated_at = utcnow()
+    _log_workflow_event("requirement_deleted", requirement=requirement)
     db.commit()
     return build_requirement_detail(db, requirement_id)
 
@@ -854,6 +938,14 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
     requirement.status = "running"
     requirement.started_at = utcnow()
     requirement.completed_at = None
+    _log_workflow_event(
+        "execution_run_created",
+        requirement=requirement,
+        execution=run,
+        target_projects=_target_projects_for_requirement(db, requirement),
+        node_count=len(shape["execution_steps"]),
+        planner_summary=str(shape["planner_summary"]),
+    )
     db.commit()
     return build_execution_detail(db, int(run.id))
 
@@ -1055,6 +1147,17 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.completed_at = None
     requirement.status = "running"
     requirement.completed_at = None
+    _log_workflow_event(
+        "execution_run_started",
+        requirement=requirement,
+        execution=run,
+        task_id=int(task.id),
+        node_key=str(node.node_key or ""),
+        node_title=str(node.title or ""),
+        agent_id=str(task.agent_id or ""),
+        skill_name=str(task.skill_name or "__direct_execution__"),
+        runtime_backend=str(task.runtime_backend or "").strip() or None,
+    )
     db.commit()
     dispatch(task_id=int(task.id), agent_persona=persona, skill_name=str(task.skill_name or "__direct_execution__"))
     return build_execution_detail(db, execution_run_id)
@@ -1073,6 +1176,13 @@ def pause_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
     if requirement is not None:
         requirement.status = "blocked"
+    _log_workflow_event(
+        "execution_run_paused",
+        requirement=requirement,
+        execution=run,
+        task_id=int(current.task_id),
+        node_key=str(current.node_key or ""),
+    )
     db.commit()
     return build_execution_detail(db, execution_run_id)
 
@@ -1107,8 +1217,21 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.completed_at = run.completed_at or utcnow()
     requirement.status = "needs_revision" if str(requirement.approval_status or "") == "rejected" else "ready"
     requirement.updated_at = utcnow()
+    _log_workflow_event(
+        "execution_run_retry_requested",
+        requirement=requirement,
+        execution=run,
+    )
     db.commit()
-    return create_execution_run(db, int(run.requirement_id))
+    detail = create_execution_run(db, int(run.requirement_id))
+    replacement = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(detail.execution.id)).first()
+    _log_workflow_event(
+        "execution_run_retried",
+        requirement=requirement,
+        execution=replacement,
+        previous_execution_id=int(run.id),
+    )
+    return detail
 
 
 def _run_check(project_path: str, command: str) -> ValidationCheckResultOut:
@@ -1232,6 +1355,14 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     run.status = "succeeded" if passed else "failed"
     run.completed_at = utcnow()
     requirement.status = "delivery_ready" if passed else "needs_revision"
+    _log_workflow_event(
+        "execution_run_validated",
+        requirement=requirement,
+        execution=run,
+        validation=record,
+        checks_total=len(checks),
+        checks_failed=len([check for check in checks if check.status != "passed"]),
+    )
     db.commit()
     return build_execution_detail(db, execution_run_id)
 
@@ -1266,14 +1397,16 @@ def reset_execution_runtime_data(db: Session) -> dict[str, int]:
             requirement.updated_at = utcnow()
             updated_requirements += 1
 
-    db.commit()
-    return {
+    result = {
         "execution_runs_deleted": int(run_count),
         "execution_nodes_deleted": int(node_count),
         "validation_records_deleted": int(validation_count),
         "release_records_deleted": int(release_count),
         "requirements_reset": int(updated_requirements),
     }
+    log_event(logger, "execution_runtime_reset", **result)
+    db.commit()
+    return result
 
 
 def _validation_record_to_out(record: ValidationRecordRow | None) -> ValidationRecordSlimOut | None:
@@ -1502,12 +1635,26 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     if blockers:
         release.status = "release_blocked"
         release.notes = "; ".join(blockers)
+        _log_workflow_event(
+            "release_preparation_blocked",
+            requirement=requirement,
+            release=release,
+            actor=actor,
+            blockers=blockers,
+        )
     else:
         release.status = "branch_prepared"
         release.branch_name = str(vcs.get("branch_name") or "").strip() or delivery_contract["branch_name"]
         release.base_branch = "main"
         release.prepared_at = utcnow()
         release.notes = note
+        _log_workflow_event(
+            "release_prepared",
+            requirement=requirement,
+            release=release,
+            actor=actor,
+            compare_url=str(vcs.get("compare_url") or "").strip() or None,
+        )
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
     db.commit()
     return build_release_detail(db, requirement_id)
@@ -1561,6 +1708,13 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
         release.status = "release_blocked"
         release.notes = "; ".join(blockers)
         release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
+        _log_workflow_event(
+            "release_pr_blocked",
+            requirement=requirement,
+            release=release,
+            actor=actor,
+            blockers=blockers,
+        )
         db.commit()
         return build_release_detail(db, requirement_id)
     first_repo = next((item for item in (vcs.get("repositories") or []) if isinstance(item, dict)), {})
@@ -1592,6 +1746,15 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs, "pr_sync": pr_sync})
     requirement.status = "done"
     requirement.completed_at = utcnow()
+    _log_workflow_event(
+        "release_pr_opened",
+        requirement=requirement,
+        release=release,
+        actor=actor,
+        pr_url=release.pr_url,
+        compare_url=release.compare_url,
+        commit_sha=release.commit_sha,
+    )
     db.commit()
     _notify_pr_opened(db, requirement, release)
     db.commit()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 from server.database import (
@@ -44,6 +45,19 @@ def test_error_intake_creates_requirement_and_auto_starts_execution(synced_clien
     deliveries = db_session.query(NotificationDeliveryRow).all()
     event_types = {row.event_type for row in deliveries}
     assert {"requirement_created", "approval_auto_approved", "error_logged"} <= event_types
+
+
+def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), caplog.at_level(logging.INFO):
+        response = synced_client.post("/api/errors/intake", json=_intake_payload())
+
+    assert response.status_code == 201
+    payload = response.json()
+    text = caplog.text
+    assert "error_event_ingested" in text
+    assert "error_requirement_materialized" in text
+    assert "error_requirement_submitted" in text
+    assert payload["fingerprint"]["fingerprint_key"] in text
 
 
 def test_error_intake_reuses_single_active_requirement_for_same_fingerprint(synced_client, db_session):
