@@ -1,0 +1,228 @@
+diff --git a/services/gateway/requirements.txt b/services/gateway/requirements.txt
+index 99bf6cce..ca81f2ce 100644
+--- a/services/gateway/requirements.txt
++++ b/services/gateway/requirements.txt
+@@ -6,7 +6,6 @@ python-dotenv>=0.19.0
+ pytest>=7.0.0
+ pytest-asyncio>=0.23.0
+ requests>=2.31.0
+-loguru>=0.7.0
+ httpx>=0.24.0
+ tenacity>=8.2.0
+ cachetools>=5.0.0
+diff --git a/services/gateway/src/core/auth.py b/services/gateway/src/core/auth.py
+index 1ca4914c..04623175 100644
+--- a/services/gateway/src/core/auth.py
++++ b/services/gateway/src/core/auth.py
+@@ -1,15 +1,18 @@
+ import hashlib
+ import json
++import logging
+ import secrets
+ import time
+-from eth_account.messages import encode_defunct
+ from typing import Any, Optional
++
++import jwt
+ from cachetools import TTLCache
++from eth_account.messages import encode_defunct
+ 
+ from .common import normalize_wallet
+ from .config import settings
+-from loguru import logger
+-import jwt
++
++logger = logging.getLogger(__name__)
+ 
+ 
+ def _web3_class():
+diff --git a/services/gateway/src/core/log_config.py b/services/gateway/src/core/log_config.py
+index e01f5595..5fad1069 100644
+--- a/services/gateway/src/core/log_config.py
++++ b/services/gateway/src/core/log_config.py
+@@ -1,32 +1,108 @@
+-import sys
+-from loguru import logger
++from __future__ import annotations
+ 
++import logging
++import os
++from logging.handlers import TimedRotatingFileHandler
++from pathlib import Path
+ 
+-def setup_logger():
+-    # Remove default console output
+-    logger.remove()
++_DEFAULT_LEVEL = "INFO"
++_DEFAULT_LOG_DIR = "logs"
++_DEFAULT_LOG_FILE = "gateway.log"
++_DEFAULT_RETENTION_DAYS = 14
++_REQUEST_ID_FALLBACK = "SYS"
++_LOGGING_CONFIGURED = False
+ 
+-    # Ensure request_id always exists in extra
+-    logger.configure(extra={"request_id": "SYS"})
+ 
+-    # 1) Console output: developer-friendly single-line logs with request_id.
+-    logger.add(
+-        sys.stdout,
+-        colorize=True,
+-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[request_id]}</cyan> | <level>{message}</level>",
+-        enqueue=True,
++class _RequestIdFormatter(logging.Formatter):
++    def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
++        if not getattr(record, "request_id", None):
++            record.request_id = _REQUEST_ID_FALLBACK  # type: ignore[attr-defined]
++        return super().format(record)
++
++
++def _coerce_level(value: str | int | None) -> int:
++    if isinstance(value, int):
++        return value
++    if isinstance(value, str):
++        level = getattr(logging, value.upper(), None)
++        if isinstance(level, int):
++            return level
++    return logging.INFO
++
++
++def _sanitize_log_filename(value: str | None) -> str:
++    candidate = str(value or "").strip()
++    return candidate or _DEFAULT_LOG_FILE
++
++
++def _resolve_retention(value: int | str | None) -> int:
++    try:
++        retention = int(value) if value is not None else _DEFAULT_RETENTION_DAYS
++    except (TypeError, ValueError):
++        retention = _DEFAULT_RETENTION_DAYS
++    return max(1, retention)
++
++
++def setup_logger(
++    *,
++    level: str | int | None = None,
++    log_dir: str | os.PathLike[str] | None = None,
++    filename: str | None = None,
++    retention_days: int | None = None,
++) -> logging.Logger:
++    global _LOGGING_CONFIGURED
++    if _LOGGING_CONFIGURED:
++        return logging.getLogger()
++
++    resolved_level = _coerce_level(level or os.getenv("GATEWAY_LOG_LEVEL", _DEFAULT_LEVEL))
++    log_directory = Path(log_dir or os.getenv("GATEWAY_LOG_DIR", _DEFAULT_LOG_DIR)).expanduser()
++    log_directory.mkdir(parents=True, exist_ok=True)
++    env_log_file = os.getenv("GATEWAY_LOG_FILE", _DEFAULT_LOG_FILE)
++    log_filename = _sanitize_log_filename(filename or env_log_file)
++    resolved_retention = _resolve_retention(
++        retention_days or os.getenv("GATEWAY_LOG_RETENTION_DAYS", _DEFAULT_RETENTION_DAYS)
++    )
++
++    root = logging.getLogger()
++    root.setLevel(resolved_level)
++    for handler in list(root.handlers):
++        handler.close()
++        root.removeHandler(handler)
++
++    formatter = _RequestIdFormatter(
++        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(request_id)s | %(message)s",
++        datefmt="%Y-%m-%d %H:%M:%S",
+     )
+ 
+-    # 2) Optional JSON file sink for production shipping/analysis.
+-    # logger.add(
+-    #     "logs/gateway_{time:YYYY-MM-DD}.log",
+-    #     rotation="100 MB",
+-    #     retention="30 days",
+-    #     serialize=True,
+-    #     enqueue=True,
+-    # )
++    console_handler = logging.StreamHandler()
++    console_handler.setLevel(resolved_level)
++    console_handler.setFormatter(formatter)
++    root.addHandler(console_handler)
++
++    file_handler = TimedRotatingFileHandler(
++        log_directory / log_filename,
++        when="midnight",
++        interval=1,
++        backupCount=resolved_retention,
++        encoding="utf-8",
++        utc=True,
++    )
++    file_handler.setLevel(resolved_level)
++    file_handler.setFormatter(formatter)
++    root.addHandler(file_handler)
++
++    logging.captureWarnings(True)
++    _LOGGING_CONFIGURED = True
++    return root
++
+ 
+-    return logger
++def reset_logging_for_tests() -> None:
++    global _LOGGING_CONFIGURED
++    root = logging.getLogger()
++    for handler in list(root.handlers):
++        handler.close()
++        root.removeHandler(handler)
++    _LOGGING_CONFIGURED = False
+ 
+ 
+ setup_logger()
+diff --git a/services/gateway/tests/unit/test_log_config_unit.py b/services/gateway/tests/unit/test_log_config_unit.py
+new file mode 100644
+index 00000000..268c3338
+--- /dev/null
++++ b/services/gateway/tests/unit/test_log_config_unit.py
+@@ -0,0 +1,49 @@
++from __future__ import annotations
++
++import logging
++from logging.handlers import TimedRotatingFileHandler
++
++from src.core import log_config
++
++
++def _flush_handlers(logger: logging.Logger) -> None:
++    for handler in logger.handlers:
++        handler.flush()
++
++
++def test_setup_logger_writes_rotating_file(tmp_path, monkeypatch) -> None:
++    log_config.reset_logging_for_tests()
++    monkeypatch.setenv("GATEWAY_LOG_DIR", str(tmp_path))
++    monkeypatch.setenv("GATEWAY_LOG_FILE", "gateway-test.log")
++    monkeypatch.setenv("GATEWAY_LOG_LEVEL", "INFO")
++    monkeypatch.setenv("GATEWAY_LOG_RETENTION_DAYS", "2")
++
++    root_logger = log_config.setup_logger()
++    logging.getLogger("synapse.test").info("hello world", extra={"request_id": "REQ-42"})
++    _flush_handlers(root_logger)
++
++    log_path = tmp_path / "gateway-test.log"
++    assert log_path.exists()
++    contents = log_path.read_text(encoding="utf-8")
++    assert "hello world" in contents
++    assert "REQ-42" in contents
++    assert any(isinstance(handler, TimedRotatingFileHandler) for handler in root_logger.handlers)
++
++    log_config.reset_logging_for_tests()
++
++
++def test_setup_logger_injects_default_request_id(tmp_path, monkeypatch) -> None:
++    log_config.reset_logging_for_tests()
++    monkeypatch.setenv("GATEWAY_LOG_DIR", str(tmp_path))
++    monkeypatch.setenv("GATEWAY_LOG_FILE", "gateway-default.log")
++
++    root_logger = log_config.setup_logger()
++    logging.getLogger("synapse.test").info("missing extra context")
++    _flush_handlers(root_logger)
++
++    log_path = tmp_path / "gateway-default.log"
++    contents = log_path.read_text(encoding="utf-8")
++    assert "missing extra context" in contents
++    assert "SYS" in contents
++
++    log_config.reset_logging_for_tests()
