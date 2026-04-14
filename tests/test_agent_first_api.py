@@ -73,7 +73,10 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     )
 
     assert create_resp.status_code == 201
-    assert "Simplify workspace summary copy" in create_resp.json()["requirement"]["acceptance_criteria_markdown"]
+    create_payload = create_resp.json()
+    assert create_payload["acceptance_contract"]["done_criteria"]
+    assert create_payload["acceptance_contract"]["verification_checks"]
+    assert "Done Criteria" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
 
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
@@ -88,10 +91,13 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert payload["approval"]["auto_started"] is True
     assert payload["approval"]["execution_run_id"] is not None
     assert payload["latest_execution_id"] == payload["approval"]["execution_run_id"]
+    assert payload["execution_plan"]["summary_markdown"]
+    assert payload["execution_plan"]["steps"]
 
     execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
     assert execution.execution_mode == "direct"
     assert execution.status == "running"
+    assert json.loads(execution.plan_snapshot_json)["summary_markdown"]
     assert db_session.query(TaskRow).filter(TaskRow.id == execution.latest_task_id).one().status == "running"
 
 
@@ -811,7 +817,35 @@ def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[R
         project_key="synapse-network-growing",
         project_display_name="Synapse-Network-Growing",
         target_project_path=str(target_root),
-        acceptance_contract_json='{"markdown":"- Runtime metrics visible"}',
+        acceptance_contract_json=json.dumps(
+            {
+                "done_criteria": ["Runtime metrics are visible for the current execution run."],
+                "verification_checks": [{"label": "Review execution detail runtime evidence", "kind": "evidence"}],
+                "scope_constraints": ["Keep the change scoped to the execution detail surface."],
+                "delivery_expectation": "Prepare a PR-ready branch when implementation is complete.",
+                "markdown": "### Done Criteria\n- Runtime metrics are visible for the current execution run.",
+            },
+            ensure_ascii=False,
+        ),
+        execution_plan_json=json.dumps(
+            {
+                "planning_mode": "full_plan",
+                "goal_summary": "Execution observability fixture",
+                "summary_markdown": "## Goal\n\nExecution observability fixture\n\n## Planned Steps\n\n1. Add observability fields\n   - Done when: execution detail shows metrics, files, validation, and raw output.",
+                "steps": [
+                    {
+                        "step_key": "add_observability_fields",
+                        "title": "Add observability fields",
+                        "step_type": "implementation",
+                        "done_when": "execution detail shows metrics, files, validation, and raw output.",
+                    }
+                ],
+                "planned_checks": ["Review execution detail output."],
+                "risks": ["Avoid regressing execution detail loading."],
+                "delivery_intent": "pr_required",
+            },
+            ensure_ascii=False,
+        ),
     )
     db_session.add_all([agent, requirement])
     db_session.flush()
@@ -827,6 +861,7 @@ def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[R
         delivery_intent="pr_required",
         approval_required=False,
         planner_summary="Direct execution fixture.",
+        plan_snapshot_json=requirement.execution_plan_json,
         target_projects_json=json.dumps([str(target_root)]),
         started_at=started_at,
     )
@@ -841,7 +876,7 @@ def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[R
         runtime_provider="openai",
         runtime_model="gpt-5.4",
         output_path=str(output_path),
-        output_content="done",
+        output_content="## Result\n\nApplied the requested change.\n\nCommands run:\n- `pytest tests/test_agent_first_api.py -q`",
         execution_time_ms=42000,
         tokens_used=321,
         project_id="synapse-network-growing",
@@ -903,6 +938,9 @@ def test_execution_detail_exposes_runtime_observability_fields(synced_client, db
     assert payload["changed_files"][0]["preview_available"] is True
     assert any(event["event"] == "run_created" for event in payload["activity_stream"])
     assert payload["delivery_summary"]["branch_name"] == "feature/execution-observability"
+    assert payload["plan_summary"]["summary_markdown"]
+    assert "Applied the requested change." in payload["raw_task_output"]
+    assert payload["raw_task_output_truncated"] is False
 
 
 def test_execution_file_preview_endpoint_returns_diff_and_current_content(synced_client, db_session, tmp_path):

@@ -146,6 +146,7 @@ export default function ExecutionDetailPage() {
     runtime_model: execution.runtime_model,
     current_branch: execution.current_branch,
   }
+  const planMarkdown = String(detail.plan_summary?.summary_markdown || '').trim()
 
   return (
     <div className="space-y-6" data-testid="execution-detail-page">
@@ -284,6 +285,10 @@ export default function ExecutionDetailPage() {
         </div>
       </SectionFrame>
 
+      <SectionFrame eyebrow="Plan" title="执行计划">
+        <Markdown value={planMarkdown} empty="当前还没有执行计划。" />
+      </SectionFrame>
+
       <SectionFrame eyebrow="Files" title="改动文件">
         {detail.changed_files.length > 0 ? (
           <div className="overflow-x-auto">
@@ -394,6 +399,23 @@ export default function ExecutionDetailPage() {
           )}
         </ActivityFeed>
       </div>
+
+      <SectionFrame eyebrow="Agent Output" title="原始执行输出">
+        {detail.raw_task_output ? (
+          <div className="space-y-3">
+            {detail.raw_task_output_truncated ? (
+              <div className="rounded-2xl border border-[color:var(--ops-state-validating-border)] bg-[color:var(--ops-state-validating-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-validating-text)]">
+                原始输出较长，当前为截断预览。
+              </div>
+            ) : null}
+            <pre className="overflow-x-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">
+              {detail.raw_task_output}
+            </pre>
+          </div>
+        ) : (
+          <div className="text-sm text-[color:var(--ops-text-muted)]">当前还没有原始执行输出。</div>
+        )}
+      </SectionFrame>
 
       <OverlayModal
         open={Boolean(previewPath)}

@@ -14,7 +14,7 @@ Requirement -> Execution -> Release
 
 ```mermaid
 flowchart LR
-    R["Requirement Surface"] -->|submit + approval| E["Execution Surface"]
+    R["Requirement Surface"] -->|submit + approval + plan| E["Execution Surface"]
     E -->|validate passed| L["Release Surface"]
     P["Project Center"] --> R
     P --> E
@@ -58,11 +58,12 @@ Requirement 面只回答 3 个问题：
 Requirement 保存的核心事实：
 
 1. 标题与描述
-2. 验收条件
-3. 所属 Project 与实际执行路径
-4. priority / source / family
-5. approval need / policy summary
-6. 当前 requirement 状态
+2. 结构化 acceptance contract 与 markdown
+3. execution plan
+4. 所属 Project 与实际执行路径
+5. priority / source / family
+6. approval need / policy summary
+7. 当前 requirement 状态
 
 Requirement 现在默认先绑定正式 `Project`：
 
@@ -75,9 +76,10 @@ Requirement 到 Execution 的正式桥接规则：
 
 1. `submit` 时就做 approval decision
 2. 低风险 requirement 默认 auto-approve / waive
-3. 审批放行后自动创建 execution 并自动启动
-4. 高风险 requirement 停在 requirement surface 等待人工批准
-5. execution approval 只决定能否执行，不替代 release gate
+3. 审批放行后先生成 execution plan
+4. execution plan 落库后自动创建 execution 并自动启动
+5. 高风险 requirement 停在 requirement surface 等待人工批准
+6. execution approval 只决定能否执行，不替代 release gate
 
 Requirement 面不再承担：
 
@@ -129,6 +131,8 @@ Execution 详情页当前正式暴露这些可观测性字段：
    - 当前 run 的 validate 结果
    - `run_created / run_started / node_completed / validation_* / paused / resumed / retried`
 5. execution detail 不直接堆原始日志，而是展示结构化 observability summary
+6. execution detail 始终补充 agent 原始输出
+   - 原始输出是正式证据层，不再只是缺失结构化字段时的临时 fallback
 
 ### 2.3 Release Surface
 
@@ -162,7 +166,7 @@ error event -> fingerprint -> requirement -> approval -> execution -> validate -
 1. 只接高信号错误源：`runtime_log_error`、`task_failure`、`workflow_incident`
 2. 同一 fingerprint 同时最多只能有一条未完成 requirement
 3. 新错误 requirement 创建后立即 `submit`
-4. 低风险自动审批并自动启动 execution
+4. 低风险自动审批、生成 plan 并自动启动 execution
 5. 高风险 requirement 停在 requirement 面等待人工批准
 6. `/errors` 只作为稳定性治理辅助页，不替代三大主面
 
@@ -218,6 +222,20 @@ Execution 现在除了“能跑”，还要求“可解释、可展示、可审�
 ### 3.1 Planner Contract
 
 planner 现在是 **执行形状选择器**，不是固定阶段生成器。
+
+当前 requirement 主链中还有两份独立但协同的 agent 产物：
+
+1. acceptance contract
+   - 回答“什么算完成、怎么验证完成”
+2. execution plan
+   - 回答“准备怎么做、改哪里、怎么交付”
+
+固定规则：
+
+1. requirement 创建后先生成 acceptance contract
+2. requirement `submit` 放行后再生成 execution plan
+3. validate 默认读取 acceptance contract 的 `verification_checks`
+4. execution detail 同时展示 plan、observability 与 raw output
 
 它只做一次轻量决策：
 

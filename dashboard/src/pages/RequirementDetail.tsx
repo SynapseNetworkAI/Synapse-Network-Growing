@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import { AgentRequirementDetail, Project, api } from '../api'
+import { AcceptanceContract, AgentRequirementDetail, ExecutionPlan, Project, api } from '../api'
 import { FieldLabel, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -48,10 +48,15 @@ export default function RequirementDetail() {
     title: '',
     description_markdown: '',
     acceptance_criteria_markdown: '',
+    execution_plan_markdown: '',
     priority: 'normal',
     project_id: null as number | null,
     target_project_path_override: '',
   })
+
+  const acceptanceMarkdown = (contract: AcceptanceContract, fallback: string) =>
+    String(contract.markdown || '').trim() || fallback
+  const planMarkdown = (plan: ExecutionPlan) => String(plan.summary_markdown || '').trim()
 
   const load = async () => {
     setLoading(true)
@@ -63,6 +68,7 @@ export default function RequirementDetail() {
         title: data.requirement.title,
         description_markdown: data.requirement.description_markdown,
         acceptance_criteria_markdown: data.requirement.acceptance_criteria_markdown,
+        execution_plan_markdown: planMarkdown(data.execution_plan),
         priority: data.requirement.priority,
         project_id: data.requirement.project_id,
         target_project_path_override: data.requirement.target_project_path_override || '',
@@ -114,13 +120,14 @@ export default function RequirementDetail() {
                 <button
                   className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm"
                   onClick={() => {
-                    setForm({
-                      title: requirement.title,
-                      description_markdown: requirement.description_markdown,
-                      acceptance_criteria_markdown: requirement.acceptance_criteria_markdown,
-                      priority: requirement.priority,
-                      project_id: requirement.project_id,
-                      target_project_path_override: requirement.target_project_path_override || '',
+                      setForm({
+                        title: requirement.title,
+                        description_markdown: requirement.description_markdown,
+                        acceptance_criteria_markdown: requirement.acceptance_criteria_markdown,
+                        execution_plan_markdown: planMarkdown(detail.execution_plan),
+                        priority: requirement.priority,
+                        project_id: requirement.project_id,
+                        target_project_path_override: requirement.target_project_path_override || '',
                     })
                     setShowAdvanced(Boolean(requirement.target_project_path_override))
                     setIsEditing(false)
@@ -139,6 +146,7 @@ export default function RequirementDetail() {
                         title: form.title,
                         description_markdown: form.description_markdown,
                         acceptance_criteria_markdown: form.acceptance_criteria_markdown,
+                        execution_plan: { ...detail.execution_plan, summary_markdown: form.execution_plan_markdown },
                         priority: form.priority,
                         project_id: form.project_id ?? undefined,
                         target_project_path_override: form.target_project_path_override || undefined,
@@ -317,6 +325,29 @@ export default function RequirementDetail() {
       </SectionFrame>
 
       <SectionFrame eyebrow="Acceptance" title="验收标准">
+        {!isEditing && detail.acceptance_contract.done_criteria?.length ? (
+          <div className="mb-5 grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Done Criteria</div>
+              <ul className="space-y-2 text-sm text-[color:var(--ops-text-body)]">
+                {detail.acceptance_contract.done_criteria.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Verification Checks</div>
+              <ul className="space-y-2 text-sm text-[color:var(--ops-text-body)]">
+                {(detail.acceptance_contract.verification_checks || []).map((item) => (
+                  <li key={`${item.label}-${item.command || 'manual'}`}>
+                    • {item.label}
+                    {item.command ? <span className="text-[color:var(--ops-text-caption)]"> (`{item.command}`)</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
         {isEditing ? (
           <textarea
             data-testid="edit-requirement-acceptance"
@@ -325,7 +356,20 @@ export default function RequirementDetail() {
             onChange={(event) => setForm((current) => ({ ...current, acceptance_criteria_markdown: event.target.value }))}
           />
         ) : (
-          <Markdown value={requirement.acceptance_criteria_markdown} />
+          <Markdown value={acceptanceMarkdown(detail.acceptance_contract, requirement.acceptance_criteria_markdown)} />
+        )}
+      </SectionFrame>
+
+      <SectionFrame eyebrow="Plan" title="执行计划">
+        {isEditing ? (
+          <textarea
+            data-testid="edit-requirement-plan"
+            className="min-h-[220px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
+            value={form.execution_plan_markdown}
+            onChange={(event) => setForm((current) => ({ ...current, execution_plan_markdown: event.target.value }))}
+          />
+        ) : (
+          <Markdown value={planMarkdown(detail.execution_plan)} />
         )}
       </SectionFrame>
     </div>

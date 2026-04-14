@@ -162,6 +162,16 @@ const detail = {
     },
   ],
   incidents: [],
+  plan_summary: {
+    planning_mode: 'full_plan',
+    goal_summary: 'Improve execution observability',
+    summary_markdown: '## Goal\n\nImprove execution observability\n\n## Planned Steps\n\n1. Add execution detail metrics\n   - Done when: tokens and runtime metrics are visible.',
+    steps: [{ step_key: 'metrics', title: 'Add execution detail metrics', done_when: 'tokens and runtime metrics are visible.' }],
+    planned_checks: ['Run `pytest tests/test_agent_first_api.py`'],
+    risks: ['Avoid regressing execution detail loading.'],
+  },
+  raw_task_output: '## Execute requirement\n\nApplied the requested change.\n- Commands run: `pytest tests/test_agent_first_api.py`\n',
+  raw_task_output_truncated: false,
 }
 
 describe('Execution detail observability', () => {
@@ -192,6 +202,9 @@ describe('Execution detail observability', () => {
     expect(screen.getByText('src/feature.py')).toBeInTheDocument()
     expect(screen.getAllByText('321').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Validation passed.').length).toBeGreaterThan(0)
+    expect(screen.getByText('执行计划')).toBeInTheDocument()
+    expect(screen.getByText('原始执行输出')).toBeInTheDocument()
+    expect(screen.getByText(/Applied the requested change\./)).toBeInTheDocument()
   })
 
   it('opens file preview modal with diff first', async () => {

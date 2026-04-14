@@ -869,6 +869,7 @@ class RequirementPatch(BaseModel):
     target_project_path_override: Optional[str] = None
     target_project_path: Optional[str] = None
     acceptance_contract: Optional[dict[str, object]] = None
+    execution_plan: Optional[dict[str, object]] = None
     approval_contract: Optional[dict[str, object]] = None
 
 
@@ -936,6 +937,8 @@ class AgentFirstRequirementDetailOut(BaseModel):
     latest_execution_id: Optional[int] = None
     latest_release_id: Optional[int] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
+    acceptance_contract: dict[str, object] = {}
+    execution_plan: dict[str, object] = {}
 
 
 class ExecutionNodeOut(BaseModel):
@@ -1050,6 +1053,9 @@ class ExecutionRunDetailOut(BaseModel):
     delivery_summary: Optional[ReleaseRecordSlimOut] = None
     activity_stream: list[ExecutionActivityEventOut] = []
     incidents: list[dict[str, object]] = []
+    plan_summary: dict[str, object] = {}
+    raw_task_output: Optional[str] = None
+    raw_task_output_truncated: bool = False
 
 
 class ExecutionCreateRequest(BaseModel):

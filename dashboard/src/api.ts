@@ -833,6 +833,45 @@ export interface AgentRequirementApproval {
   execution_run_id: number | null
 }
 
+export interface AcceptanceContractCheck {
+  label: string
+  command: string | null
+  kind: string
+}
+
+export interface AcceptanceContract {
+  acceptance_owner_role?: string
+  review_owner_role?: string
+  acceptance_mode?: string
+  acceptance_trigger?: string
+  workflow_step_types?: string[]
+  required_evidence_artifact_types?: string[]
+  done_criteria?: string[]
+  verification_checks?: AcceptanceContractCheck[]
+  scope_constraints?: string[]
+  delivery_expectation?: string
+  markdown?: string
+}
+
+export interface ExecutionPlanStep {
+  step_key: string
+  title: string
+  step_type?: string
+  scope?: string
+  done_when?: string
+}
+
+export interface ExecutionPlan {
+  planning_mode?: string
+  goal_summary?: string
+  summary_markdown?: string
+  target_files_or_areas?: string[]
+  steps?: ExecutionPlanStep[]
+  planned_checks?: string[]
+  risks?: string[]
+  delivery_intent?: string
+}
+
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
   policy_summary_markdown: string
@@ -840,6 +879,8 @@ export interface AgentRequirementDetail {
   latest_execution_id: number | null
   latest_release_id: number | null
   approval: AgentRequirementApproval
+  acceptance_contract: AcceptanceContract
+  execution_plan: ExecutionPlan
 }
 
 export interface ExecutionNode {
@@ -954,6 +995,9 @@ export interface ExecutionDetail {
   delivery_summary: ReleaseRecord | null
   activity_stream: ExecutionActivityEvent[]
   incidents: Array<Record<string, unknown>>
+  plan_summary: ExecutionPlan
+  raw_task_output: string | null
+  raw_task_output_truncated: boolean
 }
 
 export interface ReleaseRecord {
@@ -1630,6 +1674,8 @@ export const api = {
     title?: string
     description_markdown?: string
     acceptance_criteria_markdown?: string
+    acceptance_contract?: AcceptanceContract
+    execution_plan?: ExecutionPlan
     priority?: string
     project_id?: number
     target_project_path_override?: string | null

@@ -116,6 +116,12 @@ Execution 详情页当前已经支持正式可观测性视图：
 3. 每个 node / task 的 token 与执行时长
 4. 当前 run 改动文件列表与 diff 预览
 5. validation 结果与 activity timeline
+6. execution plan 与 agent 原始输出
+
+Requirement 与 Execution 当前还有两条正式约束：
+
+1. requirement 创建后会由 agent 生成真实 acceptance contract，而不是模板式验收文案。
+2. requirement submit 通过后会先生成 execution plan，再自动创建并启动 execution。
 
 ## Browser Automation
 
