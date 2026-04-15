@@ -97,6 +97,7 @@ describe('agent-first pages smoke', () => {
       {
         id: 11,
         requirement_id: 1,
+        requirement_title: 'Launch FAQ',
         status: 'queued',
         phase: 'queued',
         is_current_execution: true,
@@ -572,7 +573,25 @@ describe('agent-first pages smoke', () => {
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
     expect(screen.getByText('执行列表')).toBeInTheDocument()
     expect(screen.getByText('Execution #11')).toBeInTheDocument()
+    expect(screen.getByText('需求：Launch FAQ')).toBeInTheDocument()
     expect(screen.getByText(/恢复中的 execution 只影响当前需求/)).toBeInTheDocument()
+  })
+
+  it('filters execution rows by requirement title', async () => {
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <ExecutionsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
+    fireEvent.change(screen.getByPlaceholderText('搜索 execution / requirement'), { target: { value: 'launch faq' } })
+    expect(screen.getByText('Execution #11')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('搜索 execution / requirement'), { target: { value: 'different requirement' } })
+    expect(screen.queryByText('Execution #11')).not.toBeInTheDocument()
   })
 
   it('shows restart-current action for restartable blockers', async () => {
@@ -580,6 +599,7 @@ describe('agent-first pages smoke', () => {
       {
         id: 12,
         requirement_id: 1,
+        requirement_title: 'Launch FAQ',
         status: 'blocked',
         phase: 'blocked',
         is_current_execution: true,

@@ -25,6 +25,7 @@ const detail = {
   execution: {
     id: 1,
     requirement_id: 6,
+    requirement_title: 'Improve execution observability',
     execution_mode: 'direct',
     execution_kind: 'implementation',
     complexity: 'simple',
@@ -283,6 +284,8 @@ describe('Execution detail observability', () => {
     expect(screen.getAllByText('Software Engineer').length).toBeGreaterThan(0)
     expect(screen.getAllByText('gpt-5.4').length).toBeGreaterThan(0)
     expect(screen.getAllByText('feature/execution-observability').length).toBeGreaterThan(0)
+    expect(screen.getByText('需求：#6 Improve execution observability')).toBeInTheDocument()
+    expect(screen.getByText('#6 · Improve execution observability')).toBeInTheDocument()
     expect(screen.getByText('src/feature.py')).toBeInTheDocument()
     expect(screen.getAllByText('321').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Validation passed.').length).toBeGreaterThan(0)

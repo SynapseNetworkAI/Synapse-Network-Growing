@@ -3701,6 +3701,7 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
     execution = ExecutionRunOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
+        requirement_title=str(getattr(requirement, "title", "") or "").strip() or None,
         execution_mode=str(run.execution_mode or "direct"),
         execution_kind=str(getattr(run, "execution_kind", "") or "implementation"),
         complexity=str(run.complexity or "simple"),

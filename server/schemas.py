@@ -1047,6 +1047,7 @@ class ValidationRecordSlimOut(BaseModel):
 class ExecutionRunOut(BaseModel):
     id: int
     requirement_id: int
+    requirement_title: Optional[str] = None
     execution_mode: str
     execution_kind: str = "implementation"
     complexity: str

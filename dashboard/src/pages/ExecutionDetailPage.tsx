@@ -228,6 +228,9 @@ export default function ExecutionDetailPage() {
           <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
           {runtimeSummary.current_branch ? <StateBadge tone="ready">{runtimeSummary.current_branch}</StateBadge> : null}
         </div>
+        <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">
+          需求：#{detail.requirement.id} {detail.requirement.title}
+        </div>
         {detail.queue_reason ? <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{detail.queue_reason}</div> : null}
         {detail.blocking_reason_message ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -282,7 +285,7 @@ export default function ExecutionDetailPage() {
         ) : null}
 
         <div className="mt-5 grid gap-4 border-b border-[color:var(--ops-stroke-soft)] pb-5 md:grid-cols-3 xl:grid-cols-6">
-          <Metric label="Requirement" value={`#${execution.requirement_id}`} />
+          <Metric label="Requirement" value={`#${detail.requirement.id} · ${detail.requirement.title}`} />
           <Metric label="Agent" value={runtimeSummary.agent_label || runtimeSummary.agent_id || '-'} />
           <Metric label="Model" value={runtimeSummary.runtime_model || '-'} />
           <Metric label="Backend" value={runtimeSummary.runtime_backend || '-'} />

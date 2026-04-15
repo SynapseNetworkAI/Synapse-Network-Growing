@@ -65,7 +65,14 @@ export default function ExecutionsPage() {
     const needle = search.trim().toLowerCase()
     if (!needle) return executions
     return executions.filter((item) =>
-      [String(item.id), String(item.requirement_id), item.execution_mode, item.complexity, item.target_projects.join('\n')]
+      [
+        String(item.id),
+        String(item.requirement_id),
+        item.requirement_title ?? '',
+        item.execution_mode,
+        item.complexity,
+        item.target_projects.join('\n'),
+      ]
         .join('\n')
         .toLowerCase()
         .includes(needle),
@@ -116,6 +123,9 @@ export default function ExecutionsPage() {
                 <tr key={item.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
                   <td className="px-5 py-4">
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">Execution #{item.id}</div>
+                    {item.requirement_title ? (
+                      <div className="mt-1 text-sm text-[color:var(--ops-text-body)]">需求：{item.requirement_title}</div>
+                    ) : null}
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Requirement #{item.requirement_id}</div>
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.execution_kind === 'delivery_repair' ? 'delivery repair' : 'implementation'}</div>
                   </td>

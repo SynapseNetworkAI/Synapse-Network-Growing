@@ -326,6 +326,7 @@ def test_requirement_list_reconciles_running_status_from_latest_execution(synced
     assert requirement_row["phase"] == "executing"
     assert execution_row["status"] == "running"
     assert execution_row["phase"] == "executing"
+    assert execution_row["requirement_title"] == "State reconcile from execution"
 
 
 def test_start_execution_is_idempotent_when_already_running(synced_client, db_session):

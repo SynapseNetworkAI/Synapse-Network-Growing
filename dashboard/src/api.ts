@@ -989,6 +989,7 @@ export interface ValidationRecord {
 export interface ExecutionRun {
   id: number
   requirement_id: number
+  requirement_title: string | null
   execution_mode: string
   execution_kind: string
   complexity: string
