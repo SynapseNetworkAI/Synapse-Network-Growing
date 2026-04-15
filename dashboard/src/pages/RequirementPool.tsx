@@ -70,13 +70,20 @@ async function fileToAttachment(file: File, source: string): Promise<ComposerAtt
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
+  planning: '规划中',
+  awaiting_approval: '待审批',
   ready: '待执行',
+  executing: '执行中',
+  delivering: '交付中',
+  ready_for_merge: '待合并',
+  awaiting_operator: '待人工处理',
+  completed: '已完成',
+  cancelled: '已取消',
   running: '执行中',
   blocked: '阻塞',
   needs_revision: '需修订',
   delivery_ready: '待发布',
   done: '已完成',
-  cancelled: '已取消',
   deleted: '已删除',
 }
 
@@ -86,10 +93,10 @@ function formatTime(value: string | null) {
 }
 
 function statusTone(status: string) {
-  if (status === 'done' || status === 'delivery_ready') return 'delivered'
-  if (status === 'running') return 'running'
-  if (status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
-  if (status === 'ready') return 'ready'
+  if (status === 'completed' || status === 'done' || status === 'ready_for_merge' || status === 'delivery_ready') return 'delivered'
+  if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
+  if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
+  if (status === 'ready' || status === 'awaiting_approval') return 'ready'
   return 'muted'
 }
 
@@ -105,43 +112,40 @@ function canEditRequirement(requirement: AgentRequirement) {
 
 function fallbackRequirementAllowedActions(requirement: AgentRequirement): string[] {
   const actions = new Set<string>(['view'])
+  const state = requirement.state || requirement.status
   if (requirement.active_execution_run_id != null || requirement.latest_execution_run_id != null) {
     actions.add('view_execution')
   }
   if (requirement.latest_release_status) {
     actions.add('view_release')
   }
-  if (requirement.status === 'draft' || requirement.status === 'ready' || requirement.status === 'blocked' || requirement.status === 'needs_revision') {
+  if (state === 'draft' || state === 'planning' || state === 'ready' || state === 'awaiting_operator') {
     actions.add('edit')
   }
-  if (requirement.assets_status === 'ready' && (requirement.status === 'draft' || requirement.status === 'needs_revision')) {
+  if (requirement.assets_status === 'ready' && (state === 'draft' || state === 'ready')) {
     actions.add('submit')
   }
   if (requirement.assets_status === 'failed') {
     actions.add('regenerate_assets')
   }
-  if (requirement.approval_status === 'pending_approval') {
+  if ((requirement.approval?.state || requirement.approval_status) === 'pending') {
     actions.add('approve')
     actions.add('reject')
   }
-  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'needs_revision', 'blocked'].includes(requirement.phase || requirement.status)) {
+  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
     actions.add('delete')
   }
   return [...actions]
 }
 
 function phaseLabel(requirement: AgentRequirement) {
+  if (requirement.attention_reason === 'retry_available') return '可创建新 attempt 重试'
+  if (requirement.attention_reason === 'repair_delivery') return '交付门禁自动修复中'
+  if (requirement.attention_reason === 'route_to_human') return '需人工接管'
   if (requirement.recovery_timeout_status === 'timed_out') return '恢复超时，需人工介入'
   if (requirement.recovery_status === 'recovering') return '恢复中，仅影响当前需求'
   if (requirement.recovery_status) return `恢复: ${requirement.recovery_status}`
-  const phase = requirement.phase || requirement.status
-  if (phase === 'awaiting_execution_approval') return '等待执行审批'
-  if (phase === 'branch_preparing') return '准备分支中'
-  if (phase === 'branch_prepared') return '分支已就绪'
-  if (phase === 'verifying') return '验证中'
-  if (phase === 'pr_opened') return 'PR 已创建'
-  if (phase === 'recovering') return '恢复中'
-  return phase
+  return requirement.state || requirement.phase || requirement.status
 }
 
 function buildDraft(requirement?: AgentRequirement | null): RequirementDraft {
@@ -600,12 +604,12 @@ export default function RequirementPool() {
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.project_display_name || item.project_key || '-'}</td>
                   <td className="px-4 py-4">
-                    <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
+                    <StateBadge tone={statusTone(item.state || item.status)}>{STATUS_LABEL[item.state || item.status] || item.state || item.status}</StateBadge>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
-                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval_required ? item.approval_status : 'waived'}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval?.state || (item.approval_required ? item.approval_status : 'not_required')}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                    {assetsLabel(item)} · {phaseLabel(item)} · execution {item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · {item.latest_release_status ?? '-'}
+                    {assetsLabel(item)} · {phaseLabel(item)} · attempt {item.current_attempt_id ?? item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · delivery {item.current_delivery_id ?? item.latest_release_status ?? '-'}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">

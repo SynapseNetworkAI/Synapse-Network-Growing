@@ -899,6 +899,12 @@ class AgentFirstRequirementOut(BaseModel):
     title: str
     description_markdown: str
     acceptance_criteria_markdown: str = ""
+    state: str = "draft"
+    attention_reason: Optional[str] = None
+    project: Optional[RequirementProjectRefOut] = None
+    approval: Optional[ApprovalDecisionOut] = None
+    current_attempt_id: Optional[int] = None
+    current_delivery_id: Optional[int] = None
     status: str
     priority: str
     source: str
@@ -949,12 +955,15 @@ class AgentFirstRequirementApprovalOut(BaseModel):
 
 class AgentFirstRequirementDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
+    state: str = "draft"
+    attention_reason: Optional[str] = None
     policy_summary_markdown: str = ""
     project: Optional[ProjectOut] = None
     latest_execution_id: Optional[int] = None
     latest_release_id: Optional[int] = None
     latest_release: Optional["ReleaseRecordSlimOut"] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
+    approval_decision: Optional[ApprovalDecisionOut] = None
     phase: str = "draft"
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
@@ -1020,6 +1029,36 @@ class WorkspaceBlockerOut(BaseModel):
     has_untracked: bool = False
 
 
+class RequirementProjectRefOut(BaseModel):
+    project_id: Optional[int] = None
+    project_key: Optional[str] = None
+    project_display_name: Optional[str] = None
+    target_project_path: Optional[str] = None
+    target_project_path_override: Optional[str] = None
+
+
+class ApprovalDecisionOut(BaseModel):
+    state: str
+    reason: Optional[str] = None
+    source: Optional[str] = None
+    agent_recommendation: Optional[str] = None
+    confidence: Optional[float] = None
+    risk_flags: list[str] = []
+    required_approver_roles: list[str] = []
+
+
+class ExecutionBlockerOut(BaseModel):
+    kind: str
+    message: str
+    resume_mode: str = "operator_only"
+    scope: str = "current_requirement"
+
+
+class ExecutionFailureOut(BaseModel):
+    kind: str
+    message: str
+
+
 class ValidationRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
@@ -1048,8 +1087,11 @@ class ExecutionRunOut(BaseModel):
     id: int
     requirement_id: int
     requirement_title: Optional[str] = None
+    state: str = "queued"
+    project: Optional[RequirementProjectRefOut] = None
     execution_mode: str
     execution_kind: str = "implementation"
+    attempt_kind: str = "implementation"
     complexity: str
     status: str
     phase: str = "queued"
@@ -1067,6 +1109,8 @@ class ExecutionRunOut(BaseModel):
     blocking_reason_message: Optional[str] = None
     workspace_blocker: Optional[WorkspaceBlockerOut] = None
     recovery_hint: Optional[str] = None
+    blocker: Optional[ExecutionBlockerOut] = None
+    failure: Optional[ExecutionFailureOut] = None
     validation_profile: str
     delivery_intent: str
     approval_required: bool = False
@@ -1128,6 +1172,7 @@ class ExecutionActivityEventOut(BaseModel):
 class ExecutionRunDetailOut(BaseModel):
     execution: ExecutionRunOut
     requirement: AgentFirstRequirementOut
+    state: str = "queued"
     phase: str = "queued"
     is_current_execution: bool = True
     allowed_actions: list[str] = []
@@ -1143,6 +1188,8 @@ class ExecutionRunDetailOut(BaseModel):
     blocking_reason_message: Optional[str] = None
     workspace_blocker: Optional[WorkspaceBlockerOut] = None
     recovery_hint: Optional[str] = None
+    blocker: Optional[ExecutionBlockerOut] = None
+    failure: Optional[ExecutionFailureOut] = None
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
     verification_result: Optional[ValidationRecordSlimOut] = None
@@ -1174,6 +1221,7 @@ class ReleaseRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
     execution_run_id: Optional[int] = None
+    state: str = "pending"
     project_id: Optional[int] = None
     project_key: Optional[str] = None
     project_display_name: Optional[str] = None
@@ -1186,10 +1234,12 @@ class ReleaseRecordSlimOut(BaseModel):
     pr_url: Optional[str] = None
     pr_number: Optional[int] = None
     notes: Optional[str] = None
+    blocker_kind: Optional[str] = None
     delivery_blocker_type: Optional[str] = None
     delivery_failure_excerpt: Optional[str] = None
     delivery_failure_raw_output: Optional[str] = None
     repairable: bool = False
+    repairability: Optional[str] = None
     repair_attempt_count: int = 0
     next_action: Optional[str] = None
     prepared_at: Optional[datetime] = None

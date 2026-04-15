@@ -175,11 +175,15 @@ intake -> execute -> validate -> deliver
 1. 同一 requirement 任意时刻只有一个 `current run`
 2. replacement run 创建后，旧 run 会立即降级为历史 run
 3. 历史 run 只允许查看，不再显示 `启动 / 重试 / 暂停 / 恢复 / 提交 PR`
-4. queued / blocked execution 会额外显示原因：
+4. execution 页面优先按 canonical `state` 渲染：
+   - `queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`
+   - `blocked` 只代表环境或前置条件未满足
+   - `failed` 代表一次尝试已经失败，需要新 attempt
+5. queued / blocked execution 会额外显示原因：
    - `queue_reason`
    - `blocking_reason_code`
    - `blocking_reason_message`
-5. restartable blocker（例如 dirty worktree、approval blocked、manual pause）会在同一个 current run 上继续启动；verification / runtime failure 才会创建 replacement run
+6. restartable blocker（例如 dirty worktree、approval blocked、manual pause）会在同一个 current run 上继续启动；verification / runtime failure 才会创建 replacement run
 
 #### 后端接口
 

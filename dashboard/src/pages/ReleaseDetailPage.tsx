@@ -3,6 +3,26 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ReleaseDetail, api } from '../api'
 import { ActivityFeed, FieldLabel, InspectorRail, LoadingPane, SectionFrame, StateBadge } from '../components/workbench'
 
+const STATUS_LABEL: Record<string, string> = {
+  pending: '待交付',
+  preparing_branch: '准备分支',
+  pushing: '推送中',
+  opening_pr: '打开 PR',
+  repairing: '交付修复中',
+  blocked: '阻塞',
+  pr_open: 'PR 已打开',
+  merged: '已合并',
+  abandoned: '已放弃',
+}
+
+function releaseTone(state: string | null | undefined) {
+  if (state === 'pr_open' || state === 'merged') return 'delivered'
+  if (state === 'repairing' || state === 'pushing' || state === 'opening_pr' || state === 'preparing_branch') return 'running'
+  if (state === 'blocked') return 'blocked'
+  if (state === 'pending') return 'ready'
+  return 'muted'
+}
+
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
@@ -45,6 +65,7 @@ export default function ReleaseDetailPage() {
   }
 
   const release = detail.release
+  const releaseState = release?.state || release?.status || 'pending'
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="release-detail-page">
@@ -70,18 +91,19 @@ export default function ReleaseDetailPage() {
           {release?.project_display_name || detail.requirement.project_display_name ? (
             <StateBadge tone="muted">{release?.project_display_name || detail.requirement.project_display_name}</StateBadge>
           ) : null}
-          <StateBadge tone={release?.status ? 'ready' : 'muted'}>{release?.status || 'not_ready'}</StateBadge>
+          <StateBadge tone={releaseTone(releaseState)}>{STATUS_LABEL[releaseState] || releaseState}</StateBadge>
           <StateBadge tone={detail.validation?.status === 'passed' ? 'delivered' : 'validating'}>
             {detail.validation?.status || 'pending_validation'}
           </StateBadge>
         </div>
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
           <div>project: {release?.project_display_name || detail.requirement.project_display_name || detail.requirement.project_key || '-'}</div>
-          <div>release status: {release?.status || '-'}</div>
-          <div>delivery blocker: {release?.delivery_blocker_type || '-'}</div>
+          <div>release state: {releaseState}</div>
+          <div>delivery blocker: {release?.blocker_kind || release?.delivery_blocker_type || '-'}</div>
           <div>next action: {release?.next_action || '-'}</div>
           <div>validation: {detail.validation?.status || '-'}</div>
           <div>latest deploy: {detail.deployments[0]?.environment || '-'}</div>
+          <div>repairability: {release?.repairability || '-'}</div>
         </div>
       </SectionFrame>
 
@@ -142,7 +164,7 @@ export default function ReleaseDetailPage() {
           <InspectorRail eyebrow="Current Release" title="当前发布记录">
           {release ? (
             <div className="space-y-3 text-sm text-[color:var(--ops-text-muted)]">
-              <div>status: {release.status}</div>
+              <div>state: {release.state || release.status}</div>
               <div>branch: {release.branch_name || '-'}</div>
               <div>base: {release.base_branch || '-'}</div>
               <div>sha: {release.commit_sha || '-'}</div>

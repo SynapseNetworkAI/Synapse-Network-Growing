@@ -6,7 +6,14 @@ import { FieldLabel, LoadingPane, SectionFrame, StateBadge, useToast } from '../
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
+  planning: '规划中',
+  awaiting_approval: '待审批',
   ready: '待执行',
+  executing: '执行中',
+  delivering: '交付中',
+  ready_for_merge: '待合并',
+  awaiting_operator: '待人工处理',
+  completed: '已完成',
   running: '执行中',
   blocked: '阻塞',
   needs_revision: '需修订',
@@ -17,10 +24,10 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 function statusTone(status: string) {
-  if (status === 'done' || status === 'delivery_ready') return 'delivered'
-  if (status === 'running') return 'running'
-  if (status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
-  if (status === 'ready') return 'ready'
+  if (status === 'completed' || status === 'done' || status === 'ready_for_merge' || status === 'delivery_ready') return 'delivered'
+  if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
+  if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
+  if (status === 'ready' || status === 'awaiting_approval') return 'ready'
   return 'muted'
 }
 
@@ -47,23 +54,23 @@ function Markdown({ value }: Readonly<{ value: string }>) {
 function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): string[] {
   const requirement = detail.requirement
   const actions = new Set<string>(['view'])
-  const status = requirement.status
+  const state = requirement.state || requirement.status
   if (detail.latest_execution_id != null) actions.add('view_execution')
   if (detail.latest_release_id != null) actions.add('view_release')
-  if (status === 'draft' || status === 'ready' || status === 'blocked' || status === 'needs_revision') {
+  if (state === 'draft' || state === 'planning' || state === 'ready' || state === 'awaiting_operator') {
     actions.add('edit')
   }
-  if (detail.assets_status === 'ready' && (status === 'draft' || status === 'needs_revision')) {
+  if (detail.assets_status === 'ready' && (state === 'draft' || state === 'ready')) {
     actions.add('submit')
   }
   if (detail.assets_status === 'failed') {
     actions.add('regenerate_assets')
   }
-  if (detail.approval.approval_status === 'pending_approval') {
+  if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') {
     actions.add('approve')
     actions.add('reject')
   }
-  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_execution_approval', 'needs_revision', 'blocked'].includes(requirement.phase || requirement.status)) {
+  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
     actions.add('delete')
   }
   return [...actions]
@@ -129,10 +136,11 @@ export default function RequirementDetail() {
   const requirementAllowedActions = requirement.allowed_actions ?? fallbackRequirementAllowedActions(detail)
   const detailAllowedActions = detail.allowed_actions ?? requirementAllowedActions
   const canEdit = requirementAllowedActions.includes('edit')
-  const showApprovalNotice = approval.approval_status === 'pending_approval' || approval.approval_status === 'rejected'
+  const showApprovalNotice = (detail.approval_decision?.state || approval.approval_status) === 'pending' || approval.approval_status === 'rejected'
   const currentProject = detail.project
   const latestRelease = detail.latest_release
   const assetsReady = detail.assets_status === 'ready'
+  const requirementState = requirement.state || detail.state || requirement.status
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
@@ -241,7 +249,7 @@ export default function RequirementDetail() {
                 重新生成计划
               </button>
             ) : null}
-            {!isEditing && requirementAllowedActions.includes('approve') && approval.approval_status === 'pending_approval' ? (
+            {!isEditing && requirementAllowedActions.includes('approve') && (detail.approval_decision?.state || approval.approval_status) === 'pending' ? (
               <>
                 <button
                   className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
@@ -408,18 +416,26 @@ export default function RequirementDetail() {
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
-              <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
-              {detail.phase && detail.phase !== requirement.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
+              <StateBadge tone={statusTone(requirementState)}>{STATUS_LABEL[requirementState] || requirementState}</StateBadge>
+              {detail.phase && detail.phase !== requirementState ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
               {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
               {detail.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
               <StateBadge tone="muted">{requirement.priority}</StateBadge>
-              {requirement.project_display_name ? <StateBadge tone="muted">{requirement.project_display_name}</StateBadge> : null}
+              {(requirement.project?.project_display_name || requirement.project_display_name) ? <StateBadge tone="muted">{requirement.project?.project_display_name || requirement.project_display_name}</StateBadge> : null}
               {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
               {latestRelease?.branch_name ? <StateBadge tone="ready">{latestRelease.branch_name}</StateBadge> : null}
             </div>
+            {(requirement.project?.project_display_name || requirement.project_display_name || requirement.project?.project_key || requirement.project_key || requirement.project?.target_project_path || requirement.target_project_path) ? (
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
+                <div>项目：{requirement.project?.project_display_name || requirement.project_display_name || '-'}</div>
+                <div>project key：{requirement.project?.project_key || requirement.project_key || '-'}</div>
+                <div>目标路径：{requirement.project?.target_project_path || requirement.target_project_path || '-'}</div>
+                {requirement.target_project_path_override ? <div>路径覆盖：{requirement.target_project_path_override}</div> : null}
+              </div>
+            ) : null}
             {latestRelease ? (
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
-                <div>交付状态：{latestRelease.status}</div>
+                <div>交付状态：{latestRelease.state || latestRelease.status}</div>
                 <div>基线分支：{latestRelease.base_branch || '-'}</div>
                 <div>PR：{latestRelease.pr_url ? <a className="text-blue-600 hover:underline" href={latestRelease.pr_url} target="_blank" rel="noreferrer">查看 PR</a> : '-'}</div>
                 {detail.recovery_deadline_at ? <div>恢复截止：{formatTime(detail.recovery_deadline_at)}</div> : null}

@@ -802,6 +802,26 @@ export interface AgentRequirement {
   title: string
   description_markdown: string
   acceptance_criteria_markdown: string
+  state: string
+  attention_reason: string | null
+  project: {
+    project_id: number | null
+    project_key: string | null
+    project_display_name: string | null
+    target_project_path: string | null
+    target_project_path_override: string | null
+  } | null
+  approval: {
+    state: string
+    reason: string | null
+    source: string | null
+    agent_recommendation: string | null
+    confidence: number | null
+    risk_flags: string[]
+    required_approver_roles: string[]
+  } | null
+  current_attempt_id: number | null
+  current_delivery_id: number | null
   status: string
   priority: string
   source: string
@@ -891,12 +911,15 @@ export interface ExecutionPlan {
 
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
+  state: string
+  attention_reason: string | null
   policy_summary_markdown: string
   project: Project | null
   latest_execution_id: number | null
   latest_release_id: number | null
   latest_release: ReleaseRecord | null
   approval: AgentRequirementApproval
+  approval_decision: AgentRequirement['approval']
   phase: string
   allowed_actions: string[]
   pending_operations: string[]
@@ -990,8 +1013,11 @@ export interface ExecutionRun {
   id: number
   requirement_id: number
   requirement_title: string | null
+  state: string
+  project: AgentRequirement['project']
   execution_mode: string
   execution_kind: string
+  attempt_kind: string
   complexity: string
   status: string
   phase: string
@@ -1009,6 +1035,16 @@ export interface ExecutionRun {
   blocking_reason_message: string | null
   workspace_blocker: WorkspaceBlocker | null
   recovery_hint: string | null
+  blocker: {
+    kind: string
+    message: string
+    resume_mode: string
+    scope: string
+  } | null
+  failure: {
+    kind: string
+    message: string
+  } | null
   validation_profile: string
   delivery_intent: string
   approval_required: boolean
@@ -1070,6 +1106,7 @@ export interface ExecutionActivityEvent {
 export interface ExecutionDetail {
   execution: ExecutionRun
   requirement: AgentRequirement
+  state: string
   phase: string
   is_current_execution: boolean
   allowed_actions: string[]
@@ -1085,6 +1122,8 @@ export interface ExecutionDetail {
   blocking_reason_message: string | null
   workspace_blocker: WorkspaceBlocker | null
   recovery_hint: string | null
+  blocker: ExecutionRun['blocker']
+  failure: ExecutionRun['failure']
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
   verification_result: ValidationRecord | null
@@ -1112,6 +1151,7 @@ export interface ReleaseRecord {
   id: number
   requirement_id: number
   execution_run_id: number | null
+  state: string
   project_id: number | null
   project_key: string | null
   project_display_name: string | null
@@ -1124,10 +1164,12 @@ export interface ReleaseRecord {
   pr_url: string | null
   pr_number: number | null
   notes: string | null
+  blocker_kind: string | null
   delivery_blocker_type: string | null
   delivery_failure_excerpt: string | null
   delivery_failure_raw_output: string | null
   repairable: boolean
+  repairability: string | null
   repair_attempt_count: number
   next_action: string | null
   prepared_at: string | null

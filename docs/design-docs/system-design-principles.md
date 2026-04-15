@@ -156,6 +156,9 @@ Release 负责：
    - agent 负责理解与推荐。
    - system rules 只负责稳定硬边界。
    - 人只处理高风险、低置信度或系统无法稳定收口的 case。
+10. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
+   - `Requirement`、`ExecutionAttempt`、`Delivery`、`ApprovalDecision` 都必须只有一个 canonical `state`
+   - 旧 `status / phase / resolution_path / latest_release_status` 只允许作为过渡读字段，不能继续作为写入真相
 
 ## 11. 服务层必须按功能面治理
 
@@ -230,7 +233,8 @@ Release 负责：
 2. transcript、session、artifact、log 和 ownership 必须可追踪。
 3. 父执行结束时，子资源必须可收口、可复盘。
 4. 当 execution 运行态失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置，不保留旧脏数据兼容逻辑。
-5. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
+5. 当需要切换到新的 canonical workflow 状态机并丢弃历史 workflow 数据时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes`。
+6. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
 6. verification passed 后应默认自动推进 commit / push / open PR；PR merge 视为最终人工把关。
 
 ## 17. 所有关键自动化都必须可观测

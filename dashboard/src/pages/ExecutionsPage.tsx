@@ -5,12 +5,16 @@ import { EmptyPane, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
+  preparing_workspace: '准备工作区',
   running: '执行中',
+  executing: '执行中',
   paused: '已暂停',
   blocked: '阻塞',
   validating: '验证中',
+  verifying: '验证中',
   failed: '失败',
   succeeded: '成功',
+  cancelled: '已取消',
 }
 
 function formatTime(value: string | null) {
@@ -29,16 +33,17 @@ function formatRecoveryCountdown(seconds: number | null) {
 
 function statusTone(status: string) {
   if (status === 'succeeded') return 'delivered'
-  if (status === 'running') return 'running'
+  if (status === 'running' || status === 'executing' || status === 'preparing_workspace') return 'running'
   if (status === 'blocked' || status === 'failed') return 'blocked'
-  if (status === 'validating') return 'validating'
+  if (status === 'validating' || status === 'verifying') return 'validating'
   if (status === 'queued') return 'ready'
   return 'muted'
 }
 
 function startLabel(item: ExecutionRun) {
-  if (item.status === 'paused' || item.blocking_reason_code === 'manual_pause') return '继续'
-  if (item.status === 'blocked' && item.recovery_mode === 'restart_current') return '再次启动'
+  const state = item.state || item.status
+  if (state === 'paused' || item.blocker?.kind === 'manual_pause' || item.blocking_reason_code === 'manual_pause') return '继续'
+  if (state === 'blocked' && ((item.blocker?.resume_mode || item.recovery_mode) === 'restart_current')) return '再次启动'
   return '启动'
 }
 
@@ -126,22 +131,27 @@ export default function ExecutionsPage() {
                     {item.requirement_title ? (
                       <div className="mt-1 text-sm text-[color:var(--ops-text-body)]">需求：{item.requirement_title}</div>
                     ) : null}
+                    {item.project?.project_display_name ? (
+                      <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">项目：{item.project.project_display_name}</div>
+                    ) : null}
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Requirement #{item.requirement_id}</div>
-                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.execution_kind === 'delivery_repair' ? 'delivery repair' : 'implementation'}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
+                      {item.attempt_kind === 'delivery_repair' ? 'delivery repair' : 'implementation'}
+                    </div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
-                      {item.phase && item.phase !== item.status ? <StateBadge tone="muted">{item.phase}</StateBadge> : null}
+                      <StateBadge tone={statusTone(item.state || item.status)}>{STATUS_LABEL[item.state || item.status] || item.state || item.status}</StateBadge>
+                      {item.phase && item.phase !== (item.state || item.status) ? <StateBadge tone="muted">{item.phase}</StateBadge> : null}
                       {item.recovery_status ? <StateBadge tone="blocked">恢复: {item.recovery_status}</StateBadge> : null}
                       {item.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
                       {!item.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
                     </div>
                     {item.queue_reason ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.queue_reason}</div> : null}
-                    {item.blocking_reason_message ? (
+                    {item.blocker?.message || item.failure?.message || item.blocking_reason_message ? (
                       <div className="mt-2 text-xs text-rose-600">
-                        {item.blocking_reason_code ? `${item.blocking_reason_code}: ` : ''}
-                        {item.blocking_reason_message}
+                        {item.blocker?.kind || item.failure?.kind || item.blocking_reason_code ? `${item.blocker?.kind || item.failure?.kind || item.blocking_reason_code}: ` : ''}
+                        {item.blocker?.message || item.failure?.message || item.blocking_reason_message}
                       </div>
                     ) : null}
                     {item.recovery_hint ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.recovery_hint}</div> : null}
@@ -165,36 +175,36 @@ export default function ExecutionsPage() {
                         const allowedActions = item.allowed_actions ?? []
                         return (
                           <>
-                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
-                        需求
-                      </button>
-                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
-                        查看
-                      </button>
-                      {(allowedActions.includes('start') || allowedActions.includes('resume')) && (
-                        <button
-                          type="button"
-                          className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
-                          onClick={async () => {
-                            await api.startExecution(item.id)
-                            await load()
-                          }}
-                        >
-                          {startLabel(item)}
-                        </button>
-                      )}
-                      {allowedActions.includes('retry') && (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                          onClick={async () => {
-                            await api.retryExecution(item.id)
-                            await load()
-                          }}
-                        >
-                          创建新 run 重试
-                        </button>
-                      )}
+                            <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement_id}`)}>
+                              需求
+                            </button>
+                            <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
+                              查看
+                            </button>
+                            {(allowedActions.includes('start') || allowedActions.includes('resume')) && (
+                              <button
+                                type="button"
+                                className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
+                                onClick={async () => {
+                                  await api.startExecution(item.id)
+                                  await load()
+                                }}
+                              >
+                                {startLabel(item)}
+                              </button>
+                            )}
+                            {allowedActions.includes('retry') && (
+                              <button
+                                type="button"
+                                className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                                onClick={async () => {
+                                  await api.retryExecution(item.id)
+                                  await load()
+                                }}
+                              >
+                                创建新 run 重试
+                              </button>
+                            )}
                           </>
                         )
                       })()}

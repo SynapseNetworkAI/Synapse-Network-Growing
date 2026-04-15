@@ -142,6 +142,17 @@ Requirement 与 Execution 当前还有三条正式约束：
    - 若本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 挡住，系统会把 blocker 分类为 `repo_gate_failed / workspace_blocked / git_auth_failed ...`。
    - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` execution，修复 gate 后重新 verification，再重新 delivery / open PR。
    - dirty worktree、git 权限、网络、远端拒绝等不可代码化修复的 blocker 继续停在 `release_blocked` 并转人工。
+14. workflow 状态机已开始切到 canonical v2。
+   - `Requirement` 只表达目标推进状态：`draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / completed / cancelled`。
+   - `ExecutionAttempt` 只表达单次尝试：`queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`。
+   - `Delivery` 只表达 PR / 交付：`pending / preparing_branch / pushing / opening_pr / repairing / blocked / pr_open / merged / abandoned`。
+   - 前端已优先渲染 canonical `state`，旧 `status / phase` 仅作为过渡兼容读字段。
+
+切换到 v2 状态机并清空历史 workflow 运行态时，使用：
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes
+```
 
 ## Browser Automation
 

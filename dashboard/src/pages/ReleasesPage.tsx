@@ -3,6 +3,26 @@ import { useNavigate } from 'react-router-dom'
 import { ReleaseCandidate, api } from '../api'
 import { EmptyPane, StateBadge } from '../components/workbench'
 
+const STATUS_LABEL: Record<string, string> = {
+  pending: '待交付',
+  preparing_branch: '准备分支',
+  pushing: '推送中',
+  opening_pr: '打开 PR',
+  repairing: '交付修复中',
+  blocked: '阻塞',
+  pr_open: 'PR 已打开',
+  merged: '已合并',
+  abandoned: '已放弃',
+}
+
+function releaseTone(state: string | null | undefined) {
+  if (state === 'pr_open' || state === 'merged') return 'delivered'
+  if (state === 'repairing' || state === 'pushing' || state === 'opening_pr' || state === 'preparing_branch') return 'running'
+  if (state === 'blocked') return 'blocked'
+  if (state === 'pending') return 'ready'
+  return 'muted'
+}
+
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
@@ -95,7 +115,7 @@ export default function ReleasesPage() {
                     <StateBadge tone={item.validation.status === 'passed' ? 'delivered' : 'validating'}>{item.validation.status}</StateBadge>
                   </td>
                   <td className="px-4 py-4">
-                    <StateBadge tone={item.release?.status ? 'ready' : 'muted'}>{item.release?.status || 'ready'}</StateBadge>
+                    <StateBadge tone={releaseTone(item.release?.state || item.release?.status)}>{STATUS_LABEL[item.release?.state || item.release?.status || 'pending'] || item.release?.state || item.release?.status || 'pending'}</StateBadge>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                     {item.release?.branch_name || '-'} · PR {item.release?.pr_number || '-'}

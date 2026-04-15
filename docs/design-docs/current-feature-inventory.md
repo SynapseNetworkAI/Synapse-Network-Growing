@@ -87,6 +87,12 @@
 /Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes
 ```
 
+13. canonical workflow 状态机清库脚本：
+
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes
+```
+
 ## 3. Release 面
 
 当前已具备：
@@ -104,6 +110,10 @@
 7. rollback。
 8. deployment history 展示。
 9. release 与 deployment 配置从正式 Project 主数据读取。
+10. workflow v2 canonical state 已落地。
+   - `Requirement.state = draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / completed / cancelled`
+   - `ExecutionAttempt.state = queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`
+   - `Delivery.state = pending / preparing_branch / pushing / opening_pr / repairing / blocked / pr_open / merged / abandoned`
 
 ## 3.1 Error Discovery / Self-Healing 面
 

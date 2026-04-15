@@ -6,13 +6,17 @@ import { ActivityFeed, LoadingPane, OverlayModal, SectionFrame, StateBadge } fro
 
 const STATUS_LABEL: Record<string, string> = {
   queued: '排队中',
+  preparing_workspace: '准备工作区',
   running: '执行中',
+  executing: '执行中',
   paused: '已暂停',
   blocked: '阻塞',
   validating: '验证中',
+  verifying: '验证中',
   failed: '失败',
   succeeded: '成功',
   completed: '已完成',
+  cancelled: '已取消',
 }
 
 function formatTime(value: string | null) {
@@ -42,16 +46,17 @@ function formatRecoveryCountdown(seconds: number | null | undefined) {
 
 function statusTone(status: string) {
   if (status === 'succeeded' || status === 'completed') return 'delivered'
-  if (status === 'running') return 'running'
+  if (status === 'running' || status === 'executing' || status === 'preparing_workspace') return 'running'
   if (status === 'blocked' || status === 'failed') return 'blocked'
-  if (status === 'validating') return 'validating'
+  if (status === 'validating' || status === 'verifying') return 'validating'
   if (status === 'queued') return 'ready'
   return 'muted'
 }
 
 function startLabel(detail: ExecutionDetail) {
-  if (detail.execution.status === 'paused' || detail.blocking_reason_code === 'manual_pause') return '继续执行'
-  if (detail.execution.status === 'blocked' && detail.recovery_mode === 'restart_current') return '再次启动'
+  const state = detail.execution.state || detail.execution.status || detail.state
+  if (state === 'paused' || detail.blocker?.kind === 'manual_pause' || detail.blocking_reason_code === 'manual_pause') return '继续执行'
+  if (state === 'blocked' && ((detail.blocker?.resume_mode || detail.recovery_mode) === 'restart_current')) return '再次启动'
   return '启动执行'
 }
 
@@ -165,6 +170,9 @@ export default function ExecutionDetailPage() {
   const verification = detail.verification_result ?? detail.validation
   const verificationPlan = detail.verification_plan ?? verification?.verification_plan ?? null
   const detailAllowedActions = detail.allowed_actions ?? []
+  const executionState = execution.state || execution.status || detail.state
+  const blocker = detail.blocker ?? execution.blocker
+  const failure = detail.failure ?? execution.failure
 
   return (
     <div className="space-y-6" data-testid="execution-detail-page">
@@ -217,13 +225,13 @@ export default function ExecutionDetailPage() {
         }
       >
         <div className="flex flex-wrap items-center gap-2">
-          <StateBadge tone={statusTone(execution.status)}>{STATUS_LABEL[execution.status] || execution.status}</StateBadge>
-          {detail.phase && detail.phase !== execution.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
+          <StateBadge tone={statusTone(executionState)}>{STATUS_LABEL[executionState] || executionState}</StateBadge>
+          {detail.phase && detail.phase !== executionState ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
           {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
           {detail.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
           {!detail.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
           <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
-          <StateBadge tone="muted">{execution.execution_kind === 'delivery_repair' ? 'delivery_repair' : 'implementation'}</StateBadge>
+          <StateBadge tone="muted">{execution.attempt_kind === 'delivery_repair' ? 'delivery_repair' : 'implementation'}</StateBadge>
           <StateBadge tone="muted">{execution.complexity}</StateBadge>
           <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
           {runtimeSummary.current_branch ? <StateBadge tone="ready">{runtimeSummary.current_branch}</StateBadge> : null}
@@ -231,13 +239,20 @@ export default function ExecutionDetailPage() {
         <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">
           需求：#{detail.requirement.id} {detail.requirement.title}
         </div>
+        {detail.requirement.project?.project_display_name || detail.requirement.project_display_name ? (
+          <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+            项目：{detail.requirement.project?.project_display_name || detail.requirement.project_display_name}
+            {detail.requirement.project?.project_key || detail.requirement.project_key ? ` · ${detail.requirement.project?.project_key || detail.requirement.project_key}` : ''}
+            {detail.requirement.project?.target_project_path || detail.requirement.target_project_path ? ` · ${detail.requirement.project?.target_project_path || detail.requirement.target_project_path}` : ''}
+          </div>
+        ) : null}
         {detail.queue_reason ? <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{detail.queue_reason}</div> : null}
-        {detail.blocking_reason_message ? (
+        {blocker?.message || failure?.message || detail.blocking_reason_message ? (
           <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            <div className="font-medium">阻塞原因</div>
+            <div className="font-medium">{failure ? '失败原因' : '阻塞原因'}</div>
             <div className="mt-1">
-              {detail.blocking_reason_code ? `${detail.blocking_reason_code}: ` : ''}
-              {detail.blocking_reason_message}
+              {blocker?.kind || failure?.kind || detail.blocking_reason_code ? `${blocker?.kind || failure?.kind || detail.blocking_reason_code}: ` : ''}
+              {blocker?.message || failure?.message || detail.blocking_reason_message}
             </div>
             {detail.recovery_hint ? <div className="mt-2 text-xs text-rose-700/80">{detail.recovery_hint}</div> : null}
             {detail.recovery_deadline_at ? (
@@ -286,6 +301,16 @@ export default function ExecutionDetailPage() {
 
         <div className="mt-5 grid gap-4 border-b border-[color:var(--ops-stroke-soft)] pb-5 md:grid-cols-3 xl:grid-cols-6">
           <Metric label="Requirement" value={`#${detail.requirement.id} · ${detail.requirement.title}`} />
+          <Metric
+            label="Project"
+            value={
+              detail.requirement.project?.project_display_name ||
+              detail.requirement.project_display_name ||
+              detail.requirement.project?.project_key ||
+              detail.requirement.project_key ||
+              '-'
+            }
+          />
           <Metric label="Agent" value={runtimeSummary.agent_label || runtimeSummary.agent_id || '-'} />
           <Metric label="Model" value={runtimeSummary.runtime_model || '-'} />
           <Metric label="Backend" value={runtimeSummary.runtime_backend || '-'} />
@@ -294,10 +319,11 @@ export default function ExecutionDetailPage() {
         </div>
 
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
+          <div>attempt state: {executionState}</div>
           <div>delivery: {execution.delivery_intent}</div>
-          <div>delivery status: {detail.delivery_summary?.status || '-'}</div>
-          <div>execution kind: {execution.execution_kind}</div>
-          <div>approval: {execution.approval_required ? `${detail.requirement.approval_status} · submit gated` : 'waived'}</div>
+          <div>delivery state: {detail.delivery_summary?.state || detail.delivery_summary?.status || '-'}</div>
+          <div>execution kind: {execution.attempt_kind}</div>
+          <div>approval: {execution.approval_required ? `${detail.requirement.approval?.state || detail.requirement.approval_status} · submit gated` : 'waived'}</div>
           <div>started: {formatTime(execution.started_at)}</div>
           <div>completed: {formatTime(execution.completed_at)}</div>
           <div>updated: {formatTime(execution.updated_at)}</div>
@@ -307,7 +333,7 @@ export default function ExecutionDetailPage() {
           <div>recovery scope: {detail.recovery_scope === 'current_requirement' ? '仅当前需求' : '-'}</div>
           <div>recovery timeout: {detail.recovery_timeout_status || '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
-          <div>delivery blocker: {detail.delivery_summary?.delivery_blocker_type || '-'}</div>
+          <div>delivery blocker: {detail.delivery_summary?.blocker_kind || detail.delivery_summary?.delivery_blocker_type || '-'}</div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>
         </div>
       </SectionFrame>

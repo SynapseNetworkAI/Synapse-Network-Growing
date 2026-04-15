@@ -90,6 +90,10 @@ Requirement 到 Execution 的正式桥接规则：
    - agent 负责推荐 `approve / waive / revise / route_to_human`
    - policy 负责高风险硬边界
    - 人主要只处理高风险或低置信度 case
+11. workflow v2 已改为 canonical state 设计。
+   - `Requirement` 只表达目标推进状态，不表达某次 run 成败
+   - `ExecutionAttempt` 只表达单次尝试，明确区分 `blocked` 与 `failed`
+   - `Delivery` 只表达 PR / 交付状态，repair loop 独立建模
 
 Requirement 面不再承担：
 

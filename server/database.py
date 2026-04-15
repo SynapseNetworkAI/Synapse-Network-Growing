@@ -197,6 +197,8 @@ class RequirementRow(Base):
     assets_error_message = Column(Text)
     workflow_family = Column(Text, nullable=False, default="agent_first")
     phase = Column(Text, nullable=False, default="draft")
+    workflow_state = Column(Text, nullable=False, default="draft")
+    attention_reason = Column(Text)
     recovery_status = Column(Text)
     approval_status = Column(Text, nullable=False, default="pending_approval")
     approval_contract_json = Column(Text, nullable=False, default="{}")
@@ -715,6 +717,10 @@ class ExecutionRunRow(Base):
     complexity = Column(Text, nullable=False, default="simple")
     status = Column(Text, nullable=False, default="queued")
     phase = Column(Text, nullable=False, default="queued")
+    attempt_state = Column(Text, nullable=False, default="queued")
+    blocker_kind = Column(Text)
+    failure_kind = Column(Text)
+    resume_mode = Column(Text)
     recovery_status = Column(Text)
     recovery_started_at = Column(DateTime)
     recovery_deadline_at = Column(DateTime)
@@ -821,6 +827,7 @@ class ReleaseRecordRow(Base):
     project_display_name = Column(Text)
     target_project_path = Column(Text)
     status = Column(Text, nullable=False, default="not_ready")
+    delivery_state = Column(Text, nullable=False, default="pending")
     branch_name = Column(Text)
     base_branch = Column(Text)
     commit_sha = Column(Text)
@@ -829,9 +836,11 @@ class ReleaseRecordRow(Base):
     pr_number = Column(Integer)
     notes = Column(Text)
     delivery_blocker_type = Column(Text)
+    blocker_kind = Column(Text)
     delivery_failure_excerpt = Column(Text)
     delivery_failure_raw_output = Column(Text)
     repairable = Column(Boolean, nullable=False, default=False)
+    repairability = Column(Text, nullable=False, default="manual_only")
     repair_attempt_count = Column(Integer, nullable=False, default=0)
     next_action = Column(Text)
     metadata_json = Column(Text, nullable=False, default="{}")
@@ -1017,6 +1026,8 @@ def _migrate(engine_):
             "target_project_path_override": "TEXT",
             "workflow_family": "TEXT DEFAULT 'agent_first'",
             "phase": "TEXT DEFAULT 'draft'",
+            "workflow_state": "TEXT DEFAULT 'draft'",
+            "attention_reason": "TEXT",
             "recovery_status": "TEXT",
         }
         for col, col_type in requirement_cols.items():
@@ -1132,6 +1143,27 @@ def _migrate(engine_):
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    UPDATE requirements
+                    SET workflow_state = CASE
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'deleted' THEN 'cancelled'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'cancelled' THEN 'cancelled'
+                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') IN ('draft', 'planning') THEN 'draft'
+                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') = 'awaiting_execution_approval' THEN 'awaiting_approval'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'ready' THEN 'ready'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'running' THEN 'executing'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') IN ('blocked', 'needs_revision') THEN 'awaiting_operator'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'delivery_ready' THEN 'delivering'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'done' THEN 'ready_for_merge'
+                        ELSE COALESCE(NULLIF(TRIM(workflow_state), ''), 'draft')
+                    END
+                    WHERE COALESCE(NULLIF(TRIM(workflow_state), ''), '') = ''
+                       OR workflow_state IS NULL
+                    """
+                )
+            )
             conn.commit()
 
     if "recurring_workflows" not in tables:
@@ -1216,6 +1248,10 @@ def _migrate(engine_):
         execution_cols = {
             "execution_kind": "TEXT DEFAULT 'implementation'",
             "phase": "TEXT DEFAULT 'queued'",
+            "attempt_state": "TEXT DEFAULT 'queued'",
+            "blocker_kind": "TEXT",
+            "failure_kind": "TEXT",
+            "resume_mode": "TEXT",
             "recovery_status": "TEXT",
             "recovery_started_at": "DATETIME",
             "recovery_deadline_at": "DATETIME",
@@ -1259,6 +1295,25 @@ def _migrate(engine_):
                     """
                 )
             )
+            conn.execute(
+                text(
+                    """
+                    UPDATE execution_runs
+                    SET attempt_state = CASE
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'queued' THEN 'queued'
+                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') = 'branch_preparing' THEN 'preparing_workspace'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'running' THEN 'executing'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'validating' THEN 'verifying'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'failed' THEN 'failed'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'succeeded' THEN 'succeeded'
+                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'blocked' THEN 'blocked'
+                        ELSE COALESCE(NULLIF(TRIM(attempt_state), ''), 'queued')
+                    END
+                    WHERE COALESCE(NULLIF(TRIM(attempt_state), ''), '') = ''
+                       OR attempt_state IS NULL
+                    """
+                )
+            )
             conn.commit()
 
     if "execution_nodes" not in tables:
@@ -1299,10 +1354,13 @@ def _migrate(engine_):
         release_cols = {
             "project_id": "INTEGER",
             "project_display_name": "TEXT",
+            "delivery_state": "TEXT DEFAULT 'pending'",
             "delivery_blocker_type": "TEXT",
+            "blocker_kind": "TEXT",
             "delivery_failure_excerpt": "TEXT",
             "delivery_failure_raw_output": "TEXT",
             "repairable": "BOOLEAN DEFAULT 0",
+            "repairability": "TEXT DEFAULT 'manual_only'",
             "repair_attempt_count": "INTEGER DEFAULT 0",
             "next_action": "TEXT",
         }

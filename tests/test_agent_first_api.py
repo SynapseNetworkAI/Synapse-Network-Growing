@@ -8,9 +8,9 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, CodexSessionRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
+from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, BugRecordRow, CodexSessionRow, ErrorFingerprintRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import TaskExecutionSuggestion, ValidationCheckResultOut
-from server.services.workflows.agent_first import reset_execution_runtime_data
+from server.services.workflows.agent_first import reset_execution_runtime_data, reset_workflow_state_data
 from server.services.runtime.task_runner import _task_project_root
 
 
@@ -115,7 +115,7 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
 
     assert submit_resp.status_code == 200
     payload = submit_resp.json()
-    assert payload["requirement"]["status"] == "running"
+    assert payload["requirement"]["state"] in {"executing", "delivering"}
     assert payload["requirement"]["approval_status"] == "approved"
     assert payload["approval"]["approval_decision"] == "approved"
     assert payload["approval"]["approval_source"] == "agent_auto_approved"
@@ -233,7 +233,7 @@ def test_delete_requirement_only_allowed_before_execution_starts(synced_client, 
     delete_resp = synced_client.post(f"/api/requirements/{requirement_id}/delete")
 
     assert delete_resp.status_code == 200
-    assert delete_resp.json()["requirement"]["status"] == "deleted"
+    assert delete_resp.json()["requirement"]["state"] == "cancelled"
 
 
 def test_delete_requirement_rejects_when_execution_history_exists(synced_client, db_session):
@@ -322,10 +322,8 @@ def test_requirement_list_reconciles_running_status_from_latest_execution(synced
     requirement_row = next(item for item in requirements_payload if int(item["id"]) == requirement_id)
     execution_row = next(item for item in execution_payload if int(item["id"]) == execution_id)
 
-    assert requirement_row["status"] == "running"
-    assert requirement_row["phase"] == "executing"
-    assert execution_row["status"] == "running"
-    assert execution_row["phase"] == "executing"
+    assert requirement_row["state"] in {"executing", "delivering"}
+    assert execution_row["state"] == "executing"
     assert execution_row["requirement_title"] == "State reconcile from execution"
 
 
@@ -490,7 +488,7 @@ def test_recovering_execution_does_not_block_other_requirements(synced_client, d
     second_payload = second_submit.json()
     assert second_payload["latest_execution_id"] is not None
     assert second_payload["latest_execution_id"] != first_execution_id
-    assert second_payload["requirement"]["status"] == "running"
+    assert second_payload["requirement"]["state"] in {"executing", "delivering"}
 
 
 def test_runtime_recovery_timeout_routes_current_execution_to_operator_state(synced_client, db_session):
@@ -554,7 +552,7 @@ def test_runtime_recovery_timeout_routes_current_execution_to_operator_state(syn
     requirement_detail = synced_client.get(f"/api/requirements/{requirement_id}")
     assert requirement_detail.status_code == 200
     requirement_payload = requirement_detail.json()
-    assert requirement_payload["requirement"]["status"] == "blocked"
+    assert requirement_payload["requirement"]["state"] == "awaiting_operator"
     assert requirement_payload["recovery_status"] == "timed_out"
     assert requirement_payload["recovery_timeout_status"] == "timed_out"
 
@@ -869,7 +867,7 @@ def test_manual_approval_auto_starts_execution(synced_client, db_session):
 
     assert approve_resp.status_code == 200
     payload = approve_resp.json()
-    assert payload["requirement"]["status"] == "running"
+    assert payload["requirement"]["state"] in {"executing", "delivering"}
     assert payload["requirement"]["approval_status"] == "approved"
     assert payload["approval"]["auto_started"] is True
     assert payload["approval"]["execution_run_id"] is not None
@@ -927,7 +925,7 @@ def test_manual_reject_marks_requirement_needs_revision(synced_client, db_sessio
     )
     assert reject_resp.status_code == 200
     payload = reject_resp.json()
-    assert payload["requirement"]["status"] == "needs_revision"
+    assert payload["requirement"]["state"] in {"awaiting_operator", "ready"}
     assert payload["requirement"]["approval_status"] == "rejected"
     assert payload["approval"]["approval_decision"] == "rejected"
 
@@ -1033,7 +1031,7 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     assert payload["validation"]["verification_plan"]["mode"] == "command_checks"
     assert payload["verification_plan"]["mode"] == "command_checks"
     assert payload["verification_result"]["verification_agent_id"] == "verification_agent"
-    assert payload["requirement"]["status"] == "delivery_ready"
+    assert payload["requirement"]["state"] in {"delivering", "ready_for_merge", "awaiting_operator"}
 
 
 def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced_client, db_session):
@@ -1396,11 +1394,11 @@ def test_validation_pass_auto_opens_pr(synced_client, db_session):
     payload = resp.json()
     assert payload["verification_result"]["status"] == "passed"
     assert payload["verification_plan"]["mode"] == "command_checks"
-    assert payload["delivery_summary"]["status"] == "pr_opened"
+    assert payload["delivery_summary"]["state"] == "pr_open"
     assert payload["delivery_summary"]["pr_number"] == 11
     assert payload["delivery_summary"]["pr_url"] == "https://github.com/example/synapse-network/pull/11"
     db_session.refresh(requirement)
-    assert requirement.status == "done"
+    assert requirement.workflow_state == "ready_for_merge"
 
 
 def test_validation_defaults_to_retry_execution_resolution_path(synced_client, db_session):
@@ -1493,7 +1491,7 @@ def test_validation_defaults_to_retry_execution_resolution_path(synced_client, d
     assert payload["verification_result"]["resolution_path"] == "retry_execution"
     assert payload["verification_result"]["followup_requirement_id"] is None
     db_session.refresh(requirement)
-    assert requirement.status == "needs_revision"
+    assert requirement.workflow_state == "ready"
     assert requirement.followup_requirement_id is None
 
 
@@ -2518,6 +2516,121 @@ def test_reset_execution_runtime_data_clears_runtime_records_and_resets_requirem
     assert ready_requirement.status == "ready"
     assert ready_requirement.active_workflow_run_id is None
     assert blocked_requirement.status == "blocked"
+
+
+def test_reset_workflow_state_data_deletes_workflow_history_and_resets_discovery_links(db_session):
+    requirement = RequirementRow(
+        title="Workflow v2 reset",
+        description_markdown="Drop old workflow state.",
+        status="running",
+        workflow_state="executing",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+
+    db_session.add(
+        RequirementAttachmentRow(
+            requirement_id=int(requirement.id),
+            file_name="context.md",
+            content_type="text/markdown",
+            attachment_kind="file",
+            stored_path="/tmp/context.md",
+            size_bytes=128,
+        )
+    )
+    db_session.add(
+        RequirementAcceptanceCheckRow(
+            requirement_id=int(requirement.id),
+            check_key="pytest",
+            description="Run pytest",
+            check_type="command",
+            owner_role="validator",
+            status="passed",
+        )
+    )
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        attempt_state="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="running",
+            sequence_no=1,
+        )
+    )
+    db_session.add(
+        ValidationRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(run.id),
+            profile="minimal",
+            status="pending",
+            checks_json="[]",
+        )
+    )
+    db_session.add(
+        ReleaseRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(run.id),
+            status="ready",
+            delivery_state="pending",
+        )
+    )
+    db_session.add(
+        BugRecordRow(
+            bug_key="bug:workflow-reset",
+            source_key="runtime-log",
+            source_kind="runtime_log_error",
+            title="workflow reset bug",
+            summary="summary",
+            fingerprint="fp-1",
+            converted_requirement_id=int(requirement.id),
+            discovery_status="materialized",
+        )
+    )
+    db_session.add(
+        ErrorFingerprintRow(
+            fingerprint_key="fp:workflow-reset",
+            source_kind="runtime_log_error",
+            status="open",
+            summary="summary",
+            linked_requirement_id=int(requirement.id),
+            discovery_status="materialized",
+        )
+    )
+    db_session.commit()
+
+    summary = reset_workflow_state_data(db_session)
+
+    assert summary["requirements_deleted"] == 1
+    assert summary["execution_runs_deleted"] == 1
+    assert summary["release_records_deleted"] == 1
+    assert summary["bug_requirement_links_reset"] == 1
+    assert summary["fingerprint_requirement_links_reset"] == 1
+    assert db_session.query(RequirementRow).count() == 0
+    bug = db_session.query(BugRecordRow).one()
+    fingerprint = db_session.query(ErrorFingerprintRow).one()
+    assert bug.converted_requirement_id is None
+    assert bug.discovery_status == "queued"
+    assert fingerprint.linked_requirement_id is None
+    assert fingerprint.discovery_status == "queued"
 
 
 def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[RequirementRow, ExecutionRunRow]:
