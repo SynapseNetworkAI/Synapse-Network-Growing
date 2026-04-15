@@ -31,6 +31,15 @@ function formatDuration(elapsedMs: number | null | undefined) {
   return `${seconds}s`
 }
 
+function formatRecoveryCountdown(seconds: number | null | undefined) {
+  if (seconds == null) return '-'
+  if (seconds <= 0) return '恢复窗口已到期'
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remain = seconds % 60
+  return `${minutes}m ${remain}s`
+}
+
 function statusTone(status: string) {
   if (status === 'succeeded' || status === 'completed') return 'delivered'
   if (status === 'running') return 'running'
@@ -211,6 +220,7 @@ export default function ExecutionDetailPage() {
           <StateBadge tone={statusTone(execution.status)}>{STATUS_LABEL[execution.status] || execution.status}</StateBadge>
           {detail.phase && detail.phase !== execution.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
           {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
+          {detail.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
           {!detail.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
           <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
           <StateBadge tone="muted">{execution.execution_kind === 'delivery_repair' ? 'delivery_repair' : 'implementation'}</StateBadge>
@@ -227,6 +237,14 @@ export default function ExecutionDetailPage() {
               {detail.blocking_reason_message}
             </div>
             {detail.recovery_hint ? <div className="mt-2 text-xs text-rose-700/80">{detail.recovery_hint}</div> : null}
+            {detail.recovery_deadline_at ? (
+              <div className="mt-2 text-xs text-rose-700/80">
+                恢复截止：{formatTime(detail.recovery_deadline_at)} · {formatRecoveryCountdown(detail.time_remaining_seconds)}
+              </div>
+            ) : null}
+            {detail.recovery_timeout_status === 'timed_out' ? (
+              <div className="mt-2 text-xs font-medium text-rose-800">恢复超时，需人工介入；不会阻塞其他需求执行。</div>
+            ) : null}
           </div>
         ) : null}
         {detail.workspace_blocker ? (
@@ -283,6 +301,8 @@ export default function ExecutionDetailPage() {
           <div>latest task: {execution.latest_task_id ?? '-'}</div>
           <div>runtime session: {execution.runtime_session_id || '-'}</div>
           <div>resume count: {execution.resume_count ?? '-'}</div>
+          <div>recovery scope: {detail.recovery_scope === 'current_requirement' ? '仅当前需求' : '-'}</div>
+          <div>recovery timeout: {detail.recovery_timeout_status || '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
           <div>delivery blocker: {detail.delivery_summary?.delivery_blocker_type || '-'}</div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>

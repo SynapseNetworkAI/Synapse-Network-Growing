@@ -18,6 +18,15 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+function formatRecoveryCountdown(seconds: number | null) {
+  if (seconds == null) return null
+  if (seconds <= 0) return '恢复窗口已到期'
+  if (seconds < 60) return `恢复窗口剩余 ${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remain = seconds % 60
+  return `恢复窗口剩余 ${minutes}m ${remain}s`
+}
+
 function statusTone(status: string) {
   if (status === 'succeeded') return 'delivered'
   if (status === 'running') return 'running'
@@ -83,6 +92,9 @@ export default function ExecutionsPage() {
             </button>
           </div>
         </div>
+        <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          恢复中的 execution 只影响当前需求，不会阻塞其他需求执行。
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
@@ -112,6 +124,7 @@ export default function ExecutionsPage() {
                       <StateBadge tone={statusTone(item.status)}>{STATUS_LABEL[item.status] || item.status}</StateBadge>
                       {item.phase && item.phase !== item.status ? <StateBadge tone="muted">{item.phase}</StateBadge> : null}
                       {item.recovery_status ? <StateBadge tone="blocked">恢复: {item.recovery_status}</StateBadge> : null}
+                      {item.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
                       {!item.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
                     </div>
                     {item.queue_reason ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.queue_reason}</div> : null}
@@ -122,6 +135,15 @@ export default function ExecutionsPage() {
                       </div>
                     ) : null}
                     {item.recovery_hint ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.recovery_hint}</div> : null}
+                    {item.recovery_deadline_at ? (
+                      <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                        恢复截止：{formatTime(item.recovery_deadline_at)}
+                        {item.time_remaining_seconds != null ? ` · ${formatRecoveryCountdown(item.time_remaining_seconds)}` : ''}
+                      </div>
+                    ) : null}
+                    {item.recovery_timeout_status === 'timed_out' ? (
+                      <div className="mt-2 text-xs text-rose-700">恢复超时，需人工介入。</div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.execution_mode}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.complexity}</td>

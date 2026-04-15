@@ -131,6 +131,8 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
 }
 
 function phaseLabel(requirement: AgentRequirement) {
+  if (requirement.recovery_timeout_status === 'timed_out') return '恢复超时，需人工介入'
+  if (requirement.recovery_status === 'recovering') return '恢复中，仅影响当前需求'
   if (requirement.recovery_status) return `恢复: ${requirement.recovery_status}`
   const phase = requirement.phase || requirement.status
   if (phase === 'awaiting_execution_approval') return '等待执行审批'

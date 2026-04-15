@@ -30,6 +30,11 @@ function assetsTone(status: string) {
   return 'running'
 }
 
+function formatTime(value: string | null) {
+  if (!value) return '-'
+  return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
+}
+
 function Markdown({ value }: Readonly<{ value: string }>) {
   if (!value.trim()) return <div className="text-sm text-slate-400">暂无内容</div>
   return (
@@ -406,6 +411,7 @@ export default function RequirementDetail() {
               <StateBadge tone={statusTone(requirement.status)}>{STATUS_LABEL[requirement.status] || requirement.status}</StateBadge>
               {detail.phase && detail.phase !== requirement.status ? <StateBadge tone="muted">{detail.phase}</StateBadge> : null}
               {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
+              {detail.recovery_scope ? <StateBadge tone="muted">仅影响当前需求</StateBadge> : null}
               <StateBadge tone="muted">{requirement.priority}</StateBadge>
               {requirement.project_display_name ? <StateBadge tone="muted">{requirement.project_display_name}</StateBadge> : null}
               {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
@@ -416,7 +422,12 @@ export default function RequirementDetail() {
                 <div>交付状态：{latestRelease.status}</div>
                 <div>基线分支：{latestRelease.base_branch || '-'}</div>
                 <div>PR：{latestRelease.pr_url ? <a className="text-blue-600 hover:underline" href={latestRelease.pr_url} target="_blank" rel="noreferrer">查看 PR</a> : '-'}</div>
+                {detail.recovery_deadline_at ? <div>恢复截止：{formatTime(detail.recovery_deadline_at)}</div> : null}
+                {detail.recovery_timeout_status ? <div>恢复状态：{detail.recovery_timeout_status}</div> : null}
               </div>
+            ) : null}
+            {detail.recovery_timeout_status === 'timed_out' ? (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">恢复超时，需人工介入；不会阻塞其他需求执行。</div>
             ) : null}
           </div>
         )}

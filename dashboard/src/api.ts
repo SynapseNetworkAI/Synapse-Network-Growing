@@ -821,6 +821,10 @@ export interface AgentRequirement {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_scope: string | null
+  recovery_deadline_at: string | null
+  recovery_timeout_status: string | null
+  time_remaining_seconds: number | null
   assets_status: string
   assets_error_message: string | null
   created_at: string | null
@@ -897,6 +901,10 @@ export interface AgentRequirementDetail {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_scope: string | null
+  recovery_deadline_at: string | null
+  recovery_timeout_status: string | null
+  time_remaining_seconds: number | null
   assets_status: string
   assets_error_message: string | null
   acceptance_contract: AcceptanceContract
@@ -990,6 +998,10 @@ export interface ExecutionRun {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_scope: string | null
+  recovery_deadline_at: string | null
+  recovery_timeout_status: string | null
+  time_remaining_seconds: number | null
   recovery_mode: string | null
   queue_reason: string | null
   blocking_reason_code: string | null
@@ -1062,6 +1074,10 @@ export interface ExecutionDetail {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_scope: string | null
+  recovery_deadline_at: string | null
+  recovery_timeout_status: string | null
+  time_remaining_seconds: number | null
   recovery_mode: string | null
   queue_reason: string | null
   blocking_reason_code: string | null

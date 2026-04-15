@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import threading
+from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -100,6 +101,8 @@ from server.services.agents.llm_adapter import get_provider
 logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
 _MAX_DELIVERY_REPAIRS = 1
+_RUNTIME_RECOVERY_TIMEOUT_SECONDS = 600
+_RECOVERY_SCOPE_CURRENT_REQUIREMENT = "current_requirement"
 
 
 def _testing_mode() -> bool:
@@ -273,15 +276,79 @@ _REPLACEMENT_REQUIRED_BLOCKING_REASONS = {
     "execution_logic_failed",
 }
 
+def _recovery_time_remaining_seconds(deadline_at: Any) -> int | None:
+    if deadline_at is None:
+        return None
+    normalized_deadline = deadline_at
+    if getattr(normalized_deadline, "tzinfo", None) is None:
+        normalized_deadline = normalized_deadline.replace(tzinfo=timezone.utc)
+    remaining = int((normalized_deadline - utcnow()).total_seconds())
+    return max(0, remaining)
+
+
+def _effective_recovery_status(run: ExecutionRunRow) -> str | None:
+    timeout_status = str(getattr(run, "recovery_timeout_status", "") or "").strip()
+    if timeout_status == "timed_out":
+        return "timed_out"
+    return str(getattr(run, "recovery_status", "") or "").strip() or None
+
+
+def _execution_recovery_fields(run: ExecutionRunRow) -> dict[str, Any]:
+    effective_status = _effective_recovery_status(run)
+    if effective_status is None:
+        return {
+            "recovery_scope": None,
+            "recovery_deadline_at": None,
+            "recovery_timeout_status": None,
+            "time_remaining_seconds": None,
+        }
+    return {
+        "recovery_scope": _RECOVERY_SCOPE_CURRENT_REQUIREMENT,
+        "recovery_deadline_at": getattr(run, "recovery_deadline_at", None),
+        "recovery_timeout_status": str(getattr(run, "recovery_timeout_status", "") or "").strip() or ("active" if effective_status == "recovering" else None),
+        "time_remaining_seconds": _recovery_time_remaining_seconds(getattr(run, "recovery_deadline_at", None)),
+    }
+
+
+def _sync_execution_recovery_lease(run: ExecutionRunRow, recovery_status: str | None) -> str | None:
+    now = utcnow()
+    current_timeout_status = str(getattr(run, "recovery_timeout_status", "") or "").strip() or None
+    if recovery_status == "recovering":
+        started_at = getattr(run, "recovery_started_at", None)
+        deadline_at = getattr(run, "recovery_deadline_at", None)
+        if deadline_at is not None and getattr(deadline_at, "tzinfo", None) is None:
+            deadline_at = deadline_at.replace(tzinfo=timezone.utc)
+        if started_at is None:
+            run.recovery_started_at = now
+            run.recovery_deadline_at = now + timedelta(seconds=_RUNTIME_RECOVERY_TIMEOUT_SECONDS)
+            run.recovery_attempt_count = max(1, int(getattr(run, "recovery_attempt_count", 0) or 0) + 1)
+            run.recovery_timeout_status = "active"
+            return "recovering"
+        if deadline_at is not None and deadline_at <= now:
+            run.recovery_timeout_status = "timed_out"
+            return "timed_out"
+        run.recovery_timeout_status = "active"
+        return "recovering"
+    if current_timeout_status == "timed_out":
+        return "timed_out"
+    run.recovery_started_at = None
+    run.recovery_deadline_at = None
+    run.recovery_timeout_status = None
+    return None
+
 
 def _execution_recovery_mode(
     *,
     status: str,
     phase: str,
+    recovery_status: str | None = None,
     blocking_reason_code: str | None = None,
     has_paused_node: bool = False,
 ) -> str:
     reason = str(blocking_reason_code or "").strip()
+    effective_recovery_status = str(recovery_status or "").strip()
+    if effective_recovery_status == "timed_out":
+        return "none"
     if reason in _RESTARTABLE_BLOCKING_REASONS and (status in {"queued", "blocked"} or phase in {"queued", "branch_preparing", "blocked", "recovering"}):
         return "restart_current"
     if status == "failed":
@@ -304,10 +371,12 @@ def _execution_recovery_hint(recovery_mode: str, blocking_reason_code: str | Non
         if blocking_reason_code == "approval_blocked":
             return "Requirement 批准后可继续当前 execution。"
         if blocking_reason_code == "runtime_recovery_blocked":
-            return "等待恢复完成，或稍后再次启动当前 execution。"
+            return "等待恢复完成，或稍后再次启动当前 execution。仅影响当前需求。"
         if blocking_reason_code == "manual_pause":
             return "当前 execution 已暂停，可直接继续。"
         return "前置阻塞解除后可继续当前 execution。"
+    if blocking_reason_code == "runtime_recovery_timed_out":
+        return "恢复已超时，需要人工介入；不会阻塞其他需求执行。"
     if recovery_mode == "retry_new_run":
         return "当前 execution 已形成一次失败尝试，需要创建新 run 重试。"
     return None
@@ -405,6 +474,7 @@ def _execution_allowed_actions(
     recovery_mode = _execution_recovery_mode(
         status=status,
         phase=phase,
+        recovery_status=_effective_recovery_status(run),
         blocking_reason_code=blocking_reason_code,
         has_paused_node=has_paused_node,
     )
@@ -494,8 +564,11 @@ def _execution_reason_payload(
         if release is not None and int(getattr(release, "execution_run_id", 0) or 0) == int(run.id) and str(release.status or "") == "release_blocked":
             message = str(getattr(release, "notes", "") or "").strip() or "Delivery branch preparation is blocked."
             return f"启动失败：{message}", "branch_preparation_blocked", message
-        if str(getattr(run, "recovery_status", "") or "").strip():
-            message = f"Execution is recovering: {str(run.recovery_status)}"
+        effective_recovery_status = _effective_recovery_status(run)
+        if effective_recovery_status == "timed_out":
+            return "恢复超时", "runtime_recovery_timed_out", "Execution recovery timed out and now requires operator review."
+        if effective_recovery_status:
+            message = f"Execution is recovering: {effective_recovery_status}"
             return "等待恢复", "runtime_recovery_blocked", message
         if phase == "branch_preparing":
             return "等待分支准备", None, None
@@ -528,7 +601,10 @@ def _execution_reason_payload(
         if release is not None and int(getattr(release, "execution_run_id", 0) or 0) == int(run.id) and str(release.status or "") == "release_blocked":
             message = str(getattr(release, "notes", "") or "").strip() or "Delivery branch preparation is blocked."
             return None, "branch_preparation_blocked", message
-        if phase == "recovering" or str(getattr(run, "recovery_status", "") or "").strip():
+        effective_recovery_status = _effective_recovery_status(run)
+        if effective_recovery_status == "timed_out":
+            return None, "runtime_recovery_timed_out", "Execution recovery timed out and now requires operator review."
+        if phase == "recovering" or effective_recovery_status:
             return None, "runtime_recovery_blocked", "Execution recovery is still in progress or failed."
         if nodes and any(str(getattr(node, "status", "") or "") == "paused" for node in nodes):
             return None, "manual_pause", "Execution was paused and can be resumed."
@@ -563,6 +639,9 @@ def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunR
             run.phase = "queued"
         run.status = "failed" if original_status == "failed" and run.phase == "blocked" else _execution_status_from_phase(run.phase)
         run.recovery_status = None
+        run.recovery_started_at = None
+        run.recovery_deadline_at = None
+        run.recovery_timeout_status = None
         db.flush()
         return run
     statuses: list[str] = []
@@ -594,8 +673,11 @@ def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunR
     )
     latest_release = _latest_release(db, int(run.requirement_id))
     recovery_status, _session = _derive_execution_recovery_status(db, run, nodes)
-    if recovery_status == "recovering":
+    effective_recovery_status = _sync_execution_recovery_lease(run, recovery_status)
+    if effective_recovery_status == "recovering":
         run.phase = "recovering"
+    elif effective_recovery_status == "timed_out":
+        run.phase = "blocked"
     elif "running" in statuses:
         run.phase = "executing"
     elif "failed" in statuses:
@@ -620,8 +702,8 @@ def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunR
             run.phase = "blocked"
     else:
         run.phase = "queued"
-    run.status = "failed" if original_status == "failed" and run.phase == "blocked" else _execution_status_from_phase(str(run.phase or "queued"))
-    run.recovery_status = recovery_status
+    run.status = "failed" if original_status == "failed" and run.phase == "blocked" and effective_recovery_status != "timed_out" else _execution_status_from_phase(str(run.phase or "queued"))
+    run.recovery_status = effective_recovery_status
     run.updated_at = utcnow()
     db.flush()
     return run
@@ -647,6 +729,8 @@ def reconcile_requirement_state(db: Session, requirement_id: int | RequirementRo
         recovery_status = str(getattr(latest_execution, "recovery_status", "") or "").strip() or None
     if str(requirement.status or "") == "deleted":
         requirement.phase = "deleted"
+    elif recovery_status == "timed_out":
+        requirement.phase = "blocked"
     elif recovery_status == "recovering":
         requirement.phase = "recovering"
     elif latest_execution is not None:
@@ -1301,6 +1385,12 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
+    recovery_fields = _execution_recovery_fields(latest_execution) if latest_execution is not None else {
+        "recovery_scope": None,
+        "recovery_deadline_at": None,
+        "recovery_timeout_status": None,
+        "time_remaining_seconds": None,
+    }
     project = _project_for_requirement(db, requirement)
     return AgentFirstRequirementOut(
         id=int(requirement.id),
@@ -1326,6 +1416,10 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         allowed_actions=_requirement_allowed_actions(requirement, latest_execution, latest_release),
         pending_operations=[],
         recovery_status=str(getattr(requirement, "recovery_status", "") or "").strip() or None,
+        recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
+        recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
+        recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
+        time_remaining_seconds=cast(int | None, recovery_fields["time_remaining_seconds"]),
         assets_status=_assets_status(requirement),
         assets_error_message=_assets_error_message(requirement),
         created_at=requirement.created_at,
@@ -1499,6 +1593,12 @@ def _build_requirement_detail(
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
+    recovery_fields = _execution_recovery_fields(latest_execution) if latest_execution is not None else {
+        "recovery_scope": None,
+        "recovery_deadline_at": None,
+        "recovery_timeout_status": None,
+        "time_remaining_seconds": None,
+    }
     project = _project_for_requirement(db, requirement)
     return AgentFirstRequirementDetailOut(
         requirement=_requirement_to_out(db, requirement),
@@ -1516,6 +1616,10 @@ def _build_requirement_detail(
         allowed_actions=_requirement_allowed_actions(requirement, latest_execution, latest_release),
         pending_operations=[],
         recovery_status=str(getattr(requirement, "recovery_status", "") or "").strip() or None,
+        recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
+        recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
+        recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
+        time_remaining_seconds=cast(int | None, recovery_fields["time_remaining_seconds"]),
         assets_status=_assets_status(requirement),
         assets_error_message=_assets_error_message(requirement),
         acceptance_contract=_parse_acceptance_contract(requirement),
@@ -2505,6 +2609,9 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.phase = "executing"
     run.status = _execution_status_from_phase(run.phase)
     run.recovery_status = None
+    run.recovery_started_at = None
+    run.recovery_deadline_at = None
+    run.recovery_timeout_status = None
     run.started_at = run.started_at or utcnow()
     run.completed_at = None
     requirement.phase = "executing"
@@ -3526,11 +3633,13 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
     recovery_mode = _execution_recovery_mode(
         status=str(getattr(run, "status", "") or _execution_status_from_phase(str(getattr(run, "phase", "") or run.status or "queued"))),
         phase=str(getattr(run, "phase", "") or run.status or "queued"),
+        recovery_status=_effective_recovery_status(run),
         blocking_reason_code=blocking_reason_code,
         has_paused_node=has_paused_node,
     )
     workspace_blocker = _execution_workspace_blocker(requirement, release, blocking_reason_code)
     recovery_hint = _execution_recovery_hint(recovery_mode, blocking_reason_code)
+    recovery_fields = _execution_recovery_fields(run)
     latest_task = _latest_task_for_run(db, run)
     latest_session = _latest_session_for_run_task(db, run)
     node_out: list[ExecutionNodeOut] = []
@@ -3606,7 +3715,11 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
             blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
-        recovery_status=str(getattr(run, "recovery_status", "") or "").strip() or None,
+        recovery_status=_effective_recovery_status(run),
+        recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
+        recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
+        recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
+        time_remaining_seconds=cast(int | None, recovery_fields["time_remaining_seconds"]),
         recovery_mode=recovery_mode,
         queue_reason=queue_reason,
         blocking_reason_code=blocking_reason_code,
@@ -3666,7 +3779,11 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
             blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
-        recovery_status=str(getattr(run, "recovery_status", "") or "").strip() or None,
+        recovery_status=_effective_recovery_status(run),
+        recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
+        recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
+        recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
+        time_remaining_seconds=cast(int | None, recovery_fields["time_remaining_seconds"]),
         recovery_mode=recovery_mode,
         queue_reason=queue_reason,
         blocking_reason_code=blocking_reason_code,

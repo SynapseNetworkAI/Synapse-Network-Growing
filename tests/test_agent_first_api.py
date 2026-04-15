@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import subprocess
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -413,8 +414,148 @@ def test_execution_detail_marks_running_codex_cli_session_as_recovering(synced_c
     assert detail.status_code == 200
     payload = detail.json()
     assert payload["execution"]["recovery_status"] == "recovering"
+    assert payload["execution"]["recovery_scope"] == "current_requirement"
+    assert payload["execution"]["recovery_timeout_status"] == "active"
+    assert payload["execution"]["recovery_deadline_at"] is not None
+    assert payload["execution"]["time_remaining_seconds"] is not None
+    assert payload["execution"]["time_remaining_seconds"] > 0
     assert payload["recovery_status"] == "recovering"
+    assert payload["recovery_scope"] == "current_requirement"
+    assert payload["recovery_timeout_status"] == "active"
     assert payload["execution"]["resume_count"] == 2
+
+
+def test_recovering_execution_does_not_block_other_requirements(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    first_requirement = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Recovering execution should stay isolated",
+            "description_markdown": "Recovery should only affect one requirement.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    first_requirement_id = int(first_requirement.json()["requirement"]["id"])
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-recovery-scope-1"),
+    ):
+        first_submit = synced_client.post(f"/api/requirements/{first_requirement_id}/submit")
+    first_execution_id = int(first_submit.json()["latest_execution_id"])
+
+    recovering_run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == first_execution_id).one()
+    recovering_task = db_session.query(TaskRow).filter(TaskRow.id == recovering_run.latest_task_id).one()
+    recovering_task.runtime_backend = "codex_cli"
+    recovering_task.runtime_session_id = "thread-recover-scope"
+    db_session.add(
+        CodexSessionRow(
+            session_key="session-recover-scope",
+            role_key="software_engineer",
+            project_root="/Users/cliff/workspace/agent/Synapse-Network",
+            requirement_id=first_requirement_id,
+            current_task_id=int(recovering_task.id),
+            thread_id="thread-recover-scope",
+            status="active",
+            resume_count=1,
+            last_heartbeat_at=utcnow(),
+        )
+    )
+    db_session.commit()
+
+    second_requirement = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Second requirement should still auto start",
+            "description_markdown": "Another requirement should not be blocked by recovery.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    second_requirement_id = int(second_requirement.json()["requirement"]["id"])
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-recovery-scope-2"),
+    ):
+        second_submit = synced_client.post(f"/api/requirements/{second_requirement_id}/submit")
+
+    assert second_submit.status_code == 200
+    second_payload = second_submit.json()
+    assert second_payload["latest_execution_id"] is not None
+    assert second_payload["latest_execution_id"] != first_execution_id
+    assert second_payload["requirement"]["status"] == "running"
+
+
+def test_runtime_recovery_timeout_routes_current_execution_to_operator_state(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Recovery timeout should stop automatic restart",
+            "description_markdown": "Timed out recovery should require operator review.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-recovery-timeout"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+    execution_id = int(submit_resp.json()["latest_execution_id"])
+
+    run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_id).one()
+    task = db_session.query(TaskRow).filter(TaskRow.id == run.latest_task_id).one()
+    task.runtime_backend = "codex_cli"
+    task.runtime_session_id = "thread-recover-timeout"
+    run.recovery_started_at = utcnow() - timedelta(minutes=20)
+    run.recovery_deadline_at = utcnow() - timedelta(minutes=10)
+    run.recovery_timeout_status = "active"
+    db_session.add(
+        CodexSessionRow(
+            session_key="session-recover-timeout",
+            role_key="software_engineer",
+            project_root="/Users/cliff/workspace/agent/Synapse-Network",
+            requirement_id=requirement_id,
+            current_task_id=int(task.id),
+            thread_id="thread-recover-timeout",
+            status="active",
+            resume_count=1,
+            last_heartbeat_at=utcnow() - timedelta(minutes=20),
+        )
+    )
+    db_session.commit()
+
+    detail = synced_client.get(f"/api/executions/{execution_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["execution"]["recovery_status"] == "timed_out"
+    assert payload["execution"]["recovery_timeout_status"] == "timed_out"
+    assert payload["execution"]["recovery_scope"] == "current_requirement"
+    assert payload["blocking_reason_code"] == "runtime_recovery_timed_out"
+    assert "start" not in set(payload["allowed_actions"])
+    assert "retry" not in set(payload["allowed_actions"])
+
+    requirement_detail = synced_client.get(f"/api/requirements/{requirement_id}")
+    assert requirement_detail.status_code == 200
+    requirement_payload = requirement_detail.json()
+    assert requirement_payload["requirement"]["status"] == "blocked"
+    assert requirement_payload["recovery_status"] == "timed_out"
+    assert requirement_payload["recovery_timeout_status"] == "timed_out"
 
 
 def test_regenerate_requirement_assets_marks_pending_and_requeues_generation(synced_client, db_session):

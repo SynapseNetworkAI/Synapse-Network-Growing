@@ -716,6 +716,10 @@ class ExecutionRunRow(Base):
     status = Column(Text, nullable=False, default="queued")
     phase = Column(Text, nullable=False, default="queued")
     recovery_status = Column(Text)
+    recovery_started_at = Column(DateTime)
+    recovery_deadline_at = Column(DateTime)
+    recovery_attempt_count = Column(Integer, nullable=False, default=0)
+    recovery_timeout_status = Column(Text)
     validation_profile = Column(Text, nullable=False, default="minimal")
     delivery_intent = Column(Text, nullable=False, default="pr_required")
     approval_required = Column(Boolean, nullable=False, default=False)
@@ -1213,6 +1217,10 @@ def _migrate(engine_):
             "execution_kind": "TEXT DEFAULT 'implementation'",
             "phase": "TEXT DEFAULT 'queued'",
             "recovery_status": "TEXT",
+            "recovery_started_at": "DATETIME",
+            "recovery_deadline_at": "DATETIME",
+            "recovery_attempt_count": "INTEGER DEFAULT 0",
+            "recovery_timeout_status": "TEXT",
             "source_release_id": "INTEGER",
             "source_delivery_blocker_type": "TEXT",
         }

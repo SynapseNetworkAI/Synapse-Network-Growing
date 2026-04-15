@@ -103,6 +103,10 @@ describe('agent-first pages smoke', () => {
         allowed_actions: ['start'],
         pending_operations: [],
         recovery_status: null,
+        recovery_scope: null,
+        recovery_deadline_at: null,
+        recovery_timeout_status: null,
+        time_remaining_seconds: null,
         recovery_mode: null,
         queue_reason: '等待启动',
         blocking_reason_code: null,
@@ -568,6 +572,7 @@ describe('agent-first pages smoke', () => {
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
     expect(screen.getByText('执行列表')).toBeInTheDocument()
     expect(screen.getByText('Execution #11')).toBeInTheDocument()
+    expect(screen.getByText(/恢复中的 execution 只影响当前需求/)).toBeInTheDocument()
   })
 
   it('shows restart-current action for restartable blockers', async () => {
@@ -581,6 +586,10 @@ describe('agent-first pages smoke', () => {
         allowed_actions: ['start', 'view', 'view_requirement'],
         pending_operations: [],
         recovery_status: null,
+        recovery_scope: 'current_requirement',
+        recovery_deadline_at: '2026-04-14T07:10:00Z',
+        recovery_timeout_status: 'active',
+        time_remaining_seconds: 180,
         recovery_mode: 'restart_current',
         queue_reason: null,
         blocking_reason_code: 'branch_preparation_blocked',
@@ -611,6 +620,7 @@ describe('agent-first pages smoke', () => {
 
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: '再次启动' })).toBeInTheDocument()
+    expect(screen.getByText(/仅影响当前需求/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 

@@ -918,6 +918,10 @@ class AgentFirstRequirementOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_scope: Optional[str] = None
+    recovery_deadline_at: Optional[datetime] = None
+    recovery_timeout_status: Optional[str] = None
+    time_remaining_seconds: Optional[int] = None
     assets_status: str = "pending"
     assets_error_message: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -955,6 +959,10 @@ class AgentFirstRequirementDetailOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_scope: Optional[str] = None
+    recovery_deadline_at: Optional[datetime] = None
+    recovery_timeout_status: Optional[str] = None
+    time_remaining_seconds: Optional[int] = None
     assets_status: str = "pending"
     assets_error_message: Optional[str] = None
     acceptance_contract: dict[str, object] = {}
@@ -1048,6 +1056,10 @@ class ExecutionRunOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_scope: Optional[str] = None
+    recovery_deadline_at: Optional[datetime] = None
+    recovery_timeout_status: Optional[str] = None
+    time_remaining_seconds: Optional[int] = None
     recovery_mode: Optional[str] = None
     queue_reason: Optional[str] = None
     blocking_reason_code: Optional[str] = None
@@ -1120,6 +1132,10 @@ class ExecutionRunDetailOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_scope: Optional[str] = None
+    recovery_deadline_at: Optional[datetime] = None
+    recovery_timeout_status: Optional[str] = None
+    time_remaining_seconds: Optional[int] = None
     recovery_mode: Optional[str] = None
     queue_reason: Optional[str] = None
     blocking_reason_code: Optional[str] = None

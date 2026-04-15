@@ -34,6 +34,10 @@ const detail = {
     allowed_actions: ['pause'],
     pending_operations: [],
     recovery_status: null,
+    recovery_scope: null,
+    recovery_deadline_at: null,
+    recovery_timeout_status: null,
+    time_remaining_seconds: null,
     recovery_mode: null,
     queue_reason: null,
     blocking_reason_code: null,
@@ -89,6 +93,10 @@ const detail = {
   allowed_actions: ['pause'],
   pending_operations: [],
   recovery_status: null,
+  recovery_scope: null,
+  recovery_deadline_at: null,
+  recovery_timeout_status: null,
+  time_remaining_seconds: null,
   recovery_mode: null,
   queue_reason: null,
   blocking_reason_code: null,
@@ -331,6 +339,10 @@ describe('Execution detail observability', () => {
         phase: 'blocked',
         execution_kind: 'delivery_repair',
         allowed_actions: ['start', 'view', 'view_requirement'],
+        recovery_scope: 'current_requirement',
+        recovery_deadline_at: '2026-04-14T07:10:00Z',
+        recovery_timeout_status: 'active',
+        time_remaining_seconds: 180,
         recovery_mode: 'restart_current',
         blocking_reason_code: 'branch_preparation_blocked',
         blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
@@ -346,6 +358,10 @@ describe('Execution detail observability', () => {
       },
       phase: 'blocked',
       allowed_actions: ['start', 'view', 'view_requirement'],
+      recovery_scope: 'current_requirement',
+      recovery_deadline_at: '2026-04-14T07:10:00Z',
+      recovery_timeout_status: 'active',
+      time_remaining_seconds: 180,
       recovery_mode: 'restart_current',
       blocking_reason_code: 'branch_preparation_blocked',
       blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
@@ -383,7 +399,54 @@ describe('Execution detail observability', () => {
     expect(screen.getByText(/脏文件数量：2/)).toBeInTheDocument()
     expect(screen.getByText(/agent_first\.py/)).toBeInTheDocument()
     expect(screen.getByText(/交付门禁阻塞/)).toBeInTheDocument()
+    expect(screen.getByText(/仅影响当前需求/)).toBeInTheDocument()
     expect(screen.getAllByText(/repo_gate_failed/).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
+  })
+
+  it('renders timed-out recovery as operator-only blocker', async () => {
+    mockApi.getExecution.mockResolvedValue({
+      ...detail,
+      execution: {
+        ...detail.execution,
+        status: 'blocked',
+        phase: 'blocked',
+        allowed_actions: ['view', 'view_requirement'],
+        recovery_status: 'timed_out',
+        recovery_scope: 'current_requirement',
+        recovery_deadline_at: '2026-04-14T07:10:00Z',
+        recovery_timeout_status: 'timed_out',
+        time_remaining_seconds: 0,
+        recovery_mode: 'none',
+        blocking_reason_code: 'runtime_recovery_timed_out',
+        blocking_reason_message: 'Execution recovery timed out and now requires operator review.',
+        recovery_hint: '恢复已超时，需要人工介入；不会阻塞其他需求执行。',
+      },
+      phase: 'blocked',
+      allowed_actions: ['view', 'view_requirement'],
+      recovery_status: 'timed_out',
+      recovery_scope: 'current_requirement',
+      recovery_deadline_at: '2026-04-14T07:10:00Z',
+      recovery_timeout_status: 'timed_out',
+      time_remaining_seconds: 0,
+      recovery_mode: 'none',
+      blocking_reason_code: 'runtime_recovery_timed_out',
+      blocking_reason_message: 'Execution recovery timed out and now requires operator review.',
+      recovery_hint: '恢复已超时，需要人工介入；不会阻塞其他需求执行。',
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/executions/1']}>
+        <Routes>
+          <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getExecution).toHaveBeenCalledWith(1))
+    expect(screen.getByText(/runtime_recovery_timed_out/)).toBeInTheDocument()
+    expect(screen.getByText(/恢复超时，需人工介入/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '再次启动' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 
