@@ -167,6 +167,10 @@ export default function ExecutionDetailPage() {
     current_branch: execution.current_branch,
   }
   const planMarkdown = String(detail.plan_summary?.summary_markdown || '').trim()
+  const parentPlanMarkdown = String(detail.plan_summary?.parent_plan_reference?.summary_markdown || detail.plan_summary?.parent_plan_reference_summary || '').trim()
+  const repairScope = detail.plan_summary?.repair_scope || []
+  const successCriteria = detail.plan_summary?.success_criteria || []
+  const previousRepairAttempt = detail.plan_summary?.repair_context?.previous_attempt_summary
   const verification = detail.verification_result ?? detail.validation
   const verificationPlan = detail.verification_plan ?? verification?.verification_plan ?? null
   const detailAllowedActions = detail.allowed_actions ?? []
@@ -294,7 +298,7 @@ export default function ExecutionDetailPage() {
               {detail.delivery_summary.delivery_failure_excerpt}
             </div>
             <div className="mt-2 text-xs text-amber-900/75">
-              next action: {detail.delivery_summary.next_action || '-'} · repairable: {detail.delivery_summary.repairable ? 'yes' : 'no'} · attempts: {detail.delivery_summary.repair_attempt_count}
+              gate: {detail.delivery_summary.failed_gate_name || '-'} · next action: {detail.delivery_summary.next_action || '-'} · repairable: {detail.delivery_summary.repairable ? 'yes' : 'no'} · attempts: {detail.delivery_summary.repair_attempt_count}
             </div>
           </div>
         ) : null}
@@ -323,6 +327,7 @@ export default function ExecutionDetailPage() {
           <div>delivery: {execution.delivery_intent}</div>
           <div>delivery state: {detail.delivery_summary?.state || detail.delivery_summary?.status || '-'}</div>
           <div>execution kind: {execution.attempt_kind}</div>
+          <div>plan kind: {execution.plan_kind}</div>
           <div>approval: {execution.approval_required ? `${detail.requirement.approval?.state || detail.requirement.approval_status} · submit gated` : 'waived'}</div>
           <div>started: {formatTime(execution.started_at)}</div>
           <div>completed: {formatTime(execution.completed_at)}</div>
@@ -334,6 +339,8 @@ export default function ExecutionDetailPage() {
           <div>recovery timeout: {detail.recovery_timeout_status || '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
           <div>delivery blocker: {detail.delivery_summary?.blocker_kind || detail.delivery_summary?.delivery_blocker_type || '-'}</div>
+          <div>failed gate: {execution.failed_gate_name || detail.delivery_summary?.failed_gate_name || '-'}</div>
+          <div>repair budget: {execution.attempt_index != null && execution.attempt_budget != null ? `${execution.attempt_index} / ${execution.attempt_budget}` : '-'}</div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>
         </div>
       </SectionFrame>
@@ -388,7 +395,63 @@ export default function ExecutionDetailPage() {
       </SectionFrame>
 
       <SectionFrame eyebrow="Plan" title="执行计划">
-        <Markdown value={planMarkdown} empty="当前还没有执行计划。" />
+        {execution.attempt_kind === 'delivery_repair' ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-strong)] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <StateBadge tone="validating">当前计划：Delivery Repair</StateBadge>
+                {execution.attempt_index != null && execution.attempt_budget != null ? (
+                  <StateBadge tone="muted">
+                    repair 第 {execution.attempt_index} 次 / 总预算 {execution.attempt_budget}
+                  </StateBadge>
+                ) : null}
+              </div>
+              <div className="mt-3 text-sm text-[color:var(--ops-text-body)]">
+                <Markdown value={planMarkdown} empty="当前还没有 repair 计划。" />
+              </div>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Repair Scope</div>
+                {repairScope.length ? (
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-[color:var(--ops-text-body)]">
+                    {repairScope.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-[color:var(--ops-text-muted)]">当前没有单独的 repair scope。</div>
+                )}
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Success Criteria</div>
+                {successCriteria.length ? (
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-[color:var(--ops-text-body)]">
+                    {successCriteria.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-[color:var(--ops-text-muted)]">当前没有单独的 success criteria。</div>
+                )}
+              </div>
+            </div>
+            {previousRepairAttempt ? (
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4 text-sm text-[color:var(--ops-text-body)]">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Previous Repair Attempt</div>
+                <div>attempt #{previousRepairAttempt.attempt_id ?? '-'}</div>
+                <div className="mt-1">summary: {previousRepairAttempt.failure_summary || '-'}</div>
+                <div className="mt-1">validation: {previousRepairAttempt.validation_status || '-'}</div>
+              </div>
+            ) : null}
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Parent Requirement Plan</div>
+              <Markdown value={parentPlanMarkdown} empty="当前没有父计划摘要。" />
+            </div>
+          </div>
+        ) : (
+          <Markdown value={planMarkdown} empty="当前还没有执行计划。" />
+        )}
       </SectionFrame>
 
       <SectionFrame eyebrow="Verification Plan" title="验证方案">

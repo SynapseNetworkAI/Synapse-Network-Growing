@@ -159,6 +159,13 @@ Release 负责：
 10. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
    - `Requirement`、`ExecutionAttempt`、`Delivery`、`ApprovalDecision` 都必须只有一个 canonical `state`
    - 旧 `status / phase / resolution_path / latest_release_status` 只允许作为过渡读字段，不能继续作为写入真相
+11. parent plan 必须不可变，child repair task 必须从最新失败结果派生。
+   - `requirement_plan` 是原始目标，不允许被 repair 覆盖。
+   - `delivery_repair` 必须拥有独立 `repair_plan`，并显式引用父计划摘要。
+   - 第二次 repair 必须读取上一次 repair 的失败结果，而不是简单重跑旧 prompt。
+12. 自主修复必须有严格预算。
+   - implementation retry 与 delivery repair retry 分开计数。
+   - `delivery_repair` 默认最多自动 2 次，超出预算必须把父 requirement 收口为失败终态并转人工。
 
 ## 11. 服务层必须按功能面治理
 

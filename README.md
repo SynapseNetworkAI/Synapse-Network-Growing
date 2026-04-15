@@ -140,10 +140,14 @@ Requirement 与 Execution 当前还有三条正式约束：
 13. Delivery gate 自修复已经进入主链。
    - verification passed 后仍先走自动 delivery / push / open PR。
    - 若本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 挡住，系统会把 blocker 分类为 `repo_gate_failed / workspace_blocked / git_auth_failed ...`。
-   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` execution，修复 gate 后重新 verification，再重新 delivery / open PR。
+   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` child execution。
+   - child execution 使用独立 `repair_plan`，父 `requirement_plan` 只作为 reference，不会被覆盖。
+   - repair #2 会读取 repair #1 的失败摘要、commands run、evidence 与最新 blocker 重新规划。
+   - repair 成功后继续主任务的 `re-verification -> re-delivery -> open PR`，不是重跑整个 implementation。
+   - 两次 repair 都失败时，父 requirement 进入 `failed`。
    - dirty worktree、git 权限、网络、远端拒绝等不可代码化修复的 blocker 继续停在 `release_blocked` 并转人工。
 14. workflow 状态机已开始切到 canonical v2。
-   - `Requirement` 只表达目标推进状态：`draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / completed / cancelled`。
+   - `Requirement` 只表达目标推进状态：`draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / failed / completed / cancelled`。
    - `ExecutionAttempt` 只表达单次尝试：`queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`。
    - `Delivery` 只表达 PR / 交付：`pending / preparing_branch / pushing / opening_pr / repairing / blocked / pr_open / merged / abandoned`。
    - 前端已优先渲染 canonical `state`，旧 `status / phase` 仅作为过渡兼容读字段。

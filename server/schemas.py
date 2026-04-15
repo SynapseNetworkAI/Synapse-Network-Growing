@@ -901,10 +901,14 @@ class AgentFirstRequirementOut(BaseModel):
     acceptance_criteria_markdown: str = ""
     state: str = "draft"
     attention_reason: Optional[str] = None
+    failure_reason: Optional[str] = None
+    requirement_plan_summary: Optional[str] = None
     project: Optional[RequirementProjectRefOut] = None
     approval: Optional[ApprovalDecisionOut] = None
     current_attempt_id: Optional[int] = None
     current_delivery_id: Optional[int] = None
+    latest_delivery_repair_attempt_id: Optional[int] = None
+    delivery_repair_attempt_count: int = 0
     status: str
     priority: str
     source: str
@@ -957,6 +961,7 @@ class AgentFirstRequirementDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     state: str = "draft"
     attention_reason: Optional[str] = None
+    failure_reason: Optional[str] = None
     policy_summary_markdown: str = ""
     project: Optional[ProjectOut] = None
     latest_execution_id: Optional[int] = None
@@ -1092,6 +1097,12 @@ class ExecutionRunOut(BaseModel):
     execution_mode: str
     execution_kind: str = "implementation"
     attempt_kind: str = "implementation"
+    plan_kind: str = "requirement"
+    derived_from_attempt_id: Optional[int] = None
+    attempt_index: Optional[int] = None
+    attempt_budget: Optional[int] = None
+    failed_gate_name: Optional[str] = None
+    parent_plan_reference_summary: Optional[str] = None
     complexity: str
     status: str
     phase: str = "queued"
@@ -1236,6 +1247,7 @@ class ReleaseRecordSlimOut(BaseModel):
     notes: Optional[str] = None
     blocker_kind: Optional[str] = None
     delivery_blocker_type: Optional[str] = None
+    failed_gate_name: Optional[str] = None
     delivery_failure_excerpt: Optional[str] = None
     delivery_failure_raw_output: Optional[str] = None
     repairable: bool = False

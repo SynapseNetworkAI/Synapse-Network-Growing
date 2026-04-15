@@ -94,6 +94,11 @@ Requirement 到 Execution 的正式桥接规则：
    - `Requirement` 只表达目标推进状态，不表达某次 run 成败
    - `ExecutionAttempt` 只表达单次尝试，明确区分 `blocked` 与 `failed`
    - `Delivery` 只表达 PR / 交付状态，repair loop 独立建模
+12. delivery 自修复采用 parent plan + child repair task。
+   - implementation 完成后若本地 repo gate 挡住 PR，系统不会覆盖原 `requirement_plan`
+   - 而是派生 `delivery_repair` 子任务，生成独立 repair plan
+   - repair #2 必须读取 repair #1 的失败结果与最新 blocker 重新规划
+   - 两次 repair 均失败时，父 requirement 进入 `failed`
 
 Requirement 面不再承担：
 

@@ -338,6 +338,11 @@ describe('Execution detail observability', () => {
       ...detail,
       execution: {
         ...detail.execution,
+        attempt_kind: 'delivery_repair',
+        plan_kind: 'delivery_repair',
+        attempt_index: 2,
+        attempt_budget: 2,
+        failed_gate_name: 'docs_checks',
         status: 'blocked',
         phase: 'blocked',
         execution_kind: 'delivery_repair',
@@ -377,10 +382,32 @@ describe('Execution detail observability', () => {
         has_untracked: false,
       },
       recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
+      plan_summary: {
+        ...detail.plan_summary,
+        plan_kind: 'delivery_repair',
+        summary_markdown: '## Summary\n\nRepair the docs gate and resume automatic PR delivery.',
+        repair_scope: ['仅修复 docs metadata / inventory / link 问题。'],
+        success_criteria: ['当前 docs gate 不再阻塞交付。'],
+        attempt_index: 2,
+        attempt_budget: 2,
+        failed_gate_name: 'docs_checks',
+        parent_plan_reference_summary: '## Summary\n\nSubmit the project code.',
+        parent_plan_reference: {
+          summary_markdown: '## Summary\n\nSubmit the project code.',
+        },
+        repair_context: {
+          previous_attempt_summary: {
+            attempt_id: 1,
+            failure_summary: 'The first repair missed a metadata entry.',
+            validation_status: 'needs_revision',
+          },
+        },
+      },
       delivery_summary: {
         ...detail.delivery_summary,
         status: 'release_blocked',
         delivery_blocker_type: 'repo_gate_failed',
+        failed_gate_name: 'docs_checks',
         delivery_failure_excerpt: '[ci:docs] documentation validation failed',
         repairable: true,
         repair_attempt_count: 1,
@@ -403,6 +430,9 @@ describe('Execution detail observability', () => {
     expect(screen.getByText(/agent_first\.py/)).toBeInTheDocument()
     expect(screen.getByText(/交付门禁阻塞/)).toBeInTheDocument()
     expect(screen.getByText(/仅影响当前需求/)).toBeInTheDocument()
+    expect(screen.getByText(/当前计划：Delivery Repair/)).toBeInTheDocument()
+    expect(screen.getByText(/Parent Requirement Plan/)).toBeInTheDocument()
+    expect(screen.getByText(/Previous Repair Attempt/)).toBeInTheDocument()
     expect(screen.getAllByText(/repo_gate_failed/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })

@@ -199,6 +199,7 @@ class RequirementRow(Base):
     phase = Column(Text, nullable=False, default="draft")
     workflow_state = Column(Text, nullable=False, default="draft")
     attention_reason = Column(Text)
+    failure_reason = Column(Text)
     recovery_status = Column(Text)
     approval_status = Column(Text, nullable=False, default="pending_approval")
     approval_contract_json = Column(Text, nullable=False, default="{}")
@@ -839,6 +840,7 @@ class ReleaseRecordRow(Base):
     blocker_kind = Column(Text)
     delivery_failure_excerpt = Column(Text)
     delivery_failure_raw_output = Column(Text)
+    failed_gate_name = Column(Text)
     repairable = Column(Boolean, nullable=False, default=False)
     repairability = Column(Text, nullable=False, default="manual_only")
     repair_attempt_count = Column(Integer, nullable=False, default=0)
@@ -1028,6 +1030,7 @@ def _migrate(engine_):
             "phase": "TEXT DEFAULT 'draft'",
             "workflow_state": "TEXT DEFAULT 'draft'",
             "attention_reason": "TEXT",
+            "failure_reason": "TEXT",
             "recovery_status": "TEXT",
         }
         for col, col_type in requirement_cols.items():
@@ -1359,6 +1362,7 @@ def _migrate(engine_):
             "blocker_kind": "TEXT",
             "delivery_failure_excerpt": "TEXT",
             "delivery_failure_raw_output": "TEXT",
+            "failed_gate_name": "TEXT",
             "repairable": "BOOLEAN DEFAULT 0",
             "repairability": "TEXT DEFAULT 'manual_only'",
             "repair_attempt_count": "INTEGER DEFAULT 0",

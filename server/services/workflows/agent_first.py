@@ -14,7 +14,7 @@ import yaml
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from server.config import ORCHESTRATION_BACKEND, PROJECT_ROOT
+from server.config import CODEX_CLI_STALE_AFTER_SEC, ORCHESTRATION_BACKEND, PROJECT_ROOT
 from server.database import (
     AgentRow,
     ApprovalRow,
@@ -107,7 +107,7 @@ from server.services.agents.llm_adapter import get_provider
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
-_MAX_DELIVERY_REPAIRS = 1
+_MAX_DELIVERY_REPAIRS = 2
 _RUNTIME_RECOVERY_TIMEOUT_SECONDS = 600
 _RECOVERY_SCOPE_CURRENT_REQUIREMENT = "current_requirement"
 
@@ -278,9 +278,45 @@ def _requirement_canonical_state(
 ) -> tuple[str, str | None]:
     if str(getattr(requirement, "status", "") or "").strip() in {"deleted", "cancelled"}:
         return "cancelled", None
+    workflow_state = str(getattr(requirement, "workflow_state", "") or "").strip()
+    failure_reason = str(getattr(requirement, "failure_reason", "") or "").strip() or None
+    if workflow_state == "failed" or failure_reason is not None:
+        return "failed", failure_reason or "delivery_repair_failed"
     assets_status = _assets_status(requirement)
     approval_status = str(getattr(requirement, "approval_status", "") or "pending_approval").strip() or "pending_approval"
     if latest_execution is not None:
+        latest_execution_kind = str(getattr(latest_execution, "execution_kind", "") or "implementation")
+        if latest_execution_kind == "delivery_repair":
+            if execution_state in {"queued", "preparing_workspace", "executing", "verifying"}:
+                return "delivering", "repair_delivery"
+            if execution_state == "blocked":
+                if execution_blocker_kind in {"runtime_recovery_timed_out"}:
+                    return "awaiting_operator", execution_blocker_kind
+                return "delivering", execution_blocker_kind or "repair_delivery"
+            if execution_state == "failed":
+                delivery_state = _delivery_canonical_state(latest_release)
+                if failure_reason is not None:
+                    return "failed", failure_reason
+                if delivery_state in {"repairing", "pending", "preparing_branch", "pushing", "opening_pr"}:
+                    return "delivering", "repair_delivery"
+                if delivery_state == "blocked":
+                    next_action = str(getattr(latest_release, "next_action", "") or "").strip() or "delivery_blocked"
+                    return "awaiting_operator", next_action
+                return "delivering", "repair_delivery"
+            if execution_state == "succeeded":
+                delivery_state = _delivery_canonical_state(latest_release)
+                if delivery_state == "merged":
+                    return "completed", None
+                if delivery_state == "pr_open":
+                    return "ready_for_merge", None
+                if delivery_state in {"pending", "preparing_branch", "pushing", "opening_pr", "repairing"}:
+                    return "delivering", None
+                if delivery_state == "blocked":
+                    next_action = str(getattr(latest_release, "next_action", "") or "").strip() or "delivery_blocked"
+                    if failure_reason is not None:
+                        return "failed", failure_reason
+                    return "awaiting_operator", next_action
+                return "delivering", None
         if execution_state in {"queued", "preparing_workspace"}:
             return "executing", None
         if execution_state in {"executing", "verifying"}:
@@ -302,7 +338,10 @@ def _requirement_canonical_state(
             if delivery_state in {"pending", "preparing_branch", "pushing", "opening_pr", "repairing"}:
                 return "delivering", None
             if delivery_state == "blocked":
-                return "awaiting_operator", str(getattr(latest_release, "next_action", "") or "").strip() or "delivery_blocked"
+                next_action = str(getattr(latest_release, "next_action", "") or "").strip() or "delivery_blocked"
+                if failure_reason is not None:
+                    return "failed", failure_reason
+                return "awaiting_operator", next_action
             return "delivering", None
     if approval_status == "rejected":
         return "awaiting_operator", "approval_rejected"
@@ -325,6 +364,7 @@ def _requirement_status_from_workflow_state(state: str) -> str:
         "delivering": "delivery_ready",
         "ready_for_merge": "delivery_ready",
         "awaiting_operator": "blocked",
+        "failed": "failed",
         "completed": "done",
         "cancelled": "cancelled",
     }
@@ -341,6 +381,7 @@ def _requirement_phase_from_workflow_state(state: str) -> str:
         "delivering": "delivery_ready",
         "ready_for_merge": "pr_opened",
         "awaiting_operator": "blocked",
+        "failed": "blocked",
         "completed": "done",
         "cancelled": "blocked",
     }
@@ -368,6 +409,236 @@ def _parse_execution_plan(requirement: RequirementRow) -> dict[str, Any]:
 def _parse_run_plan_snapshot(run: ExecutionRunRow) -> dict[str, Any]:
     payload = _json_load(getattr(run, "plan_snapshot_json", None), {})
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _latest_delivery_repair_attempt(
+    db: Session,
+    requirement_id: int,
+    *,
+    exclude_run_id: int | None = None,
+) -> ExecutionRunRow | None:
+    query = db.query(ExecutionRunRow).filter(
+        ExecutionRunRow.requirement_id == requirement_id,
+        ExecutionRunRow.execution_kind == "delivery_repair",
+    )
+    if exclude_run_id is not None:
+        query = query.filter(ExecutionRunRow.id != exclude_run_id)
+    return query.order_by(ExecutionRunRow.id.desc()).first()
+
+
+def _next_delivery_repair_attempt_index(db: Session, requirement_id: int) -> int:
+    count = (
+        db.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == requirement_id,
+            ExecutionRunRow.execution_kind == "delivery_repair",
+        )
+        .count()
+    )
+    return int(count) + 1
+
+
+def _excerpt_markdown(value: str | None, *, limit: int = 600) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
+
+
+def _failed_gate_name_from_output(raw_output: str | None) -> str | None:
+    text = str(raw_output or "").strip()
+    if not text:
+        return None
+    matches = re.findall(r"\[([^\]]+)\]", text)
+    for token in reversed(matches):
+        cleaned = str(token).strip()
+        if cleaned.startswith("ci:"):
+            return cleaned
+    lowered = text.lower()
+    if "docs_checks" in lowered:
+        return "docs_checks"
+    if "pr_checks" in lowered:
+        return "pr_checks"
+    if "pytest" in lowered:
+        return "pytest"
+    if "typecheck" in lowered:
+        return "typecheck"
+    if "lint" in lowered:
+        return "lint"
+    return None
+
+
+def _delivery_repair_scope(failed_gate_name: str | None, blocker_type: str | None) -> list[str]:
+    gate = str(failed_gate_name or "").strip().lower()
+    if gate in {"ci:docs", "docs_checks"}:
+        return [
+            "仅修复当前交付门禁要求的文档元数据、库存和链接问题。",
+            "不要扩大为新的功能实现或跨项目治理重构。",
+        ]
+    if gate in {"ci:pr", "pr_checks"}:
+        return [
+            "仅修复当前本地 PR 质量门直接暴露的问题。",
+            "优先选择最小改动恢复自动交付。",
+        ]
+    if gate in {"pytest", "lint", "typecheck"}:
+        return [
+            "仅修复导致当前 gate 失败的代码、测试或静态检查问题。",
+            "不要偏离原 requirement 的交付范围。",
+        ]
+    if str(blocker_type or "").strip() == "repo_gate_failed":
+        return [
+            "仅修复当前 repo gate 失败对应的最小必要改动。",
+            "保持原 requirement 范围不变，并为重新交付保留证据。",
+        ]
+    return [
+        "聚焦当前交付阻塞，不重做整个 requirement implementation。",
+        "只修改能恢复自动交付的最小文件集合。",
+    ]
+
+
+def _repair_attempt_summary(db: Session, run: ExecutionRunRow) -> dict[str, Any]:
+    nodes = (
+        db.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == int(run.id))
+        .order_by(ExecutionNodeRow.sequence_no.asc(), ExecutionNodeRow.id.asc())
+        .all()
+    )
+    changed_files = _collect_execution_changed_files(db, nodes)
+    validation = (
+        db.query(ValidationRecordRow)
+        .filter(ValidationRecordRow.execution_run_id == int(run.id))
+        .order_by(ValidationRecordRow.id.desc())
+        .first()
+    )
+    raw_output, _truncated = _execution_raw_output(nodes, db)
+    return {
+        "attempt_id": int(run.id),
+        "planner_summary": str(getattr(run, "planner_summary", "") or "").strip() or None,
+        "changed_files": [item.path for item in changed_files[:8]],
+        "commands_run": _commands_from_execution_evidence(nodes, db),
+        "validation_status": str(getattr(validation, "status", "") or "").strip() or None if validation is not None else None,
+        "failure_summary": _excerpt_markdown(
+            str(getattr(validation, "summary_markdown", "") or "").strip()
+            or str(getattr(run, "failure_kind", "") or "").strip()
+            or str(getattr(run, "blocker_kind", "") or "").strip()
+            or raw_output
+        ),
+        "failed_reasoning": _excerpt_markdown(str(getattr(validation, "reasoning_markdown", "") or "").strip()) if validation is not None else "",
+        "raw_output_excerpt": _excerpt_markdown(raw_output),
+    }
+
+
+def _build_delivery_repair_plan(
+    db: Session,
+    requirement: RequirementRow,
+    release: ReleaseRecordRow | None,
+    *,
+    previous_attempt: ExecutionRunRow | None,
+) -> dict[str, Any]:
+    parent_plan = _parse_execution_plan(requirement)
+    parent_summary = (
+        str(parent_plan.get("summary_markdown") or "").strip()
+        or str(parent_plan.get("goal_summary") or "").strip()
+        or "Follow the approved requirement plan and keep repair scope minimal."
+    )
+    blocker_type = str(getattr(release, "delivery_blocker_type", "") or "").strip() or "repo_gate_failed"
+    raw_output = str(getattr(release, "delivery_failure_raw_output", "") or "").strip()
+    blocker_excerpt = str(getattr(release, "delivery_failure_excerpt", "") or "").strip() or _excerpt_markdown(raw_output)
+    failed_gate_name = (
+        str(getattr(release, "failed_gate_name", "") or "").strip()
+        or _failed_gate_name_from_output(raw_output)
+        or "repo_gate"
+    )
+    attempt_index = _next_delivery_repair_attempt_index(db, int(requirement.id))
+    previous_summary = _repair_attempt_summary(db, previous_attempt) if previous_attempt is not None else {}
+    repair_scope = _delivery_repair_scope(failed_gate_name, blocker_type)
+    verification_checks = [
+        f"重新运行最小必要的 gate，确认 `{failed_gate_name}` 已恢复通过。",
+        "确认 repair 没有破坏原 requirement 已通过的实现结果。",
+    ]
+    success_criteria = [
+        f"当前 delivery blocker `{failed_gate_name}` 不再阻塞自动交付。",
+        "修复范围保持在当前交付门禁内，不重写原 requirement implementation。",
+        "保留 changed files、commands run、gate 输出等证据，供 re-verification 与 re-delivery 使用。",
+    ]
+    summary_sections = [
+        "## Summary",
+        "",
+        f"Repair the current delivery blocker (`{failed_gate_name}`) and resume automatic PR delivery for requirement #{int(requirement.id)}.",
+        "",
+        "## Current Blocker",
+        "",
+        blocker_excerpt or f"The current delivery blocker is `{blocker_type}`.",
+        "",
+        "## Repair Scope",
+        "",
+        *[f"- {item}" for item in repair_scope],
+        "",
+        "## Success Criteria",
+        "",
+        *[f"- {item}" for item in success_criteria],
+        "",
+        "## Verification Strategy",
+        "",
+        *[f"- {item}" for item in verification_checks],
+        "",
+        "## Parent Requirement Plan Reference",
+        "",
+        parent_summary,
+    ]
+    if previous_summary:
+        summary_sections.extend(
+            [
+                "",
+                "## Previous Repair Attempt",
+                "",
+                f"- Attempt: #{int(previous_summary.get('attempt_id') or 0)}",
+                f"- Summary: {str(previous_summary.get('failure_summary') or 'No failure summary captured.')}",
+                f"- Validation: {str(previous_summary.get('validation_status') or 'not_recorded')}",
+            ]
+        )
+        changed_files = list(previous_summary.get("changed_files") or [])
+        if changed_files:
+            summary_sections.extend(["- Changed files: " + ", ".join(str(item) for item in changed_files[:6])])
+        commands_run = list(previous_summary.get("commands_run") or [])
+        if commands_run:
+            summary_sections.extend(["- Commands run: " + ", ".join(str(item) for item in commands_run[:4])])
+        failed_reasoning = str(previous_summary.get("failed_reasoning") or "").strip()
+        if failed_reasoning:
+            summary_sections.extend(["- Failed reasoning: " + failed_reasoning])
+    return {
+        "plan_kind": "delivery_repair",
+        "planning_mode": "delivery_repair",
+        "goal_summary": f"Repair delivery blocker `{failed_gate_name}` and resume automatic PR delivery.",
+        "summary_markdown": "\n".join(summary_sections).strip(),
+        "steps": [{"step_key": "delivery_repair", "title": "Repair delivery gate blocker"}],
+        "planned_checks": verification_checks,
+        "risks": [
+            "Do not broaden scope beyond the gate failure.",
+            "Do not regress the already-validated requirement implementation.",
+        ],
+        "blocker_type": blocker_type,
+        "failed_gate_name": failed_gate_name,
+        "blocker_excerpt": blocker_excerpt,
+        "repair_scope": repair_scope,
+        "success_criteria": success_criteria,
+        "verification_checks": verification_checks,
+        "attempt_index": attempt_index,
+        "attempt_budget": _MAX_DELIVERY_REPAIRS,
+        "parent_plan_reference_summary": parent_summary,
+        "parent_plan_reference": {
+            "summary_markdown": parent_summary,
+            "goal_summary": str(parent_plan.get("goal_summary") or "").strip() or None,
+        },
+        "repair_context": {
+            "latest_blocker_excerpt": blocker_excerpt,
+            "latest_blocker_raw_output": _excerpt_markdown(raw_output, limit=1200),
+            "previous_attempt_summary": previous_summary,
+            "previous_failure_summary": str(previous_summary.get("failure_summary") or "").strip() or None if previous_summary else None,
+        },
+    }
 
 
 def _assets_status(requirement: RequirementRow) -> str:
@@ -746,10 +1017,25 @@ def _derive_execution_recovery_status(
     runtime_session_id = str(getattr(task, "runtime_session_id", "") or "").strip()
     if task_status != "running":
         return None, session
-    if runtime_backend == "codex_cli":
-        if runtime_session_id or session is not None:
-            return "recovering", session
+    if runtime_backend != "codex_cli":
         return None, session
+    if not runtime_session_id and session is None:
+        return None, session
+    if getattr(run, "recovery_started_at", None) is not None or getattr(run, "recovery_deadline_at", None) is not None:
+        return "recovering", session
+    if session is not None:
+        session_status = str(getattr(session, "status", "") or "").strip().lower()
+        resume_count = int(getattr(session, "resume_count", 0) or 0)
+        last_heartbeat = getattr(session, "last_heartbeat_at", None) or getattr(session, "updated_at", None)
+        if last_heartbeat is not None and getattr(last_heartbeat, "tzinfo", None) is None:
+            last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
+        if last_heartbeat is None:
+            return "recovering", session
+        heartbeat_age_seconds = (utcnow() - last_heartbeat).total_seconds()
+        if heartbeat_age_seconds > max(float(CODEX_CLI_STALE_AFTER_SEC) * 2.0, 1.0):
+            return "recovering", session
+        if resume_count > 0 or session_status in {"failed", "resumable"}:
+            return "recovering", session
     return None, session
 
 
@@ -1650,6 +1936,11 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
     )
     workflow_state = str(getattr(requirement, "workflow_state", "") or "").strip() or "draft"
     project_context = _project_context_out(requirement, project)
+    latest_delivery_repair = _latest_delivery_repair_attempt(db, int(requirement.id))
+    latest_delivery_repair_attempt_id = int(latest_delivery_repair.id) if latest_delivery_repair is not None else None
+    latest_delivery_repair_attempt_count = (
+        int(getattr(latest_release, "repair_attempt_count", 0) or 0) if latest_release is not None else 0
+    )
     return AgentFirstRequirementOut(
         id=int(requirement.id),
         title=str(requirement.title or ""),
@@ -1657,10 +1948,14 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         acceptance_criteria_markdown=_parse_acceptance_markdown(requirement),
         state=workflow_state,
         attention_reason=str(getattr(requirement, "attention_reason", "") or "").strip() or None,
+        failure_reason=str(getattr(requirement, "failure_reason", "") or "").strip() or None,
+        requirement_plan_summary=str((_parse_execution_plan(requirement).get("summary_markdown") or "")).strip() or None,
         project=project_context,
         approval=_approval_decision_state(requirement, approval_summary),
         current_attempt_id=int(latest_execution.id) if latest_execution is not None else None,
         current_delivery_id=int(latest_release.id) if latest_release is not None else None,
+        latest_delivery_repair_attempt_id=latest_delivery_repair_attempt_id,
+        delivery_repair_attempt_count=latest_delivery_repair_attempt_count,
         status=str(requirement.status or "draft"),
         priority=str(requirement.priority or "normal"),
         source=str(requirement.source or "manual"),
@@ -1874,6 +2169,7 @@ def _build_requirement_detail(
         requirement=_requirement_to_out(db, requirement),
         state=workflow_state,
         attention_reason=str(getattr(requirement, "attention_reason", "") or "").strip() or None,
+        failure_reason=str(getattr(requirement, "failure_reason", "") or "").strip() or None,
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
         project=ProjectOut(**project_to_dict(project)) if project is not None else None,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
@@ -2586,6 +2882,7 @@ def create_execution_run(
     execution_kind: str = "implementation",
     source_release_id: int | None = None,
     source_delivery_blocker_type: str | None = None,
+    derived_from_attempt_id: int | None = None,
 ) -> ExecutionRunDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
@@ -2602,11 +2899,29 @@ def create_execution_run(
     if _approval_required(db, requirement) and str(requirement.approval_status or "") not in {"approved", "waived"}:
         raise ValueError("Requirement must be approved before creating execution.")
     shape = _shape_decision(db, requirement)
-    plan_snapshot = _ensure_execution_plan(db, requirement)
+    parent_plan_snapshot = _ensure_execution_plan(db, requirement)
+    previous_attempt = (
+        db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(derived_from_attempt_id)).first()
+        if derived_from_attempt_id is not None
+        else None
+    )
+    release = (
+        db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(source_release_id)).first()
+        if source_release_id is not None
+        else None
+    )
     if execution_kind == "delivery_repair":
-        planner_summary = "Repair repository delivery gate blockers and resume automatic PR delivery."
+        plan_snapshot = _build_delivery_repair_plan(
+            db,
+            requirement,
+            release,
+            previous_attempt=previous_attempt,
+        )
+        plan_snapshot["derived_from_attempt_id"] = int(previous_attempt.id) if previous_attempt is not None else None
+        planner_summary = str(plan_snapshot.get("goal_summary") or "").strip() or "Repair repository delivery gate blockers and resume automatic PR delivery."
         execution_steps = [{"node_key": "delivery_repair", "title": "Repair delivery gate blockers"}]
     else:
+        plan_snapshot = parent_plan_snapshot
         planner_summary = str(plan_snapshot.get("summary_markdown") or shape["planner_summary"])
         execution_steps = list(shape["execution_steps"])
     run = ExecutionRunRow(
@@ -2641,10 +2956,15 @@ def create_execution_run(
                 sequence_no=index,
             )
         )
-    requirement.phase = "branch_prepared"
-    requirement.status = _requirement_status_from_phase(requirement.phase)
-    requirement.workflow_state = "ready"
-    requirement.attention_reason = None
+    if execution_kind == "delivery_repair":
+        requirement.workflow_state = "delivering"
+        requirement.attention_reason = "repair_delivery"
+    else:
+        requirement.workflow_state = "ready"
+        requirement.attention_reason = None
+    requirement.phase = _requirement_phase_from_workflow_state(requirement.workflow_state)
+    requirement.status = _requirement_status_from_workflow_state(requirement.workflow_state)
+    requirement.failure_reason = None
     requirement.started_at = None
     requirement.completed_at = None
     _log_workflow_event(
@@ -2707,8 +3027,31 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
         release = None
         if getattr(run, "source_release_id", None) is not None:
             release = db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(run.source_release_id)).first()
-        blocker_excerpt = str(getattr(release, "delivery_failure_excerpt", "") or "").strip() if release is not None else ""
-        blocker_type = str(getattr(run, "source_delivery_blocker_type", "") or getattr(release, "delivery_blocker_type", "") or "").strip()
+        blocker_excerpt = (
+            str(plan.get("blocker_excerpt") or "").strip()
+            or str(getattr(release, "delivery_failure_excerpt", "") or "").strip()
+        )
+        blocker_type = (
+            str(plan.get("blocker_type") or "").strip()
+            or str(getattr(run, "source_delivery_blocker_type", "") or getattr(release, "delivery_blocker_type", "") or "").strip()
+        )
+        failed_gate_name = (
+            str(plan.get("failed_gate_name") or "").strip()
+            or str(getattr(release, "failed_gate_name", "") or "").strip()
+            or _failed_gate_name_from_output(str(getattr(release, "delivery_failure_raw_output", "") or "").strip())
+            or "repo_gate"
+        )
+        repair_scope = [str(item).strip() for item in (plan.get("repair_scope") or []) if str(item).strip()]
+        success_criteria = [str(item).strip() for item in (plan.get("success_criteria") or []) if str(item).strip()]
+        verification_checks = [str(item).strip() for item in (plan.get("verification_checks") or []) if str(item).strip()]
+        parent_reference = dict(plan.get("parent_plan_reference") or {})
+        parent_plan_summary = (
+            str(parent_reference.get("summary_markdown") or "").strip()
+            or str(plan.get("parent_plan_reference_summary") or "").strip()
+            or "Keep the repair aligned to the approved parent requirement plan."
+        )
+        repair_context = dict(plan.get("repair_context") or {})
+        previous_summary = dict(repair_context.get("previous_attempt_summary") or {})
         return "\n".join(
             [
                 f"# Requirement #{int(requirement.id)} Delivery Repair",
@@ -2721,16 +3064,29 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
                 "",
                 f"## Acceptance\n{acceptance}",
                 "",
-                f"## Original Plan\n{plan_markdown or 'Follow the approved implementation plan and avoid changing requirement scope.'}",
+                f"## Current Repair Plan\n{plan_markdown or 'Repair the current delivery blocker and resume automatic PR delivery.'}",
                 "",
                 f"## Delivery Blocker Type\n{blocker_type or 'repo_gate_failed'}",
+                "",
+                f"## Failed Gate\n{failed_gate_name}",
                 "",
                 "## Delivery Blocker Output",
                 blocker_excerpt or "No blocker excerpt captured. Inspect the release record before changing code.",
                 "",
-                "## Repair Goal",
-                "Fix only the repository gate failure that blocked `git push` / PR delivery.",
-                "Do not broaden scope beyond making the existing branch pass the local PR gate.",
+                "## Repair Scope",
+                *([f"- {item}" for item in repair_scope] or ["- Fix only the gate failure that blocked automatic delivery."]),
+                "",
+                "## Success Criteria",
+                *([f"- {item}" for item in success_criteria] or ["- Current repo gate blocker is cleared and automatic delivery can resume."]),
+                "",
+                "## Parent Requirement Plan Reference",
+                parent_plan_summary,
+                "",
+                "## Previous Repair Attempt Summary",
+                str(previous_summary.get("failure_summary") or repair_context.get("previous_failure_summary") or "No previous repair attempt recorded."),
+                "",
+                "## Verification Checks",
+                *([f"- {item}" for item in verification_checks] or ["- Re-run the smallest gate needed to prove the blocker is fixed."]),
                 "",
                 "## Target Projects",
                 *[f"- {item}" for item in targets],
@@ -2738,9 +3094,9 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
                 *attachment_lines,
                 *([""] if attachment_lines else []),
                 "## Guardrails",
-                "- Keep the requirement scope intact; this is a delivery repair, not a reimplementation.",
-                "- Fix only code/docs/config needed for the blocking gate to pass.",
-                "- Re-run only the minimum relevant checks that prove the gate is fixed.",
+                "- This is a child delivery repair task derived from the parent requirement plan.",
+                "- Do not replace or broaden the parent requirement plan.",
+                "- Fix only code/docs/config needed for the current blocking gate to pass.",
                 "- Summarize the blocker fixed, files changed, commands run, and remaining risk.",
             ]
         ).strip()
@@ -2873,8 +3229,16 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         raise ValueError("No runnable execution node found.")
     if node.task_id:
         task = db.query(TaskRow).filter(TaskRow.id == node.task_id).first()
-        if task is not None and str(task.status or "") == "running":
+        recovery_status = _effective_recovery_status(run)
+        if task is not None and str(task.status or "") == "running" and recovery_status not in {"recovering", "timed_out"}:
             return build_execution_detail(db, execution_run_id)
+        if task is not None and str(task.status or "") == "running" and recovery_status in {"recovering", "timed_out"}:
+            task.status = "failed"
+            task.completed_at = getattr(task, "completed_at", None) or utcnow()
+            task.last_error_message = (
+                str(getattr(task, "last_error_message", "") or "").strip()
+                or "Previous runtime session became stale; execution was restarted on the current run."
+            )
     description = _build_task_description(db, requirement, run, node)
     suggestion = suggest_task_execution(db=db, description=description)
     if not suggestion.agent_id:
@@ -2909,10 +3273,16 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.recovery_timeout_status = None
     run.started_at = run.started_at or utcnow()
     run.completed_at = None
-    requirement.phase = "executing"
-    requirement.status = _requirement_status_from_phase(requirement.phase)
-    requirement.workflow_state = "executing"
-    requirement.attention_reason = None
+    execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
+    if execution_kind == "delivery_repair":
+        requirement.workflow_state = "delivering"
+        requirement.attention_reason = "repair_delivery"
+    else:
+        requirement.workflow_state = "executing"
+        requirement.attention_reason = None
+    requirement.phase = _requirement_phase_from_workflow_state(requirement.workflow_state)
+    requirement.status = _requirement_status_from_workflow_state(requirement.workflow_state)
+    requirement.failure_reason = None
     requirement.recovery_status = None
     requirement.completed_at = None
     _log_workflow_event(
@@ -3035,8 +3405,13 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     run.failure_kind = str(getattr(run, "failure_kind", "") or "").strip() or "task_failed"
     run.resume_mode = "retry_new_run"
     run.completed_at = run.completed_at or utcnow()
-    requirement.workflow_state = "ready"
-    requirement.attention_reason = "retry_available"
+    if execution_kind == "delivery_repair":
+        requirement.workflow_state = "delivering"
+        requirement.attention_reason = "repair_delivery"
+    else:
+        requirement.workflow_state = "ready"
+        requirement.attention_reason = "retry_available"
+    requirement.failure_reason = None
     requirement.phase = _requirement_phase_from_workflow_state(requirement.workflow_state)
     requirement.status = _requirement_status_from_workflow_state(requirement.workflow_state)
     requirement.updated_at = utcnow()
@@ -3444,8 +3819,9 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         result=result,
     )
     verdict = str(result.get("status") or "inconclusive")
+    execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
     followup_requirement: RequirementRow | None = None
-    if resolution_path == "create_followup_requirement":
+    if resolution_path == "create_followup_requirement" and execution_kind != "delivery_repair":
         followup_requirement = _create_followup_requirement_from_validation(
             db,
             requirement=requirement,
@@ -3469,18 +3845,56 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     run.blocker_kind = None
     run.resume_mode = "none" if verdict == "passed" else "retry_new_run"
     run.completed_at = run.completed_at or utcnow()
+    delivery_repair_retry_needed = False
     if verdict == "passed":
         requirement.workflow_state = "delivering"
         requirement.attention_reason = None
+        requirement.failure_reason = None
+    elif execution_kind == "delivery_repair":
+        release = _release_record(db, requirement)
+        _apply_delivery_repair_failure_context(
+            release,
+            run=run,
+            validation=record,
+            result=result,
+        )
+        release.execution_run_id = int(run.id)
+        release.repair_attempt_count = (
+            db.query(ExecutionRunRow)
+            .filter(
+                ExecutionRunRow.requirement_id == int(requirement.id),
+                ExecutionRunRow.execution_kind == "delivery_repair",
+            )
+            .count()
+        )
+        if _delivery_repair_budget_exhausted(db, int(requirement.id)):
+            release.delivery_state = "blocked"
+            release.next_action = "route_to_human"
+            requirement.resolution_path = "route_to_human"
+            requirement.workflow_state = "failed"
+            requirement.attention_reason = "route_to_human"
+            requirement.failure_reason = "delivery_repair_budget_exhausted"
+            run.resume_mode = "operator_only"
+        else:
+            release.delivery_state = "repairing"
+            release.next_action = "repair_delivery"
+            requirement.resolution_path = "repair_delivery"
+            requirement.workflow_state = "delivering"
+            requirement.attention_reason = "repair_delivery"
+            requirement.failure_reason = None
+            delivery_repair_retry_needed = True
     elif resolution_path == "route_to_human":
         requirement.workflow_state = "awaiting_operator"
         requirement.attention_reason = "route_to_human"
+        requirement.failure_reason = None
     elif resolution_path == "create_followup_requirement":
         requirement.workflow_state = "awaiting_operator"
         requirement.attention_reason = "followup_created"
+        requirement.failure_reason = None
     else:
         requirement.workflow_state = "ready"
         requirement.attention_reason = "retry_available"
+        requirement.failure_reason = None
     requirement.phase = _requirement_phase_from_workflow_state(str(requirement.workflow_state or "ready"))
     requirement.status = _requirement_status_from_workflow_state(str(requirement.workflow_state or "ready"))
     _log_workflow_event(
@@ -3496,6 +3910,23 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
         followup_requirement_id=int(followup_requirement.id) if followup_requirement is not None else None,
     )
     db.commit()
+    if delivery_repair_retry_needed:
+        release = _release_record(db, requirement)
+        if release is not None:
+            repair_detail = _begin_delivery_repair(db, requirement=requirement, release=release, actor="verification_agent")
+            if repair_detail is not None:
+                release = db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(release.id)).first()
+                if release is not None:
+                    release.execution_run_id = int(repair_detail.execution.id)
+                    release.repair_attempt_count = (
+                        db.query(ExecutionRunRow)
+                        .filter(
+                            ExecutionRunRow.requirement_id == int(requirement.id),
+                            ExecutionRunRow.execution_kind == "delivery_repair",
+                        )
+                        .count()
+                    )
+                    db.commit()
     if followup_requirement is not None and not _testing_mode():
         _enqueue_requirement_asset_generation(int(followup_requirement.id))
     if verdict == "passed":
@@ -4130,6 +4561,7 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
                 completed_at=node.completed_at,
             )
         )
+    plan_summary = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
     execution = ExecutionRunOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
@@ -4139,6 +4571,12 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         execution_mode=str(run.execution_mode or "direct"),
         execution_kind=str(getattr(run, "execution_kind", "") or "implementation"),
         attempt_kind=str(getattr(run, "execution_kind", "") or "implementation"),
+        plan_kind=str(plan_summary.get("plan_kind") or ("delivery_repair" if str(getattr(run, "execution_kind", "") or "implementation") == "delivery_repair" else "requirement")),
+        derived_from_attempt_id=int(plan_summary.get("derived_from_attempt_id")) if plan_summary.get("derived_from_attempt_id") is not None else None,
+        attempt_index=int(plan_summary.get("attempt_index")) if plan_summary.get("attempt_index") is not None else None,
+        attempt_budget=int(plan_summary.get("attempt_budget")) if plan_summary.get("attempt_budget") is not None else None,
+        failed_gate_name=str(plan_summary.get("failed_gate_name") or "").strip() or str(getattr(release, "failed_gate_name", "") or "").strip() or None,
+        parent_plan_reference_summary=str(plan_summary.get("parent_plan_reference_summary") or "").strip() or None,
         complexity=str(run.complexity or "simple"),
         status=str(run.status or "queued"),
         phase=str(getattr(run, "phase", "") or run.status or "queued"),
@@ -4202,7 +4640,6 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
     changed_files = _collect_execution_changed_files(db, nodes)
     activity_stream = _build_execution_activity_stream(run, nodes, validation, incidents)
     raw_task_output, raw_task_output_truncated = _execution_raw_output(nodes, db)
-    plan_summary = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
     validation_out = _validation_record_to_out(validation)
     return ExecutionRunDetailOut(
         execution=execution,
@@ -4299,6 +4736,7 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         notes=str(release.notes or "").strip() or None,
         blocker_kind=str(getattr(release, "blocker_kind", "") or "").strip() or None,
         delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
+        failed_gate_name=str(getattr(release, "failed_gate_name", "") or "").strip() or None,
         delivery_failure_excerpt=str(getattr(release, "delivery_failure_excerpt", "") or "").strip() or None,
         delivery_failure_raw_output=str(getattr(release, "delivery_failure_raw_output", "") or "").strip() or None,
         repairable=bool(getattr(release, "repairable", False)),
@@ -4462,11 +4900,49 @@ def _apply_release_blocker_context(
     release.blocker_kind = str(vcs.get("delivery_blocker_type") or "").strip() or None
     release.delivery_failure_excerpt = str(vcs.get("delivery_failure_excerpt") or "").strip() or None
     release.delivery_failure_raw_output = str(vcs.get("delivery_failure_raw_output") or "").strip() or None
+    release.failed_gate_name = (
+        str(vcs.get("failed_gate_name") or "").strip()
+        or _failed_gate_name_from_output(str(vcs.get("delivery_failure_raw_output") or "").strip())
+        or None
+    )
     release.repairable = bool(vcs.get("repairable"))
     release.repairability = "repairable" if bool(vcs.get("repairable")) else "manual_only"
     if repair_attempt_count is not None:
         release.repair_attempt_count = int(repair_attempt_count)
     release.next_action = next_action
+
+
+def _apply_delivery_repair_failure_context(
+    release: ReleaseRecordRow,
+    *,
+    run: ExecutionRunRow,
+    validation: ValidationRecordRow,
+    result: dict[str, Any],
+) -> None:
+    release.status = "release_blocked"
+    release.delivery_state = "repairing"
+    release.delivery_blocker_type = str(getattr(release, "delivery_blocker_type", "") or "").strip() or "repo_gate_failed"
+    release.blocker_kind = str(getattr(release, "blocker_kind", "") or "").strip() or release.delivery_blocker_type
+    release.failed_gate_name = (
+        str(getattr(release, "failed_gate_name", "") or "").strip()
+        or _failed_gate_name_from_output(str(getattr(release, "delivery_failure_raw_output", "") or "").strip())
+        or "repo_gate"
+    )
+    release.delivery_failure_excerpt = (
+        str(result.get("summary") or "").strip()
+        or str(getattr(validation, "summary_markdown", "") or "").strip()
+        or str(getattr(run, "planner_summary", "") or "").strip()
+        or "Delivery repair attempt failed before the repo gate was cleared."
+    )
+    raw_lines = [
+        f"repair_attempt #{int(run.id)} failed",
+        str(getattr(validation, "summary_markdown", "") or "").strip(),
+        str(getattr(validation, "reasoning_markdown", "") or "").strip(),
+    ]
+    release.delivery_failure_raw_output = "\n".join([line for line in raw_lines if line]).strip() or release.delivery_failure_raw_output
+    release.repairable = True
+    release.repairability = "repairable"
+    release.next_action = "repair_delivery"
 
 
 def _prepare_delivery_branch_for_execution(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow:
@@ -4530,15 +5006,25 @@ def _begin_delivery_repair(
     release: ReleaseRecordRow,
     actor: str,
 ) -> ExecutionRunDetailOut | None:
+    previous_attempt = _latest_delivery_repair_attempt(db, int(requirement.id))
     existing = _active_delivery_repair_run(db, int(requirement.id))
     if existing is not None:
-        return build_execution_detail(db, int(existing.id))
+        existing_attempt_state = str(getattr(existing, "attempt_state", "") or "").strip()
+        existing_resume_mode = str(getattr(existing, "resume_mode", "") or "").strip()
+        if (
+            previous_attempt is None
+            or int(existing.id) != int(previous_attempt.id)
+            or existing_attempt_state not in {"failed"}
+            or existing_resume_mode == "restart_current"
+        ):
+            return build_execution_detail(db, int(existing.id))
     detail = create_execution_run(
         db,
         int(requirement.id),
         execution_kind="delivery_repair",
         source_release_id=int(release.id),
         source_delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
+        derived_from_attempt_id=int(previous_attempt.id) if previous_attempt is not None else None,
     )
     try:
         started = start_execution_run(db, int(detail.execution.id))
@@ -4603,8 +5089,17 @@ def _handle_release_delivery_blocker(
     )
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
     requirement.resolution_path = "repair_delivery" if next_action == "repair_delivery" else "route_to_human"
-    requirement.workflow_state = "delivering" if next_action == "repair_delivery" else "awaiting_operator"
-    requirement.attention_reason = next_action
+    if next_action == "repair_delivery":
+        requirement.workflow_state = "delivering"
+        requirement.attention_reason = next_action
+        requirement.failure_reason = None
+    elif bool(vcs.get("repairable")) and str(vcs.get("delivery_blocker_type") or "").strip() == "repo_gate_failed" and delivery_budget_hit:
+        requirement.workflow_state = "failed"
+        requirement.attention_reason = "route_to_human"
+        requirement.failure_reason = "delivery_repair_budget_exhausted"
+    else:
+        requirement.workflow_state = "awaiting_operator"
+        requirement.attention_reason = next_action
     repair_detail: ExecutionRunDetailOut | None = None
     if next_action == "repair_delivery":
         repair_detail = _begin_delivery_repair(db, requirement=requirement, release=release, actor=actor)
@@ -4799,6 +5294,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     release.delivered_at = utcnow()
     release.notes = note
     release.delivery_blocker_type = None
+    release.failed_gate_name = None
     release.delivery_failure_excerpt = None
     release.delivery_failure_raw_output = None
     release.repairable = False
@@ -4807,6 +5303,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs, "pr_sync": pr_sync})
     requirement.workflow_state = "ready_for_merge"
     requirement.attention_reason = None
+    requirement.failure_reason = None
     requirement.phase = _requirement_phase_from_workflow_state(requirement.workflow_state)
     requirement.status = _requirement_status_from_workflow_state(requirement.workflow_state)
     requirement.completed_at = None

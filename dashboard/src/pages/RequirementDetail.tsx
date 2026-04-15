@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
   ready_for_merge: '待合并',
   awaiting_operator: '待人工处理',
   completed: '已完成',
+  failed: '失败',
   running: '执行中',
   blocked: '阻塞',
   needs_revision: '需修订',
@@ -27,6 +28,7 @@ function statusTone(status: string) {
   if (status === 'completed' || status === 'done' || status === 'ready_for_merge' || status === 'delivery_ready') return 'delivered'
   if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
   if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
+  if (status === 'failed') return 'blocked'
   if (status === 'ready' || status === 'awaiting_approval') return 'ready'
   return 'muted'
 }
@@ -332,10 +334,21 @@ export default function RequirementDetail() {
           <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge tone="blocked">{latestRelease.delivery_blocker_type || 'release_blocked'}</StateBadge>
+              {latestRelease.failed_gate_name ? <span>gate: {latestRelease.failed_gate_name}</span> : null}
               <span>next action: {latestRelease.next_action || '-'}</span>
               <span>repairable: {latestRelease.repairable ? 'yes' : 'no'}</span>
+              <span>repair attempts: {requirement.delivery_repair_attempt_count ?? 0}</span>
             </div>
             {latestRelease.delivery_failure_excerpt ? <div className="mt-2">{latestRelease.delivery_failure_excerpt}</div> : null}
+          </div>
+        ) : null}
+
+        {!isEditing && detail.failure_reason ? (
+          <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone="blocked">主任务失败</StateBadge>
+              <span>failure reason: {detail.failure_reason}</span>
+            </div>
           </div>
         ) : null}
 
@@ -436,11 +449,15 @@ export default function RequirementDetail() {
             {latestRelease ? (
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
                 <div>交付状态：{latestRelease.state || latestRelease.status}</div>
+                <div>repair 次数：{requirement.delivery_repair_attempt_count ?? 0}</div>
                 <div>基线分支：{latestRelease.base_branch || '-'}</div>
                 <div>PR：{latestRelease.pr_url ? <a className="text-blue-600 hover:underline" href={latestRelease.pr_url} target="_blank" rel="noreferrer">查看 PR</a> : '-'}</div>
                 {detail.recovery_deadline_at ? <div>恢复截止：{formatTime(detail.recovery_deadline_at)}</div> : null}
                 {detail.recovery_timeout_status ? <div>恢复状态：{detail.recovery_timeout_status}</div> : null}
               </div>
+            ) : null}
+            {requirement.requirement_plan_summary ? (
+              <div className="text-sm text-[color:var(--ops-text-muted)]">主计划摘要：{requirement.requirement_plan_summary}</div>
             ) : null}
             {detail.recovery_timeout_status === 'timed_out' ? (
               <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">恢复超时，需人工介入；不会阻塞其他需求执行。</div>

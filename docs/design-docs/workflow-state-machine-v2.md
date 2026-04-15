@@ -16,10 +16,11 @@ V2 drops the mixed `status / phase / approval_status / release status` model and
 - `delivering`
 - `ready_for_merge`
 - `awaiting_operator`
+- `failed`
 - `completed`
 - `cancelled`
 
-Requirement expresses goal progress only. It does not mirror the outcome of a single execution attempt.
+Requirement expresses goal progress only. It does not mirror the outcome of a single execution attempt, except when a bounded child repair loop exhausts its budget and the parent goal is explicitly failed.
 
 ### ApprovalDecision
 
@@ -46,6 +47,10 @@ Supporting fields:
 - `blocker_kind`
 - `failure_kind`
 - `resume_mode = restart_current | retry_new_attempt | operator_only`
+- `plan_kind = requirement | delivery_repair`
+- `attempt_index`
+- `attempt_budget`
+- `failed_gate_name`
 
 ### Delivery
 
@@ -75,7 +80,8 @@ Supporting fields:
 6. Merge completed: `ready_for_merge -> completed`
 7. Restartable blocker: `ExecutionAttempt.blocked` while Requirement stays `ready` or `executing`
 8. Retry-required failure: `ExecutionAttempt.failed` and Requirement returns to `ready`
-9. Manual-only delivery blocker: `Delivery.blocked` and Requirement moves to `awaiting_operator`
+9. Repairable delivery blocker: `Delivery.blocked -> repairing` and the system creates a child `delivery_repair` attempt
+10. Delivery repair budget exhausted: `Requirement -> failed`
 
 ## Operator Takeover Rules
 
@@ -86,7 +92,15 @@ Supporting fields:
 ## Budgets
 
 - implementation retry budget: `1`
-- delivery repair budget: `1`
+- delivery repair budget: `2`
+
+## Parent Plan + Child Repair
+
+- The parent `requirement_plan` is immutable and remains the source of truth for the original goal.
+- A `delivery_repair` attempt always receives its own derived `repair_plan`; it must not overwrite the parent plan.
+- Repair attempt #2 must be regenerated from the latest blocker plus the previous repair attempt's failure summary, commands run, evidence, and changed files.
+- Repair success resumes the parent flow at `re-verification -> re-delivery -> open PR`.
+- If repair attempts #1 and #2 both fail, the parent requirement enters `failed` and automation stops.
 
 ## Reset / Cutover
 

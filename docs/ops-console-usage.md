@@ -144,8 +144,13 @@ intake -> execute -> validate -> deliver
 2. 再跳去 execution 看 agent 执行
 3. verification agent 会在 execution 完成后基于真实 changed files、raw output 与命令证据生成最终 verification plan，再给出 verdict
 4. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；如果本地 `git push` 被 repo gate 挡住，系统会先分类 blocker，再决定是自动进入 `delivery_repair` execution 还是转人工
-5. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
-6. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
+5. `delivery_repair` 不是重新跑原需求实现。
+   - 系统会保留父 `requirement_plan`
+   - 再派生一个独立 child repair task，只修当前 delivery gate
+   - 如果 repair #1 失败，repair #2 会读取最新 blocker 和上次失败结果重新规划
+   - repair 总预算固定为 2；两次都失败时，主 requirement 进入 `failed`
+6. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
+7. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
 
 ## 3. 执行面
 
@@ -184,6 +189,10 @@ intake -> execute -> validate -> deliver
    - `blocking_reason_code`
    - `blocking_reason_message`
 6. restartable blocker（例如 dirty worktree、approval blocked、manual pause）会在同一个 current run 上继续启动；verification / runtime failure 才会创建 replacement run
+7. `delivery_repair` 会显示两层计划：
+   - 当前 repair plan
+   - 父 requirement plan reference
+   这样 operator 能分清“当前在修交付门禁”，而不是“重新实现原需求”。
 
 #### 后端接口
 

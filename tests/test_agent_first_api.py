@@ -424,6 +424,62 @@ def test_execution_detail_marks_running_codex_cli_session_as_recovering(synced_c
     assert payload["execution"]["resume_count"] == 2
 
 
+def test_execution_detail_keeps_fresh_running_codex_cli_session_executing(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Fresh codex execution should not look like recovery",
+            "description_markdown": "A newly started codex execution should stay in executing until an actual resume occurs.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    requirement_id = int(create_resp.json()["requirement"]["id"])
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-fresh-codex-session"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+    execution_id = int(submit_resp.json()["latest_execution_id"])
+
+    run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_id).one()
+    task = db_session.query(TaskRow).filter(TaskRow.id == run.latest_task_id).one()
+    task.runtime_backend = "codex_cli"
+    task.runtime_session_id = "thread-fresh-running"
+    db_session.add(
+        CodexSessionRow(
+            session_key="session-fresh-running",
+            role_key="software_engineer",
+            project_root="/Users/cliff/workspace/agent/Synapse-Network",
+            requirement_id=requirement_id,
+            current_task_id=int(task.id),
+            thread_id="thread-fresh-running",
+            status="active",
+            resume_count=0,
+            last_heartbeat_at=utcnow(),
+        )
+    )
+    db_session.commit()
+
+    detail = synced_client.get(f"/api/executions/{execution_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["execution"]["state"] == "executing"
+    assert payload["execution"]["recovery_status"] is None
+    assert payload["recovery_status"] is None
+    assert payload["execution"]["phase"] == "executing"
+    assert "start" not in set(payload["allowed_actions"])
+    assert "retry" not in set(payload["allowed_actions"])
+
+
 def test_recovering_execution_does_not_block_other_requirements(synced_client, db_session):
     project = _create_project(
         synced_client,
@@ -1913,6 +1969,340 @@ def test_open_release_pr_auto_creates_delivery_repair_execution_for_repairable_r
     assert repair_run.source_release_id is not None
     assert repair_run.source_delivery_blocker_type == "repo_gate_failed"
     assert repair_run.status == "running"
+    release = db_session.query(ReleaseRecordRow).filter(ReleaseRecordRow.requirement_id == requirement.id).one()
+    assert release.failed_gate_name == "docs_checks"
+    repair_plan = json.loads(repair_run.plan_snapshot_json)
+    assert repair_plan["plan_kind"] == "delivery_repair"
+    assert repair_plan["attempt_index"] == 1
+    assert repair_plan["attempt_budget"] == 2
+    assert repair_plan["failed_gate_name"] == "docs_checks"
+    assert repair_plan["parent_plan_reference_summary"]
+
+
+def test_delivery_repair_validation_failure_auto_creates_second_repair_attempt(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
+    requirement = RequirementRow(
+        title="Repair docs gate after failed delivery",
+        description_markdown="A delivery repair should replan from the previous failure.",
+        status="delivery_ready",
+        phase="delivery_ready",
+        workflow_state="delivering",
+        resolution_path="repair_delivery",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        execution_plan_json=json.dumps(
+            {
+                "summary_markdown": "## Summary\n\nSubmit the project code with a clean PR delivery.",
+                "goal_summary": "Submit the project code",
+            }
+        ),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    repair_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        execution_kind="delivery_repair",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        attempt_state="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        planner_summary="Repair repository delivery gate blockers and resume automatic PR delivery.",
+        plan_snapshot_json=json.dumps(
+            {
+                "plan_kind": "delivery_repair",
+                "summary_markdown": "## Summary\n\nRepair the docs gate.",
+                "failed_gate_name": "docs_checks",
+                "attempt_index": 1,
+                "attempt_budget": 2,
+                "parent_plan_reference_summary": "## Summary\n\nSubmit the project code with a clean PR delivery.",
+            }
+        ),
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(repair_run)
+    db_session.flush()
+    task = TaskRow(
+        description="repair docs gate",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Attempted to repair docs gate, but verification still failed.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(repair_run.id),
+            requirement_id=int(requirement.id),
+            node_key="delivery_repair",
+            node_type="execute",
+            title="Repair delivery gate blockers",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(repair_run.id),
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        status="release_blocked",
+        delivery_state="repairing",
+        branch_name="ops/req-1-repair-docs-gate-after-failed-delivery",
+        base_branch="main",
+        delivery_blocker_type="repo_gate_failed",
+        blocker_kind="repo_gate_failed",
+        delivery_failure_excerpt="[ci:docs] documentation validation failed",
+        delivery_failure_raw_output="[ci:docs] documentation validation failed\n- llms.txt is missing required anchor",
+        failed_gate_name="docs_checks",
+        repairable=True,
+        repairability="repairable",
+        repair_attempt_count=1,
+        next_action="repair_delivery",
+    )
+    db_session.add(release)
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "evidence_review",
+                "summary": "Review the docs gate repair evidence.",
+                "checks": [],
+                "evidence_expectations": ["Docs gate should be fixed."],
+                "why_no_verification": None,
+            },
+            "status": "needs_revision",
+            "summary": "The repair did not fully fix the docs metadata gate.",
+            "checks_run": [],
+            "evidence_used": ["raw_output:89 chars"],
+            "reasoning": "A narrower follow-up repair attempt should focus on the remaining docs metadata issues.",
+            "suggested_next_action": "retry_execution",
+            "resolution_recommendation": "retry_execution",
+            "resolution_confidence": 0.84,
+            "resolution_reason": "The latest failure should be fed into a second delivery repair attempt.",
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-repair-docs-gate-after-failed-delivery"),
+    ), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="repair docs gate again",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        resp = synced_client.post(f"/api/executions/{repair_run.id}/validate")
+
+    assert resp.status_code == 200
+    db_session.refresh(requirement)
+    assert requirement.workflow_state == "delivering"
+    assert requirement.failure_reason is None
+    repair_runs = (
+        db_session.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == int(requirement.id),
+            ExecutionRunRow.execution_kind == "delivery_repair",
+        )
+        .order_by(ExecutionRunRow.id.asc())
+        .all()
+    )
+    assert len(repair_runs) == 2
+    second_plan = json.loads(repair_runs[-1].plan_snapshot_json)
+    assert second_plan["attempt_index"] == 2
+    assert second_plan["attempt_budget"] == 2
+    assert second_plan["repair_context"]["previous_attempt_summary"]["attempt_id"] == int(repair_run.id)
+    assert second_plan["repair_context"]["previous_failure_summary"]
+
+
+def test_delivery_repair_budget_exhaustion_marks_requirement_failed(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
+    requirement = RequirementRow(
+        title="Exhausted delivery repair should fail requirement",
+        description_markdown="Two failed delivery repair attempts should fail the parent requirement.",
+        status="delivery_ready",
+        phase="delivery_ready",
+        workflow_state="delivering",
+        resolution_path="repair_delivery",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        execution_plan_json=json.dumps(
+            {
+                "summary_markdown": "## Summary\n\nSubmit the project code with a clean PR delivery.",
+                "goal_summary": "Submit the project code",
+            }
+        ),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    first_repair = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        execution_kind="delivery_repair",
+        complexity="simple",
+        status="failed",
+        phase="blocked",
+        attempt_state="failed",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        planner_summary="Repair docs gate attempt #1",
+        plan_snapshot_json=json.dumps({"plan_kind": "delivery_repair", "attempt_index": 1, "attempt_budget": 2, "failed_gate_name": "docs_checks"}),
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+        completed_at=utcnow(),
+    )
+    db_session.add(first_repair)
+    db_session.flush()
+    second_repair = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        execution_kind="delivery_repair",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        attempt_state="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        planner_summary="Repair docs gate attempt #2",
+        plan_snapshot_json=json.dumps({"plan_kind": "delivery_repair", "attempt_index": 2, "attempt_budget": 2, "failed_gate_name": "docs_checks"}),
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(second_repair)
+    db_session.flush()
+    task = TaskRow(
+        description="repair docs gate second attempt",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Second repair attempt still failed the docs gate.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(second_repair.id),
+            requirement_id=int(requirement.id),
+            node_key="delivery_repair",
+            node_type="execute",
+            title="Repair delivery gate blockers",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(second_repair.id),
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+        status="release_blocked",
+        delivery_state="repairing",
+        branch_name="ops/req-1-exhausted-delivery-repair-should-fail-requirement",
+        base_branch="main",
+        delivery_blocker_type="repo_gate_failed",
+        blocker_kind="repo_gate_failed",
+        delivery_failure_excerpt="[ci:docs] documentation validation failed",
+        delivery_failure_raw_output="[ci:docs] documentation validation failed\n- docs inventory still missing entries",
+        failed_gate_name="docs_checks",
+        repairable=True,
+        repairability="repairable",
+        repair_attempt_count=1,
+        next_action="repair_delivery",
+    )
+    db_session.add(release)
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "evidence_review",
+                "summary": "Review the second docs gate repair attempt.",
+                "checks": [],
+                "evidence_expectations": ["Gate should be fixed."],
+                "why_no_verification": None,
+            },
+            "status": "needs_revision",
+            "summary": "The second repair attempt still leaves the docs gate blocked.",
+            "checks_run": [],
+            "evidence_used": ["raw_output:92 chars"],
+            "reasoning": "Delivery repair budget is exhausted.",
+            "suggested_next_action": "route_to_human",
+            "resolution_recommendation": "route_to_human",
+            "resolution_confidence": 0.93,
+            "resolution_reason": "The repair loop should stop after the second failed attempt.",
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        resp = synced_client.post(f"/api/executions/{second_repair.id}/validate")
+
+    assert resp.status_code == 200
+    db_session.refresh(requirement)
+    db_session.refresh(release)
+    assert requirement.workflow_state == "failed"
+    assert requirement.failure_reason == "delivery_repair_budget_exhausted"
+    assert release.next_action == "route_to_human"
+    repair_runs = (
+        db_session.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == int(requirement.id),
+            ExecutionRunRow.execution_kind == "delivery_repair",
+        )
+        .count()
+    )
+    assert repair_runs == 2
 
 
 def test_open_release_pr_routes_unrepairable_delivery_failures_to_human(synced_client, db_session):

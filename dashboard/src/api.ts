@@ -804,6 +804,8 @@ export interface AgentRequirement {
   acceptance_criteria_markdown: string
   state: string
   attention_reason: string | null
+  failure_reason?: string | null
+  requirement_plan_summary?: string | null
   project: {
     project_id: number | null
     project_key: string | null
@@ -822,6 +824,8 @@ export interface AgentRequirement {
   } | null
   current_attempt_id: number | null
   current_delivery_id: number | null
+  latest_delivery_repair_attempt_id?: number | null
+  delivery_repair_attempt_count?: number
   status: string
   priority: string
   source: string
@@ -899,6 +903,7 @@ export interface ExecutionPlanStep {
 }
 
 export interface ExecutionPlan {
+  plan_kind?: string
   planning_mode?: string
   goal_summary?: string
   summary_markdown?: string
@@ -907,12 +912,41 @@ export interface ExecutionPlan {
   planned_checks?: string[]
   risks?: string[]
   delivery_intent?: string
+  blocker_type?: string
+  failed_gate_name?: string
+  blocker_excerpt?: string
+  repair_scope?: string[]
+  success_criteria?: string[]
+  verification_checks?: string[]
+  attempt_index?: number
+  attempt_budget?: number
+  parent_plan_reference_summary?: string
+  parent_plan_reference?: {
+    summary_markdown?: string | null
+    goal_summary?: string | null
+  }
+  repair_context?: {
+    latest_blocker_excerpt?: string | null
+    latest_blocker_raw_output?: string | null
+    previous_attempt_summary?: {
+      attempt_id?: number | null
+      planner_summary?: string | null
+      changed_files?: string[]
+      commands_run?: string[]
+      validation_status?: string | null
+      failure_summary?: string | null
+      failed_reasoning?: string | null
+      raw_output_excerpt?: string | null
+    }
+    previous_failure_summary?: string | null
+  }
 }
 
 export interface AgentRequirementDetail {
   requirement: AgentRequirement
   state: string
   attention_reason: string | null
+  failure_reason?: string | null
   policy_summary_markdown: string
   project: Project | null
   latest_execution_id: number | null
@@ -1018,6 +1052,12 @@ export interface ExecutionRun {
   execution_mode: string
   execution_kind: string
   attempt_kind: string
+  plan_kind?: string
+  derived_from_attempt_id?: number | null
+  attempt_index?: number | null
+  attempt_budget?: number | null
+  failed_gate_name?: string | null
+  parent_plan_reference_summary?: string | null
   complexity: string
   status: string
   phase: string
@@ -1166,6 +1206,7 @@ export interface ReleaseRecord {
   notes: string | null
   blocker_kind: string | null
   delivery_blocker_type: string | null
+  failed_gate_name?: string | null
   delivery_failure_excerpt: string | null
   delivery_failure_raw_output: string | null
   repairable: boolean

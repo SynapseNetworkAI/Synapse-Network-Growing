@@ -78,6 +78,7 @@ const STATUS_LABEL: Record<string, string> = {
   ready_for_merge: '待合并',
   awaiting_operator: '待人工处理',
   completed: '已完成',
+  failed: '失败',
   cancelled: '已取消',
   running: '执行中',
   blocked: '阻塞',
@@ -96,6 +97,7 @@ function statusTone(status: string) {
   if (status === 'completed' || status === 'done' || status === 'ready_for_merge' || status === 'delivery_ready') return 'delivered'
   if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
   if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
+  if (status === 'failed') return 'blocked'
   if (status === 'ready' || status === 'awaiting_approval') return 'ready'
   return 'muted'
 }

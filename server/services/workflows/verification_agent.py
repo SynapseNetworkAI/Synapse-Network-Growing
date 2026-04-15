@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 from datetime import date, datetime
 from typing import Any
 
@@ -61,6 +63,8 @@ Rules:
 - PR merge is the final human check after a passed verdict.
 - Keep output concise and machine-readable.
 """
+
+_VERIFICATION_PROVIDER_WALL_TIMEOUT_SECONDS = 30
 
 
 def _json_ready(value: Any) -> Any:
@@ -146,10 +150,7 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -> dict[str, Any]:
-    fallback = _fallback_verification_result(payload)
-    if skip_provider:
-        return fallback
+def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     prompt = json.dumps(_json_ready(payload), ensure_ascii=False, indent=2)
     try:
         provider_name = planner_provider_name()
@@ -232,4 +233,21 @@ def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -
             normalized["evidence_used"] = list(fallback["evidence_used"])
         return normalized
     except Exception:
+        return fallback
+
+
+def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -> dict[str, Any]:
+    fallback = _fallback_verification_result(payload)
+    if skip_provider:
+        return fallback
+    result_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
+
+    def _runner() -> None:
+        result_queue.put(_provider_verification_result(payload, fallback))
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    try:
+        return result_queue.get(timeout=_VERIFICATION_PROVIDER_WALL_TIMEOUT_SECONDS)
+    except queue.Empty:
         return fallback
