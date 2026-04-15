@@ -78,6 +78,8 @@ export default function ReleaseDetailPage() {
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
           <div>project: {release?.project_display_name || detail.requirement.project_display_name || detail.requirement.project_key || '-'}</div>
           <div>release status: {release?.status || '-'}</div>
+          <div>delivery blocker: {release?.delivery_blocker_type || '-'}</div>
+          <div>next action: {release?.next_action || '-'}</div>
           <div>validation: {detail.validation?.status || '-'}</div>
           <div>latest deploy: {detail.deployments[0]?.environment || '-'}</div>
         </div>
@@ -147,6 +149,10 @@ export default function ReleaseDetailPage() {
               <div>prepared: {formatTime(release.prepared_at)}</div>
               <div>delivered: {formatTime(release.delivered_at)}</div>
               <div>updated: {formatTime(release.updated_at)}</div>
+              <div>repairable: {release.repairable ? 'yes' : 'no'}</div>
+              <div>repair attempts: {release.repair_attempt_count}</div>
+              <div>next action: {release.next_action || '-'}</div>
+              {release.delivery_failure_excerpt ? <div>failure: {release.delivery_failure_excerpt}</div> : null}
               {release.compare_url ? <a className="block text-blue-600 hover:underline" href={release.compare_url} target="_blank" rel="noreferrer">Compare</a> : null}
               {release.pr_url ? <a className="block text-blue-600 hover:underline" href={release.pr_url} target="_blank" rel="noreferrer">Pull Request</a> : null}
             </div>

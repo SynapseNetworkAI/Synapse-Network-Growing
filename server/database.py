@@ -711,6 +711,7 @@ class ExecutionRunRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
     execution_mode = Column(Text, nullable=False, default="direct")
+    execution_kind = Column(Text, nullable=False, default="implementation")
     complexity = Column(Text, nullable=False, default="simple")
     status = Column(Text, nullable=False, default="queued")
     phase = Column(Text, nullable=False, default="queued")
@@ -718,6 +719,8 @@ class ExecutionRunRow(Base):
     validation_profile = Column(Text, nullable=False, default="minimal")
     delivery_intent = Column(Text, nullable=False, default="pr_required")
     approval_required = Column(Boolean, nullable=False, default=False)
+    source_release_id = Column(Integer, ForeignKey("release_records.id"))
+    source_delivery_blocker_type = Column(Text)
     planner_summary = Column(Text)
     plan_snapshot_json = Column(Text, nullable=False, default="{}")
     target_projects_json = Column(Text, nullable=False, default="[]")
@@ -821,6 +824,12 @@ class ReleaseRecordRow(Base):
     pr_url = Column(Text)
     pr_number = Column(Integer)
     notes = Column(Text)
+    delivery_blocker_type = Column(Text)
+    delivery_failure_excerpt = Column(Text)
+    delivery_failure_raw_output = Column(Text)
+    repairable = Column(Boolean, nullable=False, default=False)
+    repair_attempt_count = Column(Integer, nullable=False, default=0)
+    next_action = Column(Text)
     metadata_json = Column(Text, nullable=False, default="{}")
     prepared_at = Column(DateTime)
     delivered_at = Column(DateTime)
@@ -1201,8 +1210,11 @@ def _migrate(engine_):
     else:
         existing = {c["name"] for c in insp.get_columns("execution_runs")}
         execution_cols = {
+            "execution_kind": "TEXT DEFAULT 'implementation'",
             "phase": "TEXT DEFAULT 'queued'",
             "recovery_status": "TEXT",
+            "source_release_id": "INTEGER",
+            "source_delivery_blocker_type": "TEXT",
         }
         for col, col_type in execution_cols.items():
             if col not in existing:
@@ -1279,6 +1291,12 @@ def _migrate(engine_):
         release_cols = {
             "project_id": "INTEGER",
             "project_display_name": "TEXT",
+            "delivery_blocker_type": "TEXT",
+            "delivery_failure_excerpt": "TEXT",
+            "delivery_failure_raw_output": "TEXT",
+            "repairable": "BOOLEAN DEFAULT 0",
+            "repair_attempt_count": "INTEGER DEFAULT 0",
+            "next_action": "TEXT",
         }
         for col, col_type in release_cols.items():
             if col not in existing:

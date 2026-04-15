@@ -51,7 +51,9 @@
 3. 单 requirement 单 execution 主链治理。
 4. queued run 启动。
 5. paused run 恢复。
-6. 当前 failed / blocked run 通过 `retry` 创建 replacement run，并立即自动尝试启动。
+6. execution 恢复路径已经按 blocker 类型分流。
+   - `branch_preparation_blocked / approval_blocked / manual_pause / runtime_recovery_blocked` 这类环境阻塞会在**同一个 current execution** 上 `start / resume`。
+   - `verification_needs_revision / verification_failed / task_failed` 这类执行失败才会 `retry` 创建 replacement run，并立即自动尝试启动。
    - 历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
 7. validate。
    - execution 完成后默认自动触发 verification agent。
@@ -93,6 +95,10 @@
 2. Release detail。
 3. execution approval 放行后自动 prepare branch。
 4. verification passed 后自动 commit / push / open PR。
+5. delivery gate 自修复。
+   - 本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 等 gate 挡住时，会把 blocker 分类成 `repo_gate_failed / workspace_blocked / git_auth_failed / remote_rejected / network_failed / branch_conflict / unknown_delivery_failure`。
+   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` execution，修 gate 后重新 verification，再重新 delivery / open PR。
+   - dirty worktree、git 权限、网络、远端拒绝等不可自动修复 blocker 会停在 `release_blocked` 并转人工。
 5. staging deploy。
 6. production deploy。
 7. rollback。

@@ -213,6 +213,7 @@ export default function ExecutionDetailPage() {
           {detail.recovery_status ? <StateBadge tone="blocked">恢复: {detail.recovery_status}</StateBadge> : null}
           {!detail.is_current_execution ? <StateBadge tone="muted">历史 run</StateBadge> : null}
           <StateBadge tone="muted">{execution.execution_mode}</StateBadge>
+          <StateBadge tone="muted">{execution.execution_kind === 'delivery_repair' ? 'delivery_repair' : 'implementation'}</StateBadge>
           <StateBadge tone="muted">{execution.complexity}</StateBadge>
           <StateBadge tone="validating">{execution.validation_profile}</StateBadge>
           {runtimeSummary.current_branch ? <StateBadge tone="ready">{runtimeSummary.current_branch}</StateBadge> : null}
@@ -249,6 +250,18 @@ export default function ExecutionDetailPage() {
             ) : null}
           </div>
         ) : null}
+        {detail.delivery_summary?.status === 'release_blocked' && detail.delivery_summary.delivery_failure_excerpt ? (
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="font-medium">交付门禁阻塞</div>
+            <div className="mt-1">
+              {detail.delivery_summary.delivery_blocker_type ? `${detail.delivery_summary.delivery_blocker_type}: ` : ''}
+              {detail.delivery_summary.delivery_failure_excerpt}
+            </div>
+            <div className="mt-2 text-xs text-amber-900/75">
+              next action: {detail.delivery_summary.next_action || '-'} · repairable: {detail.delivery_summary.repairable ? 'yes' : 'no'} · attempts: {detail.delivery_summary.repair_attempt_count}
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-5 grid gap-4 border-b border-[color:var(--ops-stroke-soft)] pb-5 md:grid-cols-3 xl:grid-cols-6">
           <Metric label="Requirement" value={`#${execution.requirement_id}`} />
@@ -262,6 +275,7 @@ export default function ExecutionDetailPage() {
         <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2 xl:grid-cols-4">
           <div>delivery: {execution.delivery_intent}</div>
           <div>delivery status: {detail.delivery_summary?.status || '-'}</div>
+          <div>execution kind: {execution.execution_kind}</div>
           <div>approval: {execution.approval_required ? `${detail.requirement.approval_status} · submit gated` : 'waived'}</div>
           <div>started: {formatTime(execution.started_at)}</div>
           <div>completed: {formatTime(execution.completed_at)}</div>
@@ -270,6 +284,7 @@ export default function ExecutionDetailPage() {
           <div>runtime session: {execution.runtime_session_id || '-'}</div>
           <div>resume count: {execution.resume_count ?? '-'}</div>
           <div>targets: {execution.target_projects.join(', ') || '-'}</div>
+          <div>delivery blocker: {detail.delivery_summary?.delivery_blocker_type || '-'}</div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>
         </div>
       </SectionFrame>

@@ -99,6 +99,7 @@ from server.services.agents.llm_adapter import get_provider
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
+_MAX_DELIVERY_REPAIRS = 1
 
 
 def _testing_mode() -> bool:
@@ -2187,7 +2188,14 @@ def _load_full_persona(agent_id: str) -> dict[str, Any]:
     }
 
 
-def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetailOut:
+def create_execution_run(
+    db: Session,
+    requirement_id: int,
+    *,
+    execution_kind: str = "implementation",
+    source_release_id: int | None = None,
+    source_delivery_blocker_type: str | None = None,
+) -> ExecutionRunDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
@@ -2195,28 +2203,40 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
     if active_run is not None:
         raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
     requirement = reconcile_requirement_state(db, requirement)
-    if str(requirement.status or "") not in {"ready", "blocked", "needs_revision"}:
+    allowed_requirement_statuses = {"ready", "blocked", "needs_revision"}
+    if execution_kind == "delivery_repair":
+        allowed_requirement_statuses |= {"delivery_ready", "done"}
+    if str(requirement.status or "") not in allowed_requirement_statuses:
         raise ValueError("Requirement must be ready before creating execution.")
     if _approval_required(db, requirement) and str(requirement.approval_status or "") not in {"approved", "waived"}:
         raise ValueError("Requirement must be approved before creating execution.")
     shape = _shape_decision(db, requirement)
     plan_snapshot = _ensure_execution_plan(db, requirement)
+    if execution_kind == "delivery_repair":
+        planner_summary = "Repair repository delivery gate blockers and resume automatic PR delivery."
+        execution_steps = [{"node_key": "delivery_repair", "title": "Repair delivery gate blockers"}]
+    else:
+        planner_summary = str(plan_snapshot.get("summary_markdown") or shape["planner_summary"])
+        execution_steps = list(shape["execution_steps"])
     run = ExecutionRunRow(
         requirement_id=int(requirement.id),
         execution_mode=str(shape["execution_mode"]),
+        execution_kind=execution_kind,
         complexity=str(shape["complexity"]),
         status="queued",
         phase="queued",
         validation_profile=str(shape["validation_profile"]),
         delivery_intent=str(shape["delivery_intent"]),
         approval_required=_approval_required(db, requirement),
-        planner_summary=str(plan_snapshot.get("summary_markdown") or shape["planner_summary"]),
+        source_release_id=int(source_release_id) if source_release_id is not None else None,
+        source_delivery_blocker_type=str(source_delivery_blocker_type or "").strip() or None,
+        planner_summary=planner_summary,
         plan_snapshot_json=_json_dump(plan_snapshot),
         target_projects_json=_json_dump(_target_projects_for_requirement(db, requirement)),
     )
     db.add(run)
     db.flush()
-    for index, step in enumerate(shape["execution_steps"], start=1):
+    for index, step in enumerate(execution_steps, start=1):
         db.add(
             ExecutionNodeRow(
                 execution_run_id=int(run.id),
@@ -2237,8 +2257,9 @@ def create_execution_run(db: Session, requirement_id: int) -> ExecutionRunDetail
         requirement=requirement,
         execution=run,
         target_projects=_target_projects_for_requirement(db, requirement),
-        node_count=len(shape["execution_steps"]),
-        planner_summary=str(plan_snapshot.get("summary_markdown") or shape["planner_summary"]),
+        node_count=len(execution_steps),
+        execution_kind=execution_kind,
+        planner_summary=planner_summary,
     )
     db.commit()
     return build_execution_detail(db, int(run.id))
@@ -2287,6 +2308,47 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
     acceptance = str(acceptance_contract.get("markdown") or "").strip() or "Deliver the requested outcome and leave enough evidence for validate."
     plan = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
     plan_markdown = str(plan.get("summary_markdown") or "").strip()
+    if str(getattr(run, "execution_kind", "") or "implementation") == "delivery_repair":
+        release = None
+        if getattr(run, "source_release_id", None) is not None:
+            release = db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(run.source_release_id)).first()
+        blocker_excerpt = str(getattr(release, "delivery_failure_excerpt", "") or "").strip() if release is not None else ""
+        blocker_type = str(getattr(run, "source_delivery_blocker_type", "") or getattr(release, "delivery_blocker_type", "") or "").strip()
+        return "\n".join(
+            [
+                f"# Requirement #{int(requirement.id)} Delivery Repair",
+                "",
+                f"## Title\n{requirement.title}",
+                "",
+                f"## Repair Node\n{node.title}",
+                "",
+                f"## Original Requirement\n{requirement.description_markdown}",
+                "",
+                f"## Acceptance\n{acceptance}",
+                "",
+                f"## Original Plan\n{plan_markdown or 'Follow the approved implementation plan and avoid changing requirement scope.'}",
+                "",
+                f"## Delivery Blocker Type\n{blocker_type or 'repo_gate_failed'}",
+                "",
+                "## Delivery Blocker Output",
+                blocker_excerpt or "No blocker excerpt captured. Inspect the release record before changing code.",
+                "",
+                "## Repair Goal",
+                "Fix only the repository gate failure that blocked `git push` / PR delivery.",
+                "Do not broaden scope beyond making the existing branch pass the local PR gate.",
+                "",
+                "## Target Projects",
+                *[f"- {item}" for item in targets],
+                "",
+                *attachment_lines,
+                *([""] if attachment_lines else []),
+                "## Guardrails",
+                "- Keep the requirement scope intact; this is a delivery repair, not a reimplementation.",
+                "- Fix only code/docs/config needed for the blocking gate to pass.",
+                "- Re-run only the minimum relevant checks that prove the gate is fixed.",
+                "- Summarize the blocker fixed, files changed, commands run, and remaining risk.",
+            ]
+        ).strip()
     return "\n".join(
         [
             f"# Requirement #{int(requirement.id)}",
@@ -2544,7 +2606,13 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         return build_execution_detail(db, execution_run_id)
     if str(run.status or "") not in {"failed", "blocked"}:
         raise ValueError("Only failed or blocked execution runs can be retried.")
-    if _retry_budget_exhausted(db, int(run.requirement_id)):
+    execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
+    if execution_kind == "delivery_repair":
+        if _delivery_repair_budget_exhausted(db, int(run.requirement_id)):
+            raise ValueError(
+                f"Delivery repair limit reached ({_MAX_DELIVERY_REPAIRS}). Please route this delivery blocker to a human operator."
+            )
+    elif _retry_budget_exhausted(db, int(run.requirement_id)):
         raise ValueError(
             f"Execution retry limit reached ({_MAX_EXECUTION_RETRIES}). Please revise the requirement or route it to a follow-up flow."
         )
@@ -2563,7 +2631,13 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         execution=run,
     )
     db.commit()
-    detail = create_execution_run(db, int(run.requirement_id))
+    detail = create_execution_run(
+        db,
+        int(run.requirement_id),
+        execution_kind=execution_kind,
+        source_release_id=int(getattr(run, "source_release_id", 0) or 0) or None,
+        source_delivery_blocker_type=str(getattr(run, "source_delivery_blocker_type", "") or "").strip() or None,
+    )
     replacement = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(detail.execution.id)).first()
     _log_workflow_event(
         "execution_run_retried",
@@ -2706,7 +2780,10 @@ def _retry_budget_exhausted(
 ) -> bool:
     run_count = (
         db.query(ExecutionRunRow)
-        .filter(ExecutionRunRow.requirement_id == requirement_id)
+        .filter(
+            ExecutionRunRow.requirement_id == requirement_id,
+            ExecutionRunRow.execution_kind != "delivery_repair",
+        )
         .count()
     )
     return max(0, int(run_count) - 1) >= retry_limit
@@ -3516,6 +3593,7 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         id=int(run.id),
         requirement_id=int(run.requirement_id),
         execution_mode=str(run.execution_mode or "direct"),
+        execution_kind=str(getattr(run, "execution_kind", "") or "implementation"),
         complexity=str(run.complexity or "simple"),
         status=str(run.status or "queued"),
         phase=str(getattr(run, "phase", "") or run.status or "queued"),
@@ -3538,6 +3616,8 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         validation_profile=str(run.validation_profile or "minimal"),
         delivery_intent=str(run.delivery_intent or "pr_required"),
         approval_required=bool(run.approval_required),
+        source_release_id=int(getattr(run, "source_release_id", 0) or 0) or None,
+        source_delivery_blocker_type=str(getattr(run, "source_delivery_blocker_type", "") or "").strip() or None,
         planner_summary=str(run.planner_summary or "").strip() or None,
         target_projects=_json_load(run.target_projects_json, []),
         latest_task_id=int(run.latest_task_id) if run.latest_task_id is not None else None,
@@ -3654,6 +3734,12 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         pr_url=str(release.pr_url or "").strip() or None,
         pr_number=int(release.pr_number) if release.pr_number is not None else None,
         notes=str(release.notes or "").strip() or None,
+        delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
+        delivery_failure_excerpt=str(getattr(release, "delivery_failure_excerpt", "") or "").strip() or None,
+        delivery_failure_raw_output=str(getattr(release, "delivery_failure_raw_output", "") or "").strip() or None,
+        repairable=bool(getattr(release, "repairable", False)),
+        repair_attempt_count=int(getattr(release, "repair_attempt_count", 0) or 0),
+        next_action=str(getattr(release, "next_action", "") or "").strip() or None,
         prepared_at=release.prepared_at,
         delivered_at=release.delivered_at,
         created_at=release.created_at,
@@ -3745,6 +3831,67 @@ def _delivery_contract_for_requirement(
     }
 
 
+def _release_next_action(
+    *,
+    blocker_type: str | None,
+    repairable: bool,
+    high_risk: bool,
+    delivery_budget_hit: bool,
+) -> str:
+    kind = str(blocker_type or "").strip()
+    if kind == "workspace_blocked":
+        return "restart_current"
+    if kind == "repo_gate_failed" and repairable and not high_risk and not delivery_budget_hit:
+        return "repair_delivery"
+    return "route_to_human"
+
+
+def _delivery_repair_budget_exhausted(
+    db: Session,
+    requirement_id: int,
+    *,
+    repair_limit: int = _MAX_DELIVERY_REPAIRS,
+) -> bool:
+    repair_count = (
+        db.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == requirement_id,
+            ExecutionRunRow.execution_kind == "delivery_repair",
+        )
+        .count()
+    )
+    return int(repair_count) >= repair_limit
+
+
+def _active_delivery_repair_run(db: Session, requirement_id: int) -> ExecutionRunRow | None:
+    return (
+        db.query(ExecutionRunRow)
+        .filter(
+            ExecutionRunRow.requirement_id == requirement_id,
+            ExecutionRunRow.execution_kind == "delivery_repair",
+            ExecutionRunRow.status.in_(["queued", "running", "paused", "validating", "blocked"]),
+        )
+        .order_by(ExecutionRunRow.id.desc())
+        .first()
+    )
+
+
+def _apply_release_blocker_context(
+    release: ReleaseRecordRow,
+    vcs: dict[str, Any],
+    *,
+    next_action: str,
+    repair_attempt_count: int | None = None,
+) -> None:
+    release.delivery_blocker_type = str(vcs.get("delivery_blocker_type") or "").strip() or None
+    release.delivery_failure_excerpt = str(vcs.get("delivery_failure_excerpt") or "").strip() or None
+    release.delivery_failure_raw_output = str(vcs.get("delivery_failure_raw_output") or "").strip() or None
+    release.repairable = bool(vcs.get("repairable"))
+    if repair_attempt_count is not None:
+        release.repair_attempt_count = int(repair_attempt_count)
+    release.next_action = next_action
+
+
 def _prepare_delivery_branch_for_execution(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow:
     requirement.phase = "branch_preparing"
     requirement.status = _requirement_status_from_phase(requirement.phase)
@@ -3797,6 +3944,116 @@ def _prepare_delivery_branch_for_execution(db: Session, requirement: Requirement
     return release
 
 
+def _begin_delivery_repair(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    release: ReleaseRecordRow,
+    actor: str,
+) -> ExecutionRunDetailOut | None:
+    existing = _active_delivery_repair_run(db, int(requirement.id))
+    if existing is not None:
+        return build_execution_detail(db, int(existing.id))
+    detail = create_execution_run(
+        db,
+        int(requirement.id),
+        execution_kind="delivery_repair",
+        source_release_id=int(release.id),
+        source_delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
+    )
+    try:
+        started = start_execution_run(db, int(detail.execution.id))
+    except ValueError as exc:
+        replacement = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(detail.execution.id)).first()
+        _log_workflow_event(
+            "delivery_repair_start_blocked",
+            requirement=requirement,
+            execution=replacement,
+            release=release,
+            actor=actor,
+            reason=str(exc),
+        )
+        db.commit()
+        return build_execution_detail(db, int(detail.execution.id))
+    _log_workflow_event(
+        "delivery_repair_started",
+        requirement=requirement,
+        execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(started.execution.id)).first(),
+        release=release,
+        actor=actor,
+        blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
+    )
+    db.commit()
+    return started
+
+
+def _handle_release_delivery_blocker(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    release: ReleaseRecordRow,
+    validation: ValidationRecordRow,
+    actor: str,
+    vcs: dict[str, Any],
+) -> ReleaseDetailOut:
+    high_risk = _approval_required(db, requirement) and str(getattr(requirement, "approval_status", "") or "") not in {"approved", "waived"}
+    delivery_budget_hit = _delivery_repair_budget_exhausted(db, int(requirement.id))
+    next_action = _release_next_action(
+        blocker_type=str(vcs.get("delivery_blocker_type") or "").strip() or None,
+        repairable=bool(vcs.get("repairable")),
+        high_risk=high_risk,
+        delivery_budget_hit=delivery_budget_hit,
+    )
+    release.status = "release_blocked"
+    release.notes = "; ".join([str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]) or release.notes
+    _apply_release_blocker_context(
+        release,
+        vcs,
+        next_action=next_action,
+        repair_attempt_count=(
+            (
+                db.query(ExecutionRunRow)
+                .filter(
+                    ExecutionRunRow.requirement_id == int(requirement.id),
+                    ExecutionRunRow.execution_kind == "delivery_repair",
+                )
+                .count()
+            )
+        ),
+    )
+    release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
+    requirement.resolution_path = "repair_delivery" if next_action == "repair_delivery" else "route_to_human"
+    repair_detail: ExecutionRunDetailOut | None = None
+    if next_action == "repair_delivery":
+        repair_detail = _begin_delivery_repair(db, requirement=requirement, release=release, actor=actor)
+        if repair_detail is not None:
+            release.execution_run_id = int(repair_detail.execution.id)
+            release.repair_attempt_count = (
+                db.query(ExecutionRunRow)
+                .filter(
+                    ExecutionRunRow.requirement_id == int(requirement.id),
+                    ExecutionRunRow.execution_kind == "delivery_repair",
+                )
+                .count()
+            )
+            release.status = "release_blocked"
+            _apply_release_blocker_context(release, vcs, next_action=next_action, repair_attempt_count=release.repair_attempt_count)
+    _log_workflow_event(
+        "release_pr_blocked",
+        requirement=requirement,
+        release=release,
+        execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == release.execution_run_id).first() if release.execution_run_id is not None else None,
+        actor=actor,
+        blockers=[str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()],
+        delivery_blocker_type=release.delivery_blocker_type,
+        repairable=bool(release.repairable),
+        next_action=release.next_action,
+        delivery_failure_excerpt=release.delivery_failure_excerpt,
+    )
+    db.commit()
+    return build_release_detail(db, int(requirement.id))
+
+
 def _auto_open_pr_after_verification(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow | None:
     try:
         detail = open_release_pr(
@@ -3842,6 +4099,12 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     if blockers:
         release.status = "release_blocked"
         release.notes = "; ".join(blockers)
+        _apply_release_blocker_context(release, vcs, next_action=_release_next_action(
+            blocker_type=str(vcs.get("delivery_blocker_type") or "").strip() or None,
+            repairable=bool(vcs.get("repairable")),
+            high_risk=_approval_required(db, requirement),
+            delivery_budget_hit=_delivery_repair_budget_exhausted(db, int(requirement.id)),
+        ))
         _log_workflow_event(
             "release_preparation_blocked",
             requirement=requirement,
@@ -3855,6 +4118,11 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
         release.base_branch = "main"
         release.prepared_at = utcnow()
         release.notes = note
+        release.delivery_blocker_type = None
+        release.delivery_failure_excerpt = None
+        release.delivery_failure_raw_output = None
+        release.repairable = False
+        release.next_action = None
         _log_workflow_event(
             "release_prepared",
             requirement=requirement,
@@ -3909,18 +4177,14 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     )
     blockers = [str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]
     if blockers:
-        release.status = "release_blocked"
-        release.notes = "; ".join(blockers)
-        release.metadata_json = _json_dump({"actor": actor, "vcs": vcs})
-        _log_workflow_event(
-            "release_pr_blocked",
+        return _handle_release_delivery_blocker(
+            db,
             requirement=requirement,
             release=release,
+            validation=validation,
             actor=actor,
-            blockers=blockers,
+            vcs=vcs,
         )
-        db.commit()
-        return build_release_detail(db, requirement_id)
     first_repo = next((item for item in (vcs.get("repositories") or []) if isinstance(item, dict)), {})
     branch_name = str(vcs.get("branch_name") or release.branch_name or _release_branch_name(requirement)).strip()
     base_branch = str(vcs.get("base_branch") or release.base_branch or "main").strip() or "main"
@@ -3947,6 +4211,11 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     release.pr_number = int(pr_sync.get("pr_number")) if pr_sync.get("pr_number") is not None else None
     release.delivered_at = utcnow()
     release.notes = note
+    release.delivery_blocker_type = None
+    release.delivery_failure_excerpt = None
+    release.delivery_failure_raw_output = None
+    release.repairable = False
+    release.next_action = None
     release.metadata_json = _json_dump({"actor": actor, "vcs": vcs, "pr_sync": pr_sync})
     requirement.phase = "done"
     requirement.status = _requirement_status_from_phase(requirement.phase)

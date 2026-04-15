@@ -137,6 +137,11 @@ Requirement 与 Execution 当前还有三条正式约束：
 12. Approval 已按 `approval agent 先审，人兜底` 的方式正式化。
    - 低风险且高置信度的 requirement 会自动放行。
    - 高风险或低置信度仍保留人工 execution approval。
+13. Delivery gate 自修复已经进入主链。
+   - verification passed 后仍先走自动 delivery / push / open PR。
+   - 若本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 挡住，系统会把 blocker 分类为 `repo_gate_failed / workspace_blocked / git_auth_failed ...`。
+   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` execution，修复 gate 后重新 verification，再重新 delivery / open PR。
+   - dirty worktree、git 权限、网络、远端拒绝等不可代码化修复的 blocker 继续停在 `release_blocked` 并转人工。
 
 ## Browser Automation
 

@@ -26,6 +26,7 @@ const detail = {
     id: 1,
     requirement_id: 6,
     execution_mode: 'direct',
+    execution_kind: 'implementation',
     complexity: 'simple',
     status: 'running',
     phase: 'executing',
@@ -42,6 +43,8 @@ const detail = {
     validation_profile: 'minimal',
     delivery_intent: 'pr_required',
     approval_required: false,
+    source_release_id: null,
+    source_delivery_blocker_type: null,
     planner_summary: 'Direct execution.',
     target_projects: ['/Users/cliff/workspace/agent/Synapse-Network'],
     latest_task_id: 7,
@@ -209,6 +212,12 @@ const detail = {
     pr_url: 'https://github.com/example/repo/pull/42',
     pr_number: 42,
     notes: null,
+    delivery_blocker_type: null,
+    delivery_failure_excerpt: null,
+    delivery_failure_raw_output: null,
+    repairable: false,
+    repair_attempt_count: 0,
+    next_action: null,
     prepared_at: '2026-04-14T06:54:35Z',
     delivered_at: null,
     created_at: '2026-04-14T06:54:35Z',
@@ -320,6 +329,7 @@ describe('Execution detail observability', () => {
         ...detail.execution,
         status: 'blocked',
         phase: 'blocked',
+        execution_kind: 'delivery_repair',
         allowed_actions: ['start', 'view', 'view_requirement'],
         recovery_mode: 'restart_current',
         blocking_reason_code: 'branch_preparation_blocked',
@@ -348,6 +358,15 @@ describe('Execution detail observability', () => {
         has_untracked: false,
       },
       recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
+      delivery_summary: {
+        ...detail.delivery_summary,
+        status: 'release_blocked',
+        delivery_blocker_type: 'repo_gate_failed',
+        delivery_failure_excerpt: '[ci:docs] documentation validation failed',
+        repairable: true,
+        repair_attempt_count: 1,
+        next_action: 'repair_delivery',
+      },
     })
 
     render(
@@ -363,6 +382,8 @@ describe('Execution detail observability', () => {
     expect(screen.getByText('工作区阻塞详情')).toBeInTheDocument()
     expect(screen.getByText(/脏文件数量：2/)).toBeInTheDocument()
     expect(screen.getByText(/agent_first\.py/)).toBeInTheDocument()
+    expect(screen.getByText(/交付门禁阻塞/)).toBeInTheDocument()
+    expect(screen.getAllByText(/repo_gate_failed/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 

@@ -130,3 +130,44 @@ def test_execute_requirement_delivery_vcs_supports_multiline_fallback_target_pat
     assert sorted(repo_paths) == sorted([str(repo_a), str(repo_b)])
     assert all(item["status"] == "delivered" for item in result["repositories"])
     assert all(item["committed"] for item in result["repositories"])
+
+
+def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failure(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+    hooks_dir = repo_path / ".git" / "hooks"
+    hook_path = hooks_dir / "pre-push"
+    hook_path.write_text(
+        "#!/bin/sh\n"
+        "echo '[ci:docs] validating documentation constraints'\n"
+        "echo '[ci:docs] documentation validation failed'\n"
+        "echo ''\n"
+        "echo '- llms.txt is missing required anchor: docs/Harness_engineering.md'\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    hook_path.chmod(0o755)
+    (repo_path / "README.md").write_text("base\nchange\n", encoding="utf-8")
+
+    result = execute_requirement_delivery_vcs(
+        requirement_id=18,
+        requirement_title="Docs gate blocked push",
+        delivery_contract={
+            "branch_name": "ops/req-18-docs-gate",
+            "base_branch": "main",
+            "commit_required": True,
+            "push_required": True,
+            "capability_matrix": {"git_write": True, "git_push": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert result["delivery_blocker_type"] == "repo_gate_failed"
+    assert result["repairable"] is True
+    assert result["failed_gate_name"] == "docs_checks"
+    assert "documentation validation failed" in str(result["delivery_failure_excerpt"])

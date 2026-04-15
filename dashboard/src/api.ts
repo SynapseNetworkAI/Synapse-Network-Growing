@@ -982,6 +982,7 @@ export interface ExecutionRun {
   id: number
   requirement_id: number
   execution_mode: string
+  execution_kind: string
   complexity: string
   status: string
   phase: string
@@ -998,6 +999,8 @@ export interface ExecutionRun {
   validation_profile: string
   delivery_intent: string
   approval_required: boolean
+  source_release_id: number | null
+  source_delivery_blocker_type: string | null
   planner_summary: string | null
   target_projects: string[]
   latest_task_id: number | null
@@ -1104,6 +1107,12 @@ export interface ReleaseRecord {
   pr_url: string | null
   pr_number: number | null
   notes: string | null
+  delivery_blocker_type: string | null
+  delivery_failure_excerpt: string | null
+  delivery_failure_raw_output: string | null
+  repairable: boolean
+  repair_attempt_count: number
+  next_action: string | null
   prepared_at: string | null
   delivered_at: string | null
   created_at: string | null

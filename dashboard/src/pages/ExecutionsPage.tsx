@@ -105,6 +105,7 @@ export default function ExecutionsPage() {
                   <td className="px-5 py-4">
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">Execution #{item.id}</div>
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Requirement #{item.requirement_id}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.execution_kind === 'delivery_repair' ? 'delivery repair' : 'implementation'}</div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">

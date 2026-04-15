@@ -1040,6 +1040,7 @@ class ExecutionRunOut(BaseModel):
     id: int
     requirement_id: int
     execution_mode: str
+    execution_kind: str = "implementation"
     complexity: str
     status: str
     phase: str = "queued"
@@ -1056,6 +1057,8 @@ class ExecutionRunOut(BaseModel):
     validation_profile: str
     delivery_intent: str
     approval_required: bool = False
+    source_release_id: Optional[int] = None
+    source_delivery_blocker_type: Optional[str] = None
     planner_summary: Optional[str] = None
     target_projects: list[str] = []
     latest_task_id: Optional[int] = None
@@ -1166,6 +1169,12 @@ class ReleaseRecordSlimOut(BaseModel):
     pr_url: Optional[str] = None
     pr_number: Optional[int] = None
     notes: Optional[str] = None
+    delivery_blocker_type: Optional[str] = None
+    delivery_failure_excerpt: Optional[str] = None
+    delivery_failure_raw_output: Optional[str] = None
+    repairable: bool = False
+    repair_attempt_count: int = 0
+    next_action: Optional[str] = None
     prepared_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

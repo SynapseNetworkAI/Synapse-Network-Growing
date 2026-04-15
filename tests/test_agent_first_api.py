@@ -1662,6 +1662,201 @@ def test_agent_first_release_flow_uses_validate_gate_and_open_pr(synced_client, 
         assert delivery is not None
 
 
+def test_open_release_pr_auto_creates_delivery_repair_execution_for_repairable_repo_gate(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
+    requirement = RequirementRow(
+        title="Repair docs gate before opening PR",
+        description_markdown="Verification passed, but local docs gate blocks push.",
+        status="delivery_ready",
+        phase="delivery_ready",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    implementation_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        execution_kind="implementation",
+        complexity="simple",
+        status="succeeded",
+        phase="delivery_ready",
+        validation_profile="release_candidate",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(implementation_run)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(implementation_run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    db_session.add(
+        ValidationRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(implementation_run.id),
+            profile="release_candidate",
+            status="passed",
+            summary_markdown="Validation passed.",
+            checks_json="[]",
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.execute_requirement_delivery_vcs",
+        return_value={
+            "status": "blocked",
+            "branch_name": "ops/req-1-repair-docs-gate-before-opening-pr",
+            "base_branch": "main",
+            "blockers": ["docs validation failed"],
+            "repositories": [],
+            "delivery_blocker_type": "repo_gate_failed",
+            "delivery_failure_excerpt": "[ci:docs] documentation validation failed",
+            "delivery_failure_raw_output": "[ci:docs] documentation validation failed\n- llms.txt is missing required anchor",
+            "repairable": True,
+            "failed_gate_name": "docs_checks",
+        },
+    ), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-repair-docs-gate-before-opening-pr"),
+    ), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="repair docs gate",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        open_pr_resp = synced_client.post(
+            f"/api/releases/{requirement.id}/open-pr",
+            json={"actor": "operator", "note": "open pr"},
+        )
+
+    assert open_pr_resp.status_code == 200
+    payload = open_pr_resp.json()
+    assert payload["release"]["status"] == "release_blocked"
+    assert payload["release"]["delivery_blocker_type"] == "repo_gate_failed"
+    assert payload["release"]["repairable"] is True
+    assert payload["release"]["next_action"] == "repair_delivery"
+    latest_execution_id = int(payload["requirement"]["latest_execution_run_id"])
+    assert latest_execution_id != int(implementation_run.id)
+    repair_run = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.id == latest_execution_id).one()
+    assert repair_run.execution_kind == "delivery_repair"
+    assert repair_run.source_release_id is not None
+    assert repair_run.source_delivery_blocker_type == "repo_gate_failed"
+    assert repair_run.status == "running"
+
+
+def test_open_release_pr_routes_unrepairable_delivery_failures_to_human(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+        deploy_repo_full_name="example/synapse-network",
+        deploy_strategy="github_actions_ssh",
+        deploy_trigger_enabled=True,
+        git_push_enabled=True,
+    )
+    requirement = RequirementRow(
+        title="Release blocked by git auth",
+        description_markdown="Verification passed, but git auth blocks push.",
+        status="delivery_ready",
+        phase="delivery_ready",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    implementation_run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        execution_kind="implementation",
+        complexity="simple",
+        status="succeeded",
+        phase="delivery_ready",
+        validation_profile="release_candidate",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(implementation_run)
+    db_session.flush()
+    db_session.add(
+        ValidationRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(implementation_run.id),
+            profile="release_candidate",
+            status="passed",
+            summary_markdown="Validation passed.",
+            checks_json="[]",
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.execute_requirement_delivery_vcs",
+        return_value={
+            "status": "blocked",
+            "branch_name": "ops/req-1-release-blocked-by-git-auth",
+            "base_branch": "main",
+            "blockers": ["fatal: Authentication failed"],
+            "repositories": [],
+            "delivery_blocker_type": "git_auth_failed",
+            "delivery_failure_excerpt": "fatal: Authentication failed",
+            "delivery_failure_raw_output": "fatal: Authentication failed",
+            "repairable": False,
+            "failed_gate_name": None,
+        },
+    ):
+        open_pr_resp = synced_client.post(
+            f"/api/releases/{requirement.id}/open-pr",
+            json={"actor": "operator", "note": "open pr"},
+        )
+
+    assert open_pr_resp.status_code == 200
+    payload = open_pr_resp.json()
+    assert payload["release"]["status"] == "release_blocked"
+    assert payload["release"]["delivery_blocker_type"] == "git_auth_failed"
+    assert payload["release"]["repairable"] is False
+    assert payload["release"]["next_action"] == "route_to_human"
+    assert payload["requirement"]["latest_execution_run_id"] == int(implementation_run.id)
+
+
 def test_create_execution_run_rejects_when_requirement_already_has_active_run(synced_client, db_session):
     project = _create_project(
         synced_client,

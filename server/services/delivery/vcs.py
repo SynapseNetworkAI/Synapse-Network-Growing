@@ -11,6 +11,92 @@ from typing import Any
 from server import config
 
 
+def _trim_excerpt(value: str | None, limit: int = 1200) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:limit]
+
+
+def _gate_name_from_message(message: str) -> str | None:
+    lowered = message.lower()
+    if any(
+        token in lowered
+        for token in (
+            "[ci:docs]",
+            "docs_checks.sh",
+            "documentation validation failed",
+            "missing required anchor",
+            "missing '- status:'",
+            "documentation inventory",
+            "last verified against code",
+            "unsupported lifecycle status",
+            "links to retired path",
+        )
+    ):
+        return "docs_checks"
+    if "[ci:pr]" in lowered or "pr_checks.sh" in lowered or "running pr quality gates" in lowered:
+        return "pr_checks"
+    if "typecheck" in lowered:
+        return "typecheck"
+    if "lint" in lowered:
+        return "lint"
+    if "pytest" in lowered or "unit test" in lowered:
+        return "test"
+    return None
+
+
+def _classify_delivery_failure(message: str) -> dict[str, Any]:
+    raw = str(message or "").strip()
+    lowered = raw.lower()
+    blocker_type = "unknown_delivery_failure"
+    repairable = False
+    failed_gate_name = _gate_name_from_message(raw)
+    if "dirty worktree" in lowered or "automatic execution branch preparation" in lowered:
+        blocker_type = "workspace_blocked"
+    elif any(token in lowered for token in ("authentication failed", "permission denied (publickey)", "could not read from remote repository", "access denied", "repository not found")):
+        blocker_type = "git_auth_failed"
+    elif any(token in lowered for token in ("non-fast-forward", "fetch first", "protected branch hook declined", "pre-receive hook declined", "remote rejected", "branch protection")):
+        blocker_type = "remote_rejected"
+    elif any(token in lowered for token in ("unable to access", "failed to connect", "network is unreachable", "connection timed out", "could not resolve host")):
+        blocker_type = "network_failed"
+    elif any(token in lowered for token in ("docs validation failed", "[ci:docs]", "[ci:pr]", "pr_checks.sh", "docs_checks.sh", "lint", "typecheck", "pytest", "unit test", "inventory", "missing required anchor", "unsupported lifecycle status", "links to retired path", "missing '- status:'", "last verified against code")):
+        blocker_type = "repo_gate_failed"
+        repairable = True
+        if any(
+            token in lowered
+            for token in (
+                "[ci:docs]",
+                "docs_checks.sh",
+                "documentation validation failed",
+                "missing required anchor",
+                "missing '- status:'",
+                "documentation inventory",
+                "last verified against code",
+                "unsupported lifecycle status",
+                "links to retired path",
+            )
+        ):
+            failed_gate_name = "docs_checks"
+        elif "[ci:pr]" in lowered or "pr_checks.sh" in lowered:
+            failed_gate_name = "pr_checks"
+        elif "typecheck" in lowered:
+            failed_gate_name = "typecheck"
+        elif "lint" in lowered:
+            failed_gate_name = "lint"
+        elif "pytest" in lowered or "unit test" in lowered:
+            failed_gate_name = "test"
+    elif "branch push required but git_push is disabled by project policy" in lowered:
+        blocker_type = "remote_rejected"
+    return {
+        "delivery_blocker_type": blocker_type,
+        "delivery_failure_excerpt": _trim_excerpt(raw),
+        "delivery_failure_raw_output": raw or None,
+        "repairable": repairable,
+        "failed_gate_name": failed_gate_name,
+    }
+
+
 def _run_git(repo_path: str, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         ["git", *args],
@@ -21,8 +107,9 @@ def _run_git(repo_path: str, *args: str, check: bool = True) -> subprocess.Compl
     )
     if check and completed.returncode != 0:
         command = " ".join(["git", *args])
-        stderr = (completed.stderr or completed.stdout or "").strip()
-        raise RuntimeError(f"{command} failed in {repo_path}: {stderr or 'unknown git error'}")
+        output_parts = [part.strip() for part in (completed.stdout, completed.stderr) if str(part or "").strip()]
+        output = "\n".join(output_parts).strip()
+        raise RuntimeError(f"{command} failed in {repo_path}: {output or 'unknown git error'}")
     return completed
 
 
@@ -315,13 +402,28 @@ def execute_requirement_delivery_vcs(
                 repo_result["last_pushed_at"] = _utcnow_iso()
             repo_result["status"] = "delivered"
         except Exception as exc:  # noqa: BLE001
+            classified = _classify_delivery_failure(str(exc))
             repo_result["blockers"].append(str(exc))
+            repo_result.update(classified)
             blockers.append(f"{repo_path}: {exc}")
         repo_results.append(repo_result)
 
     latest_commit_sha = next((str(item.get("commit_sha") or "").strip() for item in repo_results if str(item.get("commit_sha") or "").strip()), None)
     latest_remote_sha = next((str(item.get("remote_sha") or "").strip() for item in repo_results if str(item.get("remote_sha") or "").strip()), None)
     last_pushed_at = next((str(item.get("last_pushed_at") or "").strip() for item in repo_results if str(item.get("last_pushed_at") or "").strip()), None)
+    blocker_context = {}
+    if blockers:
+        blocked_repo = next((item for item in repo_results if item.get("status") != "delivered"), None)
+        if isinstance(blocked_repo, dict):
+            blocker_context = {
+                "delivery_blocker_type": blocked_repo.get("delivery_blocker_type"),
+                "delivery_failure_excerpt": blocked_repo.get("delivery_failure_excerpt"),
+                "delivery_failure_raw_output": blocked_repo.get("delivery_failure_raw_output"),
+                "repairable": bool(blocked_repo.get("repairable")),
+                "failed_gate_name": blocked_repo.get("failed_gate_name"),
+            }
+        if not blocker_context:
+            blocker_context = _classify_delivery_failure(blockers[0])
     return {
         "status": "delivered" if not blockers else "blocked",
         "branch_name": branch_name,
@@ -335,6 +437,7 @@ def execute_requirement_delivery_vcs(
         "latest_commit_sha": latest_commit_sha,
         "latest_remote_sha": latest_remote_sha,
         "last_pushed_at": last_pushed_at,
+        **blocker_context,
     }
 
 

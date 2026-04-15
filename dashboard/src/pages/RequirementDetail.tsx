@@ -315,6 +315,17 @@ export default function RequirementDetail() {
           </div>
         ) : null}
 
+        {!isEditing && latestRelease?.status === 'release_blocked' ? (
+          <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone="blocked">{latestRelease.delivery_blocker_type || 'release_blocked'}</StateBadge>
+              <span>next action: {latestRelease.next_action || '-'}</span>
+              <span>repairable: {latestRelease.repairable ? 'yes' : 'no'}</span>
+            </div>
+            {latestRelease.delivery_failure_excerpt ? <div className="mt-2">{latestRelease.delivery_failure_excerpt}</div> : null}
+          </div>
+        ) : null}
+
         {!isEditing && detail.assets_status !== 'ready' ? (
           <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
             <div className="flex flex-wrap items-center gap-2">
