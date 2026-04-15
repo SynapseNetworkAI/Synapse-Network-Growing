@@ -103,9 +103,12 @@ describe('agent-first pages smoke', () => {
         allowed_actions: ['start'],
         pending_operations: [],
         recovery_status: null,
+        recovery_mode: null,
         queue_reason: '等待启动',
         blocking_reason_code: null,
         blocking_reason_message: null,
+        workspace_blocker: null,
+        recovery_hint: null,
         execution_mode: 'direct',
         complexity: 'simple',
         planner_summary: 'Direct execute.',
@@ -565,6 +568,50 @@ describe('agent-first pages smoke', () => {
     await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
     expect(screen.getByText('执行列表')).toBeInTheDocument()
     expect(screen.getByText('Execution #11')).toBeInTheDocument()
+  })
+
+  it('shows restart-current action for restartable blockers', async () => {
+    mockApi.getExecutions.mockResolvedValueOnce([
+      {
+        id: 12,
+        requirement_id: 1,
+        status: 'blocked',
+        phase: 'blocked',
+        is_current_execution: true,
+        allowed_actions: ['start', 'view', 'view_requirement'],
+        pending_operations: [],
+        recovery_status: null,
+        recovery_mode: 'restart_current',
+        queue_reason: null,
+        blocking_reason_code: 'branch_preparation_blocked',
+        blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
+        workspace_blocker: null,
+        recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
+        execution_mode: 'direct',
+        complexity: 'simple',
+        planner_summary: 'Direct execute.',
+        validation_profile: 'minimal',
+        delivery_intent: 'pr_required',
+        approval_required: false,
+        target_projects: ['Synapse-Network'],
+        latest_task_id: null,
+        started_at: null,
+        completed_at: null,
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+    ])
+
+    render(
+      <ToastProvider>
+        <MemoryRouter>
+          <ExecutionsPage />
+        </MemoryRouter>
+      </ToastProvider>,
+    )
+
+    await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: '再次启动' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 
   it('renders release surface', async () => {

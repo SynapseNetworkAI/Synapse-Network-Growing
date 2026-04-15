@@ -40,6 +40,12 @@ function statusTone(status: string) {
   return 'muted'
 }
 
+function startLabel(detail: ExecutionDetail) {
+  if (detail.execution.status === 'paused' || detail.blocking_reason_code === 'manual_pause') return '继续执行'
+  if (detail.execution.status === 'blocked' && detail.recovery_mode === 'restart_current') return '再次启动'
+  return '启动执行'
+}
+
 function Markdown({ value, empty = '暂无内容' }: Readonly<{ value: string | null | undefined; empty?: string }>) {
   if (!String(value || '').trim()) return <div className="text-sm text-slate-400">{empty}</div>
   return (
@@ -171,13 +177,13 @@ export default function ExecutionDetailPage() {
                 查看 PR
               </a>
             ) : null}
-            {detailAllowedActions.includes('start') && (
+            {(detailAllowedActions.includes('start') || detailAllowedActions.includes('resume')) && (
               <button
                 className="rounded-2xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60"
                 disabled={busyAction === 'start'}
                 onClick={() => runAction('start', () => api.startExecution(execution.id))}
               >
-                {execution.status === 'paused' ? '继续执行' : '启动执行'}
+                {startLabel(detail)}
               </button>
             )}
             {detailAllowedActions.includes('pause') && (
@@ -219,6 +225,28 @@ export default function ExecutionDetailPage() {
               {detail.blocking_reason_code ? `${detail.blocking_reason_code}: ` : ''}
               {detail.blocking_reason_message}
             </div>
+            {detail.recovery_hint ? <div className="mt-2 text-xs text-rose-700/80">{detail.recovery_hint}</div> : null}
+          </div>
+        ) : null}
+        {detail.workspace_blocker ? (
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="font-medium">工作区阻塞详情</div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div>仓库路径：{detail.workspace_blocker.repo_path}</div>
+              <div>目标基线分支：{detail.workspace_blocker.base_branch || '-'}</div>
+              <div>当前分支：{detail.workspace_blocker.current_branch || '-'}</div>
+              <div>脏文件数量：{detail.workspace_blocker.dirty_file_count}</div>
+            </div>
+            {detail.workspace_blocker.dirty_files_preview.length ? (
+              <div className="mt-3">
+                <div className="text-xs uppercase tracking-[0.18em] text-amber-900/70">Dirty files preview</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                  {detail.workspace_blocker.dirty_files_preview.map((path) => (
+                    <li key={path}>{path}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

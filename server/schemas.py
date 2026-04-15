@@ -1003,6 +1003,15 @@ class VerificationPlanOut(BaseModel):
     why_no_verification: Optional[str] = None
 
 
+class WorkspaceBlockerOut(BaseModel):
+    repo_path: str
+    base_branch: Optional[str] = None
+    current_branch: Optional[str] = None
+    dirty_file_count: int = 0
+    dirty_files_preview: list[str] = []
+    has_untracked: bool = False
+
+
 class ValidationRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
@@ -1038,9 +1047,12 @@ class ExecutionRunOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_mode: Optional[str] = None
     queue_reason: Optional[str] = None
     blocking_reason_code: Optional[str] = None
     blocking_reason_message: Optional[str] = None
+    workspace_blocker: Optional[WorkspaceBlockerOut] = None
+    recovery_hint: Optional[str] = None
     validation_profile: str
     delivery_intent: str
     approval_required: bool = False
@@ -1105,9 +1117,12 @@ class ExecutionRunDetailOut(BaseModel):
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
     recovery_status: Optional[str] = None
+    recovery_mode: Optional[str] = None
     queue_reason: Optional[str] = None
     blocking_reason_code: Optional[str] = None
     blocking_reason_message: Optional[str] = None
+    workspace_blocker: Optional[WorkspaceBlockerOut] = None
+    recovery_hint: Optional[str] = None
     nodes: list[ExecutionNodeOut] = []
     validation: Optional[ValidationRecordSlimOut] = None
     verification_result: Optional[ValidationRecordSlimOut] = None
@@ -1120,6 +1135,15 @@ class ExecutionRunDetailOut(BaseModel):
     plan_summary: dict[str, object] = {}
     raw_task_output: Optional[str] = None
     raw_task_output_truncated: bool = False
+
+
+class ExecutionOperationResultOut(BaseModel):
+    status: str
+    reason: Optional[str] = None
+    message: Optional[str] = None
+    execution_id: int
+    replacement_execution_id: Optional[int] = None
+    detail: ExecutionRunDetailOut
 
 
 class ExecutionCreateRequest(BaseModel):

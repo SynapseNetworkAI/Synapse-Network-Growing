@@ -27,6 +27,12 @@ function statusTone(status: string) {
   return 'muted'
 }
 
+function startLabel(item: ExecutionRun) {
+  if (item.status === 'paused' || item.blocking_reason_code === 'manual_pause') return '继续'
+  if (item.status === 'blocked' && item.recovery_mode === 'restart_current') return '再次启动'
+  return '启动'
+}
+
 export default function ExecutionsPage() {
   const navigate = useNavigate()
   const [executions, setExecutions] = useState<ExecutionRun[]>([])
@@ -114,6 +120,7 @@ export default function ExecutionsPage() {
                         {item.blocking_reason_message}
                       </div>
                     ) : null}
+                    {item.recovery_hint ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{item.recovery_hint}</div> : null}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.execution_mode}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.complexity}</td>
@@ -131,7 +138,7 @@ export default function ExecutionsPage() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.id}`)}>
                         查看
                       </button>
-                      {allowedActions.includes('start') && (
+                      {(allowedActions.includes('start') || allowedActions.includes('resume')) && (
                         <button
                           type="button"
                           className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white"
@@ -140,7 +147,7 @@ export default function ExecutionsPage() {
                             await load()
                           }}
                         >
-                          {item.status === 'paused' ? '继续' : '启动'}
+                          {startLabel(item)}
                         </button>
                       )}
                       {allowedActions.includes('retry') && (
@@ -152,7 +159,7 @@ export default function ExecutionsPage() {
                             await load()
                           }}
                         >
-                          重试
+                          创建新 run 重试
                         </button>
                       )}
                           </>

@@ -47,6 +47,7 @@ from server.schemas import (
     ExecutionChangedFileOut,
     ExecutionFilePreviewOut,
     ExecutionNodeOut,
+    ExecutionOperationResultOut,
     ExecutionRuntimeSummaryOut,
     ExecutionRunDetailOut,
     ExecutionRunOut,
@@ -58,6 +59,7 @@ from server.schemas import (
     ValidationCheckResultOut,
     ValidationRecordSlimOut,
     VerificationPlanOut,
+    WorkspaceBlockerOut,
 )
 from server.logging_utils import get_logger, log_event
 from server.services.agents.execution_resolver import suggest_task_execution
@@ -253,12 +255,144 @@ def _is_current_execution(db: Session, run: ExecutionRunRow) -> bool:
     return latest is not None and int(latest.id) == int(run.id)
 
 
+_RESTARTABLE_BLOCKING_REASONS = {
+    "branch_preparation_blocked",
+    "approval_blocked",
+    "runtime_recovery_blocked",
+    "manual_pause",
+    "assets_not_ready",
+}
+
+_REPLACEMENT_REQUIRED_BLOCKING_REASONS = {
+    "verification_needs_revision",
+    "verification_failed",
+    "verification_inconclusive",
+    "task_failed",
+    "agent_runtime_failed",
+    "execution_logic_failed",
+}
+
+
+def _execution_recovery_mode(
+    *,
+    status: str,
+    phase: str,
+    blocking_reason_code: str | None = None,
+    has_paused_node: bool = False,
+) -> str:
+    reason = str(blocking_reason_code or "").strip()
+    if reason in _RESTARTABLE_BLOCKING_REASONS and (status in {"queued", "blocked"} or phase in {"queued", "branch_preparing", "blocked", "recovering"}):
+        return "restart_current"
+    if status == "failed":
+        return "retry_new_run"
+    if status == "paused" or has_paused_node:
+        return "restart_current"
+    if status != "blocked" and phase not in {"blocked", "recovering"}:
+        return "none"
+    if reason in _RESTARTABLE_BLOCKING_REASONS:
+        return "restart_current"
+    if reason in _REPLACEMENT_REQUIRED_BLOCKING_REASONS:
+        return "retry_new_run"
+    return "none"
+
+
+def _execution_recovery_hint(recovery_mode: str, blocking_reason_code: str | None = None) -> str | None:
+    if recovery_mode == "restart_current":
+        if blocking_reason_code == "branch_preparation_blocked":
+            return "清理目标仓库工作树后可直接再次启动当前 execution。"
+        if blocking_reason_code == "approval_blocked":
+            return "Requirement 批准后可继续当前 execution。"
+        if blocking_reason_code == "runtime_recovery_blocked":
+            return "等待恢复完成，或稍后再次启动当前 execution。"
+        if blocking_reason_code == "manual_pause":
+            return "当前 execution 已暂停，可直接继续。"
+        return "前置阻塞解除后可继续当前 execution。"
+    if recovery_mode == "retry_new_run":
+        return "当前 execution 已形成一次失败尝试，需要创建新 run 重试。"
+    return None
+
+
+def _collect_workspace_blocker(
+    repo_path: str | None,
+    *,
+    base_branch: str | None = None,
+) -> WorkspaceBlockerOut | None:
+    target_path = str(repo_path or "").strip()
+    if not target_path:
+        return None
+    repo = Path(target_path)
+    if not repo.exists():
+        return None
+    try:
+        current_branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(repo),
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(repo),
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if current_branch_result.returncode != 0 or status_result.returncode != 0:
+        return None
+    dirty_entries = [line.rstrip() for line in (status_result.stdout or "").splitlines() if line.strip()]
+    if not dirty_entries:
+        return WorkspaceBlockerOut(
+            repo_path=str(repo),
+            base_branch=str(base_branch or "").strip() or None,
+            current_branch=(current_branch_result.stdout or "").strip() or None,
+            dirty_file_count=0,
+            dirty_files_preview=[],
+            has_untracked=False,
+        )
+    preview: list[str] = []
+    has_untracked = False
+    for entry in dirty_entries[:8]:
+        code = entry[:2]
+        path = entry[3:].strip() if len(entry) > 3 else entry.strip()
+        if code == "??":
+            has_untracked = True
+        preview.append(path or entry.strip())
+    return WorkspaceBlockerOut(
+        repo_path=str(repo),
+        base_branch=str(base_branch or "").strip() or None,
+        current_branch=(current_branch_result.stdout or "").strip() or None,
+        dirty_file_count=len(dirty_entries),
+        dirty_files_preview=preview,
+        has_untracked=has_untracked,
+    )
+
+
+def _execution_workspace_blocker(
+    requirement: RequirementRow,
+    release: ReleaseRecordRow | None,
+    blocking_reason_code: str | None,
+) -> WorkspaceBlockerOut | None:
+    if str(blocking_reason_code or "").strip() != "branch_preparation_blocked":
+        return None
+    repo_path = (
+        str(getattr(release, "target_project_path", "") or "").strip()
+        or str(requirement.target_project_path or "").strip()
+        or None
+    )
+    base_branch = str(getattr(release, "base_branch", "") or "").strip() or "main"
+    return _collect_workspace_blocker(repo_path, base_branch=base_branch)
+
+
 def _execution_allowed_actions(
     run: ExecutionRunRow,
     release: ReleaseRecordRow | None = None,
     *,
     is_current_execution: bool = True,
     has_paused_node: bool = False,
+    blocking_reason_code: str | None = None,
 ) -> list[str]:
     phase = str(getattr(run, "phase", "") or run.status or "queued")
     status = str(getattr(run, "status", "") or _execution_status_from_phase(phase))
@@ -267,13 +401,25 @@ def _execution_allowed_actions(
         if release is not None and int(getattr(release, "execution_run_id", 0) or 0) == int(run.id) and str(getattr(release, "pr_url", "") or "").strip():
             actions.append("view_pr")
         return sorted(set(actions))
+    recovery_mode = _execution_recovery_mode(
+        status=status,
+        phase=phase,
+        blocking_reason_code=blocking_reason_code,
+        has_paused_node=has_paused_node,
+    )
     if phase in {"queued", "branch_preparing"} or status == "queued":
         actions.append("start")
     if phase == "executing" or status == "running":
         actions.append("pause")
     if status == "paused" or has_paused_node:
+        actions.append("start")
         actions.append("resume")
-    if status in {"blocked", "failed"} or phase in {"blocked", "recovering"}:
+    if status == "blocked" or phase in {"blocked", "recovering"}:
+        if recovery_mode == "restart_current":
+            actions.append("start")
+        elif recovery_mode == "retry_new_run":
+            actions.append("retry")
+    elif status == "failed":
         actions.append("retry")
     if status in {"succeeded", "completed"} or phase in {"delivery_ready", "pr_opening", "completed"}:
         if release is None or str(release.status or "") != "pr_opened":
@@ -2185,6 +2331,66 @@ def _next_runnable_node(db: Session, run: ExecutionRunRow) -> ExecutionNodeRow |
     return None
 
 
+def _execution_operation_result(
+    *,
+    status: str,
+    detail: ExecutionRunDetailOut,
+    reason: str | None = None,
+    message: str | None = None,
+    replacement_execution_id: int | None = None,
+) -> ExecutionOperationResultOut:
+    return ExecutionOperationResultOut(
+        status=status,
+        reason=reason,
+        message=message,
+        execution_id=int(detail.execution.id),
+        replacement_execution_id=replacement_execution_id,
+        detail=detail,
+    )
+
+
+def start_execution_command(db: Session, execution_run_id: int) -> ExecutionOperationResultOut:
+    detail = build_execution_detail(db, execution_run_id)
+    if not detail.is_current_execution:
+        return _execution_operation_result(
+            status="invalid_action",
+            reason="not_current_execution",
+            message="Only the current execution run can start.",
+            detail=detail,
+        )
+    if detail.execution.status == "running":
+        return _execution_operation_result(
+            status="noop",
+            reason="already_running",
+            message="Execution is already running.",
+            detail=detail,
+        )
+    if "start" not in set(detail.allowed_actions or []):
+        return _execution_operation_result(
+            status="invalid_action",
+            reason=detail.blocking_reason_code or "not_startable",
+            message=detail.recovery_hint or detail.blocking_reason_message or "This execution cannot be started in its current state.",
+            detail=detail,
+        )
+    try:
+        started = start_execution_run(db, execution_run_id)
+        return _execution_operation_result(
+            status="applied",
+            reason="started",
+            message="Execution start accepted.",
+            detail=started,
+        )
+    except ValueError as exc:
+        blocked_detail = build_execution_detail(db, execution_run_id)
+        operation_status = "blocked" if blocked_detail.blocking_reason_code else "invalid_action"
+        return _execution_operation_result(
+            status=operation_status,
+            reason=blocked_detail.blocking_reason_code or "start_blocked",
+            message=blocked_detail.recovery_hint or blocked_detail.blocking_reason_message or str(exc),
+            detail=blocked_detail,
+        )
+
+
 def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
@@ -3233,6 +3439,21 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
     release = _latest_release(db, int(requirement.id))
     is_current_execution = _is_current_execution(db, run)
     has_paused_node = any(str(getattr(node, "status", "") or "") == "paused" for node in nodes)
+    queue_reason, blocking_reason_code, blocking_reason_message = _execution_reason_payload(
+        run,
+        requirement,
+        validation=validation,
+        release=release,
+        nodes=nodes,
+    )
+    recovery_mode = _execution_recovery_mode(
+        status=str(getattr(run, "status", "") or _execution_status_from_phase(str(getattr(run, "phase", "") or run.status or "queued"))),
+        phase=str(getattr(run, "phase", "") or run.status or "queued"),
+        blocking_reason_code=blocking_reason_code,
+        has_paused_node=has_paused_node,
+    )
+    workspace_blocker = _execution_workspace_blocker(requirement, release, blocking_reason_code)
+    recovery_hint = _execution_recovery_hint(recovery_mode, blocking_reason_code)
     latest_task = _latest_task_for_run(db, run)
     latest_session = _latest_session_for_run_task(db, run)
     node_out: list[ExecutionNodeOut] = []
@@ -3304,9 +3525,16 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
             release,
             is_current_execution=is_current_execution,
             has_paused_node=has_paused_node,
+            blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
         recovery_status=str(getattr(run, "recovery_status", "") or "").strip() or None,
+        recovery_mode=recovery_mode,
+        queue_reason=queue_reason,
+        blocking_reason_code=blocking_reason_code,
+        blocking_reason_message=blocking_reason_message,
+        workspace_blocker=workspace_blocker,
+        recovery_hint=recovery_hint,
         validation_profile=str(run.validation_profile or "minimal"),
         delivery_intent=str(run.delivery_intent or "pr_required"),
         approval_required=bool(run.approval_required),
@@ -3329,16 +3557,6 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
-    queue_reason, blocking_reason_code, blocking_reason_message = _execution_reason_payload(
-        run,
-        requirement,
-        validation=validation,
-        release=release,
-        nodes=nodes,
-    )
-    execution.queue_reason = queue_reason
-    execution.blocking_reason_code = blocking_reason_code
-    execution.blocking_reason_message = blocking_reason_message
     incidents: list[dict[str, object]] = []
     failed_node = next((node for node in nodes if str(node.status or "") == "failed"), None)
     if execution.status in {"blocked", "failed"}:
@@ -3365,12 +3583,16 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
             release,
             is_current_execution=is_current_execution,
             has_paused_node=has_paused_node,
+            blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
         recovery_status=str(getattr(run, "recovery_status", "") or "").strip() or None,
+        recovery_mode=recovery_mode,
         queue_reason=queue_reason,
         blocking_reason_code=blocking_reason_code,
         blocking_reason_message=blocking_reason_message,
+        workspace_blocker=workspace_blocker,
+        recovery_hint=recovery_hint,
         nodes=node_out,
         validation=validation_out,
         verification_result=validation_out,

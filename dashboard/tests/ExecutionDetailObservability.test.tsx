@@ -33,9 +33,12 @@ const detail = {
     allowed_actions: ['pause'],
     pending_operations: [],
     recovery_status: null,
+    recovery_mode: null,
     queue_reason: null,
     blocking_reason_code: null,
     blocking_reason_message: null,
+    workspace_blocker: null,
+    recovery_hint: null,
     validation_profile: 'minimal',
     delivery_intent: 'pr_required',
     approval_required: false,
@@ -83,9 +86,12 @@ const detail = {
   allowed_actions: ['pause'],
   pending_operations: [],
   recovery_status: null,
+  recovery_mode: null,
   queue_reason: null,
   blocking_reason_code: null,
   blocking_reason_message: null,
+  workspace_blocker: null,
+  recovery_hint: null,
   nodes: [
     {
       id: 1,
@@ -304,6 +310,59 @@ describe('Execution detail observability', () => {
     expect(screen.getByText('历史 run')).toBeInTheDocument()
     expect(screen.getByText(/verification_needs_revision/)).toBeInTheDocument()
     expect(screen.getByText(/Verification agent requested revisions/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
+  })
+
+  it('shows restart-current guidance for dirty workspace blockers', async () => {
+    mockApi.getExecution.mockResolvedValue({
+      ...detail,
+      execution: {
+        ...detail.execution,
+        status: 'blocked',
+        phase: 'blocked',
+        allowed_actions: ['start', 'view', 'view_requirement'],
+        recovery_mode: 'restart_current',
+        blocking_reason_code: 'branch_preparation_blocked',
+        blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
+        workspace_blocker: {
+          repo_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+          base_branch: 'main',
+          current_branch: 'main',
+          dirty_file_count: 2,
+          dirty_files_preview: ['server/services/workflows/agent_first.py', 'dashboard/src/pages/ExecutionsPage.tsx'],
+          has_untracked: false,
+        },
+        recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
+      },
+      phase: 'blocked',
+      allowed_actions: ['start', 'view', 'view_requirement'],
+      recovery_mode: 'restart_current',
+      blocking_reason_code: 'branch_preparation_blocked',
+      blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
+      workspace_blocker: {
+        repo_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        base_branch: 'main',
+        current_branch: 'main',
+        dirty_file_count: 2,
+        dirty_files_preview: ['server/services/workflows/agent_first.py', 'dashboard/src/pages/ExecutionsPage.tsx'],
+        has_untracked: false,
+      },
+      recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/executions/1']}>
+        <Routes>
+          <Route path="/executions/:id" element={<ExecutionDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getExecution).toHaveBeenCalledWith(1))
+    expect(screen.getByRole('button', { name: '再次启动' })).toBeInTheDocument()
+    expect(screen.getByText('工作区阻塞详情')).toBeInTheDocument()
+    expect(screen.getByText(/脏文件数量：2/)).toBeInTheDocument()
+    expect(screen.getByText(/agent_first\.py/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 

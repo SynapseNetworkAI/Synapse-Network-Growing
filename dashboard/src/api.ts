@@ -945,6 +945,15 @@ export interface VerificationPlan {
   why_no_verification: string | null
 }
 
+export interface WorkspaceBlocker {
+  repo_path: string
+  base_branch: string | null
+  current_branch: string | null
+  dirty_file_count: number
+  dirty_files_preview: string[]
+  has_untracked: boolean
+}
+
 export interface ValidationRecord {
   id: number
   requirement_id: number
@@ -980,9 +989,12 @@ export interface ExecutionRun {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_mode: string | null
   queue_reason: string | null
   blocking_reason_code: string | null
   blocking_reason_message: string | null
+  workspace_blocker: WorkspaceBlocker | null
+  recovery_hint: string | null
   validation_profile: string
   delivery_intent: string
   approval_required: boolean
@@ -1047,9 +1059,12 @@ export interface ExecutionDetail {
   allowed_actions: string[]
   pending_operations: string[]
   recovery_status: string | null
+  recovery_mode: string | null
   queue_reason: string | null
   blocking_reason_code: string | null
   blocking_reason_message: string | null
+  workspace_blocker: WorkspaceBlocker | null
+  recovery_hint: string | null
   nodes: ExecutionNode[]
   validation: ValidationRecord | null
   verification_result: ValidationRecord | null
@@ -1062,6 +1077,15 @@ export interface ExecutionDetail {
   plan_summary: ExecutionPlan
   raw_task_output: string | null
   raw_task_output_truncated: boolean
+}
+
+export interface ExecutionOperationResult {
+  status: 'applied' | 'noop' | 'blocked' | 'invalid_action'
+  reason: string | null
+  message: string | null
+  execution_id: number
+  replacement_execution_id: number | null
+  detail: ExecutionDetail
 }
 
 export interface ReleaseRecord {
@@ -1779,9 +1803,9 @@ export const api = {
   getExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}`),
   getExecutionFilePreview: (id: number, filePath: string) =>
     request<ExecutionFilePreview>(`/executions/${id}/files/${encodeURIComponent(filePath)}`),
-  startExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/start`, { method: 'POST' }),
+  startExecution: (id: number) => request<ExecutionOperationResult>(`/executions/${id}/start`, { method: 'POST' }),
   pauseExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/pause`, { method: 'POST' }),
-  resumeExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/resume`, { method: 'POST' }),
+  resumeExecution: (id: number) => request<ExecutionOperationResult>(`/executions/${id}/resume`, { method: 'POST' }),
   retryExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/retry`, { method: 'POST' }),
   validateExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/validate`, { method: 'POST' }),
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,16 @@ def _branch_ready_payload(branch_name: str) -> dict[str, object]:
         "blockers": [],
         "repositories": [],
     }
+
+
+def _init_git_repo(repo_path: Path) -> None:
+    repo_path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Tests"], cwd=repo_path, check=True, capture_output=True, text=True)
+    (repo_path / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, capture_output=True, text=True)
 
 
 def _create_project(
@@ -346,9 +357,11 @@ def test_start_execution_is_idempotent_when_already_running(synced_client, db_se
 
     assert rerun_resp.status_code == 200
     payload = rerun_resp.json()
-    assert payload["execution"]["id"] == execution_id
-    assert payload["execution"]["status"] == "running"
-    assert payload["execution"]["phase"] == "executing"
+    assert payload["status"] == "noop"
+    assert payload["reason"] == "already_running"
+    assert payload["detail"]["execution"]["id"] == execution_id
+    assert payload["detail"]["execution"]["status"] == "running"
+    assert payload["detail"]["execution"]["phase"] == "executing"
 
 
 def test_execution_detail_marks_running_codex_cli_session_as_recovering(synced_client, db_session):
@@ -928,6 +941,188 @@ def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced
     assert detail_payload["queue_reason"].startswith("启动失败：")
     assert detail_payload["blocking_reason_code"] == "branch_preparation_blocked"
     assert "dirty worktree" in detail_payload["blocking_reason_message"]
+
+
+def test_branch_preparation_blocker_restarts_same_execution_after_workspace_is_clean(synced_client, db_session, tmp_path):
+    repo_path = tmp_path / "dirty-repo"
+    _init_git_repo(repo_path)
+    (repo_path / "README.md").write_text("dirty\n", encoding="utf-8")
+    project = _create_project(
+        synced_client,
+        project_key="dirty-repo",
+        display_name="Dirty Repo",
+        root_path=str(repo_path),
+        repo_full_name="example/dirty-repo",
+    )
+    requirement = RequirementRow(
+        title="Restart current execution after cleaning workspace",
+        description_markdown="Dirty worktree should block start until the repo is clean.",
+        status="ready",
+        phase="branch_prepared",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path=str(repo_path),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="blocked",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json=json.dumps([str(repo_path)]),
+    )
+    db_session.add(run)
+    db_session.flush()
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(run.id),
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path=str(repo_path),
+        status="release_blocked",
+        branch_name="ops/req-1-restart-current-execution",
+        base_branch="main",
+        notes=f"{repo_path}: dirty worktree on `main` blocks automatic execution branch preparation",
+    )
+    db_session.add(release)
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="queued",
+            sequence_no=1,
+        )
+    )
+    db_session.commit()
+
+    detail_resp = synced_client.get(f"/api/executions/{run.id}")
+    assert detail_resp.status_code == 200
+    detail_payload = detail_resp.json()
+    assert detail_payload["allowed_actions"] == ["start", "view", "view_requirement"]
+    assert detail_payload["blocking_reason_code"] == "branch_preparation_blocked"
+    assert detail_payload["recovery_mode"] == "restart_current"
+    assert detail_payload["workspace_blocker"]["repo_path"] == str(repo_path)
+    assert detail_payload["workspace_blocker"]["dirty_file_count"] >= 1
+    assert "README.md" in "\n".join(detail_payload["workspace_blocker"]["dirty_files_preview"])
+
+    with patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value={
+            "status": "blocked",
+            "branch_name": "ops/req-1-restart-current-execution",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "blockers": [f"{repo_path}: dirty worktree on `main` blocks automatic execution branch preparation"],
+            "repositories": [],
+        },
+    ):
+        blocked_start_resp = synced_client.post(f"/api/executions/{run.id}/start")
+
+    assert blocked_start_resp.status_code == 200
+    blocked_start_payload = blocked_start_resp.json()
+    assert blocked_start_payload["status"] == "blocked"
+    assert blocked_start_payload["execution_id"] == run.id
+    assert blocked_start_payload["detail"]["execution"]["id"] == run.id
+
+    subprocess.run(["git", "checkout", "--", "README.md"], cwd=repo_path, check=True, capture_output=True, text=True)
+
+    with patch("server.services.workflows.agent_first.prepare_requirement_delivery_branch", return_value=_branch_ready_payload("ops/req-1-restart-current-execution")), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="test",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        start_resp = synced_client.post(f"/api/executions/{run.id}/start")
+
+    assert start_resp.status_code == 200
+    start_payload = start_resp.json()
+    assert start_payload["status"] == "applied"
+    assert start_payload["execution_id"] == run.id
+    assert start_payload["replacement_execution_id"] is None
+    assert start_payload["detail"]["execution"]["id"] == run.id
+    assert start_payload["detail"]["execution"]["status"] == "running"
+
+
+def test_verification_blocked_current_execution_exposes_retry_not_start(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="Verification failure requires new run",
+        description_markdown="Verification should require retry, not restart current execution.",
+        status="blocked",
+        phase="needs_revision",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="blocked",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    validation = ValidationRecordRow(
+        requirement_id=int(requirement.id),
+        execution_run_id=int(run.id),
+        profile="minimal",
+        status="needs_revision",
+        summary_markdown="Verification found unfinished work.",
+        suggested_next_action="retry_execution",
+        resolution_path="retry_execution",
+        resolution_reason="A new implementation attempt is required.",
+    )
+    db_session.add(validation)
+    db_session.commit()
+
+    detail_resp = synced_client.get(f"/api/executions/{run.id}")
+    assert detail_resp.status_code == 200
+    detail_payload = detail_resp.json()
+    assert detail_payload["recovery_mode"] == "retry_new_run"
+    assert "retry" in detail_payload["allowed_actions"]
+    assert "start" not in detail_payload["allowed_actions"]
+
+    start_resp = synced_client.post(f"/api/executions/{run.id}/start")
+    assert start_resp.status_code == 200
+    start_payload = start_resp.json()
+    assert start_payload["status"] == "invalid_action"
+    assert start_payload["reason"] == "verification_needs_revision"
 
 
 def test_validation_pass_auto_opens_pr(synced_client, db_session):
@@ -1546,8 +1741,11 @@ def test_start_execution_rejects_finished_run(synced_client, db_session):
 
     resp = synced_client.post(f"/api/executions/{run.id}/start")
 
-    assert resp.status_code == 400
-    assert "Only queued or paused execution runs can start." == resp.json()["detail"]
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "invalid_action"
+    assert payload["reason"] == "not_startable"
+    assert "cannot be started" in payload["message"]
 
 
 def test_retry_execution_creates_new_run_and_auto_starts_replacement(synced_client, db_session):
