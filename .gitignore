@@ -218,6 +218,9 @@ dashboard/playwright-report/
 # SQLite
 *.db
 *.db-shm
+
+# Local workdirs
+tmp/Synapse-Network-workdir/
 *.db-wal
 .DS_Store
 
@@ -236,3 +239,4 @@ file-changes.json
 roles/*/outputs/task-*/
 runtime/
 server/logs/
+tmp/
