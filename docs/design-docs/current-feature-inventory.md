@@ -20,6 +20,8 @@
    - 仅未进入 execution 主链的 requirement 可编辑。
    - 可修改标题、项目、描述、验收标准、优先级与高级路径覆盖。
 4. 删除 requirement。
+   - 仅 requirement 前置阶段允许删除。
+   - 一旦已有 execution 主链，就不再允许 delete。
 5. requirement submit。
    - submit 是 requirement 进入 execution 的唯一正式桥接点。
    - approval 放行后会先确保 acceptance contract 与 execution plan 可用，再在目标项目上 prepare branch，随后创建并自动启动 execution。
@@ -96,6 +98,33 @@
 7. rollback。
 8. deployment history 展示。
 9. release 与 deployment 配置从正式 Project 主数据读取。
+
+## 3.1 Error Discovery / Self-Healing 面
+
+当前已具备：
+
+1. 统一错误发现入口。
+   - `/api/errors/intake`
+   - `/api/bugs/intake/log-center`
+   - `bug_log_sweep`
+2. 统一 discovery pipeline。
+   - 错误先形成 `error_fingerprint / bug_record`
+   - 再由 discovery recommendation 与硬规则决定是否 materialize requirement
+3. discovery recommendation 正式字段。
+   - `auto_materialize`
+   - `queue_for_operator`
+   - `ignore_as_noise`
+4. Error Fingerprint / Bug Record 会返回：
+   - `discovery_status`
+   - `discovery_recommendation`
+   - `materialized_requirement_id`
+   - `last_discovery_at`
+5. 错误自修复 v1 范围固定为 defect self-healing。
+   - 包含：runtime error、external log center、task failure、workflow incident、verification 暴露的系统性缺陷
+   - 不包含：机会发现、新增功能自动发现、市场/运营信号
+6. requirement execution approval 已采用 `approval agent 先审，人兜底` 口径。
+   - 低风险高置信度自动放行
+   - 高风险或低置信度转人工
 
 ## 4. Project 面
 

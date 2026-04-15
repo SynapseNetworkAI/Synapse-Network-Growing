@@ -82,6 +82,14 @@ Requirement 到 Execution 的正式桥接规则：
 6. execution approval 只决定能否执行，不替代 release gate
 7. acceptance contract 只定义完成标准；最终 verification plan 在 execution 完成后由 verification agent 基于真实执行证据晚绑定生成
 8. requirement 只跟踪最新 execution run；replacement run 创建后旧 run 会降级为历史 run，queued / blocked 的真实原因通过正式接口字段返回，而不是由前端猜测
+9. 错误自修复采用统一 discovery pipeline，而不是让各错误入口各自决定 requirement 行为。
+   - `/api/errors/intake`、`/api/bugs/intake/log-center`、`bug_log_sweep`
+   - 先形成 `error_fingerprint / bug_record`
+   - 再由 discovery recommendation + hard rules 决定是否 materialize requirement
+10. approval 已收口为 `approval agent 先审，人兜底`。
+   - agent 负责推荐 `approve / waive / revise / route_to_human`
+   - policy 负责高风险硬边界
+   - 人主要只处理高风险或低置信度 case
 
 Requirement 面不再承担：
 

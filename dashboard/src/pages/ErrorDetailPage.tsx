@@ -118,6 +118,17 @@ export default function ErrorDetailPage() {
         <div className="space-y-[var(--ops-section-gap)]">
           <InspectorRail eyebrow="Linked Requirement" title="需求与执行">
             <div>
+              <FieldLabel>Discovery</FieldLabel>
+              <div className="mt-2 text-[color:var(--ops-text-muted)]">
+                {fingerprint.discovery_recommendation?.discovery_action || fingerprint.discovery_status || '-'}
+              </div>
+              {fingerprint.discovery_recommendation?.reason ? (
+                <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
+                  {fingerprint.discovery_recommendation.reason}
+                </div>
+              ) : null}
+            </div>
+            <div>
               <FieldLabel>Requirement</FieldLabel>
               <div className="mt-2 text-[color:var(--ops-text-muted)]">
                 {detail.requirement ? `#${detail.requirement.id} · ${detail.requirement.title}` : '-'}

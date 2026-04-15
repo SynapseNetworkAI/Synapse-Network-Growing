@@ -10,6 +10,12 @@ from sqlalchemy.orm import Session
 from server.database import BugRecordRow, CompanyOperatingReviewRow, OptimizationSignalRow, ProjectPolicyRow, RequirementRow
 from server.schemas import RequirementCreate
 from server.schemas import OptimizationSignalAutoIntakeRequest
+from server.services.bugs.discovery import (
+    build_bug_discovery_recommendation,
+    resolve_or_create_signal_project,
+    update_bug_discovery_state,
+)
+from server.services.projects.project_center import ensure_projects_materialized
 
 
 DEFAULT_INTAKE_CONFIDENCE_BY_SOURCE = {
@@ -346,19 +352,20 @@ def materialize_bug_backlog(
     auto_start: bool = False,
     min_score: float = 60.0,
     max_created: int = 1,
+    bug_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     from server.services.bugs.log_sweep import run_bug_log_sweep
     from server.services.workflows.agent_first import create_requirement
 
     if refresh:
         run_bug_log_sweep(db)
+    ensure_projects_materialized(db)
 
-    rows = (
-        db.query(BugRecordRow)
-        .filter(BugRecordRow.status == "open")
-        .order_by(BugRecordRow.last_seen_at.desc(), BugRecordRow.id.desc())
-        .all()
-    )
+    if bug_ids:
+        query = db.query(BugRecordRow).filter(BugRecordRow.id.in_([int(item) for item in bug_ids]))
+    else:
+        query = db.query(BugRecordRow).filter(BugRecordRow.status == "open")
+    rows = query.order_by(BugRecordRow.last_seen_at.desc(), BugRecordRow.id.desc()).all()
     rows.sort(key=lambda row: (-_bug_score_total(row), -(int(getattr(row, "id", 0) or 0))))
 
     created_requirement_ids: list[int] = []
@@ -370,21 +377,65 @@ def materialize_bug_backlog(
     for row in rows:
         bug_id = int(row.id)
         scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
+        recommendation = build_bug_discovery_recommendation(row)
+        update_bug_discovery_state(row, recommendation=recommendation, status="recommended")
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
         total = _bug_score_total(row)
-        if not _bug_auto_intake_eligible(row):
+        action = str(recommendation.get("discovery_action") or "queue_for_operator")
+        if action == "ignore_as_noise":
+            update_bug_discovery_state(row, recommendation=recommendation, status="ignored_as_noise")
+            db.add(row)
+            db.commit()
+            skipped.append(f"bug #{bug_id} ignored as noise")
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "ignored_as_noise",
+                    "action": "ignore_as_noise",
+                    "bug_id": bug_id,
+                    "source_ref": f"bug-intake:{bug_id}",
+                }
+            )
+            continue
+        if action != "auto_materialize":
+            update_bug_discovery_state(row, recommendation=recommendation, status="queued_for_operator")
+            db.add(row)
+            db.commit()
+            skipped.append(f"bug #{bug_id} queued for operator review")
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "queued_for_operator",
+                    "action": "queue_for_operator",
+                    "bug_id": bug_id,
+                    "source_ref": f"bug-intake:{bug_id}",
+                }
+            )
+            continue
+        severity = str(getattr(row, "severity", "normal") or "normal").strip().lower()
+        if not _bug_auto_intake_eligible(row) and severity not in {"high", "critical"}:
+            update_bug_discovery_state(row, recommendation=recommendation, status="queued_for_operator")
+            db.add(row)
+            db.commit()
             skipped.append(f"bug #{bug_id} not auto-intake eligible")
             continue
-        if not _bug_is_high_value(row, min_score=min_score):
-            skipped.append(f"bug #{bug_id} not high value enough")
-            continue
-        if total < float(min_score):
-            skipped.append(f"bug #{bug_id} below threshold")
+        if not _bug_is_high_value(row, min_score=min_score) and severity not in {"high", "critical"}:
+            update_bug_discovery_state(row, recommendation=recommendation, status="queued_for_operator")
+            db.add(row)
+            db.commit()
+            skipped.append(f"bug #{bug_id} below materialization threshold")
             continue
 
         source_ref = f"bug-intake:{bug_id}"
         if row.converted_requirement_id is not None:
             existing = db.query(RequirementRow).filter(RequirementRow.id == int(row.converted_requirement_id)).first()
             if existing is not None:
+                update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
+                db.add(row)
+                db.commit()
                 reused_requirement_ids.append(int(existing.id))
                 items.append(
                     {
@@ -401,6 +452,7 @@ def materialize_bug_backlog(
         if existing is not None:
             row.converted_requirement_id = int(existing.id)
             row.status = "converted"
+            update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
             db.add(row)
             db.commit()
             reused_requirement_ids.append(int(existing.id))
@@ -419,6 +471,7 @@ def materialize_bug_backlog(
         if reusable is not None:
             row.converted_requirement_id = int(reusable.id)
             row.status = "converted"
+            update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
             db.add(row)
             db.commit()
             reused_requirement_ids.append(int(reusable.id))
@@ -435,12 +488,35 @@ def materialize_bug_backlog(
             continue
 
         confidence = round(max(0.6, min(0.98, total / 100.0)), 2)
+        target_project_path = _bug_target_project_path(db, row)
+        project = resolve_or_create_signal_project(
+            db,
+            project_key=str(getattr(row, "project_key", "") or "").strip() or None,
+            project_root_path=target_project_path,
+            display_name=str(getattr(row, "project_key", "") or "").strip() or None,
+        )
+        if project is None:
+            update_bug_discovery_state(row, recommendation=recommendation, status="queued_for_operator")
+            db.add(row)
+            db.commit()
+            skipped.append(f"bug #{bug_id} has no valid project binding")
+            items.append(
+                {
+                    "source_key": "bug_intake",
+                    "status": "queued_for_operator",
+                    "action": "queue_for_operator",
+                    "bug_id": bug_id,
+                    "source_ref": source_ref,
+                }
+            )
+            continue
         body = RequirementCreate(
             title=f"Bug Fix: {row.title}",
             description_markdown=_bug_description_markdown(row),
             priority=_bug_priority(row),
             source="bug_intake",
             source_ref=source_ref,
+            project_id=int(project.id),
             intake_metadata=normalize_requirement_intake_metadata(
                 "bug_intake",
                 source_ref,
@@ -449,23 +525,27 @@ def materialize_bug_backlog(
                     "confidence": confidence,
                     "intake_mode": "automatic" if auto_start else "operator",
                     "registry_hint": "bug_intake",
-                    "trigger": "bug_backlog_materialize",
+                    "trigger": "bug_discovery_materialize",
                     "bug_id": bug_id,
                     "bug_fingerprint": str(getattr(row, "fingerprint", "") or "").strip() or None,
                     "bug_signature": _bug_signature(row) or None,
+                    "discovery_action": str(recommendation.get("discovery_action") or ""),
+                    "discovery_confidence": recommendation.get("confidence"),
+                    "discovery_reason": str(recommendation.get("reason") or ""),
                     "scorecard_priority": str(scorecard.get("priority") or _bug_priority(row)),
                     "blocker_flags": _bug_blocker_flags(row),
                     "affected_project_keys": _bug_affected_project_keys(row),
                     "cross_project_recovery": _bug_is_cross_project(row, db),
                 },
             ),
-            target_project_path=_bug_target_project_path(db, row),
+            target_project_path=target_project_path,
             auto_start=auto_start,
             approval_contract=_bug_approval_contract(db, row),
         )
         detail = create_requirement(db, body)
         row.converted_requirement_id = int(detail.requirement.id)
         row.status = "converted"
+        update_bug_discovery_state(row, recommendation=recommendation, status="materialized")
         db.add(row)
         db.commit()
         created_requirement_ids.append(int(detail.requirement.id))

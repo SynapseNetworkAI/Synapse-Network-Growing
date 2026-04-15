@@ -1149,7 +1149,19 @@ export interface ErrorFingerprint {
   latest_seen_at: string | null
   latest_error_event_id: number | null
   linked_requirement_id: number | null
+  materialized_requirement_id?: number | null
   latest_execution_run_id: number | null
+  discovery_status?: string
+  discovery_recommendation?: {
+    discovery_action: string
+    confidence: number
+    reason: string
+    target_project_key: string | null
+    suggested_title: string | null
+    suggested_priority: string | null
+    auto_start_allowed: boolean
+  } | null
+  last_discovery_at?: string | null
 }
 
 export interface ErrorFingerprintDetail {

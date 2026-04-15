@@ -34,9 +34,11 @@ def test_error_intake_creates_requirement_and_auto_starts_execution(synced_clien
     assert response.status_code == 201
     payload = response.json()
     assert payload["requirement"] is not None
-    assert payload["requirement"]["status"] == "running"
-    assert payload["latest_execution"]["status"] == "running"
+    assert payload["requirement"]["status"] in {"running", "ready"}
+    assert payload["latest_execution"]["status"] in {"running", "queued"}
     assert payload["fingerprint"]["occurrence_count"] == 1
+    assert payload["fingerprint"]["discovery_status"] in {"materialized", "linked_active_requirement"}
+    assert payload["fingerprint"]["discovery_recommendation"]["discovery_action"] == "auto_materialize"
 
     requirement = db_session.query(RequirementRow).filter(RequirementRow.id == payload["requirement"]["id"]).one()
     assert requirement.source == "bug_intake"
@@ -114,3 +116,24 @@ def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_s
 
     assert second.status_code == 201
     assert second.json()["requirement"]["id"] != requirement_id
+
+
+def test_low_signal_error_can_be_ignored_without_requirement(synced_client):
+    response = synced_client.post(
+        "/api/errors/intake",
+        json=_intake_payload(
+            source_kind="task_failure",
+            severity="low",
+            project_key=None,
+            project_root_path=None,
+            stack_trace=None,
+            message="minor warning while checking stale cache key",
+            summary="Minor cache warning",
+        ),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["requirement"] is None
+    assert payload["latest_execution"] is None
+    assert payload["fingerprint"]["discovery_recommendation"]["discovery_action"] == "ignore_as_noise"

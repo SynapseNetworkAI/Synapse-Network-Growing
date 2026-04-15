@@ -364,17 +364,32 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 1. 聚合高信号错误 fingerprint
 2. 展示 linked requirement / execution
 3. 展示 occurrence、latest seen 和稳定性摘要
+4. 展示 discovery recommendation，明确当前 fingerprint 是：
+   - `auto_materialize`
+   - `queue_for_operator`
+   - `ignore_as_noise`
 
 后端接口：
 
 1. `GET /api/errors`
 2. `POST /api/errors/intake`
 
+统一 discovery 语义：
+
+1. `/api/errors/intake` 不再自己单独决定 requirement 策略。
+2. 它会先形成 `error_fingerprint` 与 `error_event`。
+3. 然后由 discovery recommendation 与 system rules 决定：
+   - 是否自动 materialize requirement
+   - 是否只排入 operator backlog
+   - 是否视为噪声忽略
+4. 已 materialize 的 fingerprint 会继续进入 requirement → execution → verification → PR 主链。
+
 ### 6.2 `/errors/:fingerprintKey`
 
 1. 查看单个错误 fingerprint 的事件证据
 2. 查看 linked requirement / execution / release
 3. 查看 Lark 告警发送历史
+4. 查看 discovery recommendation 与当前 self-healing 决策
 
 后端接口：
 
@@ -412,6 +427,18 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 4. 在 `/executions/:id` 观察执行与 verification verdict
 5. verification passed 后，在 `/releases/:requirementId` 做 PR / deploy / rollback
 6. 如果来自错误回流，可在 `/errors` 追踪 fingerprint 与通知历史
+
+错误自修复 v1 的正式闭环：
+
+1. 线上错误、runtime 日志、task failure、workflow incident 进入统一 discovery pipeline
+2. 先形成 `error_fingerprint / bug_record`
+3. discovery recommendation 决定：
+   - `auto_materialize`
+   - `queue_for_operator`
+   - `ignore_as_noise`
+4. materialized requirement 继续走 acceptance contract、execution plan、execution、verification、PR
+5. verification failure 默认优先 `retry_execution`
+6. 只有明显超出原需求边界时，才走 follow-up requirement 或人工兜底
 
 ## 9. 快速验证清单
 
@@ -452,6 +479,15 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 2. `source_kind` 是否属于 `runtime_log_error / task_failure / workflow_incident`
 3. fingerprint 是否被归并到了已有 requirement
 4. alert webhook 是否已在配置中设置
+
+### 10.4 错误已经入库但没有自动创建 requirement
+
+先检查：
+
+1. fingerprint / bug record 的 `discovery_action` 是否为 `queue_for_operator` 或 `ignore_as_noise`
+2. 是否已经存在 active requirement，因此被复用而不是重复 materialize
+3. 项目是否属于高风险，需要人工审批后才能真正启动 execution
+4. 当前 retry budget 是否已耗尽，导致系统保守收口
 
 ### 8.3 release 里没有候选
 

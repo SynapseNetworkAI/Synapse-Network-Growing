@@ -130,6 +130,13 @@ Requirement 与 Execution 当前还有三条正式约束：
 8. requirement 创建后先保存，再在后台异步生成 acceptance contract 与 execution plan；资产未 ready 前不能 submit。
 9. 同一 requirement 任意时刻只认最新 execution run 为当前主链；历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
 10. `retry` 的产品语义是“创建 replacement run 并立即自动尝试启动”；若启动失败，execution 会返回明确的 `queue_reason / blocking_reason_*`，而不是只显示 `queued / blocked`。
+11. 错误自修复 v1 已经进入正式主链。
+   - `/api/errors/intake`、`/api/bugs/intake/log-center`、`bug_log_sweep` 都会先进入统一 discovery pipeline。
+   - 系统先形成 `error_fingerprint / bug_record`，再由 discovery recommendation 与硬规则决定是 `auto_materialize`、`queue_for_operator` 还是 `ignore_as_noise`。
+   - requirement materialize 后继续走 acceptance contract、execution plan、execution、verification、PR 的 agent-first 主链。
+12. Approval 已按 `approval agent 先审，人兜底` 的方式正式化。
+   - 低风险且高置信度的 requirement 会自动放行。
+   - 高风险或低置信度仍保留人工 execution approval。
 
 ## Browser Automation
 

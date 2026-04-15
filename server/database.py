@@ -393,6 +393,9 @@ class BugRecordRow(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     scorecard_json = Column(Text, nullable=False, default="{}")
     converted_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    discovery_status = Column(Text, nullable=False, default="pending")
+    discovery_recommendation_json = Column(Text, nullable=False, default="{}")
+    last_discovery_at = Column(DateTime)
     first_seen_at = Column(DateTime, nullable=False, default=utcnow)
     last_seen_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -893,6 +896,9 @@ class ErrorFingerprintRow(Base):
     occurrence_count = Column(Integer, nullable=False, default=1)
     latest_error_event_id = Column(Integer)
     linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    discovery_status = Column(Text, nullable=False, default="pending")
+    discovery_recommendation_json = Column(Text, nullable=False, default="{}")
+    last_discovery_at = Column(DateTime)
     metadata_json = Column(Text, nullable=False, default="{}")
     first_seen_at = Column(DateTime, nullable=False, default=utcnow)
     latest_seen_at = Column(DateTime, nullable=False, default=utcnow)
@@ -1168,11 +1174,18 @@ def _migrate(engine_):
         BugRecordRow.__table__.create(bind=engine_, checkfirst=True)
     else:
         existing = {c["name"] for c in insp.get_columns("bug_records")}
-        if "scorecard_json" not in existing:
-            logger.info("Migrating: adding 'scorecard_json' column to bug_records table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE bug_records ADD COLUMN scorecard_json TEXT DEFAULT '{}'"))
-                conn.commit()
+        bug_cols = {
+            "scorecard_json": "TEXT DEFAULT '{}'",
+            "discovery_status": "TEXT DEFAULT 'pending'",
+            "discovery_recommendation_json": "TEXT DEFAULT '{}'",
+            "last_discovery_at": "DATETIME",
+        }
+        for col, col_type in bug_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to bug_records table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE bug_records ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "codex_sessions" not in tables:
         logger.info("Migrating: creating 'codex_sessions' table")
@@ -1277,6 +1290,19 @@ def _migrate(engine_):
     if "error_fingerprints" not in tables:
         logger.info("Migrating: creating 'error_fingerprints' table")
         ErrorFingerprintRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("error_fingerprints")}
+        fingerprint_cols = {
+            "discovery_status": "TEXT DEFAULT 'pending'",
+            "discovery_recommendation_json": "TEXT DEFAULT '{}'",
+            "last_discovery_at": "DATETIME",
+        }
+        for col, col_type in fingerprint_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to error_fingerprints table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE error_fingerprints ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "error_events" not in tables:
         logger.info("Migrating: creating 'error_events' table")

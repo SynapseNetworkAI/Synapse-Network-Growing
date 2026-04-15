@@ -33,6 +33,12 @@ from server.schemas import (
 from server.logging_utils import get_logger, log_event
 from server.services.requirements.sources import ACTIVE_BUG_REQUIREMENT_STATUSES, normalize_requirement_intake_metadata
 from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
+from server.services.bugs.discovery import (
+    build_error_discovery_recommendation,
+    resolve_or_create_signal_project,
+    update_error_discovery_state,
+)
+from server.services.projects.project_center import ensure_projects_materialized
 from server.services.workflows.agent_first import (
     build_execution_detail,
     build_release_detail,
@@ -217,6 +223,7 @@ def _event_to_out(row: ErrorEventRow) -> ErrorEventOut:
 def _fingerprint_to_out(row: ErrorFingerprintRow, db: Session) -> ErrorFingerprintOut:
     requirement = _requirement_to_out(int(row.linked_requirement_id), db) if row.linked_requirement_id is not None else None
     latest_execution_id = requirement.latest_execution_run_id if requirement is not None else None
+    discovery = _json_load(getattr(row, "discovery_recommendation_json", None), {})
     return ErrorFingerprintOut(
         fingerprint_key=str(row.fingerprint_key or ""),
         source_kind=str(row.source_kind or ""),
@@ -233,7 +240,11 @@ def _fingerprint_to_out(row: ErrorFingerprintRow, db: Session) -> ErrorFingerpri
         latest_seen_at=row.latest_seen_at,
         latest_error_event_id=int(row.latest_error_event_id) if row.latest_error_event_id is not None else None,
         linked_requirement_id=int(row.linked_requirement_id) if row.linked_requirement_id is not None else None,
+        materialized_requirement_id=int(row.linked_requirement_id) if row.linked_requirement_id is not None else None,
         latest_execution_run_id=latest_execution_id,
+        discovery_status=str(getattr(row, "discovery_status", None) or "pending"),
+        discovery_recommendation=discovery or None,
+        last_discovery_at=getattr(row, "last_discovery_at", None),
     )
 
 
@@ -422,6 +433,7 @@ def build_error_fingerprint_detail(db: Session, fingerprint_key: str) -> ErrorFi
 
 
 def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprintDetailOut:
+    ensure_projects_materialized(db)
     source_kind = str(body.source_kind or "").strip()
     if source_kind not in ALLOWED_ERROR_SOURCE_KINDS:
         raise ValueError("source_kind must be one of runtime_log_error|task_failure|workflow_incident")
@@ -509,79 +521,126 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     source_ref = f"error-fingerprint:{fingerprint_key}"
     requirement = _active_requirement_for_fingerprint(db, fingerprint_key)
     created_requirement = False
-    if requirement is None:
-        body_payload = RequirementCreate(
-            title=f"Error Recovery: {body.summary.strip()[:96]}",
-            description_markdown=_error_description_markdown(
-                body=body,
-                fingerprint_key=fingerprint_key,
-                evidence_excerpt=evidence_excerpt,
-                error_page_url=error_page_url,
-            ),
-            acceptance_criteria_markdown=_error_acceptance_markdown(body.service_name.strip()),
-            priority=_priority_for_severity(severity),
-            source="bug_intake",
-            source_ref=source_ref,
-            intake_metadata=normalize_requirement_intake_metadata(
-                "bug_intake",
-                source_ref,
-                {
-                    "intake_reason": "materialized_from_error_event",
-                    "confidence": 0.93,
-                    "intake_mode": "automatic",
-                    "registry_hint": "error_auto_loop",
-                    "trigger": "error_events_intake",
-                    "fingerprint_key": fingerprint_key,
-                    "source_kind": source_kind,
-                    "service_name": body.service_name.strip(),
-                    "project_key": str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
-                    "severity": severity,
-                    "occurrence_count": int(fingerprint.occurrence_count or 1),
-                    "first_seen_at": occurred_at.isoformat(),
-                    "latest_seen_at": occurred_at.isoformat(),
-                    "latest_error_event_id": int(event.id),
-                    "evidence_excerpt": evidence_excerpt,
-                    "linked_error_page_url": error_page_url,
-                    "affected_project_keys": [str(body.project_key or getattr(policy, "project_key", "") or "").strip()] if str(body.project_key or getattr(policy, "project_key", "") or "").strip() else [],
-                },
-            ),
-            target_project_path=target_project_path,
-            approval_contract=_error_approval_contract(
-                body,
-                project_count=len([item for item in str(target_project_path or "").splitlines() if item.strip()]) or 1,
-            ),
-        )
-        requirement = create_requirement(db, body_payload).requirement
-        requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
-        created_requirement = requirement is not None
-        if requirement is not None:
-            log_event(
-                logger,
-                "error_requirement_materialized",
-                fingerprint_key=fingerprint_key,
-                requirement_id=int(requirement.id),
-                source_kind=source_kind,
-                severity=severity,
-                created_from_error=True,
-            )
-
-    if requirement is None:
-        raise ValueError("Failed to materialize requirement for error fingerprint.")
-
-    fingerprint.linked_requirement_id = int(requirement.id)
-    _refresh_requirement_intake_metadata(
-        requirement,
+    recommendation = build_error_discovery_recommendation(fingerprint)
+    log_event(
+        logger,
+        "error_discovery_recommendation",
         fingerprint_key=fingerprint_key,
-        body=body,
-        event=event,
+        discovery_action=str(recommendation.get("discovery_action") or ""),
+        confidence=recommendation.get("confidence"),
+        severity=severity,
         occurrence_count=int(fingerprint.occurrence_count or 1),
-        error_page_url=error_page_url,
     )
+    if requirement is not None:
+        update_error_discovery_state(fingerprint, recommendation=recommendation, status="linked_active_requirement")
+    elif str(recommendation.get("discovery_action") or "") == "auto_materialize":
+        project = resolve_or_create_signal_project(
+            db,
+            project_key=str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
+            project_root_path=target_project_path,
+            display_name=str(body.project_key or getattr(policy, "project_key", "") or body.service_name or "").strip() or None,
+        )
+        if project is None:
+            update_error_discovery_state(fingerprint, recommendation=recommendation, status="queued_for_operator")
+            db.add(fingerprint)
+            db.commit()
+            requirement = None
+        else:
+            update_error_discovery_state(fingerprint, recommendation=recommendation, status="recommended")
+            body_payload = RequirementCreate(
+                title=str(recommendation.get("suggested_title") or f"Error Recovery: {body.summary.strip()[:96]}"),
+                description_markdown=_error_description_markdown(
+                    body=body,
+                    fingerprint_key=fingerprint_key,
+                    evidence_excerpt=evidence_excerpt,
+                    error_page_url=error_page_url,
+                ),
+                acceptance_criteria_markdown=_error_acceptance_markdown(body.service_name.strip()),
+                priority=_priority_for_severity(severity),
+                source="bug_intake",
+                source_ref=source_ref,
+                project_id=int(project.id),
+                intake_metadata=normalize_requirement_intake_metadata(
+                    "bug_intake",
+                    source_ref,
+                    {
+                        "intake_reason": "materialized_from_error_event",
+                        "confidence": 0.93,
+                        "intake_mode": "automatic",
+                        "registry_hint": "error_auto_loop",
+                        "trigger": "error_events_intake",
+                        "fingerprint_key": fingerprint_key,
+                        "source_kind": source_kind,
+                        "service_name": body.service_name.strip(),
+                        "project_key": str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
+                        "severity": severity,
+                        "discovery_action": str(recommendation.get("discovery_action") or ""),
+                        "discovery_confidence": recommendation.get("confidence"),
+                        "discovery_reason": str(recommendation.get("reason") or ""),
+                        "occurrence_count": int(fingerprint.occurrence_count or 1),
+                        "first_seen_at": occurred_at.isoformat(),
+                        "latest_seen_at": occurred_at.isoformat(),
+                        "latest_error_event_id": int(event.id),
+                        "evidence_excerpt": evidence_excerpt,
+                        "linked_error_page_url": error_page_url,
+                        "affected_project_keys": [str(body.project_key or getattr(policy, "project_key", "") or "").strip()] if str(body.project_key or getattr(policy, "project_key", "") or "").strip() else [],
+                    },
+                ),
+                target_project_path=target_project_path,
+                approval_contract=_error_approval_contract(
+                    body,
+                    project_count=len([item for item in str(target_project_path or "").splitlines() if item.strip()]) or 1,
+                ),
+            )
+            requirement = create_requirement(db, body_payload).requirement
+            requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
+            created_requirement = requirement is not None
+            if requirement is not None:
+                update_error_discovery_state(fingerprint, recommendation=recommendation, status="materialized")
+                log_event(
+                    logger,
+                    "error_requirement_materialized",
+                    fingerprint_key=fingerprint_key,
+                    requirement_id=int(requirement.id),
+                    source_kind=source_kind,
+                    severity=severity,
+                    created_from_error=True,
+                )
+    elif str(recommendation.get("discovery_action") or "") == "queue_for_operator":
+        update_error_discovery_state(fingerprint, recommendation=recommendation, status="queued_for_operator")
+    else:
+        update_error_discovery_state(fingerprint, recommendation=recommendation, status="ignored_as_noise")
+
+    if requirement is not None:
+        fingerprint.linked_requirement_id = int(requirement.id)
+        _refresh_requirement_intake_metadata(
+            requirement,
+            fingerprint_key=fingerprint_key,
+            body=body,
+            event=event,
+            occurrence_count=int(fingerprint.occurrence_count or 1),
+            error_page_url=error_page_url,
+        )
+    db.add(fingerprint)
     db.commit()
 
     execution_id: int | None = None
-    active_status = str(requirement.status or "")
-    if created_requirement or active_status in {"draft", "ready", "blocked", "needs_revision"}:
+    active_status = str(requirement.status or "") if requirement is not None else ""
+    latest_execution = (
+        db.query(ExecutionRunRow)
+        .filter(ExecutionRunRow.requirement_id == int(requirement.id))
+        .order_by(ExecutionRunRow.id.desc())
+        .first()
+        if requirement is not None
+        else None
+    )
+    latest_execution_id = int(latest_execution.id) if latest_execution is not None else 0
+    should_submit_requirement = requirement is not None and (
+        created_requirement
+        or latest_execution_id <= 0
+        or active_status in {"draft", "needs_revision"}
+    )
+    if should_submit_requirement:
         detail = submit_requirement(db, int(requirement.id))
         execution_id = detail.approval.execution_run_id
         log_event(
@@ -593,7 +652,7 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
             approval_status=str(detail.requirement.approval_status or ""),
             requirement_status=str(detail.requirement.status or ""),
         )
-    else:
+    elif requirement is not None:
         detail = build_requirement_detail(db, int(requirement.id))
         execution_id = detail.latest_execution_id
 
@@ -602,7 +661,7 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
         fingerprint_key=fingerprint_key,
         body=body,
         event_id=int(event.id),
-        requirement_id=int(requirement.id),
+        requirement_id=int(requirement.id) if requirement is not None else None,
         execution_id=execution_id,
         error_page_url=error_page_url,
     )

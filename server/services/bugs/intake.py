@@ -137,7 +137,9 @@ def _score_bug_record(
     priority = _priority_from_total(total, severity, blocker_flags)
     policy = dict(source.get("auto_requirement_policy") or {})
     auto_allowed = bool(policy.get("allowed", False))
-    auto_intake_eligible = auto_allowed and (priority in {"critical", "high"} or total >= 65.0)
+    auto_intake_eligible = auto_allowed and (
+        severity in {"high", "critical"} or priority in {"critical", "high"} or total >= 65.0
+    )
     return {
         "severity_score": round(severity_score, 2),
         "recurrence_score": round(recurrence_score, 2),
@@ -230,6 +232,7 @@ def _merge_evidence(existing: list[dict[str, object]], incoming: dict[str, objec
 
 
 def serialize_bug_record(row: BugRecordRow) -> dict[str, object]:
+    discovery = _json_loads(getattr(row, "discovery_recommendation_json", None), {})
     return {
         "id": int(row.id),
         "bug_key": str(row.bug_key or ""),
@@ -249,6 +252,10 @@ def serialize_bug_record(row: BugRecordRow) -> dict[str, object]:
         "metadata": _json_loads(row.metadata_json, {}),
         "scorecard": _json_loads(row.scorecard_json, {}),
         "converted_requirement_id": row.converted_requirement_id,
+        "materialized_requirement_id": row.converted_requirement_id,
+        "discovery_status": str(getattr(row, "discovery_status", None) or "pending"),
+        "discovery_recommendation": discovery or None,
+        "last_discovery_at": row.last_discovery_at,
         "first_seen_at": row.first_seen_at,
         "last_seen_at": row.last_seen_at,
         "created_at": row.created_at,
@@ -306,6 +313,10 @@ def intake_bug(db: Session, body: BugIntakeRequest) -> dict[str, object]:
         db.add(row)
         db.commit()
         db.refresh(row)
+        from server.services.requirements.sources import materialize_bug_backlog
+
+        materialize_bug_backlog(db, refresh=False, auto_start=True, min_score=60.0, max_created=1, bug_ids=[int(row.id)])
+        db.refresh(row)
         return {"result": "created", "bug": serialize_bug_record(row)}
 
     evidence_items = _json_loads(existing.evidence_json, [])
@@ -334,6 +345,10 @@ def intake_bug(db: Session, body: BugIntakeRequest) -> dict[str, object]:
     )
     db.add(existing)
     db.commit()
+    db.refresh(existing)
+    from server.services.requirements.sources import materialize_bug_backlog
+
+    materialize_bug_backlog(db, refresh=False, auto_start=True, min_score=60.0, max_created=1, bug_ids=[int(existing.id)])
     db.refresh(existing)
     return {
         "result": "deduped" if deduped else "updated",

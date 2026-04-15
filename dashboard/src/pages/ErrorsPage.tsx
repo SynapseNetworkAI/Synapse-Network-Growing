@@ -71,6 +71,7 @@ export default function ErrorsPage() {
                 <th className="px-5 py-4 font-medium">服务</th>
                 <th className="px-4 py-4 font-medium">严重级别</th>
                 <th className="px-4 py-4 font-medium">来源</th>
+                <th className="px-4 py-4 font-medium">发现策略</th>
                 <th className="px-4 py-4 font-medium">需求 / 执行</th>
                 <th className="px-4 py-4 font-medium">最后出现</th>
                 <th className="px-5 py-4 text-right font-medium">操作</th>
@@ -87,6 +88,9 @@ export default function ErrorsPage() {
                     <StateBadge tone={toneForSeverity(item.severity)}>{item.severity}</StateBadge>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.source_kind}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    {item.discovery_recommendation?.discovery_action || item.discovery_status || '-'}
+                  </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                     #{item.linked_requirement_id || '-'} · #{item.latest_execution_run_id || '-'}
                   </td>

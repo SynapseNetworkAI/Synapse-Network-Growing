@@ -1203,6 +1203,16 @@ class NotificationDeliveryOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class DiscoveryRecommendationOut(BaseModel):
+    discovery_action: str
+    confidence: float = 0.0
+    reason: str = ""
+    target_project_key: Optional[str] = None
+    suggested_title: Optional[str] = None
+    suggested_priority: Optional[str] = None
+    auto_start_allowed: bool = False
+
+
 class ErrorEventOut(BaseModel):
     id: int
     fingerprint_key: str
@@ -1238,7 +1248,11 @@ class ErrorFingerprintOut(BaseModel):
     latest_seen_at: Optional[datetime] = None
     latest_error_event_id: Optional[int] = None
     linked_requirement_id: Optional[int] = None
+    materialized_requirement_id: Optional[int] = None
     latest_execution_run_id: Optional[int] = None
+    discovery_status: str = "pending"
+    discovery_recommendation: Optional[DiscoveryRecommendationOut] = None
+    last_discovery_at: Optional[datetime] = None
 
 
 class ErrorFingerprintDetailOut(BaseModel):
@@ -1764,6 +1778,10 @@ class BugRecordOut(BaseModel):
     metadata: dict[str, object] = {}
     scorecard: dict[str, object] = {}
     converted_requirement_id: Optional[int] = None
+    materialized_requirement_id: Optional[int] = None
+    discovery_status: str = "pending"
+    discovery_recommendation: Optional[DiscoveryRecommendationOut] = None
+    last_discovery_at: Optional[datetime] = None
     first_seen_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
