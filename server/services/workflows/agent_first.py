@@ -939,6 +939,9 @@ def _collect_workspace_blocker(
     repo_path: str | None,
     *,
     base_branch: str | None = None,
+    target_branch: str | None = None,
+    recommended_operator_action: str | None = None,
+    workspace_mode: str = "shared_checkout",
 ) -> WorkspaceBlockerOut | None:
     target_path = str(repo_path or "").strip()
     if not target_path:
@@ -970,10 +973,13 @@ def _collect_workspace_blocker(
         return WorkspaceBlockerOut(
             repo_path=str(repo),
             base_branch=str(base_branch or "").strip() or None,
+            target_branch=str(target_branch or "").strip() or None,
             current_branch=(current_branch_result.stdout or "").strip() or None,
             dirty_file_count=0,
             dirty_files_preview=[],
             has_untracked=False,
+            recommended_operator_action=str(recommended_operator_action or "").strip() or None,
+            workspace_mode=workspace_mode,
         )
     preview: list[str] = []
     has_untracked = False
@@ -986,10 +992,13 @@ def _collect_workspace_blocker(
     return WorkspaceBlockerOut(
         repo_path=str(repo),
         base_branch=str(base_branch or "").strip() or None,
+        target_branch=str(target_branch or "").strip() or None,
         current_branch=(current_branch_result.stdout or "").strip() or None,
         dirty_file_count=len(dirty_entries),
         dirty_files_preview=preview,
         has_untracked=has_untracked,
+        recommended_operator_action=str(recommended_operator_action or "").strip() or None,
+        workspace_mode=workspace_mode,
     )
 
 
@@ -1006,7 +1015,47 @@ def _execution_workspace_blocker(
         or None
     )
     base_branch = str(getattr(release, "base_branch", "") or "").strip() or "main"
-    return _collect_workspace_blocker(repo_path, base_branch=base_branch)
+    target_branch = (
+        str(getattr(release, "planned_branch_name", "") or "").strip()
+        or str(getattr(release, "branch_name", "") or "").strip()
+        or None
+    )
+    return _collect_workspace_blocker(
+        repo_path,
+        base_branch=base_branch,
+        target_branch=target_branch,
+        recommended_operator_action="清理当前工作区后再次启动当前 execution。",
+    )
+
+
+def _release_workspace_blocker(
+    requirement: RequirementRow | None,
+    release: ReleaseRecordRow | None,
+) -> WorkspaceBlockerOut | None:
+    if release is None:
+        return None
+    blocker_type = str(getattr(release, "delivery_blocker_type", "") or getattr(release, "blocker_kind", "") or "").strip()
+    if blocker_type != "workspace_blocked":
+        return None
+    repo_path = (
+        str(getattr(release, "target_project_path", "") or "").strip()
+        or (str(getattr(requirement, "target_project_path", "") or "").strip() if requirement is not None else "")
+        or None
+    )
+    target_branch = (
+        str(getattr(release, "planned_branch_name", "") or "").strip()
+        or str(getattr(release, "branch_name", "") or "").strip()
+        or None
+    )
+    base_branch = str(getattr(release, "base_branch", "") or "").strip() or "main"
+    return _collect_workspace_blocker(
+        repo_path,
+        base_branch=base_branch,
+        target_branch=target_branch,
+        recommended_operator_action=(
+            "如果这些改动属于当前需求，请先把改动采纳到目标分支；否则清理工作区后点击“重新准备分支”。"
+        ),
+    )
 
 
 def _execution_allowed_actions(
@@ -1079,8 +1128,16 @@ def _requirement_allowed_actions(
         actions.append("view_execution")
     if latest_release is not None:
         actions.append("view_release")
-        if (_delivery_canonical_state(latest_release) or str(latest_release.status or "")) == "pr_open":
+        release_state = _delivery_canonical_state(latest_release) or str(latest_release.status or "")
+        release_status = str(getattr(latest_release, "status", "") or "").strip()
+        release_next_action = str(getattr(latest_release, "next_action", "") or "").strip()
+        release_blocker_type = str(getattr(latest_release, "delivery_blocker_type", "") or getattr(latest_release, "blocker_kind", "") or "").strip()
+        if release_state == "pr_open":
             actions.append("view_pr")
+        elif release_status == "branch_prepared":
+            actions.append("open_pr")
+        elif release_status == "release_blocked" and release_next_action == "restart_current" and release_blocker_type == "workspace_blocked":
+            actions.extend(["prepare_release", "open_pr"])
     return sorted(set(actions))
 
 
@@ -5218,6 +5275,7 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
     delivery_state = _delivery_canonical_state(release) or "pending"
     blocker_kind = str(getattr(release, "delivery_blocker_type", "") or "").strip() or None
     repairability = "repairable" if bool(getattr(release, "repairable", False)) else "manual_only"
+    workspace_blocker = _release_workspace_blocker(None, release)
     return ReleaseRecordSlimOut(
         id=int(release.id),
         requirement_id=int(release.requirement_id),
@@ -5229,6 +5287,9 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         target_project_path=str(release.target_project_path or "").strip() or None,
         status=str(release.status or "not_ready"),
         branch_name=str(release.branch_name or "").strip() or None,
+        planned_branch_name=str(getattr(release, "planned_branch_name", "") or "").strip() or None,
+        actual_branch_name=str(getattr(release, "actual_branch_name", "") or "").strip() or None,
+        branch_reuse_status=str(getattr(release, "branch_reuse_status", "") or "").strip() or None,
         base_branch=str(release.base_branch or "").strip() or None,
         commit_sha=str(release.commit_sha or "").strip() or None,
         compare_url=str(release.compare_url or "").strip() or None,
@@ -5244,6 +5305,8 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         repairability=repairability,
         repair_attempt_count=int(getattr(release, "repair_attempt_count", 0) or 0),
         next_action=str(getattr(release, "next_action", "") or "").strip() or None,
+        workspace_blocker=workspace_blocker,
+        workspace_mode="shared_checkout",
         prepared_at=release.prepared_at,
         delivered_at=release.delivered_at,
         created_at=release.created_at,
@@ -5360,6 +5423,44 @@ def _release_next_action(
     return "route_to_human"
 
 
+def _apply_release_branch_context(
+    release: ReleaseRecordRow,
+    vcs: dict[str, Any],
+    *,
+    fallback_branch_name: str,
+    fallback_base_branch: str,
+) -> None:
+    planned_branch = (
+        str(vcs.get("planned_branch_name") or "").strip()
+        or str(getattr(release, "planned_branch_name", "") or "").strip()
+        or str(fallback_branch_name or "").strip()
+    )
+    branch_reuse_status = (
+        str(vcs.get("branch_reuse_status") or "").strip()
+        or str(getattr(release, "branch_reuse_status", "") or "").strip()
+        or None
+    )
+    if branch_reuse_status == "blocked" and "actual_branch_name" in vcs and not str(vcs.get("actual_branch_name") or "").strip():
+        actual_branch = ""
+    else:
+        actual_branch = (
+            str(vcs.get("actual_branch_name") or "").strip()
+            or str(vcs.get("branch_name") or "").strip()
+            or str(getattr(release, "actual_branch_name", "") or "").strip()
+            or planned_branch
+        )
+    release.planned_branch_name = planned_branch or None
+    release.actual_branch_name = actual_branch or None
+    release.branch_reuse_status = branch_reuse_status
+    release.branch_name = actual_branch or planned_branch or None
+    release.base_branch = (
+        str(vcs.get("base_branch") or "").strip()
+        or str(getattr(release, "base_branch", "") or "").strip()
+        or str(fallback_base_branch or "").strip()
+        or None
+    )
+
+
 def _delivery_repair_budget_exhausted(
     db: Session,
     requirement_id: int,
@@ -5467,9 +5568,24 @@ def _prepare_delivery_branch_for_execution(db: Session, requirement: Requirement
     if blockers:
         release.status = "release_blocked"
         release.delivery_state = "blocked"
-        release.branch_name = str(vcs.get("branch_name") or release.branch_name or delivery_contract["branch_name"]).strip() or delivery_contract["branch_name"]
-        release.base_branch = str(vcs.get("base_branch") or release.base_branch or delivery_contract["base_branch"]).strip() or delivery_contract["base_branch"]
+        _apply_release_branch_context(
+            release,
+            vcs,
+            fallback_branch_name=str(delivery_contract["branch_name"]),
+            fallback_base_branch=str(delivery_contract["base_branch"]),
+        )
         release.notes = "; ".join(blockers)
+        _apply_release_blocker_context(
+            release,
+            vcs,
+            next_action=_release_next_action(
+                blocker_type=str(vcs.get("delivery_blocker_type") or "").strip() or None,
+                repairable=bool(vcs.get("repairable")),
+                high_risk=_approval_required(db, requirement),
+                delivery_budget_hit=_delivery_repair_budget_exhausted(db, int(requirement.id)),
+            ),
+            repair_attempt_count=release.repair_attempt_count,
+        )
         _log_workflow_event(
             "execution_branch_preparation_blocked",
             requirement=requirement,
@@ -5484,8 +5600,12 @@ def _prepare_delivery_branch_for_execution(db: Session, requirement: Requirement
     release.delivery_state = "pending"
     requirement.phase = "branch_prepared"
     requirement.status = _requirement_status_from_phase(requirement.phase)
-    release.branch_name = str(vcs.get("branch_name") or "").strip() or delivery_contract["branch_name"]
-    release.base_branch = str(vcs.get("base_branch") or "").strip() or delivery_contract["base_branch"]
+    _apply_release_branch_context(
+        release,
+        vcs,
+        fallback_branch_name=str(delivery_contract["branch_name"]),
+        fallback_base_branch=str(delivery_contract["base_branch"]),
+    )
     release.prepared_at = release.prepared_at or utcnow()
     release.notes = None
     _log_workflow_event(
@@ -5573,6 +5693,12 @@ def _handle_release_delivery_blocker(
     release.status = "release_blocked"
     release.delivery_state = "repairing" if next_action == "repair_delivery" else "blocked"
     release.notes = "; ".join([str(item).strip() for item in (vcs.get("blockers") or []) if str(item).strip()]) or release.notes
+    _apply_release_branch_context(
+        release,
+        vcs,
+        fallback_branch_name=str(getattr(release, "planned_branch_name", "") or getattr(release, "branch_name", "") or _release_branch_name(requirement)),
+        fallback_base_branch=str(getattr(release, "base_branch", "") or "main"),
+    )
     _apply_release_blocker_context(
         release,
         vcs,
@@ -5683,6 +5809,12 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
         release.status = "release_blocked"
         release.delivery_state = "blocked"
         release.notes = "; ".join(blockers)
+        _apply_release_branch_context(
+            release,
+            vcs,
+            fallback_branch_name=str(delivery_contract["branch_name"]),
+            fallback_base_branch=str(delivery_contract["base_branch"]),
+        )
         _apply_release_blocker_context(release, vcs, next_action=_release_next_action(
             blocker_type=str(vcs.get("delivery_blocker_type") or "").strip() or None,
             repairable=bool(vcs.get("repairable")),
@@ -5699,8 +5831,12 @@ def prepare_release(db: Session, requirement_id: int, *, actor: str, note: str |
     else:
         release.status = "branch_prepared"
         release.delivery_state = "pending"
-        release.branch_name = str(vcs.get("branch_name") or "").strip() or delivery_contract["branch_name"]
-        release.base_branch = "main"
+        _apply_release_branch_context(
+            release,
+            vcs,
+            fallback_branch_name=str(delivery_contract["branch_name"]),
+            fallback_base_branch=str(delivery_contract["base_branch"]),
+        )
         release.prepared_at = utcnow()
         release.notes = note
         release.delivery_blocker_type = None
@@ -5753,7 +5889,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     if str(release.status or "") == "pr_opened" and str(release.pr_url or "").strip():
         return build_release_detail(db, requirement_id)
     release.execution_run_id = int(validation.execution_run_id)
-    delivery_contract["branch_name"] = release.branch_name or str(delivery_contract.get("branch_name") or "")
+    delivery_contract["branch_name"] = release.actual_branch_name or release.branch_name or str(delivery_contract.get("branch_name") or "")
     delivery_contract["base_branch"] = release.base_branch or str(delivery_contract.get("base_branch") or "main")
     vcs = execute_requirement_delivery_vcs(
         requirement_id=requirement_id,
@@ -5772,7 +5908,7 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
             vcs=vcs,
         )
     first_repo = next((item for item in (vcs.get("repositories") or []) if isinstance(item, dict)), {})
-    branch_name = str(vcs.get("branch_name") or release.branch_name or _release_branch_name(requirement)).strip()
+    branch_name = str(vcs.get("actual_branch_name") or vcs.get("branch_name") or release.actual_branch_name or release.branch_name or _release_branch_name(requirement)).strip()
     base_branch = str(vcs.get("base_branch") or release.base_branch or "main").strip() or "main"
     compare_url = _compare_url(first_repo.get("remote_url") if isinstance(first_repo, dict) else None, base_branch, branch_name)
     pr_sync = sync_requirement_review_pr(
@@ -5790,8 +5926,12 @@ def open_release_pr(db: Session, requirement_id: int, *, actor: str, note: str |
     )
     release.status = "pr_opened"
     release.delivery_state = "pr_open"
-    release.branch_name = branch_name
-    release.base_branch = base_branch
+    _apply_release_branch_context(
+        release,
+        vcs,
+        fallback_branch_name=branch_name,
+        fallback_base_branch=base_branch,
+    )
     release.commit_sha = str(first_repo.get("commit_sha") or "").strip() or None if isinstance(first_repo, dict) else None
     release.compare_url = compare_url or str(pr_sync.get("compare_url") or "").strip() or None
     release.pr_url = str(pr_sync.get("pr_url") or "").strip() or None

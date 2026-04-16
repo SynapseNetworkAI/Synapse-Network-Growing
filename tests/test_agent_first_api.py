@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, BugRecordRow, CodexSessionRow, ErrorFingerprintRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationLeaseRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import TaskExecutionSuggestion, ValidationCheckResultOut
 from server.services.workflows import agent_first
-from server.services.workflows.agent_first import reset_execution_runtime_data, reset_workflow_state_data
+from server.services.workflows.agent_first import _release_branch_name, reset_execution_runtime_data, reset_workflow_state_data
 from server.services.runtime.task_runner import _task_project_root
 
 
@@ -81,6 +81,12 @@ def _create_project(
         )
         assert policy_response.status_code == 200
     return project
+
+
+def test_release_branch_name_keeps_requirement_id_for_chinese_title():
+    requirement = SimpleNamespace(id=3, title="简化页面描述")
+
+    assert _release_branch_name(requirement) == "ops/req-3-requirement"
 
 
 def test_low_risk_requirement_auto_submits_and_auto_starts_execution(synced_client, db_session, monkeypatch):
@@ -1292,9 +1298,16 @@ def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced
         return_value={
             "status": "blocked",
             "branch_name": "ops/req-1-blocked-by-dirty-worktree",
+            "planned_branch_name": "ops/req-1-blocked-by-dirty-worktree",
+            "actual_branch_name": None,
+            "branch_reuse_status": "blocked",
             "base_branch": "main",
             "remote_name": "origin",
             "blockers": ["dirty worktree on `main` blocks automatic execution branch preparation"],
+            "delivery_blocker_type": "workspace_blocked",
+            "delivery_failure_excerpt": "dirty worktree on `main` blocks automatic execution branch preparation",
+            "delivery_failure_raw_output": "dirty worktree on `main` blocks automatic execution branch preparation",
+            "repairable": False,
             "repositories": [],
         },
     ):
@@ -1306,6 +1319,17 @@ def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced
     assert payload["approval"]["pending_execution_start"] is True
     assert payload["approval"]["execution_run_id"] is not None
     assert payload["latest_release"]["status"] == "release_blocked"
+    assert payload["latest_release"]["branch_name"] == "ops/req-1-blocked-by-dirty-worktree"
+    assert payload["latest_release"]["planned_branch_name"] == "ops/req-1-blocked-by-dirty-worktree"
+    assert payload["latest_release"]["actual_branch_name"] is None
+    assert payload["latest_release"]["branch_reuse_status"] == "blocked"
+    assert payload["latest_release"]["base_branch"] == "main"
+    assert payload["latest_release"]["delivery_blocker_type"] == "workspace_blocked"
+    assert payload["latest_release"]["repairability"] == "manual_only"
+    assert payload["latest_release"]["next_action"] == "restart_current"
+    assert "dirty worktree" in payload["latest_release"]["delivery_failure_excerpt"]
+    assert "prepare_release" in payload["allowed_actions"]
+    assert "open_pr" in payload["allowed_actions"]
     execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
     assert execution.status == "queued"
     detail_resp = synced_client.get(f"/api/executions/{int(execution.id)}")
@@ -1364,7 +1388,13 @@ def test_branch_preparation_blocker_restarts_same_execution_after_workspace_is_c
         target_project_path=str(repo_path),
         status="release_blocked",
         branch_name="ops/req-1-restart-current-execution",
+        planned_branch_name="ops/req-1-restart-current-execution",
+        actual_branch_name=None,
+        branch_reuse_status="blocked",
         base_branch="main",
+        delivery_blocker_type="workspace_blocked",
+        blocker_kind="workspace_blocked",
+        next_action="restart_current",
         notes=f"{repo_path}: dirty worktree on `main` blocks automatic execution branch preparation",
     )
     db_session.add(release)
@@ -1388,8 +1418,18 @@ def test_branch_preparation_blocker_restarts_same_execution_after_workspace_is_c
     assert detail_payload["blocking_reason_code"] == "branch_preparation_blocked"
     assert detail_payload["recovery_mode"] == "restart_current"
     assert detail_payload["workspace_blocker"]["repo_path"] == str(repo_path)
+    assert detail_payload["workspace_blocker"]["target_branch"] == "ops/req-1-restart-current-execution"
     assert detail_payload["workspace_blocker"]["dirty_file_count"] >= 1
     assert "README.md" in "\n".join(detail_payload["workspace_blocker"]["dirty_files_preview"])
+
+    requirement_detail_resp = synced_client.get(f"/api/requirements/{int(requirement.id)}")
+    assert requirement_detail_resp.status_code == 200
+    requirement_payload = requirement_detail_resp.json()
+    assert requirement_payload["latest_release"]["workspace_blocker"]["repo_path"] == str(repo_path)
+    assert requirement_payload["latest_release"]["workspace_blocker"]["target_branch"] == "ops/req-1-restart-current-execution"
+    assert requirement_payload["latest_release"]["workspace_blocker"]["dirty_file_count"] >= 1
+    assert "prepare_release" in requirement_payload["allowed_actions"]
+    assert "open_pr" in requirement_payload["allowed_actions"]
 
     with patch(
         "server.services.workflows.agent_first.prepare_requirement_delivery_branch",

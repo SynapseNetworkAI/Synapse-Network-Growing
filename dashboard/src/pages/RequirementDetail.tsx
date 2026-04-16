@@ -75,6 +75,23 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+function extractWorkspaceBranch(text: string | null | undefined) {
+  const value = String(text || '')
+  const match = value.match(/dirty worktree on `([^`]+)`/i)
+  return match?.[1] || null
+}
+
+function releaseBlockerText(release: AgentRequirementDetail['latest_release']) {
+  if (!release) return ''
+  return [
+    release.delivery_failure_excerpt,
+    release.notes,
+    release.delivery_failure_raw_output,
+  ]
+    .map((item) => String(item || '').trim())
+    .find(Boolean) || ''
+}
+
 function approvalStatusLabel(detail: AgentRequirementDetail) {
   const state = detail.approval_decision?.state || detail.approval.approval_status
   return APPROVAL_STATUS_LABEL[state] || APPROVAL_STATUS_LABEL[detail.approval.approval_decision] || state
@@ -202,6 +219,7 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   const requirement = detail.requirement
   const actions = new Set<string>(['view'])
   const state = requirement.state || requirement.status
+  const latestRelease = detail.latest_release
   if (detail.latest_execution_id != null) actions.add('view_execution')
   if (detail.latest_release_id != null) actions.add('view_release')
   if (state === 'draft' || state === 'planning' || state === 'ready' || state === 'awaiting_operator') {
@@ -220,6 +238,17 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
     actions.add('delete')
   }
+  if (latestRelease?.status === 'branch_prepared') {
+    actions.add('open_pr')
+  }
+  if (
+    latestRelease?.status === 'release_blocked' &&
+    latestRelease.next_action === 'restart_current' &&
+    (latestRelease.delivery_blocker_type === 'workspace_blocked' || latestRelease.blocker_kind === 'workspace_blocked')
+  ) {
+    actions.add('prepare_release')
+    actions.add('open_pr')
+  }
   return [...actions]
 }
 
@@ -232,6 +261,7 @@ export default function RequirementDetail() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [releaseActionBusy, setReleaseActionBusy] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [form, setForm] = useState({
@@ -270,6 +300,20 @@ export default function RequirementDetail() {
     }
   }
 
+  const runReleaseAction = async (key: string, action: () => Promise<unknown>, successMessage: string) => {
+    setReleaseActionBusy(key)
+    try {
+      await action()
+      toast.success(successMessage)
+      await load()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '发布动作失败，请重试'
+      toast.error(message)
+    } finally {
+      setReleaseActionBusy(null)
+    }
+  }
+
   useEffect(() => {
     load().catch(() => {})
   }, [requirementId])
@@ -290,6 +334,15 @@ export default function RequirementDetail() {
     Boolean(approval.approval_recommendation || approval.approval_reason)
   const currentProject = detail.project
   const latestRelease = detail.latest_release
+  const workspaceBlocker = latestRelease?.workspace_blocker || null
+  const plannedBranchName = latestRelease?.planned_branch_name || workspaceBlocker?.target_branch || latestRelease?.branch_name || null
+  const actualBranchName = latestRelease?.actual_branch_name || latestRelease?.branch_name || null
+  const releaseBlocker = releaseBlockerText(latestRelease)
+  const currentWorkspaceBranch = workspaceBlocker?.current_branch || extractWorkspaceBranch(releaseBlocker)
+  const isWorkspaceBlocked =
+    latestRelease?.delivery_blocker_type === 'workspace_blocked' ||
+    latestRelease?.blocker_kind === 'workspace_blocked' ||
+    /dirty worktree|automatic execution branch preparation/i.test(releaseBlocker)
   const assetsReady = detail.assets_status === 'ready'
   const requirementState = requirement.state || detail.state || requirement.status
   const approvalPassed = ['approved', 'waived'].includes(approval.approval_status)
@@ -467,6 +520,36 @@ export default function RequirementDetail() {
                 查看发布
               </button>
             ) : null}
+            {!isEditing && requirementAllowedActions.includes('prepare_release') ? (
+              <button
+                className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
+                disabled={releaseActionBusy === 'prepare_release'}
+                onClick={() =>
+                  runReleaseAction(
+                    'prepare_release',
+                    () => api.prepareRelease(requirement.id, { actor: 'operator', note: 'Restart release branch preparation from requirement detail' }),
+                    '已重新准备交付分支',
+                  )
+                }
+              >
+                {releaseActionBusy === 'prepare_release' ? '准备中…' : '重新准备分支'}
+              </button>
+            ) : null}
+            {!isEditing && requirementAllowedActions.includes('open_pr') ? (
+              <button
+                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-50"
+                disabled={releaseActionBusy === 'open_pr'}
+                onClick={() =>
+                  runReleaseAction(
+                    'open_pr',
+                    () => api.openReleasePr(requirement.id, { actor: 'operator', note: 'Resume release delivery from requirement detail' }),
+                    '已触发 PR 交付',
+                  )
+                }
+              >
+                {releaseActionBusy === 'open_pr' ? '交付中…' : latestRelease?.status === 'branch_prepared' ? '打开 PR' : '继续打开 PR'}
+              </button>
+            ) : null}
           </div>
         }
       >
@@ -531,13 +614,35 @@ export default function RequirementDetail() {
         {!isEditing && latestRelease?.status === 'release_blocked' ? (
           <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <div className="flex flex-wrap items-center gap-2">
-              <StateBadge tone="blocked">{latestRelease.delivery_blocker_type || 'release_blocked'}</StateBadge>
+              <StateBadge tone="blocked">{latestRelease.delivery_blocker_type || (isWorkspaceBlocked ? 'workspace_blocked' : 'release_blocked')}</StateBadge>
               {latestRelease.failed_gate_name ? <span>gate: {latestRelease.failed_gate_name}</span> : null}
               <span>next action: {latestRelease.next_action || '-'}</span>
               <span>repairable: {latestRelease.repairable ? 'yes' : 'no'}</span>
               <span>repair attempts: {requirement.delivery_repair_attempt_count ?? 0}</span>
             </div>
-            {latestRelease.delivery_failure_excerpt ? <div className="mt-2">{latestRelease.delivery_failure_excerpt}</div> : null}
+            {isWorkspaceBlocked ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-white/70 px-4 py-3">
+                <div className="font-medium">交付工作区阻塞，清理后可继续当前 release。</div>
+                <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                  <div>当前工作区分支：{currentWorkspaceBranch || '-'}</div>
+                  <div>稳定目标分支：{plannedBranchName || '-'}</div>
+                  <div>实际交付分支：{actualBranchName || '-'}</div>
+                  <div>工作区模式：{workspaceBlocker?.workspace_mode || latestRelease?.workspace_mode || 'shared_checkout'}</div>
+                  <div>dirty files：{workspaceBlocker?.dirty_file_count ?? '-'}</div>
+                  <div>next action：{latestRelease.next_action || '-'}</div>
+                </div>
+                {workspaceBlocker?.dirty_files_preview?.length ? (
+                  <div className="mt-2 text-xs">
+                    脏文件预览：{workspaceBlocker.dirty_files_preview.join(' · ')}
+                  </div>
+                ) : null}
+                <div className="mt-2 text-xs text-amber-800">
+                  {workspaceBlocker?.recommended_operator_action ||
+                    '如果这些改动属于当前需求，请先采纳到目标分支；否则清理工作区后点击“重新准备分支”。'}
+                </div>
+              </div>
+            ) : null}
+            {releaseBlocker ? <div className="mt-2">阻塞原因：{releaseBlocker}</div> : null}
           </div>
         ) : null}
 
@@ -634,7 +739,7 @@ export default function RequirementDetail() {
               <StateBadge tone="muted">{requirement.priority}</StateBadge>
               {(requirement.project?.project_display_name || requirement.project_display_name) ? <StateBadge tone="muted">{requirement.project?.project_display_name || requirement.project_display_name}</StateBadge> : null}
               {requirement.target_project_path_override ? <StateBadge tone="muted">路径已覆盖</StateBadge> : null}
-              {latestRelease?.branch_name ? <StateBadge tone="ready">{latestRelease.branch_name}</StateBadge> : null}
+              {plannedBranchName ? <StateBadge tone="ready">稳定目标分支：{plannedBranchName}</StateBadge> : null}
             </div>
             {(requirement.project?.project_display_name || requirement.project_display_name || requirement.project?.project_key || requirement.project_key || requirement.project?.target_project_path || requirement.target_project_path) ? (
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
@@ -648,8 +753,16 @@ export default function RequirementDetail() {
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
                 <div>交付状态：{latestRelease.state || latestRelease.status}</div>
                 <div>repair 次数：{requirement.delivery_repair_attempt_count ?? 0}</div>
+                <div>稳定目标分支：{plannedBranchName || '-'}</div>
+                <div>实际交付分支：{actualBranchName || '-'}</div>
+                <div>分支复用：{latestRelease.branch_reuse_status || '-'}</div>
                 <div>基线分支：{latestRelease.base_branch || '-'}</div>
+                <div>工作区模式：{latestRelease.workspace_mode || workspaceBlocker?.workspace_mode || 'shared_checkout'}</div>
+                {workspaceBlocker?.dirty_file_count != null ? <div>dirty files：{workspaceBlocker.dirty_file_count}</div> : null}
+                {currentWorkspaceBranch ? <div>当前工作区分支：{currentWorkspaceBranch}</div> : null}
+                {isWorkspaceBlocked ? <div>状态说明：系统尚未切换到稳定目标分支</div> : null}
                 <div>PR：{latestRelease.pr_url ? <a className="text-blue-600 hover:underline" href={latestRelease.pr_url} target="_blank" rel="noreferrer">查看 PR</a> : '-'}</div>
+                {releaseBlocker ? <div className="basis-full">阻塞原因：{releaseBlocker}</div> : null}
                 {detail.recovery_deadline_at ? <div>恢复截止：{formatTime(detail.recovery_deadline_at)}</div> : null}
                 {detail.recovery_timeout_status ? <div>恢复状态：{detail.recovery_timeout_status}</div> : null}
               </div>

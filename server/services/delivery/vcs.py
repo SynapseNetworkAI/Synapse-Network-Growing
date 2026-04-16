@@ -219,6 +219,18 @@ def _ahead_of_base_count(repo_path: str, base_branch: str, remote_name: str) -> 
         return 0
 
 
+def _is_ancestor(repo_path: str, ancestor_ref: str, descendant_ref: str) -> bool:
+    return _run_git(repo_path, "merge-base", "--is-ancestor", ancestor_ref, descendant_ref, check=False).returncode == 0
+
+
+def _replacement_branch_name(repo_path: str, branch_name: str, remote_name: str) -> str:
+    for index in range(2, 100):
+        candidate = f"{branch_name}-r{index}"
+        if not _local_branch_exists(repo_path, candidate) and not _remote_branch_exists(repo_path, remote_name, candidate):
+            return candidate
+    raise RuntimeError(f"no replacement branch name available for `{branch_name}`")
+
+
 def _ensure_delivery_branch(repo_path: str, branch_name: str, base_branch: str, remote_name: str) -> dict[str, Any]:
     current = _current_branch(repo_path)
     dirty = _working_tree_dirty(repo_path)
@@ -227,6 +239,9 @@ def _ensure_delivery_branch(repo_path: str, branch_name: str, base_branch: str, 
     if current == branch_name:
         return {
             "current_branch_before": current,
+            "planned_branch_name": branch_name,
+            "actual_branch_name": branch_name,
+            "branch_reuse_status": "reused",
             "branch_switched": False,
             "branch_created": False,
             "dirty_before_branch_switch": dirty,
@@ -241,17 +256,31 @@ def _ensure_delivery_branch(repo_path: str, branch_name: str, base_branch: str, 
         _run_git(repo_path, "checkout", "-b", branch_name)
         return {
             "current_branch_before": current,
+            "planned_branch_name": branch_name,
+            "actual_branch_name": branch_name,
+            "branch_reuse_status": "created",
             "branch_switched": True,
             "branch_created": True,
             "dirty_before_branch_switch": True,
         }
 
     if exists:
-        _run_git(repo_path, "checkout", branch_name)
+        actual_branch = branch_name
+        reuse_status = "reused"
+        base_ref = _branch_base_ref(repo_path, base_branch, remote_name)
+        if base_ref and not _is_ancestor(repo_path, base_ref, branch_name):
+            actual_branch = _replacement_branch_name(repo_path, branch_name, remote_name)
+            _run_git(repo_path, "checkout", "-b", actual_branch, base_ref)
+            reuse_status = "replacement_created"
+        else:
+            _run_git(repo_path, "checkout", branch_name)
         return {
             "current_branch_before": current,
+            "planned_branch_name": branch_name,
+            "actual_branch_name": actual_branch,
+            "branch_reuse_status": reuse_status,
             "branch_switched": True,
-            "branch_created": False,
+            "branch_created": reuse_status == "replacement_created",
             "dirty_before_branch_switch": False,
         }
 
@@ -262,6 +291,9 @@ def _ensure_delivery_branch(repo_path: str, branch_name: str, base_branch: str, 
         _run_git(repo_path, "checkout", "-b", branch_name)
     return {
         "current_branch_before": current,
+        "planned_branch_name": branch_name,
+        "actual_branch_name": branch_name,
+        "branch_reuse_status": "created",
         "branch_switched": True,
         "branch_created": True,
         "dirty_before_branch_switch": False,
@@ -354,6 +386,9 @@ def execute_requirement_delivery_vcs(
         return {
             "status": "blocked",
             "branch_name": branch_name or None,
+            "planned_branch_name": branch_name or None,
+            "actual_branch_name": None,
+            "branch_reuse_status": "blocked",
             "base_branch": base_branch,
             "remote_name": remote_name,
             "blockers": blockers,
@@ -364,6 +399,9 @@ def execute_requirement_delivery_vcs(
         repo_result: dict[str, Any] = {
             "repo_path": repo_path,
             "branch_name": branch_name,
+            "planned_branch_name": branch_name,
+            "actual_branch_name": None,
+            "branch_reuse_status": "blocked",
             "base_branch": base_branch,
             "remote_name": remote_name,
             "remote_url": None,
@@ -382,6 +420,8 @@ def execute_requirement_delivery_vcs(
                 raise RuntimeError("target path is not a git repository")
             repo_result["remote_url"] = _remote_url(repo_path, remote_name)
             repo_result.update(_ensure_delivery_branch(repo_path, branch_name, base_branch, remote_name))
+            actual_branch_name = str(repo_result.get("actual_branch_name") or branch_name).strip() or branch_name
+            repo_result["branch_name"] = actual_branch_name
             dirty_before_commit = _working_tree_dirty(repo_path)
             repo_result["dirty_before_commit"] = dirty_before_commit
             commit_message = _commit_message(requirement_id, requirement_title, repo_path)
@@ -396,7 +436,7 @@ def execute_requirement_delivery_vcs(
             if push_required:
                 if remote_name not in _list_remotes(repo_path):
                     raise RuntimeError(f"remote `{remote_name}` is not configured")
-                remote_sha = _push_branch(repo_path, remote_name, branch_name)
+                remote_sha = _push_branch(repo_path, remote_name, actual_branch_name)
                 repo_result["remote_sha"] = remote_sha
                 repo_result["pushed"] = True
                 repo_result["last_pushed_at"] = _utcnow_iso()
@@ -411,6 +451,13 @@ def execute_requirement_delivery_vcs(
     latest_commit_sha = next((str(item.get("commit_sha") or "").strip() for item in repo_results if str(item.get("commit_sha") or "").strip()), None)
     latest_remote_sha = next((str(item.get("remote_sha") or "").strip() for item in repo_results if str(item.get("remote_sha") or "").strip()), None)
     last_pushed_at = next((str(item.get("last_pushed_at") or "").strip() for item in repo_results if str(item.get("last_pushed_at") or "").strip()), None)
+    first_repo = next((item for item in repo_results if isinstance(item, dict)), {})
+    actual_branch_name = (
+        str(first_repo.get("actual_branch_name") or "").strip()
+        if blockers and isinstance(first_repo, dict) and str(first_repo.get("branch_reuse_status") or "") == "blocked"
+        else (str(first_repo.get("actual_branch_name") or first_repo.get("branch_name") or branch_name).strip() if isinstance(first_repo, dict) else branch_name)
+    )
+    branch_reuse_status = str(first_repo.get("branch_reuse_status") or ("blocked" if blockers else "created")).strip() if isinstance(first_repo, dict) else ("blocked" if blockers else "created")
     blocker_context = {}
     if blockers:
         blocked_repo = next((item for item in repo_results if item.get("status") != "delivered"), None)
@@ -426,7 +473,10 @@ def execute_requirement_delivery_vcs(
             blocker_context = _classify_delivery_failure(blockers[0])
     return {
         "status": "delivered" if not blockers else "blocked",
-        "branch_name": branch_name,
+        "branch_name": actual_branch_name or branch_name,
+        "planned_branch_name": branch_name,
+        "actual_branch_name": actual_branch_name or None,
+        "branch_reuse_status": branch_reuse_status or None,
         "base_branch": base_branch,
         "remote_name": remote_name,
         "commit_required": commit_required,
@@ -464,6 +514,9 @@ def prepare_requirement_delivery_branch(
         return {
             "status": "blocked",
             "branch_name": branch_name or None,
+            "planned_branch_name": branch_name or None,
+            "actual_branch_name": None,
+            "branch_reuse_status": "blocked",
             "base_branch": base_branch,
             "remote_name": remote_name,
             "blockers": blockers,
@@ -474,6 +527,9 @@ def prepare_requirement_delivery_branch(
         repo_result: dict[str, Any] = {
             "repo_path": repo_path,
             "branch_name": branch_name,
+            "planned_branch_name": branch_name,
+            "actual_branch_name": None,
+            "branch_reuse_status": "blocked",
             "base_branch": base_branch,
             "remote_name": remote_name,
             "remote_url": None,
@@ -489,18 +545,47 @@ def prepare_requirement_delivery_branch(
             repo_result["remote_url"] = _remote_url(repo_path, remote_name)
             repo_result.update(_sync_base_branch(repo_path, base_branch, remote_name))
             repo_result.update(_ensure_delivery_branch(repo_path, branch_name, base_branch, remote_name))
+            actual_branch_name = str(repo_result.get("actual_branch_name") or branch_name).strip() or branch_name
+            repo_result["branch_name"] = actual_branch_name
             repo_result["current_branch_after"] = _current_branch(repo_path)
             repo_result["status"] = "ready"
         except Exception as exc:  # noqa: BLE001
+            classified = _classify_delivery_failure(str(exc))
             repo_result["blockers"].append(str(exc))
+            repo_result.update(classified)
             blockers.append(f"{repo_path}: {exc}")
         repo_results.append(repo_result)
 
+    blocker_context = {}
+    if blockers:
+        blocked_repo = next((item for item in repo_results if item.get("status") != "ready"), None)
+        if isinstance(blocked_repo, dict):
+            blocker_context = {
+                "delivery_blocker_type": blocked_repo.get("delivery_blocker_type"),
+                "delivery_failure_excerpt": blocked_repo.get("delivery_failure_excerpt"),
+                "delivery_failure_raw_output": blocked_repo.get("delivery_failure_raw_output"),
+                "repairable": bool(blocked_repo.get("repairable")),
+                "failed_gate_name": blocked_repo.get("failed_gate_name"),
+            }
+        if not blocker_context:
+            blocker_context = _classify_delivery_failure(blockers[0])
+
+    first_repo = next((item for item in repo_results if isinstance(item, dict)), {})
+    actual_branch_name = (
+        str(first_repo.get("actual_branch_name") or "").strip()
+        if blockers and isinstance(first_repo, dict) and str(first_repo.get("branch_reuse_status") or "") == "blocked"
+        else (str(first_repo.get("actual_branch_name") or first_repo.get("branch_name") or branch_name).strip() if isinstance(first_repo, dict) else branch_name)
+    )
+    branch_reuse_status = str(first_repo.get("branch_reuse_status") or ("blocked" if blockers else "created")).strip() if isinstance(first_repo, dict) else ("blocked" if blockers else "created")
     return {
         "status": "ready" if not blockers else "blocked",
-        "branch_name": branch_name,
+        "branch_name": actual_branch_name or branch_name,
+        "planned_branch_name": branch_name,
+        "actual_branch_name": actual_branch_name or None,
+        "branch_reuse_status": branch_reuse_status or None,
         "base_branch": base_branch,
         "remote_name": remote_name,
         "blockers": blockers,
         "repositories": repo_results,
+        **blocker_context,
     }

@@ -143,6 +143,7 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
 function phaseLabel(requirement: AgentRequirement) {
   if (requirement.attention_reason === 'retry_available') return '可创建新 attempt 重试'
   if (requirement.attention_reason === 'repair_delivery') return '交付门禁自动修复中'
+  if (requirement.attention_reason === 'restart_current' && requirement.latest_release_status === 'release_blocked') return '交付工作区阻塞，清理后可继续'
   if (requirement.attention_reason === 'route_to_human') return '需人工接管'
   if (requirement.recovery_timeout_status === 'timed_out') return '恢复超时，需人工介入'
   if (requirement.recovery_status === 'recovering') return '恢复中，仅影响当前需求'
@@ -440,6 +441,7 @@ export default function RequirementPool() {
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [submittingId, setSubmittingId] = useState<number | null>(null)
+  const [releaseActionId, setReleaseActionId] = useState<string | null>(null)
   const [confirmingRequirement, setConfirmingRequirement] = useState<AgentRequirement | null>(null)
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | null>(null)
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed')
@@ -666,6 +668,50 @@ export default function RequirementPool() {
                           }}
                         >
                           重新生成
+                        </button>
+                      ) : null}
+                      {allowedActions.includes('prepare_release') ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
+                          disabled={releaseActionId === `prepare-${item.id}`}
+                          onClick={async () => {
+                            setReleaseActionId(`prepare-${item.id}`)
+                            try {
+                              await api.prepareRelease(item.id, { actor: 'operator', note: 'Restart release branch preparation from requirement list' })
+                              toast.success('已重新准备交付分支')
+                            } catch (error) {
+                              const message = error instanceof Error ? error.message : '准备分支失败，请重试'
+                              toast.error(message)
+                            } finally {
+                              await load()
+                              setReleaseActionId(null)
+                            }
+                          }}
+                        >
+                          {releaseActionId === `prepare-${item.id}` ? '准备中…' : '重新准备'}
+                        </button>
+                      ) : null}
+                      {allowedActions.includes('open_pr') ? (
+                        <button
+                          type="button"
+                          className="rounded-lg bg-[color:var(--ops-shell-bg)] px-3 py-2 text-sm text-white disabled:opacity-50"
+                          disabled={releaseActionId === `open-pr-${item.id}`}
+                          onClick={async () => {
+                            setReleaseActionId(`open-pr-${item.id}`)
+                            try {
+                              await api.openReleasePr(item.id, { actor: 'operator', note: 'Resume release delivery from requirement list' })
+                              toast.success('已触发 PR 交付')
+                            } catch (error) {
+                              const message = error instanceof Error ? error.message : '打开 PR 失败，请重试'
+                              toast.error(message)
+                            } finally {
+                              await load()
+                              setReleaseActionId(null)
+                            }
+                          }}
+                        >
+                          {releaseActionId === `open-pr-${item.id}` ? '交付中…' : '打开 PR'}
                         </button>
                       ) : null}
                       <button

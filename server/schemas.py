@@ -1031,10 +1031,13 @@ class VerificationPlanOut(BaseModel):
 class WorkspaceBlockerOut(BaseModel):
     repo_path: str
     base_branch: Optional[str] = None
+    target_branch: Optional[str] = None
     current_branch: Optional[str] = None
     dirty_file_count: int = 0
     dirty_files_preview: list[str] = []
     has_untracked: bool = False
+    recommended_operator_action: Optional[str] = None
+    workspace_mode: str = "shared_checkout"
 
 
 class RequirementProjectRefOut(BaseModel):
@@ -1244,6 +1247,9 @@ class ReleaseRecordSlimOut(BaseModel):
     target_project_path: Optional[str] = None
     status: str
     branch_name: Optional[str] = None
+    planned_branch_name: Optional[str] = None
+    actual_branch_name: Optional[str] = None
+    branch_reuse_status: Optional[str] = None
     base_branch: Optional[str] = None
     commit_sha: Optional[str] = None
     compare_url: Optional[str] = None
@@ -1259,6 +1265,8 @@ class ReleaseRecordSlimOut(BaseModel):
     repairability: Optional[str] = None
     repair_attempt_count: int = 0
     next_action: Optional[str] = None
+    workspace_blocker: Optional[WorkspaceBlockerOut] = None
+    workspace_mode: str = "shared_checkout"
     prepared_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

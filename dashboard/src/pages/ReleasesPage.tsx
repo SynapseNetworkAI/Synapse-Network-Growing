@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ReleaseCandidate, api } from '../api'
-import { EmptyPane, StateBadge } from '../components/workbench'
+import { EmptyPane, StateBadge, useToast } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   pending: '待交付',
@@ -28,11 +28,23 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+function releaseAction(item: ReleaseCandidate): { key: 'prepare' | 'open-pr' | 'repair-gate' | null; label: string } {
+  const release = item.release
+  if (!release) return { key: 'prepare', label: '准备分支' }
+  if (release.status === 'release_blocked' && release.next_action === 'restart_current') return { key: 'prepare', label: '重新准备' }
+  if (release.status === 'release_blocked' && release.next_action === 'repair_delivery' && release.repairable) return { key: 'repair-gate', label: '修复门禁' }
+  if (release.status === 'branch_prepared' || release.status === 'ready') return { key: 'open-pr', label: '打开 PR' }
+  if (release.state === 'pending') return { key: 'prepare', label: '准备分支' }
+  return { key: null, label: '查看' }
+}
+
 export default function ReleasesPage() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [busyAction, setBusyAction] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -129,6 +141,42 @@ export default function ReleasesPage() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.requirement.latest_execution_run_id}`)} disabled={!item.requirement.latest_execution_run_id}>
                         执行
                       </button>
+                      {(() => {
+                        const action = releaseAction(item)
+                        const busyKey = `${action.key}-${item.requirement.id}`
+                        if (!action.key) return null
+                        return (
+                          <button
+                            type="button"
+                            className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
+                            disabled={busyAction === busyKey}
+                            onClick={async () => {
+                              if (action.key === 'repair-gate') {
+                                navigate(`/releases/${item.requirement.id}`)
+                                return
+                              }
+                              setBusyAction(busyKey)
+                              try {
+                                if (action.key === 'prepare') {
+                                  await api.prepareRelease(item.requirement.id, { actor: 'operator', note: 'Release list branch preparation' })
+                                  toast.success('已准备交付分支')
+                                } else if (action.key === 'open-pr') {
+                                  await api.openReleasePr(item.requirement.id, { actor: 'operator', note: 'Release list open PR' })
+                                  toast.success('已触发 PR 交付')
+                                }
+                              } catch (error) {
+                                const message = error instanceof Error ? error.message : '发布动作失败，请重试'
+                                toast.error(message)
+                              } finally {
+                                await load()
+                                setBusyAction(null)
+                              }
+                            }}
+                          >
+                            {busyAction === busyKey ? '处理中…' : action.label}
+                          </button>
+                        )
+                      })()}
                       <button type="button" className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white" onClick={() => navigate(`/releases/${item.requirement.id}`)}>
                         查看
                       </button>

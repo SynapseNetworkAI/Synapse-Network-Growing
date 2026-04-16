@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from server.services.delivery.vcs import execute_requirement_delivery_vcs
+from server.services.delivery.vcs import execute_requirement_delivery_vcs, prepare_requirement_delivery_branch
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -54,6 +54,9 @@ def test_execute_requirement_delivery_vcs_commits_and_pushes(tmp_path):
     )
 
     assert result["status"] == "delivered"
+    assert result["planned_branch_name"] == "ops/req-17-incident-recovery"
+    assert result["actual_branch_name"] == "ops/req-17-incident-recovery"
+    assert result["branch_reuse_status"] == "created"
     assert result["blockers"] == []
     assert result["delivered_repository_count"] == 1
     repo_result = result["repositories"][0]
@@ -171,3 +174,93 @@ def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failur
     assert result["repairable"] is True
     assert result["failed_gate_name"] == "docs_checks"
     assert "documentation validation failed" in str(result["delivery_failure_excerpt"])
+
+
+def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+    _git(repo_path, "checkout", "-b", "ops/req-1-use-attachment-context-during-execution")
+    (repo_path / "README.md").write_text("base\nleftover dirty change\n", encoding="utf-8")
+
+    result = prepare_requirement_delivery_branch(
+        delivery_contract={
+            "branch_name": "ops/req-3-requirement",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "capability_matrix": {"git_write": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert result["branch_name"] == "ops/req-3-requirement"
+    assert result["planned_branch_name"] == "ops/req-3-requirement"
+    assert result["actual_branch_name"] is None
+    assert result["branch_reuse_status"] == "blocked"
+    assert result["base_branch"] == "main"
+    assert result["delivery_blocker_type"] == "workspace_blocked"
+    assert result["repairable"] is False
+    assert "ops/req-1-use-attachment-context-during-execution" in result["delivery_failure_excerpt"]
+    assert "dirty worktree" in result["blockers"][0]
+
+
+def test_prepare_requirement_delivery_branch_reuses_existing_clean_branch(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+    _git(repo_path, "checkout", "-b", "ops/req-3-requirement")
+    _git(repo_path, "checkout", "main")
+
+    result = prepare_requirement_delivery_branch(
+        delivery_contract={
+            "branch_name": "ops/req-3-requirement",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "capability_matrix": {"git_write": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "ready"
+    assert result["planned_branch_name"] == "ops/req-3-requirement"
+    assert result["actual_branch_name"] == "ops/req-3-requirement"
+    assert result["branch_reuse_status"] == "reused"
+    assert _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "ops/req-3-requirement"
+
+
+def test_prepare_requirement_delivery_branch_creates_replacement_for_unsafe_existing_branch(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+    _git(repo_path, "checkout", "--orphan", "ops/req-3-requirement")
+    _git(repo_path, "rm", "-rf", ".")
+    (repo_path / "README.md").write_text("orphan branch\n", encoding="utf-8")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-m", "orphan branch")
+    _git(repo_path, "checkout", "main")
+
+    result = prepare_requirement_delivery_branch(
+        delivery_contract={
+            "branch_name": "ops/req-3-requirement",
+            "base_branch": "main",
+            "remote_name": "origin",
+            "capability_matrix": {"git_write": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "ready"
+    assert result["planned_branch_name"] == "ops/req-3-requirement"
+    assert result["actual_branch_name"] == "ops/req-3-requirement-r2"
+    assert result["branch_reuse_status"] == "replacement_created"
+    assert _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "ops/req-3-requirement-r2"

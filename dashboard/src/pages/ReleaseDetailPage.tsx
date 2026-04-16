@@ -66,6 +66,12 @@ export default function ReleaseDetailPage() {
 
   const release = detail.release
   const releaseState = release?.state || release?.status || 'pending'
+  const workspaceBlocker = release?.workspace_blocker || null
+  const isWorkspaceBlocked =
+    release?.delivery_blocker_type === 'workspace_blocked' ||
+    release?.blocker_kind === 'workspace_blocked'
+  const plannedBranchName = release?.planned_branch_name || workspaceBlocker?.target_branch || release?.branch_name || null
+  const actualBranchName = release?.actual_branch_name || release?.branch_name || null
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="release-detail-page">
@@ -104,11 +110,35 @@ export default function ReleaseDetailPage() {
           <div>validation: {detail.validation?.status || '-'}</div>
           <div>latest deploy: {detail.deployments[0]?.environment || '-'}</div>
           <div>repairability: {release?.repairability || '-'}</div>
+          <div>workspace mode: {release?.workspace_mode || workspaceBlocker?.workspace_mode || 'shared_checkout'}</div>
         </div>
       </SectionFrame>
 
       <div className="grid gap-[var(--ops-section-gap)] xl:grid-cols-[minmax(0,1.4fr),minmax(300px,var(--ops-inspector-width))]">
         <SectionFrame eyebrow="Release Control" title="发布动作" description="只有 validate 通过后，才应该继续 prepare、open PR 和后续部署。">
+          {isWorkspaceBlocked ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="flex flex-wrap items-center gap-2">
+                <StateBadge tone="blocked">workspace_blocked</StateBadge>
+                <span>交付工作区阻塞，清理后可继续当前 release。</span>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+                <div>当前工作区分支：{workspaceBlocker?.current_branch || '-'}</div>
+                <div>稳定目标分支：{plannedBranchName || '-'}</div>
+                <div>实际交付分支：{actualBranchName || '-'}</div>
+                <div>基线分支：{release?.base_branch || workspaceBlocker?.base_branch || '-'}</div>
+                <div>dirty files：{workspaceBlocker?.dirty_file_count ?? '-'}</div>
+                <div>next action：{release?.next_action || '-'}</div>
+              </div>
+              {workspaceBlocker?.dirty_files_preview?.length ? (
+                <div className="mt-2 text-xs">脏文件预览：{workspaceBlocker.dirty_files_preview.join(' · ')}</div>
+              ) : null}
+              <div className="mt-2 text-xs">
+                {workspaceBlocker?.recommended_operator_action ||
+                  '如果这些改动属于当前需求，请先采纳到目标分支；否则清理工作区后点击“准备分支”。'}
+              </div>
+            </div>
+          ) : null}
 
           <textarea
             className="mt-4 min-h-[120px] w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm"
@@ -123,14 +153,14 @@ export default function ReleaseDetailPage() {
               disabled={busyAction === 'prepare' || detail.validation?.status !== 'passed'}
               onClick={() => runAction('prepare', () => api.prepareRelease(id, { actor: 'operator', note: note || null }))}
             >
-              准备分支
+              {isWorkspaceBlocked ? '重新准备分支' : '准备分支'}
             </button>
             <button
               className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-60"
               disabled={busyAction === 'open-pr' || detail.validation?.status !== 'passed'}
               onClick={() => runAction('open-pr', () => api.openReleasePr(id, { actor: 'operator', note: note || null }))}
             >
-              打开 PR
+              {release?.status === 'branch_prepared' ? '打开 PR' : '继续打开 PR'}
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-ready-border)] px-4 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-60"
@@ -165,8 +195,13 @@ export default function ReleaseDetailPage() {
           {release ? (
             <div className="space-y-3 text-sm text-[color:var(--ops-text-muted)]">
               <div>state: {release.state || release.status}</div>
-              <div>branch: {release.branch_name || '-'}</div>
+              <div>stable target branch: {plannedBranchName || '-'}</div>
+              <div>actual branch: {actualBranchName || '-'}</div>
+              <div>branch reuse: {release.branch_reuse_status || '-'}</div>
               <div>base: {release.base_branch || '-'}</div>
+              <div>current workspace branch: {workspaceBlocker?.current_branch || '-'}</div>
+              <div>dirty files: {workspaceBlocker?.dirty_file_count ?? '-'}</div>
+              <div>workspace mode: {release.workspace_mode || workspaceBlocker?.workspace_mode || 'shared_checkout'}</div>
               <div>sha: {release.commit_sha || '-'}</div>
               <div>prepared: {formatTime(release.prepared_at)}</div>
               <div>delivered: {formatTime(release.delivered_at)}</div>

@@ -1018,10 +1018,13 @@ export interface VerificationPlan {
 export interface WorkspaceBlocker {
   repo_path: string
   base_branch: string | null
+  target_branch: string | null
   current_branch: string | null
   dirty_file_count: number
   dirty_files_preview: string[]
   has_untracked: boolean
+  recommended_operator_action: string | null
+  workspace_mode: string
 }
 
 export interface ValidationRecord {
@@ -1203,6 +1206,9 @@ export interface ReleaseRecord {
   target_project_path: string | null
   status: string
   branch_name: string | null
+  planned_branch_name: string | null
+  actual_branch_name: string | null
+  branch_reuse_status: string | null
   base_branch: string | null
   commit_sha: string | null
   compare_url: string | null
@@ -1218,6 +1224,8 @@ export interface ReleaseRecord {
   repairability: string | null
   repair_attempt_count: number
   next_action: string | null
+  workspace_blocker: WorkspaceBlocker | null
+  workspace_mode: string
   prepared_at: string | null
   delivered_at: string | null
   created_at: string | null

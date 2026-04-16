@@ -851,6 +851,9 @@ class ReleaseRecordRow(Base):
     status = Column(Text, nullable=False, default="not_ready")
     delivery_state = Column(Text, nullable=False, default="pending")
     branch_name = Column(Text)
+    planned_branch_name = Column(Text)
+    actual_branch_name = Column(Text)
+    branch_reuse_status = Column(Text)
     base_branch = Column(Text)
     commit_sha = Column(Text)
     compare_url = Column(Text)
@@ -1383,6 +1386,9 @@ def _migrate(engine_):
             "project_id": "INTEGER",
             "project_display_name": "TEXT",
             "delivery_state": "TEXT DEFAULT 'pending'",
+            "planned_branch_name": "TEXT",
+            "actual_branch_name": "TEXT",
+            "branch_reuse_status": "TEXT",
             "delivery_blocker_type": "TEXT",
             "blocker_kind": "TEXT",
             "delivery_failure_excerpt": "TEXT",
