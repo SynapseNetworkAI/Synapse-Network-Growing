@@ -19,8 +19,8 @@
       <rect x="60" y="80" width="240" height="104" rx="18" fill="#F7F6FF" stroke="#C9C2F3" stroke-width="2"/>
       <text x="78" y="104" font-size="17" font-weight="700" fill="#1E2833">Docs, Roles and Demos</text>
       <text x="78" y="126" font-size="12" fill="#546274">Docs / Roles / Demos</text>
-      <text x="282" y="104" font-size="12" font-weight="700" fill="#405067" text-anchor="end">1936 files</text>
-      <text x="282" y="122" font-size="11" fill="#627286" text-anchor="end">3 py | 4 ts | 636 md</text>
+      <text x="282" y="104" font-size="12" font-weight="700" fill="#405067" text-anchor="end">1937 files</text>
+      <text x="282" y="122" font-size="11" fill="#627286" text-anchor="end">3 py | 4 ts | 637 md</text>
       <text font-size="12" fill="#425164"><tspan x="78" y="148">Frontmatter docs, agent personas,</tspan><tspan x="78" y="164">review outputs, and demo flows.</tspan></text>
     </g>
     

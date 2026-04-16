@@ -8,16 +8,16 @@
     "reason": "sandbox shell has no outbound package index access"
   },
   "repository_root": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
-  "tracked_source_like_files": 2981,
+  "tracked_source_like_files": 2982,
   "subsystems": [
     {
       "key": "docs_assets",
       "label": "Docs, Roles and Demos",
       "description": "Frontmatter docs, agent personas, review outputs, and demo flows.",
-      "tracked_files": 1936,
+      "tracked_files": 1937,
       "python_files": 3,
       "ts_files": 4,
-      "doc_files": 636,
+      "doc_files": 637,
       "prefixes": [
         "docs/",
         "roles/",
