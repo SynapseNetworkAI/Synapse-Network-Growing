@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from server import config
@@ -12,6 +13,7 @@ from server.services.runtime.codex_cli import (
     _build_codex_exec_command,
     _sanitize_plugin_manifests,
     run_codex_exec,
+    start_codex_exec_async,
 )
 from server.services.agents.llm_adapter import CodexCLIProvider
 from server.services.runtime.task_runtime import (
@@ -131,6 +133,19 @@ def test_codex_resume_command_omits_exec_only_flags(tmp_path):
     assert "--json" in command
     assert "--output-last-message" in command
     assert command[-2:] == ["thread-123", "-"]
+
+
+def test_codex_cli_generic_codex_models_omit_model_flag(tmp_path):
+    command = _build_codex_exec_command(
+        cwd=tmp_path,
+        model="gpt-5-codex",
+        add_dirs=[],
+        output_path=tmp_path / "output.md",
+        resume_thread_id=None,
+        sandbox_mode=None,
+    )
+
+    assert "-m" not in command
 
 
 def test_codex_cli_workdirs_accept_target_project_marker(tmp_path):
@@ -257,6 +272,32 @@ def test_codex_cli_runtime_uses_default_writable_mode_for_implementation(tmp_pat
         )
 
     assert result.runtime_session_id == "thread-writable-1"
+
+
+def test_codex_cli_async_runtime_clears_stale_output_before_launch(tmp_path):
+    output_dir = tmp_path / "roles" / "dev_rel" / "outputs" / "task-2"
+    output_dir.mkdir(parents=True)
+    stale_output = output_dir / "output.md"
+    stale_state = output_dir / "codex.state.json"
+    stale_output.write_text("old unrelated output", encoding="utf-8")
+    stale_state.write_text("{\"status\":\"completed\"}", encoding="utf-8")
+
+    fake_process = SimpleNamespace(pid=4242, stdin=None)
+
+    with patch("server.services.runtime.codex_cli.subprocess.Popen", return_value=fake_process), patch(
+        "server.services.runtime.codex_cli._watch_codex_process"
+    ):
+        result = start_codex_exec_async(
+            prompt="Implement the requested change",
+            cwd=tmp_path,
+            output_dir=output_dir,
+            model="gpt-5-codex",
+        )
+
+    assert result.output_path == stale_output
+    assert not stale_output.exists()
+    state_payload = json.loads(stale_state.read_text(encoding="utf-8"))
+    assert state_payload["status"] == "running"
 
 
 def test_get_task_runtime_returns_codex_cli_runtime(monkeypatch, tmp_path):
@@ -438,6 +479,7 @@ def test_codex_cli_task_runtime_uses_compact_prompt_packet(tmp_path):
     assert "services/gateway/src/app.py" in prompt
     assert "do not search outside the target repository for parent AGENTS.md or llms.txt files" in prompt
     assert "If the target repository mentions `llms.txt` or similar bootstrap files and they are absent locally" in prompt
+    assert "Do not publish, push, open PRs, install git hooks, change `.git/config`" in prompt
     assert "## Skill Instructions" not in prompt
     assert result.runtime_session_id == "thread-compact"
 

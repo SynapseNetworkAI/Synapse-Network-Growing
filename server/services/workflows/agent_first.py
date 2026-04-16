@@ -174,7 +174,7 @@ def _approval_decision_state(requirement: RequirementRow, approval: AgentFirstRe
         state = "pending"
     else:
         state = "pending"
-    source = approval.approval_source if approval is not None else None
+    source = approval.final_decision_source if approval is not None else None
     reason = approval.approval_reason if approval is not None else None
     risk_flags = list(approval.risk_flags or []) if approval is not None else []
     required_roles = list(approval.required_approver_roles or []) if approval is not None else []
@@ -184,6 +184,8 @@ def _approval_decision_state(requirement: RequirementRow, approval: AgentFirstRe
         source=source,
         agent_recommendation=approval.approval_recommendation if approval is not None else None,
         confidence=approval.approval_confidence if approval is not None else None,
+        recommendation_reason=approval.approval_recommendation_reason if approval is not None else None,
+        recommendation_source=approval.recommendation_source if approval is not None else None,
         risk_flags=risk_flags,
         required_approver_roles=required_roles,
     )
@@ -1804,6 +1806,64 @@ def _approval_source_label(decision: dict[str, Any], approval_status: str) -> st
     return "manual_required"
 
 
+def _approval_final_decision_source(decision: dict[str, Any], approval_status: str) -> str | None:
+    approval_source = str(decision.get("approval_source") or "").strip()
+    if approval_status == "waived":
+        return "waived"
+    if approval_status == "approved":
+        if approval_source == "auto":
+            return "auto_approved"
+        if approval_source == "agent":
+            return "agent_approved"
+        return "manual_decision"
+    if approval_status == "rejected":
+        return "manual_decision"
+    if bool(decision.get("needs_human_gate")) or approval_source == "human":
+        return "human_required_by_policy"
+    return "manual_review_required"
+
+
+def _approval_final_reason(decision: dict[str, Any], approval_status: str) -> str | None:
+    router = dict(decision.get("approval_router") or {})
+    router_reason = str(router.get("reason") or "").strip()
+    approval_source = str(decision.get("approval_source") or "").strip()
+    if approval_status == "waived":
+        return router_reason or "approval waived by contract"
+    if approval_status == "approved":
+        if approval_source == "auto":
+            return "auto-approved by deterministic policy"
+        if approval_source == "agent":
+            return "approved after approval agent review"
+        return "approved by manual decision"
+    if approval_status == "rejected":
+        return "manual approval rejected"
+    if bool(decision.get("needs_human_gate")) or approval_source == "human":
+        return router_reason or "manual approval required"
+    return "awaiting approval decision"
+
+
+def _approval_recommendation_source(decision: dict[str, Any]) -> str | None:
+    recommendation = dict(decision.get("approval_recommendation") or {})
+    action = str(recommendation.get("action") or "").strip()
+    if not action:
+        return None
+    router = dict(decision.get("approval_router") or {})
+    if not list(router.get("hard_rule_hits") or []) and not list(router.get("soft_rule_hits") or []):
+        return "deterministic_policy"
+    return "approval_agent"
+
+
+def _approval_recommendation_reason(decision: dict[str, Any]) -> str | None:
+    recommendation = dict(decision.get("approval_recommendation") or {})
+    reason = str(recommendation.get("reason") or "").strip()
+    if reason:
+        return reason
+    if _approval_recommendation_source(decision) == "deterministic_policy":
+        router = dict(decision.get("approval_router") or {})
+        return str(router.get("reason") or "").strip() or None
+    return None
+
+
 def _approval_risk_flags(decision: dict[str, Any]) -> list[str]:
     router = dict(decision.get("approval_router") or {})
     flags = [
@@ -1828,6 +1888,8 @@ def _approval_summary(
     """Build a stable approval summary for requirement and submit/detail responses."""
     decision = evaluate_requirement_execution_approval(requirement)
     approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
+    final_reason = _approval_final_reason(decision, approval_status)
+    final_source = _approval_final_decision_source(decision, approval_status)
     if approval_status == "rejected":
         approval_decision = "rejected"
     elif approval_status in {"approved", "waived"}:
@@ -1837,11 +1899,14 @@ def _approval_summary(
     return AgentFirstRequirementApprovalOut(
         approval_decision=approval_decision,
         approval_status=approval_status,
-        approval_reason=str(decision.get("reason") or "").strip() or None,
+        approval_reason=final_reason,
         approval_source=_approval_source_label(decision, approval_status),
+        final_decision_source=final_source,
         approval_agent_id="approval_agent" if str(decision.get("approval_source") or "") == "agent" else None,
         approval_agent_label="Approval Agent" if str(decision.get("approval_source") or "") == "agent" else None,
         approval_recommendation=str((decision.get("approval_recommendation") or {}).get("action") or "").strip() or None,
+        approval_recommendation_reason=_approval_recommendation_reason(decision),
+        recommendation_source=_approval_recommendation_source(decision),
         approval_confidence=_float_or_none((decision.get("approval_recommendation") or {}).get("confidence")),
         required_approver_roles=[str(item) for item in decision.get("required_approver_roles") or [] if str(item).strip()],
         risk_flags=_approval_risk_flags(decision),
@@ -2392,7 +2457,7 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         raise ValueError(_assets_error_message(requirement) or "计划生成失败，请先重新生成。")
     decision = evaluate_requirement_execution_approval(requirement)
     approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
-    approval_reason = str(decision.get("reason") or "Requirement requires approval before automatic execution").strip()
+    approval_reason = _approval_final_reason(decision, approval_status) or "Requirement requires approval before automatic execution"
     requirement.updated_at = utcnow()
     if approval_status in {"approved", "waived"}:
         requirement.approval_status = approval_status

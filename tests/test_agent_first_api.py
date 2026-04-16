@@ -822,6 +822,70 @@ def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, d
     assert pending.approval_type == "requirement_execution_approval"
 
 
+def test_requirement_detail_separates_final_approval_result_from_recommendation(synced_client):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Approve launch checklist",
+            "description_markdown": "Submit a low-risk launch checklist that still requires a human approval gate.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    mocked_decision = {
+        "approval_status": "pending_approval",
+        "auto_approved": False,
+        "reason": "requirement passed deterministic auto-approval policy",
+        "approval_source": "human",
+        "approval_router": {
+            "approval_source": "human",
+            "needs_human_gate": True,
+            "required_approver_roles": ["request_owner", "reviewer", "tester"],
+            "approval_role": "request_owner",
+            "hard_rule_hits": [],
+            "soft_rule_hits": [],
+            "reason": "manual approval required by contract",
+            "context": {},
+        },
+        "approval_recommendation": {
+            "action": "approve",
+            "reason": "requirement passed deterministic auto-approval policy",
+            "confidence": 0.99,
+        },
+        "needs_human_gate": True,
+        "required_approver_roles": ["request_owner", "reviewer", "tester"],
+        "reviewer": "request_owner",
+    }
+
+    with patch("server.services.workflows.agent_first.evaluate_requirement_execution_approval", return_value=mocked_decision):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    payload = submit_resp.json()
+    assert payload["requirement"]["approval_status"] == "pending_approval"
+    assert payload["approval"]["approval_decision"] == "pending_manual_approval"
+    assert payload["approval"]["approval_reason"] == "manual approval required by contract"
+    assert payload["approval"]["final_decision_source"] == "human_required_by_policy"
+    assert payload["approval"]["approval_recommendation"] == "approve"
+    assert payload["approval"]["approval_recommendation_reason"] == "requirement passed deterministic auto-approval policy"
+    assert payload["approval"]["recommendation_source"] == "deterministic_policy"
+    assert payload["approval_decision"]["state"] == "pending"
+    assert payload["approval_decision"]["reason"] == "manual approval required by contract"
+    assert payload["approval_decision"]["source"] == "human_required_by_policy"
+    assert payload["approval_decision"]["recommendation_reason"] == "requirement passed deterministic auto-approval policy"
+    assert payload["approval_decision"]["recommendation_source"] == "deterministic_policy"
+
+
 def test_agent_first_execution_uses_single_execute_node_even_for_multi_target_requirement(synced_client, db_session):
     project = _create_project(
         synced_client,

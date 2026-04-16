@@ -111,6 +111,20 @@ def _task_requirement(task: TaskRow):
     return None
 
 
+def _task_session_scope(task: TaskRow) -> tuple[int | None, int | None]:
+    if task.workflow_steps:
+        first_step = task.workflow_steps[0]
+        requirement_id = int(getattr(cast(Any, first_step), "requirement_id", 0) or 0) or None
+        workflow_run_id = int(getattr(cast(Any, first_step), "workflow_run_id", 0) or 0) or None
+        return requirement_id, workflow_run_id
+    execution_nodes = list(getattr(cast(Any, task), "execution_nodes", []) or [])
+    if execution_nodes:
+        first_node = execution_nodes[0]
+        requirement_id = int(getattr(cast(Any, first_node), "requirement_id", 0) or 0) or None
+        return requirement_id, None
+    return None, None
+
+
 def _is_requirement_centric_delivery_requirement(task: TaskRow) -> bool:
     requirement = _task_requirement(task)
     if requirement is None:
@@ -455,12 +469,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         session_hint: dict[str, Any] | None = None
         execution_root = _task_project_root(task)
         if selection.backend == "codex_cli":
-            requirement_id = None
-            workflow_run_id = None
-            if task.workflow_steps:
-                first_step = task.workflow_steps[0]
-                requirement_id = int(getattr(cast(Any, first_step), "requirement_id", 0) or 0) or None
-                workflow_run_id = int(getattr(cast(Any, first_step), "workflow_run_id", 0) or 0) or None
+            requirement_id, workflow_run_id = _task_session_scope(task)
             cwd, _ = _codex_workdirs(_task_str(task, "description") or "", Path(execution_root), output_dir)
             reusable = find_reusable_session(
                 db,

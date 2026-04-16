@@ -819,6 +819,8 @@ export interface AgentRequirement {
     source: string | null
     agent_recommendation: string | null
     confidence: number | null
+    recommendation_reason?: string | null
+    recommendation_source?: string | null
     risk_flags: string[]
     required_approver_roles: string[]
   } | null
@@ -863,9 +865,12 @@ export interface AgentRequirementApproval {
   approval_status: string
   approval_reason: string | null
   approval_source: string | null
+  final_decision_source?: string | null
   approval_agent_id?: string | null
   approval_agent_label?: string | null
   approval_recommendation?: string | null
+  approval_recommendation_reason?: string | null
+  recommendation_source?: string | null
   approval_confidence?: number | null
   required_approver_roles: string[]
   risk_flags: string[]

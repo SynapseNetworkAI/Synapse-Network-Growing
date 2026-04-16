@@ -39,9 +39,45 @@ function assetsTone(status: string) {
   return 'running'
 }
 
+const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  pending_manual_approval: '待人工审批',
+  pending_approval: '待人工审批',
+  pending: '待人工审批',
+  approved: '已批准',
+  waived: '已豁免',
+  not_required: '已豁免',
+  rejected: '已拒绝',
+}
+
+const FINAL_DECISION_SOURCE_LABEL: Record<string, string> = {
+  human_required_by_policy: '结果来源：策略要求人工审批',
+  auto_approved: '结果来源：系统自动批准',
+  agent_approved: '结果来源：审批代理批准',
+  waived: '结果来源：合同豁免',
+  manual_decision: '结果来源：人工审批结论',
+  manual_review_required: '结果来源：等待人工审批',
+}
+
+const RECOMMENDATION_LABEL: Record<string, string> = {
+  approve: '批准',
+  revise: '修订',
+  route_to_human: '转人工',
+  waive: '豁免',
+}
+
+const RECOMMENDATION_SOURCE_LABEL: Record<string, string> = {
+  deterministic_policy: 'deterministic policy',
+  approval_agent: 'approval agent',
+}
+
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
+}
+
+function approvalStatusLabel(detail: AgentRequirementDetail) {
+  const state = detail.approval_decision?.state || detail.approval.approval_status
+  return APPROVAL_STATUS_LABEL[state] || APPROVAL_STATUS_LABEL[detail.approval.approval_decision] || state
 }
 
 function Markdown({ value }: Readonly<{ value: string }>) {
@@ -138,7 +174,11 @@ export default function RequirementDetail() {
   const requirementAllowedActions = requirement.allowed_actions ?? fallbackRequirementAllowedActions(detail)
   const detailAllowedActions = detail.allowed_actions ?? requirementAllowedActions
   const canEdit = requirementAllowedActions.includes('edit')
-  const showApprovalNotice = (detail.approval_decision?.state || approval.approval_status) === 'pending' || approval.approval_status === 'rejected'
+  const finalApprovalState = detail.approval_decision?.state || approval.approval_status
+  const showApprovalNotice =
+    finalApprovalState === 'pending' ||
+    finalApprovalState === 'rejected' ||
+    Boolean(approval.approval_recommendation || approval.approval_reason)
   const currentProject = detail.project
   const latestRelease = detail.latest_release
   const assetsReady = detail.assets_status === 'ready'
@@ -256,7 +296,10 @@ export default function RequirementDetail() {
                 <button
                   className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
                   onClick={async () => {
-                    const next = await api.approveRequirement(requirement.id, { reviewer: 'operator', comment: approval.approval_reason || 'Approve and auto-start execution' })
+                    const next = await api.approveRequirement(requirement.id, {
+                      reviewer: 'operator',
+                      comment: approval.approval_recommendation_reason || approval.approval_reason || 'Approve and auto-start execution',
+                    })
                     setDetail(next)
                     if (next.approval.execution_run_id) {
                       navigate(`/executions/${next.approval.execution_run_id}`)
@@ -308,14 +351,30 @@ export default function RequirementDetail() {
             className="mb-5 rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]"
           >
             <div className="flex flex-wrap items-center gap-2">
-              <StateBadge tone="blocked">{approval.approval_decision}</StateBadge>
+              <StateBadge tone={finalApprovalState === 'approved' || finalApprovalState === 'waived' ? 'ready' : 'blocked'}>
+                {approvalStatusLabel(detail)}
+              </StateBadge>
               {approval.required_approver_roles.length ? <span>需要角色：{approval.required_approver_roles.join(' / ')}</span> : null}
             </div>
-            {approval.approval_reason ? <div className="mt-2">{approval.approval_reason}</div> : null}
-            {approval.approval_recommendation ? (
+            {approval.approval_reason ? <div className="mt-2">审批状态原因：{approval.approval_reason}</div> : null}
+            {(approval.final_decision_source || detail.approval_decision?.source) ? (
               <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-                approval agent: {approval.approval_recommendation}
-                {approval.approval_confidence != null ? ` · confidence ${approval.approval_confidence}` : ''}
+                {FINAL_DECISION_SOURCE_LABEL[approval.final_decision_source || detail.approval_decision?.source || ''] ||
+                  `结果来源：${approval.final_decision_source || detail.approval_decision?.source}`}
+              </div>
+            ) : null}
+            {approval.approval_recommendation ? (
+              <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/70 px-3 py-2 text-xs text-[color:var(--ops-text-caption)]">
+                <div>
+                  系统推荐：{RECOMMENDATION_LABEL[approval.approval_recommendation] || approval.approval_recommendation}
+                  {approval.approval_confidence != null ? ` · 置信度 ${approval.approval_confidence}` : ''}
+                </div>
+                {approval.recommendation_source ? (
+                  <div className="mt-1">
+                    推荐来源：{RECOMMENDATION_SOURCE_LABEL[approval.recommendation_source] || approval.recommendation_source}
+                  </div>
+                ) : null}
+                {approval.approval_recommendation_reason ? <div className="mt-1">推荐理由：{approval.approval_recommendation_reason}</div> : null}
               </div>
             ) : null}
           </div>

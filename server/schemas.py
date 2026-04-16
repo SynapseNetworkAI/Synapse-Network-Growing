@@ -946,9 +946,12 @@ class AgentFirstRequirementApprovalOut(BaseModel):
     approval_status: str = "pending_approval"
     approval_reason: Optional[str] = None
     approval_source: Optional[str] = None
+    final_decision_source: Optional[str] = None
     approval_agent_id: Optional[str] = None
     approval_agent_label: Optional[str] = None
     approval_recommendation: Optional[str] = None
+    approval_recommendation_reason: Optional[str] = None
+    recommendation_source: Optional[str] = None
     approval_confidence: Optional[float] = None
     required_approver_roles: list[str] = []
     risk_flags: list[str] = []
@@ -1048,6 +1051,8 @@ class ApprovalDecisionOut(BaseModel):
     source: Optional[str] = None
     agent_recommendation: Optional[str] = None
     confidence: Optional[float] = None
+    recommendation_reason: Optional[str] = None
+    recommendation_source: Optional[str] = None
     risk_flags: list[str] = []
     required_approver_roles: list[str] = []
 

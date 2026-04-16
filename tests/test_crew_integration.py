@@ -6,6 +6,7 @@ import os
 import time
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -395,6 +396,25 @@ def test_task_runner_with_approval(synced_client):
     # Approval should exist
     approvals = synced_client.get("/api/approvals?status=pending").json()
     assert any(a["task_id"] == task_id for a in approvals)
+
+
+def test_task_session_scope_falls_back_to_execution_nodes():
+    from server.services.runtime.task_runner import _task_session_scope
+
+    task = SimpleNamespace(
+        workflow_steps=[],
+        execution_nodes=[
+            SimpleNamespace(
+                requirement_id=42,
+                execution_run_id=7,
+            )
+        ],
+    )
+
+    requirement_id, workflow_run_id = _task_session_scope(task)
+
+    assert requirement_id == 42
+    assert workflow_run_id is None
 
 
 # ── LLM adapter tests ───────────────────────────────────────

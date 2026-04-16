@@ -205,11 +205,27 @@ describe('RequirementDetail SaaS editing', () => {
         ...baseDetail.requirement,
         status: 'blocked',
       },
+      approval_decision: {
+        state: 'pending',
+        reason: 'manual approval required by contract',
+        source: 'human_required_by_policy',
+        agent_recommendation: 'approve',
+        confidence: 0.99,
+        recommendation_reason: 'requirement passed deterministic auto-approval policy',
+        recommendation_source: 'deterministic_policy',
+        risk_flags: [],
+        required_approver_roles: ['operator'],
+      },
       approval: {
         ...baseDetail.approval,
         approval_decision: 'pending_manual_approval',
         approval_status: 'pending_approval',
-        approval_reason: 'High risk requirement needs operator review.',
+        approval_reason: 'manual approval required by contract',
+        final_decision_source: 'human_required_by_policy',
+        approval_recommendation: 'approve',
+        approval_recommendation_reason: 'requirement passed deterministic auto-approval policy',
+        recommendation_source: 'deterministic_policy',
+        approval_confidence: 0.99,
         required_approver_roles: ['operator'],
       },
     })
@@ -224,7 +240,11 @@ describe('RequirementDetail SaaS editing', () => {
 
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
     expect(screen.getByTestId('requirement-approval-notice')).toBeInTheDocument()
-    expect(screen.getByText('High risk requirement needs operator review.')).toBeInTheDocument()
+    expect(screen.getByText('待人工审批')).toBeInTheDocument()
+    expect(screen.getByText('审批状态原因：manual approval required by contract')).toBeInTheDocument()
+    expect(screen.getByText('系统推荐：批准 · 置信度 0.99')).toBeInTheDocument()
+    expect(screen.getByText('推荐来源：deterministic policy')).toBeInTheDocument()
+    expect(screen.getByText('推荐理由：requirement passed deterministic auto-approval policy')).toBeInTheDocument()
     expect(screen.queryByText('执行许可')).not.toBeInTheDocument()
   })
 
