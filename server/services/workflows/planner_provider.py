@@ -6,10 +6,12 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from server import config
 from server.services.agents.llm_adapter import get_provider
+from server.services.runtime.codex_cli import run_codex_exec
 
 
 def _split_target_paths(raw_path: str | None) -> list[str]:
@@ -68,10 +70,54 @@ def call_full_plan_provider(
     prompt: str,
     model_name: str,
     system_prompt: str,
+    raw_prompt: bool = False,
+    raw_cwd: str | Path | None = None,
+    raw_output_path: str | Path | None = None,
+    raw_add_dirs: list[str | Path] | None = None,
+    raw_resume_session_id: str | None = None,
+    metadata_out: dict[str, Any] | None = None,
 ) -> tuple[str, int]:
     """Call the configured provider and return text plus token usage."""
 
     timeout = min(config.LLM_TIMEOUT, 90)
+    if raw_prompt and provider_name == "codex":
+        started_at = datetime.now(timezone.utc)
+        cwd = Path(raw_cwd or config.PROJECT_ROOT).expanduser().resolve()
+        output_path = Path(raw_output_path or (Path(config.PROJECT_ROOT) / "runtime" / "plans" / "last-plan.md")).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path = output_path.with_suffix(".prompt.md")
+        prompt_path.write_text(prompt, encoding="utf-8")
+        result = run_codex_exec(
+            prompt=prompt,
+            cwd=cwd,
+            output_path=output_path,
+            model=model_name,
+            timeout=timeout,
+            add_dirs=[Path(path).expanduser().resolve() for path in raw_add_dirs or []],
+            sandbox_mode="read-only",
+            resume_thread_id=str(raw_resume_session_id or "").strip() or None,
+        )
+        completed_at = datetime.now(timezone.utc)
+        if metadata_out is not None:
+            metadata_out.update(
+                {
+                    "planning_session_id": result.thread_id,
+                    "planning_prompt_path": str(prompt_path),
+                    "planning_output_path": str(output_path),
+                    "planning_command": list(result.command),
+                    "planning_resumed_from_session_id": str(raw_resume_session_id or "").strip() or None,
+                    "planning_started_at": started_at.isoformat(),
+                    "planning_completed_at": completed_at.isoformat(),
+                    "planning_json_event_count": result.json_event_count,
+                }
+            )
+        content = str(result.text or "").strip()
+        if result.exit_code != 0:
+            excerpt = (result.stderr or result.stdout or content or "codex raw planning failed").strip()
+            raise RuntimeError(excerpt[:2000])
+        if not content:
+            raise RuntimeError("codex raw planning returned empty output")
+        return content, 0
     if provider_name == "openai" and hasattr(provider, "create_response"):
         response = provider.create_response(
             instructions=system_prompt,

@@ -292,6 +292,12 @@ export default function RequirementDetail() {
   const latestRelease = detail.latest_release
   const assetsReady = detail.assets_status === 'ready'
   const requirementState = requirement.state || detail.state || requirement.status
+  const approvalPassed = ['approved', 'waived'].includes(approval.approval_status)
+  const autoSubmitPending =
+    !detail.latest_execution_id &&
+    assetsReady &&
+    approvalPassed &&
+    ((detail.pending_operations ?? []).includes('auto_submit') || requirementAllowedActions.includes('submit'))
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="agent-first-requirement-detail">
@@ -365,7 +371,11 @@ export default function RequirementDetail() {
             ) : null}
             {!isEditing && requirementAllowedActions.includes('submit') ? (
               <button
-                className="rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-50"
+                className={
+                  autoSubmitPending
+                    ? 'rounded-2xl border border-[color:var(--ops-state-ready-border)] px-4 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50'
+                    : 'rounded-2xl bg-[color:var(--ops-shell-bg)] px-4 py-2 text-sm text-white disabled:opacity-50'
+                }
                 disabled={!assetsReady || !requirementAllowedActions.includes('submit')}
                 onClick={async () => {
                   try {
@@ -380,7 +390,13 @@ export default function RequirementDetail() {
                   }
                 }}
               >
-                {detail.assets_status === 'pending' ? '生成计划中…' : detail.assets_status === 'failed' ? '计划生成失败' : '提交'}
+                {detail.assets_status === 'pending'
+                  ? '生成计划中…'
+                  : detail.assets_status === 'failed'
+                    ? '计划生成失败'
+                    : autoSubmitPending
+                      ? '立即触发执行'
+                      : '提交'}
               </button>
             ) : null}
             {!isEditing && detail.assets_status === 'failed' && requirementAllowedActions.includes('regenerate_assets') ? (
@@ -456,6 +472,18 @@ export default function RequirementDetail() {
       >
         {!isEditing ? <RequirementLifecycleStepper detail={detail} /> : null}
 
+        {!isEditing && autoSubmitPending ? (
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-ready-text)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <StateBadge tone="ready">自动执行</StateBadge>
+              <span>审批已通过，系统会自动提交并启动 execution。</span>
+            </div>
+            <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+              如果后台触发还未完成，可以用右上角“立即触发执行”作为 fallback，不需要再次人工审批。
+            </div>
+          </div>
+        ) : null}
+
         {showApprovalNotice ? (
           <div
             data-testid="requirement-approval-notice"
@@ -530,7 +558,7 @@ export default function RequirementDetail() {
               </StateBadge>
               <span>
                 {detail.assets_status === 'failed'
-                  ? detail.assets_error_message || '验收标准与执行计划生成失败，请重新生成。'
+                  ? detail.assets_error_message || 'plan agent 未生成有效执行计划，需求不会自动执行。'
                   : '验收标准与执行计划正在生成，完成前不能提交。'}
               </span>
             </div>

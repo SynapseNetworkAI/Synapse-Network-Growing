@@ -125,6 +125,12 @@ def _testing_mode() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
+def _auto_submit_enabled() -> bool:
+    if not _testing_mode():
+        return True
+    return os.environ.get("OPS_AGENT_FIRST_AUTO_SUBMIT_IN_TESTS", "").lower() in {"1", "true", "yes", "on"}
+
+
 def _is_sqlite_locked_error(exc: BaseException) -> bool:
     return "database is locked" in str(exc).lower()
 
@@ -1758,91 +1764,39 @@ def _verification_strategy_lines(contract: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _fallback_plan_brief_markdown(
-    db: Session,
-    requirement: RequirementRow,
-    *,
-    acceptance_contract: dict[str, Any],
-) -> str:
-    targets = _target_projects_for_requirement(db, requirement)
-    attachment_lines = _attachment_prompt_lines(db, int(requirement.id))
-    target_lines = "\n".join([f"- `{item}`" for item in targets]) if targets else "- Scope to the selected project."
-    attachment_markdown = ("\n".join(attachment_lines) + "\n\n") if attachment_lines else ""
-    verification_lines = "\n".join([f"- {item}" for item in _verification_strategy_lines(acceptance_contract)])
-    risks = "\n".join(
-        [
-            "- Keep edits scoped to the selected project and avoid unrelated regressions.",
-            "- Capture commands run, changed files, and raw output so the verification agent can make a decision.",
-        ]
-    )
-    delivery_expectation = str(acceptance_contract.get("delivery_expectation") or "").strip() or "Prepare a PR-ready branch when implementation and verification pass."
-    return (
-        f"## Summary\n\n"
-        f"{str(requirement.title or '').strip()}\n\n"
-        f"{str(requirement.description_markdown or '').strip()}\n\n"
-        f"## Planned Changes\n\n"
-        f"{target_lines}\n\n"
-        f"{attachment_markdown}"
-        f"## Implementation Approach\n\n"
-        f"- Implement the requested change directly in the scoped project.\n"
-        f"- Update code, docs, and tests together only where the requirement explicitly calls for them.\n"
-        f"- Keep the final output explicit about files changed, commands run, and remaining risk.\n\n"
-        f"## Verification Strategy\n\n"
-        f"{verification_lines}\n\n"
-        f"## Risks\n\n"
-        f"{risks}\n\n"
-        f"## Delivery\n\n"
-        f"- {delivery_expectation}"
-    ).strip()
-
-
 def _generate_plan_brief_markdown_with_agent(
     db: Session,
     requirement: RequirementRow,
     *,
     acceptance_contract: dict[str, Any],
-) -> str:
-    if _testing_mode():
-        raise RuntimeError("skip_external_plan_generation_during_tests")
-    provider_name = planner_provider_name()
+) -> tuple[str, dict[str, Any]]:
+    provider_name = "codex"
     provider = get_provider(provider_name)
     model_name = planner_model_name(provider_name)
     targets = _target_projects_for_requirement(db, requirement)
-    acceptance_markdown = str(acceptance_contract.get("markdown") or "").strip() or _acceptance_contract_markdown(acceptance_contract)
-    attachment_lines = _attachment_prompt_lines(db, int(requirement.id))
-    prompt = "\n".join(
-        [
-            f"# Requirement #{int(requirement.id)}",
-            "",
-            "## Title",
-            str(requirement.title or "").strip(),
-            "",
-            "## Description",
-            str(requirement.description_markdown or "").strip(),
-            "",
-            "## Target Projects",
-            *([f"- {item}" for item in targets] or ["- Scope to the selected project."]),
-            "",
-            *attachment_lines,
-            *([""] if attachment_lines else []),
-            "## Acceptance Contract",
-            acceptance_markdown or "- Deliver the requested outcome and provide enough evidence for verification.",
-            "",
-            "Write the execution plan as direct Markdown for the operator and execution agent.",
-            "Cover the implementation path, affected areas, verification approach, risks, and delivery outcome.",
-        ]
-    ).strip()
+    target_path = Path(targets[0]).expanduser().resolve() if targets else PROJECT_ROOT.resolve()
+    output_path = PROJECT_ROOT / "runtime" / "plans" / f"req-{int(requirement.id)}-plan.md"
+    metadata: dict[str, Any] = {"planning_mode": "codex_raw_exec_plan"}
+    previous_plan = _parse_execution_plan(requirement)
+    resume_session_id = str(previous_plan.get("planning_session_id") or "").strip() or None
+    prompt = _raw_planning_prompt(db, requirement)
     text, _tokens = call_full_plan_provider(
         provider_name=provider_name,
         provider=provider,
         prompt=prompt,
         model_name=model_name,
-        system_prompt=_PLAN_BRIEF_SYSTEM_PROMPT,
+        system_prompt="",
+        raw_prompt=True,
+        raw_cwd=target_path,
+        raw_output_path=output_path,
+        raw_add_dirs=[PROJECT_ROOT],
+        raw_resume_session_id=resume_session_id,
+        metadata_out=metadata,
     )
     plan_markdown = _strip_markdown_fence(text)
     if not plan_markdown:
         raise ValueError("plan agent returned empty markdown")
-    return plan_markdown
+    return plan_markdown, metadata
 
 
 def _required_checks_for_target(db: Session, target_project_path: str | None) -> list[str]:
@@ -1994,6 +1948,27 @@ def _attachment_prompt_lines(db: Session, requirement_id: int) -> list[str]:
             f"- {row.file_name} ({row.attachment_kind}, {row.content_type}, {int(row.size_bytes or 0)} bytes) @ {row.stored_path}"
         )
     return lines
+
+
+def _raw_planning_prompt(db: Session, requirement: RequirementRow) -> str:
+    targets = _target_projects_for_requirement(db, requirement)
+    target_project = targets[0] if targets else str(getattr(requirement, "target_project_path", "") or "").strip()
+    lines = [
+        str(requirement.title or "").strip(),
+        "",
+        str(requirement.description_markdown or "").strip(),
+        "",
+        "Target project:",
+        target_project or "Scope to the selected project.",
+    ]
+    rows = _requirement_attachment_rows(db, int(requirement.id))
+    if rows:
+        lines.extend(["", "Attachments:"])
+        for row in rows:
+            lines.append(
+                f"- {row.file_name} ({row.attachment_kind}, {row.content_type}, {int(row.size_bytes or 0)} bytes) @ {row.stored_path}"
+            )
+    return "\n".join(lines).strip()
 
 
 def requirement_attachment_file_path(db: Session, requirement_id: int, attachment_id: int) -> tuple[RequirementAttachmentRow, Path]:
@@ -2234,6 +2209,24 @@ def _ensure_requirement_approval_request(
     pending.comment = comment
 
 
+def _requirement_pending_operations(
+    requirement: RequirementRow,
+    *,
+    latest_execution: ExecutionRunRow | None,
+    workflow_state: str,
+) -> list[str]:
+    if latest_execution is not None:
+        return []
+    approval_status = str(getattr(requirement, "approval_status", "") or "pending_approval").strip()
+    if (
+        _assets_status(requirement) == "ready"
+        and approval_status in {"approved", "waived"}
+        and str(workflow_state or "").strip() in {"ready", "draft"}
+    ):
+        return ["auto_submit"]
+    return []
+
+
 def _requirement_to_out(
     db: Session,
     requirement: RequirementRow,
@@ -2316,7 +2309,11 @@ def _requirement_to_out(
             workflow_state=workflow_state,
             approval_status=str(requirement.approval_status or "pending_approval"),
         ),
-        pending_operations=[],
+        pending_operations=_requirement_pending_operations(
+            requirement,
+            latest_execution=latest_execution,
+            workflow_state=workflow_state,
+        ),
         recovery_status=recovery_status,
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
@@ -2531,7 +2528,11 @@ def _build_requirement_detail(
             workflow_state=workflow_state,
             approval_status=str(requirement.approval_status or "pending_approval"),
         ),
-        pending_operations=[],
+        pending_operations=_requirement_pending_operations(
+            requirement,
+            latest_execution=latest_execution,
+            workflow_state=workflow_state,
+        ),
         recovery_status=recovery_status,
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
@@ -2642,10 +2643,22 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     requirement.assets_error_message = None
     db.commit()
     db.refresh(requirement)
+    auto_submit_detail: AgentFirstRequirementDetailOut | None = None
     if _testing_mode():
-        _ensure_generated_requirement_assets(db, requirement)
-        db.commit()
-        db.refresh(requirement)
+        try:
+            _ensure_generated_requirement_assets(db, requirement)
+            db.commit()
+            db.refresh(requirement)
+            auto_submit_detail = _auto_submit_approved_requirement(db, int(requirement.id), trigger="requirement_assets_generated_sync")
+        except Exception as exc:
+            db.rollback()
+            requirement = db.query(RequirementRow).filter(RequirementRow.id == int(requirement.id)).first()
+            if requirement is not None:
+                requirement.assets_status = "failed"
+                requirement.assets_error_message = f"plan agent failure: {exc}"
+                requirement.updated_at = utcnow()
+                db.commit()
+                db.refresh(requirement)
     else:
         _enqueue_requirement_asset_generation(int(requirement.id))
     _notify_requirement_created(db, requirement)
@@ -2657,7 +2670,7 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         acceptance_generated=bool(_parse_acceptance_markdown(requirement)),
     )
     db.commit()
-    return build_requirement_detail(db, int(requirement.id))
+    return auto_submit_detail or build_requirement_detail(db, int(requirement.id))
 
 
 def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequirementDetailOut:
@@ -2725,6 +2738,64 @@ def update_requirement(db: Session, requirement_id: int, body) -> AgentFirstRequ
     return build_requirement_detail(db, requirement_id)
 
 
+def _auto_submit_approved_requirement(
+    db: Session,
+    requirement_id: int,
+    *,
+    trigger: str,
+) -> AgentFirstRequirementDetailOut | None:
+    if not _auto_submit_enabled():
+        return None
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        return None
+    if str(getattr(requirement, "status", "") or "") in {"deleted", "cancelled"}:
+        return None
+    if str(getattr(requirement, "workflow_state", "") or "") in {"failed", "cancelled", "completed", "ready_for_merge"}:
+        return None
+    if _assets_status(requirement) != "ready":
+        return None
+    if not str(_parse_execution_plan(requirement).get("summary_markdown") or "").strip():
+        return None
+    if _latest_execution_run(db, requirement_id) is not None:
+        return None
+
+    decision = evaluate_requirement_execution_approval(requirement)
+    approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
+    if approval_status not in {"approved", "waived"}:
+        log_event(
+            logger,
+            "requirement_auto_submit_skipped",
+            requirement_id=requirement_id,
+            trigger=trigger,
+            approval_status=approval_status,
+            approval_source=str(decision.get("approval_source") or ""),
+            reason=str(decision.get("reason") or ""),
+        )
+        return None
+
+    log_event(
+        logger,
+        "requirement_auto_submit_started",
+        requirement_id=requirement_id,
+        trigger=trigger,
+        approval_status=approval_status,
+        approval_source=str(decision.get("approval_source") or ""),
+    )
+    try:
+        return submit_requirement(db, requirement_id)
+    except Exception as exc:
+        log_event(
+            logger,
+            "requirement_auto_submit_blocked",
+            requirement_id=requirement_id,
+            trigger=trigger,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+        return None
+
+
 def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
@@ -2732,6 +2803,8 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = reconcile_requirement_state(db, requirement)
     if str(requirement.status or "") == "deleted":
         raise ValueError("Deleted requirement cannot be submitted.")
+    if _latest_execution_run(db, requirement_id) is not None:
+        return _build_requirement_detail(db, requirement_id)
     if str(getattr(requirement, "phase", "") or "") in {"executing", "verifying", "delivery_ready", "pr_opened", "done"}:
         return _build_requirement_detail(db, requirement_id)
     if not str(requirement.title or "").strip():
@@ -3036,6 +3109,7 @@ def regenerate_requirement_assets(db: Session, requirement_id: int) -> AgentFirs
     requirement.phase = "planning"
     requirement.assets_status = "pending"
     requirement.assets_error_message = None
+    requirement.execution_plan_json = _json_dump({})
     requirement.workflow_state = "planning"
     requirement.attention_reason = None
     requirement.updated_at = utcnow()
@@ -3082,51 +3156,26 @@ def _plan_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
-def _fallback_execution_plan_payload(db: Session, requirement: RequirementRow, shape: dict[str, Any]) -> dict[str, Any]:
+def _generate_execution_plan(db: Session, requirement: RequirementRow) -> dict[str, Any]:
+    shape = _shape_decision(db, requirement)
     acceptance = _parse_acceptance_contract(requirement)
     targets = _target_projects_for_requirement(db, requirement)
-    payload = {
-        "planning_mode": "agent_first_fallback",
+    plan_markdown, planning_metadata = _generate_plan_brief_markdown_with_agent(
+        db,
+        requirement,
+        acceptance_contract=acceptance,
+    )
+    return {
+        "planning_mode": "codex_raw_exec_plan",
         "goal_summary": str(requirement.title or "").strip(),
         "target_files_or_areas": targets or [str(getattr(requirement, "target_project_path", "") or "").strip()],
         "steps": [{"step_key": "execute", "title": "Execute requirement", "step_type": "implementation", "scope": "implementation"}],
         "planned_checks": _verification_strategy_lines(acceptance),
-        "risks": [
-            "Keep edits scoped to the selected project and avoid unrelated regressions.",
-            "Record sufficient execution evidence so validate and release can operate without guesswork.",
-        ],
+        "risks": [],
         "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
+        "summary_markdown": plan_markdown,
+        **planning_metadata,
     }
-    payload["summary_markdown"] = _fallback_plan_brief_markdown(db, requirement, acceptance_contract=acceptance)
-    return payload
-
-
-def _generate_execution_plan(db: Session, requirement: RequirementRow) -> dict[str, Any]:
-    shape = _shape_decision(db, requirement)
-    if _testing_mode():
-        return _fallback_execution_plan_payload(db, requirement, shape)
-    try:
-        acceptance = _parse_acceptance_contract(requirement)
-        targets = _target_projects_for_requirement(db, requirement)
-        return {
-            "planning_mode": "agent_plan_brief",
-            "goal_summary": str(requirement.title or "").strip(),
-            "target_files_or_areas": targets or [str(getattr(requirement, "target_project_path", "") or "").strip()],
-            "steps": [{"step_key": "execute", "title": "Execute requirement", "step_type": "implementation", "scope": "implementation"}],
-            "planned_checks": _verification_strategy_lines(acceptance),
-            "risks": [
-                "Keep edits scoped to the selected project and avoid unrelated regressions.",
-                "Capture explicit execution evidence so the verification agent can make a release decision.",
-            ],
-            "delivery_intent": str(shape.get("delivery_intent") or "pr_required"),
-            "summary_markdown": _generate_plan_brief_markdown_with_agent(
-                db,
-                requirement,
-                acceptance_contract=acceptance,
-            ),
-        }
-    except Exception:
-        return _fallback_execution_plan_payload(db, requirement, shape)
 
 
 def _ensure_execution_plan(db: Session, requirement: RequirementRow) -> dict[str, Any]:
@@ -3183,12 +3232,13 @@ def _background_requirement_asset_generation(requirement_id: int) -> None:
             plan_generated=bool(str(_parse_execution_plan(requirement).get("summary_markdown") or "").strip()),
         )
         db.commit()
+        _auto_submit_approved_requirement(db, requirement_id, trigger="requirement_assets_generated")
     except Exception as exc:
         db.rollback()
         requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
         if requirement is not None:
             requirement.assets_status = "failed"
-            requirement.assets_error_message = str(exc)
+            requirement.assets_error_message = f"plan agent failure: {exc}"
             requirement.updated_at = utcnow()
             db.commit()
         log_event(

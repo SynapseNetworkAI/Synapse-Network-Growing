@@ -83,7 +83,8 @@ def _create_project(
     return project
 
 
-def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(synced_client, db_session):
+def test_low_risk_requirement_auto_submits_and_auto_starts_execution(synced_client, db_session, monkeypatch):
+    monkeypatch.setenv("OPS_AGENT_FIRST_AUTO_SUBMIT_IN_TESTS", "1")
     project = _create_project(
         synced_client,
         project_key="synapse-network-growing",
@@ -91,15 +92,19 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
         root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
         repo_full_name="cliff-personal/Synapse-Network-Growing",
     )
-    create_resp = synced_client.post(
-        "/api/requirements",
-        json={
-            "title": "Simplify workspace summary copy",
-            "description_markdown": "Update the workspace summary copy and keep the change minimal without touching unrelated projects or deployment gates.",
-            "priority": "normal",
-            "project_id": project["id"],
-        },
-    )
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-simplify-workspace-summary-copy"),
+    ):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Simplify workspace summary copy",
+                "description_markdown": "Update the workspace summary copy and keep the change minimal without touching unrelated projects or deployment gates.",
+                "priority": "normal",
+                "project_id": project["id"],
+            },
+        )
 
     assert create_resp.status_code == 201
     create_payload = create_resp.json()
@@ -110,15 +115,7 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert "Done Criteria" in create_payload["requirement"]["acceptance_criteria_markdown"]
     assert "Verification Focus" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
-
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
-        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
-        return_value=_branch_ready_payload("ops/req-1-simplify-workspace-summary-copy"),
-    ):
-        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
-
-    assert submit_resp.status_code == 200
-    payload = submit_resp.json()
+    payload = create_payload
     assert payload["requirement"]["state"] in {"executing", "delivering"}
     assert payload["requirement"]["approval_status"] == "approved"
     assert payload["approval"]["approval_decision"] == "approved"
@@ -126,6 +123,7 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     assert payload["approval"]["auto_started"] is True
     assert payload["approval"]["execution_run_id"] is not None
     assert payload["latest_execution_id"] == payload["approval"]["execution_run_id"]
+    assert payload["execution_plan"]["planning_mode"] == "codex_raw_exec_plan"
     assert payload["execution_plan"]["summary_markdown"]
     assert payload["execution_plan"]["steps"] == [
         {
@@ -137,6 +135,42 @@ def test_submit_low_risk_requirement_auto_approves_and_auto_starts_execution(syn
     ]
     assert "Research context" not in payload["execution_plan"]["summary_markdown"]
     assert "Close requirement" not in payload["execution_plan"]["summary_markdown"]
+
+    submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+    assert submit_resp.status_code == 200
+    assert submit_resp.json()["latest_execution_id"] == payload["latest_execution_id"]
+
+
+def test_plan_agent_failure_marks_assets_failed_without_execution(synced_client, db_session, monkeypatch):
+    monkeypatch.setenv("OPS_AGENT_FIRST_AUTO_SUBMIT_IN_TESTS", "1")
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="cliff-personal/Synapse-Network",
+    )
+
+    with patch(
+        "server.services.workflows.agent_first._generate_plan_brief_markdown_with_agent",
+        side_effect=RuntimeError("codex raw planning returned empty output"),
+    ):
+        create_resp = synced_client.post(
+            "/api/requirements",
+            json={
+                "title": "Submit code",
+                "description_markdown": "Submit project code.",
+                "priority": "normal",
+                "project_id": project["id"],
+            },
+        )
+
+    assert create_resp.status_code == 201
+    payload = create_resp.json()
+    requirement_id = int(payload["requirement"]["id"])
+    assert payload["assets_status"] == "failed"
+    assert "plan agent failure" in payload["assets_error_message"]
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).count() == 0
 
 
 def test_create_requirement_persists_attachments_and_detail_returns_them(synced_client, db_session):
@@ -784,7 +818,8 @@ def test_create_requirement_without_target_project_path_does_not_raise_policy_su
     assert payload["requirement"]["acceptance_criteria_markdown"].strip()
 
 
-def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, db_session):
+def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, db_session, monkeypatch):
+    monkeypatch.setenv("OPS_AGENT_FIRST_AUTO_SUBMIT_IN_TESTS", "1")
     project = _create_project(
         synced_client,
         project_key="synapse-network",

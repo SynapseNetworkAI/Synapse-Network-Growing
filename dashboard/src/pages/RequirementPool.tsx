@@ -618,6 +618,11 @@ export default function RequirementPool() {
                     <div className="flex flex-wrap justify-end gap-2">
                       {(() => {
                         const allowedActions = item.allowed_actions ?? fallbackRequirementAllowedActions(item)
+                        const autoSubmitPending =
+                          item.latest_execution_run_id == null &&
+                          item.assets_status === 'ready' &&
+                          ['approved', 'waived'].includes(item.approval_status) &&
+                          ((item.pending_operations ?? []).includes('auto_submit') || allowedActions.includes('submit'))
                         return (
                           <>
                       <button
@@ -665,7 +670,11 @@ export default function RequirementPool() {
                       ) : null}
                       <button
                         type="button"
-                        className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50"
+                        className={
+                          autoSubmitPending
+                            ? 'rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50'
+                            : 'rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50'
+                        }
                         disabled={
                           submittingId === item.id ||
                           !allowedActions.includes('submit')
@@ -689,7 +698,15 @@ export default function RequirementPool() {
                           }
                         }}
                       >
-                        {submittingId === item.id ? '提交中…' : item.assets_status === 'pending' ? '生成计划中…' : item.assets_status === 'failed' ? '计划生成失败' : '提交'}
+                        {submittingId === item.id
+                          ? '提交中…'
+                          : item.assets_status === 'pending'
+                            ? '生成计划中…'
+                            : item.assets_status === 'failed'
+                              ? '计划生成失败'
+                              : autoSubmitPending
+                                ? '立即触发执行'
+                                : '提交'}
                       </button>
                           </>
                         )

@@ -128,6 +128,27 @@ def _fake_snapshot_file_changes(db, task, requirement, step=None):
     )
 
 
+def _fake_generate_plan_brief_markdown_with_agent(db, requirement, *, acceptance_contract):
+    return (
+        "\n\n".join(
+            [
+                str(getattr(requirement, "title", "") or "").strip(),
+                str(getattr(requirement, "description_markdown", "") or "").strip(),
+                "Target project:",
+                str(getattr(requirement, "target_project_path", "") or "test-repo").strip(),
+                "Test raw Codex plan output.",
+            ]
+        ).strip(),
+        {
+            "planning_mode": "codex_raw_exec_plan",
+            "planning_session_id": "thread-test-plan",
+            "planning_prompt_path": "runtime/plans/req-test-plan.prompt.md",
+            "planning_output_path": "runtime/plans/req-test-plan.md",
+            "planning_command": ["codex", "exec", "-", "--sandbox", "read-only"],
+        },
+    )
+
+
 def _override_get_db():
     db = TestSession()
     try:
@@ -156,6 +177,9 @@ def setup_db():
     ), patch(
         "server.services.workflows.orchestrator._snapshot_file_changes",
         _fake_snapshot_file_changes,
+    ), patch(
+        "server.services.workflows.agent_first._generate_plan_brief_markdown_with_agent",
+        _fake_generate_plan_brief_markdown_with_agent,
     ), patch(
         "server.services.workflows.orchestrator._schedule_advance_queue", lambda: None
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(

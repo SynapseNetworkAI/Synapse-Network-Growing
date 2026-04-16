@@ -22,6 +22,7 @@ from server.services.runtime.task_runtime import (
     get_task_runtime,
     resolve_runtime_selection,
 )
+from server.services.workflows.planner_provider import call_full_plan_provider
 
 
 def test_resolve_orchestration_backend_for_codex_provider():
@@ -82,6 +83,111 @@ def test_codex_cli_provider_prefers_target_project_path_for_planner_context(tmp_
     assert kwargs["cwd"] == target_project.resolve()
     assert target_project.resolve() in kwargs["add_dirs"]
     assert config.PROJECT_ROOT.resolve() in kwargs["add_dirs"]
+
+
+def test_raw_codex_plan_provider_uses_read_only_exec_without_template_wrappers(tmp_path):
+    target_project = tmp_path / "Synapse-Network"
+    target_project.mkdir()
+    output_path = tmp_path / "runtime" / "plans" / "req-3-plan.md"
+    raw_prompt = "提交代码\n\n提交项目代码\n\nTarget project:\n" + str(target_project)
+    metadata: dict[str, object] = {}
+
+    with patch(
+        "server.services.workflows.planner_provider.run_codex_exec",
+        return_value=CodexExecResult(
+            text="Plan for this exact requirement",
+            stdout="",
+            stderr="",
+            exit_code=0,
+            execution_time_ms=12,
+            command=[
+                "codex",
+                "exec",
+                "-",
+                "-C",
+                str(target_project),
+                "--sandbox",
+                "read-only",
+                "--output-last-message",
+                str(output_path),
+            ],
+            output_path=output_path,
+            thread_id="thread-plan-1",
+            json_event_count=3,
+        ),
+    ) as mock_run:
+        content, tokens = call_full_plan_provider(
+            provider_name="codex",
+            provider=object(),
+            prompt=raw_prompt,
+            model_name="gpt-5.4",
+            system_prompt="",
+            raw_prompt=True,
+            raw_cwd=target_project,
+            raw_output_path=output_path,
+            metadata_out=metadata,
+        )
+
+    assert content == "Plan for this exact requirement"
+    assert tokens == 0
+    _, kwargs = mock_run.call_args
+    assert kwargs["prompt"] == raw_prompt
+    assert "# Goal" not in kwargs["prompt"]
+    assert "# Constraints" not in kwargs["prompt"]
+    assert "# Done When" not in kwargs["prompt"]
+    assert kwargs["cwd"] == target_project.resolve()
+    assert kwargs["sandbox_mode"] == "read-only"
+    assert kwargs["output_path"] == output_path
+    assert metadata["planning_session_id"] == "thread-plan-1"
+    assert metadata["planning_command"] == [
+        "codex",
+        "exec",
+        "-",
+        "-C",
+        str(target_project),
+        "--sandbox",
+        "read-only",
+        "--output-last-message",
+        str(output_path),
+    ]
+
+
+def test_raw_codex_plan_provider_passes_resume_session_per_requirement(tmp_path):
+    target_project = tmp_path / "Synapse-Network"
+    target_project.mkdir()
+    output_path = tmp_path / "runtime" / "plans" / "req-3-plan.md"
+    metadata: dict[str, object] = {}
+
+    with patch(
+        "server.services.workflows.planner_provider.run_codex_exec",
+        return_value=CodexExecResult(
+            text="Updated plan",
+            stdout="",
+            stderr="",
+            exit_code=0,
+            execution_time_ms=12,
+            command=["codex", "exec", "resume", "--output-last-message", str(output_path), "thread-plan-1", "-"],
+            output_path=output_path,
+            thread_id="thread-plan-1",
+        ),
+    ) as mock_run:
+        content, _tokens = call_full_plan_provider(
+            provider_name="codex",
+            provider=object(),
+            prompt="raw prompt",
+            model_name="gpt-5.4",
+            system_prompt="",
+            raw_prompt=True,
+            raw_cwd=target_project,
+            raw_output_path=output_path,
+            raw_resume_session_id="thread-plan-1",
+            metadata_out=metadata,
+        )
+
+    assert content == "Updated plan"
+    _, kwargs = mock_run.call_args
+    assert kwargs["resume_thread_id"] == "thread-plan-1"
+    assert metadata["planning_resumed_from_session_id"] == "thread-plan-1"
 
 
 def test_codex_cli_task_runtime_returns_completed_result(tmp_path):
