@@ -145,6 +145,14 @@
 6. requirement execution approval 已采用 `approval agent 先审，人兜底` 口径。
    - 低风险高置信度自动放行
    - 高风险或低置信度转人工
+   - 运行时是否必须人工审核只由 requirement `approval_contract` 与 approval router / hard rules 决定。
+   - project policy 的 `requires_manual_approval` 只作为项目审批偏好信号，不再是运行时 blanket gate。
+   - 会强制人工审核的 hard rules 固定为：
+     - `publish_or_delivery_impact`
+     - `critical_incident_recovery`
+     - `max_tier_execution`
+     - `over_budget_execution`
+     - `multi_project_high_risk_work`
 
 ## 4. Project 面
 

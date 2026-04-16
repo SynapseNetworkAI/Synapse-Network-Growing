@@ -136,7 +136,14 @@ Requirement 与 Execution 当前还有三条正式约束：
    - requirement materialize 后继续走 acceptance contract、execution plan、execution、verification、PR 的 agent-first 主链。
 12. Approval 已按 `approval agent 先审，人兜底` 的方式正式化。
    - 低风险且高置信度的 requirement 会自动放行。
-   - 高风险或低置信度仍保留人工 execution approval。
+   - 运行时是否必须人工审核只由 requirement `approval_contract` 与 approval router / hard rules 决定。
+   - project policy 的 `requires_manual_approval` 只作为项目审批偏好信号，不再作为运行时 blanket gate。
+   - 高风险或低置信度仍保留人工 execution approval。硬规则固定为：
+     - `publish_or_delivery_impact`
+     - `critical_incident_recovery`
+     - `max_tier_execution`
+     - `over_budget_execution`
+     - `multi_project_high_risk_work`
 13. Delivery gate 自修复已经进入主链。
    - verification passed 后仍先走自动 delivery / push / open PR。
    - 若本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 挡住，系统会把 blocker 分类为 `repo_gate_failed / workspace_blocked / git_auth_failed ...`。

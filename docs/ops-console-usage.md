@@ -445,6 +445,18 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 5. verification passed 后，在 `/releases/:requirementId` 做 PR / deploy / rollback
 6. 如果来自错误回流，可在 `/errors` 追踪 fingerprint 与通知历史
 
+审批标准说明：
+
+1. 运行时“是否必须人工审核”的唯一真相是 requirement `approval_contract` 与 approval router / hard rules。
+2. project policy 的 `requires_manual_approval` 只作为项目审批偏好信号，不再直接表示“当前 requirement 必须人工审核”。
+3. 会强制人工审核的 hard rules 固定为：
+   - `publish_or_delivery_impact`
+   - `critical_incident_recovery`
+   - `max_tier_execution`
+   - `over_budget_execution`
+   - `multi_project_high_risk_work`
+4. 其余 soft rules 只会把 requirement 从 deterministic auto-approve 降级到 approval agent review，不会直接打回人工审批。
+
 错误自修复 v1 的正式闭环：
 
 1. 线上错误、runtime 日志、task failure、workflow incident 进入统一 discovery pipeline

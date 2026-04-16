@@ -6,10 +6,14 @@ import logging
 import subprocess
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+from sqlalchemy.exc import OperationalError
 
 from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, BugRecordRow, CodexSessionRow, ErrorFingerprintRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import TaskExecutionSuggestion, ValidationCheckResultOut
+from server.services.workflows import agent_first
 from server.services.workflows.agent_first import reset_execution_runtime_data, reset_workflow_state_data
 from server.services.runtime.task_runner import _task_project_root
 
@@ -820,6 +824,80 @@ def test_submit_high_risk_requirement_routes_to_manual_approval(synced_client, d
         .one()
     )
     assert pending.approval_type == "requirement_execution_approval"
+
+
+def test_project_policy_manual_flag_is_only_a_preference_signal(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    policy_resp = synced_client.patch(
+        f"/api/projects/{project['id']}/policy",
+        json={"requires_manual_approval": True},
+    )
+    assert policy_resp.status_code == 200
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Review internal checklist",
+            "description_markdown": "Capture an internal checklist update that stays low risk and should not be forced into manual approval by project policy alone.",
+            "priority": "normal",
+            "project_id": project["id"],
+        },
+    )
+    assert create_resp.status_code == 201
+    payload = create_resp.json()
+    requirement_id = payload["requirement"]["id"]
+
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    assert json.loads(requirement.approval_contract_json)["approval_mode"] == "auto_or_human"
+    assert payload["requirement"]["approval_status"] == "waived"
+    assert "approval_preference=manual_review_preferred" in payload["policy_summary_markdown"]
+
+
+def test_explicit_manual_requirement_contract_routes_to_manual_even_when_policy_is_only_preference(synced_client):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    policy_resp = synced_client.patch(
+        f"/api/projects/{project['id']}/policy",
+        json={"requires_manual_approval": True},
+    )
+    assert policy_resp.status_code == 200
+
+    create_resp = synced_client.post(
+        "/api/requirements",
+        json={
+            "title": "Request explicit manual approval",
+            "description_markdown": "Keep this single-project requirement low risk but require an explicit human approval by contract.",
+            "priority": "normal",
+            "project_id": project["id"],
+            "approval_contract": {"approval_mode": "manual_required"},
+        },
+    )
+    assert create_resp.status_code == 201
+    requirement_id = create_resp.json()["requirement"]["id"]
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None), patch(
+        "server.services.workflows.agent_first.prepare_requirement_delivery_branch",
+        return_value=_branch_ready_payload("ops/req-1-document-approval-routing"),
+    ):
+        submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
+
+    assert submit_resp.status_code == 200
+    payload = submit_resp.json()
+    assert payload["requirement"]["approval_status"] == "pending_approval"
+    assert payload["approval"]["approval_decision"] == "pending_manual_approval"
+    assert payload["approval"]["final_decision_source"] == "human_required_by_policy"
+    assert payload["approval"]["approval_reason"] == "manual approval required by contract"
 
 
 def test_requirement_detail_separates_final_approval_result_from_recommendation(synced_client):
@@ -3274,6 +3352,69 @@ def test_execution_file_preview_endpoint_returns_diff_and_current_content(synced
     assert "print('before')" in payload["diff_patch"]
     assert "print('after')" in payload["current_content"]
     assert payload["truncated"] is False
+
+
+def test_build_execution_detail_retries_sqlite_lock(db_session, monkeypatch):
+    result = SimpleNamespace(name="execution-detail")
+    call_count = {"value": 0}
+
+    def _fake_build(_db_session, execution_run_id: int):
+        assert execution_run_id == 42
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise OperationalError("select 1", {}, Exception("database is locked"))
+        return result
+
+    monkeypatch.setattr(agent_first, "_build_execution_detail_once", _fake_build)
+    monkeypatch.setattr(agent_first.time, "sleep", lambda *_args, **_kwargs: None)
+
+    payload = agent_first.build_execution_detail(db_session, 42)
+
+    assert payload is result
+    assert call_count["value"] == 2
+
+
+def test_auto_open_pr_after_verification_retries_sqlite_lock(db_session, monkeypatch):
+    requirement = RequirementRow(
+        title="Auto open PR retries",
+        description_markdown="Retry the PR sync when SQLite is temporarily locked.",
+        status="delivery_ready",
+        approval_status="approved",
+        source="manual",
+        priority="normal",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        status="branch_prepared",
+        delivery_state="pending",
+        branch_name="ops/req-retry-lock",
+        base_branch="main",
+    )
+    db_session.add(release)
+    db_session.commit()
+
+    call_count = {"value": 0}
+
+    def _fake_open_release_pr(_db_session, requirement_id: int, *, actor: str, note: str | None = None):
+        assert requirement_id == int(requirement.id)
+        assert actor == "verification_agent"
+        assert note == "Auto-opened after verification passed"
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise OperationalError("update release_records", {}, Exception("database is locked"))
+        return SimpleNamespace(release=SimpleNamespace(id=int(release.id)))
+
+    monkeypatch.setattr(agent_first, "open_release_pr", _fake_open_release_pr)
+    monkeypatch.setattr(agent_first.time, "sleep", lambda *_args, **_kwargs: None)
+
+    synced_release = agent_first._auto_open_pr_after_verification(db_session, requirement, actor="verification_agent")
+
+    assert synced_release is not None
+    assert int(synced_release.id) == int(release.id)
+    assert call_count["value"] == 2
 
 
 def test_direct_execution_task_uses_requirement_target_project_path(db_session):

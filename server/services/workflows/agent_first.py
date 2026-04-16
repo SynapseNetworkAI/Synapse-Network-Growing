@@ -6,12 +6,14 @@ import os
 import re
 import subprocess
 import threading
+import time
 from datetime import timedelta, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, TypeVar, cast
 
 import yaml
 from sqlalchemy import or_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from server.config import CODEX_CLI_STALE_AFTER_SEC, ORCHESTRATION_BACKEND, PROJECT_ROOT
@@ -93,6 +95,7 @@ from server.services.runtime.alerting import build_ops_url, deliver_lark_notific
 from server.services.runtime.task_runner import dispatch
 from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
+    normalize_requirement_approval_contract,
     normalize_requirement_approval_status,
 )
 from server.services.workflows.planner_provider import call_full_plan_provider, planner_model_name, planner_provider_name
@@ -110,10 +113,38 @@ _MAX_EXECUTION_RETRIES = 1
 _MAX_DELIVERY_REPAIRS = 2
 _RUNTIME_RECOVERY_TIMEOUT_SECONDS = 600
 _RECOVERY_SCOPE_CURRENT_REQUIREMENT = "current_requirement"
+_SQLITE_LOCK_RETRY_ATTEMPTS = 4
+_SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.25
+_RetryValue = TypeVar("_RetryValue")
 
 
 def _testing_mode() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _is_sqlite_locked_error(exc: BaseException) -> bool:
+    return "database is locked" in str(exc).lower()
+
+
+def _with_sqlite_lock_retry(
+    db: Session,
+    callback: Callable[[], _RetryValue],
+    *,
+    attempts: int = _SQLITE_LOCK_RETRY_ATTEMPTS,
+) -> _RetryValue:
+    last_exc: OperationalError | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return callback()
+        except OperationalError as exc:
+            if not _is_sqlite_locked_error(exc) or attempt >= attempts:
+                raise
+            last_exc = exc
+            db.rollback()
+            time.sleep(_SQLITE_LOCK_RETRY_DELAY_SECONDS * attempt)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("SQLite lock retry exhausted without returning a result.")
 
 
 def _json_load(raw: str | None, fallback: Any) -> Any:
@@ -1777,23 +1808,26 @@ def _primary_project_policy(db: Session, requirement: RequirementRow):
 
 
 def _approval_required(db: Session, requirement: RequirementRow) -> bool:
-    project = _project_for_requirement(db, requirement)
-    if project is not None:
-        policies = resolve_project_policies_for_target(
-            db,
-            str(getattr(project, "root_path", "") or "") or None,
-            require_active=False,
-        )
-        if any(bool(getattr(policy, "requires_manual_approval", False)) for policy in policies):
-            return True
-    policies = resolve_project_policies_for_target(
-        db,
-        getattr(requirement, "target_project_path", None),
-        require_active=False,
-    )
-    if any(bool(getattr(policy, "requires_manual_approval", False)) for policy in policies):
+    decision = evaluate_requirement_execution_approval(requirement)
+    approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
+    if approval_status in {"approved", "waived", "rejected"}:
+        return False
+    recommendation = dict(decision.get("approval_recommendation") or {})
+    if str(recommendation.get("action") or "").strip() == "route_to_human":
         return True
-    return str(getattr(requirement, "priority", "normal")) == "high"
+    return bool(decision.get("needs_human_gate"))
+
+
+def _seed_requirement_approval_contract(
+    db: Session,
+    *,
+    project: ProjectRow | None = None,
+    target_project_path: str | None = None,
+    raw_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(raw_contract, dict) and raw_contract:
+        return normalize_requirement_approval_contract(raw_contract)
+    return normalize_requirement_approval_contract({})
 
 
 def _approval_source_label(decision: dict[str, Any], approval_status: str) -> str:
@@ -2303,6 +2337,12 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
     if provided_markdown:
         initial_acceptance_contract["markdown"] = provided_markdown
+    approval_contract = _seed_requirement_approval_contract(
+        db,
+        project=project,
+        target_project_path=target_project_path,
+        raw_contract=cast(dict[str, Any] | None, getattr(body, "approval_contract", None)),
+    )
     requirement = RequirementRow(
         title=body.title.strip(),
         description_markdown=body.description_markdown.strip(),
@@ -2320,7 +2360,7 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
         acceptance_contract_json=_json_dump(initial_acceptance_contract),
         execution_plan_json=_json_dump({}),
         approval_status="pending_approval",
-        approval_contract_json=_json_dump(body.approval_contract or {}),
+        approval_contract_json=_json_dump(approval_contract),
     )
     db.add(requirement)
     db.commit()
@@ -2347,12 +2387,6 @@ def create_requirement(db: Session, body) -> AgentFirstRequirementDetailOut:
     requirement.attention_reason = None
     requirement.assets_status = "pending"
     requirement.assets_error_message = None
-    requirement.approval_contract_json = _json_dump(
-        {
-            **_json_load(getattr(requirement, "approval_contract_json", None), {}),
-            "required": approval_required,
-        }
-    )
     db.commit()
     db.refresh(requirement)
     if _testing_mode():
@@ -2700,7 +2734,10 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     if str(getattr(requirement, "phase", "") or requirement.status or "draft") not in {
         "draft",
         "planning",
+        "ready",
+        "awaiting_approval",
         "awaiting_execution_approval",
+        "branch_prepared",
         "needs_revision",
         "blocked",
     }:
@@ -3414,7 +3451,10 @@ def _next_running_node(db: Session, run: ExecutionRunRow) -> ExecutionNodeRow | 
 def _background_verify_execution(execution_run_id: int) -> None:
     db = SessionLocal()
     try:
-        validate_execution_run(db, execution_run_id)
+        _with_sqlite_lock_retry(
+            db,
+            lambda: validate_execution_run(db, execution_run_id),
+        )
     except Exception as exc:
         db.rollback()
         log_event(
@@ -3762,7 +3802,14 @@ def _create_followup_requirement_from_validation(
         assets_status="pending",
         assets_error_message=None,
         approval_status="pending_approval",
-        approval_contract_json=_json_dump({}),
+        approval_contract_json=_json_dump(
+            _seed_requirement_approval_contract(
+                db,
+                project=project,
+                target_project_path=target_project_path or str(getattr(requirement, "target_project_path", "") or "").strip() or None,
+                raw_contract=_json_load(getattr(requirement, "approval_contract_json", None), {}),
+            )
+        ),
         linked_requirement_id=int(requirement.id),
         origin_execution_run_id=int(run.id),
         origin_validation_id=int(validation.id),
@@ -4499,7 +4546,7 @@ def _execution_file_preview(
     )
 
 
-def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
+def _build_execution_detail_once(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
         raise ValueError("Execution run not found.")
@@ -4754,6 +4801,13 @@ def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDe
         plan_summary=plan_summary,
         raw_task_output=raw_task_output,
         raw_task_output_truncated=raw_task_output_truncated,
+    )
+
+
+def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
+    return _with_sqlite_lock_retry(
+        db,
+        lambda: _build_execution_detail_once(db, execution_run_id),
     )
 
 
@@ -5199,13 +5253,17 @@ def _handle_release_delivery_blocker(
 
 def _auto_open_pr_after_verification(db: Session, requirement: RequirementRow, *, actor: str) -> ReleaseRecordRow | None:
     try:
-        detail = open_release_pr(
+        detail = _with_sqlite_lock_retry(
             db,
-            int(requirement.id),
-            actor=actor,
-            note="Auto-opened after verification passed",
+            lambda: open_release_pr(
+                db,
+                int(requirement.id),
+                actor=actor,
+                note="Auto-opened after verification passed",
+            ),
         )
-    except ValueError as exc:
+    except (OperationalError, ValueError) as exc:
+        db.rollback()
         _log_workflow_event(
             "release_auto_pr_failed",
             requirement=requirement,

@@ -163,9 +163,10 @@ def project_policy_summary_markdown(db: Session, target_project_path: str | None
     lines = ["## Project Policies"]
     for policy in policies:
         data = project_policy_to_dict(policy)
+        approval_preference = "manual_review_preferred" if data["requires_manual_approval"] else "agent_first_preferred"
         lines.append(
             f"- **{data['display_name']}** (`{data['root_path']}`): status={data['status']}, "
-            f"release_mode={data['release_mode']}, manual_approval={'yes' if data['requires_manual_approval'] else 'no'}"
+            f"release_mode={data['release_mode']}, approval_preference={approval_preference}"
         )
         if data["required_checks"]:
             lines.append(f"  Required checks: {', '.join(data['required_checks'])}")
