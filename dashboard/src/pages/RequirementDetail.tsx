@@ -80,6 +80,115 @@ function approvalStatusLabel(detail: AgentRequirementDetail) {
   return APPROVAL_STATUS_LABEL[state] || APPROVAL_STATUS_LABEL[detail.approval.approval_decision] || state
 }
 
+const LIFECYCLE_STEPS = [
+  { key: 'created', label: '创建' },
+  { key: 'planning', label: '规划' },
+  { key: 'approval', label: '审批' },
+  { key: 'ready', label: '待执行' },
+  { key: 'execution', label: '执行' },
+  { key: 'delivery', label: '交付' },
+  { key: 'merge', label: '待合并' },
+  { key: 'done', label: '完成' },
+]
+
+const LIFECYCLE_STATE_INDEX: Record<string, number> = {
+  draft: 0,
+  planning: 1,
+  awaiting_approval: 2,
+  ready: 3,
+  executing: 4,
+  running: 4,
+  delivering: 5,
+  delivery_ready: 5,
+  ready_for_merge: 6,
+  completed: 7,
+  done: 7,
+}
+
+function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
+  if (state in LIFECYCLE_STATE_INDEX) return LIFECYCLE_STATE_INDEX[state]
+  if (state === 'failed' || state === 'cancelled' || state === 'awaiting_operator') {
+    if (detail.latest_release_id || detail.latest_release) return 5
+    if (detail.latest_execution_id || detail.requirement.latest_execution_run_id) return 4
+    if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') return 2
+    return 3
+  }
+  return 0
+}
+
+function lifecycleDescription(detail: AgentRequirementDetail, state: string) {
+  const releaseState = detail.latest_release?.state || detail.latest_release?.status || ''
+  if (state === 'failed') return detail.failure_reason ? `自动主链已终止：${detail.failure_reason}` : '自动主链已终止，需要人工介入'
+  if (state === 'cancelled') return '需求已取消，不会继续自动推进'
+  if (state === 'awaiting_operator') return detail.attention_reason ? `需要人工处理：${detail.attention_reason}` : '需要人工处理后才能继续'
+  if (state === 'planning' || detail.assets_status === 'pending') return '验收标准与执行计划正在生成'
+  if (state === 'awaiting_approval') return '等待审批结果，未通过前不会执行'
+  if (state === 'ready') return '需求已就绪，可以启动执行'
+  if (state === 'executing' || state === 'running') return 'agent 正在执行当前 attempt'
+  if (state === 'delivering' || state === 'delivery_ready') {
+    if (releaseState === 'repairing') return 'delivery repair 自动修复中'
+    return '验证已过，正在 push / open PR / delivery repair'
+  }
+  if (state === 'ready_for_merge') return 'PR 已打开，等待最终 merge'
+  if (state === 'completed' || state === 'done') return '需求生命周期已完成'
+  return '需求已进入生命周期主线'
+}
+
+function lifecycleStepTone(stepStatus: 'done' | 'current' | 'upcoming' | 'terminal') {
+  if (stepStatus === 'done') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (stepStatus === 'terminal') return 'border-rose-200 bg-rose-50 text-rose-700'
+  if (stepStatus === 'current') return 'border-blue-200 bg-blue-50 text-blue-700'
+  return 'border-[color:var(--ops-stroke-soft)] bg-slate-50 text-[color:var(--ops-text-caption)]'
+}
+
+function lifecycleDotTone(stepStatus: 'done' | 'current' | 'upcoming' | 'terminal') {
+  if (stepStatus === 'done') return 'bg-emerald-500'
+  if (stepStatus === 'terminal') return 'bg-rose-500'
+  if (stepStatus === 'current') return 'bg-blue-500'
+  return 'bg-slate-300'
+}
+
+function RequirementLifecycleStepper({ detail }: Readonly<{ detail: AgentRequirementDetail }>) {
+  const state = detail.requirement.state || detail.state || detail.requirement.status || 'draft'
+  const currentIndex = lifecycleIndex(detail, state)
+  const isTerminal = state === 'failed' || state === 'cancelled'
+  const description = lifecycleDescription(detail, state)
+  const currentStep = LIFECYCLE_STEPS[currentIndex] || LIFECYCLE_STEPS[0]
+  return (
+    <div data-testid="requirement-lifecycle" className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/75 px-4 py-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <StateBadge tone={isTerminal ? 'blocked' : statusTone(state)}>{isTerminal ? (state === 'failed' ? '需求失败' : '需求已取消') : `当前：${currentStep.label}`}</StateBadge>
+        <span data-testid="requirement-lifecycle-current" className="text-sm text-[color:var(--ops-text-muted)]">
+          {description}
+        </span>
+      </div>
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-max items-stretch gap-2">
+          {LIFECYCLE_STEPS.map((step, index) => {
+            const stepStatus = isTerminal && index === currentIndex ? 'terminal' : index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'upcoming'
+            return (
+              <div key={step.key} className="flex items-center">
+                <div
+                  data-testid={`requirement-lifecycle-step-${step.key}`}
+                  data-state={stepStatus}
+                  className={`min-w-[112px] rounded-2xl border px-3 py-3 ${lifecycleStepTone(stepStatus)}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${lifecycleDotTone(stepStatus)}`} />
+                    <span className="text-xs font-semibold">{step.label}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.16em] opacity-70">{stepStatus}</div>
+                </div>
+                {index < LIFECYCLE_STEPS.length - 1 ? <div className="mx-2 h-px w-7 self-center bg-[color:var(--ops-stroke-soft)]" /> : null}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Markdown({ value }: Readonly<{ value: string }>) {
   if (!value.trim()) return <div className="text-sm text-slate-400">暂无内容</div>
   return (
@@ -345,6 +454,8 @@ export default function RequirementDetail() {
           </div>
         }
       >
+        {!isEditing ? <RequirementLifecycleStepper detail={detail} /> : null}
+
         {showApprovalNotice ? (
           <div
             data-testid="requirement-approval-notice"

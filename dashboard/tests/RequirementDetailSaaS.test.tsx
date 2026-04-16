@@ -251,8 +251,14 @@ describe('RequirementDetail SaaS editing', () => {
   it('shows asset generation notice and disables submit while planning is pending', async () => {
     mockApi.getRequirement.mockResolvedValueOnce({
       ...baseDetail,
+      state: 'planning',
       assets_status: 'pending',
       assets_error_message: null,
+      requirement: {
+        ...baseDetail.requirement,
+        state: 'planning',
+        status: 'draft',
+      },
     })
 
     render(
@@ -265,6 +271,150 @@ describe('RequirementDetail SaaS editing', () => {
 
     await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
     expect(screen.getByText('验收标准与执行计划正在生成，完成前不能提交。')).toBeInTheDocument()
+    expect(screen.getByTestId('requirement-lifecycle-current')).toHaveTextContent('验收标准与执行计划正在生成')
+    expect(screen.getByTestId('requirement-lifecycle-step-planning')).toHaveAttribute('data-state', 'current')
     expect(screen.queryByRole('button', { name: '提交' })).not.toBeInTheDocument()
+  })
+
+  it('shows approval as the current lifecycle step while keeping approval notice separate', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...baseDetail,
+      state: 'awaiting_approval',
+      requirement: {
+        ...baseDetail.requirement,
+        state: 'awaiting_approval',
+        status: 'blocked',
+        approval_status: 'pending_approval',
+      },
+      approval_decision: {
+        state: 'pending',
+        reason: 'manual approval required by contract',
+        source: 'human_required_by_policy',
+        agent_recommendation: 'approve',
+        confidence: 0.99,
+        recommendation_reason: 'requirement passed deterministic auto-approval policy',
+        recommendation_source: 'deterministic_policy',
+        risk_flags: [],
+        required_approver_roles: ['operator'],
+      },
+      approval: {
+        ...baseDetail.approval,
+        approval_decision: 'pending_manual_approval',
+        approval_status: 'pending_approval',
+        approval_reason: 'manual approval required by contract',
+        required_approver_roles: ['operator'],
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/3']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
+    expect(screen.getByTestId('requirement-lifecycle-step-approval')).toHaveAttribute('data-state', 'current')
+    expect(screen.getByTestId('requirement-lifecycle-current')).toHaveTextContent('等待审批结果，未通过前不会执行')
+    expect(screen.getByTestId('requirement-approval-notice')).toBeInTheDocument()
+  })
+
+  it('shows delivery repair as the delivery lifecycle step', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...baseDetail,
+      state: 'delivering',
+      latest_release_id: 7,
+      latest_release: {
+        id: 7,
+        requirement_id: 3,
+        execution_run_id: 12,
+        status: 'release_blocked',
+        state: 'repairing',
+        branch_name: 'ops/req-3-runtime-traceback',
+        base_branch: 'main',
+        commit_sha: null,
+        compare_url: null,
+        pr_url: null,
+        pr_number: null,
+        notes: 'repo gate failed',
+        delivery_blocker_type: 'repo_gate_failed',
+        delivery_failure_excerpt: 'docs check failed',
+        repairable: true,
+        repair_attempt_count: 1,
+        next_action: 'repair_delivery',
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+      requirement: {
+        ...baseDetail.requirement,
+        state: 'delivering',
+        status: 'delivery_ready',
+        latest_execution_run_id: 12,
+        delivery_repair_attempt_count: 1,
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/3']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
+    expect(screen.getByTestId('requirement-lifecycle-step-delivery')).toHaveAttribute('data-state', 'current')
+    expect(screen.getByTestId('requirement-lifecycle-current')).toHaveTextContent('delivery repair 自动修复中')
+  })
+
+  it('shows failed requirement as a terminal lifecycle state with failure reason', async () => {
+    mockApi.getRequirement.mockResolvedValueOnce({
+      ...baseDetail,
+      state: 'failed',
+      failure_reason: 'delivery_repair_budget_exhausted',
+      latest_release_id: 7,
+      latest_release: {
+        id: 7,
+        requirement_id: 3,
+        execution_run_id: 12,
+        status: 'release_blocked',
+        state: 'blocked',
+        branch_name: 'ops/req-3-runtime-traceback',
+        base_branch: 'main',
+        commit_sha: null,
+        compare_url: null,
+        pr_url: null,
+        pr_number: null,
+        notes: 'delivery repair budget exhausted',
+        delivery_blocker_type: 'repo_gate_failed',
+        delivery_failure_excerpt: 'repo gate still failed',
+        repairable: false,
+        repair_attempt_count: 2,
+        next_action: 'route_to_human',
+        created_at: '2026-04-14T00:00:00Z',
+        updated_at: '2026-04-14T00:00:00Z',
+      },
+      requirement: {
+        ...baseDetail.requirement,
+        state: 'failed',
+        status: 'failed',
+        latest_execution_run_id: 12,
+        delivery_repair_attempt_count: 2,
+      },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/requirements/3']}>
+        <Routes>
+          <Route path="/requirements/:id" element={<RequirementDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(mockApi.getRequirement).toHaveBeenCalledWith(3))
+    expect(screen.getByText('需求失败')).toBeInTheDocument()
+    expect(screen.getByTestId('requirement-lifecycle-step-delivery')).toHaveAttribute('data-state', 'terminal')
+    expect(screen.getByTestId('requirement-lifecycle-current')).toHaveTextContent('delivery_repair_budget_exhausted')
   })
 })
