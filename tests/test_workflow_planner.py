@@ -1,7 +1,8 @@
 """Tests for the agent-driven workflow planner: phase detection, dynamic file_scope, target_project_path."""
+from contextlib import nullcontext
 import json
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from server.database import AgentRow, ArtifactRow, ProjectPolicyRow, RequirementRow, WorkflowStepRow
 from server.services.signals.optimization_templates import get_optimization_requirement_template
@@ -9,23 +10,13 @@ import server.services.workflows.planner as workflow_planner
 from server.services.workflows.planner import (
     _DetectedPhases,
     _base_file_scope,
-    _plan_with_agent,
-    _AgentStep,
     _build_implementation_steps,
-    _build_steps_from_agent_plan,
     _detect_phases_fallback,
     _detect_phases_with_agent,
     _project_file_scope,
     _review_file_scope,
     build_planner_output,
 )
-
-
-def _mock_bridge_result(phases: dict) -> MagicMock:
-    """Create a mock bridge result returning a JSON phases dict."""
-    result = MagicMock()
-    result.content = json.dumps(phases)
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -102,104 +93,6 @@ class TestDetectPhasesWithAgent:
     def test_fallback_design_backend(self):
         p = _detect_phases_with_agent("方案设计，给出后端实现")
         assert p.design and p.backend
-
-
-def test_full_plan_cools_down_after_copilot_authorization_error(monkeypatch):
-    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
-    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
-
-    provider = MagicMock()
-    provider.call.side_effect = RuntimeError(
-        "You are not authorized to use this Copilot feature because you are an enterprise-managed user."
-    )
-
-    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "copilot_sdk")
-    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "copilot")
-    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
-    with patch("server.services.workflows.planner.get_provider", return_value=provider):
-        assert _plan_with_agent("Need a plan", "/tmp/project") is None
-        assert _plan_with_agent("Need a plan", "/tmp/project") is None
-
-    assert provider.call.call_count == 1
-    assert workflow_planner._FULL_PLAN_DISABLED_UNTIL is not None
-    assert workflow_planner._FULL_PLAN_DISABLED_REASON == "copilot_authorization_error"
-
-
-def test_full_plan_uses_openai_responses_style_call(monkeypatch):
-    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
-    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
-
-    provider = MagicMock()
-    provider.create_response.return_value = {
-        "id": "resp_plan",
-        "status": "completed",
-        "output_text": json.dumps({
-            "steps": [
-                {
-                    "step_key": "implementation",
-                    "title": "Implement requirement",
-                    "scope": "backend",
-                    "depends_on": [],
-                    "done_when": "Implementation is ready for review.",
-                }
-            ]
-        }),
-        "usage": {"total_tokens": 42},
-    }
-    provider.extract_response_text.return_value = provider.create_response.return_value["output_text"]
-    provider.extract_response_tokens.return_value = 42
-    provider.extract_response_error.return_value = None
-
-    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "openai_responses")
-    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
-    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "gpt-4o")
-    with patch("server.services.workflows.planner.get_provider", return_value=provider):
-        steps = _plan_with_agent("Need a plan", "/tmp/project")
-
-    assert steps is not None
-    assert steps[0].step_key == "implementation"
-    provider.create_response.assert_called_once()
-    provider.call.assert_not_called()
-
-
-def test_planner_provider_name_prefers_codex_backend(monkeypatch):
-    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "codex_cli")
-    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
-    assert workflow_planner._planner_provider_name() == "codex"
-
-
-def test_full_plan_uses_codex_provider_call_when_backend_is_codex(monkeypatch):
-    workflow_planner._FULL_PLAN_DISABLED_UNTIL = None
-    workflow_planner._FULL_PLAN_DISABLED_REASON = ""
-
-    provider = MagicMock()
-    provider.call.return_value = (
-        json.dumps(
-            {
-                "steps": [
-                    {
-                        "step_key": "implementation",
-                        "title": "Implement with Codex CLI",
-                        "scope": "backend",
-                        "depends_on": [],
-                        "done_when": "Implementation is ready for review.",
-                    }
-                ]
-            }
-        ),
-        0,
-    )
-
-    monkeypatch.setattr(workflow_planner.config, "ORCHESTRATION_BACKEND", "codex_cli")
-    monkeypatch.setattr(workflow_planner.config, "LLM_PROVIDER", "openai")
-    monkeypatch.setattr(workflow_planner.config, "LLM_MODEL", "openai")
-    monkeypatch.setattr(workflow_planner.config, "CODEX_CLI_MODEL", "")
-    with patch("server.services.workflows.planner.get_provider", return_value=provider):
-        steps = _plan_with_agent("Need a plan", "/tmp/project")
-
-    assert steps is not None
-    assert steps[0].title == "Implement with Codex CLI"
-    provider.call.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -293,74 +186,14 @@ class TestBuildImplementationSteps:
         for step in steps:
             assert "/my/project/**" in step["file_scope"]["allowed_write_globs"]
 
-    def test_validate_only_test_step_is_filtered_from_implementation_plan(self):
-        req = _mock_requirement(title="Validation only")
-        steps, keys = _build_steps_from_agent_plan(
-            req,
-            [
-                _AgentStep(
-                    step_key="impl",
-                    title="Change frontend timeout",
-                    scope="frontend",
-                    depends_on=[],
-                    done_when="Frontend change is implemented.",
-                ),
-                _AgentStep(
-                    step_key="run_repo_checks",
-                    title="Execute repo validation suite",
-                    scope="test",
-                    depends_on=["impl"],
-                    done_when="Project-level validation command completes successfully or its failures are documented.",
-                ),
-            ],
-            "/tmp/project",
-        )
-        assert [step["step_key"] for step in steps] == ["impl"]
-        assert keys == ["impl", "run_repo_checks"]
-
-
 # ---------------------------------------------------------------------------
-# Full planner output (integration with DB — mock agent)
+# Planner output (integration with DB)
 # ---------------------------------------------------------------------------
 
 def _patch_agent_phases(phases: dict):
-    """Return a context manager that mocks provider.call() with a JSON full-plan."""
-    ordered_steps = []
-    if phases.get("design"):
-        ordered_steps.append({
-            "step_key": "design",
-            "title": "Design architecture",
-            "scope": "docs",
-            "depends_on": [],
-            "done_when": "Architecture decisions are documented.",
-        })
-    if phases.get("frontend"):
-        ordered_steps.append({
-            "step_key": "frontend_impl",
-            "title": "Frontend implementation",
-            "scope": "frontend",
-            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
-            "done_when": "Frontend changes are implemented.",
-        })
-    if phases.get("backend"):
-        ordered_steps.append({
-            "step_key": "backend_impl",
-            "title": "Backend implementation",
-            "scope": "backend",
-            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
-            "done_when": "Backend changes are implemented.",
-        })
-    if phases.get("test_impl"):
-        ordered_steps.append({
-            "step_key": "test_impl",
-            "title": "Test implementation",
-            "scope": "test",
-            "depends_on": [ordered_steps[-1]["step_key"]] if ordered_steps else [],
-            "done_when": "Automated coverage is implemented.",
-        })
-    provider = MagicMock()
-    provider.call.return_value = (json.dumps({"steps": ordered_steps}), 123)
-    return patch("server.services.workflows.planner.get_provider", return_value=provider)
+    """No-op context retained while these tests exercise deterministic planner cases."""
+
+    return nullcontext()
 
 
 class TestBuildPlannerOutput:
@@ -378,14 +211,7 @@ class TestBuildPlannerOutput:
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
 
-        # Should have research, plan, implementation sub-steps + validate + closeout
-        assert step_keys[:2] == ["research", "plan"]
-        assert "design" in step_keys
-        assert "frontend_impl" in step_keys
-        assert "backend_impl" in step_keys
-        assert "test_impl" in step_keys
-        assert "validate" in step_keys
-        assert "closeout" in step_keys
+        assert step_keys == ["research", "plan", "implementation", "validate", "closeout"]
 
         assert output["target_project_path"] == "/Users/cliff/workspace/agent/Synapse-Network"
         assert output["project_policies"][0]["project_key"] == "synapse-network"
@@ -414,22 +240,19 @@ class TestBuildPlannerOutput:
         assert output["extensions"]["role_assignments"]["planner_agent_id"]
 
         validate_step = next(s for s in output["workflow_steps"] if s["step_key"] == "validate")
-        assert validate_step["depends_on"] == ["test_impl"]
-        first_impl = next(s for s in output["workflow_steps"] if s["step_key"] == "design")
+        assert validate_step["depends_on"] == ["implementation"]
+        first_impl = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
         assert first_impl["depends_on"] == ["plan"]
         assert first_impl["approval_policy"]["required_capabilities"] == ["shell_access", "git_read", "git_write"]
         assert first_impl["approval_policy"]["deny_execution"] is False
         assert first_impl["context_policy"]["max_prompt_chars"] >= 12000
         assert first_impl["context_policy"]["block_on_stale_memory"] is True
-        assert first_impl["complexity_tier"] == "mini"
-        assert first_impl["budget_cap"]["max_input_tokens"] == 6000
+        assert first_impl["complexity_tier"] == "standard"
+        assert first_impl["budget_cap"]["max_input_tokens"] == 14000
         assert first_impl["allow_escalation"] is True
-        assert first_impl["escalation_rule"]["next_tier"] == "standard"
+        assert first_impl["escalation_rule"]["next_tier"] == "max"
         assert first_impl["escalation_rule"]["changed_files_threshold"] == 8
-        assert first_impl["execution_profile"]["complexity_tier"] == "mini"
-        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
-        assert frontend_step["complexity_tier"] == "standard"
-        assert frontend_step["execution_profile"]["budget_cap"]["max_input_tokens"] == 14000
+        assert first_impl["execution_profile"]["complexity_tier"] == "standard"
         assert validate_step["complexity_tier"] == "standard"
         closeout_step = next(s for s in output["workflow_steps"] if s["step_key"] == "closeout")
         assert closeout_step["complexity_tier"] == "mini"
@@ -527,12 +350,10 @@ class TestBuildPlannerOutput:
             output, _ = build_planner_output(db_session, req)
 
         step_keys = [s["step_key"] for s in output["workflow_steps"]]
-        assert step_keys == ["research", "plan", "frontend_impl", "backend_impl", "validate", "closeout"]
-        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
-        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
-        assert frontend_step["complexity_tier"] == "standard"
-        assert backend_step["complexity_tier"] == "standard"
-        assert frontend_step["execution_profile"]["budget_cap"]["max_attempts"] == 3
+        assert step_keys == ["research", "plan", "implementation", "validate", "closeout"]
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert implementation_step["complexity_tier"] == "standard"
+        assert implementation_step["execution_profile"]["budget_cap"]["max_attempts"] == 3
 
     def test_multi_project_implementation_defaults_to_max_tier(self, synced_client, db_session):
         req = RequirementRow(
@@ -546,10 +367,10 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
-        assert backend_step["complexity_tier"] == "max"
-        assert backend_step["execution_profile"]["escalation_rule"]["next_tier"] == "max"
-        assert backend_step["execution_profile"]["budget_cap"]["max_runtime_seconds"] == 3600
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert implementation_step["complexity_tier"] == "max"
+        assert implementation_step["execution_profile"]["escalation_rule"]["next_tier"] == "stay"
+        assert implementation_step["execution_profile"]["budget_cap"]["max_runtime_seconds"] == 3600
 
     def test_delivery_expectation_leaves_change_shape_to_model(self, synced_client, db_session):
         req = RequirementRow(
@@ -590,7 +411,7 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": True, "frontend": False, "backend": False, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        assert output["extensions"]["planning_mode"] == "full_plan"
+        assert output["extensions"]["planning_mode"] == "phase_detect"
         assert output["target_project_path"].splitlines()[0] == workflow_planner.PRIMARY_GROWING_PROJECT
         assert output["delivery_expectation"]["all_target_paths"] == [
             workflow_planner.PRIMARY_GROWING_PROJECT,
@@ -625,9 +446,9 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": False, "frontend": True, "backend": True, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        frontend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "frontend_impl")
-        assert "/proj/src/**" in frontend_step["file_scope"]["allowed_write_globs"]
-        assert "/proj/secrets/**" in frontend_step["file_scope"]["blocked_globs"]
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert "/proj/src/**" in implementation_step["file_scope"]["allowed_write_globs"]
+        assert "/proj/secrets/**" in implementation_step["file_scope"]["blocked_globs"]
 
     def test_capability_matrix_marks_step_as_denied_when_shell_is_disabled(self, synced_client, db_session):
         db_session.add(
@@ -719,11 +540,11 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
-        assert backend_step["complexity_tier"] == "standard"
-        assert backend_step["approval_policy"]["approval_scope"] == "expensive_branches_only"
-        assert backend_step["approval_policy"]["requires_operator_confirmation"] is False
-        assert backend_step["approval_policy"]["operator_confirmation_actions"] == []
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert implementation_step["complexity_tier"] == "standard"
+        assert implementation_step["approval_policy"]["approval_scope"] == "expensive_branches_only"
+        assert implementation_step["approval_policy"]["requires_operator_confirmation"] is False
+        assert implementation_step["approval_policy"]["operator_confirmation_actions"] == []
 
     def test_max_tier_steps_keep_operator_confirmation(self, synced_client, db_session):
         db_session.add(
@@ -791,11 +612,11 @@ class TestBuildPlannerOutput:
         with _patch_agent_phases({"design": False, "frontend": False, "backend": True, "test_impl": False}):
             output, _ = build_planner_output(db_session, req)
 
-        backend_step = next(s for s in output["workflow_steps"] if s["step_key"] == "backend_impl")
-        assert backend_step["complexity_tier"] == "max"
-        assert backend_step["approval_policy"]["approval_scope"] == "max_tier"
-        assert backend_step["approval_policy"]["requires_operator_confirmation"] is True
-        assert backend_step["approval_policy"]["operator_confirmation_actions"] == ["shell_access", "git_write"]
+        implementation_step = next(s for s in output["workflow_steps"] if s["step_key"] == "implementation")
+        assert implementation_step["complexity_tier"] == "max"
+        assert implementation_step["approval_policy"]["approval_scope"] == "max_tier"
+        assert implementation_step["approval_policy"]["requires_operator_confirmation"] is True
+        assert implementation_step["approval_policy"]["operator_confirmation_actions"] == ["shell_access", "git_write"]
 
     def test_incident_recovery_chain_keeps_operator_confirmation(self, synced_client, db_session):
         db_session.add(
@@ -1012,8 +833,7 @@ class TestBuildPlannerOutput:
         db_session.add(req)
         db_session.commit()
 
-        with patch("server.services.workflows.planner._plan_with_agent", side_effect=AssertionError("agent planner should not run")):
-            output, assignments = build_planner_output(db_session, req)
+        output, assignments = build_planner_output(db_session, req)
 
         assert output["planning_mode"] == "deterministic_validation_clone"
         implementation_steps = [step for step in output["workflow_steps"] if step["step_type"] == "implementation"]
@@ -1080,7 +900,7 @@ class TestRequirementApiWithProjectPath:
         assert resp.status_code == 201
         assert resp.json()["requirement"]["target_project_path"] is None
 
-    def test_plan_with_target_path_creates_multi_steps(self, synced_client, db_session):
+    def test_plan_with_target_path_creates_single_impl_step(self, synced_client, db_session):
         create_resp = synced_client.post(
             "/api/requirements",
             json={
@@ -1098,18 +918,11 @@ class TestRequirementApiWithProjectPath:
         steps = plan_resp.json()["workflow_run"]["steps"]
         step_keys = [s["step_key"] for s in steps]
 
-        # All context + implementation sub-steps + validate + closeout
-        assert step_keys[:2] == ["research", "plan"]
-        assert "design" in step_keys
-        assert "frontend_impl" in step_keys
-        assert "backend_impl" in step_keys
-        assert "test_impl" in step_keys
-        assert "validate" in step_keys
-        assert "closeout" in step_keys
+        assert step_keys == ["research", "plan", "implementation", "validate", "closeout"]
 
         # Verify file_scope from DB directly
         impl_step = db_session.query(WorkflowStepRow).filter(
-            WorkflowStepRow.step_key == "frontend_impl",
+            WorkflowStepRow.step_key == "implementation",
             WorkflowStepRow.requirement_id == requirement_id,
         ).first()
         scope = json.loads(impl_step.file_scope_json)

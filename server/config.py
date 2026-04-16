@@ -132,6 +132,12 @@ CODEX_CLI_SESSION_MAX_CACHED_INPUT_TOKENS = max(0, int(os.environ.get("CODEX_CLI
 CODEX_CLI_SESSION_MAX_INPUT_TOKENS = max(0, int(os.environ.get("CODEX_CLI_SESSION_MAX_INPUT_TOKENS", "1500000")))
 CODEX_CLI_RESUME_MAX_ATTEMPTS = max(0, int(os.environ.get("CODEX_CLI_RESUME_MAX_ATTEMPTS", "2")))
 CODEX_CLI_MONITOR_STARTUP_GRACE_SEC = float(os.environ.get("CODEX_CLI_MONITOR_STARTUP_GRACE_SEC", "20"))
+CODEX_SDK_MODEL = os.environ.get("CODEX_SDK_MODEL", CODEX_CLI_MODEL or LLM_MODEL).strip()
+CODEX_SDK_TIMEOUT = int(os.environ.get("CODEX_SDK_TIMEOUT", "0"))
+CODEX_SDK_PLAN_TIMEOUT = int(os.environ.get("CODEX_SDK_PLAN_TIMEOUT", "300"))
+CODEX_SDK_MAX_ACTIVE_SECONDS = max(0, int(os.environ.get("CODEX_SDK_MAX_ACTIVE_SECONDS", "7200")))
+CODEX_SDK_STALE_AFTER_SEC = float(os.environ.get("CODEX_SDK_STALE_AFTER_SEC", "300"))
+CODEX_SDK_SANDBOX = os.environ.get("CODEX_SDK_SANDBOX", "workspace-write").strip() or "workspace-write"
 DELIVERY_VCS_TIMEOUT_SECONDS = max(1, int(os.environ.get("OPS_DELIVERY_VCS_TIMEOUT_SECONDS", "120")))
 DELIVERY_VCS_REMOTE_NAME = os.environ.get("OPS_DELIVERY_VCS_REMOTE_NAME", "origin").strip() or "origin"
 DELIVERY_PR_TIMEOUT_SECONDS = max(1, int(os.environ.get("OPS_DELIVERY_PR_TIMEOUT_SECONDS", "60")))
@@ -168,7 +174,7 @@ CORS_ORIGINS = os.environ.get("OPS_CORS_ORIGINS", "*").split(",")
 
 
 SUPPORTED_LLM_EXECUTION_MODES = {"sync", "session"}
-SUPPORTED_ORCHESTRATION_BACKENDS = {"legacy", "copilot_sdk", "openai_responses", "codex_cli"}
+SUPPORTED_ORCHESTRATION_BACKENDS = {"legacy", "copilot_sdk", "openai_responses", "codex_cli", "codex_sdk"}
 
 
 def resolve_orchestration_backend(

@@ -367,12 +367,17 @@ planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
 1. `openai_responses`
 2. `copilot_sdk`
 3. `codex_cli`
+4. `codex_sdk`
 
 当前原则：
 
 1. planner 只做 shape decision
 2. execute 由选定 runtime 驱动
 3. verification 与 deliver 由系统治理，不交给模型随意跳过
+
+`codex_sdk` 是 Codex Python SDK 的推荐演进方向，用于替代裸 `codex exec` subprocess 管理，但上线前必须保留 `codex_cli` fallback。详细设计见 [Codex Python SDK Runtime Architecture](design-docs/codex-python-sdk-runtime-architecture.md)。
+
+Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project_root=<canonical target project root>`、`requirement_id=NULL`。执行、评审、测试和 bugfix agent 继续按需求隔离，避免跨需求实现上下文污染。详细设计见 [Plan Agent Project-Scoped Session Reuse](design-docs/plan-agent-project-scoped-session-reuse.md)。
 
 ## 7. 错误日志页（辅助）
 

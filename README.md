@@ -237,10 +237,14 @@ CODEX_CLI_FULL_AUTO=true
 
 Notes:
 
-1. `planner full-plan` and workflow task execution will both use the local `codex exec` runtime.
+1. `planner plan brief` and workflow task execution will both use the local `codex exec` runtime.
 2. `CODEX_CLI_MODEL` is optional; if omitted, the system falls back to `LLM_MODEL`.
 3. `CODEX_CLI_FULL_AUTO=false` switches to explicit sandbox mode using `CODEX_CLI_SANDBOX`.
 4. This path uses your existing Codex / ChatGPT login state, not `OPENAI_API_KEY`.
+
+Recommended Codex Python SDK direction:
+
+For long-running OPS automation, prefer a future `codex_sdk` backend over direct `codex exec` subprocess management. The Python SDK gives the backend thread/resume/stream/interrupt/structured-output APIs while still requiring `codex app-server` / `codex-cli-bin`, so `codex_cli` should remain the production fallback during rollout. See [Codex Python SDK Runtime Architecture](docs/design-docs/codex-python-sdk-runtime-architecture.md).
 
 Runtime auth guard alerting:
 
@@ -300,8 +304,9 @@ When Copilot SDK returns an explicit enterprise-policy / authorization error, th
 6. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
 7. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
 8. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
-9. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
-10. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
+9. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope、registry 与后续实现方案
+10. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
+11. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

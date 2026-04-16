@@ -1,14 +1,7 @@
-"""Agent-driven planner for requirement-first workflows.
+"""Deterministic planner for requirement-first workflows.
 
-Uses the configured LLM provider to analyse the requirement and produce a
-full ordered step plan, then generates dynamic file_scope based on
-target_project_path.
-
-Mode 1 (full-plan, default): agent returns a JSON step list with step_key,
-title, scope, depends_on, and done_when for each step.
-
-Mode 2 (phase-detect, fallback): agent returns 4 boolean flags and Python
-generates the fixed step set deterministically.
+The planner uses keyword phase detection plus project policy and acceptance
+contracts to generate a stable workflow skeleton.
 """
 
 from __future__ import annotations
@@ -16,8 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +20,6 @@ from server.database import AgentRow, ArtifactRow, RequirementRow
 from server.services.requirements.acceptance import acceptance_contract_for_requirement
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.agents.execution_resolver import suggest_task_execution
-from server.services.agents.llm_adapter import get_provider
 from server.services.projects.intelligence import resolve_requirement_routing
 from server.services.projects.policy import (
     CAPABILITY_KEYS,
@@ -41,16 +32,10 @@ from server.services.requirements.approval import requirement_approval_contract_
 from server.services.workflows.planner_delivery import _build_delivery_contract, _merge_release_mode, _slugify_branch_fragment
 from server.services.workflows.planner_profiles import (
     _build_execution_profile,
-    _default_budget_cap,
-    _default_complexity_tier,
     _default_escalation_rule,
     _normalize_complexity_tier,
 )
 from server.services.workflows.planner_provider import (
-    call_full_plan_provider as _call_full_plan_provider,
-    plan_with_agent as _plan_with_agent_impl,
-    planner_model_name as _planner_model_name,
-    planner_provider_name as _planner_provider_name,
     _split_target_paths,
 )
 from server.services.workflows.planner_steps import (
@@ -68,44 +53,6 @@ PRIMARY_GROWING_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network-Growing"
 PRIMARY_SYNAPSE_PROJECT = "/Users/cliff/workspace/agent/Synapse-Network"
 
 _RELEASE_MODE_RANK = {"disabled": 0, "manual": 1, "auto": 2}
-_FULL_PLAN_DISABLED_UNTIL: datetime | None = None
-_FULL_PLAN_DISABLED_REASON: str = ""
-_FULL_PLAN_AUTH_COOLDOWN = timedelta(minutes=10)
-_FULL_PLAN_AUTH_ERROR_SNIPPETS = (
-    "not authorized to use this copilot feature",
-    "you are not authorized to use this copilot feature",
-    "enterprise-managed users",
-)
-_FULL_PLAN_PROVIDER_COOLDOWN_SNIPPETS = (
-    "insufficient_quota",
-    "model_not_found",
-    "rate_limit",
-    "too many requests",
-    "does not exist",
-    "you exceeded your current quota",
-)
-_FULL_PLAN_SYSTEM_PROMPT = """You are an execution planning agent.
-Read the requirement as-is and propose the implementation plan you would actually follow.
-
-Return JSON only with this minimal shape:
-{
-  "steps": [
-    {
-      "step_key": "short_snake_case_id",
-      "title": "Human readable step title",
-      "scope": "backend|frontend|infrastructure|test|docs|mixed",
-      "depends_on": ["prior_step_key"],
-      "done_when": "optional completion signal"
-    }
-  ]
-}
-
-Keep the plan concise and practical.
-Prefer the smallest useful number of implementation steps.
-If the work is simple, return a single step.
-"""
-
-
 def _json_loads(raw: str | None, default: Any) -> Any:
     if not raw:
         return default
@@ -113,64 +60,6 @@ def _json_loads(raw: str | None, default: Any) -> Any:
         return json.loads(raw)
     except json.JSONDecodeError:
         return default
-
-# ---------------------------------------------------------------------------
-# Mode 1: Full-plan (agent decides everything)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _AgentStep:
-    step_key: str
-    title: str
-    scope: str
-    depends_on: list[str]
-    done_when: str
-    complexity_tier: str = ""
-    budget_cap: dict[str, Any] = field(default_factory=dict)
-    allow_escalation: bool = True
-    escalation_rule: dict[str, Any] = field(default_factory=dict)
-
-
-def _plan_with_agent(text: str, target_path: str | None, planning_hint: str | None = None) -> list[_AgentStep] | None:
-    """Pass the requirement directly to the agent; it decides the step plan."""
-    global _FULL_PLAN_DISABLED_REASON, _FULL_PLAN_DISABLED_UNTIL
-    raw_steps, _FULL_PLAN_DISABLED_UNTIL, _FULL_PLAN_DISABLED_REASON = _plan_with_agent_impl(
-        text,
-        target_path,
-        planning_hint=planning_hint,
-        system_prompt=_FULL_PLAN_SYSTEM_PROMPT,
-        cooldown_until=_FULL_PLAN_DISABLED_UNTIL,
-        cooldown_reason=_FULL_PLAN_DISABLED_REASON,
-        auth_cooldown=_FULL_PLAN_AUTH_COOLDOWN,
-        auth_error_snippets=_FULL_PLAN_AUTH_ERROR_SNIPPETS,
-        provider_backoff_snippets=_FULL_PLAN_PROVIDER_COOLDOWN_SNIPPETS,
-        logger=logger,
-        get_provider_fn=get_provider,
-        normalize_complexity_tier=_normalize_complexity_tier,
-        default_budget_cap=_default_budget_cap,
-        default_complexity_tier=_default_complexity_tier,
-    )
-    if not raw_steps:
-        return None
-    return [
-        _AgentStep(
-            step_key=str(step["step_key"]),
-            title=str(step["title"]),
-            scope=str(step["scope"]),
-            depends_on=list(step.get("depends_on") or []),
-            done_when=str(step["done_when"]),
-            complexity_tier=str(step.get("complexity_tier") or ""),
-            budget_cap=dict(step.get("budget_cap") or {}),
-            allow_escalation=bool(step.get("allow_escalation", True)),
-            escalation_rule=dict(step.get("escalation_rule") or {}),
-        )
-        for step in raw_steps
-    ]
-# ---------------------------------------------------------------------------
-# Mode 2: Phase-detect (keyword fallback — no agent call)
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class WorkflowRoleAssignments:
@@ -195,7 +84,7 @@ class _DetectedPhases:
 
 
 def _detect_phases_with_agent(text: str) -> _DetectedPhases:
-    """Keyword-based phase detection (used as fallback when full-plan agent fails)."""
+    """Keyword-based phase detection; no model call is made."""
     return _detect_phases_fallback(text)
 
 
@@ -215,10 +104,6 @@ def _detect_phases_fallback(text: str) -> _DetectedPhases:
 
 STEP_MODEL_VERSION = "2.0"
 
-
-# ---------------------------------------------------------------------------
-# Mode 1: Build workflow steps from agent full-plan
-# ---------------------------------------------------------------------------
 
 _SCOPE_CONSTRAINTS = {
     "infrastructure": (
@@ -242,90 +127,6 @@ _SCOPE_CONSTRAINTS = {
         "Do NOT write implementation code in this step."
     ),
 }
-
-
-def _build_steps_from_agent_plan(
-    requirement: RequirementRow,
-    agent_steps: list[_AgentStep],
-    target_path: str | None,
-) -> tuple[list[dict], list[str]]:
-    """Convert agent-produced _AgentStep list to workflow step dicts."""
-    result: list[dict] = []
-    keys: list[str] = [s.step_key for s in agent_steps]
-    project_note = f"\nTarget project: {target_path}" if target_path else ""
-    target_paths = _split_target_paths(target_path)
-
-    for step in agent_steps:
-        if _is_validate_only_agent_step(step):
-            continue
-        step_scope = step.scope
-        scope_constraint = _SCOPE_CONSTRAINTS.get(step_scope, "")
-        done_when = step.done_when
-        if scope_constraint and "SCOPE:" not in done_when:
-            done_when = f"{scope_constraint}\n\n{done_when}"
-        done_when += project_note
-        expected_outputs = [
-            {"artifact_type": "step_output", "description": f"{step.title} — implementation output."},
-        ]
-
-        result.append({
-            "step_key": step.step_key,
-            "step_type": "implementation",
-            "title": step.title,
-            "assigned_role": "implementer",
-            "depends_on": step.depends_on,
-            "required_artifacts": [
-                {"artifact_type": "requirement_snapshot", "purpose": "primary_spec", "required": True},
-                {"artifact_type": "implementation_plan", "purpose": "implementation_context", "required": True},
-            ],
-            "file_scope": _scope_to_file_scope(step_scope, target_path),
-            "expected_outputs": expected_outputs,
-            "validation_targets": [],
-            "done_when_markdown": done_when,
-            "failure_policy": {"on_failure": "bugfix", "max_retries": 0},
-            **_build_execution_profile(
-                step_type="implementation",
-                scope=step_scope,
-                target_paths=target_paths,
-                complexity_tier=step.complexity_tier,
-                budget_cap=step.budget_cap,
-                allow_escalation=step.allow_escalation,
-                escalation_rule=step.escalation_rule,
-                expected_outputs=expected_outputs,
-            ),
-        })
-
-    return result, keys
-
-
-def _is_validate_only_agent_step(step: _AgentStep) -> bool:
-    if str(step.scope or "").strip().lower() != "test":
-        return False
-    text = f"{step.title}\n{step.done_when}".lower()
-    validate_markers = (
-        "run tests",
-        "run repo checks",
-        "execute repo validation",
-        "execute validation",
-        "validation suite",
-        "project-level validation command",
-        "validate output",
-        "verify output",
-        "verify the change",
-        "review output",
-    )
-    authoring_markers = (
-        "implement test",
-        "write test",
-        "add test",
-        "add regression",
-        "regression coverage",
-        "test code",
-        "coverage is implemented",
-    )
-    if any(marker in text for marker in authoring_markers):
-        return False
-    return any(marker in text for marker in validate_markers)
 
 
 def _step_required_capabilities(step: dict[str, Any]) -> list[str]:
@@ -710,10 +511,6 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
     )
     delivery_contract = _build_delivery_contract(requirement, target_path, project_policies, execution_controls)
 
-    # Mode 1: try agent full-plan first unless this is a deterministic validation-clone delivery flow.
-    planning_mode = "full_plan"
-    planning_hint = None
-    agent_steps = None
     if validation_clone_delivery:
         planning_mode = "deterministic_validation_clone"
         phases = _detect_phases_fallback(description)
@@ -726,38 +523,15 @@ def build_planner_output(db: Session, requirement: RequirementRow) -> tuple[dict
             "deterministic_validation_clone": True,
         }
     else:
-        if incident_recovery:
-            planning_hint = (
-                "This is an engineering incident recovery requirement. "
-                "Prefer backend, infrastructure, or test scopes. "
-                "Do not create docs-only implementation steps unless the requirement explicitly asks for documentation as a deliverable. "
-                "At least one implementation step should apply a code or test change that closes the runtime failure path."
-            )
-        agent_steps = _plan_with_agent(description, target_path, planning_hint=planning_hint)
-        if agent_steps:
-            impl_steps, impl_keys = _build_steps_from_agent_plan(
-                requirement,
-                agent_steps,
-                target_path,
-            )
-            detected_phases_dict = {
-                "design": any(s.step_key == "design" or s.scope == "docs" for s in agent_steps),
-                "frontend": any(s.scope == "frontend" for s in agent_steps),
-                "backend": any(s.scope in {"backend", "infrastructure"} for s in agent_steps),
-                "test_impl": any(s.scope == "test" for s in agent_steps),
-                "agent_plan_scopes": {s.step_key: s.scope for s in agent_steps},
-            }
-        if not agent_steps:
-            # Mode 2: fall back to 4-boolean phase detection
-            planning_mode = "phase_detect"
-            phases = _detect_phases_with_agent(description)
-            impl_steps, impl_keys = _build_implementation_steps(requirement, phases, target_path)
-            detected_phases_dict = {
-                "design": phases.design,
-                "frontend": phases.frontend,
-                "backend": phases.backend,
-                "test_impl": phases.test_impl,
-            }
+        planning_mode = "phase_detect"
+        phases = _detect_phases_with_agent(description)
+        impl_steps, impl_keys = _build_implementation_steps(requirement, phases, target_path)
+        detected_phases_dict = {
+            "design": phases.design,
+            "frontend": phases.frontend,
+            "backend": phases.backend,
+            "test_impl": phases.test_impl,
+        }
 
     # Introduce explicit research + plan before implementation begins.
     workflow_steps = _prepend_context_steps(impl_steps, requirement, target_path)
@@ -1018,7 +792,7 @@ def _build_implementation_steps(
     phases: _DetectedPhases,
     target_path: str | None,
 ) -> tuple[list[dict], list[str]]:
-    """Return a generic fallback implementation plan when model full-plan is unavailable."""
+    """Return the generic deterministic implementation step."""
     project_note = f"\nTarget project: {target_path}" if target_path else ""
     target_paths = _split_target_paths(target_path)
     expected_outputs = [

@@ -94,13 +94,18 @@ from server.services.requirements.attachments import (
     serialize_requirement_attachment,
 )
 from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
+from server.services.runtime.codex_session_registry import (
+    build_planner_project_session_key,
+    find_reusable_planner_project_session,
+    upsert_planner_project_session,
+)
 from server.services.runtime.task_runner import dispatch
 from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
     normalize_requirement_approval_contract,
     normalize_requirement_approval_status,
 )
-from server.services.workflows.planner_provider import call_full_plan_provider, planner_model_name, planner_provider_name
+from server.services.workflows.planner_provider import call_planner_provider, planner_model_name, planner_provider_name
 from server.services.workflows.verification_agent import verify_with_agent
 from server.services.workflows.orchestrator.file_changes import (
     _load_task_file_changes,
@@ -1778,7 +1783,7 @@ def _generate_acceptance_contract_with_agent(
     provider_name = planner_provider_name()
     provider = get_provider(provider_name)
     model_name = planner_model_name(provider_name)
-    text, _tokens = call_full_plan_provider(
+    text, _tokens = call_planner_provider(
         provider_name=provider_name,
         provider=provider,
         prompt=prompt,
@@ -1833,11 +1838,30 @@ def _generate_plan_brief_markdown_with_agent(
     targets = _target_projects_for_requirement(db, requirement)
     target_path = Path(targets[0]).expanduser().resolve() if targets else PROJECT_ROOT.resolve()
     output_path = PROJECT_ROOT / "runtime" / "plans" / f"req-{int(requirement.id)}-plan.md"
-    metadata: dict[str, Any] = {"planning_mode": "codex_raw_exec_plan"}
+    target_roots = [str(Path(item).expanduser().resolve()) for item in targets] or [str(target_path)]
+    planner_session_key = build_planner_project_session_key(project_root=target_path)
+    metadata: dict[str, Any] = {
+        "planning_mode": "codex_raw_exec_plan",
+        "planning_session_scope": "project",
+        "planning_project_root": str(target_path),
+        "planning_session_key": planner_session_key,
+        "planning_requirement_id": int(requirement.id),
+        "planning_target_roots": target_roots,
+        "planning_model": model_name,
+    }
     previous_plan = _parse_execution_plan(requirement)
-    resume_session_id = str(previous_plan.get("planning_session_id") or "").strip() or None
+    project_planner_session = find_reusable_planner_project_session(db, project_root=target_path)
+    previous_plan_session_id = str(previous_plan.get("planning_session_id") or "").strip() or None
+    resume_session_id = (
+        str(getattr(project_planner_session, "thread_id", "") or "").strip()
+        if project_planner_session is not None
+        else previous_plan_session_id
+    ) or None
+    metadata["planning_resume_source"] = "project" if project_planner_session is not None else (
+        "requirement" if previous_plan_session_id else "new"
+    )
     prompt = _raw_planning_prompt(db, requirement)
-    text, _tokens = call_full_plan_provider(
+    text, _tokens = call_planner_provider(
         provider_name=provider_name,
         provider=provider,
         prompt=prompt,
@@ -1853,6 +1877,18 @@ def _generate_plan_brief_markdown_with_agent(
     plan_markdown = _strip_markdown_fence(text)
     if not plan_markdown:
         raise ValueError("plan agent returned empty markdown")
+    planning_session_id = str(metadata.get("planning_session_id") or "").strip()
+    if planning_session_id:
+        upsert_planner_project_session(
+            db,
+            project_root=target_path,
+            thread_id=planning_session_id,
+            status="completed",
+            workflow_run_id=getattr(requirement, "active_workflow_run_id", None),
+            resume_count=int(getattr(project_planner_session, "resume_count", 0) or 0)
+            + (1 if project_planner_session is not None else 0),
+            metadata=metadata,
+        )
     return plan_markdown, metadata
 
 

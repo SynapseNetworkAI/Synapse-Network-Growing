@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
         app.state.copilot_runtime_monitor = monitor
-    elif config.ORCHESTRATION_BACKEND.lower() == "codex_cli" and config.CODEX_CLI_MONITOR_ENABLED:
+    elif config.ORCHESTRATION_BACKEND.lower() in {"codex_cli", "codex_sdk"} and config.CODEX_CLI_MONITOR_ENABLED:
         monitor = CodexCLITaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
         app.state.codex_runtime_monitor = monitor

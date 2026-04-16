@@ -468,7 +468,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         extra_files = _load_task_context_files(task)
         session_hint: dict[str, Any] | None = None
         execution_root = _task_project_root(task)
-        if selection.backend == "codex_cli":
+        if selection.backend in {"codex_cli", "codex_sdk"}:
             requirement_id, workflow_run_id = _task_session_scope(task)
             cwd, _ = _codex_workdirs(_task_str(task, "description") or "", Path(execution_root), output_dir)
             reusable = find_reusable_session(
@@ -523,7 +523,7 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
         cast(Any, task).runtime_session_id = result.runtime_session_id
         cast(Any, task).runtime_selected_agent = result.runtime_selected_agent
         _persist_runtime_events(db, task_id, result.events)
-        if selection.backend == "codex_cli" and session_hint is not None:
+        if selection.backend in {"codex_cli", "codex_sdk"} and session_hint is not None:
             upsert_session_launch(
                 db,
                 role_key=str(session_hint.get("role_key") or role_id),

@@ -238,5 +238,9 @@ file-changes.json
 # Agent runtime task output directories (keep named deliverables under outputs/)
 roles/*/outputs/task-*/
 runtime/
+!server/services/runtime/
+server/services/runtime/*
+!server/services/runtime/codex_session_registry.py
+!server/services/runtime/codex_sdk.py
 server/logs/
 tmp/

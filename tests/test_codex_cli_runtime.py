@@ -22,7 +22,7 @@ from server.services.runtime.task_runtime import (
     get_task_runtime,
     resolve_runtime_selection,
 )
-from server.services.workflows.planner_provider import call_full_plan_provider
+from server.services.workflows.planner_provider import call_planner_provider
 
 
 def test_resolve_orchestration_backend_for_codex_provider():
@@ -116,7 +116,7 @@ def test_raw_codex_plan_provider_uses_read_only_exec_without_template_wrappers(t
             json_event_count=3,
         ),
     ) as mock_run:
-        content, tokens = call_full_plan_provider(
+        content, tokens = call_planner_provider(
             provider_name="codex",
             provider=object(),
             prompt=raw_prompt,
@@ -171,7 +171,7 @@ def test_raw_codex_plan_provider_passes_resume_session_per_requirement(tmp_path)
             thread_id="thread-plan-1",
         ),
     ) as mock_run:
-        content, _tokens = call_full_plan_provider(
+        content, _tokens = call_planner_provider(
             provider_name="codex",
             provider=object(),
             prompt="raw prompt",

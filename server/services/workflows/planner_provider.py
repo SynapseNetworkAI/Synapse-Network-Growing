@@ -1,17 +1,14 @@
-"""Provider-facing full-plan helpers for workflow planning."""
+"""Provider-facing planner helpers for workflow planning."""
 
 from __future__ import annotations
 
-import json
-import logging
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from server import config
-from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import run_codex_exec
+from server.services.runtime.codex_sdk import run_codex_sdk_plan
 
 
 def _split_target_paths(raw_path: str | None) -> list[str]:
@@ -31,14 +28,14 @@ def _split_target_paths(raw_path: str | None) -> list[str]:
 
 
 def planner_provider_name() -> str:
-    """Resolve the provider used for full-plan generation."""
+    """Resolve the provider used for planner generation."""
 
     backend = str(config.ORCHESTRATION_BACKEND or "").strip().lower()
     if backend == "openai_responses":
         return "openai"
     if backend == "copilot_sdk":
         return "copilot"
-    if backend == "codex_cli":
+    if backend in {"codex_cli", "codex_sdk"}:
         return "codex"
     explicit = str(config.LLM_PROVIDER or "").strip().lower()
     if explicit:
@@ -52,18 +49,22 @@ def planner_model_name(provider_name: str) -> str:
     model = str(config.LLM_MODEL or "").strip()
     if model:
         if provider_name == "codex" and model.lower() in {"openai", "claude", "copilot", "codex", "responses", "gpt"}:
+            if str(config.ORCHESTRATION_BACKEND or "").strip().lower() == "codex_sdk":
+                return str(config.CODEX_SDK_MODEL or "").strip()
             return str(config.CODEX_CLI_MODEL or "").strip()
         return model
     if provider_name == "copilot":
         return str(config.COPILOT_SDK_MODEL or "gpt-4o").strip() or "gpt-4o"
     if provider_name == "codex":
+        if str(config.ORCHESTRATION_BACKEND or "").strip().lower() == "codex_sdk":
+            return str(config.CODEX_SDK_MODEL or config.LLM_MODEL or "").strip()
         return str(config.CODEX_CLI_MODEL or "").strip()
     if provider_name == "claude":
         return "claude-3-7-sonnet-latest"
     return "gpt-4o"
 
 
-def call_full_plan_provider(
+def call_planner_provider(
     *,
     provider_name: str,
     provider: Any,
@@ -79,7 +80,53 @@ def call_full_plan_provider(
 ) -> tuple[str, int]:
     """Call the configured provider and return text plus token usage."""
 
-    timeout = min(config.LLM_TIMEOUT, 90)
+    backend = str(config.ORCHESTRATION_BACKEND or "").strip().lower()
+    timeout = config.CODEX_SDK_PLAN_TIMEOUT if provider_name == "codex" and backend == "codex_sdk" else min(config.LLM_TIMEOUT, 90)
+    if provider_name == "codex" and backend == "codex_sdk":
+        started_at = datetime.now(timezone.utc)
+        cwd = Path(raw_cwd or config.PROJECT_ROOT).expanduser().resolve()
+        output_path = Path(raw_output_path or (Path(config.PROJECT_ROOT) / "runtime" / "plans" / "last-plan.md")).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path = output_path.with_suffix(".prompt.md")
+        sdk_prompt = prompt if raw_prompt or not system_prompt else "\n\n".join(
+            [
+                "# System Instructions",
+                system_prompt.strip(),
+                "# User Request",
+                prompt,
+            ]
+        )
+        prompt_path.write_text(sdk_prompt, encoding="utf-8")
+        result = run_codex_sdk_plan(
+            prompt=sdk_prompt,
+            cwd=cwd,
+            output_path=output_path,
+            model=model_name,
+            timeout=timeout,
+            sandbox_mode="read-only",
+            resume_thread_id=str(raw_resume_session_id or "").strip() or None,
+        )
+        completed_at = datetime.now(timezone.utc)
+        if metadata_out is not None:
+            metadata_out.update(
+                {
+                    "planning_session_id": result.thread_id,
+                    "planning_turn_id": result.turn_id,
+                    "planning_prompt_path": str(prompt_path),
+                    "planning_output_path": str(output_path),
+                    "planning_backend": "codex_sdk",
+                    "planning_model": model_name,
+                    "planning_resumed_from_session_id": str(raw_resume_session_id or "").strip() or None,
+                    "planning_started_at": started_at.isoformat(),
+                    "planning_completed_at": completed_at.isoformat(),
+                    "planning_usage": result.usage or {},
+                    "planning_status": result.status,
+                }
+            )
+        content = str(result.text or "").strip()
+        if not content:
+            raise RuntimeError("codex sdk planning returned empty output")
+        return content, 0
     if raw_prompt and provider_name == "codex":
         started_at = datetime.now(timezone.utc)
         cwd = Path(raw_cwd or config.PROJECT_ROOT).expanduser().resolve()
@@ -105,6 +152,8 @@ def call_full_plan_provider(
                     "planning_prompt_path": str(prompt_path),
                     "planning_output_path": str(output_path),
                     "planning_command": list(result.command),
+                    "planning_backend": "codex_cli",
+                    "planning_model": model_name,
                     "planning_resumed_from_session_id": str(raw_resume_session_id or "").strip() or None,
                     "planning_started_at": started_at.isoformat(),
                     "planning_completed_at": completed_at.isoformat(),
@@ -143,120 +192,8 @@ def call_full_plan_provider(
     )
 
 
-def plan_with_agent(
-    text: str,
-    target_path: str | None,
-    *,
-    planning_hint: str | None,
-    system_prompt: str,
-    cooldown_until: datetime | None,
-    cooldown_reason: str,
-    auth_cooldown: timedelta,
-    auth_error_snippets: tuple[str, ...],
-    provider_backoff_snippets: tuple[str, ...],
-    logger: logging.Logger,
-    get_provider_fn: Callable[[str], Any],
-    normalize_complexity_tier: Callable[[Any], str],
-    default_budget_cap: Callable[[str], dict[str, Any]],
-    default_complexity_tier: Callable[..., str],
-) -> tuple[list[dict[str, Any]] | None, datetime | None, str]:
-    """Ask the planner model for implementation sub-steps and normalize the response."""
-
-    if cooldown_until is not None and datetime.now(timezone.utc) < cooldown_until:
-        logger.info(
-            "Skipping agent full-plan during cooldown until %s (%s)",
-            cooldown_until.isoformat(),
-            cooldown_reason or "temporary disable",
-        )
-        return None, cooldown_until, cooldown_reason
-    try:
-        provider_name = planner_provider_name()
-        model_name = planner_model_name(provider_name)
-        provider = get_provider_fn(provider_name)
-        prompt = text[:4000]
-        if target_path:
-            prompt = f"{prompt}\n\nTarget project path: {target_path}"
-        user_prompt = f"{prompt}\n\n"
-        if planning_hint:
-            user_prompt += f"Planner hint:\n{planning_hint.strip()}\n\n"
-        logger.info(
-            "Attempting planner full-plan with provider=%s model=%s",
-            provider_name,
-            model_name,
-        )
-        content, _tokens = call_full_plan_provider(
-            provider_name=provider_name,
-            provider=provider,
-            prompt=user_prompt,
-            model_name=model_name,
-            system_prompt=system_prompt,
-        )
-        content = content.strip()
-        content = re.sub(r"^```(?:json)?\s*", "", content)
-        content = re.sub(r"\s*```$", "", content)
-        data = json.loads(content)
-
-        raw_steps = data.get("steps", [])
-        if not raw_steps or not isinstance(raw_steps, list):
-            return None, None, ""
-
-        steps: list[dict[str, Any]] = []
-        target_paths = _split_target_paths(target_path)
-        seen_keys: set[str] = set()
-        for raw_step in raw_steps:
-            key = re.sub(r"[^a-z0-9_]", "_", str(raw_step.get("step_key", "step")).lower())
-            if key in seen_keys:
-                key = f"{key}_{len(steps)}"
-            seen_keys.add(key)
-            scope = str(raw_step.get("scope", "backend")).lower()
-            steps.append(
-                {
-                    "step_key": key,
-                    "title": str(raw_step.get("title", key)),
-                    "scope": scope,
-                    "depends_on": [str(dep) for dep in raw_step.get("depends_on", []) if str(dep) in seen_keys],
-                    "done_when": str(raw_step.get("done_when", "Step output is produced and ready for review.")),
-                    "complexity_tier": normalize_complexity_tier(raw_step.get("complexity_tier")),
-                    "budget_cap": dict(
-                        raw_step.get("budget_cap")
-                        or default_budget_cap(
-                            default_complexity_tier(
-                                step_type="implementation",
-                                scope=scope,
-                                target_paths=target_paths,
-                            )
-                        )
-                    ),
-                    "allow_escalation": bool(raw_step.get("allow_escalation", True)),
-                    "escalation_rule": dict(raw_step.get("escalation_rule") or {}),
-                }
-            )
-
-        logger.info("Agent full-plan produced %d steps via provider=%s", len(steps), provider_name)
-        return steps if steps else None, None, ""
-    except Exception as exc:
-        message = str(exc).lower()
-        if any(snippet in message for snippet in auth_error_snippets):
-            cooldown_until = datetime.now(timezone.utc) + auth_cooldown
-            cooldown_reason = "copilot_authorization_error"
-            logger.warning(
-                "Agent full-plan disabled until %s after Copilot authorization error",
-                cooldown_until.isoformat(),
-            )
-        elif any(snippet in message for snippet in provider_backoff_snippets):
-            cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-            cooldown_reason = "planner_provider_backoff"
-            logger.warning(
-                "Agent full-plan disabled until %s after provider error",
-                cooldown_until.isoformat(),
-            )
-        logger.warning("Agent full-plan failed, will fall back to phase-detect mode", exc_info=True)
-        return None, cooldown_until, cooldown_reason
-
-
 __all__ = [
     "planner_provider_name",
     "planner_model_name",
-    "call_full_plan_provider",
-    "plan_with_agent",
+    "call_planner_provider",
 ]

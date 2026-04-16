@@ -9,7 +9,7 @@ from server.services.workflows.verification_agent import verify_with_agent
 def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
     observed_prompt: dict[str, str] = {}
 
-    def _fake_call_full_plan_provider(**kwargs):
+    def _fake_call_planner_provider(**kwargs):
         observed_prompt["prompt"] = kwargs["prompt"]
         return (
             '{"verification_plan":{"mode":"evidence_review","summary":"Review changed files and raw output.","checks":[],"evidence_expectations":["implementation summary"]},"status":"passed","summary":"ok","checks_run":[],"evidence_used":[],"reasoning":"ok","suggested_next_action":"release_ready"}',
@@ -32,8 +32,8 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
         "server.services.workflows.verification_agent.planner_model_name",
         return_value="gpt-5-codex",
     ), patch(
-        "server.services.workflows.verification_agent.call_full_plan_provider",
-        side_effect=_fake_call_full_plan_provider,
+        "server.services.workflows.verification_agent.call_planner_provider",
+        side_effect=_fake_call_planner_provider,
     ):
         result = verify_with_agent(payload, skip_provider=False)
 
@@ -43,7 +43,7 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
 
 
 def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution_evidence_is_strong():
-    def _fake_call_full_plan_provider(**kwargs):
+    def _fake_call_planner_provider(**kwargs):
         return (
             '{"status":"inconclusive","summary":"not sure","checks_run":[],"evidence_used":[],"reasoning":"missing artifact","suggested_next_action":"revise_requirement"}',
             0,
@@ -62,8 +62,8 @@ def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution
         "server.services.workflows.verification_agent.planner_model_name",
         return_value="gpt-5-codex",
     ), patch(
-        "server.services.workflows.verification_agent.call_full_plan_provider",
-        side_effect=_fake_call_full_plan_provider,
+        "server.services.workflows.verification_agent.call_planner_provider",
+        side_effect=_fake_call_planner_provider,
     ):
         result = verify_with_agent(payload, skip_provider=False)
 

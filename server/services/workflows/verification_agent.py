@@ -8,7 +8,7 @@ from typing import Any
 
 from server.services.agents.llm_adapter import get_provider
 from server.services.workflows.planner_provider import (
-    call_full_plan_provider,
+    call_planner_provider,
     planner_model_name,
     planner_provider_name,
 )
@@ -156,7 +156,7 @@ def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, A
         provider_name = planner_provider_name()
         provider = get_provider(provider_name)
         model_name = planner_model_name(provider_name)
-        text, _tokens = call_full_plan_provider(
+        text, _tokens = call_planner_provider(
             provider_name=provider_name,
             provider=provider,
             prompt=prompt,

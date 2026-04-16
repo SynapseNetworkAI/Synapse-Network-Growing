@@ -3302,7 +3302,7 @@ def _seed_execution_observability_fixture(db_session, tmp_path: Path) -> tuple[R
         ),
         execution_plan_json=json.dumps(
             {
-                "planning_mode": "full_plan",
+                "planning_mode": "phase_detect",
                 "goal_summary": "Execution observability fixture",
                 "summary_markdown": "## Goal\n\nExecution observability fixture\n\n## Planned Steps\n\n1. Add observability fields\n   - Done when: execution detail shows metrics, files, validation, and raw output.",
                 "steps": [

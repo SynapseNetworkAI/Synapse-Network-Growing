@@ -2,6 +2,8 @@
 
 > Design Doc — April 2026 (updated)
 
+Status note: this is an early Copilot SDK role-session reuse design for requirement execution. The newer planner-specific direction is project-scoped plan agent reuse, documented in [Plan Agent Project-Scoped Session Reuse](plan-agent-project-scoped-session-reuse.md). Keep execution sessions requirement-scoped unless a later design explicitly changes that boundary.
+
 ## Problem
 
 ### 1. Token 浪费

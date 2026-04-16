@@ -8,7 +8,7 @@
 
 目标：
 
-1. planner 在 full-plan 和 fallback 两条路径都输出 `complexity_tier / budget_cap / escalation_rule / expected_outputs`
+1. planner 在 deterministic workflow 和 agent-first plan brief 路径都输出 `complexity_tier / budget_cap / escalation_rule / expected_outputs`
 
 实现：
 
