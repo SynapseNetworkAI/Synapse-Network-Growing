@@ -595,8 +595,10 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
             runtime_provider=cast(Any, task).runtime_provider,
         )
         from server.services.workflows.orchestrator import sync_workflow_for_task
+        from server.services.workflows.agent_first import sync_agent_first_execution_for_task
 
         sync_workflow_for_task(task_id)
+        sync_agent_first_execution_for_task(task_id)
 
     except Exception as exc:
         log_event(
@@ -616,8 +618,10 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 _log(db, task_id, "failed", str(exc))
                 db.commit()
                 from server.services.workflows.orchestrator import sync_workflow_for_task
+                from server.services.workflows.agent_first import sync_agent_first_execution_for_task
 
                 sync_workflow_for_task(task_id)
+                sync_agent_first_execution_for_task(task_id)
         except Exception as state_exc:
             log_event(
                 logger,

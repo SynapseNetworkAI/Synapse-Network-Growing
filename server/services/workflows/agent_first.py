@@ -9,6 +9,7 @@ import threading
 import time
 from datetime import timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, TypeVar, cast
 
 import yaml
@@ -37,6 +38,7 @@ from server.database import (
     StepInputBindingRow,
     TaskLogRow,
     TaskRow,
+    ValidationLeaseRow,
     ValidationRecordRow,
     WorkflowRunRow,
     WorkflowStepEventRow,
@@ -112,6 +114,7 @@ logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
 _MAX_DELIVERY_REPAIRS = 2
 _RUNTIME_RECOVERY_TIMEOUT_SECONDS = 600
+_VALIDATION_LEASE_TIMEOUT_SECONDS = 600
 _RECOVERY_SCOPE_CURRENT_REQUIREMENT = "current_requirement"
 _SQLITE_LOCK_RETRY_ATTEMPTS = 4
 _SQLITE_LOCK_RETRY_DELAY_SECONDS = 0.25
@@ -788,11 +791,17 @@ _REPLACEMENT_REQUIRED_BLOCKING_REASONS = {
 def _recovery_time_remaining_seconds(deadline_at: Any) -> int | None:
     if deadline_at is None:
         return None
-    normalized_deadline = deadline_at
-    if getattr(normalized_deadline, "tzinfo", None) is None:
-        normalized_deadline = normalized_deadline.replace(tzinfo=timezone.utc)
+    normalized_deadline = _as_utc_datetime(deadline_at)
     remaining = int((normalized_deadline - utcnow()).total_seconds())
     return max(0, remaining)
+
+
+def _as_utc_datetime(value: Any) -> Any:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def _effective_recovery_status(run: ExecutionRunRow) -> str | None:
@@ -816,6 +825,35 @@ def _execution_recovery_fields(run: ExecutionRunRow) -> dict[str, Any]:
         "recovery_deadline_at": getattr(run, "recovery_deadline_at", None),
         "recovery_timeout_status": str(getattr(run, "recovery_timeout_status", "") or "").strip() or ("active" if effective_status == "recovering" else None),
         "time_remaining_seconds": _recovery_time_remaining_seconds(getattr(run, "recovery_deadline_at", None)),
+    }
+
+
+def _project_execution_recovery(run: ExecutionRunRow, derived_status: str | None) -> dict[str, Any]:
+    now = utcnow()
+    started_at = _as_utc_datetime(getattr(run, "recovery_started_at", None))
+    deadline_at = _as_utc_datetime(getattr(run, "recovery_deadline_at", None))
+    timeout_status = str(getattr(run, "recovery_timeout_status", "") or "").strip() or None
+    stored_status = str(getattr(run, "recovery_status", "") or "").strip() or None
+    effective_status = stored_status
+    effective_timeout_status = timeout_status
+    if derived_status == "recovering":
+        if deadline_at is None:
+            deadline_at = (started_at or now) + timedelta(seconds=_RUNTIME_RECOVERY_TIMEOUT_SECONDS)
+        if deadline_at is not None and deadline_at <= now:
+            effective_status = "timed_out"
+            effective_timeout_status = "timed_out"
+        else:
+            effective_status = "recovering"
+            effective_timeout_status = timeout_status or "active"
+    elif timeout_status == "timed_out":
+        effective_status = "timed_out"
+        effective_timeout_status = "timed_out"
+    return {
+        "recovery_status": effective_status,
+        "recovery_scope": _RECOVERY_SCOPE_CURRENT_REQUIREMENT if effective_status is not None else None,
+        "recovery_deadline_at": deadline_at,
+        "recovery_timeout_status": effective_timeout_status if effective_status is not None else None,
+        "time_remaining_seconds": _recovery_time_remaining_seconds(deadline_at) if effective_status is not None else None,
     }
 
 
@@ -1013,19 +1051,23 @@ def _requirement_allowed_actions(
     requirement: RequirementRow,
     latest_execution: ExecutionRunRow | None,
     latest_release: ReleaseRecordRow | None,
+    *,
+    workflow_state: str | None = None,
+    approval_status: str | None = None,
 ) -> list[str]:
-    workflow_state = str(getattr(requirement, "workflow_state", "") or "").strip() or "draft"
+    effective_workflow_state = str(workflow_state or getattr(requirement, "workflow_state", "") or "").strip() or "draft"
+    effective_approval_status = str(approval_status or getattr(requirement, "approval_status", "") or "pending_approval").strip() or "pending_approval"
     assets_status = _assets_status(requirement)
     actions = ["view"]
-    if latest_execution is None and workflow_state in {"draft", "planning", "awaiting_approval", "ready", "awaiting_operator"}:
+    if latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval", "ready", "awaiting_operator"}:
         actions.append("edit")
-    if latest_execution is None and assets_status == "ready" and workflow_state in {"draft", "ready"}:
+    if latest_execution is None and assets_status == "ready" and effective_workflow_state in {"draft", "ready"}:
         actions.append("submit")
-    if latest_execution is None and _assets_status(requirement) == "failed" and workflow_state in {"draft", "ready", "awaiting_operator"}:
+    if latest_execution is None and _assets_status(requirement) == "failed" and effective_workflow_state in {"draft", "ready", "awaiting_operator"}:
         actions.append("regenerate_assets")
-    if workflow_state == "awaiting_approval" and str(requirement.approval_status or "") == "pending_approval":
+    if effective_workflow_state == "awaiting_approval" and effective_approval_status == "pending_approval":
         actions.extend(["approve", "reject"])
-    if latest_execution is None and workflow_state in {"draft", "planning", "awaiting_approval"}:
+    if latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval"}:
         actions.append("delete")
     if latest_execution is not None:
         actions.append("view_execution")
@@ -1137,7 +1179,150 @@ def _execution_reason_payload(
     return None, None, None
 
 
-def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunRow) -> ExecutionRunRow:
+def _execution_read_projection(
+    db: Session,
+    run: ExecutionRunRow,
+    requirement: RequirementRow,
+    *,
+    release: ReleaseRecordRow | None = None,
+    validation: ValidationRecordRow | None = None,
+    nodes: list[ExecutionNodeRow] | None = None,
+) -> dict[str, Any]:
+    nodes = nodes or (
+        db.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == run.id)
+        .order_by(ExecutionNodeRow.sequence_no.asc(), ExecutionNodeRow.id.asc())
+        .all()
+    )
+    validation = validation or (
+        db.query(ValidationRecordRow)
+        .filter(ValidationRecordRow.execution_run_id == run.id)
+        .order_by(ValidationRecordRow.id.desc())
+        .first()
+    )
+    release = release if release is not None else _latest_release(db, int(requirement.id))
+    has_paused_node = any(str(getattr(node, "status", "") or "") == "paused" for node in nodes)
+    derived_recovery_status, _derived_session = _derive_execution_recovery_status(db, run, nodes)
+    recovery_projection = _project_execution_recovery(run, derived_recovery_status)
+    projected_phase = str(getattr(run, "phase", "") or run.status or "queued")
+    if recovery_projection["recovery_status"] == "recovering":
+        projected_phase = "recovering"
+    elif recovery_projection["recovery_status"] == "timed_out":
+        projected_phase = "blocked"
+    projected_run = SimpleNamespace(
+        id=int(run.id),
+        requirement_id=int(run.requirement_id),
+        execution_kind=str(getattr(run, "execution_kind", "") or "implementation"),
+        status=_execution_status_from_phase(projected_phase),
+        phase=projected_phase,
+        approval_required=bool(getattr(run, "approval_required", False)),
+        recovery_status=recovery_projection["recovery_status"],
+        recovery_timeout_status=recovery_projection["recovery_timeout_status"],
+        recovery_deadline_at=recovery_projection["recovery_deadline_at"],
+    )
+    queue_reason, blocking_reason_code, blocking_reason_message = _execution_reason_payload(
+        cast(Any, projected_run),
+        requirement,
+        validation=validation,
+        release=release,
+        nodes=nodes,
+    )
+    execution_state, blocker_kind, failure_kind = _execution_canonical_state(
+        cast(Any, projected_run),
+        blocking_reason_code=blocking_reason_code,
+    )
+    recovery_mode = _execution_recovery_mode(
+        status=str(getattr(projected_run, "status", "") or _execution_status_from_phase(str(getattr(projected_run, "phase", "") or projected_run.status or "queued"))),
+        phase=str(getattr(projected_run, "phase", "") or projected_run.status or "queued"),
+        recovery_status=cast(str | None, getattr(projected_run, "recovery_status", None)),
+        blocking_reason_code=blocking_reason_code,
+        has_paused_node=has_paused_node,
+    )
+    return {
+        "run": projected_run,
+        "nodes": nodes,
+        "validation": validation,
+        "release": release,
+        "has_paused_node": has_paused_node,
+        "queue_reason": queue_reason,
+        "blocking_reason_code": blocking_reason_code,
+        "blocking_reason_message": blocking_reason_message,
+        "execution_state": execution_state,
+        "blocker_kind": blocker_kind,
+        "failure_kind": failure_kind,
+        "recovery_mode": recovery_mode,
+        "recovery_fields": recovery_projection,
+    }
+
+
+def _requirement_read_projection(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    latest_execution: ExecutionRunRow | None = None,
+    latest_release: ReleaseRecordRow | None = None,
+) -> dict[str, Any]:
+    execution_row = latest_execution if latest_execution is not None else _latest_execution_run(db, int(requirement.id))
+    release_row = latest_release if latest_release is not None else _latest_release(db, int(requirement.id))
+    execution_projection: dict[str, Any] | None = None
+    execution_view = execution_row
+    execution_state: str | None = None
+    blocker_kind: str | None = None
+    failure_kind: str | None = None
+    recovery_fields = {
+        "recovery_scope": None,
+        "recovery_deadline_at": None,
+        "recovery_timeout_status": None,
+        "time_remaining_seconds": None,
+    }
+    recovery_status: str | None = None
+    if execution_row is not None:
+        execution_projection = _execution_read_projection(
+            db,
+            execution_row,
+            requirement,
+            release=release_row,
+        )
+        execution_view = cast(ExecutionRunRow, execution_projection["run"])
+        execution_state = cast(str | None, execution_projection["execution_state"])
+        blocker_kind = cast(str | None, execution_projection["blocker_kind"])
+        failure_kind = cast(str | None, execution_projection["failure_kind"])
+        recovery_fields = cast(dict[str, Any], execution_projection["recovery_fields"])
+        recovery_status = cast(str | None, getattr(execution_view, "recovery_status", None))
+    workflow_state, attention_reason = _requirement_canonical_state(
+        requirement,
+        latest_execution=execution_view,
+        latest_release=release_row,
+        execution_state=execution_state,
+        execution_blocker_kind=blocker_kind,
+        execution_failure_kind=failure_kind,
+    )
+    failure_reason = str(getattr(requirement, "failure_reason", "") or "").strip() or None
+    if workflow_state == "failed" and failure_reason is None:
+        failure_reason = attention_reason
+    return {
+        "latest_execution": execution_view,
+        "latest_release": release_row,
+        "execution_projection": execution_projection,
+        "workflow_state": workflow_state,
+        "attention_reason": attention_reason,
+        "failure_reason": failure_reason,
+        "status": _requirement_status_from_workflow_state(workflow_state),
+        "phase": _requirement_phase_from_workflow_state(workflow_state),
+        "recovery_status": recovery_status,
+        "recovery_fields": recovery_fields,
+        "active_execution_run_id": int(execution_view.id)
+        if execution_view is not None and str(getattr(execution_view, "status", "") or "") in {"queued", "running", "paused", "validating", "blocked"}
+        else None,
+    }
+
+
+def reconcile_execution_state(
+    db: Session,
+    execution_run_id: int | ExecutionRunRow,
+    *,
+    enqueue_verification: bool = True,
+) -> ExecutionRunRow:
     run = execution_run_id if isinstance(execution_run_id, ExecutionRunRow) else db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
         raise ValueError("Execution run not found.")
@@ -1225,7 +1410,7 @@ def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunR
     elif all(status == "completed" for status in statuses):
         if validation is None:
             run.phase = "verifying"
-            if run.verification_requested_at is None:
+            if enqueue_verification and run.verification_requested_at is None:
                 run.verification_requested_at = utcnow()
                 db.flush()
                 _enqueue_execution_verification(int(run.id))
@@ -1262,6 +1447,41 @@ def reconcile_execution_state(db: Session, execution_run_id: int | ExecutionRunR
     )
     run.updated_at = utcnow()
     db.flush()
+    return run
+
+
+def advance_execution_run(
+    db: Session,
+    execution_run_id: int | ExecutionRunRow,
+    *,
+    notify_on_transition: bool = True,
+) -> ExecutionRunRow:
+    run = execution_run_id if isinstance(execution_run_id, ExecutionRunRow) else db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
+    if run is None:
+        raise ValueError("Execution run not found.")
+    previous_terminal_signature = (
+        str(getattr(run, "status", "") or "").strip(),
+        str(getattr(run, "attempt_state", "") or "").strip(),
+        str(getattr(run, "blocker_kind", "") or "").strip(),
+        str(getattr(run, "failure_kind", "") or "").strip(),
+    )
+    run = reconcile_execution_state(db, run, enqueue_verification=True)
+    current_terminal_signature = (
+        str(getattr(run, "status", "") or "").strip(),
+        str(getattr(run, "attempt_state", "") or "").strip(),
+        str(getattr(run, "blocker_kind", "") or "").strip(),
+        str(getattr(run, "failure_kind", "") or "").strip(),
+    )
+    if notify_on_transition and current_terminal_signature != previous_terminal_signature and str(getattr(run, "status", "") or "") in {"blocked", "failed"}:
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
+        if requirement is not None:
+            failed_node = (
+                db.query(ExecutionNodeRow)
+                .filter(ExecutionNodeRow.execution_run_id == int(run.id), ExecutionNodeRow.status == "failed")
+                .order_by(ExecutionNodeRow.sequence_no.asc(), ExecutionNodeRow.id.asc())
+                .first()
+            )
+            _notify_execution_error(db, run, requirement, failed_node)
     return run
 
 
@@ -1357,6 +1577,10 @@ def reconcile_requirement_state(db: Session, requirement_id: int | RequirementRo
     return requirement
 
 
+def advance_requirement_workflow(db: Session, requirement_id: int | RequirementRow) -> RequirementRow:
+    return reconcile_requirement_state(db, requirement_id)
+
+
 def reconcile_runtime_recovery(db: Session) -> None:
     runs = (
         db.query(ExecutionRunRow)
@@ -1365,8 +1589,8 @@ def reconcile_runtime_recovery(db: Session) -> None:
         .all()
     )
     for run in runs:
-        reconcile_execution_state(db, run)
-        reconcile_requirement_state(db, int(run.requirement_id))
+        advance_execution_run(db, run)
+        advance_requirement_workflow(db, int(run.requirement_id))
     db.commit()
 
 
@@ -2010,30 +2234,44 @@ def _ensure_requirement_approval_request(
     pending.comment = comment
 
 
-def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstRequirementOut:
-    requirement = reconcile_requirement_state(db, requirement)
-    latest_execution = _latest_execution_run(db, int(requirement.id))
-    if latest_execution is not None:
-        latest_execution = reconcile_execution_state(db, latest_execution)
+def _requirement_to_out(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    reconcile: bool = True,
+) -> AgentFirstRequirementOut:
+    if reconcile:
+        requirement = advance_requirement_workflow(db, requirement)
+    latest_execution_row = _latest_execution_run(db, int(requirement.id))
+    if latest_execution_row is not None and reconcile:
+        latest_execution_row = advance_execution_run(db, latest_execution_row)
     latest_release = (
         db.query(ReleaseRecordRow)
         .filter(ReleaseRecordRow.requirement_id == requirement.id)
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
-    recovery_fields = _execution_recovery_fields(latest_execution) if latest_execution is not None else {
-        "recovery_scope": None,
-        "recovery_deadline_at": None,
-        "recovery_timeout_status": None,
-        "time_remaining_seconds": None,
-    }
+    requirement_projection = _requirement_read_projection(
+        db,
+        requirement,
+        latest_execution=latest_execution_row,
+        latest_release=latest_release,
+    )
+    latest_execution = cast(ExecutionRunRow | None, requirement_projection["latest_execution"])
+    workflow_state = cast(str, requirement_projection["workflow_state"])
+    attention_reason = cast(str | None, requirement_projection["attention_reason"])
+    failure_reason = cast(str | None, requirement_projection["failure_reason"])
+    recovery_fields = cast(dict[str, Any], requirement_projection["recovery_fields"])
+    recovery_status = cast(str | None, requirement_projection["recovery_status"])
+    effective_status = cast(str, requirement_projection["status"])
+    effective_phase = cast(str, requirement_projection["phase"])
+    active_execution_run_id = cast(int | None, requirement_projection["active_execution_run_id"])
     project = _project_for_requirement(db, requirement)
     approval_summary = _approval_summary(
         db,
         requirement,
         latest_execution_id=int(latest_execution.id) if latest_execution is not None else None,
     )
-    workflow_state = str(getattr(requirement, "workflow_state", "") or "").strip() or "draft"
     project_context = _project_context_out(requirement, project)
     latest_delivery_repair = _latest_delivery_repair_attempt(db, int(requirement.id))
     latest_delivery_repair_attempt_id = int(latest_delivery_repair.id) if latest_delivery_repair is not None else None
@@ -2046,8 +2284,8 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         description_markdown=str(requirement.description_markdown or ""),
         acceptance_criteria_markdown=_parse_acceptance_markdown(requirement),
         state=workflow_state,
-        attention_reason=str(getattr(requirement, "attention_reason", "") or "").strip() or None,
-        failure_reason=str(getattr(requirement, "failure_reason", "") or "").strip() or None,
+        attention_reason=attention_reason,
+        failure_reason=failure_reason,
         requirement_plan_summary=str((_parse_execution_plan(requirement).get("summary_markdown") or "")).strip() or None,
         project=project_context,
         approval=_approval_decision_state(requirement, approval_summary),
@@ -2055,7 +2293,7 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         current_delivery_id=int(latest_release.id) if latest_release is not None else None,
         latest_delivery_repair_attempt_id=latest_delivery_repair_attempt_id,
         delivery_repair_attempt_count=latest_delivery_repair_attempt_count,
-        status=str(requirement.status or "draft"),
+        status=effective_status,
         priority=str(requirement.priority or "normal"),
         source=str(requirement.source or "manual"),
         source_ref=str(requirement.source_ref or "").strip() or None,
@@ -2070,10 +2308,16 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         target_projects=_target_projects_for_requirement(db, requirement),
         approval_required=_approval_required(db, requirement),
         approval_status=str(requirement.approval_status or "pending_approval"),
-        phase=str(getattr(requirement, "phase", "") or requirement.status or "draft"),
-        allowed_actions=_requirement_allowed_actions(requirement, latest_execution, latest_release),
+        phase=effective_phase,
+        allowed_actions=_requirement_allowed_actions(
+            requirement,
+            latest_execution,
+            latest_release,
+            workflow_state=workflow_state,
+            approval_status=str(requirement.approval_status or "pending_approval"),
+        ),
         pending_operations=[],
-        recovery_status=str(getattr(requirement, "recovery_status", "") or "").strip() or None,
+        recovery_status=recovery_status,
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
         recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
@@ -2082,7 +2326,7 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         assets_error_message=_assets_error_message(requirement),
         created_at=requirement.created_at,
         updated_at=requirement.updated_at,
-        active_execution_run_id=int(latest_execution.id) if latest_execution is not None and str(latest_execution.status or "") in {"queued", "running", "paused", "validating", "blocked"} else None,
+        active_execution_run_id=active_execution_run_id,
         latest_execution_run_id=int(latest_execution.id) if latest_execution is not None else None,
         latest_release_status=str(latest_release.status or "") if latest_release is not None else None,
     )
@@ -2241,34 +2485,37 @@ def _build_requirement_detail(
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
-    requirement = reconcile_requirement_state(db, requirement)
     latest_execution = _latest_execution_run(db, requirement_id)
-    if latest_execution is not None:
-        latest_execution = reconcile_execution_state(db, latest_execution)
     latest_release = (
         db.query(ReleaseRecordRow)
         .filter(ReleaseRecordRow.requirement_id == requirement_id)
         .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
-    recovery_fields = _execution_recovery_fields(latest_execution) if latest_execution is not None else {
-        "recovery_scope": None,
-        "recovery_deadline_at": None,
-        "recovery_timeout_status": None,
-        "time_remaining_seconds": None,
-    }
+    requirement_projection = _requirement_read_projection(
+        db,
+        requirement,
+        latest_execution=latest_execution,
+        latest_release=latest_release,
+    )
+    latest_execution = cast(ExecutionRunRow | None, requirement_projection["latest_execution"])
+    workflow_state = cast(str, requirement_projection["workflow_state"])
+    attention_reason = cast(str | None, requirement_projection["attention_reason"])
+    failure_reason = cast(str | None, requirement_projection["failure_reason"])
+    recovery_fields = cast(dict[str, Any], requirement_projection["recovery_fields"])
+    recovery_status = cast(str | None, requirement_projection["recovery_status"])
+    effective_phase = cast(str, requirement_projection["phase"])
     project = _project_for_requirement(db, requirement)
-    workflow_state = str(getattr(requirement, "workflow_state", "") or "").strip() or "draft"
     approval_decision = approval_override or _approval_summary(
         db,
         requirement,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
     )
     return AgentFirstRequirementDetailOut(
-        requirement=_requirement_to_out(db, requirement),
+        requirement=_requirement_to_out(db, requirement, reconcile=False),
         state=workflow_state,
-        attention_reason=str(getattr(requirement, "attention_reason", "") or "").strip() or None,
-        failure_reason=str(getattr(requirement, "failure_reason", "") or "").strip() or None,
+        attention_reason=attention_reason,
+        failure_reason=failure_reason,
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
         project=ProjectOut(**project_to_dict(project)) if project is not None else None,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
@@ -2276,10 +2523,16 @@ def _build_requirement_detail(
         latest_release=_release_to_out(latest_release),
         approval=approval_decision,
         approval_decision=_approval_decision_state(requirement, approval_decision),
-        phase=str(getattr(requirement, "phase", "") or requirement.status or "draft"),
-        allowed_actions=_requirement_allowed_actions(requirement, latest_execution, latest_release),
+        phase=effective_phase,
+        allowed_actions=_requirement_allowed_actions(
+            requirement,
+            latest_execution,
+            latest_release,
+            workflow_state=workflow_state,
+            approval_status=str(requirement.approval_status or "pending_approval"),
+        ),
         pending_operations=[],
-        recovery_status=str(getattr(requirement, "recovery_status", "") or "").strip() or None,
+        recovery_status=recovery_status,
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
         recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
@@ -2303,7 +2556,7 @@ def list_requirements(db: Session, *, status: str | None = None, search: str | N
     result: list[AgentFirstRequirementOut] = []
     search_value = str(search or "").strip().lower()
     for row in rows:
-        item = _requirement_to_out(db, row)
+        item = _requirement_to_out(db, row, reconcile=False)
         if status and item.status != status:
             continue
         if search_value:
@@ -3115,7 +3368,7 @@ def _node_task_status(task: TaskRow | None) -> str | None:
 
 
 def _sync_execution_state(db: Session, run: ExecutionRunRow) -> ExecutionRunRow:
-    return reconcile_execution_state(db, run)
+    return advance_execution_run(db, run)
 
 
 def _build_task_description(db: Session, requirement: RequirementRow, run: ExecutionRunRow, node: ExecutionNodeRow) -> str:
@@ -3265,6 +3518,9 @@ def _execution_operation_result(
 
 
 def start_execution_command(db: Session, execution_run_id: int) -> ExecutionOperationResultOut:
+    run = advance_execution_run(db, execution_run_id)
+    advance_requirement_workflow(db, int(run.requirement_id))
+    db.commit()
     detail = build_execution_detail(db, execution_run_id)
     if not detail.is_current_execution:
         return _execution_operation_result(
@@ -3453,7 +3709,7 @@ def _background_verify_execution(execution_run_id: int) -> None:
     try:
         _with_sqlite_lock_retry(
             db,
-            lambda: validate_execution_run(db, execution_run_id),
+            lambda: validate_execution_run(db, execution_run_id, owner="background_thread"),
         )
     except Exception as exc:
         db.rollback()
@@ -3862,7 +4118,91 @@ def _persist_verification_result(
     return record
 
 
-def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
+def _validation_lease_key(execution_run_id: int) -> str:
+    return f"validation:{int(execution_run_id)}"
+
+
+def try_begin_validation(
+    db: Session,
+    execution_run_id: int,
+    owner: str,
+    *,
+    ttl_seconds: int = _VALIDATION_LEASE_TIMEOUT_SECONDS,
+) -> bool:
+    now = utcnow()
+    expires_at = now + timedelta(seconds=max(30, int(ttl_seconds)))
+    lease = db.query(ValidationLeaseRow).filter(ValidationLeaseRow.execution_run_id == execution_run_id).first()
+    if lease is not None:
+        current_expires_at = _as_utc_datetime(getattr(lease, "lease_expires_at", None))
+        is_active = str(getattr(lease, "lease_status", "") or "") == "active"
+        if is_active and current_expires_at is not None and current_expires_at > now:
+            return False
+        lease.lease_status = "expired" if is_active else str(getattr(lease, "lease_status", "") or "expired")
+    else:
+        lease = ValidationLeaseRow(
+            execution_run_id=int(execution_run_id),
+            lease_key=_validation_lease_key(int(execution_run_id)),
+        )
+        db.add(lease)
+    lease.lease_key = _validation_lease_key(int(execution_run_id))
+    lease.lease_status = "active"
+    lease.lease_owner = str(owner or "system").strip() or "system"
+    lease.lease_acquired_at = now
+    lease.lease_expires_at = expires_at
+    lease.updated_at = now
+    db.commit()
+    return True
+
+
+def finish_validation_lease(
+    db: Session,
+    execution_run_id: int,
+    owner: str,
+    outcome: str,
+) -> None:
+    lease = db.query(ValidationLeaseRow).filter(ValidationLeaseRow.execution_run_id == execution_run_id).first()
+    if lease is None:
+        return
+    if str(getattr(lease, "lease_owner", "") or "").strip() not in {"", str(owner or "").strip()}:
+        return
+    lease.lease_status = "expired" if str(outcome or "").strip() == "expired" else "released"
+    lease.lease_owner = None
+    lease.updated_at = utcnow()
+    db.commit()
+
+
+def sync_agent_first_execution_for_task(task_id: int) -> None:
+    db = SessionLocal()
+    try:
+        _sync_agent_first_execution_for_task_db(db, task_id)
+    finally:
+        db.close()
+
+
+def _sync_agent_first_execution_for_task_db(db: Session, task_id: int) -> None:
+    node = (
+        db.query(ExecutionNodeRow)
+        .join(RequirementRow, RequirementRow.id == ExecutionNodeRow.requirement_id)
+        .filter(
+            ExecutionNodeRow.task_id == task_id,
+            RequirementRow.workflow_family == "agent_first",
+        )
+        .order_by(ExecutionNodeRow.id.desc())
+        .first()
+    )
+    if node is None:
+        return
+    run = advance_execution_run(db, int(node.execution_run_id))
+    advance_requirement_workflow(db, int(run.requirement_id))
+    db.commit()
+
+
+def validate_execution_run(
+    db: Session,
+    execution_run_id: int,
+    *,
+    owner: str = "manual_validate",
+) -> ExecutionRunDetailOut:
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
         raise ValueError("Execution run not found.")
@@ -3881,169 +4221,173 @@ def validate_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDe
     )
     if not nodes or any(str(node.status or "") != "completed" for node in nodes):
         raise ValueError("All execute nodes must complete before validate.")
+    if not try_begin_validation(db, int(run.id), owner):
+        return build_execution_detail(db, execution_run_id)
     checks: list[ValidationCheckResultOut] = []
-    acceptance_contract = _parse_acceptance_contract(requirement)
-    contract_checks = [
-        item for item in acceptance_contract.get("verification_checks") or [] if isinstance(item, dict)
-    ]
-    project_path = str(getattr(requirement, "target_project_path", "") or "").strip()
-    evidence_commands = _commands_from_execution_evidence(nodes, db)
-    # Agent-first validation only auto-runs commands the execution agent actually
-    # reported as part of its evidence. Acceptance contract commands remain
-    # advisory context for the verification agent instead of becoming harness-
-    # mandated root-level test sweeps.
-    commands_to_run = evidence_commands
-    for command in commands_to_run:
-        checks.append(_run_check(project_path, command))
-    for item in contract_checks:
-        if str(item.get("command") or "").strip():
-            continue
-        checks.append(
-            ValidationCheckResultOut(
-                label=str(item.get("label") or "evidence review").strip() or "evidence review",
-                status="passed",
-                output_excerpt="Evidence-only verification item delegated to verification agent.",
+    try:
+        acceptance_contract = _parse_acceptance_contract(requirement)
+        contract_checks = [
+            item for item in acceptance_contract.get("verification_checks") or [] if isinstance(item, dict)
+        ]
+        project_path = str(getattr(requirement, "target_project_path", "") or "").strip()
+        evidence_commands = _commands_from_execution_evidence(nodes, db)
+        commands_to_run = evidence_commands
+        for command in commands_to_run:
+            checks.append(_run_check(project_path, command))
+        for item in contract_checks:
+            if str(item.get("command") or "").strip():
+                continue
+            checks.append(
+                ValidationCheckResultOut(
+                    label=str(item.get("label") or "evidence review").strip() or "evidence review",
+                    status="passed",
+                    output_excerpt="Evidence-only verification item delegated to verification agent.",
+                )
             )
+        result = verify_with_agent(
+            _verification_payload_for_run(
+                db,
+                requirement=requirement,
+                run=run,
+                nodes=nodes,
+                checks=checks,
+            ),
+            skip_provider=_testing_mode(),
         )
-    result = verify_with_agent(
-        _verification_payload_for_run(
+        resolution_path, resolution_rules = _resolve_validation_resolution(
+            db,
+            requirement=requirement,
+            result=result,
+        )
+        result["resolution_path"] = resolution_path
+        result["resolution_reason"] = str(result.get("resolution_reason") or result.get("reasoning") or result.get("summary") or "").strip()
+        result["resolution_rules"] = resolution_rules
+        record = _persist_verification_result(
             db,
             requirement=requirement,
             run=run,
-            nodes=nodes,
             checks=checks,
-        ),
-        skip_provider=_testing_mode(),
-    )
-    resolution_path, resolution_rules = _resolve_validation_resolution(
-        db,
-        requirement=requirement,
-        result=result,
-    )
-    result["resolution_path"] = resolution_path
-    result["resolution_reason"] = str(result.get("resolution_reason") or result.get("reasoning") or result.get("summary") or "").strip()
-    result["resolution_rules"] = resolution_rules
-    record = _persist_verification_result(
-        db,
-        requirement=requirement,
-        run=run,
-        checks=checks,
-        result=result,
-    )
-    verdict = str(result.get("status") or "inconclusive")
-    execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
-    followup_requirement: RequirementRow | None = None
-    if resolution_path == "create_followup_requirement" and execution_kind != "delivery_repair":
-        followup_requirement = _create_followup_requirement_from_validation(
-            db,
-            requirement=requirement,
-            run=run,
-            validation=record,
             result=result,
         )
-        result["followup_requirement_id"] = int(followup_requirement.id)
-        result["followup_requirement_payload"] = {
-            **dict(result.get("followup_requirement_payload") or {}),
-            "created_requirement_id": int(followup_requirement.id),
-        }
-        record.followup_requirement_id = int(followup_requirement.id)
-        record.followup_requirement_payload_json = _json_dump(result.get("followup_requirement_payload") or {})
-        requirement.followup_requirement_id = int(followup_requirement.id)
-    requirement.resolution_path = resolution_path
-    run.phase = "delivery_ready" if verdict == "passed" else "blocked"
-    run.status = _execution_status_from_phase(run.phase)
-    run.attempt_state = "succeeded" if verdict == "passed" else "failed"
-    run.failure_kind = None if verdict == "passed" else ("verification_inconclusive" if resolution_path == "route_to_human" and verdict == "inconclusive" else "verification_failed")
-    run.blocker_kind = None
-    run.resume_mode = "none" if verdict == "passed" else "retry_new_run"
-    run.completed_at = run.completed_at or utcnow()
-    delivery_repair_retry_needed = False
-    if verdict == "passed":
-        requirement.workflow_state = "delivering"
-        requirement.attention_reason = None
-        requirement.failure_reason = None
-    elif execution_kind == "delivery_repair":
-        release = _release_record(db, requirement)
-        _apply_delivery_repair_failure_context(
-            release,
-            run=run,
-            validation=record,
-            result=result,
-        )
-        release.execution_run_id = int(run.id)
-        release.repair_attempt_count = (
-            db.query(ExecutionRunRow)
-            .filter(
-                ExecutionRunRow.requirement_id == int(requirement.id),
-                ExecutionRunRow.execution_kind == "delivery_repair",
+        verdict = str(result.get("status") or "inconclusive")
+        execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
+        followup_requirement: RequirementRow | None = None
+        if resolution_path == "create_followup_requirement" and execution_kind != "delivery_repair":
+            followup_requirement = _create_followup_requirement_from_validation(
+                db,
+                requirement=requirement,
+                run=run,
+                validation=record,
+                result=result,
             )
-            .count()
-        )
-        if _delivery_repair_budget_exhausted(db, int(requirement.id)):
-            release.delivery_state = "blocked"
-            release.next_action = "route_to_human"
-            requirement.resolution_path = "route_to_human"
-            requirement.workflow_state = "failed"
-            requirement.attention_reason = "route_to_human"
-            requirement.failure_reason = "delivery_repair_budget_exhausted"
-            run.resume_mode = "operator_only"
-        else:
-            release.delivery_state = "repairing"
-            release.next_action = "repair_delivery"
-            requirement.resolution_path = "repair_delivery"
+            result["followup_requirement_id"] = int(followup_requirement.id)
+            result["followup_requirement_payload"] = {
+                **dict(result.get("followup_requirement_payload") or {}),
+                "created_requirement_id": int(followup_requirement.id),
+            }
+            record.followup_requirement_id = int(followup_requirement.id)
+            record.followup_requirement_payload_json = _json_dump(result.get("followup_requirement_payload") or {})
+            requirement.followup_requirement_id = int(followup_requirement.id)
+        requirement.resolution_path = resolution_path
+        run.phase = "delivery_ready" if verdict == "passed" else "blocked"
+        run.status = _execution_status_from_phase(run.phase)
+        run.attempt_state = "succeeded" if verdict == "passed" else "failed"
+        run.failure_kind = None if verdict == "passed" else ("verification_inconclusive" if resolution_path == "route_to_human" and verdict == "inconclusive" else "verification_failed")
+        run.blocker_kind = None
+        run.resume_mode = "none" if verdict == "passed" else "retry_new_run"
+        run.completed_at = run.completed_at or utcnow()
+        delivery_repair_retry_needed = False
+        if verdict == "passed":
             requirement.workflow_state = "delivering"
-            requirement.attention_reason = "repair_delivery"
+            requirement.attention_reason = None
             requirement.failure_reason = None
-            delivery_repair_retry_needed = True
-    elif resolution_path == "route_to_human":
-        requirement.workflow_state = "awaiting_operator"
-        requirement.attention_reason = "route_to_human"
-        requirement.failure_reason = None
-    elif resolution_path == "create_followup_requirement":
-        requirement.workflow_state = "awaiting_operator"
-        requirement.attention_reason = "followup_created"
-        requirement.failure_reason = None
-    else:
-        requirement.workflow_state = "ready"
-        requirement.attention_reason = "retry_available"
-        requirement.failure_reason = None
-    requirement.phase = _requirement_phase_from_workflow_state(str(requirement.workflow_state or "ready"))
-    requirement.status = _requirement_status_from_workflow_state(str(requirement.workflow_state or "ready"))
-    _log_workflow_event(
-        "execution_run_validated",
-        requirement=requirement,
-        execution=run,
-        validation=record,
-        checks_total=len(checks),
-        checks_failed=len([check for check in checks if check.status != "passed"]),
-        verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
-        suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement"),
-        resolution_path=resolution_path,
-        followup_requirement_id=int(followup_requirement.id) if followup_requirement is not None else None,
-    )
-    db.commit()
-    if delivery_repair_retry_needed:
-        release = _release_record(db, requirement)
-        if release is not None:
-            repair_detail = _begin_delivery_repair(db, requirement=requirement, release=release, actor="verification_agent")
-            if repair_detail is not None:
-                release = db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(release.id)).first()
-                if release is not None:
-                    release.execution_run_id = int(repair_detail.execution.id)
-                    release.repair_attempt_count = (
-                        db.query(ExecutionRunRow)
-                        .filter(
-                            ExecutionRunRow.requirement_id == int(requirement.id),
-                            ExecutionRunRow.execution_kind == "delivery_repair",
+        elif execution_kind == "delivery_repair":
+            release = _release_record(db, requirement)
+            _apply_delivery_repair_failure_context(
+                release,
+                run=run,
+                validation=record,
+                result=result,
+            )
+            release.execution_run_id = int(run.id)
+            release.repair_attempt_count = (
+                db.query(ExecutionRunRow)
+                .filter(
+                    ExecutionRunRow.requirement_id == int(requirement.id),
+                    ExecutionRunRow.execution_kind == "delivery_repair",
+                )
+                .count()
+            )
+            if _delivery_repair_budget_exhausted(db, int(requirement.id)):
+                release.delivery_state = "blocked"
+                release.next_action = "route_to_human"
+                requirement.resolution_path = "route_to_human"
+                requirement.workflow_state = "failed"
+                requirement.attention_reason = "route_to_human"
+                requirement.failure_reason = "delivery_repair_budget_exhausted"
+                run.resume_mode = "operator_only"
+            else:
+                release.delivery_state = "repairing"
+                release.next_action = "repair_delivery"
+                requirement.resolution_path = "repair_delivery"
+                requirement.workflow_state = "delivering"
+                requirement.attention_reason = "repair_delivery"
+                requirement.failure_reason = None
+                delivery_repair_retry_needed = True
+        elif resolution_path == "route_to_human":
+            requirement.workflow_state = "awaiting_operator"
+            requirement.attention_reason = "route_to_human"
+            requirement.failure_reason = None
+        elif resolution_path == "create_followup_requirement":
+            requirement.workflow_state = "awaiting_operator"
+            requirement.attention_reason = "followup_created"
+            requirement.failure_reason = None
+        else:
+            requirement.workflow_state = "ready"
+            requirement.attention_reason = "retry_available"
+            requirement.failure_reason = None
+        requirement.phase = _requirement_phase_from_workflow_state(str(requirement.workflow_state or "ready"))
+        requirement.status = _requirement_status_from_workflow_state(str(requirement.workflow_state or "ready"))
+        _log_workflow_event(
+            "execution_run_validated",
+            requirement=requirement,
+            execution=run,
+            validation=record,
+            checks_total=len(checks),
+            checks_failed=len([check for check in checks if check.status != "passed"]),
+            verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
+            suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement"),
+            resolution_path=resolution_path,
+            followup_requirement_id=int(followup_requirement.id) if followup_requirement is not None else None,
+        )
+        db.commit()
+        if delivery_repair_retry_needed:
+            release = _release_record(db, requirement)
+            if release is not None:
+                repair_detail = _begin_delivery_repair(db, requirement=requirement, release=release, actor="verification_agent")
+                if repair_detail is not None:
+                    release = db.query(ReleaseRecordRow).filter(ReleaseRecordRow.id == int(release.id)).first()
+                    if release is not None:
+                        release.execution_run_id = int(repair_detail.execution.id)
+                        release.repair_attempt_count = (
+                            db.query(ExecutionRunRow)
+                            .filter(
+                                ExecutionRunRow.requirement_id == int(requirement.id),
+                                ExecutionRunRow.execution_kind == "delivery_repair",
+                            )
+                            .count()
                         )
-                        .count()
-                    )
-                    db.commit()
-    if followup_requirement is not None and not _testing_mode():
-        _enqueue_requirement_asset_generation(int(followup_requirement.id))
-    if verdict == "passed":
-        _auto_open_pr_after_verification(db, requirement, actor="verification_agent")
-    return build_execution_detail(db, execution_run_id)
+                        db.commit()
+        if followup_requirement is not None and not _testing_mode():
+            _enqueue_requirement_asset_generation(int(followup_requirement.id))
+        if verdict == "passed":
+            _auto_open_pr_after_verification(db, requirement, actor="verification_agent")
+        return build_execution_detail(db, execution_run_id)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        finish_validation_lease(db, int(run.id), owner, "released")
 
 
 def reset_execution_runtime_data(db: Session) -> dict[str, int]:
@@ -4131,6 +4475,7 @@ def reset_execution_runtime_data(db: Session) -> dict[str, int]:
         "execution_runs_deleted": int(run_count),
         "execution_nodes_deleted": int(node_count),
         "validation_records_deleted": int(validation_count),
+        "validation_leases_deleted": int(db.query(ValidationLeaseRow).count()),
         "release_records_deleted": int(release_count),
         "requirements_reset": int(updated_requirements),
     }
@@ -4165,6 +4510,7 @@ def reset_workflow_state_data(db: Session) -> dict[str, int]:
         "execution_runs_deleted": int(db.query(ExecutionRunRow).count()),
         "execution_nodes_deleted": int(db.query(ExecutionNodeRow).count()),
         "validation_records_deleted": int(db.query(ValidationRecordRow).count()),
+        "validation_leases_deleted": int(db.query(ValidationLeaseRow).count()),
         "release_records_deleted": int(db.query(ReleaseRecordRow).count()),
         "codex_sessions_deleted": int(db.query(CodexSessionRow).count()),
         "bug_requirement_links_reset": int(
@@ -4201,6 +4547,7 @@ def reset_workflow_state_data(db: Session) -> dict[str, int]:
     )
     db.query(WorkflowRunRow).update({"planner_artifact_id": None}, synchronize_session=False)
     db.query(ValidationRecordRow).delete(synchronize_session=False)
+    db.query(ValidationLeaseRow).delete(synchronize_session=False)
     db.query(ReleaseRecordRow).delete(synchronize_session=False)
     db.query(ExecutionNodeRow).delete(synchronize_session=False)
     db.query(ExecutionRunRow).delete(synchronize_session=False)
@@ -4550,11 +4897,9 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
     run = db.query(ExecutionRunRow).filter(ExecutionRunRow.id == execution_run_id).first()
     if run is None:
         raise ValueError("Execution run not found.")
-    run = _sync_execution_state(db, run)
     requirement = db.query(RequirementRow).filter(RequirementRow.id == run.requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
-    requirement = reconcile_requirement_state(db, requirement)
     nodes = (
         db.query(ExecutionNodeRow)
         .filter(ExecutionNodeRow.execution_run_id == run.id)
@@ -4569,32 +4914,26 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
     )
     release = _latest_release(db, int(requirement.id))
     is_current_execution = _is_current_execution(db, run)
-    has_paused_node = any(str(getattr(node, "status", "") or "") == "paused" for node in nodes)
-    queue_reason, blocking_reason_code, blocking_reason_message = _execution_reason_payload(
+    projection = _execution_read_projection(
+        db,
         run,
         requirement,
-        validation=validation,
         release=release,
+        validation=validation,
         nodes=nodes,
     )
-    execution_state, blocker_kind, failure_kind = _execution_canonical_state(
-        run,
-        blocking_reason_code=blocking_reason_code,
-    )
-    run.attempt_state = execution_state
-    run.blocker_kind = blocker_kind
-    run.failure_kind = failure_kind
-    recovery_mode = _execution_recovery_mode(
-        status=str(getattr(run, "status", "") or _execution_status_from_phase(str(getattr(run, "phase", "") or run.status or "queued"))),
-        phase=str(getattr(run, "phase", "") or run.status or "queued"),
-        recovery_status=_effective_recovery_status(run),
-        blocking_reason_code=blocking_reason_code,
-        has_paused_node=has_paused_node,
-    )
-    run.resume_mode = recovery_mode
+    projected_run = cast(Any, projection["run"])
+    has_paused_node = cast(bool, projection["has_paused_node"])
+    queue_reason = cast(str | None, projection["queue_reason"])
+    blocking_reason_code = cast(str | None, projection["blocking_reason_code"])
+    blocking_reason_message = cast(str | None, projection["blocking_reason_message"])
+    execution_state = cast(str, projection["execution_state"])
+    blocker_kind = cast(str | None, projection["blocker_kind"])
+    failure_kind = cast(str | None, projection["failure_kind"])
+    recovery_mode = cast(str, projection["recovery_mode"])
     workspace_blocker = _execution_workspace_blocker(requirement, release, blocking_reason_code)
     recovery_hint = _execution_recovery_hint(recovery_mode, blocking_reason_code)
-    recovery_fields = _execution_recovery_fields(run)
+    recovery_fields = cast(dict[str, Any], projection["recovery_fields"])
     latest_task = _latest_task_for_run(db, run)
     latest_session = _latest_session_for_run_task(db, run)
     project = _project_for_requirement(db, requirement)
@@ -4694,14 +5033,14 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
         phase=str(getattr(run, "phase", "") or run.status or "queued"),
         is_current_execution=is_current_execution,
         allowed_actions=_execution_allowed_actions(
-            run,
+            projected_run,
             release,
             is_current_execution=is_current_execution,
             has_paused_node=has_paused_node,
             blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
-        recovery_status=_effective_recovery_status(run),
+        recovery_status=cast(str | None, getattr(projected_run, "recovery_status", None)),
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
         recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
@@ -4739,7 +5078,6 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
         updated_at=run.updated_at,
     )
     incidents: list[dict[str, object]] = []
-    failed_node = next((node for node in nodes if str(node.status or "") == "failed"), None)
     if execution.status in {"blocked", "failed"}:
         incidents.append(
             {
@@ -4747,27 +5085,25 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
                 "summary": "Execution is blocked or failed. Retry or revise before validating again.",
             }
         )
-        _notify_execution_error(db, run, requirement, failed_node)
-        db.commit()
     changed_files = _collect_execution_changed_files(db, nodes)
     activity_stream = _build_execution_activity_stream(run, nodes, validation, incidents)
     raw_task_output, raw_task_output_truncated = _execution_raw_output(nodes, db)
     validation_out = _validation_record_to_out(validation)
     return ExecutionRunDetailOut(
         execution=execution,
-        requirement=_requirement_to_out(db, requirement),
+        requirement=_requirement_to_out(db, requirement, reconcile=False),
         state=execution_state,
         phase=str(getattr(run, "phase", "") or run.status or "queued"),
         is_current_execution=is_current_execution,
         allowed_actions=_execution_allowed_actions(
-            run,
+            projected_run,
             release,
             is_current_execution=is_current_execution,
             has_paused_node=has_paused_node,
             blocking_reason_code=blocking_reason_code,
         ),
         pending_operations=[],
-        recovery_status=_effective_recovery_status(run),
+        recovery_status=cast(str | None, getattr(projected_run, "recovery_status", None)),
         recovery_scope=cast(str | None, recovery_fields["recovery_scope"]),
         recovery_deadline_at=cast(Any, recovery_fields["recovery_deadline_at"]),
         recovery_timeout_status=cast(str | None, recovery_fields["recovery_timeout_status"]),
@@ -4805,10 +5141,7 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
 
 
 def build_execution_detail(db: Session, execution_run_id: int) -> ExecutionRunDetailOut:
-    return _with_sqlite_lock_retry(
-        db,
-        lambda: _build_execution_detail_once(db, execution_run_id),
-    )
+    return _build_execution_detail_once(db, execution_run_id)
 
 
 def _latest_validation(db: Session, requirement_id: int) -> ValidationRecordRow | None:
@@ -4833,9 +5166,8 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
     if release is None:
         return None
     delivery_state = _delivery_canonical_state(release) or "pending"
-    release.delivery_state = delivery_state
-    release.blocker_kind = str(getattr(release, "delivery_blocker_type", "") or "").strip() or None
-    release.repairability = "repairable" if bool(getattr(release, "repairable", False)) else "manual_only"
+    blocker_kind = str(getattr(release, "delivery_blocker_type", "") or "").strip() or None
+    repairability = "repairable" if bool(getattr(release, "repairable", False)) else "manual_only"
     return ReleaseRecordSlimOut(
         id=int(release.id),
         requirement_id=int(release.requirement_id),
@@ -4853,13 +5185,13 @@ def _release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | 
         pr_url=str(release.pr_url or "").strip() or None,
         pr_number=int(release.pr_number) if release.pr_number is not None else None,
         notes=str(release.notes or "").strip() or None,
-        blocker_kind=str(getattr(release, "blocker_kind", "") or "").strip() or None,
+        blocker_kind=blocker_kind,
         delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,
         failed_gate_name=str(getattr(release, "failed_gate_name", "") or "").strip() or None,
         delivery_failure_excerpt=str(getattr(release, "delivery_failure_excerpt", "") or "").strip() or None,
         delivery_failure_raw_output=str(getattr(release, "delivery_failure_raw_output", "") or "").strip() or None,
         repairable=bool(getattr(release, "repairable", False)),
-        repairability=str(getattr(release, "repairability", "") or "").strip() or None,
+        repairability=repairability,
         repair_attempt_count=int(getattr(release, "repair_attempt_count", 0) or 0),
         next_action=str(getattr(release, "next_action", "") or "").strip() or None,
         prepared_at=release.prepared_at,

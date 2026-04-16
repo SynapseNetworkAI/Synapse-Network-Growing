@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from sqlalchemy.exc import OperationalError
 
-from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, BugRecordRow, CodexSessionRow, ErrorFingerprintRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
+from server.database import AgentRow, ApprovalRequestRow, ApprovalRow, BugRecordRow, CodexSessionRow, ErrorFingerprintRow, ExecutionNodeRow, ExecutionRunRow, NotificationDeliveryRow, ReleaseRecordRow, RequirementAcceptanceCheckRow, RequirementAttachmentRow, RequirementRow, StepInputBindingRow, TaskLogRow, TaskRow, ValidationLeaseRow, ValidationRecordRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepEventRow, WorkflowStepRow, utcnow
 from server.schemas import TaskExecutionSuggestion, ValidationCheckResultOut
 from server.services.workflows import agent_first
 from server.services.workflows.agent_first import reset_execution_runtime_data, reset_workflow_state_data
@@ -3354,24 +3354,288 @@ def test_execution_file_preview_endpoint_returns_diff_and_current_content(synced
     assert payload["truncated"] is False
 
 
-def test_build_execution_detail_retries_sqlite_lock(db_session, monkeypatch):
-    result = SimpleNamespace(name="execution-detail")
+def test_execution_read_endpoints_are_pure_and_do_not_enqueue_validation(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    requirement = RequirementRow(
+        title="Pure execution read",
+        description_markdown="Polling execution reads should not mutate workflow state or enqueue verification.",
+        status="running",
+        phase="executing",
+        workflow_state="executing",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="execute",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Finished implementation and waiting for explicit workflow sync.",
+        completed_at=utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first._enqueue_execution_verification", side_effect=AssertionError("read endpoints should stay pure")):
+        detail_resp = synced_client.get(f"/api/executions/{run.id}")
+        list_resp = synced_client.get("/api/executions")
+
+    assert detail_resp.status_code == 200
+    assert list_resp.status_code == 200
+    db_session.refresh(run)
+    db_session.refresh(requirement)
+    assert run.phase == "executing"
+    assert run.verification_requested_at is None
+    assert requirement.workflow_state == "executing"
+    assert db_session.query(ValidationRecordRow).filter(ValidationRecordRow.execution_run_id == int(run.id)).count() == 0
+
+
+def test_sync_agent_first_execution_for_task_advances_run_and_enqueues_validation(db_session):
+    db_session.add(AgentRow(id="software_engineer", display_name="Software Engineer", goal="Ship code"))
+    db_session.flush()
+    requirement = RequirementRow(
+        title="Advance execution on task completion",
+        description_markdown="Task completion should advance execution state without requiring a GET poll.",
+        status="running",
+        phase="executing",
+        workflow_state="executing",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="execute",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Implementation completed successfully.",
+        completed_at=utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    node = ExecutionNodeRow(
+        execution_run_id=int(run.id),
+        requirement_id=int(requirement.id),
+        node_key="execute",
+        node_type="execute",
+        title="Execute requirement",
+        status="running",
+        sequence_no=1,
+        task_id=int(task.id),
+    )
+    db_session.add(node)
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first._enqueue_execution_verification") as enqueue_verification:
+        agent_first._sync_agent_first_execution_for_task_db(db_session, int(task.id))
+
+    db_session.refresh(node)
+    db_session.refresh(run)
+    db_session.refresh(requirement)
+    assert node.status == "completed"
+    assert run.phase == "verifying"
+    assert run.verification_requested_at is not None
+    assert requirement.workflow_state == "executing"
+    enqueue_verification.assert_called_once_with(int(run.id))
+
+
+def test_try_begin_validation_reacquires_expired_execution_lease(db_session):
+    requirement = RequirementRow(
+        title="Lease requirement",
+        description_markdown="Seed a requirement so the lease can point at a real execution run.",
+        status="running",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    lease = ValidationLeaseRow(
+        execution_run_id=int(run.id),
+        lease_key=f"validation:{int(run.id)}",
+        lease_status="active",
+        lease_owner="background_thread",
+        lease_acquired_at=utcnow() - timedelta(minutes=20),
+        lease_expires_at=utcnow() - timedelta(minutes=10),
+    )
+    db_session.add(lease)
+    db_session.commit()
+
+    acquired = agent_first.try_begin_validation(db_session, int(run.id), "manual_validate", ttl_seconds=120)
+    assert acquired is True
+    db_session.refresh(lease)
+    assert lease.lease_status == "active"
+    assert lease.lease_owner == "manual_validate"
+    assert agent_first._as_utc_datetime(lease.lease_expires_at) > utcnow()
+
+
+def test_validate_execution_run_returns_current_detail_when_validation_lease_is_active(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    requirement = RequirementRow(
+        title="Lease blocks duplicate validation",
+        description_markdown="A second validation trigger should reuse the in-flight execution state instead of creating another validation record.",
+        status="running",
+        phase="executing",
+        workflow_state="executing",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="execute",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Implementation completed successfully.",
+        completed_at=utcnow(),
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="execute",
+            node_type="execute",
+            title="Execute requirement",
+            status="completed",
+            sequence_no=1,
+            task_id=int(task.id),
+        )
+    )
+    db_session.add(
+        ValidationLeaseRow(
+            execution_run_id=int(run.id),
+            lease_key=f"validation:{int(run.id)}",
+            lease_status="active",
+            lease_owner="background_thread",
+            lease_acquired_at=utcnow(),
+            lease_expires_at=utcnow() + timedelta(minutes=10),
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.verify_with_agent", side_effect=AssertionError("duplicate validation should not run")):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["validation"] is None
+    assert db_session.query(ValidationRecordRow).filter(ValidationRecordRow.execution_run_id == int(run.id)).count() == 0
+
+
+def test_build_execution_detail_does_not_retry_sqlite_lock(db_session, monkeypatch):
     call_count = {"value": 0}
 
     def _fake_build(_db_session, execution_run_id: int):
         assert execution_run_id == 42
         call_count["value"] += 1
-        if call_count["value"] == 1:
-            raise OperationalError("select 1", {}, Exception("database is locked"))
-        return result
+        raise OperationalError("select 1", {}, Exception("database is locked"))
 
     monkeypatch.setattr(agent_first, "_build_execution_detail_once", _fake_build)
     monkeypatch.setattr(agent_first.time, "sleep", lambda *_args, **_kwargs: None)
 
-    payload = agent_first.build_execution_detail(db_session, 42)
+    try:
+        agent_first.build_execution_detail(db_session, 42)
+        assert False, "expected build_execution_detail to propagate SQLite lock errors"
+    except OperationalError:
+        pass
 
-    assert payload is result
-    assert call_count["value"] == 2
+    assert call_count["value"] == 1
 
 
 def test_auto_open_pr_after_verification_retries_sqlite_lock(db_session, monkeypatch):

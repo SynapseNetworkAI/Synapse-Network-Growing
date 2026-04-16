@@ -812,6 +812,27 @@ class ValidationRecordRow(Base):
     followup_requirement = relationship("RequirementRow", foreign_keys=[followup_requirement_id])
 
 
+class ValidationLeaseRow(Base):
+    __tablename__ = "validation_leases"
+    __table_args__ = (
+        Index("validation_leases_execution_idx", "execution_run_id", unique=True),
+        Index("validation_leases_status_idx", "lease_status"),
+        Index("validation_leases_expires_idx", "lease_expires_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
+    lease_key = Column(Text, nullable=False)
+    lease_status = Column(Text, nullable=False, default="pending")
+    lease_owner = Column(Text)
+    lease_acquired_at = Column(DateTime)
+    lease_expires_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
+
+
 class ReleaseRecordRow(Base):
     __tablename__ = "release_records"
     __table_args__ = (
@@ -1348,6 +1369,10 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE validation_records ADD COLUMN {col} {col_type}"))
                     conn.commit()
+
+    if "validation_leases" not in tables:
+        logger.info("Migrating: creating 'validation_leases' table")
+        ValidationLeaseRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "release_records" not in tables:
         logger.info("Migrating: creating 'release_records' table")
