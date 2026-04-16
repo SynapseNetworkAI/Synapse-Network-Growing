@@ -237,10 +237,21 @@ CODEX_CLI_FULL_AUTO=true
 
 Notes:
 
-1. `planner plan brief` and workflow task execution will both use the local `codex exec` runtime.
-2. `CODEX_CLI_MODEL` is optional; if omitted, the system falls back to `LLM_MODEL`.
-3. `CODEX_CLI_FULL_AUTO=false` switches to explicit sandbox mode using `CODEX_CLI_SANDBOX`.
-4. This path uses your existing Codex / ChatGPT login state, not `OPENAI_API_KEY`.
+1. Execution tasks use the local `codex exec` runtime.
+2. Plan agent calls can be selected independently with `PLANNER_BACKEND`; leave it empty to infer from `ORCHESTRATION_BACKEND`.
+3. `CODEX_CLI_MODEL` is optional; if omitted, the system falls back to `LLM_MODEL`.
+4. `CODEX_CLI_FULL_AUTO=false` switches to explicit sandbox mode using `CODEX_CLI_SANDBOX`.
+5. This path uses your existing Codex / ChatGPT login state, not `OPENAI_API_KEY`.
+
+Recommended planner adapter config:
+
+```env
+PLANNER_BACKEND=codex_sdk
+PLANNER_MODEL=gpt-5.4
+PLANNER_TIMEOUT=300
+```
+
+Supported planner adapters are `openai`, `claude`, `copilot`, `codex_cli`, and `codex_sdk`. See [Planner Adapter Architecture](docs/design-docs/planner-adapter-architecture.md).
 
 Recommended Codex Python SDK direction:
 
@@ -301,10 +312,10 @@ When Copilot SDK returns an explicit enterprise-policy / authorization error, th
 3. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
 4. `docs/design-docs/company-ops-latest-architecture.md` - 最新模块交互、signal 来源、日志与数据库策略
 5. `docs/design-docs/system-design-principles.md` - 当前正式硬约束，包括三面分治与最小执行流
-6. `docs/design-docs/copilot-sdk-multi-agent-architecture.md` - Copilot long-task runtime architecture
-7. `docs/design-docs/requirement-pool-multi-agent-workflow-architecture.md` - Requirement pool and multi-agent orchestration target architecture
-8. `docs/design-docs/requirement-pool-workflow-database-design.md` - Requirement pool and workflow database design
-9. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope、registry 与后续实现方案
+6. `docs/design-docs/planner-adapter-architecture.md` - Plan Agent provider adapter、配置优先级与扩展边界
+7. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
+8. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
+9. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
 10. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
 11. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 

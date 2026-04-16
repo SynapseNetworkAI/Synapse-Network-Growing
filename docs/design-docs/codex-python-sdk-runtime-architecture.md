@@ -119,6 +119,13 @@ Session storage:
 5. Existing `codex_sessions` remains the execution role/project/requirement-level thread registry.
 6. Planner sessions should use the same registry with project scope: `role_key="planner"`, `project_root=<canonical target project root>`, `requirement_id=NULL`.
 
+Planner provider selection:
+
+1. Plan agent calls use the shared planner adapter interface documented in [Planner Adapter Architecture](planner-adapter-architecture.md).
+2. `PLANNER_BACKEND=codex_sdk` selects the Codex Python SDK adapter.
+3. `PLANNER_BACKEND=codex_cli` selects the Codex CLI adapter and remains the fallback path.
+4. If `PLANNER_BACKEND` is empty, `ORCHESTRATION_BACKEND=codex_sdk` still maps planner calls to `codex_sdk` for compatibility.
+
 Planner project-scoped session reuse is documented in [Plan Agent Project-Scoped Session Reuse](plan-agent-project-scoped-session-reuse.md). The same scope policy applies to `codex_cli` and `codex_sdk`; only the underlying resume API differs.
 
 ## Testing and Validation

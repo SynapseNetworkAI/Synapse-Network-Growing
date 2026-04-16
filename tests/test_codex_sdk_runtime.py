@@ -8,7 +8,12 @@ from server import config
 from server.services.runtime.codex_cli import CodexAsyncExecResult
 from server.services.runtime.codex_sdk import CodexSDKPlanResult, run_codex_sdk_plan
 from server.services.runtime.task_runtime import CodexSDKTaskRuntime
-from server.services.workflows.planner_provider import call_planner_provider, planner_model_name, planner_provider_name
+from server.services.workflows.planner_provider import (
+    PlannerRequest,
+    generate_planner_text,
+    resolve_planner_backend,
+    resolve_planner_model,
+)
 
 
 class _FakeThread:
@@ -93,10 +98,10 @@ def test_codex_sdk_plan_resumes_thread(tmp_path):
     assert codex.resumed == ("thread-existing", {"cwd": str(tmp_path), "sandbox": "read-only", "model": "gpt-5.4"})
 
 
-def test_call_planner_provider_uses_codex_sdk_backend(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "ORCHESTRATION_BACKEND", "codex_sdk")
-    monkeypatch.setattr(config, "CODEX_SDK_PLAN_TIMEOUT", 300)
-    monkeypatch.setattr(config, "CODEX_SDK_MODEL", "gpt-5.4")
+def test_generate_planner_text_uses_codex_sdk_adapter(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "PLANNER_BACKEND", "codex_sdk")
+    monkeypatch.setattr(config, "PLANNER_MODEL", "gpt-5.4")
+    monkeypatch.setattr(config, "PLANNER_TIMEOUT", 300)
     metadata: dict[str, object] = {}
     output_path = tmp_path / "runtime" / "plans" / "plan.md"
 
@@ -113,19 +118,16 @@ def test_call_planner_provider_uses_codex_sdk_backend(monkeypatch, tmp_path):
             metadata={},
         ),
     ) as mock_run:
-        content, tokens = call_planner_provider(
-            provider_name="codex",
-            provider=object(),
+        response = generate_planner_text(PlannerRequest(
             prompt="Need a plan",
-            model_name="gpt-5.4",
             system_prompt="Return JSON only",
-            raw_cwd=tmp_path,
-            raw_output_path=output_path,
-            metadata_out=metadata,
-        )
+            cwd=tmp_path,
+            output_path=output_path,
+            metadata=metadata,
+        ))
 
-    assert content == '{"steps":[]}'
-    assert tokens == 0
+    assert response.text == '{"steps":[]}'
+    assert response.tokens == 0
     _, kwargs = mock_run.call_args
     assert kwargs["timeout"] == 300
     assert kwargs["sandbox_mode"] == "read-only"
@@ -135,14 +137,16 @@ def test_call_planner_provider_uses_codex_sdk_backend(monkeypatch, tmp_path):
     assert metadata["planning_turn_id"] == "turn-sdk-plan"
 
 
-def test_planner_provider_name_and_model_support_codex_sdk(monkeypatch):
+def test_resolve_planner_backend_and_model_support_codex_sdk(monkeypatch):
+    monkeypatch.setattr(config, "PLANNER_BACKEND", "")
+    monkeypatch.setattr(config, "PLANNER_MODEL", "")
     monkeypatch.setattr(config, "ORCHESTRATION_BACKEND", "codex_sdk")
     monkeypatch.setattr(config, "LLM_PROVIDER", "openai")
     monkeypatch.setattr(config, "LLM_MODEL", "codex")
     monkeypatch.setattr(config, "CODEX_SDK_MODEL", "gpt-5.4")
 
-    assert planner_provider_name() == "codex"
-    assert planner_model_name("codex") == "gpt-5.4"
+    assert resolve_planner_backend() == "codex_sdk"
+    assert resolve_planner_model("codex_sdk") == "gpt-5.4"
 
 
 def test_codex_sdk_task_runtime_falls_back_to_codex_cli(tmp_path):

@@ -105,7 +105,12 @@ from server.services.requirements.approval import (
     normalize_requirement_approval_contract,
     normalize_requirement_approval_status,
 )
-from server.services.workflows.planner_provider import call_planner_provider, planner_model_name, planner_provider_name
+from server.services.workflows.planner_provider import (
+    PlannerRequest,
+    generate_planner_text,
+    resolve_planner_backend,
+    resolve_planner_model,
+)
 from server.services.workflows.verification_agent import verify_with_agent
 from server.services.workflows.orchestrator.file_changes import (
     _load_task_file_changes,
@@ -113,7 +118,6 @@ from server.services.workflows.orchestrator.file_changes import (
     _task_changed_files_from_payload,
 )
 from server.services.workflows.orchestrator import pause_task as pause_legacy_task
-from server.services.agents.llm_adapter import get_provider
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
@@ -1780,16 +1784,11 @@ def _generate_acceptance_contract_with_agent(
             description_markdown.strip(),
         ]
     ).strip()
-    provider_name = planner_provider_name()
-    provider = get_provider(provider_name)
-    model_name = planner_model_name(provider_name)
-    text, _tokens = call_planner_provider(
-        provider_name=provider_name,
-        provider=provider,
+    response = generate_planner_text(PlannerRequest(
         prompt=prompt,
-        model_name=model_name,
         system_prompt=_ACCEPTANCE_SYSTEM_PROMPT,
-    )
+    ))
+    text = response.text
     payload = json.loads(str(text or "").strip())
     if not isinstance(payload, dict):
         raise ValueError("acceptance contract payload must be an object")
@@ -1832,48 +1831,52 @@ def _generate_plan_brief_markdown_with_agent(
     *,
     acceptance_contract: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
-    provider_name = "codex"
-    provider = get_provider(provider_name)
-    model_name = planner_model_name(provider_name)
+    planner_backend = resolve_planner_backend()
+    model_name = resolve_planner_model(planner_backend)
     targets = _target_projects_for_requirement(db, requirement)
     target_path = Path(targets[0]).expanduser().resolve() if targets else PROJECT_ROOT.resolve()
     output_path = PROJECT_ROOT / "runtime" / "plans" / f"req-{int(requirement.id)}-plan.md"
     target_roots = [str(Path(item).expanduser().resolve()) for item in targets] or [str(target_path)]
-    planner_session_key = build_planner_project_session_key(project_root=target_path)
+    uses_codex_session = planner_backend in {"codex_cli", "codex_sdk"}
+    planner_session_key = build_planner_project_session_key(project_root=target_path) if uses_codex_session else ""
     metadata: dict[str, Any] = {
-        "planning_mode": "codex_raw_exec_plan",
-        "planning_session_scope": "project",
+        "planning_mode": "adapter_plan",
+        "planning_backend": planner_backend,
         "planning_project_root": str(target_path),
-        "planning_session_key": planner_session_key,
         "planning_requirement_id": int(requirement.id),
         "planning_target_roots": target_roots,
         "planning_model": model_name,
     }
     previous_plan = _parse_execution_plan(requirement)
-    project_planner_session = find_reusable_planner_project_session(db, project_root=target_path)
-    previous_plan_session_id = str(previous_plan.get("planning_session_id") or "").strip() or None
-    resume_session_id = (
-        str(getattr(project_planner_session, "thread_id", "") or "").strip()
-        if project_planner_session is not None
-        else previous_plan_session_id
-    ) or None
-    metadata["planning_resume_source"] = "project" if project_planner_session is not None else (
-        "requirement" if previous_plan_session_id else "new"
-    )
+    project_planner_session = None
+    resume_session_id = None
+    if uses_codex_session:
+        metadata["planning_session_scope"] = "project"
+        metadata["planning_session_key"] = planner_session_key
+        project_planner_session = find_reusable_planner_project_session(db, project_root=target_path)
+        previous_plan_session_id = str(previous_plan.get("planning_session_id") or "").strip() or None
+        resume_session_id = (
+            str(getattr(project_planner_session, "thread_id", "") or "").strip()
+            if project_planner_session is not None
+            else previous_plan_session_id
+        ) or None
+        metadata["planning_resume_source"] = "project" if project_planner_session is not None else (
+            "requirement" if previous_plan_session_id else "new"
+        )
+    else:
+        metadata["planning_resume_source"] = "not_supported"
     prompt = _raw_planning_prompt(db, requirement)
-    text, _tokens = call_planner_provider(
-        provider_name=provider_name,
-        provider=provider,
+    response = generate_planner_text(PlannerRequest(
         prompt=prompt,
-        model_name=model_name,
-        system_prompt="",
-        raw_prompt=True,
-        raw_cwd=target_path,
-        raw_output_path=output_path,
-        raw_add_dirs=[PROJECT_ROOT],
-        raw_resume_session_id=resume_session_id,
-        metadata_out=metadata,
-    )
+        system_prompt="" if uses_codex_session else _PLAN_BRIEF_SYSTEM_PROMPT,
+        raw_prompt=uses_codex_session,
+        cwd=target_path,
+        output_path=output_path,
+        add_dirs=[PROJECT_ROOT],
+        resume_session_id=resume_session_id,
+        metadata=metadata,
+    ))
+    text = response.text
     plan_markdown = _strip_markdown_fence(text)
     if not plan_markdown:
         raise ValueError("plan agent returned empty markdown")

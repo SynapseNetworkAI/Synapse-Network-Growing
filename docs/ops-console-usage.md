@@ -360,20 +360,30 @@ Release detail 负责交付与发布操作。
 
 ## 6. Runtime 选择心智模型
 
-planner 和 execution runtime 仍由 `ORCHESTRATION_BACKEND` 决定。
+planner 和 execution runtime 已经分离。`ORCHESTRATION_BACKEND` 决定 execution runtime；`PLANNER_BACKEND` 可单独决定 plan agent / acceptance / verification 的模型入口。
 
-常见 backend：
+常见 execution backend：
 
 1. `openai_responses`
 2. `copilot_sdk`
 3. `codex_cli`
 4. `codex_sdk`
 
+常见 planner adapter：
+
+1. `openai`
+2. `claude`
+3. `copilot`
+4. `codex_cli`
+5. `codex_sdk`
+
 当前原则：
 
 1. planner 只做 shape decision
 2. execute 由选定 runtime 驱动
 3. verification 与 deliver 由系统治理，不交给模型随意跳过
+
+如果 `PLANNER_BACKEND` 留空，planner 会从 `ORCHESTRATION_BACKEND` 兼容推导；推荐新配置显式使用 `PLANNER_BACKEND=codex_sdk` 或 `PLANNER_BACKEND=codex_cli`。详细设计见 [Planner Adapter Architecture](design-docs/planner-adapter-architecture.md)。
 
 `codex_sdk` 是 Codex Python SDK 的推荐演进方向，用于替代裸 `codex exec` subprocess 管理，但上线前必须保留 `codex_cli` fallback。详细设计见 [Codex Python SDK Runtime Architecture](design-docs/codex-python-sdk-runtime-architecture.md)。
 

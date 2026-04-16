@@ -6,6 +6,7 @@ from pathlib import Path
 from server.database import CodexSessionRow, RequirementRow
 from server.services.runtime.codex_session_registry import build_planner_project_session_key
 from server.services.workflows.agent_first import _generate_plan_brief_markdown_with_agent
+from server.services.workflows.planner_provider import PlannerResponse
 
 
 def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, tmp_path, monkeypatch):
@@ -15,22 +16,22 @@ def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, t
     project_root.mkdir()
     calls: list[dict] = []
 
-    def fake_call_planner_provider(**kwargs):
-        calls.append(kwargs)
-        metadata = kwargs["metadata_out"]
+    def fake_generate_planner_text(request):
+        calls.append(request)
+        metadata = request.metadata
         metadata.update(
             {
                 "planning_session_id": "thread-project-plan",
                 "planning_backend": "codex_cli",
-                "planning_model": kwargs["model_name"],
+                "planning_model": metadata["planning_model"],
                 "planning_command": ["codex", "exec"],
             }
         )
-        return "Project scoped plan", 0
+        return PlannerResponse(text="Project scoped plan", tokens=0, backend="codex_cli", model=metadata["planning_model"])
 
-    monkeypatch.setattr(agent_first, "get_provider", lambda provider_name: object())
-    monkeypatch.setattr(agent_first, "planner_model_name", lambda provider_name: "gpt-5.4")
-    monkeypatch.setattr(agent_first, "call_planner_provider", fake_call_planner_provider)
+    monkeypatch.setattr(agent_first, "resolve_planner_backend", lambda: "codex_cli")
+    monkeypatch.setattr(agent_first, "resolve_planner_model", lambda backend: "gpt-5.4")
+    monkeypatch.setattr(agent_first, "generate_planner_text", fake_generate_planner_text)
 
     req1 = RequirementRow(
         title="Requirement one",
@@ -59,8 +60,8 @@ def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, t
 
     assert plan1 == "Project scoped plan"
     assert plan2 == "Project scoped plan"
-    assert calls[0]["raw_resume_session_id"] == "thread-old-requirement"
-    assert calls[1]["raw_resume_session_id"] == "thread-project-plan"
+    assert calls[0].resume_session_id == "thread-old-requirement"
+    assert calls[1].resume_session_id == "thread-project-plan"
     assert metadata1["planning_session_scope"] == "project"
     assert metadata1["planning_resume_source"] == "requirement"
     assert metadata2["planning_resume_source"] == "project"
@@ -87,16 +88,16 @@ def test_plan_agent_keeps_different_projects_isolated(db_session, tmp_path, monk
     project_b.mkdir()
     calls: list[dict] = []
 
-    def fake_call_planner_provider(**kwargs):
-        calls.append(kwargs)
-        output_path = Path(kwargs["raw_output_path"])
+    def fake_generate_planner_text(request):
+        calls.append(request)
+        output_path = Path(request.output_path)
         thread_id = f"thread-{output_path.stem}"
-        kwargs["metadata_out"].update({"planning_session_id": thread_id})
-        return f"Plan for {output_path.stem}", 0
+        request.metadata.update({"planning_session_id": thread_id})
+        return PlannerResponse(text=f"Plan for {output_path.stem}", tokens=0, backend="codex_cli", model="gpt-5.4")
 
-    monkeypatch.setattr(agent_first, "get_provider", lambda provider_name: object())
-    monkeypatch.setattr(agent_first, "planner_model_name", lambda provider_name: "gpt-5.4")
-    monkeypatch.setattr(agent_first, "call_planner_provider", fake_call_planner_provider)
+    monkeypatch.setattr(agent_first, "resolve_planner_backend", lambda: "codex_cli")
+    monkeypatch.setattr(agent_first, "resolve_planner_model", lambda backend: "gpt-5.4")
+    monkeypatch.setattr(agent_first, "generate_planner_text", fake_generate_planner_text)
 
     req_a = RequirementRow(
         title="Requirement A",
@@ -114,7 +115,7 @@ def test_plan_agent_keeps_different_projects_isolated(db_session, tmp_path, monk
     _generate_plan_brief_markdown_with_agent(db_session, req_a, acceptance_contract={})
     _generate_plan_brief_markdown_with_agent(db_session, req_b, acceptance_contract={})
 
-    assert calls[0]["raw_resume_session_id"] is None
-    assert calls[1]["raw_resume_session_id"] is None
+    assert calls[0].resume_session_id is None
+    assert calls[1].resume_session_id is None
     rows = db_session.query(CodexSessionRow).filter(CodexSessionRow.role_key == "planner").all()
     assert {row.project_root for row in rows} == {str(project_a), str(project_b)}

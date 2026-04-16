@@ -76,18 +76,23 @@
    - `assets_status = pending | ready | failed`
    - 资产未 ready 前不能 submit
    - 失败后可重新生成 requirement assets
-12. execution 当前 / 历史 run 语义与原因解释。
+12. plan agent provider adapter。
+   - `PLANNER_BACKEND` 可独立选择 `openai / claude / copilot / codex_cli / codex_sdk`
+   - 未配置时兼容从 `ORCHESTRATION_BACKEND` 推导
+   - Codex CLI/SDK adapter 支持项目级 planner session 复用
+   - 普通 LLM adapter 不写 Codex session registry
+13. execution 当前 / 历史 run 语义与原因解释。
    - execution API 返回 `is_current_execution`
    - execution API 返回 `queue_reason`
    - execution API 返回 `blocking_reason_code / blocking_reason_message`
    - 页面会直接展示“等待启动 / 等待审批 / 启动失败：dirty worktree / verification needs revision”等原因
-12. 运行态清理脚本：
+14. 运行态清理脚本：
 
 ```bash
 /Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes
 ```
 
-13. canonical workflow 状态机清库脚本：
+15. canonical workflow 状态机清库脚本：
 
 ```bash
 /Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes

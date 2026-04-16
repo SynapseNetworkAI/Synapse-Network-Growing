@@ -6,12 +6,7 @@ import threading
 from datetime import date, datetime
 from typing import Any
 
-from server.services.agents.llm_adapter import get_provider
-from server.services.workflows.planner_provider import (
-    call_planner_provider,
-    planner_model_name,
-    planner_provider_name,
-)
+from server.services.workflows.planner_provider import PlannerRequest, generate_planner_text
 
 
 _VERIFICATION_SYSTEM_PROMPT = """You are a verification agent in an agent-first delivery harness.
@@ -153,16 +148,11 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
 def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     prompt = json.dumps(_json_ready(payload), ensure_ascii=False, indent=2)
     try:
-        provider_name = planner_provider_name()
-        provider = get_provider(provider_name)
-        model_name = planner_model_name(provider_name)
-        text, _tokens = call_planner_provider(
-            provider_name=provider_name,
-            provider=provider,
+        response = generate_planner_text(PlannerRequest(
             prompt=prompt,
-            model_name=model_name,
             system_prompt=_VERIFICATION_SYSTEM_PROMPT,
-        )
+        ))
+        text = response.text
         result = json.loads(str(text or "").strip())
         if not isinstance(result, dict):
             raise ValueError("verification result must be an object")

@@ -92,6 +92,9 @@ MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 
 # ── Orchestration ─────────────────────────────────────────────
 ORCHESTRATION_BACKEND_OVERRIDE = os.environ.get("ORCHESTRATION_BACKEND", "").strip().lower()
+PLANNER_BACKEND = os.environ.get("PLANNER_BACKEND", "").strip().lower()
+PLANNER_MODEL = os.environ.get("PLANNER_MODEL", "").strip()
+PLANNER_TIMEOUT = int(os.environ.get("PLANNER_TIMEOUT", "300"))
 COPILOT_SDK_MODEL = os.environ.get("COPILOT_SDK_MODEL", LLM_MODEL)
 COPILOT_SDK_TIMEOUT = int(os.environ.get("COPILOT_SDK_TIMEOUT", str(LLM_TIMEOUT)))
 COPILOT_SDK_MONITOR_ENABLED = os.environ.get("COPILOT_SDK_MONITOR_ENABLED", "true").lower() in {"1", "true", "yes", "on"}

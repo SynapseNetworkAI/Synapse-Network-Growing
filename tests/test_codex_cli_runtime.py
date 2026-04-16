@@ -22,7 +22,7 @@ from server.services.runtime.task_runtime import (
     get_task_runtime,
     resolve_runtime_selection,
 )
-from server.services.workflows.planner_provider import call_planner_provider
+from server.services.workflows.planner_provider import PlannerRequest, generate_planner_text
 
 
 def test_resolve_orchestration_backend_for_codex_provider():
@@ -85,7 +85,9 @@ def test_codex_cli_provider_prefers_target_project_path_for_planner_context(tmp_
     assert config.PROJECT_ROOT.resolve() in kwargs["add_dirs"]
 
 
-def test_raw_codex_plan_provider_uses_read_only_exec_without_template_wrappers(tmp_path):
+def test_raw_codex_plan_adapter_uses_read_only_exec_without_template_wrappers(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "PLANNER_BACKEND", "codex_cli")
+    monkeypatch.setattr(config, "PLANNER_MODEL", "gpt-5.4")
     target_project = tmp_path / "Synapse-Network"
     target_project.mkdir()
     output_path = tmp_path / "runtime" / "plans" / "req-3-plan.md"
@@ -116,20 +118,17 @@ def test_raw_codex_plan_provider_uses_read_only_exec_without_template_wrappers(t
             json_event_count=3,
         ),
     ) as mock_run:
-        content, tokens = call_planner_provider(
-            provider_name="codex",
-            provider=object(),
+        response = generate_planner_text(PlannerRequest(
             prompt=raw_prompt,
-            model_name="gpt-5.4",
             system_prompt="",
             raw_prompt=True,
-            raw_cwd=target_project,
-            raw_output_path=output_path,
-            metadata_out=metadata,
-        )
+            cwd=target_project,
+            output_path=output_path,
+            metadata=metadata,
+        ))
 
-    assert content == "Plan for this exact requirement"
-    assert tokens == 0
+    assert response.text == "Plan for this exact requirement"
+    assert response.tokens == 0
     _, kwargs = mock_run.call_args
     assert kwargs["prompt"] == raw_prompt
     assert "# Goal" not in kwargs["prompt"]
@@ -152,7 +151,9 @@ def test_raw_codex_plan_provider_uses_read_only_exec_without_template_wrappers(t
     ]
 
 
-def test_raw_codex_plan_provider_passes_resume_session_per_requirement(tmp_path):
+def test_raw_codex_plan_adapter_passes_resume_session_per_requirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "PLANNER_BACKEND", "codex_cli")
+    monkeypatch.setattr(config, "PLANNER_MODEL", "gpt-5.4")
     target_project = tmp_path / "Synapse-Network"
     target_project.mkdir()
     output_path = tmp_path / "runtime" / "plans" / "req-3-plan.md"
@@ -171,20 +172,17 @@ def test_raw_codex_plan_provider_passes_resume_session_per_requirement(tmp_path)
             thread_id="thread-plan-1",
         ),
     ) as mock_run:
-        content, _tokens = call_planner_provider(
-            provider_name="codex",
-            provider=object(),
+        response = generate_planner_text(PlannerRequest(
             prompt="raw prompt",
-            model_name="gpt-5.4",
             system_prompt="",
             raw_prompt=True,
-            raw_cwd=target_project,
-            raw_output_path=output_path,
-            raw_resume_session_id="thread-plan-1",
-            metadata_out=metadata,
-        )
+            cwd=target_project,
+            output_path=output_path,
+            resume_session_id="thread-plan-1",
+            metadata=metadata,
+        ))
 
-    assert content == "Updated plan"
+    assert response.text == "Updated plan"
     _, kwargs = mock_run.call_args
     assert kwargs["resume_thread_id"] == "thread-plan-1"
     assert metadata["planning_resumed_from_session_id"] == "thread-plan-1"

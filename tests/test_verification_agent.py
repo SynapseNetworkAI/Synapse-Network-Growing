@@ -3,17 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+from server.services.workflows.planner_provider import PlannerResponse
 from server.services.workflows.verification_agent import verify_with_agent
 
 
 def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
     observed_prompt: dict[str, str] = {}
 
-    def _fake_call_planner_provider(**kwargs):
-        observed_prompt["prompt"] = kwargs["prompt"]
-        return (
-            '{"verification_plan":{"mode":"evidence_review","summary":"Review changed files and raw output.","checks":[],"evidence_expectations":["implementation summary"]},"status":"passed","summary":"ok","checks_run":[],"evidence_used":[],"reasoning":"ok","suggested_next_action":"release_ready"}',
-            0,
+    def _fake_generate_planner_text(request):
+        observed_prompt["prompt"] = request.prompt
+        return PlannerResponse(
+            text='{"verification_plan":{"mode":"evidence_review","summary":"Review changed files and raw output.","checks":[],"evidence_expectations":["implementation summary"]},"status":"passed","summary":"ok","checks_run":[],"evidence_used":[],"reasoning":"ok","suggested_next_action":"release_ready"}',
+            tokens=0,
         )
 
     payload = {
@@ -25,15 +26,9 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
         ]
     }
 
-    with patch("server.services.workflows.verification_agent.get_provider", return_value=object()), patch(
-        "server.services.workflows.verification_agent.planner_provider_name",
-        return_value="codex",
-    ), patch(
-        "server.services.workflows.verification_agent.planner_model_name",
-        return_value="gpt-5-codex",
-    ), patch(
-        "server.services.workflows.verification_agent.call_planner_provider",
-        side_effect=_fake_call_planner_provider,
+    with patch(
+        "server.services.workflows.verification_agent.generate_planner_text",
+        side_effect=_fake_generate_planner_text,
     ):
         result = verify_with_agent(payload, skip_provider=False)
 
@@ -43,10 +38,10 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
 
 
 def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution_evidence_is_strong():
-    def _fake_call_planner_provider(**kwargs):
-        return (
-            '{"status":"inconclusive","summary":"not sure","checks_run":[],"evidence_used":[],"reasoning":"missing artifact","suggested_next_action":"revise_requirement"}',
-            0,
+    def _fake_generate_planner_text(request):
+        return PlannerResponse(
+            text='{"status":"inconclusive","summary":"not sure","checks_run":[],"evidence_used":[],"reasoning":"missing artifact","suggested_next_action":"revise_requirement"}',
+            tokens=0,
         )
 
     payload = {
@@ -55,15 +50,9 @@ def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution
         "check_results": [],
     }
 
-    with patch("server.services.workflows.verification_agent.get_provider", return_value=object()), patch(
-        "server.services.workflows.verification_agent.planner_provider_name",
-        return_value="codex",
-    ), patch(
-        "server.services.workflows.verification_agent.planner_model_name",
-        return_value="gpt-5-codex",
-    ), patch(
-        "server.services.workflows.verification_agent.call_planner_provider",
-        side_effect=_fake_call_planner_provider,
+    with patch(
+        "server.services.workflows.verification_agent.generate_planner_text",
+        side_effect=_fake_generate_planner_text,
     ):
         result = verify_with_agent(payload, skip_provider=False)
 
