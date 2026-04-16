@@ -1,0 +1,336 @@
+{
+  "generator": "scripts/generate_architecture_graph.py",
+  "style": "code-review-graph-inspired offline architecture export",
+  "upstream_repository": "https://github.com/tirth8205/code-review-graph",
+  "installation_status": {
+    "attempted_command": "python3 -m pip download code-review-graph --no-deps -d /tmp/code-review-graph-download",
+    "result": "failed",
+    "reason": "sandbox shell has no outbound package index access"
+  },
+  "repository_root": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+  "tracked_source_like_files": 2981,
+  "subsystems": [
+    {
+      "key": "docs_assets",
+      "label": "Docs, Roles and Demos",
+      "description": "Frontmatter docs, agent personas, review outputs, and demo flows.",
+      "tracked_files": 1936,
+      "python_files": 3,
+      "ts_files": 4,
+      "doc_files": 636,
+      "prefixes": [
+        "docs/",
+        "roles/",
+        "demos/"
+      ]
+    },
+    {
+      "key": "automation_scripts",
+      "label": "Automation Scripts",
+      "description": "Local start, reset, publish, and repo maintenance entry points.",
+      "tracked_files": 14,
+      "python_files": 8,
+      "ts_files": 0,
+      "doc_files": 0,
+      "prefixes": [
+        "scripts/"
+      ]
+    },
+    {
+      "key": "frontend_dashboard",
+      "label": "Dashboard Frontend",
+      "description": "React 19 + Vite workbench pages, routing, and API client.",
+      "tracked_files": 15,
+      "python_files": 0,
+      "ts_files": 15,
+      "doc_files": 0,
+      "prefixes": [
+        "dashboard/src/"
+      ]
+    },
+    {
+      "key": "frontend_tests",
+      "label": "Frontend Tests",
+      "description": "Vitest and Playwright coverage for the dashboard flows.",
+      "tracked_files": 15,
+      "python_files": 0,
+      "ts_files": 15,
+      "doc_files": 0,
+      "prefixes": [
+        "dashboard/tests/"
+      ]
+    },
+    {
+      "key": "api_surface",
+      "label": "FastAPI Surface",
+      "description": "App bootstrap, router registration, schemas, and HTTP lifecycle middleware.",
+      "tracked_files": 20,
+      "python_files": 20,
+      "ts_files": 0,
+      "doc_files": 0,
+      "prefixes": [
+        "server/main.py",
+        "server/routers/",
+        "server/schemas.py"
+      ]
+    },
+    {
+      "key": "persistence",
+      "label": "Persistence and Config",
+      "description": "SQLAlchemy models, runtime config, and structured ops logging.",
+      "tracked_files": 3,
+      "python_files": 3,
+      "ts_files": 0,
+      "doc_files": 0,
+      "prefixes": [
+        "server/database.py",
+        "server/config.py",
+        "server/logging_utils.py"
+      ]
+    },
+    {
+      "key": "workflow_engine",
+      "label": "Workflow Engine",
+      "description": "Requirement planning, orchestration, verification, and execution handoff.",
+      "tracked_files": 30,
+      "python_files": 27,
+      "ts_files": 0,
+      "doc_files": 3,
+      "prefixes": [
+        "server/services/workflows/",
+        "server/services/requirements/"
+      ]
+    },
+    {
+      "key": "runtime_agents",
+      "label": "Runtime and Agents",
+      "description": "Agent loading, model/runtime adapters, monitors, and session state.",
+      "tracked_files": 29,
+      "python_files": 27,
+      "ts_files": 0,
+      "doc_files": 2,
+      "prefixes": [
+        "server/services/runtime/",
+        "server/services/agents/"
+      ]
+    },
+    {
+      "key": "project_governance",
+      "label": "Project Governance",
+      "description": "Project center, policy resolution, onboarding, and org mapping.",
+      "tracked_files": 10,
+      "python_files": 8,
+      "ts_files": 0,
+      "doc_files": 1,
+      "prefixes": [
+        "server/services/projects/",
+        "server/org-structure.yaml"
+      ]
+    },
+    {
+      "key": "reliability_loops",
+      "label": "Reliability and Signals",
+      "description": "Bug intake, error loops, recurring workflows, and optimization signals.",
+      "tracked_files": 26,
+      "python_files": 22,
+      "ts_files": 0,
+      "doc_files": 4,
+      "prefixes": [
+        "server/services/bugs/",
+        "server/services/signals/",
+        "server/services/scheduling/",
+        "server/services/reviews/"
+      ]
+    },
+    {
+      "key": "delivery_surface",
+      "label": "Delivery Surface",
+      "description": "VCS delivery, pull-request sync, and deployment governance.",
+      "tracked_files": 5,
+      "python_files": 4,
+      "ts_files": 0,
+      "doc_files": 1,
+      "prefixes": [
+        "server/services/delivery/"
+      ]
+    },
+    {
+      "key": "backend_tests",
+      "label": "Backend Tests",
+      "description": "Pytest API, workflow, delivery, and runtime verification suite.",
+      "tracked_files": 31,
+      "python_files": 31,
+      "ts_files": 0,
+      "doc_files": 0,
+      "prefixes": [
+        "tests/"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "backend_tests",
+      "target": "runtime_agents",
+      "weight": 95,
+      "kind": "import"
+    },
+    {
+      "source": "backend_tests",
+      "target": "persistence",
+      "weight": 26,
+      "kind": "import"
+    },
+    {
+      "source": "api_surface",
+      "target": "persistence",
+      "weight": 23,
+      "kind": "import"
+    },
+    {
+      "source": "workflow_engine",
+      "target": "runtime_agents",
+      "weight": 21,
+      "kind": "import"
+    },
+    {
+      "source": "reliability_loops",
+      "target": "persistence",
+      "weight": 20,
+      "kind": "import"
+    },
+    {
+      "source": "workflow_engine",
+      "target": "persistence",
+      "weight": 19,
+      "kind": "import"
+    },
+    {
+      "source": "api_surface",
+      "target": "runtime_agents",
+      "weight": 15,
+      "kind": "import"
+    },
+    {
+      "source": "runtime_agents",
+      "target": "persistence",
+      "weight": 15,
+      "kind": "import"
+    },
+    {
+      "source": "reliability_loops",
+      "target": "workflow_engine",
+      "weight": 14,
+      "kind": "import"
+    },
+    {
+      "source": "frontend_tests",
+      "target": "frontend_dashboard",
+      "weight": 13,
+      "kind": "import"
+    },
+    {
+      "source": "api_surface",
+      "target": "reliability_loops",
+      "weight": 10,
+      "kind": "import"
+    },
+    {
+      "source": "api_surface",
+      "target": "workflow_engine",
+      "weight": 10,
+      "kind": "import"
+    },
+    {
+      "source": "backend_tests",
+      "target": "workflow_engine",
+      "weight": 9,
+      "kind": "import"
+    },
+    {
+      "source": "runtime_agents",
+      "target": "workflow_engine",
+      "weight": 9,
+      "kind": "import"
+    },
+    {
+      "source": "workflow_engine",
+      "target": "project_governance",
+      "weight": 9,
+      "kind": "import"
+    },
+    {
+      "source": "reliability_loops",
+      "target": "api_surface",
+      "weight": 7,
+      "kind": "import"
+    },
+    {
+      "source": "reliability_loops",
+      "target": "project_governance",
+      "weight": 7,
+      "kind": "import"
+    },
+    {
+      "source": "workflow_engine",
+      "target": "reliability_loops",
+      "weight": 7,
+      "kind": "import"
+    },
+    {
+      "source": "api_surface",
+      "target": "project_governance",
+      "weight": 6,
+      "kind": "import"
+    },
+    {
+      "source": "project_governance",
+      "target": "persistence",
+      "weight": 6,
+      "kind": "import"
+    },
+    {
+      "source": "workflow_engine",
+      "target": "delivery_surface",
+      "weight": 6,
+      "kind": "import"
+    },
+    {
+      "source": "backend_tests",
+      "target": "api_surface",
+      "weight": 3,
+      "kind": "import"
+    },
+    {
+      "source": "docs_assets",
+      "target": "workflow_engine",
+      "weight": 4,
+      "kind": "contextual",
+      "note": "Agent personas and architecture docs are consumed as execution context."
+    },
+    {
+      "source": "docs_assets",
+      "target": "frontend_dashboard",
+      "weight": 2,
+      "kind": "contextual",
+      "note": "Design docs and screenshots steer the workbench UI."
+    },
+    {
+      "source": "automation_scripts",
+      "target": "api_surface",
+      "weight": 3,
+      "kind": "contextual",
+      "note": "Local start/restart scripts bootstrap the API service."
+    },
+    {
+      "source": "frontend_dashboard",
+      "target": "api_surface",
+      "weight": 5,
+      "kind": "contextual",
+      "note": "The React workbench talks to FastAPI through /api endpoints."
+    }
+  ],
+  "legend": {
+    "solid": "import-derived dependency between grouped subsystems",
+    "dashed": "contextual dependency not visible from imports alone"
+  }
+}
