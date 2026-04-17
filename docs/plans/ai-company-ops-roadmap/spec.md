@@ -53,7 +53,7 @@ Success means:
 
 1. each target project has explicit machine-readable policy
 2. every requirement run knows its allowed scope, required approvals, and delivery path
-3. validation and bugfix loops are standardized and cannot be skipped
+3. validation and self-repair loops are standardized and cannot be skipped
 4. release actions are gated by policy instead of ad hoc operator judgment
 
 ### P1: Measurable Optimization Layer
@@ -89,5 +89,5 @@ This roadmap bundle is complete when:
 1. P0 / P1 / P2 are broken into actionable requirement cards
 2. each requirement includes implementation direction
 3. each requirement includes validation and automation expectations
-4. the bugfix loop is explicitly part of delivery, not optional cleanup
+4. the self-repair loop is explicitly part of delivery, not optional cleanup
 5. README can point to this bundle as the next-stage execution source of truth

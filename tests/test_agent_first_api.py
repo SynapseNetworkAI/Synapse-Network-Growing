@@ -119,7 +119,7 @@ def test_low_risk_requirement_auto_submits_and_auto_starts_execution(synced_clie
     assert create_payload["acceptance_contract"]["done_criteria"]
     assert create_payload["acceptance_contract"]["verification_checks"]
     assert "Done Criteria" in create_payload["requirement"]["acceptance_criteria_markdown"]
-    assert "Verification Focus" in create_payload["requirement"]["acceptance_criteria_markdown"]
+    assert "Verification Guidance" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
     payload = create_payload
     assert payload["requirement"]["state"] in {"executing", "delivering"}
@@ -1247,12 +1247,13 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     db_session.commit()
 
     with patch("server.services.workflows.agent_first._run_check") as run_check:
-        run_check.side_effect = lambda project_path, command: ValidationCheckResultOut(
+        run_check.side_effect = lambda project_path, command, **kwargs: ValidationCheckResultOut(
             label=f"check:{command}",
             command=command,
             project_path=project_path,
             status="passed",
             output_excerpt=None,
+            purpose=kwargs.get("purpose"),
         )
         resp = synced_client.post(f"/api/executions/{run.id}/validate")
 
@@ -1261,13 +1262,13 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     commands = [item["command"] for item in payload["validation"]["checks"]]
     assert commands == [
         "PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/pytest tests/test_agent_first_api.py tests/test_agent_match.py -q",
-        None,
     ]
     assert payload["validation"]["status"] == "passed"
     assert payload["validation"]["verification_agent_id"] == "verification_agent"
     assert payload["validation"]["verification_agent_label"] == "Verification Agent"
     assert payload["validation"]["suggested_next_action"] == "release_ready"
     assert payload["validation"]["verification_plan"]["mode"] == "command_checks"
+    assert payload["validation"]["verification_plan"]["required_commands"][0]["required"] is True
     assert payload["verification_plan"]["mode"] == "command_checks"
     assert payload["verification_result"]["verification_agent_id"] == "verification_agent"
     assert payload["requirement"]["state"] in {"delivering", "ready_for_merge", "awaiting_operator"}
@@ -1674,7 +1675,7 @@ def test_validation_pass_auto_opens_pr(synced_client, db_session):
     assert requirement.workflow_state == "ready_for_merge"
 
 
-def test_validation_defaults_to_retry_execution_resolution_path(synced_client, db_session):
+def test_validation_defaults_to_same_session_self_repair(synced_client, db_session):
     project = _create_project(
         synced_client,
         project_key="synapse-network",
@@ -1752,6 +1753,7 @@ def test_validation_defaults_to_retry_execution_resolution_path(synced_client, d
             "resolution_recommendation": "retry_execution",
             "resolution_confidence": 0.91,
             "resolution_reason": "The remaining gap is still inside the original requirement scope.",
+            "repair_guidance": "Finish the scoped docs validation script and rerun targeted checks.",
             "followup_requirement_payload": {},
             "verification_agent_id": "verification_agent",
             "verification_agent_label": "Verification Agent",
@@ -1761,11 +1763,245 @@ def test_validation_defaults_to_retry_execution_resolution_path(synced_client, d
 
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["verification_result"]["resolution_path"] == "retry_execution"
+    assert payload["execution"]["id"] == run.id
+    assert payload["verification_result"]["resolution_path"] == "continue_execution"
     assert payload["verification_result"]["followup_requirement_id"] is None
+    assert payload["execution"]["repair_attempt_count"] == 1
+    assert payload["execution"]["max_auto_repair_attempts"] == 2
+    nodes = (
+        db_session.query(ExecutionNodeRow)
+        .filter(ExecutionNodeRow.execution_run_id == int(run.id))
+        .order_by(ExecutionNodeRow.sequence_no.asc())
+        .all()
+    )
+    assert len(nodes) == 2
+    assert nodes[-1].node_key == "verification_repair_1"
+    assert nodes[-1].status == "queued"
+    db_session.refresh(run)
+    plan_snapshot = json.loads(str(run.plan_snapshot_json or "{}"))
+    assert plan_snapshot["self_repair"]["repair_attempt_count"] == 1
+    assert "Verification Failed" in plan_snapshot["self_repair"]["latest_repair_prompt"]
     db_session.refresh(requirement)
-    assert requirement.workflow_state == "ready"
+    assert requirement.workflow_state == "executing"
+    assert requirement.attention_reason == "self_repair"
     assert requirement.followup_requirement_id is None
+
+
+def test_validation_routes_to_human_after_self_repair_budget_exhausted(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="Stop self repair after budget",
+        description_markdown="Verification should stop after two automatic repair turns.",
+        status="running",
+        phase="executing",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="running",
+        phase="executing",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+        plan_snapshot_json=json.dumps(
+            {
+                "summary_markdown": "Implement the requested login copy fix.",
+                "self_repair": {
+                    "repair_attempt_count": 2,
+                    "max_auto_repair_attempts": 2,
+                    "manual_retry_count": 0,
+                    "repair_history": [],
+                },
+            }
+        ),
+    )
+    db_session.add(run)
+    db_session.flush()
+    task = TaskRow(
+        description="repair",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Second repair still failed the targeted checks.",
+    )
+    db_session.add(task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="verification_repair_2",
+            node_type="execute",
+            title="Repair after verification failure #2",
+            status="completed",
+            sequence_no=2,
+            task_id=int(task.id),
+        )
+    )
+    db_session.commit()
+
+    with patch(
+        "server.services.workflows.agent_first.verify_with_agent",
+        return_value={
+            "verification_plan": {
+                "mode": "command_checks",
+                "summary": "Run the required login UI test.",
+                "checks": ["npm test -- login"],
+                "evidence_expectations": ["The login prompt no longer shows an error on initial load."],
+                "why_no_verification": None,
+            },
+            "status": "failed",
+            "summary": "The login UI test is still failing after two repair turns.",
+            "checks_run": ["npm test -- login"],
+            "evidence_used": ["command:npm test -- login"],
+            "reasoning": "The required command still fails.",
+            "suggested_next_action": "retry_execution",
+            "resolution_recommendation": "retry_execution",
+            "resolution_confidence": 0.88,
+            "resolution_reason": "The same-scope issue remains, but automatic repair budget is exhausted.",
+            "repair_guidance": "Inspect the failing login assertion and fix the initial-state copy.",
+            "verification_agent_id": "verification_agent",
+            "verification_agent_label": "Verification Agent",
+        },
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/validate")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["execution"]["id"] == run.id
+    assert payload["verification_result"]["resolution_path"] == "route_to_human"
+    assert payload["execution"]["repair_attempt_count"] == 2
+    db_session.refresh(requirement)
+    db_session.refresh(run)
+    assert requirement.workflow_state == "awaiting_operator"
+    assert requirement.attention_reason == "route_to_human"
+    assert run.status == "failed"
+    nodes = db_session.query(ExecutionNodeRow).filter(ExecutionNodeRow.execution_run_id == int(run.id)).all()
+    assert len(nodes) == 1
+
+
+def test_self_repair_start_reuses_execution_agent_session(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network",
+        display_name="Synapse-Network",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network",
+        repo_full_name="example/synapse-network",
+    )
+    requirement = RequirementRow(
+        title="Repair resumes same execution session",
+        description_markdown="A failed verification should feed guidance back into the same agent session.",
+        status="running",
+        phase="executing",
+        approval_status="waived",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="queued",
+        phase="queued",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network"]',
+        plan_snapshot_json=json.dumps(
+            {
+                "summary_markdown": "Fix the login prompt copy.",
+                "self_repair": {
+                    "repair_attempt_count": 1,
+                    "max_auto_repair_attempts": 2,
+                    "manual_retry_count": 0,
+                    "latest_repair_prompt": "# Verification Failed\n\nContinue in the same implementation session.",
+                },
+            }
+        ),
+    )
+    db_session.add(run)
+    db_session.flush()
+    previous_task = TaskRow(
+        description="initial implementation",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Initial implementation output.",
+        runtime_session_id="codex-thread-123",
+    )
+    db_session.add(previous_task)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ExecutionNodeRow(
+                execution_run_id=int(run.id),
+                requirement_id=int(requirement.id),
+                node_key="execute",
+                node_type="execute",
+                title="Execute requirement",
+                status="completed",
+                sequence_no=1,
+                task_id=int(previous_task.id),
+            ),
+            ExecutionNodeRow(
+                execution_run_id=int(run.id),
+                requirement_id=int(requirement.id),
+                node_key="verification_repair_1",
+                node_type="execute",
+                title="Repair after verification failure #1",
+                status="queued",
+                sequence_no=2,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.prepare_requirement_delivery_branch", return_value=_branch_ready_payload("ops/req-1-repair-resumes")), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="test",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/start")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "applied"
+    db_session.refresh(run)
+    repair_task = db_session.query(TaskRow).filter(TaskRow.id == int(run.latest_task_id)).one()
+    assert repair_task.retry_of_task_id == previous_task.id
+    assert repair_task.attempt_no == 2
+    assert repair_task.runtime_session_id == "codex-thread-123"
+    assert "Verification Failed" in repair_task.description
 
 
 def test_validation_creates_followup_requirement_when_scope_drift_is_explicit(synced_client, db_session):
@@ -2750,6 +2986,136 @@ def test_retry_execution_creates_new_run_and_auto_starts_replacement(synced_clie
     assert historical_resp.status_code == 200
     assert historical_resp.json()["is_current_execution"] is False
     assert historical_resp.json()["allowed_actions"] == ["view", "view_requirement"]
+
+
+def test_retry_after_self_repair_budget_uses_manual_same_session_turn(synced_client, db_session):
+    project = _create_project(
+        synced_client,
+        project_key="synapse-network-growing",
+        display_name="Synapse-Network-Growing",
+        root_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        repo_full_name="cliff-personal/Synapse-Network-Growing",
+    )
+    requirement = RequirementRow(
+        title="Manual retry continues same session",
+        description_markdown="After auto repair budget is exhausted, operator retry should not create a new run.",
+        status="blocked",
+        phase="needs_revision",
+        approval_status="approved",
+        priority="normal",
+        source="manual",
+        project_id=int(project["id"]),
+        project_key=str(project["project_key"]),
+        project_display_name=str(project["display_name"]),
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    run = ExecutionRunRow(
+        requirement_id=int(requirement.id),
+        execution_mode="direct",
+        complexity="simple",
+        status="failed",
+        phase="blocked",
+        validation_profile="minimal",
+        delivery_intent="pr_required",
+        approval_required=False,
+        target_projects_json='["/Users/cliff/workspace/agent/Synapse-Network-Growing"]',
+        plan_snapshot_json=json.dumps(
+            {
+                "summary_markdown": "Fix the dashboard login prompt.",
+                "self_repair": {
+                    "repair_attempt_count": 2,
+                    "max_auto_repair_attempts": 2,
+                    "manual_retry_count": 0,
+                    "latest_repair_prompt": "# Verification Failed\n\nManual retry should append new guidance.",
+                    "repair_history": [],
+                },
+            }
+        ),
+    )
+    db_session.add(run)
+    db_session.flush()
+    previous_task = TaskRow(
+        description="repair attempt 2",
+        agent_id="software_engineer",
+        status="completed",
+        priority="normal",
+        output_content="Second repair output.",
+        runtime_session_id="codex-thread-manual-456",
+    )
+    db_session.add(previous_task)
+    db_session.flush()
+    db_session.add(
+        ExecutionNodeRow(
+            execution_run_id=int(run.id),
+            requirement_id=int(requirement.id),
+            node_key="verification_repair_2",
+            node_type="execute",
+            title="Repair after verification failure #2",
+            status="completed",
+            sequence_no=2,
+            task_id=int(previous_task.id),
+        )
+    )
+    db_session.add(
+        ValidationRecordRow(
+            requirement_id=int(requirement.id),
+            execution_run_id=int(run.id),
+            profile="minimal",
+            status="failed",
+            summary_markdown="Verification still fails after two automatic repair turns.",
+            reasoning_markdown="The required login UI test is still red.",
+            suggested_next_action="route_to_human",
+            resolution_path="route_to_human",
+            resolution_reason="Automatic self-repair budget exhausted.",
+            checks_json=json.dumps(
+                [
+                    {
+                        "label": "npm test -- login",
+                        "status": "failed",
+                        "command": "npm test -- login",
+                        "project_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing/dashboard",
+                        "output_excerpt": "Login test failed.",
+                        "log_path": "runtime/verification/login.log",
+                    }
+                ]
+            ),
+            evidence_json=json.dumps(
+                [
+                    "runtime/verification/req-1-run-1/verification_result.md",
+                    "runtime/verification/req-1-run-1/verification_evidence.md",
+                ]
+            ),
+        )
+    )
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.prepare_requirement_delivery_branch", return_value=_branch_ready_payload("ops/req-1-manual-retry")), patch(
+        "server.services.workflows.agent_first.suggest_task_execution",
+        return_value=TaskExecutionSuggestion(
+            agent_id="software_engineer",
+            skill_name="__direct_execution__",
+            confidence=0.99,
+            reason="test",
+        ),
+    ), patch("server.services.workflows.agent_first._load_full_persona", return_value="# persona"), patch(
+        "server.services.workflows.agent_first.dispatch",
+        return_value=None,
+    ):
+        resp = synced_client.post(f"/api/executions/{run.id}/retry")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["execution"]["id"] == run.id
+    assert payload["execution"]["status"] == "running"
+    assert payload["execution"]["manual_retry_count"] == 1
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == int(requirement.id)).count() == 1
+    db_session.refresh(run)
+    repair_task = db_session.query(TaskRow).filter(TaskRow.id == int(run.latest_task_id)).one()
+    assert repair_task.retry_of_task_id == previous_task.id
+    assert repair_task.runtime_session_id == "codex-thread-manual-456"
+    assert "Failed Harness Commands" in repair_task.description
 
 
 def test_retry_execution_reports_queue_reason_when_auto_start_is_blocked(synced_client, db_session):

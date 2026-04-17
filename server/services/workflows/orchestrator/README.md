@@ -9,7 +9,7 @@
 - `dispatch.py`: step dispatch、runtime 对接、pause / sync
 - `file_changes.py`: baseline、snapshot、tracked repo change
 - `handoff.py`: brief、handoff、compact packet、stale memory packet
-- `validation.py`: validation contract、acceptance refresh、bugfix loop
+- `validation.py`: validation contract、acceptance refresh、self-repair guardrails
 - `artifacts.py`: runtime/incident/budget/project-change artifacts
 - `closeout.py`: delivery branch、review PR、closeout gate、terminalization
 - `queue.py`: auto advance、queue scheduling、same-project chaining

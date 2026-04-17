@@ -144,13 +144,14 @@ intake -> execute -> validate -> deliver
 2. 再跳去 execution 看 agent 执行
 3. verification agent 会在 execution 完成后基于真实 changed files、raw output 与命令证据生成最终 verification plan，再给出 verdict
 4. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；如果本地 `git push` 被 repo gate 挡住，系统会先分类 blocker，再决定是自动进入 `delivery_repair` execution 还是转人工
-5. `delivery_repair` 不是重新跑原需求实现。
+5. verification failed 不再创建独立 bugfix execution；系统会把 `verification_result.md`、失败命令日志和 repair guidance 输入回同一个 Execution Agent session，最多自动修复 2 次
+6. `delivery_repair` 不是重新跑原需求实现。
    - 系统会保留父 `requirement_plan`
    - 再派生一个独立 child repair task，只修当前 delivery gate
    - 如果 repair #1 失败，repair #2 会读取最新 blocker 和上次失败结果重新规划
    - repair 总预算固定为 2；两次都失败时，主 requirement 进入 `failed`
-6. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
-7. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
+7. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
+8. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
 
 ## 3. 执行面
 
@@ -255,15 +256,16 @@ Execution detail 是当前唯一 execution 主链的工作面。
 
 1. 对简单任务，预期只会看到一个 `execute` 节点
 2. 对复杂任务，才会看到 execution graph
-3. verification agent 判定失败或需修订时，关注 verification reasoning、bugfix loop 和 incident，而不是回到 requirement 页猜测发生了什么
+3. verification agent 判定失败或需修订时，关注 verification reasoning、self-repair timeline 和 incident，而不是回到 requirement 页猜测发生了什么
 4. `branch_preparation_blocked / approval_blocked / manual_pause / runtime_recovery_blocked` 这类环境阻塞会在同一个 current run 上 `start / resume`
-5. `verification_failed / verification_needs_revision / task_failed` 这类执行失败才会 `retry` 创建 replacement run，并立即自动尝试启动
+5. `verification_failed / verification_needs_revision` 默认先追加 `verification_repair_*` 节点并复用同一个 Execution Agent session；自动修复 2 次仍失败后才 `route_to_human`
 6. verification 已 passed 但 delivery 的 `git push` 被本地 repo gate 挡住时，系统会优先尝试创建 `delivery_repair` execution，而不是直接停在 `release_blocked`
-7. 一旦 replacement run 出现，旧 run 会降级为历史 run，只保留查看能力
+7. `task_failed` 或人工选择 replacement retry 时，旧 run 会降级为历史 run，只保留查看能力
 8. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
 9. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
-10. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准，不再提前写死最终测试方案
-11. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
+10. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准、范围约束和期望证据，不再提前写死最终测试方案
+11. verification plan 中的 required commands 由 Harness 统一执行并落库为权威 evidence；execution agent 自己跑过的测试只作为参考证据，不能单独打开 PR gate
+12. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
 
 ## 4. 发布面
 
@@ -387,7 +389,7 @@ planner 和 execution runtime 已经分离。`ORCHESTRATION_BACKEND` 决定 exec
 
 `codex_sdk` 是 Codex Python SDK 的推荐演进方向，用于替代裸 `codex exec` subprocess 管理，但上线前必须保留 `codex_cli` fallback。详细设计见 [Codex Python SDK Runtime Architecture](design-docs/codex-python-sdk-runtime-architecture.md)。
 
-Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project_root=<canonical target project root>`、`requirement_id=NULL`。执行、评审、测试和 bugfix agent 继续按需求隔离，避免跨需求实现上下文污染。详细设计见 [Plan Agent Project-Scoped Session Reuse](design-docs/plan-agent-project-scoped-session-reuse.md)。
+Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project_root=<canonical target project root>`、`requirement_id=NULL`。Execution Agent 继续按需求隔离，但同一 requirement 的 implementation 与 verification repair turns 复用同一个 runtime session，避免修复阶段重新理解上下文。详细设计见 [Plan Agent Project-Scoped Session Reuse](design-docs/plan-agent-project-scoped-session-reuse.md)。
 
 ## 7. 错误日志页（辅助）
 
@@ -481,8 +483,8 @@ Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project
    - `queue_for_operator`
    - `ignore_as_noise`
 4. materialized requirement 继续走 acceptance contract、execution plan、execution、verification、PR
-5. verification failure 默认优先 `retry_execution`
-6. 只有明显超出原需求边界时，才走 follow-up requirement 或人工兜底
+5. verification failure 默认优先 `continue_execution`，由同一个 Execution Agent session 自循环修复
+6. 自动 self-repair 达到 2 次仍失败、证据不足或风险超出范围时，才走 follow-up requirement 或人工兜底
 
 ## 9. 快速验证清单
 

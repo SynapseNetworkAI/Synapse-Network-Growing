@@ -13,4 +13,4 @@ Files in this bundle:
 - `spec.md`: target architecture, scope, and phase goals
 - `plan.md`: P0 / P1 / P2 phased requirement pool with implementation and verification guidance
 - `task-graph.md`: dependency ordering across roadmap workstreams
-- `validation.md`: validation protocol, automation strategy, and bugfix loop
+- `validation.md`: validation protocol, automation strategy, and self-repair loop

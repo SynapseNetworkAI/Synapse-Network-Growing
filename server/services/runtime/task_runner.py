@@ -488,6 +488,10 @@ def _run_task_sync(task_id: int, agent_persona: dict, skill_name: str):
                 session_hint["session_key"] = reusable.session_key
                 session_hint["thread_id"] = str(reusable.thread_id or "")
                 session_hint["resume_count"] = int(reusable.resume_count or 0)
+            task_session_id = _task_str(task, "runtime_session_id")
+            if task_session_id:
+                session_hint["thread_id"] = task_session_id
+                session_hint["resume_count"] = int(session_hint.get("resume_count") or 0)
 
         _prepare_requirement_branch_for_task(db, task, step_type)
         db.commit()

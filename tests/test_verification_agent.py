@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from server.services.workflows.planner_provider import PlannerResponse
-from server.services.workflows.verification_agent import verify_with_agent
+from server.services.workflows.verification_agent import generate_verification_plan, verify_with_agent
 
 
 def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
@@ -69,3 +69,63 @@ def test_verify_with_agent_returns_none_required_plan_when_no_evidence_exists():
     assert result["verification_plan"]["why_no_verification"]
     assert result["resolution_recommendation"] == "revise_requirement"
     assert result["resolution_reason"]
+
+
+def test_generate_verification_plan_replays_execution_commands_as_required_harness_checks():
+    payload = {
+        "requirement": {"target_project_path": "/tmp/project"},
+        "commands_run": ["pytest tests/test_login.py -q"],
+        "raw_task_output": "Commands run:\n- `pytest tests/test_login.py -q`",
+        "changed_files": [{"path": "services/admin-front/src/app/login/page.tsx"}],
+    }
+
+    result = generate_verification_plan(payload, skip_provider=True)
+
+    assert result["mode"] == "command_checks"
+    assert result["required_commands"] == [
+        {
+            "required": True,
+            "cwd": "/tmp/project",
+            "command": "pytest tests/test_login.py -q",
+            "timeout_sec": 300,
+            "purpose": "Replay execution-agent reported command through the harness as authoritative evidence.",
+        }
+    ]
+    assert "Verification Plan" in result["markdown"]
+
+
+def test_verify_with_agent_preserves_supplied_verification_plan_required_commands():
+    plan = {
+        "mode": "command_checks",
+        "summary": "Run login tests.",
+        "required_commands": [
+            {
+                "required": True,
+                "cwd": "/tmp/project",
+                "command": "npm test -- login",
+                "timeout_sec": 120,
+                "purpose": "Verify login copy.",
+            }
+        ],
+    }
+
+    result = verify_with_agent(
+        {
+            "requirement": {"target_project_path": "/tmp/project"},
+            "verification_plan": plan,
+            "check_results": [
+                {
+                    "label": "login tests",
+                    "command": "npm test -- login",
+                    "project_path": "/tmp/project",
+                    "status": "passed",
+                }
+            ],
+            "raw_task_output": "Implemented and tested.",
+            "changed_files": [{"path": "login/page.tsx"}],
+        },
+        skip_provider=True,
+    )
+
+    assert result["status"] == "passed"
+    assert result["verification_plan"]["required_commands"][0]["command"] == "npm test -- login"

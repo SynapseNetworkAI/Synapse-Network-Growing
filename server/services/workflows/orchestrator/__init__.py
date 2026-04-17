@@ -826,7 +826,7 @@ def _bugfix_circuit_breaker_reason(
     )
     if repeated_count >= REPEATED_ERROR_CIRCUIT_BREAKER_THRESHOLD:
         return (
-            "Repeated identical failure detected for bugfix loop "
+            "Repeated identical failure detected for self-repair loop "
             f"(root step #{root_step_id}, count={repeated_count}, fingerprint={fingerprint[:12]})."
         )
     return None

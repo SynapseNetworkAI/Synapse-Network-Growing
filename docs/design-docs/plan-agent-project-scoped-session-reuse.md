@@ -15,7 +15,7 @@ target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 
 Plan agent sessions should be reused by target project, not by individual requirement, because the planner repeatedly needs the same repository topology, policies, conventions, runtime constraints, and past delivery context for that project.
 
-This design only changes the planner session scope. Execution, review, test, and bugfix agents should stay requirement-scoped unless a later design proves project-level execution reuse is safe.
+This design only changes the planner session scope. Execution, review, and test agents should stay requirement-scoped unless a later design proves project-level execution reuse is safe. Verification repair turns intentionally reuse the same requirement-scoped Execution Agent session.
 
 Core decision:
 
@@ -61,10 +61,10 @@ Execution agents write code and inspect mutable working tree state. Reusing exec
 | --- | --- | --- | --- |
 | Planner | Project | `planner + project_root + None` | Same project context is useful across requirements. |
 | Acceptance planner | Requirement | Requirement metadata or explicit prior plan id | Acceptance criteria should reflect the current request. |
-| Execution agent | Requirement | `agent role + project_root + requirement_id` | Code-writing context must stay isolated per requirement. |
+| Execution agent | Requirement | `agent role + project_root + requirement_id` | Code-writing context must stay isolated per requirement; verification repair turns reuse this same session. |
 | Review agent | Requirement | `reviewer role + project_root + requirement_id` | Review should reason from the current diff and evidence. |
 | Test agent | Requirement | `tester role + project_root + requirement_id` | Test context should follow the current delivery scope. |
-| Bugfix agent | Requirement | `bugfix role + project_root + requirement_id` | Bugfix should be bound to one failing delivery loop. |
+| Verification repair turn | Requirement | Existing execution agent session id | Failed verification feeds `verification_result.md` and command evidence back into the same Execution Agent, not a separate bugfix agent. |
 
 ## Data Model
 

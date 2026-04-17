@@ -52,8 +52,8 @@ system rules 只负责硬边界：
 
 1. 同一 fingerprint 若已有 active requirement，则复用，不重复 materialize
 2. 高风险项目可自动建 requirement，但不能跳过 approval gate
-3. retry budget 继续沿用 `retry_execution = 1`
-4. verification failure 默认优先 `retry_execution`
+3. replacement retry budget 继续沿用 `retry_execution = 1`
+4. verification failure 默认优先 `continue_execution`，由同一个 Execution Agent session 自循环修复，自动 self-repair 最多 2 次
 5. 只有明显超出原 requirement scope 时，才允许 follow-up requirement 或 route to human
 
 ## Approval Agent

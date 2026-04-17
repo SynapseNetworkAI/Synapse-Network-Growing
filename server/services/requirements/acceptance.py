@@ -19,6 +19,9 @@ DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
     "verification_checks": [],
     "scope_constraints": [],
     "delivery_expectation": "",
+    "risk_notes": [],
+    "expected_evidence": [],
+    "acceptance_index": {},
     "markdown": "",
 }
 
@@ -48,7 +51,7 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
                 payload[key] = values
-        for key in {"done_criteria", "scope_constraints"}:
+        for key in {"done_criteria", "scope_constraints", "risk_notes", "expected_evidence"}:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
                 payload[key] = values
@@ -71,9 +74,18 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
         delivery_expectation = str(raw.get("delivery_expectation") or "").strip()
         if delivery_expectation:
             payload["delivery_expectation"] = delivery_expectation
+        acceptance_index = raw.get("acceptance_index")
+        if isinstance(acceptance_index, dict):
+            payload["acceptance_index"] = acceptance_index
         markdown = str(raw.get("markdown") or "").strip()
         if markdown:
             payload["markdown"] = markdown
+    payload["acceptance_index"] = {
+        **dict(payload.get("acceptance_index") or {}),
+        "done_criteria_count": len(payload.get("done_criteria") or []),
+        "scope_constraints_count": len(payload.get("scope_constraints") or []),
+        "expected_evidence_count": len(payload.get("expected_evidence") or []),
+    }
     return payload
 
 

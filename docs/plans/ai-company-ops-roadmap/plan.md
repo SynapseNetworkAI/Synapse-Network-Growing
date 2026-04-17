@@ -52,10 +52,10 @@ Execution order:
   - Mocked Git/GitHub workflow tests for blocked vs allowed publish paths.
   - Frontend tests for release-state badges and operator actions.
 
-### P0-R3: Verification Contract And Bugfix Loop Hardening
+### P0-R3: Verification Contract And Self-Repair Loop Hardening
 
-- **Goal**: Every requirement must carry an explicit validation plan and automatically enter bugfix when checks fail.
-- **Why now**: The repository already supports bugfix loops, but they need to become a mandatory delivery protocol for all roadmap work.
+- **Goal**: Every requirement must carry an explicit validation plan and automatically enter self-repair when checks fail.
+- **Why now**: The repository already supports self-repair loops, but they need to become a mandatory delivery protocol for all roadmap work.
 - **Implementation**
   - Add structured validation-plan artifacts at planning time.
   - Require each workflow to declare automated checks, manual checks, and bugfix ownership before execution.
@@ -186,7 +186,7 @@ For each roadmap requirement, the implementation lifecycle must be:
 5. run automated tests
 6. run browser or operator validation when needed
 7. if any check fails, record the defect in `docs/test/bugfix.md`
-8. create or continue the bugfix loop until the validation plan passes
+8. create or continue the self-repair loop until the validation plan passes
 9. only then mark the requirement complete
 
 ## Recommended Immediate Execution Order

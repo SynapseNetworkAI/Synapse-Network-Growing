@@ -14,7 +14,7 @@
 
 1. 恢复不是补丁，而是主路径的一部分。
 2. 每条核心执行链都必须定义失败分支、恢复分支、熔断条件和 operator 接管点。
-3. 禁止无限重试、无限 bugfix、无限 resume。
+3. 禁止无限重试、无限 self-repair、无限 resume。
 
 ## 3. Verification 必须独立于 Execute
 
@@ -148,23 +148,26 @@ Release 负责：
 4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
 5. 高风险 requirement 的人工 execution approval 必须保留；它控制的是“是否允许 agent 开始高风险动作”，不能被 PR merge 替代。
 6. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
-7. acceptance contract 只负责定义完成标准；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
-8. 错误发现 v1 必须优先于机会发现。
+7. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
+8. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
+9. 错误发现 v1 必须优先于机会发现。
    - 本阶段只自动化 defect self-healing，不自动化新增功能发现。
    - 错误信号必须先进入统一 discovery pipeline，再决定是否 materialize requirement。
-9. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
+10. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
    - agent 负责理解与推荐。
    - system rules 只负责稳定硬边界。
    - 人只处理高风险、低置信度或系统无法稳定收口的 case。
-10. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
+11. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
    - `Requirement`、`ExecutionAttempt`、`Delivery`、`ApprovalDecision` 都必须只有一个 canonical `state`
    - 旧 `status / phase / resolution_path / latest_release_status` 只允许作为过渡读字段，不能继续作为写入真相
-11. parent plan 必须不可变，child repair task 必须从最新失败结果派生。
+12. parent plan 必须不可变，child repair task 必须从最新失败结果派生。
    - `requirement_plan` 是原始目标，不允许被 repair 覆盖。
    - `delivery_repair` 必须拥有独立 `repair_plan`，并显式引用父计划摘要。
    - 第二次 repair 必须读取上一次 repair 的失败结果，而不是简单重跑旧 prompt。
-12. 自主修复必须有严格预算。
+13. 自主修复必须有严格预算。
    - implementation retry 与 delivery repair retry 分开计数。
+   - verification failure 默认由同一个 Execution Agent session 自循环修复，自动 self-repair 最多 2 次。
+   - self-repair 达到预算仍失败时必须 `route_to_human`；人工继续 retry 也复用同一个 session，并单独计入 manual retry。
    - `delivery_repair` 默认最多自动 2 次，超出预算必须把父 requirement 收口为失败终态并转人工。
 
 ## 11. 服务层必须按功能面治理

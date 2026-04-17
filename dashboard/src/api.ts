@@ -895,6 +895,9 @@ export interface AcceptanceContract {
   done_criteria?: string[]
   verification_checks?: AcceptanceContractCheck[]
   scope_constraints?: string[]
+  risk_notes?: string[]
+  expected_evidence?: string[]
+  acceptance_index?: Record<string, unknown>
   delivery_expectation?: string
   markdown?: string
 }
@@ -1005,6 +1008,13 @@ export interface ValidationCheckResult {
   project_path: string | null
   status: string
   output_excerpt: string | null
+  exit_code?: number | null
+  duration_ms?: number | null
+  log_path?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  timed_out?: boolean
+  purpose?: string | null
 }
 
 export interface VerificationPlan {
@@ -1013,6 +1023,12 @@ export interface VerificationPlan {
   checks: string[]
   evidence_expectations: string[]
   why_no_verification: string | null
+  markdown?: string
+  required_commands?: Record<string, unknown>[]
+  expected_artifacts?: string[]
+  evidence_to_inspect?: string[]
+  non_mutating_rules?: string[]
+  verdict_rubric?: string[]
 }
 
 export interface WorkspaceBlocker {
@@ -1066,6 +1082,9 @@ export interface ExecutionRun {
   attempt_budget?: number | null
   failed_gate_name?: string | null
   parent_plan_reference_summary?: string | null
+  repair_attempt_count?: number
+  max_auto_repair_attempts?: number
+  manual_retry_count?: number
   complexity: string
   status: string
   phase: string

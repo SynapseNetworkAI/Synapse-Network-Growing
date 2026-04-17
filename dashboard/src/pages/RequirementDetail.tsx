@@ -832,13 +832,13 @@ export default function RequirementDetail() {
               </ul>
             </div>
             <div>
-              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Verification Checks</div>
+              <div className="mb-2 text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Expected Evidence</div>
               <ul className="space-y-2 text-sm text-[color:var(--ops-text-body)]">
-                {(detail.acceptance_contract.verification_checks || []).map((item) => (
-                  <li key={`${item.label}-${item.command || 'manual'}`}>
-                    • {item.label}
-                    {item.command ? <span className="text-[color:var(--ops-text-caption)]"> (`{item.command}`)</span> : null}
-                  </li>
+                {(detail.acceptance_contract.expected_evidence?.length
+                  ? detail.acceptance_contract.expected_evidence
+                  : (detail.acceptance_contract.verification_checks || []).map((item) => item.label)
+                ).map((item) => (
+                  <li key={item}>• {item}</li>
                 ))}
               </ul>
             </div>

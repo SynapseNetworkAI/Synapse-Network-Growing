@@ -118,14 +118,14 @@ Execution 面是 agent 的工作面。
 3. runtime backend / model / session
 4. agent summary / changed files / command evidence
 5. validate 结果
-6. incident / bugfix / pause / resume / retry
+6. incident / self-repair / pause / resume / retry
 
 Execution 面的默认策略：
 
 1. 简单任务走单一 `execute`
 2. 复杂任务才展开 execution graph
 3. `verification agent` 永远是唯一正式质量门
-4. verification 失败只允许进入 `bugfix -> verification` 闭环
+4. verification 失败只允许进入同一个 Execution Agent session 的 `self-repair -> verification` 闭环
 
 Execution 详情页当前正式暴露这些可观测性字段：
 
@@ -255,8 +255,9 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
 1. requirement 创建后先保存记录，并在后台生成 acceptance contract 与 execution plan
 2. requirement `submit` 放行前会确保这两份产物可用
 3. execution 完成后自动派发 verification agent
-4. verification agent 默认读取 acceptance contract 的 `verification_checks`
-5. execution detail 同时展示 plan、observability、verification result 与 raw output
+4. verification agent 默认读取 acceptance contract 的完成标准、范围约束、execution plan、changed files、raw output 与 execution evidence
+5. verification agent 先生成晚绑定 `verification_plan.md`；Harness 执行其中 required commands 并记录权威 evidence 后，verification agent 再产出正式 verdict
+6. execution detail 同时展示 plan、observability、verification plan、Harness evidence、verification result 与 raw output
 
 它只做一次轻量决策：
 
@@ -321,7 +322,7 @@ Execution 现在采用严格的单主链模型：
 3. runtime lifecycle
 4. validate 守门
 5. delivery / release 记录
-6. incident / recovery / bugfix loop
+6. incident / recovery / self-repair loop
 
 程序不再负责：
 

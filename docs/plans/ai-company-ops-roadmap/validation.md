@@ -57,5 +57,5 @@ A roadmap requirement is only complete when:
 1. implementation is merged or otherwise accepted into the intended target path
 2. automated checks pass
 3. manual checks, if any, are signed off
-4. any discovered bug was logged and resolved through the bugfix loop
+4. any discovered bug was logged and resolved through the self-repair loop
 5. resulting artifacts and evidence are visible in the control plane or linked docs

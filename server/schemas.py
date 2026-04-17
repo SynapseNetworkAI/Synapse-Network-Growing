@@ -1018,6 +1018,13 @@ class ValidationCheckResultOut(BaseModel):
     project_path: Optional[str] = None
     status: str
     output_excerpt: Optional[str] = None
+    exit_code: Optional[int] = None
+    duration_ms: Optional[int] = None
+    log_path: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    timed_out: bool = False
+    purpose: Optional[str] = None
 
 
 class VerificationPlanOut(BaseModel):
@@ -1026,6 +1033,12 @@ class VerificationPlanOut(BaseModel):
     checks: list[str] = []
     evidence_expectations: list[str] = []
     why_no_verification: Optional[str] = None
+    markdown: str = ""
+    required_commands: list[dict[str, object]] = []
+    expected_artifacts: list[str] = []
+    evidence_to_inspect: list[str] = []
+    non_mutating_rules: list[str] = []
+    verdict_rubric: list[str] = []
 
 
 class WorkspaceBlockerOut(BaseModel):
@@ -1111,6 +1124,9 @@ class ExecutionRunOut(BaseModel):
     attempt_budget: Optional[int] = None
     failed_gate_name: Optional[str] = None
     parent_plan_reference_summary: Optional[str] = None
+    repair_attempt_count: int = 0
+    max_auto_repair_attempts: int = 2
+    manual_retry_count: int = 0
     complexity: str
     status: str
     phase: str = "queued"

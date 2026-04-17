@@ -111,7 +111,7 @@ from server.services.workflows.planner_provider import (
     resolve_planner_backend,
     resolve_planner_model,
 )
-from server.services.workflows.verification_agent import verify_with_agent
+from server.services.workflows.verification_agent import generate_verification_plan, verify_with_agent
 from server.services.workflows.orchestrator.file_changes import (
     _load_task_file_changes,
     _normalize_task_file_change_payload,
@@ -121,6 +121,7 @@ from server.services.workflows.orchestrator import pause_task as pause_legacy_ta
 
 logger = get_logger("ops-dashboard.workflow_agent_first")
 _MAX_EXECUTION_RETRIES = 1
+_MAX_SELF_REPAIR_ATTEMPTS = 2
 _MAX_DELIVERY_REPAIRS = 2
 _RUNTIME_RECOVERY_TIMEOUT_SECONDS = 600
 _VALIDATION_LEASE_TIMEOUT_SECONDS = 600
@@ -460,6 +461,44 @@ def _parse_execution_plan(requirement: RequirementRow) -> dict[str, Any]:
 def _parse_run_plan_snapshot(run: ExecutionRunRow) -> dict[str, Any]:
     payload = _json_load(getattr(run, "plan_snapshot_json", None), {})
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _write_run_plan_snapshot(run: ExecutionRunRow, payload: dict[str, Any]) -> None:
+    run.plan_snapshot_json = _json_dump(payload)
+    run.updated_at = utcnow()
+
+
+def _self_repair_state(run: ExecutionRunRow) -> dict[str, Any]:
+    snapshot = _parse_run_plan_snapshot(run)
+    state = snapshot.get("self_repair")
+    return dict(state) if isinstance(state, dict) else {}
+
+
+def _self_repair_attempt_count(run: ExecutionRunRow) -> int:
+    state = _self_repair_state(run)
+    try:
+        return int(state.get("repair_attempt_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _self_repair_budget_exhausted(run: ExecutionRunRow) -> bool:
+    return _self_repair_attempt_count(run) >= _MAX_SELF_REPAIR_ATTEMPTS
+
+
+def _latest_completed_task_for_run(db: Session, run: ExecutionRunRow) -> TaskRow | None:
+    node = (
+        db.query(ExecutionNodeRow)
+        .filter(
+            ExecutionNodeRow.execution_run_id == int(run.id),
+            ExecutionNodeRow.task_id.isnot(None),
+        )
+        .order_by(ExecutionNodeRow.sequence_no.desc(), ExecutionNodeRow.id.desc())
+        .first()
+    )
+    if node is None or node.task_id is None:
+        return None
+    return db.query(TaskRow).filter(TaskRow.id == int(node.task_id)).first()
 
 
 def _latest_delivery_repair_attempt(
@@ -1449,7 +1488,14 @@ def reconcile_execution_state(
             node.runtime_provider = str(getattr(task, "runtime_provider", "") or "") or node.runtime_provider
             node.runtime_model = str(getattr(task, "runtime_model", "") or "") or node.runtime_model
             node.summary_markdown = str(getattr(task, "output_content", "") or "").strip()[:4000] or node.summary_markdown
-            node.completed_at = getattr(task, "completed_at", None) or utcnow()
+            node.completed_at = (
+                getattr(task, "completed_at", None)
+                or node.completed_at
+                or getattr(task, "started_at", None)
+                or getattr(task, "created_at", None)
+                or getattr(run, "started_at", None)
+                or utcnow()
+            )
         elif task_status in {"failed", "rejected"}:
             node.status = "failed"
             node.summary_markdown = str(getattr(task, "last_error_message", "") or "").strip() or node.summary_markdown
@@ -1480,9 +1526,19 @@ def reconcile_execution_state(
     elif "paused" in statuses:
         run.phase = "blocked"
     elif all(status == "completed" for status in statuses):
-        if validation is None:
+        latest_node_completed_at = max(
+            [item.completed_at for item in nodes if item.completed_at is not None],
+            default=None,
+        )
+        validation_is_stale = (
+            validation is not None
+            and latest_node_completed_at is not None
+            and validation.created_at is not None
+            and _as_utc_datetime(latest_node_completed_at) > _as_utc_datetime(validation.created_at)
+        )
+        if validation is None or validation_is_stale:
             run.phase = "verifying"
-            if enqueue_verification and run.verification_requested_at is None:
+            if enqueue_verification and (run.verification_requested_at is None or validation_is_stale):
                 run.verification_requested_at = utcnow()
                 db.flush()
                 _enqueue_execution_verification(int(run.id))
@@ -1674,6 +1730,8 @@ def _acceptance_contract_markdown(payload: dict[str, Any]) -> str:
     ]
     scope_constraints = [str(item).strip() for item in payload.get("scope_constraints") or [] if str(item).strip()]
     delivery_expectation = str(payload.get("delivery_expectation") or "").strip()
+    risk_notes = [str(item).strip() for item in payload.get("risk_notes") or [] if str(item).strip()]
+    expected_evidence = [str(item).strip() for item in payload.get("expected_evidence") or [] if str(item).strip()]
 
     if done_criteria:
         lines.append("### Done Criteria")
@@ -1681,17 +1739,27 @@ def _acceptance_contract_markdown(payload: dict[str, Any]) -> str:
     if verification_checks:
         if lines:
             lines.append("")
-        lines.append("### Verification Focus")
+        lines.append("### Verification Guidance")
         for item in verification_checks:
             label = str(item.get("label") or "").strip()
             kind = str(item.get("kind") or "evidence").strip() or "evidence"
-            suffix = " (command evidence)" if kind == "command" else " (evidence review)" if kind == "evidence" else ""
+            suffix = " (evidence review)" if kind == "evidence" else f" ({kind})" if kind else ""
             lines.append(f"- {label}{suffix}")
     if scope_constraints:
         if lines:
             lines.append("")
         lines.append("### Scope Constraints")
         lines.extend([f"- {item}" for item in scope_constraints])
+    if risk_notes:
+        if lines:
+            lines.append("")
+        lines.append("### Risk Notes")
+        lines.extend([f"- {item}" for item in risk_notes])
+    if expected_evidence:
+        if lines:
+            lines.append("")
+        lines.append("### Expected Evidence")
+        lines.extend([f"- {item}" for item in expected_evidence])
     if delivery_expectation:
         if lines:
             lines.append("")
@@ -1718,11 +1786,18 @@ def _fallback_acceptance_contract(
                 "No unrelated regressions are introduced outside the requested scope.",
             ],
             "verification_checks": [
-                {"label": "Verification agent should review changed files, raw execution output, and any targeted command evidence from this run.", "command": None, "kind": "evidence"}
+                {"label": "Verification agent should design the final verification plan after implementation evidence exists.", "command": None, "kind": "evidence"}
             ],
             "scope_constraints": [
                 f"Keep edits scoped to `{scope_hint}` unless the requirement explicitly calls for wider coordination.",
                 "Do not introduce unrelated refactors while delivering this requirement.",
+            ],
+            "risk_notes": [
+                "Final verification commands are intentionally late-bound by the verification agent after real changes are available."
+            ],
+            "expected_evidence": [
+                "Changed files or runtime evidence should demonstrate the requested outcome.",
+                "Execution should include targeted test, build, or automation evidence when the change is testable.",
             ],
             "delivery_expectation": "Prepare a branch and PR-ready delivery record when implementation succeeds.",
         }
@@ -1733,14 +1808,16 @@ def _fallback_acceptance_contract(
     return contract
 
 
-_ACCEPTANCE_SYSTEM_PROMPT = """You generate requirement acceptance contracts for an agent-driven software delivery system.
+_ACCEPTANCE_SYSTEM_PROMPT = """You generate Markdown-first requirement acceptance contracts for an agent-driven software delivery system.
 Return strict JSON only with this schema:
 {
   "done_criteria": ["short, observable completion criteria"],
   "verification_checks": [
-    {"label": "what the later verification agent should look for", "command": "optional command", "kind": "command|evidence"}
+    {"label": "what the later verification agent should consider", "command": null, "kind": "evidence"}
   ],
   "scope_constraints": ["scope boundary"],
+  "risk_notes": ["risk or regression boundary"],
+  "expected_evidence": ["what kind of evidence should exist after execution"],
   "delivery_expectation": "short delivery expectation"
 }
 
@@ -1748,8 +1825,9 @@ Rules:
 - Produce 3 to 5 concrete acceptance items total.
 - Focus on outcome and scope, not implementation steps.
 - Keep wording concise and actionable.
-- Do not over-specify repo-wide test commands; the verification agent will design final verification after execution evidence exists.
-- Only include explicit commands when the requirement itself makes a concrete targeted command unavoidable.
+- Do not write final test commands here; the verification agent will design required commands after execution evidence exists.
+- Keep every verification_checks.command as null unless preserving a user-provided command is unavoidable.
+- Treat verification_checks as guidance, not a final test plan.
 - Do not add markdown fences or commentary.
 """
 
@@ -1792,6 +1870,10 @@ def _generate_acceptance_contract_with_agent(
     payload = json.loads(str(text or "").strip())
     if not isinstance(payload, dict):
         raise ValueError("acceptance contract payload must be an object")
+    for item in payload.get("verification_checks") or []:
+        if isinstance(item, dict):
+            item["command"] = None
+            item["kind"] = str(item.get("kind") or "evidence").strip() or "evidence"
     contract = normalize_acceptance_contract(payload)
     contract["markdown"] = _acceptance_contract_markdown(contract)
     return contract
@@ -1817,7 +1899,7 @@ def _verification_strategy_lines(contract: dict[str, Any]) -> list[str]:
         command = str(item.get("command") or "").strip()
         kind = str(item.get("kind") or "evidence").strip() or "evidence"
         if command:
-            lines.append(f"{label} (`{command}`)")
+            lines.append(f"{label} (candidate evidence; final required command is late-bound after execution)")
         elif kind == "manual":
             lines.append(f"{label} (reason about the result from evidence and raw output)")
         else:
@@ -3524,6 +3606,11 @@ def _build_task_description(db: Session, requirement: RequirementRow, run: Execu
     acceptance = str(acceptance_contract.get("markdown") or "").strip() or "Deliver the requested outcome and leave enough evidence for validate."
     plan = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
     plan_markdown = str(plan.get("summary_markdown") or "").strip()
+    if str(getattr(node, "node_key", "") or "").startswith("verification_repair_"):
+        repair_state = dict(plan.get("self_repair") or {})
+        repair_prompt = str(repair_state.get("latest_repair_prompt") or "").strip()
+        if repair_prompt:
+            return repair_prompt
     if str(getattr(run, "execution_kind", "") or "implementation") == "delivery_repair":
         release = None
         if getattr(run, "source_release_id", None) is not None:
@@ -3748,6 +3835,7 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     if not suggestion.agent_id:
         raise ValueError("Unable to resolve an execution agent for this requirement.")
     persona = _load_full_persona(str(suggestion.agent_id))
+    previous_task = _latest_completed_task_for_run(db, run) if str(getattr(node, "node_key", "") or "").startswith("verification_repair_") else None
     task = TaskRow(
         description=description,
         agent_id=str(suggestion.agent_id),
@@ -3757,6 +3845,9 @@ def start_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         skill_name=str(suggestion.skill_name or "__direct_execution__"),
         started_at=utcnow(),
         runtime_backend=ORCHESTRATION_BACKEND,
+        runtime_session_id=str(getattr(previous_task, "runtime_session_id", "") or "").strip() or None,
+        retry_of_task_id=int(previous_task.id) if previous_task is not None else None,
+        attempt_no=(int(getattr(previous_task, "attempt_no", 1) or 1) + 1) if previous_task is not None else 1,
         context_files=_json_dump(_requirement_attachment_context_files(db, int(requirement.id))),
     )
     db.add(task)
@@ -3894,6 +3985,75 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
     if str(run.status or "") not in {"failed", "blocked"}:
         raise ValueError("Only failed or blocked execution runs can be retried.")
     execution_kind = str(getattr(run, "execution_kind", "") or "implementation")
+    latest_validation = (
+        db.query(ValidationRecordRow)
+        .filter(ValidationRecordRow.execution_run_id == int(run.id))
+        .order_by(ValidationRecordRow.id.desc())
+        .first()
+    )
+    if (
+        execution_kind == "implementation"
+        and latest_validation is not None
+        and str(latest_validation.status or "") != "passed"
+        and _self_repair_budget_exhausted(run)
+    ):
+        active_run = _active_execution_run(db, int(run.requirement_id))
+        if active_run is not None and int(active_run.id) != int(run.id):
+            raise ValueError(f"Requirement already has an active execution run: #{int(active_run.id)}.")
+        checks_payload = _json_load(getattr(latest_validation, "checks_json", None), [])
+        checks = [
+            ValidationCheckResultOut(**item)
+            for item in checks_payload
+            if isinstance(item, dict)
+        ] if isinstance(checks_payload, list) else []
+        evidence_paths = _json_load(getattr(latest_validation, "evidence_json", None), [])
+        result = {
+            "status": str(latest_validation.status or "failed"),
+            "summary": str(latest_validation.summary_markdown or ""),
+            "reasoning": str(latest_validation.reasoning_markdown or ""),
+            "resolution_reason": str(latest_validation.resolution_reason or ""),
+            "verification_artifacts": {
+                "verification_result_markdown": next(
+                    (str(item) for item in evidence_paths if str(item).endswith("verification_result.md")),
+                    "",
+                ),
+                "verification_evidence_markdown": next(
+                    (str(item) for item in evidence_paths if str(item).endswith("verification_evidence.md")),
+                    "",
+                ),
+            },
+        }
+        repair_node = _append_self_repair_turn(
+            db,
+            requirement=requirement,
+            run=run,
+            validation=latest_validation,
+            result=result,
+            checks=checks,
+            manual=True,
+        )
+        _log_workflow_event(
+            "execution_manual_self_repair_queued",
+            requirement=requirement,
+            execution=run,
+            validation=latest_validation,
+            repair_node_id=int(repair_node.id),
+            repair_attempt_count=_self_repair_attempt_count(run),
+        )
+        db.commit()
+        try:
+            return start_execution_run(db, int(run.id))
+        except ValueError as exc:
+            db.rollback()
+            _log_workflow_event(
+                "execution_manual_self_repair_start_blocked",
+                requirement=requirement,
+                execution=run,
+                validation=latest_validation,
+                reason=str(exc),
+            )
+            db.commit()
+            return build_execution_detail(db, int(run.id))
     if execution_kind == "delivery_repair":
         if _delivery_repair_budget_exhausted(db, int(run.requirement_id)):
             raise ValueError(
@@ -3958,23 +4118,334 @@ def retry_execution_run(db: Session, execution_run_id: int) -> ExecutionRunDetai
         return build_execution_detail(db, int(detail.execution.id))
 
 
-def _run_check(project_path: str, command: str) -> ValidationCheckResultOut:
-    completed = subprocess.run(
-        command,
-        cwd=project_path,
-        shell=True,
-        text=True,
-        capture_output=True,
-        timeout=300,
-    )
-    output = (completed.stdout or completed.stderr or "").strip()
+def _run_check(
+    project_path: str,
+    command: str,
+    *,
+    timeout_sec: int = 300,
+    purpose: str | None = None,
+    log_dir: Path | None = None,
+) -> ValidationCheckResultOut:
+    started_at = utcnow()
+    started_monotonic = time.monotonic()
+    exit_code: int | None = None
+    timed_out = False
+    stdout = ""
+    stderr = ""
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=project_path,
+            shell=True,
+            text=True,
+            capture_output=True,
+            timeout=max(1, int(timeout_sec or 300)),
+        )
+        exit_code = int(completed.returncode)
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        exit_code = None
+        stdout = str(exc.stdout or "")
+        stderr = str(exc.stderr or "") or f"Command timed out after {timeout_sec}s."
+    completed_at = utcnow()
+    duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    output = (stdout or stderr or "").strip()
+    log_path: str | None = None
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        index = len(list(log_dir.glob("command-*.log"))) + 1
+        path = log_dir / f"command-{index:02d}.log"
+        path.write_text(
+            "\n".join(
+                [
+                    f"cwd: {project_path}",
+                    f"command: {command}",
+                    f"purpose: {purpose or ''}",
+                    f"started_at: {started_at.isoformat()}",
+                    f"completed_at: {completed_at.isoformat()}",
+                    f"duration_ms: {duration_ms}",
+                    f"exit_code: {exit_code if exit_code is not None else ''}",
+                    f"timed_out: {str(timed_out).lower()}",
+                    "",
+                    "## stdout",
+                    stdout.strip(),
+                    "",
+                    "## stderr",
+                    stderr.strip(),
+                ]
+            ).strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        log_path = str(path)
     return ValidationCheckResultOut(
         label=f"{Path(project_path).name}: {command}",
         command=command,
         project_path=project_path,
-        status="passed" if completed.returncode == 0 else "failed",
+        status="passed" if exit_code == 0 and not timed_out else "failed",
         output_excerpt=output[:1200] or None,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        log_path=log_path,
+        started_at=started_at,
+        completed_at=completed_at,
+        timed_out=timed_out,
+        purpose=purpose,
     )
+
+
+def _required_commands_from_verification_plan(plan: dict[str, Any], default_project_path: str) -> list[dict[str, Any]]:
+    commands: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in plan.get("required_commands") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("required") is False:
+            continue
+        command = str(item.get("command") or "").strip()
+        if not command:
+            continue
+        cwd = str(item.get("cwd") or default_project_path or "").strip() or default_project_path
+        key = (cwd, command)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            timeout_sec = int(item.get("timeout_sec") or 300)
+        except (TypeError, ValueError):
+            timeout_sec = 300
+        commands.append(
+            {
+                "cwd": cwd,
+                "command": command,
+                "timeout_sec": max(1, min(timeout_sec, 3600)),
+                "purpose": str(item.get("purpose") or "Run authoritative verification command.").strip(),
+            }
+        )
+    return commands
+
+
+def _verification_artifact_dir(requirement_id: int, run_id: int) -> Path:
+    return PROJECT_ROOT / "runtime" / "verification" / f"req-{requirement_id}-run-{run_id}"
+
+
+def _write_verification_markdown_artifacts(
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    verification_plan: dict[str, Any],
+    checks: list[ValidationCheckResultOut],
+    result: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    artifact_dir = _verification_artifact_dir(int(requirement.id), int(run.id))
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, str] = {}
+    plan_path = artifact_dir / "verification_plan.md"
+    plan_path.write_text(str(verification_plan.get("markdown") or "").strip() + "\n", encoding="utf-8")
+    paths["verification_plan_markdown"] = str(plan_path)
+    evidence_lines = ["# Verification Evidence", ""]
+    if checks:
+        for index, check in enumerate(checks, start=1):
+            evidence_lines.extend(
+                [
+                    f"## Command {index}",
+                    "",
+                    f"- status: {check.status}",
+                    f"- cwd: `{check.project_path or ''}`",
+                    f"- command: `{check.command or ''}`",
+                    f"- exit_code: {check.exit_code if check.exit_code is not None else '-'}",
+                    f"- duration_ms: {check.duration_ms if check.duration_ms is not None else '-'}",
+                    f"- timed_out: {str(bool(check.timed_out)).lower()}",
+                    f"- log_path: `{check.log_path or ''}`",
+                ]
+            )
+            if check.output_excerpt:
+                evidence_lines.extend(["", "```text", check.output_excerpt, "```"])
+            evidence_lines.append("")
+    else:
+        evidence_lines.extend(["No required harness commands were executed; verification is evidence-review only.", ""])
+    evidence_path = artifact_dir / "verification_evidence.md"
+    evidence_path.write_text("\n".join(evidence_lines).strip() + "\n", encoding="utf-8")
+    paths["verification_evidence_markdown"] = str(evidence_path)
+    if result is not None:
+        result_lines = [
+            "# Verification Result",
+            "",
+            f"- status: {str(result.get('status') or 'inconclusive')}",
+            f"- next_action: {str(result.get('suggested_next_action') or '')}",
+            f"- resolution_path: {str(result.get('resolution_path') or '')}",
+            "",
+            "## Summary",
+            "",
+            str(result.get("summary") or "").strip(),
+            "",
+            "## Reasoning",
+            "",
+            str(result.get("reasoning") or "").strip(),
+        ]
+        result_path = artifact_dir / "verification_result.md"
+        result_path.write_text("\n".join(result_lines).strip() + "\n", encoding="utf-8")
+        paths["verification_result_markdown"] = str(result_path)
+    return paths
+
+
+def _failed_harness_commands_markdown(checks: list[ValidationCheckResultOut]) -> str:
+    failed = [check for check in checks if str(check.status or "") != "passed"]
+    if not failed:
+        return "- No failed Harness command was recorded; repair should focus on the verification reasoning."
+    lines: list[str] = []
+    for check in failed:
+        lines.extend(
+            [
+                f"- cwd: `{check.project_path or ''}`",
+                f"  command: `{check.command or ''}`",
+                f"  status: `{check.status}`",
+                f"  exit_code: `{check.exit_code if check.exit_code is not None else '-'}`",
+                f"  log_path: `{check.log_path or ''}`",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def _self_repair_prompt_markdown(
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    validation: ValidationRecordRow,
+    result: dict[str, Any],
+    checks: list[ValidationCheckResultOut],
+) -> str:
+    acceptance = str(_parse_acceptance_contract(requirement).get("markdown") or "").strip()
+    plan = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
+    plan_markdown = str(plan.get("summary_markdown") or "").strip()
+    artifacts = dict(result.get("verification_artifacts") or {})
+    repair_guidance = str(result.get("repair_guidance") or result.get("resolution_reason") or result.get("reasoning") or result.get("summary") or "").strip()
+    return "\n".join(
+        [
+            "# Verification Failed",
+            "",
+            "## Original Acceptance",
+            "",
+            acceptance or "No acceptance brief captured.",
+            "",
+            "## Original Plan",
+            "",
+            plan_markdown or "No execution plan captured.",
+            "",
+            "## Verification Result",
+            "",
+            f"- validation_id: {int(validation.id)}",
+            f"- status: {str(result.get('status') or validation.status or 'failed')}",
+            f"- summary: {str(result.get('summary') or validation.summary_markdown or '').strip()}",
+            f"- reasoning: {str(result.get('reasoning') or validation.reasoning_markdown or '').strip()}",
+            f"- repair_guidance: {repair_guidance or 'Fix the failed verification evidence and keep the change scoped to Acceptance.'}",
+            f"- verification_result_path: `{artifacts.get('verification_result_markdown') or ''}`",
+            f"- verification_evidence_path: `{artifacts.get('verification_evidence_markdown') or ''}`",
+            "",
+            "## Failed Harness Commands",
+            "",
+            _failed_harness_commands_markdown(checks),
+            "",
+            "## Required Repair Behavior",
+            "",
+            "- Continue in the same implementation session.",
+            "- Fix only what is needed to satisfy Acceptance.",
+            "- Add or update tests when the failure shows missing coverage.",
+            "- Run targeted checks and report evidence.",
+            "- Do not reset unrelated work.",
+        ]
+    ).strip()
+
+
+def _append_self_repair_turn(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    run: ExecutionRunRow,
+    validation: ValidationRecordRow,
+    result: dict[str, Any],
+    checks: list[ValidationCheckResultOut],
+    manual: bool = False,
+) -> ExecutionNodeRow:
+    snapshot = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
+    state = dict(snapshot.get("self_repair") or {})
+    repair_attempt_count = int(state.get("repair_attempt_count") or 0)
+    manual_retry_count = int(state.get("manual_retry_count") or 0)
+    if manual:
+        manual_retry_count += 1
+    else:
+        repair_attempt_count += 1
+    artifacts = dict(result.get("verification_artifacts") or {})
+    history = [item for item in state.get("repair_history") or [] if isinstance(item, dict)]
+    history.append(
+        {
+            "validation_id": int(validation.id),
+            "status": str(result.get("status") or validation.status or "failed"),
+            "summary": str(result.get("summary") or validation.summary_markdown or "").strip(),
+            "repair_attempt_count": repair_attempt_count,
+            "manual_retry_count": manual_retry_count,
+            "verification_result_path": str(artifacts.get("verification_result_markdown") or ""),
+            "verification_evidence_path": str(artifacts.get("verification_evidence_markdown") or ""),
+        }
+    )
+    state.update(
+        {
+            "repair_attempt_count": repair_attempt_count,
+            "max_auto_repair_attempts": _MAX_SELF_REPAIR_ATTEMPTS,
+            "manual_retry_count": manual_retry_count,
+            "latest_validation_id": int(validation.id),
+            "latest_verification_result_path": str(artifacts.get("verification_result_markdown") or ""),
+            "latest_verification_evidence_paths": [
+                str(value).strip()
+                for key, value in artifacts.items()
+                if key.startswith("verification_") and str(value).strip()
+            ],
+            "latest_repair_prompt": _self_repair_prompt_markdown(
+                requirement=requirement,
+                run=run,
+                validation=validation,
+                result=result,
+                checks=checks,
+            ),
+            "repair_history": history[-8:],
+        }
+    )
+    snapshot["self_repair"] = state
+    _write_run_plan_snapshot(run, snapshot)
+    latest_sequence = (
+        db.query(ExecutionNodeRow.sequence_no)
+        .filter(ExecutionNodeRow.execution_run_id == int(run.id))
+        .order_by(ExecutionNodeRow.sequence_no.desc())
+        .first()
+    )
+    sequence_no = int(latest_sequence[0]) + 1 if latest_sequence is not None else 1
+    node = ExecutionNodeRow(
+        execution_run_id=int(run.id),
+        requirement_id=int(requirement.id),
+        node_key=f"verification_repair_{repair_attempt_count + manual_retry_count}",
+        node_type="execute",
+        title=f"Repair after verification failure #{repair_attempt_count + manual_retry_count}",
+        status="queued",
+        sequence_no=sequence_no,
+        summary_markdown=str(result.get("summary") or validation.summary_markdown or "").strip(),
+    )
+    db.add(node)
+    db.flush()
+    run.phase = "queued"
+    run.status = _execution_status_from_phase(run.phase)
+    run.attempt_state = "queued"
+    run.failure_kind = None
+    run.blocker_kind = None
+    run.resume_mode = "restart_current"
+    run.completed_at = None
+    requirement.workflow_state = "executing"
+    requirement.attention_reason = "self_repair"
+    requirement.failure_reason = None
+    requirement.phase = _requirement_phase_from_workflow_state(requirement.workflow_state)
+    requirement.status = _requirement_status_from_workflow_state(requirement.workflow_state)
+    return node
 
 
 def _commands_from_execution_evidence(nodes: list[ExecutionNodeRow], db: Session) -> list[str]:
@@ -4018,6 +4489,8 @@ def _verification_payload_for_run(
     run: ExecutionRunRow,
     nodes: list[ExecutionNodeRow],
     checks: list[ValidationCheckResultOut],
+    verification_plan: dict[str, Any] | None = None,
+    verification_artifacts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     changed_files = [item.model_dump() for item in _collect_execution_changed_files(db, nodes)]
     raw_task_output, _truncated = _execution_raw_output(nodes, db)
@@ -4043,6 +4516,8 @@ def _verification_payload_for_run(
         "acceptance_contract": _parse_acceptance_contract(requirement),
         "execution_plan": plan_summary,
         "verification_strategy": list(plan_summary.get("planned_checks") or []),
+        "verification_plan": verification_plan or {},
+        "verification_artifacts": verification_artifacts or {},
         "execution_observability": {
             "execution_id": int(run.id),
             "status": str(run.status or "validating"),
@@ -4088,18 +4563,20 @@ def _retry_budget_exhausted(
 
 def _normalize_resolution_recommendation(result: dict[str, Any], verdict: str) -> str:
     if verdict == "passed":
-        return "retry_execution"
+        return "release_ready"
     recommendation = str(result.get("resolution_recommendation") or "").strip()
-    if recommendation in {"retry_execution", "create_followup_requirement", "revise_requirement", "route_to_human"}:
+    if recommendation == "retry_execution":
+        return "continue_execution"
+    if recommendation in {"continue_execution", "create_followup_requirement", "revise_requirement", "route_to_human"}:
         return recommendation
     suggested = str(result.get("suggested_next_action") or "").strip()
-    if suggested == "retry_execution":
-        return "retry_execution"
+    if suggested in {"continue_execution", "retry_execution"}:
+        return "continue_execution"
     if suggested == "revise_requirement":
         return "revise_requirement"
     if verdict == "inconclusive":
         return "route_to_human"
-    return "retry_execution"
+    return "continue_execution"
 
 
 def _resolve_validation_resolution(
@@ -4134,6 +4611,8 @@ def _resolve_validation_resolution(
     verdict = str(result.get("status") or "inconclusive")
     if verdict == "passed":
         return "release_ready", rule_snapshot
+    if recommendation == "continue_execution" and verdict in {"failed", "needs_revision"}:
+        return "continue_execution", rule_snapshot
     if recommendation == "revise_requirement":
         return "revise_requirement", rule_snapshot
     if (
@@ -4152,7 +4631,7 @@ def _resolve_validation_resolution(
         or verdict == "inconclusive"
     ):
         return "route_to_human", rule_snapshot
-    return "retry_execution", rule_snapshot
+    return "continue_execution", rule_snapshot
 
 
 def _create_followup_requirement_from_validation(
@@ -4235,17 +4714,23 @@ def _persist_verification_result(
     checks: list[ValidationCheckResultOut],
     result: dict[str, Any],
 ) -> ValidationRecordRow:
+    artifact_paths = [
+        str(value).strip()
+        for value in dict(result.get("verification_artifacts") or {}).values()
+        if str(value).strip()
+    ]
+    evidence_used = [str(item).strip() for item in result.get("evidence_used") or [] if str(item).strip()]
     record = ValidationRecordRow(
         requirement_id=int(requirement.id),
         execution_run_id=int(run.id),
         profile=str(run.validation_profile or "minimal"),
         status=str(result.get("status") or "inconclusive"),
         summary_markdown=str(result.get("summary") or "").strip(),
-        checks_json=_json_dump([check.model_dump() for check in checks]),
+        checks_json=_json_dump([check.model_dump(mode="json") for check in checks]),
         verification_plan_json=_json_dump(result.get("verification_plan") or {}),
         verification_agent_id=str(result.get("verification_agent_id") or "verification_agent"),
         verification_agent_label=str(result.get("verification_agent_label") or "Verification Agent"),
-        evidence_json=_json_dump([str(item).strip() for item in result.get("evidence_used") or [] if str(item).strip()]),
+        evidence_json=_json_dump([*evidence_used, *artifact_paths]),
         reasoning_markdown=str(result.get("reasoning") or "").strip(),
         suggested_next_action=str(result.get("suggested_next_action") or "revise_requirement").strip() or "revise_requirement",
         resolution_recommendation=(
@@ -4371,25 +4856,38 @@ def validate_execution_run(
         return build_execution_detail(db, execution_run_id)
     checks: list[ValidationCheckResultOut] = []
     try:
-        acceptance_contract = _parse_acceptance_contract(requirement)
-        contract_checks = [
-            item for item in acceptance_contract.get("verification_checks") or [] if isinstance(item, dict)
-        ]
-        project_path = str(getattr(requirement, "target_project_path", "") or "").strip()
-        evidence_commands = _commands_from_execution_evidence(nodes, db)
-        commands_to_run = evidence_commands
-        for command in commands_to_run:
-            checks.append(_run_check(project_path, command))
-        for item in contract_checks:
-            if str(item.get("command") or "").strip():
-                continue
+        project_path = str(getattr(requirement, "target_project_path", "") or "").strip() or str(PROJECT_ROOT)
+        initial_payload = _verification_payload_for_run(
+            db,
+            requirement=requirement,
+            run=run,
+            nodes=nodes,
+            checks=[],
+        )
+        verification_plan = generate_verification_plan(initial_payload, skip_provider=_testing_mode())
+        verification_artifacts = _write_verification_markdown_artifacts(
+            requirement=requirement,
+            run=run,
+            verification_plan=verification_plan,
+            checks=[],
+        )
+        command_log_dir = Path(verification_artifacts["verification_evidence_markdown"]).parent / "logs"
+        for spec in _required_commands_from_verification_plan(verification_plan, project_path):
             checks.append(
-                ValidationCheckResultOut(
-                    label=str(item.get("label") or "evidence review").strip() or "evidence review",
-                    status="passed",
-                    output_excerpt="Evidence-only verification item delegated to verification agent.",
+                _run_check(
+                    str(spec.get("cwd") or project_path),
+                    str(spec.get("command") or ""),
+                    timeout_sec=int(spec.get("timeout_sec") or 300),
+                    purpose=str(spec.get("purpose") or ""),
+                    log_dir=command_log_dir,
                 )
             )
+        verification_artifacts = _write_verification_markdown_artifacts(
+            requirement=requirement,
+            run=run,
+            verification_plan=verification_plan,
+            checks=checks,
+        )
         result = verify_with_agent(
             _verification_payload_for_run(
                 db,
@@ -4397,6 +4895,8 @@ def validate_execution_run(
                 run=run,
                 nodes=nodes,
                 checks=checks,
+                verification_plan=verification_plan,
+                verification_artifacts=verification_artifacts,
             ),
             skip_provider=_testing_mode(),
         )
@@ -4408,6 +4908,15 @@ def validate_execution_run(
         result["resolution_path"] = resolution_path
         result["resolution_reason"] = str(result.get("resolution_reason") or result.get("reasoning") or result.get("summary") or "").strip()
         result["resolution_rules"] = resolution_rules
+        result.setdefault("verification_plan", verification_plan)
+        verification_artifacts = _write_verification_markdown_artifacts(
+            requirement=requirement,
+            run=run,
+            verification_plan=dict(result.get("verification_plan") or verification_plan),
+            checks=checks,
+            result=result,
+        )
+        result["verification_artifacts"] = verification_artifacts
         record = _persist_verification_result(
             db,
             requirement=requirement,
@@ -4435,8 +4944,67 @@ def validate_execution_run(
             record.followup_requirement_payload_json = _json_dump(result.get("followup_requirement_payload") or {})
             requirement.followup_requirement_id = int(followup_requirement.id)
         requirement.resolution_path = resolution_path
+        if resolution_path == "continue_execution" and execution_kind != "delivery_repair":
+            if _self_repair_budget_exhausted(run):
+                resolution_path = "route_to_human"
+                result["self_repair_budget_exhausted"] = True
+                result["resolution_path"] = resolution_path
+                result["suggested_next_action"] = "route_to_human"
+                result["resolution_reason"] = (
+                    str(result.get("resolution_reason") or result.get("summary") or "").strip()
+                    or "Self-repair budget exhausted."
+                )
+                record.resolution_path = resolution_path
+                record.suggested_next_action = "route_to_human"
+                record.resolution_reason = str(result.get("resolution_reason") or "")
+                requirement.resolution_path = resolution_path
+                result["verification_artifacts"] = _write_verification_markdown_artifacts(
+                    requirement=requirement,
+                    run=run,
+                    verification_plan=dict(result.get("verification_plan") or verification_plan),
+                    checks=checks,
+                    result=result,
+                )
+            else:
+                repair_node = _append_self_repair_turn(
+                    db,
+                    requirement=requirement,
+                    run=run,
+                    validation=record,
+                    result=result,
+                    checks=checks,
+                )
+                record.resolution_path = "continue_execution"
+                record.suggested_next_action = "continue_execution"
+                requirement.resolution_path = "continue_execution"
+                _log_workflow_event(
+                    "execution_self_repair_queued",
+                    requirement=requirement,
+                    execution=run,
+                    validation=record,
+                    repair_node_id=int(repair_node.id),
+                    repair_attempt_count=_self_repair_attempt_count(run),
+                    max_auto_repair_attempts=_MAX_SELF_REPAIR_ATTEMPTS,
+                )
+                db.commit()
+                if not _testing_mode():
+                    try:
+                        return start_execution_run(db, int(run.id))
+                    except ValueError as exc:
+                        db.rollback()
+                        _log_workflow_event(
+                            "execution_self_repair_start_blocked",
+                            requirement=requirement,
+                            execution=run,
+                            validation=record,
+                            reason=str(exc),
+                        )
+                        db.commit()
+                return build_execution_detail(db, execution_run_id)
         run.phase = "delivery_ready" if verdict == "passed" else "blocked"
         run.status = _execution_status_from_phase(run.phase)
+        if bool(result.get("self_repair_budget_exhausted")):
+            run.status = "failed"
         run.attempt_state = "succeeded" if verdict == "passed" else "failed"
         run.failure_kind = None if verdict == "passed" else ("verification_inconclusive" if resolution_path == "route_to_human" and verdict == "inconclusive" else "verification_failed")
         run.blocker_kind = None
@@ -5159,6 +5727,7 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
             )
         )
     plan_summary = _parse_run_plan_snapshot(run) or _parse_execution_plan(requirement)
+    self_repair_summary = dict(plan_summary.get("self_repair") or {})
     execution = ExecutionRunOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
@@ -5174,6 +5743,9 @@ def _build_execution_detail_once(db: Session, execution_run_id: int) -> Executio
         attempt_budget=int(plan_summary.get("attempt_budget")) if plan_summary.get("attempt_budget") is not None else None,
         failed_gate_name=str(plan_summary.get("failed_gate_name") or "").strip() or str(getattr(release, "failed_gate_name", "") or "").strip() or None,
         parent_plan_reference_summary=str(plan_summary.get("parent_plan_reference_summary") or "").strip() or None,
+        repair_attempt_count=int(self_repair_summary.get("repair_attempt_count") or 0),
+        max_auto_repair_attempts=int(self_repair_summary.get("max_auto_repair_attempts") or _MAX_SELF_REPAIR_ATTEMPTS),
+        manual_retry_count=int(self_repair_summary.get("manual_retry_count") or 0),
         complexity=str(run.complexity or "simple"),
         status=str(run.status or "queued"),
         phase=str(getattr(run, "phase", "") or run.status or "queued"),

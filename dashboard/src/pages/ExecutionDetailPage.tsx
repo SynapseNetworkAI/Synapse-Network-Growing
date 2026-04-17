@@ -222,7 +222,9 @@ export default function ExecutionDetailPage() {
                 disabled={busyAction === 'retry'}
                 onClick={() => runAction('retry', () => api.retryExecution(execution.id))}
               >
-                创建新 run 重试
+                {execution.repair_attempt_count != null && execution.repair_attempt_count >= (execution.max_auto_repair_attempts ?? 2)
+                  ? '继续同 session 修复'
+                  : '创建新 run 重试'}
               </button>
             )}
           </div>
@@ -341,6 +343,10 @@ export default function ExecutionDetailPage() {
           <div>delivery blocker: {detail.delivery_summary?.blocker_kind || detail.delivery_summary?.delivery_blocker_type || '-'}</div>
           <div>failed gate: {execution.failed_gate_name || detail.delivery_summary?.failed_gate_name || '-'}</div>
           <div>repair budget: {execution.attempt_index != null && execution.attempt_budget != null ? `${execution.attempt_index} / ${execution.attempt_budget}` : '-'}</div>
+          <div>
+            self repair: {(execution.repair_attempt_count ?? 0)} / {(execution.max_auto_repair_attempts ?? 2)}
+            {(execution.manual_retry_count ?? 0) > 0 ? ` · manual ${execution.manual_retry_count}` : ''}
+          </div>
           <div>compare: {detail.delivery_summary?.compare_url ? <a className="text-blue-600 hover:underline" href={detail.delivery_summary.compare_url} target="_blank" rel="noreferrer">打开 Compare</a> : '-'}</div>
         </div>
       </SectionFrame>
@@ -464,7 +470,7 @@ export default function ExecutionDetailPage() {
                 </StateBadge>
               </div>
               <div className="mt-3 text-sm text-[color:var(--ops-text-body)]">
-                <Markdown value={verificationPlan.summary} />
+                <Markdown value={verificationPlan.markdown || verificationPlan.summary} />
               </div>
               {verificationPlan.why_no_verification ? (
                 <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4 text-sm text-[color:var(--ops-text-body)]">
@@ -476,7 +482,18 @@ export default function ExecutionDetailPage() {
             <div className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
                 <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Checks</div>
-                {verificationPlan.checks.length > 0 ? (
+                {(verificationPlan.required_commands || []).length > 0 ? (
+                  <ul className="space-y-3 text-sm text-[color:var(--ops-text-body)]">
+                    {(verificationPlan.required_commands || []).map((item, index) => (
+                      <li key={`${String(item.command || '')}-${index}`} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3">
+                        <div className="font-semibold">Required command</div>
+                        <div className="mt-1 text-[color:var(--ops-text-caption)]">cwd: {String(item.cwd || '.')}</div>
+                        <code className="mt-2 block overflow-x-auto rounded-lg bg-white px-3 py-2 text-xs">{String(item.command || '')}</code>
+                        {item.purpose ? <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{String(item.purpose)}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : verificationPlan.checks.length > 0 ? (
                   <ul className="list-disc space-y-2 pl-5 text-sm text-[color:var(--ops-text-body)]">
                     {verificationPlan.checks.map((item) => (
                       <li key={item}>{item}</li>
