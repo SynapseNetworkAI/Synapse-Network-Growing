@@ -272,6 +272,24 @@ OPS_LARK_BOT_KEYWORD=告警
 
 When Copilot SDK returns an explicit enterprise-policy / authorization error, the system now sends a Lark alert and pauses the task + parent requirement instead of continuing into a misleading failure loop.
 
+## Python Runtime Standard
+
+`Synapse-Network-Growing` backend requires Python 3.14+ locally and in production. The shared local virtualenv is expected at:
+
+```bash
+/Users/cliff/workspace/agent/.venv
+```
+
+Recommended local setup:
+
+```bash
+/opt/homebrew/bin/python3.14 -m venv /Users/cliff/workspace/agent/.venv
+/Users/cliff/workspace/agent/.venv/bin/python -m pip install -U pip setuptools wheel
+/Users/cliff/workspace/agent/.venv/bin/pip install -r requirements.txt
+```
+
+The local and prod startup scripts call `scripts/python_runtime_guard.sh` before importing the app. This prevents the Pydantic v2 / PEP 604 typing path from accidentally running under macOS Python 3.9.
+
 ## Python Logging Standard
 
 `Synapse-Network-Growing` 当前把 Python 日志视为正式运行时契约，而不是辅助文本输出。

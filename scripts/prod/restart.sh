@@ -11,6 +11,8 @@ VENV="${OPS_VENV:-$PROJECT_ROOT/../.venv}"
 if [[ -f "$VENV/bin/activate" ]]; then
   source "$VENV/bin/activate"
 fi
+source "$PROJECT_ROOT/scripts/python_runtime_guard.sh"
+require_ops_python_runtime python
 
 export OPS_ENV=prod
 PORT=${OPS_PORT:-9600}

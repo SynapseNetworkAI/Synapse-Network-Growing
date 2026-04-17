@@ -362,6 +362,19 @@ Release detail 负责交付与发布操作。
 
 ## 6. Runtime 选择心智模型
 
+### 6.1 Python runtime
+
+Ops Dashboard 后端本地与生产启动都要求 Python 3.14+。推荐使用 Homebrew Python：
+
+```bash
+/opt/homebrew/bin/python3.14 -m venv /Users/cliff/workspace/agent/.venv
+/Users/cliff/workspace/agent/.venv/bin/pip install -r requirements.txt
+```
+
+`scripts/local/*.sh` 与 `scripts/prod/*.sh` 会在启动前执行 `scripts/python_runtime_guard.sh`。如果当前 venv 仍是 macOS Python 3.9，脚本会提前失败并给出重建 venv 的命令，而不是等到 Pydantic import 阶段报错。
+
+### 6.2 Backend selection
+
 planner 和 execution runtime 已经分离。`ORCHESTRATION_BACKEND` 决定 execution runtime；`PLANNER_BACKEND` 可单独决定 plan agent / acceptance / verification 的模型入口。
 
 常见 execution backend：
