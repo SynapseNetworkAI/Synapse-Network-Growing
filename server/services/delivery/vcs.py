@@ -169,11 +169,14 @@ def _commit_message(requirement_id: int, requirement_title: str, repo_path: str)
     return subject[:72]
 
 
-def _branch_base_ref(repo_path: str, base_branch: str, remote_name: str) -> str | None:
+def _branch_base_ref(repo_path: str, base_branch: str, remote_name: str, *, prefer_remote: bool = False) -> str | None:
+    remote_ref = f"{remote_name}/{base_branch}"
+    remote_exists = _remote_branch_exists(repo_path, remote_name, base_branch)
+    if prefer_remote and remote_exists:
+        return remote_ref
     if _local_branch_exists(repo_path, base_branch):
         return base_branch
-    remote_ref = f"{remote_name}/{base_branch}"
-    if _remote_branch_exists(repo_path, remote_name, base_branch):
+    if remote_exists:
         return remote_ref
     return None
 
@@ -207,7 +210,7 @@ def _sync_base_branch(repo_path: str, base_branch: str, remote_name: str) -> dic
 
 
 def _ahead_of_base_count(repo_path: str, base_branch: str, remote_name: str) -> int:
-    base_ref = _branch_base_ref(repo_path, base_branch, remote_name)
+    base_ref = _branch_base_ref(repo_path, base_branch, remote_name, prefer_remote=True)
     if not base_ref:
         return 0
     completed = _run_git(repo_path, "rev-list", "--count", f"{base_ref}..HEAD", check=False)
@@ -306,6 +309,10 @@ def _commit_all_changes(repo_path: str, message: str) -> str | None:
     _run_git(repo_path, "add", "-A")
     _run_git(repo_path, "commit", "-m", message)
     return (_run_git(repo_path, "rev-parse", "HEAD").stdout or "").strip() or None
+
+
+def _head_sha(repo_path: str) -> str | None:
+    return (_run_git(repo_path, "rev-parse", "HEAD", check=False).stdout or "").strip() or None
 
 
 def _push_branch(repo_path: str, remote_name: str, branch_name: str) -> str | None:
@@ -431,6 +438,10 @@ def execute_requirement_delivery_vcs(
             repo_result["committed"] = bool(commit_sha)
             ahead_of_base = _ahead_of_base_count(repo_path, base_branch, remote_name)
             repo_result["ahead_of_base"] = ahead_of_base
+            if not commit_sha and ahead_of_base > 0:
+                commit_sha = _head_sha(repo_path)
+                repo_result["commit_sha"] = commit_sha
+                repo_result["preexisting_commit"] = bool(commit_sha)
             if commit_required and not commit_sha and ahead_of_base <= 0:
                 raise RuntimeError("no repository changes detected to commit for delivery")
             if push_required:

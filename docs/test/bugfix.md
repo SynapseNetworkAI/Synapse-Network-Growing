@@ -2,7 +2,7 @@
 id: taskboard-bugfix-log
 title: "TaskBoard / Approvals Bug 记录"
 created_at: 2026-04-08
-updated_at: 2026-04-14
+updated_at: 2026-04-17
 ---
 
 # TaskBoard / Approvals Bug 记录
@@ -137,3 +137,4 @@ updated_at: 2026-04-14
 | 125 | 2026-04-14 19:01:00 +08 | server/services/workflows/verification_agent.py, tests/test_verification_agent.py | live requirement `#3` 跑到 verification agent 时反复报 `Object of type datetime is not JSON serializable`，execution 会在 validating 态不停重试。根因是 verification payload 里的 activity stream 含 `datetime`，发送给 provider 前直接 `json.dumps(payload)`。修复为：verification agent 在构造 prompt 前统一把 `datetime/date` 递归转换成 ISO 字符串，并补回归测试锁住这条序列化路径。 | ✅ fixed |
 | 126 | 2026-04-14 20:11:00 +08 | server/services/workflows/agent_first.py, tests/test_agent_first_api.py | live requirement `#1` 已经完成实现却被 verification 判失败，根因是 harness 仍会机械执行 acceptance contract 里的宽泛根目录命令（如 `pytest` / `npm test`），覆盖了 execution agent 自己给出的针对性验证证据。修复为：agent-first validation 只自动运行 execution evidence 中显式声明的命令；acceptance contract 的验证项只作为 verification agent 的上下文，不再被强制当作 root-level sweep 执行。 | ✅ fixed |
 | 127 | 2026-04-14 20:16:00 +08 | server/services/workflows/verification_agent.py, tests/test_verification_agent.py | live requirement `#1` 去掉宽泛命令后，verification provider 仍把“已有原始执行摘要与变更说明，但缺 file-changes artifact”的 run 判成 `inconclusive`，导致链路继续悬空。修复为：在 verification prompt 中明确 raw output / execution summary / changed-files summary 都是正式证据；若 provider 仍给出 `inconclusive`，但 deterministic fallback 已能基于现有执行证据给出明确结论，则自动采用 fallback verdict 收口。 | ✅ fixed |
+| 128 | 2026-04-17 09:25:00 +08 | server/services/delivery/vcs.py, tests/test_delivery_vcs.py | live requirement `#4` 已经由 Codex execution agent 提交到交付分支，但 delivery 只检查工作区未提交 diff，并用被污染的本地 `main` 计算 ahead，导致干净但已 ahead `origin/main` 的分支被误判为 `no repository changes detected to commit for delivery`，整条链路转人工。修复为：delivery ahead 统计优先比较 `origin/<base>..HEAD`，并在工作区干净但已有 precommitted HEAD 时把当前 HEAD 作为 `commit_sha` 继续 push/PR；补回归测试覆盖本地 base 指针被 agent 提交污染的场景。 | ✅ fixed |

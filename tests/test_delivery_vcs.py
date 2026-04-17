@@ -176,6 +176,45 @@ def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failur
     assert "documentation validation failed" in str(result["delivery_failure_excerpt"])
 
 
+def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_base_moved(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+    _git(repo_path, "checkout", "-b", "ops/req-19-precommitted")
+    (repo_path / "README.md").write_text("base\nagent committed change\n", encoding="utf-8")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-m", "agent committed change")
+    head_sha = _git(repo_path, "rev-parse", "HEAD").stdout.strip()
+    _git(repo_path, "branch", "-f", "main", "HEAD")
+
+    result = execute_requirement_delivery_vcs(
+        requirement_id=19,
+        requirement_title="Precommitted branch delivery",
+        delivery_contract={
+            "branch_name": "ops/req-19-precommitted",
+            "base_branch": "main",
+            "commit_required": True,
+            "push_required": True,
+            "capability_matrix": {"git_write": True, "git_push": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "delivered"
+    assert result["latest_commit_sha"] == head_sha
+    repo_result = result["repositories"][0]
+    assert repo_result["committed"] is False
+    assert repo_result["preexisting_commit"] is True
+    assert repo_result["commit_sha"] == head_sha
+    assert repo_result["ahead_of_base"] == 1
+    assert repo_result["pushed"] is True
+    remote_head = _git(repo_path, "ls-remote", "--heads", "origin", "ops/req-19-precommitted").stdout.strip()
+    assert head_sha in remote_head
+
+
 def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(tmp_path):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
