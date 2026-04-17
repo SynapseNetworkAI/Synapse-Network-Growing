@@ -12,18 +12,38 @@ Requirement -> Execution -> Release
 
 当前正式拓扑图：
 
+![Synapse Company Ops System Architecture](../assets/company-ops-system-architecture.png)
+
 ```mermaid
-flowchart LR
-    R["Requirement Surface"] -->|submit + approval + plan| E["Execution Surface"]
-    E -->|verification agent passed| L["Release Surface"]
-    P["Project Center"] --> R
-    P --> E
-    P --> L
-    X["Error Loop"] -->|materialize / reuse requirement| R
-    N["Structured Logging + Lark Notifications"] --> R
-    N --> E
-    N --> L
-    N --> X
+%%{init: {"theme": "base", "themeVariables": {"fontSize": "22px", "fontFamily": "Arial", "primaryTextColor": "#1f2937", "lineColor": "#6b7280"}, "flowchart": {"nodeSpacing": 80, "rankSpacing": 95, "curve": "basis"}} }%%
+flowchart TB
+    P["Project Center<br/>project_key / root_path / repo policy"] --> R
+    X["Error Loop<br/>materialize or reuse requirement"] --> R
+
+    R["1. Requirement Surface<br/>intent / acceptance / approval / plan"] --> E
+    E["2. Execution Surface<br/>Execution Agent implements code + tests<br/>same runtime_session_id is preserved"] --> V
+    V["3. Verification Agent + Harness<br/>late-bound verification_plan.md<br/>Harness runs required commands"] -->|passed| L
+    V -->|failed + repair budget remains| REPAIR["Self-Repair Turn<br/>append verification_repair_* node<br/>feed verification_result.md back to Execution Agent"]
+    REPAIR --> E
+    V -->|failed + budget exhausted| H["Human Operator<br/>manual retry can continue same session"]
+    L["4. Release Surface<br/>commit / push / open PR"]
+
+    N["Structured Logging + Lark Notifications<br/>observability across requirement / execution / release"] -. observes .-> R
+    N -. observes .-> E
+    N -. observes .-> V
+    N -. observes .-> L
+
+    classDef surface fill:#eef4ff,stroke:#7ea9d7,stroke-width:2px,color:#1f2937;
+    classDef verify fill:#eef8f0,stroke:#89c59f,stroke-width:2px,color:#1f2937;
+    classDef repair fill:#fff6d8,stroke:#d8a72f,stroke-width:2px,color:#1f2937;
+    classDef human fill:#fff1f1,stroke:#db8e96,stroke-width:2px,color:#1f2937;
+    classDef side fill:#f8fafc,stroke:#cbd5e1,stroke-width:2px,color:#1f2937;
+
+    class R,E,L surface;
+    class V verify;
+    class REPAIR repair;
+    class H human;
+    class P,X,N side;
 ```
 
 默认执行流也只保留最小核心形状：
@@ -309,9 +329,10 @@ Execution 现在采用严格的单主链模型：
 1. 同一 requirement 同时只允许一条当前 execution 主链
 2. `queued / running / paused / validating` 才算当前活跃 execution
 3. 已完成、已失败、已验证的 run 不能再次 `start`
-4. `retry` 不会复活旧 run，而是创建一条新的 execution run
+4. verification failure 不创建 replacement run，而是在当前 run 追加 `verification_repair_*` 节点并复用同一个 Execution Agent session
 5. requirement、execution、release 三面都只按当前唯一主链解释
-6. 旧脏 execution / release 运行态数据不做兼容，直接通过重置脚本删除
+6. `retry` 仍用于 task failure、环境阻塞恢复或 operator 手动继续；self-repair 预算耗尽后的 operator retry 也复用当前 session
+7. 旧脏 execution / release 运行态数据不做兼容，直接通过重置脚本删除
 
 ### 3.4 Runtime Governance
 
@@ -330,6 +351,8 @@ Execution 现在采用严格的单主链模型：
 2. 强制先 research 再 plan
 3. 强制输出长篇结构化计划
 4. 用阶段名驱动 artifact 生成
+
+Execution self-repair 的正式设计见 [Execution Self-Repair Loop Architecture](execution-self-repair-loop-architecture.md)。
 
 ### 3.5 Logging Layer
 

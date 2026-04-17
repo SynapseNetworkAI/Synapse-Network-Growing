@@ -320,9 +320,10 @@ When Copilot SDK returns an explicit enterprise-policy / authorization error, th
 6. `docs/design-docs/planner-adapter-architecture.md` - Plan Agent provider adapter、配置优先级与扩展边界
 7. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
 8. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
-9. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
-10. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
-11. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
+9. `docs/design-docs/execution-self-repair-loop-architecture.md` - Execution Agent 与 Verification Agent 的同 session 自修复闭环
+10. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
+11. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
+12. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

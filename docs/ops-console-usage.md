@@ -391,6 +391,8 @@ planner 和 execution runtime 已经分离。`ORCHESTRATION_BACKEND` 决定 exec
 
 Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project_root=<canonical target project root>`、`requirement_id=NULL`。Execution Agent 继续按需求隔离，但同一 requirement 的 implementation 与 verification repair turns 复用同一个 runtime session，避免修复阶段重新理解上下文。详细设计见 [Plan Agent Project-Scoped Session Reuse](design-docs/plan-agent-project-scoped-session-reuse.md)。
 
+Execution / Verification 的同 session self-repair 闭环见 [Execution Self-Repair Loop Architecture](design-docs/execution-self-repair-loop-architecture.md)。
+
 ## 7. 错误日志页（辅助）
 
 ### 6.1 `/errors`

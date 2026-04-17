@@ -120,6 +120,7 @@
    - failed / needs_revision 不再创建独立 bugfix execution，而是在当前 execution run 追加 `verification_repair_*` 节点。
    - 修复 turn 复用同一 requirement 的 Execution Agent `runtime_session_id`，并读取 `verification_result.md`、Harness command logs、diff summary 和原始 acceptance / plan。
    - 自动 self-repair 默认最多 2 次；第 3 次验证仍失败时进入 `route_to_human`，人工可继续触发同 session retry。
+   - 正式设计见 [Execution Self-Repair Loop Architecture](execution-self-repair-loop-architecture.md)。
 5. staging deploy。
 6. production deploy。
 7. rollback。
