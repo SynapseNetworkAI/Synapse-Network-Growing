@@ -2,7 +2,7 @@
 id: taskboard-bugfix-log
 title: "TaskBoard / Approvals Bug 记录"
 created_at: 2026-04-08
-updated_at: 2026-04-17
+updated_at: 2026-04-18
 ---
 
 # TaskBoard / Approvals Bug 记录
@@ -138,3 +138,6 @@ updated_at: 2026-04-17
 | 126 | 2026-04-14 20:11:00 +08 | server/services/workflows/agent_first.py, tests/test_agent_first_api.py | live requirement `#1` 已经完成实现却被 verification 判失败，根因是 harness 仍会机械执行 acceptance contract 里的宽泛根目录命令（如 `pytest` / `npm test`），覆盖了 execution agent 自己给出的针对性验证证据。修复为：agent-first validation 只自动运行 execution evidence 中显式声明的命令；acceptance contract 的验证项只作为 verification agent 的上下文，不再被强制当作 root-level sweep 执行。 | ✅ fixed |
 | 127 | 2026-04-14 20:16:00 +08 | server/services/workflows/verification_agent.py, tests/test_verification_agent.py | live requirement `#1` 去掉宽泛命令后，verification provider 仍把“已有原始执行摘要与变更说明，但缺 file-changes artifact”的 run 判成 `inconclusive`，导致链路继续悬空。修复为：在 verification prompt 中明确 raw output / execution summary / changed-files summary 都是正式证据；若 provider 仍给出 `inconclusive`，但 deterministic fallback 已能基于现有执行证据给出明确结论，则自动采用 fallback verdict 收口。 | ✅ fixed |
 | 128 | 2026-04-17 09:25:00 +08 | server/services/delivery/vcs.py, tests/test_delivery_vcs.py | live requirement `#4` 已经由 Codex execution agent 提交到交付分支，但 delivery 只检查工作区未提交 diff，并用被污染的本地 `main` 计算 ahead，导致干净但已 ahead `origin/main` 的分支被误判为 `no repository changes detected to commit for delivery`，整条链路转人工。修复为：delivery ahead 统计优先比较 `origin/<base>..HEAD`，并在工作区干净但已有 precommitted HEAD 时把当前 HEAD 作为 `commit_sha` 继续 push/PR；补回归测试覆盖本地 base 指针被 agent 提交污染的场景。 | ✅ fixed |
+| 129 | 2026-04-18 18:45:00 +08 | server/services/workflows/declarative.py, tests/test_declarative_workflow_factory.py | 声明式 Workflow Factory 首轮验证 `agent_self_repair` 场景时，runner 把 `execution_runs.id` 写入 `ArtifactRow.workflow_run_id`，但该字段外键实际指向旧 `workflow_runs.id`，导致 transition artifact 插入触发 SQLite foreign key failure。修复为：workflow artifact 不再误用 `workflow_run_id`，改在 machine payload 中记录 `execution_run_id`；测试按 payload 过滤当前 execution run 证据。 | ✅ fixed |
+| 130 | 2026-04-18 18:48:00 +08 | server/services/workflows/declarative.py, tests/test_declarative_workflow_factory.py | `agent_self_repair` 场景复验时，`verify -> patch` retry 条件里的 `counters.patch_attempts < limits.max_patch_attempts` 因缺省 counter 被解析成 `None < 2` 而失败，workflow 直接转人工，跳过自修复循环。修复为：condition resolver 对缺失的 `counters.*` 默认按 `0` 处理，让首次失败能正确进入 patch retry。 | ✅ fixed |
+| 131 | 2026-04-18 18:51:00 +08 | server/services/runtime/alerting.py, tests/test_services_structure.py | 扩大验证到 service structure 时，公共函数 docstring 检查暴露 `build_lark_card()` 等 runtime alerting 入口缺少函数文档，导致结构测试失败。修复为：为 `build_ops_url()`、`notification_service_label()`、`build_lark_card()` 补充简短 docstring，恢复服务层文档约束。 | ✅ fixed |

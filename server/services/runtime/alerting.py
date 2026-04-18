@@ -42,6 +42,8 @@ def _json_dump(value: Any) -> str:
 
 
 def build_ops_url(path: str | None) -> str | None:
+    """Build an absolute Ops Console URL for a relative route."""
+
     base = str(config.OPS_BASE_URL or "").strip().rstrip("/")
     route = str(path or "").strip()
     if not base or not route:
@@ -57,6 +59,8 @@ def notification_service_label(
     display_name: str | None = None,
     project_key: str | None = None,
 ) -> str:
+    """Return the most specific human-facing service label for a notification."""
+
     return (
         str(service_name or "").strip()
         or str(display_name or "").strip()
@@ -81,6 +85,8 @@ def _lark_context_block(payload: dict[str, object]) -> str:
 
 
 def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, object]:
+    """Build a structured Lark interactive card payload for an Ops notification."""
+
     service = str(payload.get("service") or "Synapse Ops")
     event_type = str(payload.get("event_type") or "event")
     occurred_at = str(payload.get("occurred_at") or _isoformat(None))

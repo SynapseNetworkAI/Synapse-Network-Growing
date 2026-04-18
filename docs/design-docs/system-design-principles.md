@@ -56,6 +56,17 @@
 2. planner 不得强制生成固定 research/plan/closeout 仪式。
 3. harness 不负责替 agent 决定执行顺序。
 
+## 6.5 声明式复杂 Workflow 必须由确定性 Runner 治理
+
+1. 复杂 workflow 可以由 Meta-Builder Agent 生成声明式 State Machine YAML，但只能组合受控 atom。
+2. workflow 不得退回到隐藏在 Python `if-else` 中的多阶段过程式编排。
+3. Agent Atom 负责推理、生成、诊断、修复建议和内容创作，但不允许直接改变 workflow state。
+4. State transition 必须由 deterministic runner 基于 schema、evidence、policy、budget 和 guard 判断。
+5. 所有 loop 必须有 retry budget、terminal state 和 operator fallback。
+6. Agent Atom 输出必须 schema 化；解析失败最多自修一次，原始输出必须落 artifact。
+7. 下游 deterministic atom 只能读取 parsed payload，不能把非结构化模型输出当作可信输入。
+8. 高风险 atom 必须进入 human gate；资金、结算、合约、auth、生产部署和外部付费动作不得自动放行。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

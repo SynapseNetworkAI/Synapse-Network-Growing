@@ -257,6 +257,25 @@ Execution 现在除了“能跑”，还要求“可解释、可展示、可审�
 3. 不做实时 git 探测来拼展示字段
 4. token 真源固定为 task 记录中的 `tokens_used`
 
+### 2.7 Declarative Workflow Factory
+
+当前默认执行流仍保持最小核心形状：
+
+```text
+intake -> execute -> validate -> deliver
+```
+
+复杂工作流未来不再回到硬编码多阶段 Python，也不让多个 Agent 自由开会决定控制流。正式演进方向是 [Declarative Agent Workflow Factory](declarative-agent-workflow-factory.md)：
+
+1. workflow 用 State Machine YAML 表达，而不是单向 DAG 或 Python `if-else`。
+2. 每个 workflow run 共享 Blackboard，避免 diagnose、patch、verify 之间上下文撕裂。
+3. Agent Atom 负责诊断、生成、修复、文案和支持理解等认知任务。
+4. Deterministic Atom 负责日志读取、命令执行、schema 校验、artifact 写入、PR 创建和风险门禁。
+5. State transition 只能由 deterministic runner 根据 evidence、schema、budget 和 policy 决定。
+6. 高风险 atom 永远进入 human gate；资金、结算、合约、auth、生产和外部付费动作不自动放行。
+
+这使系统可以从 human intent / desired state 生成新工作流，同时继续保持当前 Company Ops 的可审计性和安全边界。
+
 ## 3. Core Execution Model
 
 ### 3.1 Planner Contract

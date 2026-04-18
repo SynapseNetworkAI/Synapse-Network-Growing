@@ -406,6 +406,8 @@ Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project
 
 Execution / Verification 的同 session self-repair 闭环见 [Execution Self-Repair Loop Architecture](design-docs/execution-self-repair-loop-architecture.md)。
 
+未来 Workflow Factory 页面用于从 human intent / desired state 生成声明式 workflow spec，并把复杂工作流收敛到 State Machine YAML + Blackboard。active workflow 必须先通过 sandbox fixtures 验证并经过 human approval；高风险 atom（funds、settlement、contract、auth、production、external paid spend）永远进入 human gate。详细设计见 [Declarative Agent Workflow Factory](design-docs/declarative-agent-workflow-factory.md)。
+
 ## 7. 错误日志页（辅助）
 
 ### 6.1 `/errors`

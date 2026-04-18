@@ -143,6 +143,14 @@ Execution Agent and Verification Agent are intentionally adversarial but coopera
 
 Verification Agent does not write code or tests. Tests are part of the deliverable, so the Execution Agent owns them.
 
+## Future Generalization
+
+The current self-repair loop is intentionally fixed and focused: `execution -> verification -> same-session repair -> verification`.
+
+The future declarative workflow layer generalizes this shape into a State Machine YAML loop such as `verify -> patch -> verify`, backed by a shared Blackboard and deterministic transition guards. That keeps the current same-session Execution Agent behavior, but makes the loop reusable for gateway reliability, agent self-repair, support workflows, growth campaigns, and other complex operating paths.
+
+See [Declarative Agent Workflow Factory](declarative-agent-workflow-factory.md) for the generic architecture.
+
 ## UI Behavior
 
 Execution detail displays:
@@ -173,3 +181,4 @@ Current automated coverage verifies:
 2. [System Design Principles](system-design-principles.md)
 3. [Current Feature Inventory](current-feature-inventory.md)
 4. [Plan Agent Project-Scoped Session Reuse](plan-agent-project-scoped-session-reuse.md)
+5. [Declarative Agent Workflow Factory](declarative-agent-workflow-factory.md)

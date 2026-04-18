@@ -71,3 +71,29 @@ author: AI-GrowthLead
 - [ ] **Phase 4: PH 打榜与 B 端招商 (Day 15-30)**
   - [ ] 正式上线 Product Hunt。
   - [ ] 使用 `provider_onboarding.md` 文案单独触达数据服务商，引导他们把 API 挂载到我们的网络。
+
+
+结合您的域名 synapse-network.ai 以及《增长分发与账号注册矩阵》文档中的要求，这里为您梳理了一套基于 Google Workspace（Google 企业邮箱） 的账号分配与注册方案。
+为了最大化利用资源（作为一人公司），您只需要购买一个 Google Workspace 的主账号，其他的邮箱前缀都可以通过设置免费别名 (Aliases) 来实现，所有邮件最终都会汇聚到您的主收件箱。
+一、 Google Workspace 邮箱基础配置架构
+•	主账号 (需付费购买)：cliff@synapse-network.ai （代表您作为 CEO/CTO 的个人创始人身份）。
+•	免费别名 (Aliases) 配置：
+•	admin@synapse-network.ai：用于注册官方企业账号、绑定域名、管理云服务等。
+•	hello@synapse-network.ai 或 newsletter@synapse-network.ai：用于对外发布内容、接收用户反馈。
+二、 增长分发账号注册映射表
+根据您的计划文档，以下是对应平台需要创建的账号类别及建议使用的邮箱配置：
+平台类别	目标平台	需要创建的账号	绑定的邮箱 (域名: synapse-network.ai)	注册建议与说明
+头条曝光	Product Hunt (PH)	个人的 Maker 账号 + 创建产品页面	cliff@synapse-network.ai	PH 非常看重创始人的真实身份，使用带公司域名的创始人邮箱能够加快审核和提高权重。
+极客讨论	Hacker News (HN)	YCombinator 账号	cliff@synapse-network.ai	同样需要强烈的“极客/黑客”个人属性，使用主账号注册。
+社交传播	X (Twitter)	1. 官方企业号 (e.g. @SynapseNetwork)	admin@synapse-network.ai	企业号用 admin 别名注册，方便未来资产交接。
+社交传播	X (Twitter)	2. 创始号 (CTO/CEO个人号)	cliff@synapse-network.ai	个人号转化率更高，建议作为日常发声的主力。
+技术博客	Substack	注册官方 Newsletter 主页	hello@synapse-network.ai	Substack 是用来留存私域流量的，使用对外的公关/问候邮箱别名最合适。
+技术博客	Hashnode / Dev.to	同步分发博客账号	cliff@synapse-network.ai	这些平台自带强大的开发者 SEO 和推荐流量，且更偏好个人开发者身份发文。
+垂直社群	Reddit	包含 r/MachineLearning, r/LocalLLaMA, r/ethdev 等节点的账号	cliff@synapse-network.ai	Reddit 极度反感企业营销，必须以真诚的个人开发者身份入驻。
+三、 ⚠️ 上线前的紧急行动建议 (Phase 1 研发期)
+根据您的行动计划，在当前阶段（开发调试/Staging部署前），您有几个必须立刻执行的账号动作：
+	1.	立刻注册并开始养号： HN 和 Reddit 对纯新号发链接有严重的防机器惩罚，新号发文几乎零曝光。您需要使用 cliff@synapse-network.ai 注册后，每天花 5 分钟去别人的帖子里点赞、留几段有深度的评论，把账号权重养起来。
+	2.	空间视觉基建： 搭建 Substack / Dev.to 的空间视觉（上传 Logo、写好 Bio），但先别发大新闻。
+	3.	准备视频物料： 利用跑通的本地开发环境，录制 1 分钟的 Hero Demo 实机操作视频，提前剪出宣发物料。
+下一步建议：
+您可以先去 Google Workspace 官网将 cliff@synapse-network.ai 买下来并设置好别名。拿到邮箱后，优先攻克 Hacker News 和 Reddit 这两个最需要“时间权重”的账号。

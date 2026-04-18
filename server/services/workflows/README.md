@@ -5,6 +5,7 @@
 ## 公开入口
 
 - `planner.py`
+- `declarative.py`
 - `orchestrator/`
 
 ## 依赖边界
@@ -15,6 +16,7 @@
 ## 常见改动
 
 - 规划输出与 step policy：`planner.py`
+- 声明式 State Machine / Blackboard workflow：`declarative.py`
 - requirement lifecycle、dispatch、validation、closeout：`orchestrator/`
 
 ## 迁移映射
