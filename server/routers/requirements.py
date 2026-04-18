@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.database import get_db
@@ -13,6 +14,7 @@ from server.schemas import (
     RequirementCreate,
     RequirementPatch,
     RequirementRevisionRequest,
+    WorkflowReadinessOut,
 )
 from server.services.workflows.agent_first import (
     approve_requirement,
@@ -20,18 +22,27 @@ from server.services.workflows.agent_first import (
     cancel_requirement,
     create_requirement,
     delete_requirement,
+    generate_requirement_workflow_assets,
     list_requirements,
     regenerate_requirement_assets,
     regenerate_requirement_plan,
+    requirement_workflow_readiness,
     requirement_attachment_file_path,
     reject_requirement,
     revise_requirement,
+    start_requirement_workflow,
     submit_requirement,
     update_requirement,
 )
 
 
 router = APIRouter(prefix="/api/requirements", tags=["requirements"])
+
+
+class RequirementWorkflowStartRequest(BaseModel):
+    workflow_key: str | None = None
+    run_immediately: bool = True
+    triggered_by: str = "operator"
 
 
 @router.get("", response_model=list[AgentFirstRequirementOut])
@@ -155,6 +166,44 @@ def regenerate_requirement_assets_endpoint(requirement_id: int, db: Session = De
     try:
         return regenerate_requirement_assets(db=db, requirement_id=requirement_id)
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{requirement_id}/workflow-readiness", response_model=WorkflowReadinessOut)
+def get_requirement_workflow_readiness_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return requirement_workflow_readiness(db, requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/workflow/generate", response_model=AgentFirstRequirementDetailOut)
+def generate_requirement_workflow_assets_endpoint(requirement_id: int, db: Session = Depends(get_db)):
+    try:
+        return generate_requirement_workflow_assets(db=db, requirement_id=requirement_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{requirement_id}/workflow/start", status_code=201)
+def start_requirement_workflow_endpoint(
+    requirement_id: int,
+    body: RequirementWorkflowStartRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    request_body = body or RequirementWorkflowStartRequest()
+    try:
+        run_detail = start_requirement_workflow(
+            db,
+            requirement_id,
+            workflow_key=request_body.workflow_key,
+            triggered_by=request_body.triggered_by,
+            run_immediately=request_body.run_immediately,
+        )
+        db.commit()
+        return run_detail
+    except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

@@ -15,6 +15,7 @@ from server.services.workflows.declarative import (
     decide_human_gate,
     list_workflow_definitions,
     list_workflow_runs,
+    workflow_definition_detail,
     workflow_run_detail,
 )
 
@@ -45,9 +46,35 @@ def list_workflow_definitions_endpoint(db: Session = Depends(get_db)):
     return list_workflow_definitions(db)
 
 
+@router.get("/definitions/{workflow_key}")
+def get_workflow_definition_endpoint(workflow_key: str, db: Session = Depends(get_db)):
+    try:
+        return workflow_definition_detail(db, workflow_key)
+    except WorkflowRuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/runs")
-def list_workflow_runs_endpoint(limit: int = 100, db: Session = Depends(get_db)):
-    return list_workflow_runs(db, limit=limit)
+def list_workflow_runs_endpoint(
+    limit: int = 100,
+    status: str | None = None,
+    workflow_key: str | None = None,
+    current_state: str | None = None,
+    risk_level: str | None = None,
+    pending_human_gate: bool | None = None,
+    requirement_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    return list_workflow_runs(
+        db,
+        limit=limit,
+        status=status,
+        workflow_key=workflow_key,
+        current_state=current_state,
+        risk_level=risk_level,
+        pending_human_gate=pending_human_gate,
+        requirement_id=requirement_id,
+    )
 
 
 @router.post("/runs", status_code=201)

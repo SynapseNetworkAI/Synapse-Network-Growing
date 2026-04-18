@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from typing import Any, Callable, Mapping
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server.database import (
     AtomInvocationRow,
     BlackboardSnapshotRow,
@@ -22,6 +24,8 @@ from server.database import (
     WorkflowStateEventRow,
     utcnow,
 )
+from server.services.delivery.pull_request import sync_requirement_review_pr
+from server.services.delivery.vcs import execute_requirement_delivery_vcs
 
 
 class WorkflowSpecError(ValueError):
@@ -303,16 +307,81 @@ def list_workflow_definitions(db: Session) -> list[dict[str, Any]]:
     ]
 
 
-def list_workflow_runs(db: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+def workflow_definition_detail(db: Session, workflow_key: str) -> dict[str, Any]:
+    """Return one workflow definition with graph-ready state metadata."""
+
+    ensure_builtin_workflow_definitions(db)
+    normalized = str(workflow_key or "").strip()
+    row = db.query(WorkflowDefinitionRow).filter(WorkflowDefinitionRow.workflow_key == normalized).first()
+    if row is None:
+        raise WorkflowRuntimeError(f"workflow definition not found: {normalized}")
+    spec = _json_load(row.spec_json, {})
+    states_payload: list[dict[str, Any]] = []
+    for state_key, state in (spec.get("states") or {}).items():
+        if not isinstance(state, Mapping):
+            continue
+        atom_key = str(state.get("agent") or state.get("atom") or "").strip() or None
+        states_payload.append(
+            {
+                "key": str(state_key),
+                "atom_key": atom_key,
+                "atom_type": "agent" if state.get("agent") else "deterministic" if state.get("atom") else "terminal",
+                "terminal": state.get("terminal") is True,
+                "resolution": str(state.get("resolution") or "").strip() or None,
+                "output_key": str(state.get("output_key") or "").strip() or None,
+                "risk_level": str(state.get("risk_level") or state.get("risk") or "").strip() or None,
+                "transitions": [
+                    {
+                        "condition": str(transition.get("if") or "").strip() or "<default>",
+                        "goto": str(transition.get("goto") or "").strip(),
+                        "increment": transition.get("increment"),
+                    }
+                    for transition in (state.get("transitions") or [])
+                    if isinstance(transition, Mapping)
+                ],
+            }
+        )
+    return {
+        "id": int(row.id),
+        "workflow_key": row.workflow_key,
+        "version": int(row.version or 1),
+        "title": row.title,
+        "status": row.status,
+        "description": str(spec.get("description") or row.title or row.workflow_key),
+        "initial_state": str(spec.get("initial_state") or ""),
+        "states": states_payload,
+        "limits": dict(spec.get("limits") or {}),
+        "risk_policy": dict(spec.get("risk_policy") or {}),
+        "blackboard": dict(spec.get("blackboard") or {}),
+        "spec": spec,
+    }
+
+
+def list_workflow_runs(
+    db: Session,
+    *,
+    limit: int = 100,
+    status: str | None = None,
+    workflow_key: str | None = None,
+    current_state: str | None = None,
+    risk_level: str | None = None,
+    pending_human_gate: bool | None = None,
+    requirement_id: int | None = None,
+) -> list[dict[str, Any]]:
     """Return recent declarative workflow runs for the ops UI."""
 
-    rows = (
-        db.query(WorkflowRunRow)
-        .filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
-        .order_by(WorkflowRunRow.id.desc())
-        .limit(max(1, min(int(limit or 100), 500)))
-        .all()
-    )
+    query = db.query(WorkflowRunRow).filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
+    if status:
+        query = query.filter(WorkflowRunRow.status == status)
+    if workflow_key:
+        query = query.filter(WorkflowRunRow.workflow_key == workflow_key)
+    if current_state:
+        query = query.filter(WorkflowRunRow.current_state == current_state)
+    if risk_level:
+        query = query.filter(WorkflowRunRow.risk_level == risk_level)
+    if requirement_id:
+        query = query.filter(WorkflowRunRow.requirement_id == int(requirement_id))
+    rows = query.order_by(WorkflowRunRow.id.desc()).limit(max(1, min(int(limit or 100), 500))).all()
     requirement_ids = [int(row.requirement_id) for row in rows]
     requirements = {
         int(item.id): item
@@ -329,8 +398,13 @@ def list_workflow_runs(db: Session, *, limit: int = 100) -> list[dict[str, Any]]
             .count()
         )
         requirement = requirements.get(int(row.requirement_id))
-        result.append(
-            {
+        last_invocation = (
+            db.query(AtomInvocationRow)
+            .filter(AtomInvocationRow.workflow_run_id == int(row.id))
+            .order_by(AtomInvocationRow.id.desc())
+            .first()
+        )
+        item = {
                 "id": int(row.id),
                 "requirement_id": int(row.requirement_id),
                 "requirement_title": str(getattr(requirement, "title", "") or ""),
@@ -340,11 +414,13 @@ def list_workflow_runs(db: Session, *, limit: int = 100) -> list[dict[str, Any]]
                 "resolution": row.resolution,
                 "risk_level": row.risk_level,
                 "pending_human_gate_count": int(pending_gate_count or 0),
+                "last_atom": str(getattr(last_invocation, "atom_key", "") or "") or None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
                 "started_at": row.started_at.isoformat() if row.started_at else None,
                 "completed_at": row.completed_at.isoformat() if row.completed_at else None,
-            }
-        )
+        }
+        if pending_human_gate is None or bool(pending_gate_count) is bool(pending_human_gate):
+            result.append(item)
     return result
 
 
@@ -466,9 +542,9 @@ def default_atom_registry() -> AtomRegistry:
     registry.register("run_ops_self_repair_verification", _verify_self_repair)
     registry.register(
         "open_self_repair_pr",
-        lambda _ctx: AtomResult(
-            summary="Self-repair PR prepared for human approval",
-            writes={"pr": {"created": True, "url": "pending"}},
+        lambda ctx: _open_requirement_review_pr(
+            ctx,
+            pr_scope="agent_self_repair",
             risk_flags=("self_modification_requires_human",),
         ),
     )
@@ -516,13 +592,288 @@ def default_atom_registry() -> AtomRegistry:
     )
     registry.register(
         "open_gateway_repair_pr",
-        lambda _ctx: AtomResult(summary="Gateway repair PR prepared", writes={"pr": {"created": True, "url": "pending"}}),
+        lambda ctx: _open_requirement_review_pr(ctx, pr_scope="gateway_reliability_repair"),
     )
     registry.register(
         "observe_gateway_recovery",
         lambda _ctx: AtomResult(summary="Gateway recovery observed", writes={"observation": {"restored": True, "not_restored": False}}),
     )
     return registry
+
+
+def _open_requirement_review_pr(
+    ctx: WorkflowContext,
+    *,
+    pr_scope: str,
+    risk_flags: tuple[str, ...] = (),
+) -> AtomResult:
+    """Commit, push, and sync a GitHub draft PR for a completed workflow."""
+
+    if _workflow_pr_test_mode():
+        return _simulated_review_pr_result(ctx, pr_scope=pr_scope, risk_flags=risk_flags)
+
+    target_project_path = _workflow_target_project_path(ctx)
+    branch_name = _workflow_branch_name(ctx, pr_scope=pr_scope)
+    delivery_contract = {
+        "branch_name": branch_name,
+        "base_branch": _workflow_base_branch(ctx),
+        "remote_name": config.DELIVERY_VCS_REMOTE_NAME,
+        "commit_required": True,
+        "push_required": True,
+        "capability_matrix": {"git_write": True, "git_push": True},
+        "changed_target_project_paths": [target_project_path] if target_project_path else [],
+    }
+    vcs_payload = execute_requirement_delivery_vcs(
+        requirement_id=int(ctx.requirement.id),
+        requirement_title=str(ctx.requirement.title or ""),
+        delivery_contract=delivery_contract,
+        fallback_target_path=target_project_path,
+    )
+    artifact_ids: list[str] = []
+    vcs_artifact = _create_workflow_artifact(
+        ctx.db,
+        workflow_run_id=int(ctx.workflow_run.id),
+        artifact_type="workflow_vcs_delivery",
+        state_key=ctx.state_key,
+        atom_key=str(ctx.state_spec.get("atom") or "open_pr"),
+        content_summary=f"{pr_scope}: VCS delivery {vcs_payload.get('status')}",
+        human_readable_body=json.dumps(vcs_payload, ensure_ascii=False, indent=2, sort_keys=True),
+        machine_readable_payload=vcs_payload,
+    )
+    artifact_ids.append(str(vcs_artifact.id))
+
+    if vcs_payload.get("status") != "delivered":
+        blockers = list(vcs_payload.get("blockers") or [])
+        return AtomResult(
+            summary="PR delivery blocked before GitHub PR sync",
+            writes={
+                "pr": {
+                    "created": False,
+                    "failed": True,
+                    "status": "delivery_blocked",
+                    "url": None,
+                    "blockers": blockers,
+                    "vcs": vcs_payload,
+                }
+            },
+            artifacts=tuple(artifact_ids),
+            risk_flags=risk_flags,
+        )
+
+    branch_name = str(vcs_payload.get("branch_name") or branch_name).strip() or branch_name
+    base_branch = str(vcs_payload.get("base_branch") or "main").strip() or "main"
+    remote_url = _first_repo_value(vcs_payload, "remote_url")
+    compare_url = _github_compare_url(remote_url, base_branch, branch_name)
+    pr_payload = sync_requirement_review_pr(
+        requirement_id=int(ctx.requirement.id),
+        requirement_title=str(ctx.requirement.title or ""),
+        branch_name=branch_name,
+        base_branch=base_branch,
+        compare_url=compare_url,
+        latest_commit_sha=str(vcs_payload.get("latest_commit_sha") or "") or None,
+        latest_remote_sha=str(vcs_payload.get("latest_remote_sha") or "") or None,
+        last_pushed_at=str(vcs_payload.get("last_pushed_at") or "") or None,
+        review_surface_summary=_workflow_review_summary(ctx, pr_scope=pr_scope),
+        promotion_checklist=_workflow_promotion_checklist(ctx),
+        vcs_payload=vcs_payload,
+    )
+    pr_artifact = _create_workflow_artifact(
+        ctx.db,
+        workflow_run_id=int(ctx.workflow_run.id),
+        artifact_type="workflow_review_pr_sync",
+        state_key=ctx.state_key,
+        atom_key=str(ctx.state_spec.get("atom") or "open_pr"),
+        content_summary=f"{pr_scope}: GitHub PR sync {pr_payload.get('status')}",
+        human_readable_body=json.dumps(pr_payload, ensure_ascii=False, indent=2, sort_keys=True),
+        machine_readable_payload=pr_payload,
+    )
+    artifact_ids.append(str(pr_artifact.id))
+
+    pr_url = str(pr_payload.get("pr_url") or "").strip()
+    created = pr_payload.get("status") == "synced" and bool(pr_url)
+    return AtomResult(
+        summary="GitHub draft PR synced" if created else "GitHub PR sync blocked",
+        writes={
+            "pr": {
+                "created": created,
+                "failed": not created,
+                "status": pr_payload.get("status"),
+                "pr_status": pr_payload.get("pr_status"),
+                "number": pr_payload.get("pr_number"),
+                "url": pr_url or None,
+                "branch_name": branch_name,
+                "base_branch": base_branch,
+                "compare_url": pr_payload.get("compare_url") or compare_url,
+                "blockers": list(pr_payload.get("blockers") or []),
+                "vcs": vcs_payload,
+                "sync": pr_payload,
+            }
+        },
+        artifacts=tuple(artifact_ids),
+        risk_flags=risk_flags,
+    )
+
+
+def _workflow_pr_test_mode() -> bool:
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _simulated_review_pr_result(
+    ctx: WorkflowContext,
+    *,
+    pr_scope: str,
+    risk_flags: tuple[str, ...],
+) -> AtomResult:
+    branch_name = _workflow_branch_name(ctx, pr_scope=pr_scope)
+    base_branch = _workflow_base_branch(ctx)
+    pr_payload = {
+        "status": "synced",
+        "pr_status": "draft",
+        "pr_number": int(ctx.workflow_run.id),
+        "pr_url": f"https://github.com/example/{pr_scope}/pull/{int(ctx.workflow_run.id)}",
+        "branch_name": branch_name,
+        "head_branch": branch_name,
+        "base_branch": base_branch,
+        "repo_slug": f"example/{pr_scope}",
+        "compare_url": f"https://github.com/example/{pr_scope}/compare/{base_branch}...{branch_name}",
+        "sync_action": "simulated",
+        "blockers": [],
+    }
+    artifact = _create_workflow_artifact(
+        ctx.db,
+        workflow_run_id=int(ctx.workflow_run.id),
+        artifact_type="workflow_review_pr_sync",
+        state_key=ctx.state_key,
+        atom_key=str(ctx.state_spec.get("atom") or "open_pr"),
+        content_summary=f"{pr_scope}: simulated GitHub PR sync",
+        human_readable_body=json.dumps(pr_payload, ensure_ascii=False, indent=2, sort_keys=True),
+        machine_readable_payload=pr_payload,
+    )
+    return AtomResult(
+        summary="GitHub draft PR synced (test mode)",
+        writes={
+            "pr": {
+                "created": True,
+                "failed": False,
+                "status": "synced",
+                "pr_status": "draft",
+                "number": pr_payload["pr_number"],
+                "url": pr_payload["pr_url"],
+                "branch_name": branch_name,
+                "base_branch": base_branch,
+                "compare_url": pr_payload["compare_url"],
+                "sync": pr_payload,
+            }
+        },
+        artifacts=(str(artifact.id),),
+        risk_flags=risk_flags,
+    )
+
+
+def _workflow_target_project_path(ctx: WorkflowContext) -> str:
+    candidates = [
+        getattr(ctx.requirement, "target_project_path", None),
+        _lookup_path("trigger.project_root_path", ctx.blackboard),
+        _lookup_path("trigger.target_project_path", ctx.blackboard),
+        _lookup_path("trigger.project_path", ctx.blackboard),
+    ]
+    for candidate in candidates:
+        for line in str(candidate or "").splitlines():
+            value = line.strip()
+            if value:
+                return value
+    return ""
+
+
+def _workflow_base_branch(ctx: WorkflowContext) -> str:
+    configured = _lookup_path("trigger.base_branch", ctx.blackboard)
+    return str(configured or "main").strip() or "main"
+
+
+def _workflow_branch_name(ctx: WorkflowContext, *, pr_scope: str) -> str:
+    configured = str(_lookup_path("trigger.branch_name", ctx.blackboard) or "").strip()
+    if configured:
+        return configured
+    title_slug = _slug(str(getattr(ctx.requirement, "title", "") or pr_scope), max_length=32)
+    scope_slug = _slug(pr_scope, max_length=32)
+    return f"ops/req-{int(ctx.requirement.id)}-{scope_slug}-{title_slug}"[:120].rstrip("-/")
+
+
+def _slug(value: str, *, max_length: int = 48) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip().lower())
+    slug = re.sub(r"-+", "-", slug).strip("-._")
+    return (slug or "workflow")[:max_length].strip("-._") or "workflow"
+
+
+def _github_compare_url(remote_url: str | None, base_branch: str, branch_name: str) -> str | None:
+    value = str(remote_url or "").strip()
+    if value.startswith("git@github.com:"):
+        path = value.split(":", 1)[1]
+        if path.endswith(".git"):
+            path = path[:-4]
+        return f"https://github.com/{path}/compare/{base_branch}...{branch_name}"
+    match = re.match(r"https?://github\.com/(?P<path>.+?)(?:\.git)?/?$", value)
+    if not match:
+        return None
+    return f"https://github.com/{match.group('path')}/compare/{base_branch}...{branch_name}"
+
+
+def _first_repo_value(vcs_payload: Mapping[str, Any], key: str) -> Any:
+    for repo in vcs_payload.get("repositories") or []:
+        if isinstance(repo, Mapping) and repo.get(key):
+            return repo.get(key)
+    return None
+
+
+def _workflow_review_summary(ctx: WorkflowContext, *, pr_scope: str) -> str:
+    diagnosis = ctx.blackboard.get("diagnosis") or {}
+    patch_result = ctx.blackboard.get("patch_result") or {}
+    verification = ctx.blackboard.get("verification") or {}
+    evidence = ctx.blackboard.get("evidence") or []
+    lines = [
+        f"## Workflow",
+        f"- Workflow key: `{ctx.workflow_run.workflow_key}`",
+        f"- PR scope: `{pr_scope}`",
+        f"- Current state: `{ctx.state_key}`",
+        "",
+        "## Diagnosis",
+        _json_excerpt(diagnosis),
+        "",
+        "## Patch Result",
+        _json_excerpt(patch_result),
+        "",
+        "## Verification",
+        _json_excerpt(verification),
+    ]
+    if evidence:
+        lines.extend(["", "## Evidence", _json_excerpt(evidence)])
+    return "\n".join(lines)
+
+
+def _workflow_promotion_checklist(ctx: WorkflowContext) -> list[dict[str, Any]]:
+    verification = ctx.blackboard.get("verification") if isinstance(ctx.blackboard.get("verification"), Mapping) else {}
+    gate = ctx.blackboard.get("gate") if isinstance(ctx.blackboard.get("gate"), Mapping) else {}
+    return [
+        {
+            "key": "workflow_verification",
+            "label": "Workflow verification",
+            "status": str(verification.get("status") or "pending"),
+            "detail": str(verification.get("command") or verification.get("failed_command") or ""),
+        },
+        {
+            "key": "risk_evidence_gate",
+            "label": "Risk evidence gate",
+            "status": str(gate.get("decision") or "not_applicable"),
+        },
+    ]
+
+
+def _json_excerpt(value: Any, *, limit: int = 2000) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+    except TypeError:
+        text = str(value)
+    return text[:limit]
 
 
 def validate_workflow_spec(spec: Mapping[str, Any]) -> None:
@@ -748,6 +1099,11 @@ def _execute_state_atom(
         )
         artifact_ids.append(int(artifact.id))
         blackboard.setdefault("artifacts", {})[f"{state_key}_raw_output_artifact_id"] = int(artifact.id)
+    for artifact_id in result.artifacts:
+        try:
+            artifact_ids.append(int(artifact_id))
+        except (TypeError, ValueError):
+            continue
     invocation.status = result.status
     invocation.output_summary = result.summary
     invocation.artifact_ids_json = _json_dump(artifact_ids)

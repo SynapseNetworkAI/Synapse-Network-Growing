@@ -74,6 +74,7 @@ from server.schemas import (
     ValidationRecordSlimOut,
     VerificationPlanOut,
     WorkspaceBlockerOut,
+    WorkflowReadinessOut,
 )
 from server.logging_utils import get_logger, log_event
 from server.services.agents.execution_resolver import suggest_task_execution
@@ -1163,16 +1164,19 @@ def _requirement_allowed_actions(
     effective_workflow_state = str(workflow_state or getattr(requirement, "workflow_state", "") or "").strip() or "draft"
     effective_approval_status = str(approval_status or getattr(requirement, "approval_status", "") or "pending_approval").strip() or "pending_approval"
     assets_status = _assets_status(requirement)
+    has_active_workflow = int(getattr(requirement, "active_workflow_run_id", 0) or 0) > 0
     actions = ["view"]
-    if latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval", "ready", "awaiting_operator"}:
+    if has_active_workflow:
+        actions.append("view_workflow")
+    if not has_active_workflow and latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval", "ready", "awaiting_operator"}:
         actions.append("edit")
-    if latest_execution is None and assets_status == "ready" and effective_workflow_state in {"draft", "ready"}:
+    if not has_active_workflow and latest_execution is None and assets_status == "ready" and effective_workflow_state in {"draft", "ready"}:
         actions.append("submit")
-    if latest_execution is None and _assets_status(requirement) == "failed" and effective_workflow_state in {"draft", "ready", "awaiting_operator"}:
+    if not has_active_workflow and latest_execution is None and _assets_status(requirement) == "failed" and effective_workflow_state in {"draft", "ready", "awaiting_operator"}:
         actions.append("regenerate_assets")
     if effective_workflow_state == "awaiting_approval" and effective_approval_status == "pending_approval":
         actions.extend(["approve", "reject"])
-    if latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval"}:
+    if not has_active_workflow and latest_execution is None and effective_workflow_state in {"draft", "planning", "awaiting_approval"}:
         actions.append("delete")
     if latest_execution is not None:
         actions.append("view_execution")
@@ -1402,6 +1406,26 @@ def _requirement_read_projection(
         failure_kind = cast(str | None, execution_projection["failure_kind"])
         recovery_fields = cast(dict[str, Any], execution_projection["recovery_fields"])
         recovery_status = cast(str | None, getattr(execution_view, "recovery_status", None))
+    declarative_state: str | None = None
+    declarative_attention: str | None = None
+    active_workflow_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
+    if execution_row is None and active_workflow_run_id > 0:
+        active_workflow_run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == active_workflow_run_id).first()
+        if active_workflow_run is not None:
+            run_status = str(getattr(active_workflow_run, "status", "") or "").strip()
+            run_resolution = str(getattr(active_workflow_run, "resolution", "") or "").strip()
+            if run_status in {"pending", "running"}:
+                declarative_state = "executing"
+            elif run_status == "awaiting_operator" or run_resolution == "route_to_human":
+                declarative_state = "awaiting_operator"
+                declarative_attention = run_resolution or "human_gate_required"
+            elif run_status == "failed":
+                declarative_state = "failed"
+                declarative_attention = run_resolution or "workflow_failed"
+            elif run_status in {"succeeded", "completed"}:
+                declarative_state = "completed"
+            else:
+                declarative_state = "executing"
     workflow_state, attention_reason = _requirement_canonical_state(
         requirement,
         latest_execution=execution_view,
@@ -1410,6 +1434,9 @@ def _requirement_read_projection(
         execution_blocker_kind=blocker_kind,
         execution_failure_kind=failure_kind,
     )
+    if declarative_state is not None:
+        workflow_state = declarative_state
+        attention_reason = declarative_attention
     failure_reason = str(getattr(requirement, "failure_reason", "") or "").strip() or None
     if workflow_state == "failed" and failure_reason is None:
         failure_reason = attention_reason
@@ -2748,6 +2775,7 @@ def _build_requirement_detail(
         assets_error_message=_assets_error_message(requirement),
         acceptance_contract=_parse_acceptance_contract(requirement),
         execution_plan=_parse_execution_plan(requirement),
+        workflow_readiness=_workflow_readiness_out(db, requirement),
         attachments=[
             RequirementAttachmentOut(**serialize_requirement_attachment(item))
             for item in _requirement_attachment_rows(db, requirement_id)
@@ -3020,31 +3048,182 @@ def _select_declarative_workflow_key(requirement: RequirementRow) -> str:
     return "agent_self_repair"
 
 
+def _workflow_readiness_out(db: Session, requirement: RequirementRow) -> WorkflowReadinessOut:
+    """Return the operator-facing readiness state for declarative workflow creation."""
+
+    assets_status = _assets_status(requirement)
+    summary = _active_workflow_run_summary(db, requirement)
+    active_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None
+    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
+    recommended_workflow_key = _select_declarative_workflow_key(requirement)
+    if active_run_id or summary is not None:
+        blocking_reason = None
+        next_action = "view_workflow"
+        can_start = False
+    elif approval_status not in {"approved", "waived"}:
+        blocking_reason = "approval_pending"
+        next_action = "wait_for_approval"
+        can_start = False
+    elif assets_status == "failed":
+        blocking_reason = "asset_generation_failed"
+        next_action = "generate_workflow_assets"
+        can_start = True
+    elif assets_status == "pending":
+        blocking_reason = "acceptance_or_plan_pending"
+        next_action = "generate_workflow_assets"
+        can_start = True
+    else:
+        blocking_reason = None
+        next_action = "start_workflow"
+        can_start = True
+    return WorkflowReadinessOut(
+        requirement_id=int(requirement.id),
+        assets_status=assets_status,
+        active_workflow_run_id=active_run_id,
+        active_workflow_run_summary=summary,
+        blocking_reason=blocking_reason,
+        next_action=next_action,
+        can_start_workflow=can_start,
+        recommended_workflow_key=recommended_workflow_key,
+    )
+
+
+def requirement_workflow_readiness(db: Session, requirement_id: int) -> WorkflowReadinessOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    return _workflow_readiness_out(db, requirement)
+
+
+def generate_requirement_workflow_assets(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    if int(getattr(requirement, "active_workflow_run_id", 0) or 0) > 0:
+        return build_requirement_detail(db, requirement_id)
+    _ensure_declarative_workflow_assets(db, requirement)
+    db.commit()
+    return build_requirement_detail(db, requirement_id)
+
+
+def start_requirement_workflow(
+    db: Session,
+    requirement_id: int,
+    *,
+    workflow_key: str | None = None,
+    triggered_by: str = "operator",
+    run_immediately: bool = True,
+) -> dict[str, Any]:
+    """Create a declarative workflow run from a requirement, generating assets if needed."""
+
+    from server.services.workflows.declarative import workflow_run_detail
+
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    existing_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
+    if existing_run_id > 0:
+        return workflow_run_detail(db, existing_run_id)
+    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
+    if approval_status not in {"approved", "waived"}:
+        raise ValueError("Requirement must be approved before creating a workflow run.")
+    if _assets_status(requirement) != "ready":
+        _ensure_declarative_workflow_assets(db, requirement)
+        db.flush()
+    selected_workflow_key = str(workflow_key or "").strip() or _select_declarative_workflow_key(requirement)
+    run = _create_requirement_declarative_workflow(
+        db,
+        requirement,
+        triggered_by=triggered_by,
+        workflow_key=selected_workflow_key,
+        run_immediately=run_immediately,
+    )
+    db.flush()
+    return workflow_run_detail(db, int(run.id))
+
+
+def _ensure_declarative_workflow_assets(db: Session, requirement: RequirementRow) -> None:
+    """Prepare lightweight assets for the declarative state-machine chain."""
+
+    selected_workflow_key = _select_declarative_workflow_key(requirement)
+    acceptance = _parse_acceptance_contract(requirement)
+    if not str(acceptance.get("markdown") or "").strip():
+        acceptance = _fallback_acceptance_contract(
+            title=str(getattr(requirement, "title", "") or ""),
+            description_markdown=str(getattr(requirement, "description_markdown", "") or ""),
+            target_project_path=str(getattr(requirement, "target_project_path", "") or "") or None,
+            required_checks=_required_checks_for_target(db, getattr(requirement, "target_project_path", None)),
+        )
+        requirement.acceptance_contract_json = _json_dump(acceptance)
+    requirement.execution_plan_json = _json_dump(
+        {
+            "planning_mode": "declarative_workflow_factory",
+            "workflow_key": selected_workflow_key,
+            "goal_summary": str(getattr(requirement, "title", "") or "").strip(),
+            "summary_markdown": (
+                f"Use declarative workflow `{selected_workflow_key}`. "
+                "State Machine Runner will initialize blackboard, execute registered atoms, "
+                "persist evidence, and route high-risk outcomes to human gate."
+            ),
+            "steps": [],
+            "planned_checks": [],
+            "risks": [],
+        }
+    )
+    requirement.assets_status = "ready"
+    requirement.assets_error_message = None
+    if str(getattr(requirement, "workflow_state", "") or "") == "planning":
+        requirement.workflow_state = "ready"
+    if str(getattr(requirement, "phase", "") or "") == "planning":
+        requirement.phase = "ready"
+    if str(getattr(requirement, "status", "") or "") in {"draft", "planning"}:
+        requirement.status = "ready"
+    requirement.updated_at = utcnow()
+    db.flush()
+
+
 def _create_requirement_declarative_workflow(
     db: Session,
     requirement: RequirementRow,
     *,
     triggered_by: str,
+    workflow_key: str | None = None,
+    run_immediately: bool = True,
 ) -> WorkflowRunRow:
     """Create the new declarative workflow run truth for a requirement."""
 
     from server.services.workflows.declarative import create_declarative_workflow_run
 
-    workflow_key = _select_declarative_workflow_key(requirement)
+    selected_workflow_key = str(workflow_key or "").strip() or _select_declarative_workflow_key(requirement)
     return create_declarative_workflow_run(
         db,
         requirement=requirement,
-        workflow_key=workflow_key,
+        workflow_key=selected_workflow_key,
         triggered_by=triggered_by,
         initial_blackboard={
             "trigger": {
                 "source": triggered_by,
                 "requirement_id": int(requirement.id),
                 "title": str(requirement.title or ""),
+                "source_kind": str(getattr(requirement, "source", "") or ""),
+                "source_ref": str(getattr(requirement, "source_ref", "") or ""),
+                "project_key": str(getattr(requirement, "project_key", "") or ""),
+                "target_project_path": str(getattr(requirement, "target_project_path", "") or ""),
+                "ops_failure_detected": True,
+                "gateway_drift_detected": selected_workflow_key == "gateway_reliability_repair",
             },
             "risk_level": "normal",
+            "requirement": {
+                "id": int(requirement.id),
+                "title": str(requirement.title or ""),
+                "priority": str(getattr(requirement, "priority", "") or "normal"),
+                "source": str(getattr(requirement, "source", "") or ""),
+                "source_ref": str(getattr(requirement, "source_ref", "") or ""),
+            },
+            "acceptance": _parse_acceptance_contract(requirement),
+            "plan": _parse_execution_plan(requirement),
         },
-        run_immediately=True,
+        run_immediately=run_immediately,
     )
 
 

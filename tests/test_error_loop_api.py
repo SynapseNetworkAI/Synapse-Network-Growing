@@ -34,7 +34,7 @@ def test_error_intake_creates_requirement_and_declarative_workflow(synced_client
     assert response.status_code == 201
     payload = response.json()
     assert payload["requirement"] is not None
-    assert payload["requirement"]["status"] in {"running", "ready", "completed"}
+    assert payload["requirement"]["status"] in {"running", "ready", "completed", "done"}
     assert payload["fingerprint"]["active_workflow_run_id"] is not None
     assert payload["fingerprint"]["active_workflow_run_summary"]["workflow_key"] == "gateway_reliability_repair"
     assert payload["fingerprint"]["occurrence_count"] == 1

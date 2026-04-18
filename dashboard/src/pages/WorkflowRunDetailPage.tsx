@@ -1,7 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, DeclarativeWorkflowRunDetail, DeclarativeHumanGate } from '../api'
+import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail } from '../api'
+import {
+  artifactDisplayTitle,
+  buildCorrectnessItems,
+  buildNextAction,
+  buildStepViewModels,
+  hasSimulatedEvidence,
+  StepViewModel,
+} from '../workflows/workflowStepExplain'
+
+type WorkflowTab = 'overview' | 'steps' | 'evidence' | 'gates' | 'debug'
+type InspectorTab = 'overview' | 'inputs' | 'outputs' | 'evidence' | 'transition'
+
+const WORKFLOW_TABS: Array<{ key: WorkflowTab; label: string }> = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'steps', label: 'Steps' },
+  { key: 'evidence', label: 'Evidence' },
+  { key: 'gates', label: 'Gates & Delivery' },
+  { key: 'debug', label: 'Debug' },
+]
 
 function formatTime(value: string | null) {
   if (!value) return '-'
@@ -18,18 +37,492 @@ function prettyJson(value: unknown) {
 }
 
 function statusClass(status: string) {
-  if (['completed', 'done', 'passed'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (['completed', 'done', 'passed', 'succeeded'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (['failed', 'error', 'rejected'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
   if (['pending', 'awaiting_operator', 'awaiting_human'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-700'
+  if (status === 'not_started') return 'border-slate-200 bg-slate-50 text-slate-500'
   return 'border-blue-200 bg-blue-50 text-blue-700'
 }
 
-function Panel({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
+function actionClass(tone: 'ready' | 'blocked' | 'running' | 'muted') {
+  if (tone === 'ready') return 'border-emerald-200 bg-emerald-600 text-white'
+  if (tone === 'blocked') return 'border-rose-200 bg-rose-600 text-white'
+  if (tone === 'running') return 'border-blue-200 bg-blue-600 text-white'
+  return 'border-[color:var(--ops-stroke-strong)] bg-white text-[color:var(--ops-text-title)]'
+}
+
+function Panel({ title, children, testId, action }: { title: string; children: ReactNode; testId?: string; action?: ReactNode }) {
   return (
     <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white p-5" data-testid={testId}>
-      <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{title}</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{title}</h3>
+        {action}
+      </div>
       <div className="mt-4">{children}</div>
     </section>
+  )
+}
+
+function JsonBlock({ value, maxHeight = 'max-h-[260px]' }: Readonly<{ value: unknown; maxHeight?: string }>) {
+  return <pre className={`${maxHeight} overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100`}>{prettyJson(value)}</pre>
+}
+
+function WorkflowRunHeader({
+  detail,
+  nextAction,
+  onRefresh,
+  onNavigateRequirement,
+  onSetTab,
+}: Readonly<{
+  detail: DeclarativeWorkflowRunDetail
+  nextAction: ReturnType<typeof buildNextAction>
+  onRefresh: () => void
+  onNavigateRequirement: () => void
+  onSetTab: (tab: WorkflowTab) => void
+}>) {
+  const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
+  return (
+    <section className="sticky top-0 z-10 rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white/95 px-5 py-5 shadow-sm backdrop-blur" data-testid="workflow-run-header">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Explainable Workflow Run</div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{detail.workflow_key}</h2>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className={['rounded-full border px-3 py-1 font-medium', statusClass(detail.status)].join(' ')}>{detail.status}</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">run #{detail.id}</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">state: {detail.current_state}</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">risk: {detail.risk_level}</span>
+            {detail.resolution ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">resolution: {detail.resolution}</span> : null}
+            {pr.url ? <a className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700" href={String(pr.url)} target="_blank" rel="noreferrer">PR</a> : null}
+          </div>
+          <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
+            requirement #{detail.requirement_id} · updated {formatTime(detail.updated_at)}
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {nextAction.href ? (
+            <a className={['rounded-xl border px-4 py-2.5 text-sm font-semibold', actionClass(nextAction.tone)].join(' ')} href={nextAction.href} target="_blank" rel="noreferrer">
+              {nextAction.label}
+            </a>
+          ) : (
+            <button type="button" className={['rounded-xl border px-4 py-2.5 text-sm font-semibold', actionClass(nextAction.tone)].join(' ')} onClick={() => nextAction.tab && onSetTab(nextAction.tab)}>
+              {nextAction.label}
+            </button>
+          )}
+          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={onNavigateRequirement}>
+            查看需求
+          </button>
+          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={onRefresh}>
+            刷新
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WorkflowRunTabs({ activeTab, onChange }: Readonly<{ activeTab: WorkflowTab; onChange: (tab: WorkflowTab) => void }>) {
+  return (
+    <div className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-2" data-testid="workflow-run-tabs">
+      {WORKFLOW_TABS.map((tab) => (
+        <button
+          key={tab.key}
+          type="button"
+          className={[
+            'rounded-xl px-4 py-2 text-sm font-medium transition',
+            activeTab === tab.key
+              ? 'bg-[color:var(--ops-text-title)] text-white'
+              : 'text-[color:var(--ops-text-muted)] hover:bg-slate-50 hover:text-[color:var(--ops-text-title)]',
+          ].join(' ')}
+          onClick={() => onChange(tab.key)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function RunBriefPanel({ detail, nextAction }: Readonly<{ detail: DeclarativeWorkflowRunDetail; nextAction: ReturnType<typeof buildNextAction> }>) {
+  const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
+  const observation = (detail.blackboard.observation || {}) as Record<string, unknown>
+  const outcome = detail.pending_human_gate_count > 0
+    ? '需要 operator 审查后才能继续。'
+    : detail.status === 'succeeded'
+      ? '工作流已完成，关键验证与收口状态已记录。'
+      : `工作流当前停在 ${detail.current_state}。`
+  return (
+    <Panel title="Run Brief" testId="workflow-run-brief">
+      <div className="space-y-4">
+        <p className="max-w-4xl text-lg leading-8 text-[color:var(--ops-text-title)]">
+          Run #{detail.id} 执行 `{detail.workflow_key}`，关联需求 #{detail.requirement_id}「{detail.requirement_title || '未命名需求'}」。{outcome}
+        </p>
+        <div className="grid gap-3 md:grid-cols-4">
+          <MiniFact label="Current State" value={detail.current_state} />
+          <MiniFact label="Resolution" value={detail.resolution || '-'} />
+          <MiniFact label="PR" value={pr.url ? 'created' : pr.created ? 'created without url' : '-'} />
+          <MiniFact label="Observation" value={observation.restored ? 'restored' : observation.not_restored ? 'not restored' : '-'} />
+        </div>
+        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 p-4">
+          <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Next Action</div>
+          <div className="mt-2 text-base font-semibold text-[color:var(--ops-text-title)]">{nextAction.label}</div>
+          <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{nextAction.detail}</div>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+function MiniFact({ label, value }: Readonly<{ label: string; value: string }>) {
+  return (
+    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
+      <div className="mt-2 truncate text-sm font-semibold text-[color:var(--ops-text-title)]">{value}</div>
+    </div>
+  )
+}
+
+function CorrectnessPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const items = buildCorrectnessItems(detail)
+  const simulated = hasSimulatedEvidence(detail)
+  return (
+    <Panel title="Correctness" testId="workflow-correctness-panel">
+      <div className="grid gap-3 md:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.key} className={['rounded-2xl border px-4 py-3', item.passed ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'].join(' ')}>
+            <div className="flex items-center gap-2">
+              <span className={['h-2.5 w-2.5 rounded-full', item.passed ? 'bg-emerald-500' : 'bg-amber-500'].join(' ')} />
+              <span className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.label}</span>
+            </div>
+            <div className="mt-1 text-xs text-[color:var(--ops-text-muted)]">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+      {simulated ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This run contains simulated evidence. Do not treat it as production proof.
+        </div>
+      ) : null}
+    </Panel>
+  )
+}
+
+function CompactStepRail({
+  steps,
+  selectedStepKey,
+  onSelect,
+}: Readonly<{
+  steps: StepViewModel[]
+  selectedStepKey: string
+  onSelect: (stepKey: string) => void
+}>) {
+  return (
+    <Panel title="Compact Step Rail" testId="workflow-compact-step-rail">
+      <div className="overflow-x-auto pb-2">
+        <div className="flex min-w-max gap-2">
+          {steps.map((step, index) => (
+            <button
+              key={step.stateKey}
+              type="button"
+              className={[
+                'min-w-[160px] rounded-2xl border px-4 py-3 text-left transition',
+                selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50' : 'border-[color:var(--ops-stroke-soft)] bg-white hover:bg-slate-50',
+              ].join(' ')}
+              onClick={() => onSelect(step.stateKey)}
+            >
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Step {index + 1}</div>
+              <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
+              <div className="mt-2">
+                <span className={['rounded-full border px-2 py-0.5 text-[11px]', statusClass(step.status)].join(' ')}>{step.status}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+function StepExplorer({
+  steps,
+  selectedStepKey,
+  onSelect,
+}: Readonly<{
+  steps: StepViewModel[]
+  selectedStepKey: string
+  onSelect: (stepKey: string) => void
+}>) {
+  return (
+    <div className="space-y-3" data-testid="workflow-step-explorer">
+      {steps.map((step) => (
+        <button
+          key={step.stateKey}
+          type="button"
+          className={[
+            'w-full rounded-2xl border p-4 text-left transition',
+            selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50/80' : 'border-[color:var(--ops-stroke-soft)] bg-white hover:bg-slate-50',
+          ].join(' ')}
+          onClick={() => onSelect(step.stateKey)}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="font-mono text-base font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
+              <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{step.actorLabel} · {step.atomKey || step.atomType}</div>
+            </div>
+            <span className={['rounded-full border px-3 py-1 text-xs', statusClass(step.status)].join(' ')}>{step.status}</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{step.purpose}</p>
+          <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+            <KeyList label="Inputs" values={step.reads} />
+            <KeyList label="Outputs" values={step.writes} />
+          </div>
+          <div className="mt-3">
+            <KeyList label="Correctness Signal" values={step.successSignals} />
+          </div>
+          <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
+            Decision: {step.matchedTransition ? `${step.matchedTransition} -> ${step.nextState || '-'}` : 'not evaluated'} · Evidence {step.evidenceArtifacts.length}
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function KeyList({ label, values }: Readonly<{ label: string; values: string[] }>) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{label}</div>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {values.length ? values.map((value) => (
+          <span key={value} className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{value}</span>
+        )) : <span className="text-[color:var(--ops-text-caption)]">-</span>}
+      </div>
+    </div>
+  )
+}
+
+function StepInspector({ step }: Readonly<{ step: StepViewModel }>) {
+  const [tab, setTab] = useState<InspectorTab>('overview')
+
+  useEffect(() => {
+    setTab('overview')
+  }, [step.stateKey])
+
+  const tabs: Array<{ key: InspectorTab; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'inputs', label: 'Inputs' },
+    { key: 'outputs', label: 'Outputs' },
+    { key: 'evidence', label: 'Evidence' },
+    { key: 'transition', label: 'Transition' },
+  ]
+
+  return (
+    <Panel title="Step Inspector" testId="workflow-step-inspector">
+      <div>
+        <div className="font-mono text-lg font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
+        <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{step.actorLabel} · {step.atomKey || step.atomType}</div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {tabs.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={[
+              'rounded-lg px-3 py-1.5 text-xs font-medium',
+              tab === item.key ? 'bg-[color:var(--ops-text-title)] text-white' : 'bg-slate-100 text-slate-600',
+            ].join(' ')}
+            onClick={() => setTab(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-4">
+        {tab === 'overview' ? (
+          <div className="space-y-4 text-sm text-[color:var(--ops-text-muted)]">
+            <p className="leading-7">{step.purpose}</p>
+            <InspectorSection title="Success Signals" values={step.successSignals} />
+            <InspectorSection title="Failure Signals" values={step.failureSignals} />
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 p-3 text-xs">
+              Status: {step.status} · Duration: {step.invocation?.duration_ms ?? 0}ms
+            </div>
+          </div>
+        ) : null}
+        {tab === 'inputs' ? <JsonBlock value={step.inputs} /> : null}
+        {tab === 'outputs' ? <JsonBlock value={step.outputs} /> : null}
+        {tab === 'evidence' ? (
+          <div className="space-y-3">
+            <InspectorSection title="Expected Evidence" values={step.evidenceHints} />
+            {step.evidenceArtifacts.map((artifact) => (
+              <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">{artifactDisplayTitle(artifact)}</summary>
+                <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{artifact.content_summary || '-'}</div>
+                <div className="mt-3">
+                  <JsonBlock value={artifact.payload} maxHeight="max-h-[220px]" />
+                </div>
+              </details>
+            ))}
+            {!step.evidenceArtifacts.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No evidence artifacts linked to this step.</div> : null}
+          </div>
+        ) : null}
+        {tab === 'transition' ? (
+          <div className="space-y-3">
+            <MiniFact label="Matched Condition" value={step.matchedTransition || '-'} />
+            <MiniFact label="Next State" value={step.nextState || '-'} />
+            <MiniFact label="Output Key" value={step.definitionState?.output_key || '-'} />
+            <JsonBlock value={step.definitionState?.transitions || []} maxHeight="max-h-[220px]" />
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  )
+}
+
+function InspectorSection({ title, values }: Readonly<{ title: string; values: string[] }>) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{title}</div>
+      <ul className="mt-2 space-y-1">
+        {values.length ? values.map((value) => (
+          <li key={value} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-[color:var(--ops-text-muted)]">{value}</li>
+        )) : <li className="text-sm text-[color:var(--ops-text-caption)]">-</li>}
+      </ul>
+    </div>
+  )
+}
+
+function EvidenceMap({ steps }: Readonly<{ steps: StepViewModel[] }>) {
+  return (
+    <Panel title="Evidence Map" testId="workflow-evidence-map">
+      <div className="space-y-4">
+        {steps.map((step) => (
+          <div key={step.stateKey} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
+                <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{step.evidenceArtifacts.length} evidence artifacts</div>
+              </div>
+              <span className={['rounded-full border px-3 py-1 text-xs', statusClass(step.status)].join(' ')}>{step.status}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {step.evidenceArtifacts.map((artifact) => (
+                <details key={artifact.id} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-title)]">{artifactDisplayTitle(artifact)}</summary>
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{artifact.content_summary || '-'}</div>
+                  <div className="mt-3">
+                    <JsonBlock value={artifact.payload} maxHeight="max-h-[220px]" />
+                  </div>
+                </details>
+              ))}
+              {!step.evidenceArtifacts.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No artifacts linked.</div> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  )
+}
+
+function GateDeliveryPanel({
+  detail,
+  busyGateId,
+  onDecide,
+}: Readonly<{
+  detail: DeclarativeWorkflowRunDetail
+  busyGateId: number | null
+  onDecide: (gate: DeclarativeHumanGate, decision: string) => void
+}>) {
+  const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
+  const vcs = (pr.vcs || {}) as Record<string, unknown>
+  const sync = (pr.sync || {}) as Record<string, unknown>
+  return (
+    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]" data-testid="workflow-gates-delivery">
+      <Panel title="Human Gates">
+        <div className="space-y-3">
+          {detail.human_gates.map((gate) => (
+            <div key={gate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-[color:var(--ops-text-title)]">{gate.gate_type} · {gate.state_key}</div>
+                  <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{gate.reason}</div>
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">risk {gate.risk_level} · {gate.status} · {formatTime(gate.created_at)}</div>
+                </div>
+                {gate.status === 'pending' ? (
+                  <div className="flex flex-wrap gap-2">
+                    {['approve', 'reject', 'continue_retry'].map((decision) => (
+                      <button
+                        key={decision}
+                        type="button"
+                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
+                        disabled={busyGateId === gate.id}
+                        onClick={() => onDecide(gate, decision)}
+                      >
+                        {decision}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">{gate.decision || gate.status}</span>
+                )}
+              </div>
+            </div>
+          ))}
+          {detail.human_gates.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无人工门禁。</div> : null}
+        </div>
+      </Panel>
+
+      <Panel title="PR Delivery" testId="workflow-pr-delivery">
+        <div className="grid gap-3 md:grid-cols-2">
+          <MiniFact label="PR Status" value={String(pr.pr_status || sync.pr_status || pr.status || '-')} />
+          <MiniFact label="Branch" value={String(pr.branch_name || sync.branch_name || vcs.branch_name || '-')} />
+          <MiniFact label="Base" value={String(pr.base_branch || sync.base_branch || vcs.base_branch || '-')} />
+          <MiniFact label="VCS" value={String(vcs.status || '-')} />
+        </div>
+        {pr.url ? (
+          <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={String(pr.url)} target="_blank" rel="noreferrer">
+            Open GitHub PR
+          </a>
+        ) : null}
+        {pr.compare_url ? (
+          <a className="ml-2 mt-4 inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" href={String(pr.compare_url)} target="_blank" rel="noreferrer">
+            Compare
+          </a>
+        ) : null}
+        {Array.isArray(pr.blockers) && pr.blockers.length ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            {pr.blockers.map((blocker) => String(blocker)).join('; ')}
+          </div>
+        ) : null}
+      </Panel>
+    </div>
+  )
+}
+
+function DebugPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-2" data-testid="workflow-debug-panel">
+      <Panel title="Raw Blackboard JSON">
+        <JsonBlock value={detail.blackboard} maxHeight="max-h-[620px]" />
+      </Panel>
+      <Panel title="Raw Artifacts">
+        <div className="space-y-3">
+          {detail.artifacts.map((artifact) => (
+            <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
+              <summary className="cursor-pointer font-semibold text-[color:var(--ops-text-title)]">{artifact.artifact_type} #{artifact.id}</summary>
+              <div className="mt-3">
+                <JsonBlock value={artifact.payload} maxHeight="max-h-[320px]" />
+              </div>
+            </details>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="Raw Transition Events">
+        <JsonBlock value={detail.events} maxHeight="max-h-[520px]" />
+      </Panel>
+      <Panel title="Raw Atom Invocations">
+        <JsonBlock value={detail.atom_invocations} maxHeight="max-h-[520px]" />
+      </Panel>
+    </div>
   )
 }
 
@@ -38,16 +531,26 @@ export default function WorkflowRunDetailPage() {
   const navigate = useNavigate()
   const workflowRunId = Number(id)
   const [detail, setDetail] = useState<DeclarativeWorkflowRunDetail | null>(null)
+  const [definition, setDefinition] = useState<DeclarativeWorkflowDefinition | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyGateId, setBusyGateId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState<WorkflowTab>('overview')
+  const [selectedStepKey, setSelectedStepKey] = useState<string>('')
 
   async function load() {
     if (!Number.isFinite(workflowRunId)) return
     setLoading(true)
     setError(null)
     try {
-      setDetail(await api.getWorkflowRun(workflowRunId))
+      const nextDetail = await api.getWorkflowRun(workflowRunId)
+      setDetail(nextDetail)
+      setSelectedStepKey((current) => current || nextDetail.current_state)
+      try {
+        setDefinition(await api.getWorkflowDefinition(nextDetail.workflow_key))
+      } catch {
+        setDefinition(null)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载工作流失败')
     } finally {
@@ -76,11 +579,20 @@ export default function WorkflowRunDetailPage() {
     load().catch(() => {})
   }, [workflowRunId])
 
+  const steps = useMemo(() => detail ? buildStepViewModels(detail, definition) : [], [detail, definition])
+  const selectedStep = steps.find((step) => step.stateKey === selectedStepKey) || steps[0]
+  const nextAction = detail ? buildNextAction(detail) : null
+
+  const selectStep = (stepKey: string) => {
+    setSelectedStepKey(stepKey)
+    setActiveTab('steps')
+  }
+
   if (loading && !detail) {
     return <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-6 text-sm text-[color:var(--ops-text-muted)]">加载工作流中…</div>
   }
 
-  if (!detail) {
+  if (!detail || !nextAction) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
         {error || '工作流不存在'}
@@ -90,121 +602,42 @@ export default function WorkflowRunDetailPage() {
 
   return (
     <div className="space-y-5" data-testid="workflow-run-detail-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Declarative Workflow</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{detail.workflow_key}</h2>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <span className={['rounded-full border px-3 py-1 font-medium', statusClass(detail.status)].join(' ')}>{detail.status}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">state: {detail.current_state}</span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">risk: {detail.risk_level}</span>
-              {detail.resolution ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">resolution: {detail.resolution}</span> : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => navigate(`/requirements/${detail.requirement_id}`)}>
-              查看需求
-            </button>
-            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
-              刷新
-            </button>
-          </div>
-        </div>
-      </section>
+      <WorkflowRunHeader
+        detail={detail}
+        nextAction={nextAction}
+        onRefresh={() => load().catch(() => {})}
+        onNavigateRequirement={() => navigate(`/requirements/${detail.requirement_id}`)}
+        onSetTab={setActiveTab}
+      />
+
+      <WorkflowRunTabs activeTab={activeTab} onChange={setActiveTab} />
 
       {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
-      <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        <Panel title="State Timeline" testId="workflow-state-timeline">
-          <div className="space-y-3">
-            {detail.events.map((event) => (
-              <div key={event.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/70 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-mono text-sm text-[color:var(--ops-text-title)]">
-                    {event.from_state || 'start'} → {event.to_state}
-                  </div>
-                  <div className="text-xs text-[color:var(--ops-text-caption)]">{formatTime(event.created_at)}</div>
-                </div>
-                <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{event.event_type}{event.condition ? ` · ${event.condition}` : ''}</div>
-              </div>
-            ))}
-            {detail.events.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无状态事件。</div> : null}
-          </div>
-        </Panel>
-
-        <Panel title="Blackboard" testId="workflow-blackboard">
-          <pre className="max-h-[420px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{prettyJson(detail.blackboard)}</pre>
-        </Panel>
-      </div>
-
-      <Panel title="Human Gates" testId="workflow-human-gates">
-        <div className="space-y-3">
-          {detail.human_gates.map((gate) => (
-            <div key={gate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-[color:var(--ops-text-title)]">{gate.gate_type} · {gate.state_key}</div>
-                  <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{gate.reason}</div>
-                  <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">risk {gate.risk_level} · {gate.status} · {formatTime(gate.created_at)}</div>
-                </div>
-                {gate.status === 'pending' ? (
-                  <div className="flex flex-wrap gap-2">
-                    {['approve', 'reject', 'continue_retry'].map((decision) => (
-                      <button
-                        key={decision}
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
-                        disabled={busyGateId === gate.id}
-                        onClick={() => decideGate(gate, decision)}
-                      >
-                        {decision}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">{gate.decision || gate.status}</span>
-                )}
-              </div>
-            </div>
-          ))}
-          {detail.human_gates.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无人工门禁。</div> : null}
+      {activeTab === 'overview' ? (
+        <div className="space-y-5" data-testid="workflow-overview-tab">
+          <RunBriefPanel detail={detail} nextAction={nextAction} />
+          <CorrectnessPanel detail={detail} />
+          <CompactStepRail steps={steps} selectedStepKey={selectedStep?.stateKey || ''} onSelect={selectStep} />
         </div>
-      </Panel>
+      ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Atom Invocations" testId="workflow-atom-invocations">
-          <div className="space-y-3">
-            {detail.atom_invocations.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-semibold text-[color:var(--ops-text-title)]">{item.atom_key}</div>
-                  <span className={['rounded-full border px-3 py-1 text-xs', statusClass(item.status)].join(' ')}>{item.status}</span>
-                </div>
-                <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.state_key} · {item.atom_type} · {item.duration_ms}ms</div>
-                <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">{item.output_summary || item.error_excerpt || '-'}</div>
-              </div>
-            ))}
-            {detail.atom_invocations.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 atom 调用。</div> : null}
-          </div>
-        </Panel>
+      {activeTab === 'steps' && selectedStep ? (
+        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]" data-testid="workflow-steps-tab">
+          <Panel title="Step Explorer">
+            <StepExplorer steps={steps} selectedStepKey={selectedStep.stateKey} onSelect={setSelectedStepKey} />
+          </Panel>
+          <StepInspector step={selectedStep} />
+        </div>
+      ) : null}
 
-        <Panel title="Artifacts" testId="workflow-artifacts">
-          <div className="space-y-3">
-            {detail.artifacts.map((artifact) => (
-              <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-                <summary className="cursor-pointer font-semibold text-[color:var(--ops-text-title)]">
-                  {artifact.artifact_type} #{artifact.id}
-                </summary>
-                <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{artifact.state_key || '-'} · {artifact.atom_key || '-'} · {formatTime(artifact.created_at)}</div>
-                <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">{artifact.content_summary || '-'}</div>
-                <pre className="mt-3 max-h-[260px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{prettyJson(artifact.payload)}</pre>
-              </details>
-            ))}
-            {detail.artifacts.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 artifacts。</div> : null}
-          </div>
-        </Panel>
-      </div>
+      {activeTab === 'evidence' ? <EvidenceMap steps={steps} /> : null}
+
+      {activeTab === 'gates' ? (
+        <GateDeliveryPanel detail={detail} busyGateId={busyGateId} onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }} />
+      ) : null}
+
+      {activeTab === 'debug' ? <DebugPanel detail={detail} /> : null}
     </div>
   )
 }

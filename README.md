@@ -299,10 +299,11 @@ The local and prod startup scripts call `scripts/python_runtime_guard.sh` before
 7. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
 8. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
 9. `docs/design-docs/declarative-agent-workflow-factory.md` - 声明式 Agent 工作流工厂、Blackboard、State Machine 与场景推演
-10. `docs/design-docs/legacy-execution-retirement-inventory.md` - 旧 execution 主链退役清单、已删除入口和剩余数据库边界
-11. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
-12. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
-13. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
+10. `docs/design-docs/workflow-factory-frontend-control-plane.md` - Workflow Factory 前端控制台、模块划分、历史数据清理与 operator UX 方案
+11. `docs/design-docs/legacy-execution-retirement-inventory.md` - 旧 execution 主链退役清单、已删除入口和剩余数据库边界
+12. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
+13. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
+14. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

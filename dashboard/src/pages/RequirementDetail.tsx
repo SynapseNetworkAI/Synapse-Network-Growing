@@ -215,6 +215,44 @@ function Markdown({ value }: Readonly<{ value: string }>) {
   )
 }
 
+function workflowReadinessCopy(detail: AgentRequirementDetail) {
+  const readiness = detail.workflow_readiness
+  const activeRunId = readiness?.active_workflow_run_id ?? detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
+  if (activeRunId) {
+    return {
+      title: 'Workflow 已生成',
+      body: `当前 declarative workflow run #${activeRunId} 已绑定到该需求。`,
+      tone: 'ready' as const,
+    }
+  }
+  if (readiness?.blocking_reason === 'approval_pending') {
+    return {
+      title: 'Workflow 等待审批',
+      body: '需求还未通过审批，State Machine Runner 不会创建工作流。',
+      tone: 'blocked' as const,
+    }
+  }
+  if (detail.assets_status === 'failed' || readiness?.blocking_reason === 'asset_generation_failed') {
+    return {
+      title: 'Workflow Assets 生成失败',
+      body: detail.assets_error_message || 'Acceptance / plan / workflow blackboard 生成失败，需要重新生成。',
+      tone: 'blocked' as const,
+    }
+  }
+  if (detail.assets_status === 'pending' || readiness?.blocking_reason === 'acceptance_or_plan_pending') {
+    return {
+      title: 'Workflow 未生成',
+      body: '当前状态：planning / assets pending。下一步：生成 workflow spec 与初始化 blackboard 后，系统会创建 declarative workflow run。',
+      tone: 'running' as const,
+    }
+  }
+  return {
+    title: 'Workflow 可启动',
+    body: 'Acceptance 与计划已就绪，可以创建 declarative workflow run 并进入状态机。',
+    tone: 'ready' as const,
+  }
+}
+
 function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): string[] {
   const requirement = detail.requirement
   const actions = new Set<string>(['view'])
@@ -262,6 +300,7 @@ export default function RequirementDetail() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [releaseActionBusy, setReleaseActionBusy] = useState<string | null>(null)
+  const [workflowActionBusy, setWorkflowActionBusy] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [form, setForm] = useState({
@@ -314,6 +353,18 @@ export default function RequirementDetail() {
     }
   }
 
+  const runWorkflowAction = async (key: string, action: () => Promise<void>) => {
+    setWorkflowActionBusy(key)
+    try {
+      await action()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '工作流动作失败，请重试'
+      toast.error(message)
+    } finally {
+      setWorkflowActionBusy(null)
+    }
+  }
+
   useEffect(() => {
     load().catch(() => {})
   }, [requirementId])
@@ -346,6 +397,8 @@ export default function RequirementDetail() {
   const requirementState = requirement.state || detail.state || requirement.status
   const approvalPassed = ['approved', 'waived'].includes(approval.approval_status)
   const activeWorkflowRunId = detail.active_workflow_run_id ?? requirement.active_workflow_run_id ?? detail.active_workflow_run_summary?.id ?? requirement.active_workflow_run_summary?.id ?? null
+  const readiness = detail.workflow_readiness
+  const readinessCopy = workflowReadinessCopy(detail)
   const autoSubmitPending =
     !activeWorkflowRunId &&
     assetsReady &&
@@ -543,6 +596,83 @@ export default function RequirementDetail() {
         }
       >
         {!isEditing ? <RequirementLifecycleStepper detail={detail} /> : null}
+
+        {!isEditing ? (
+          <div
+            data-testid="workflow-readiness-panel"
+            className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/85 px-4 py-4 text-sm text-[color:var(--ops-text-body)]"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StateBadge tone={readinessCopy.tone}>{readinessCopy.title}</StateBadge>
+                  <span>assets: {readiness?.assets_status || detail.assets_status}</span>
+                  <span>workflow: {activeWorkflowRunId ? `#${activeWorkflowRunId}` : '未生成'}</span>
+                  {readiness?.recommended_workflow_key ? <span>recommended: {readiness.recommended_workflow_key}</span> : null}
+                </div>
+                <div className="mt-2 text-[color:var(--ops-text-muted)]">{readinessCopy.body}</div>
+                <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                  blocking reason: {readiness?.blocking_reason || '-'} · next action: {readiness?.next_action || '-'}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activeWorkflowRunId ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)]"
+                    onClick={() => navigate(`/workflows/${activeWorkflowRunId}`)}
+                  >
+                    查看工作流
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="generate-workflow-assets-btn"
+                      className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-50"
+                      disabled={workflowActionBusy !== null}
+                      onClick={() =>
+                        runWorkflowAction('generate', async () => {
+                          const next = await api.generateRequirementWorkflow(requirement.id)
+                          setDetail(next)
+                          toast.success('Workflow assets 已重新生成')
+                        })
+                      }
+                    >
+                      {workflowActionBusy === 'generate' ? '生成中…' : '重新生成 Workflow Assets'}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="start-workflow-btn"
+                      className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      disabled={workflowActionBusy !== null || readiness?.can_start_workflow === false}
+                      onClick={() =>
+                        runWorkflowAction('start', async () => {
+                          const run = await api.startRequirementWorkflow(requirement.id, {
+                            workflow_key: readiness?.recommended_workflow_key || undefined,
+                            run_immediately: true,
+                            triggered_by: 'operator',
+                          })
+                          toast.success('Workflow 已生成并启动')
+                          navigate(`/workflows/${run.id}`)
+                        })
+                      }
+                    >
+                      {workflowActionBusy === 'start' ? '启动中…' : '生成并启动 Workflow'}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm"
+                      onClick={() => navigate('/workflows')}
+                    >
+                      查看生成日志
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {!isEditing && autoSubmitPending ? (
           <div className="mb-5 rounded-2xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-ready-text)]">

@@ -277,6 +277,8 @@ intake -> execute -> validate -> deliver
 
 这使系统可以从 human intent / desired state 生成新工作流，同时继续保持当前 Company Ops 的可审计性和安全边界。
 
+前端控制台需要把这套链路表达成 Operator 能直接理解的 Control Plane，而不是继续停留在表格和调试 JSON。整体页面方案见 [Workflow Factory Frontend Control Plane](workflow-factory-frontend-control-plane.md)：它定义 Command Center、Intake、Requirements、Workflows、Human Gates、Projects、Releases 和 Data Hygiene 的边界，并明确 Projects / Errors 在新架构中仍然保留但要降噪重组。
+
 ## 3. Core Execution Model
 
 ### 3.1 Planner Contract

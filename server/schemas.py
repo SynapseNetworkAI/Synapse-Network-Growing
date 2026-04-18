@@ -251,6 +251,17 @@ class DeclarativeWorkflowRunSummaryOut(BaseModel):
     completed_at: Optional[datetime] = None
 
 
+class WorkflowReadinessOut(BaseModel):
+    requirement_id: int
+    assets_status: str = "pending"
+    active_workflow_run_id: Optional[int] = None
+    active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
+    blocking_reason: Optional[str] = None
+    next_action: str = "generate_workflow_assets"
+    can_start_workflow: bool = False
+    recommended_workflow_key: Optional[str] = None
+
+
 # ── Dashboard ─────────────────────────────────────────────────
 
 class DashboardStats(BaseModel):
@@ -997,6 +1008,7 @@ class AgentFirstRequirementDetailOut(BaseModel):
     assets_error_message: Optional[str] = None
     acceptance_contract: dict[str, object] = {}
     execution_plan: dict[str, object] = {}
+    workflow_readiness: Optional[WorkflowReadinessOut] = None
     attachments: list["RequirementAttachmentOut"] = []
     followup_requirement_id: Optional[int] = None
     resolution_path: Optional[str] = None

@@ -707,9 +707,51 @@ export interface DeclarativeWorkflowRunSummary {
   resolution: string | null
   risk_level: string
   pending_human_gate_count: number
+  last_atom?: string | null
   updated_at: string | null
   started_at: string | null
   completed_at: string | null
+}
+
+export interface DeclarativeWorkflowDefinitionState {
+  key: string
+  atom_key: string | null
+  atom_type: 'agent' | 'deterministic' | 'terminal' | string
+  terminal: boolean
+  resolution: string | null
+  output_key: string | null
+  risk_level: string | null
+  transitions: Array<{
+    condition: string
+    goto: string
+    increment?: unknown
+  }>
+}
+
+export interface DeclarativeWorkflowDefinition {
+  id: number
+  workflow_key: string
+  version: number
+  title: string
+  status: string
+  description: string
+  initial_state: string
+  states: DeclarativeWorkflowDefinitionState[]
+  limits: Record<string, unknown>
+  risk_policy: Record<string, unknown>
+  blackboard: Record<string, unknown>
+  spec: Record<string, unknown>
+}
+
+export interface WorkflowReadiness {
+  requirement_id: number
+  assets_status: string
+  active_workflow_run_id: number | null
+  active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
+  blocking_reason: string | null
+  next_action: string
+  can_start_workflow: boolean
+  recommended_workflow_key: string | null
 }
 
 export interface DeclarativeWorkflowEvent {
@@ -940,6 +982,7 @@ export interface AgentRequirementDetail {
   assets_error_message: string | null
   acceptance_contract: AcceptanceContract
   execution_plan: ExecutionPlan
+  workflow_readiness: WorkflowReadiness | null
   attachments: RequirementAttachment[]
   followup_requirement_id?: number | null
   resolution_path?: string | null
@@ -1720,6 +1763,12 @@ export const api = {
   }) => request<AgentRequirementDetail>(`/requirements/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   submitRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/submit`, { method: 'POST' }),
   regenerateRequirementAssets: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/regenerate-assets`, { method: 'POST' }),
+  getRequirementWorkflowReadiness: (id: number) => request<WorkflowReadiness>(`/requirements/${id}/workflow-readiness`),
+  generateRequirementWorkflow: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/workflow/generate`, { method: 'POST' }),
+  startRequirementWorkflow: (
+    id: number,
+    data?: { workflow_key?: string | null; run_immediately?: boolean; triggered_by?: string },
+  ) => request<DeclarativeWorkflowRunDetail>(`/requirements/${id}/workflow/start`, { method: 'POST', body: JSON.stringify(data || {}) }),
   approveRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
     request<AgentRequirementDetail>(`/requirements/${id}/approve`, { method: 'POST', body: JSON.stringify({ action: 'approve', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
   rejectRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
@@ -1734,7 +1783,27 @@ export const api = {
   cancelRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/cancel`, { method: 'POST' }),
   deleteRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/delete`, { method: 'POST' }),
 
-  getWorkflowRuns: (limit = 100) => request<DeclarativeWorkflowRunSummary[]>(`/workflows/runs?limit=${limit}`),
+  getWorkflowDefinitions: () => request<DeclarativeWorkflowDefinition[]>('/workflows/definitions'),
+  getWorkflowDefinition: (workflowKey: string) => request<DeclarativeWorkflowDefinition>(`/workflows/definitions/${encodeURIComponent(workflowKey)}`),
+  getWorkflowRuns: (filters?: {
+    limit?: number
+    status?: string
+    workflow_key?: string
+    current_state?: string
+    risk_level?: string
+    pending_human_gate?: boolean
+    requirement_id?: number
+  }) => {
+    const params = new URLSearchParams()
+    params.set('limit', String(filters?.limit ?? 100))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.workflow_key) params.set('workflow_key', filters.workflow_key)
+    if (filters?.current_state) params.set('current_state', filters.current_state)
+    if (filters?.risk_level) params.set('risk_level', filters.risk_level)
+    if (filters?.pending_human_gate != null) params.set('pending_human_gate', String(filters.pending_human_gate))
+    if (filters?.requirement_id != null) params.set('requirement_id', String(filters.requirement_id))
+    return request<DeclarativeWorkflowRunSummary[]>(`/workflows/runs?${params.toString()}`)
+  },
   getWorkflowRun: (id: number) => request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}`),
   getWorkflowRunEvents: (id: number) => request<DeclarativeWorkflowEvent[]>(`/workflows/runs/${id}/events`),
   decideWorkflowHumanGate: (
