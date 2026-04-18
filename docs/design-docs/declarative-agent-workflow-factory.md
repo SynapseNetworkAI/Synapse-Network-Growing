@@ -159,6 +159,26 @@ The operator should see only the meaningful queues:
 3. approve high-risk actions
 4. accept useful SOP / checklist updates
 
+### Lark Notification Policy
+
+Lark is a paging and decision surface, not the workflow source of truth. Full context remains in `/workflows/:id`.
+
+v1 uses four notification channels:
+
+1. `alert`: P0/P1 interruption only, including SLO drift, funds/settlement/auth/contract/production risk, runner crash or stale state, retry budget exhausted, kill switch, and high-risk workflow failure.
+2. `approval`: human decision required, including human gate creation, risk-evidence gate `human_required`, manual requirement approval, deploy approval, and approve/reject/continue_retry receipts.
+3. `requirement`: workflow notifications, including requirement created, workflow started, workflow succeeded, low-risk workflow failure, assets ready/failed, and auto approval results.
+4. `release`: delivery activity, including PR opened, PR creation failed, branch pushed, release blocked, CI/deploy/observing results.
+
+Events that must not page Lark:
+
+1. ordinary state transitions
+2. successful atom invocations
+3. artifact creation
+4. blackboard snapshots
+
+All Lark cards must include service, priority, risk level, event type, summary, next action, object references, and direct Ops Console links. The routing policy is centralized in code so Watcher, State Machine Runner, Risk-Evidence Gate, Human Gate, and Delivery Atom do not each invent their own channel logic.
+
 ## Why Not Plain YAML DAG
 
 ### DAG Dead End

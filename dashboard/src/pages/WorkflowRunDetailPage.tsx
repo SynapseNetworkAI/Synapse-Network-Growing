@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail } from '../api'
 import {
   artifactDisplayTitle,
@@ -435,8 +435,10 @@ function GateDeliveryPanel({
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
   const vcs = (pr.vcs || {}) as Record<string, unknown>
   const sync = (pr.sync || {}) as Record<string, unknown>
+  const notifications = detail.notifications || []
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]" data-testid="workflow-gates-delivery">
+    <div className="space-y-5" data-testid="workflow-gates-delivery">
+      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <Panel title="Human Gates">
         <div className="space-y-3">
           {detail.human_gates.map((gate) => (
@@ -494,6 +496,26 @@ function GateDeliveryPanel({
           </div>
         ) : null}
       </Panel>
+      </div>
+
+      <Panel title="Lark Notifications" testId="workflow-lark-notifications">
+        <div className="space-y-3">
+          {notifications.map((delivery) => (
+            <div key={delivery.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={['rounded-full border px-3 py-1 text-xs', statusClass(delivery.status)].join(' ')}>{delivery.status}</span>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">{delivery.channel}</span>
+                <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{delivery.event_type}</span>
+              </div>
+              <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">{String(delivery.payload?.summary || delivery.event_key)}</div>
+              <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                {formatTime(delivery.delivered_at || delivery.created_at)} · {delivery.response_excerpt || 'no response excerpt'}
+              </div>
+            </div>
+          ))}
+          {!notifications.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 Lark 通知投递记录。</div> : null}
+        </div>
+      </Panel>
     </div>
   )
 }
@@ -528,6 +550,7 @@ function DebugPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail 
 
 export default function WorkflowRunDetailPage() {
   const { id } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const workflowRunId = Number(id)
   const [detail, setDetail] = useState<DeclarativeWorkflowRunDetail | null>(null)
@@ -578,6 +601,15 @@ export default function WorkflowRunDetailPage() {
   useEffect(() => {
     load().catch(() => {})
   }, [workflowRunId])
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab')
+    if (tab === 'delivery') {
+      setActiveTab('gates')
+    } else if (tab && WORKFLOW_TABS.some((item) => item.key === tab)) {
+      setActiveTab(tab as WorkflowTab)
+    }
+  }, [location.search])
 
   const steps = useMemo(() => detail ? buildStepViewModels(detail, definition) : [], [detail, definition])
   const selectedStep = steps.find((step) => step.stateKey === selectedStepKey) || steps[0]

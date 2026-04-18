@@ -28,7 +28,7 @@ flowchart TB
     V -->|failed + budget exhausted| H["Human Operator<br/>manual retry can continue same session"]
     L["4. Release Surface<br/>commit / push / open PR"]
 
-    N["Structured Logging + Lark Notifications<br/>observability across requirement / execution / release"] -. observes .-> R
+    N["Structured Logging + Lark Notifications<br/>requirement / alert / approval / release"] -. observes .-> R
     N -. observes .-> E
     N -. observes .-> V
     N -. observes .-> L
@@ -409,7 +409,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 2. Execution 面依赖结构化日志串起 runtime backend、command evidence、validate 和 retry。
 3. Release 面依赖结构化日志记录 prepare branch、open PR、deploy、rollback。
 4. Error Loop 依赖结构化字段而不是原始文本尾行做指纹、告警和 requirement 回流。
-5. Lark requirement / alert / release 通知应直接消费结构化日志字段，不依赖非结构化 message 解析。
+5. Lark requirement / alert / approval / release 通知应直接消费结构化日志字段，不依赖非结构化 message 解析。
 
 ## 4. Data Model
 
@@ -544,7 +544,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 5. validate 必须独立于 execute
 6. deliver 只能发生在 validate 成功之后
 7. release candidate 只接受 validate 成功的 requirement
-8. requirement、alert、release 三类 Lark 通知必须统一走结构化交互卡片
+8. requirement、alert、approval、release 四类 Lark 通知必须统一走结构化交互卡片；alert 只放 P0/P1，approval 只放 human gate，普通 workflow 细节留在 Ops Console。
 
 ## 7. Current Status
 

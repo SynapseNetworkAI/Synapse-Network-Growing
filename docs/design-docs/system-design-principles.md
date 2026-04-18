@@ -271,7 +271,8 @@ Release 负责：
 1. requirement、execution、release、incident、publish、rollback 都必须留下结构化证据。
 2. 调度决策、熔断原因、恢复动作、operator 接管都应有日志。
 3. 没有 telemetry 的自动化，不应进入默认主路径。
-4. requirement、alert、release 三类对外通知必须使用统一 envelope，至少包含服务、事件类型、发生时间、发生了什么、下一步动作和关联链接。
+4. requirement、alert、approval、release 四类对外通知必须使用统一 envelope，至少包含服务、事件类型、优先级、风险等级、发生时间、发生了什么、下一步动作和关联链接。
+5. 普通 state transition、atom success、artifact created、blackboard snapshot 不得发送 Lark，只能进入 Ops Console 可观测面；P0/P1 才能进入 alert 群，human gate 才能进入 approval 群。
 
 ## 18. Python 日志必须结构化
 

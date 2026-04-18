@@ -1,0 +1,60 @@
+from server.services.runtime.notification_policy import resolve_notification_policy
+
+
+def test_notification_policy_routes_human_gate_to_approval():
+    policy = resolve_notification_policy(
+        event_type="human_gate_request.created",
+        object_type="human_gate",
+        object_key="42",
+        risk_level="high",
+        status="pending",
+        requires_human=True,
+        workflow_key="agent_self_repair",
+        current_state="awaiting_operator",
+    )
+
+    assert policy.channel == "approval"
+    assert policy.priority == "p1"
+    assert policy.should_send_now is True
+    assert "approval:human_gate_request.created:human_gate:42" in policy.dedupe_key
+
+
+def test_notification_policy_routes_high_severity_to_alert():
+    policy = resolve_notification_policy(
+        event_type="error_logged",
+        object_type="error_fingerprint",
+        object_key="runtime_log_error:abc",
+        severity="critical",
+        risk_level="critical",
+    )
+
+    assert policy.channel == "alert"
+    assert policy.priority == "p0"
+    assert policy.should_send_now is True
+
+
+def test_notification_policy_routes_release_events_to_release():
+    policy = resolve_notification_policy(
+        event_type="pr_opened",
+        object_type="workflow_run",
+        object_key="7",
+        severity="normal",
+        risk_level="medium",
+    )
+
+    assert policy.channel == "release"
+    assert policy.priority == "p2"
+    assert policy.should_send_now is True
+
+
+def test_notification_policy_suppresses_atom_success_noise():
+    policy = resolve_notification_policy(
+        event_type="atom_invocation_succeeded",
+        object_type="workflow_run",
+        object_key="7",
+        severity="info",
+        risk_level="low",
+    )
+
+    assert policy.channel == "none"
+    assert policy.should_send_now is False

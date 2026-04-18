@@ -100,7 +100,7 @@ from server.services.requirements.attachments import (
     requirement_attachment_context_files,
     serialize_requirement_attachment,
 )
-from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
+from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, deliver_policy_notification, notification_service_label
 from server.services.runtime.codex_session_registry import (
     build_planner_project_session_key,
     find_reusable_planner_project_session,
@@ -2616,19 +2616,22 @@ def _notify_requirement_approval(
         if approval.auto_started
         else "请在需求面查看原因，并决定是否批准执行。"
     )
-    deliver_lark_notification(
+    requires_human = approval.approval_decision == "pending_manual_approval"
+    deliver_policy_notification(
         db,
-        channel="requirement",
         event_type=event_type,
-        event_key=event_key,
         object_type="requirement",
         object_key=str(int(requirement.id)),
         service_name=_service_name_for_requirement(db, requirement),
-        status_or_severity=approval.approval_status,
+        severity=str(getattr(requirement, "priority", None) or "normal"),
+        risk_level="high" if requires_human else "normal",
+        status=approval.approval_status,
+        requires_human=requires_human,
         summary=approval.approval_reason or f"Requirement #{int(requirement.id)} approval updated.",
         next_action=next_action,
         actor_or_source=approval.approval_source or "system",
         occurred_at=utcnow(),
+        event_key=event_key,
         object_refs={
             "requirement_id": int(requirement.id),
             "workflow_run_id": approval.workflow_run_id,

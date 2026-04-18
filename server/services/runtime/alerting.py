@@ -13,18 +13,21 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import NotificationDeliveryRow
+from server.services.runtime.notification_policy import resolve_notification_policy
 
 logger = logging.getLogger("ops-dashboard.alerting")
 
 _CHANNEL_WEBHOOKS = {
     "requirement": lambda: config.LARK_REQUIREMENT_WEBHOOK_URL,
     "alert": lambda: config.LARK_ALERT_WEBHOOK_URL,
+    "approval": lambda: config.LARK_APPROVAL_WEBHOOK_URL,
     "release": lambda: config.LARK_RELEASE_WEBHOOK_URL,
 }
 
 _CHANNEL_TEMPLATES = {
     "requirement": "blue",
     "alert": "red",
+    "approval": "orange",
     "release": "green",
 }
 
@@ -77,7 +80,21 @@ def _lark_link_block(links: dict[str, str]) -> str:
 def _lark_context_block(payload: dict[str, object]) -> str:
     refs = dict(payload.get("object_refs") or {})
     rows = []
-    for key in ("requirement_id", "execution_id", "release_id", "fingerprint_key", "project_key"):
+    for key in (
+        "priority",
+        "risk_level",
+        "workflow_key",
+        "current_state",
+        "requirement_id",
+        "workflow_run_id",
+        "gate_id",
+        "execution_id",
+        "release_id",
+        "fingerprint_key",
+        "project_key",
+        "branch",
+        "pr_number",
+    ):
         value = refs.get(key)
         if value not in (None, "", []):
             rows.append(f"- {key}: `{value}`")
@@ -167,6 +184,7 @@ def deliver_lark_notification(
     occurred_at: datetime | None = None,
     object_refs: dict[str, object] | None = None,
     links: dict[str, str] | None = None,
+    extra_fields: dict[str, object] | None = None,
 ) -> NotificationDeliveryRow:
     """Persist and deliver a single Lark notification, skipping duplicate event keys."""
 
@@ -185,6 +203,8 @@ def deliver_lark_notification(
         "object_refs": object_refs or {},
         "links": links or {},
     }
+    if extra_fields:
+        payload.update(dict(extra_fields))
     row = NotificationDeliveryRow(
         channel=channel,
         event_type=event_type,
@@ -222,6 +242,74 @@ def deliver_lark_notification(
             str(response_text or "")[:500],
         )
     return row
+
+
+def deliver_policy_notification(
+    db: Session,
+    *,
+    event_type: str,
+    object_type: str,
+    object_key: str,
+    service_name: str,
+    summary: str,
+    next_action: str | None = None,
+    severity: str = "normal",
+    risk_level: str = "normal",
+    status: str | None = None,
+    requires_human: bool = False,
+    workflow_key: str | None = None,
+    current_state: str | None = None,
+    actor_or_source: str = "system",
+    occurred_at: datetime | None = None,
+    object_refs: dict[str, object] | None = None,
+    links: dict[str, str] | None = None,
+    event_key: str | None = None,
+) -> NotificationDeliveryRow | None:
+    """Resolve policy, persist, and deliver a Lark notification when policy says to send."""
+
+    policy = resolve_notification_policy(
+        event_type=event_type,
+        object_type=object_type,
+        object_key=object_key,
+        severity=severity,
+        risk_level=risk_level,
+        status=status,
+        requires_human=requires_human,
+        workflow_key=workflow_key,
+        current_state=current_state,
+    )
+    if not policy.should_send_now or policy.channel in {"none", "digest"}:
+        return None
+    refs = dict(object_refs or {})
+    refs.setdefault("priority", policy.priority)
+    refs.setdefault("risk_level", risk_level)
+    if workflow_key:
+        refs.setdefault("workflow_key", workflow_key)
+    if current_state:
+        refs.setdefault("current_state", current_state)
+    return deliver_lark_notification(
+        db,
+        channel=policy.channel,
+        event_type=event_type,
+        event_key=event_key or policy.dedupe_key,
+        object_type=object_type,
+        object_key=object_key,
+        service_name=service_name,
+        status_or_severity=f"{policy.priority} · {status or severity}",
+        summary=summary,
+        next_action=next_action or policy.next_action,
+        actor_or_source=actor_or_source,
+        occurred_at=occurred_at,
+        object_refs=refs,
+        links=links,
+        extra_fields={
+            "priority": policy.priority,
+            "risk_level": risk_level,
+            "workflow_key": workflow_key or "",
+            "current_state": current_state or "",
+            "policy_reason": policy.reason,
+        },
+    )
 
 
 def send_lark_text_alert(

@@ -8,6 +8,7 @@ from server.database import (
     AtomInvocationRow,
     BlackboardSnapshotRow,
     HumanGateRequestRow,
+    NotificationDeliveryRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowRunRow,
@@ -24,6 +25,17 @@ from server.services.workflows.declarative import (
     validate_workflow_spec,
     workflow_blackboard,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_lark_webhooks(monkeypatch):
+    for name in (
+        "LARK_REQUIREMENT_WEBHOOK_URL",
+        "LARK_ALERT_WEBHOOK_URL",
+        "LARK_APPROVAL_WEBHOOK_URL",
+        "LARK_RELEASE_WEBHOOK_URL",
+    ):
+        monkeypatch.setattr(f"server.config.{name}", "")
 
 
 def _create_workflow_run(db_session, *, workflow_key: str = "agent_self_repair") -> WorkflowRunRow:
@@ -163,6 +175,9 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     invocations = db_session.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).all()
     snapshots = db_session.query(BlackboardSnapshotRow).filter(BlackboardSnapshotRow.workflow_run_id == run.id).all()
     gates = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).all()
+    deliveries = db_session.query(NotificationDeliveryRow).all()
+    delivery_channels = {row.channel for row in deliveries}
+    delivery_events = {row.event_type for row in deliveries}
     assert len(transition_artifacts) == len(transition_pairs)
     assert len(transition_events) == len(transition_pairs)
     assert len(agent_raw_artifacts) == 3
@@ -170,6 +185,9 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     assert len(snapshots) >= len(transition_pairs)
     assert len(gates) == 1
     assert gates[0].status == "pending"
+    assert {"release", "approval"} <= delivery_channels
+    assert "alert" not in delivery_channels
+    assert {"pr_opened", "human_gate_request.created", "workflow_run_paused"} <= delivery_events
 
 
 def test_workflow_spec_validation_rejects_unbounded_loop():
@@ -188,6 +206,35 @@ def test_workflow_spec_validation_requires_agent_output_schema():
 
     with pytest.raises(WorkflowSpecError, match="output_schema"):
         validate_workflow_spec(spec)
+
+
+def test_verification_failure_exhausts_retry_budget_and_alerts(db_session):
+    run = _create_workflow_run(db_session)
+    spec = build_agent_self_repair_workflow_spec()
+    registry = AtomRegistry()
+
+    registry.register("detect_ops_failure", lambda _ctx: AtomResult(writes={"ops_failure_detected": True}))
+    registry.register("collect_ops_logs", lambda _ctx: AtomResult(writes={"logs_collected": True}))
+    registry.register(
+        "ops_self_repair_diagnoser",
+        lambda _ctx: {"status": "completed", "writes": {"diagnosis": {"action": "patch"}}},
+    )
+    registry.register(
+        "ops_self_repair_coder",
+        lambda _ctx: {"status": "completed", "writes": {"patch_result": {"changed_files_count": 1}}},
+    )
+    registry.register(
+        "run_ops_self_repair_verification",
+        lambda _ctx: AtomResult(summary="tests failed", writes={"verification": {"status": "failed"}}),
+    )
+
+    result = run_workflow_state_machine(db_session, workflow_run=run, spec=spec, registry=registry)
+
+    assert result.final_state == "awaiting_operator"
+    assert run.status == "awaiting_operator"
+    deliveries = db_session.query(NotificationDeliveryRow).all()
+    assert "workflow_retry_budget_exhausted" in {row.event_type for row in deliveries}
+    assert "alert" in {row.channel for row in deliveries}
 
 
 def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):
@@ -245,6 +292,9 @@ def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):
     blackboard = workflow_blackboard(run)
     assert blackboard["gate"]["decision"] == "auto_flow"
     assert blackboard["observation"]["restored"] is True
+    deliveries = db_session.query(NotificationDeliveryRow).all()
+    assert {"pr_opened", "workflow_run_succeeded"} <= {row.event_type for row in deliveries}
+    assert "approval" not in {row.channel for row in deliveries}
 
 
 def test_human_gate_decision_writes_back_to_blackboard(db_session):
@@ -266,3 +316,4 @@ def test_human_gate_decision_writes_back_to_blackboard(db_session):
     assert gate.decision == "reject"
     assert run.status == "failed"
     assert workflow_blackboard(run)["human_gate_decisions"][0]["comment"] == "unsafe"
+    assert "human_gate_request.decided" in {row.event_type for row in db_session.query(NotificationDeliveryRow).all()}

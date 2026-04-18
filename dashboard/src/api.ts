@@ -804,6 +804,7 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   artifacts: DeclarativeWorkflowArtifact[]
   atom_invocations: DeclarativeAtomInvocation[]
   human_gates: DeclarativeHumanGate[]
+  notifications?: NotificationDelivery[]
 }
 
 export interface AgentRequirement {

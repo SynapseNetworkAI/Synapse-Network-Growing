@@ -17,6 +17,7 @@ from server.database import (
     AtomInvocationRow,
     BlackboardSnapshotRow,
     HumanGateRequestRow,
+    NotificationDeliveryRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowDefinitionRow,
@@ -26,6 +27,7 @@ from server.database import (
 )
 from server.services.delivery.pull_request import sync_requirement_review_pr
 from server.services.delivery.vcs import execute_requirement_delivery_vcs
+from server.services.runtime.alerting import build_ops_url, deliver_policy_notification, notification_service_label
 
 
 class WorkflowSpecError(ValueError):
@@ -458,6 +460,7 @@ def create_declarative_workflow_run(
     )
     db.add(run)
     db.flush()
+    _notify_workflow_run_started(db, run, requirement, blackboard)
     requirement.active_workflow_run_id = int(run.id)
     requirement.workflow_family = "declarative_state_machine"
     requirement.workflow_state = "executing" if run_immediately else "ready"
@@ -986,6 +989,9 @@ def run_workflow_state_machine(
             workflow_run.completed_at = utcnow()
             if resolution == "route_to_human":
                 _ensure_human_gate_request(db, workflow_run, current_state, blackboard)
+                _notify_workflow_terminal(db, workflow_run, current_state, blackboard, resolution)
+            else:
+                _notify_workflow_terminal(db, workflow_run, current_state, blackboard, resolution)
             _persist_blackboard(db, workflow_run, current_state, blackboard)
             db.flush()
             return WorkflowRunResult(
@@ -1111,6 +1117,8 @@ def _execute_state_atom(
     invocation.completed_at = utcnow()
     _persist_blackboard(db, workflow_run, state_key, blackboard)
     db.flush()
+    if state_key == "open_pr" and isinstance(blackboard.get("pr"), Mapping):
+        _notify_workflow_pr_delivery(db, workflow_run, requirement, state_key, blackboard)
 
 
 def _select_next_state(
@@ -1214,6 +1222,7 @@ def decide_human_gate(
         run.resolution = "operator_rejected"
     _persist_blackboard(db, run, str(run.current_state or gate.state_key), blackboard)
     db.flush()
+    _notify_human_gate_decided(db, gate, run)
     return gate
 
 
@@ -1227,6 +1236,26 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
     artifacts = db.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == run.id).order_by(WorkflowArtifactRow.id.asc()).all()
     invocations = db.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).order_by(AtomInvocationRow.id.asc()).all()
     gates = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).order_by(HumanGateRequestRow.id.asc()).all()
+    gate_object_keys = [str(int(gate.id)) for gate in gates]
+    notification_rows = (
+        db.query(NotificationDeliveryRow)
+        .filter(
+            (
+                (NotificationDeliveryRow.object_type == "workflow_run")
+                & (NotificationDeliveryRow.object_key == str(int(run.id)))
+            )
+            | (
+                (NotificationDeliveryRow.object_type == "human_gate")
+                & (NotificationDeliveryRow.object_key.in_(gate_object_keys or ["__none__"]))
+            )
+            | (
+                (NotificationDeliveryRow.object_type == "requirement")
+                & (NotificationDeliveryRow.object_key == str(int(run.requirement_id)))
+            )
+        )
+        .order_by(NotificationDeliveryRow.id.desc())
+        .all()
+    )
     pending_gate_count = sum(1 for gate in gates if str(gate.status or "") == "pending")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
     return {
@@ -1295,6 +1324,23 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
             }
             for gate in gates
         ],
+        "notifications": [
+            {
+                "id": int(row.id),
+                "channel": str(row.channel or ""),
+                "event_type": str(row.event_type or ""),
+                "event_key": str(row.event_key or ""),
+                "object_type": str(row.object_type or ""),
+                "object_key": str(row.object_key or ""),
+                "service_name": str(row.service_name or "").strip() or None,
+                "status": str(row.status or ""),
+                "payload": _json_load(row.payload_json, {}),
+                "response_excerpt": str(row.response_excerpt or "").strip() or None,
+                "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in notification_rows
+        ],
     }
 
 
@@ -1333,7 +1379,235 @@ def _ensure_human_gate_request(
     )
     db.add(gate)
     db.flush()
+    _notify_human_gate_created(db, gate, workflow_run)
     return gate
+
+
+def _workflow_service_label(requirement: RequirementRow | None) -> str:
+    return notification_service_label(
+        service_name=str(getattr(requirement, "project_display_name", "") or "").strip() or None,
+        project_key=str(getattr(requirement, "project_key", "") or "").strip() or None,
+    )
+
+
+def _notify_workflow_run_started(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    requirement: RequirementRow,
+    blackboard: Mapping[str, Any],
+) -> None:
+    deliver_policy_notification(
+        db,
+        event_type="workflow_run_started",
+        object_type="workflow_run",
+        object_key=str(int(workflow_run.id)),
+        service_name=_workflow_service_label(requirement),
+        severity="normal",
+        risk_level=str(workflow_run.risk_level or blackboard.get("risk_level") or "normal"),
+        status=str(workflow_run.status or "pending"),
+        workflow_key=str(workflow_run.workflow_key or ""),
+        current_state=str(workflow_run.current_state or ""),
+        summary=f"Workflow #{int(workflow_run.id)} started for requirement #{int(requirement.id)}: {str(requirement.title or '').strip()}",
+        next_action="Open the workflow detail to monitor state, atom evidence, and gates.",
+        actor_or_source=str(workflow_run.triggered_by or "system"),
+        occurred_at=workflow_run.created_at,
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "workflow_run_id": int(workflow_run.id),
+            "workflow_key": workflow_run.workflow_key,
+            "current_state": workflow_run.current_state,
+        },
+        links={
+            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
+            "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+        },
+    )
+
+
+def _notify_workflow_terminal(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    state_key: str,
+    blackboard: Mapping[str, Any],
+    resolution: str,
+) -> None:
+    requirement = workflow_run.requirement
+    event_type = _workflow_terminal_event_type(resolution, blackboard)
+    if event_type is None:
+        return
+    risk_level = "high" if blackboard.get("risk_flags") else str(workflow_run.risk_level or "normal")
+    is_failure = event_type in {"workflow_retry_budget_exhausted", "workflow_run_failed"}
+    deliver_policy_notification(
+        db,
+        event_type=event_type,
+        object_type="workflow_run",
+        object_key=str(int(workflow_run.id)),
+        service_name=_workflow_service_label(requirement),
+        severity="high" if is_failure else "normal",
+        risk_level=risk_level,
+        status=str(workflow_run.status or resolution),
+        workflow_key=str(workflow_run.workflow_key or ""),
+        current_state=state_key,
+        summary=f"Workflow #{int(workflow_run.id)} reached `{state_key}` with resolution `{resolution}`.",
+        next_action=(
+            "Review the alert, failed evidence, and pending human gate in Ops Console."
+            if is_failure
+            else "No immediate action required; inspect evidence if needed."
+        ),
+        actor_or_source="state_machine_runner",
+        occurred_at=utcnow(),
+        object_refs={
+            "requirement_id": int(workflow_run.requirement_id),
+            "workflow_run_id": int(workflow_run.id),
+            "workflow_key": workflow_run.workflow_key,
+            "current_state": state_key,
+        },
+        links={
+            "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+            "需求": build_ops_url(f"/requirements/{int(workflow_run.requirement_id)}") or "",
+        },
+    )
+
+
+def _workflow_terminal_event_type(resolution: str, blackboard: Mapping[str, Any]) -> str | None:
+    if resolution == "completed":
+        return "workflow_run_succeeded"
+    verification = blackboard.get("verification") if isinstance(blackboard.get("verification"), Mapping) else {}
+    pr = blackboard.get("pr") if isinstance(blackboard.get("pr"), Mapping) else {}
+    observation = blackboard.get("observation") if isinstance(blackboard.get("observation"), Mapping) else {}
+    if verification.get("status") == "failed" or pr.get("failed") or observation.get("not_restored"):
+        return "workflow_retry_budget_exhausted"
+    # Human-gated success paths are already announced by the human gate and
+    # delivery notifications; avoid paging the alert channel for normal PR-only
+    # review stops such as self-repair.
+    return "workflow_run_paused"
+
+
+def _notify_human_gate_created(
+    db: Session,
+    gate: HumanGateRequestRow,
+    workflow_run: WorkflowRunRow,
+) -> None:
+    requirement = workflow_run.requirement
+    deliver_policy_notification(
+        db,
+        event_type="human_gate_request.created",
+        object_type="human_gate",
+        object_key=str(int(gate.id)),
+        service_name=_workflow_service_label(requirement),
+        severity="normal",
+        risk_level=str(gate.risk_level or "high"),
+        status=str(gate.status or "pending"),
+        requires_human=True,
+        workflow_key=str(workflow_run.workflow_key or ""),
+        current_state=str(gate.state_key or workflow_run.current_state or ""),
+        summary=f"Workflow #{int(workflow_run.id)} requires operator decision at `{gate.state_key}`.",
+        next_action="Open Gates & Delivery and choose approve, reject, or continue retry.",
+        actor_or_source="risk_evidence_gate",
+        occurred_at=gate.created_at,
+        object_refs={
+            "requirement_id": int(workflow_run.requirement_id),
+            "workflow_run_id": int(workflow_run.id),
+            "gate_id": int(gate.id),
+            "workflow_key": workflow_run.workflow_key,
+            "current_state": gate.state_key,
+        },
+        links={
+            "审批": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=gates") or "",
+            "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+            "需求": build_ops_url(f"/requirements/{int(workflow_run.requirement_id)}") or "",
+        },
+    )
+
+
+def _notify_human_gate_decided(
+    db: Session,
+    gate: HumanGateRequestRow,
+    workflow_run: WorkflowRunRow,
+) -> None:
+    requirement = workflow_run.requirement
+    deliver_policy_notification(
+        db,
+        event_type="human_gate_request.decided",
+        object_type="human_gate",
+        object_key=str(int(gate.id)),
+        service_name=_workflow_service_label(requirement),
+        severity="normal",
+        risk_level=str(gate.risk_level or "normal"),
+        status=str(gate.decision or gate.status or "decided"),
+        requires_human=True,
+        workflow_key=str(workflow_run.workflow_key or ""),
+        current_state=str(gate.state_key or workflow_run.current_state or ""),
+        summary=f"Human gate #{int(gate.id)} decided `{gate.decision}` by {gate.decided_by or 'operator'}.",
+        next_action="Continue monitoring the workflow or release delivery status.",
+        actor_or_source=str(gate.decided_by or "operator"),
+        occurred_at=gate.decided_at,
+        object_refs={
+            "requirement_id": int(workflow_run.requirement_id),
+            "workflow_run_id": int(workflow_run.id),
+            "gate_id": int(gate.id),
+            "workflow_key": workflow_run.workflow_key,
+            "current_state": gate.state_key,
+        },
+        links={
+            "审批": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=gates") or "",
+            "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+        },
+    )
+
+
+def _notify_workflow_pr_delivery(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    requirement: RequirementRow,
+    state_key: str,
+    blackboard: Mapping[str, Any],
+) -> None:
+    pr = blackboard.get("pr") if isinstance(blackboard.get("pr"), Mapping) else {}
+    created = bool(pr.get("created"))
+    event_type = "pr_opened" if created else "pr_creation_failed"
+    severity = "normal" if created else "high"
+    risk_level = "high" if blackboard.get("risk_flags") else str(workflow_run.risk_level or "normal")
+    pr_ref = str(pr.get("number") or pr.get("url") or pr.get("branch_name") or state_key or "unknown")
+    deliver_policy_notification(
+        db,
+        event_type=event_type,
+        object_type="workflow_run",
+        object_key=str(int(workflow_run.id)),
+        service_name=_workflow_service_label(requirement),
+        severity=severity,
+        risk_level=risk_level,
+        status=str(pr.get("status") or event_type),
+        workflow_key=str(workflow_run.workflow_key or ""),
+        current_state=state_key,
+        summary=(
+            f"Workflow #{int(workflow_run.id)} created draft PR for requirement #{int(requirement.id)}."
+            if created
+            else f"Workflow #{int(workflow_run.id)} could not create PR for requirement #{int(requirement.id)}."
+        ),
+        next_action=(
+            "Open the PR and review delivery evidence."
+            if created
+            else "Open Gates & Delivery, inspect blockers, and decide whether to retry or route to human."
+        ),
+        actor_or_source="delivery_atom",
+        occurred_at=utcnow(),
+        event_key=f"release:{event_type}:workflow:{int(workflow_run.id)}:{pr_ref}",
+        object_refs={
+            "requirement_id": int(requirement.id),
+            "workflow_run_id": int(workflow_run.id),
+            "workflow_key": workflow_run.workflow_key,
+            "current_state": state_key,
+            "branch": pr.get("branch_name"),
+            "pr_number": pr.get("number"),
+        },
+        links={
+            "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=delivery") or "",
+            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
+            "PR": str(pr.get("url") or "").strip(),
+            "Compare": str(pr.get("compare_url") or "").strip(),
+        },
+    )
 
 
 def _condition_matches(expression: str, blackboard: Mapping[str, Any]) -> bool:

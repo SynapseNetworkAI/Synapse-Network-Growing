@@ -111,6 +111,22 @@ const workflowDetail = {
       created_at: '2026-04-18T10:00:00Z',
     },
   ],
+  notifications: [
+    {
+      id: 51,
+      channel: 'approval',
+      event_type: 'human_gate_request.created',
+      event_key: 'approval:human_gate_request.created:human_gate:41',
+      object_type: 'human_gate',
+      object_key: '41',
+      service_name: 'Synapse Ops',
+      status: 'skipped',
+      payload: { summary: 'Workflow #7 requires operator decision.' },
+      response_excerpt: 'Webhook not configured',
+      delivered_at: null,
+      created_at: '2026-04-18T10:00:00Z',
+    },
+  ],
 }
 
 const decidedWorkflowDetail = {
@@ -242,6 +258,7 @@ describe('WorkflowRunDetailPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('workflow-run-tabs')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Gates & Delivery'))
+    expect(screen.getByTestId('workflow-lark-notifications')).toHaveTextContent('human_gate_request.created')
     fireEvent.click(within(screen.getByTestId('workflow-gates-delivery')).getByText('reject'))
 
     await waitFor(() => {

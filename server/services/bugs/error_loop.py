@@ -30,7 +30,7 @@ from server.schemas import (
 )
 from server.logging_utils import get_logger, log_event
 from server.services.requirements.sources import ACTIVE_BUG_REQUIREMENT_STATUSES, normalize_requirement_intake_metadata
-from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, notification_service_label
+from server.services.runtime.alerting import build_ops_url, deliver_policy_notification, notification_service_label
 from server.services.bugs.discovery import (
     build_error_discovery_recommendation,
     resolve_or_create_signal_project,
@@ -329,19 +329,21 @@ def _notify_error_logged(
     error_page_url: str | None,
 ) -> None:
     service = notification_service_label(service_name=body.service_name, project_key=body.project_key)
-    deliver_lark_notification(
+    severity = _severity(body.severity)
+    deliver_policy_notification(
         db,
-        channel="alert",
         event_type="error_logged",
-        event_key=f"alert:error_logged:event:{event_id}",
         object_type="error_fingerprint",
         object_key=fingerprint_key,
         service_name=service,
-        status_or_severity=_severity(body.severity),
+        severity=severity,
+        risk_level="high" if severity in {"high", "critical"} else "normal",
+        status=severity,
         summary=body.summary.strip() or body.message.strip()[:120],
         next_action="查看错误日志页与关联 requirement，确认是否需要人工审批或等待自动执行完成。",
         actor_or_source=body.source_kind,
         occurred_at=_ensure_utc(body.occurred_at),
+        event_key=f"error_logged:event:{event_id}:{severity}",
         object_refs={
             "fingerprint_key": fingerprint_key,
             "requirement_id": requirement_id,

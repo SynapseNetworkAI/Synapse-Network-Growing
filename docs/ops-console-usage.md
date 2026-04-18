@@ -408,17 +408,27 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
 
 ## 8. Lark 通知
 
-当前外部通知统一分三路：
+当前外部通知统一分四路：
 
-1. requirement 群
+1. requirement / workflow notifications 群
    - 新 requirement
+   - workflow run started / succeeded / low-risk failed
    - auto approval 结果
-   - manual approval required
+   - workflow assets ready / failed
 2. alert 群
-   - error log intake
-   - execution error / failure / blocked incident
-3. release 群
-   - PR 已创建
+   - P0/P1 error log intake
+   - runner crash / stale / retry budget exhausted
+   - funds / settlement / contract / auth / production 风险
+   - kill switch 或高风险 workflow failure
+3. approval 群
+   - human gate created
+   - risk evidence gate requires human
+   - manual approval required
+   - approve / reject / continue_retry 回执
+4. release 群
+   - PR 已创建或创建失败
+   - branch pushed / release ready / release blocked
+   - CI / deploy / observing 结果
 
 每条通知都必须包含：
 
@@ -427,6 +437,8 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
 3. 什么时候发生
 4. 需要做什么
 5. requirement / workflow / release / errors 相关链接
+
+Lark 只承担高信号提醒与入口跳转，完整黑板、atom invocation、transition、artifact 和 gate 真相仍以 `/workflows/:id` 为准。普通 state transition、atom success、artifact created、blackboard snapshot 不发送 Lark，只在 Workflow Detail 中展示。
 
 ## 8. 当前正式操作闭环
 

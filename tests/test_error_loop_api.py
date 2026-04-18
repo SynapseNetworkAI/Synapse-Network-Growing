@@ -3,12 +3,25 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
+import pytest
+
 from server.database import (
     ApprovalRequestRow,
     ErrorFingerprintRow,
     NotificationDeliveryRow,
     RequirementRow,
 )
+
+
+@pytest.fixture(autouse=True)
+def _disable_lark_webhooks(monkeypatch):
+    for name in (
+        "LARK_REQUIREMENT_WEBHOOK_URL",
+        "LARK_ALERT_WEBHOOK_URL",
+        "LARK_APPROVAL_WEBHOOK_URL",
+        "LARK_RELEASE_WEBHOOK_URL",
+    ):
+        monkeypatch.setattr(f"server.config.{name}", "")
 
 
 def _intake_payload(**overrides):
