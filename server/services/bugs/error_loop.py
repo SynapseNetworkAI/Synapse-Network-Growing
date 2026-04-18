@@ -141,7 +141,7 @@ def _active_requirement_for_fingerprint(db: Session, fingerprint_key: str) -> Re
 
 
 def _notification_deliveries_for_fingerprint(db: Session, fingerprint_key: str) -> list[NotificationDeliveryOut]:
-    from server.database import NotificationDeliveryRow
+    from server.database import NotificationDeliveryRow, NotificationFingerprintRow
 
     rows = (
         db.query(NotificationDeliveryRow)
@@ -152,6 +152,11 @@ def _notification_deliveries_for_fingerprint(db: Session, fingerprint_key: str) 
         .order_by(NotificationDeliveryRow.id.desc())
         .all()
     )
+    fingerprint_keys = sorted({str(row.fingerprint_key or "").strip() for row in rows if str(row.fingerprint_key or "").strip()})
+    fingerprints = {
+        str(row.fingerprint_key): row
+        for row in db.query(NotificationFingerprintRow).filter(NotificationFingerprintRow.fingerprint_key.in_(fingerprint_keys)).all()
+    } if fingerprint_keys else {}
     return [
         NotificationDeliveryOut(
             id=int(row.id),
@@ -163,6 +168,15 @@ def _notification_deliveries_for_fingerprint(db: Session, fingerprint_key: str) 
             service_name=str(row.service_name or "").strip() or None,
             status=str(row.status or ""),
             payload=_json_load(getattr(row, "payload_json", None), {}),
+            event_id=int(row.event_id) if getattr(row, "event_id", None) is not None else None,
+            fingerprint_key=str(row.fingerprint_key or "").strip() or None,
+            fingerprint={
+                "status": str(fingerprints[str(row.fingerprint_key)].status or ""),
+                "occurrence_count": int(fingerprints[str(row.fingerprint_key)].occurrence_count or 0),
+                "suppressed_count": int(fingerprints[str(row.fingerprint_key)].suppressed_count or 0),
+                "last_sent_at": fingerprints[str(row.fingerprint_key)].last_sent_at,
+                "cooldown_until": fingerprints[str(row.fingerprint_key)].cooldown_until,
+            } if str(row.fingerprint_key or "").strip() in fingerprints else {},
             response_excerpt=str(row.response_excerpt or "").strip() or None,
             delivered_at=row.delivered_at,
             created_at=row.created_at,

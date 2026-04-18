@@ -511,6 +511,16 @@ function GateDeliveryPanel({
               <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
                 {formatTime(delivery.delivered_at || delivery.created_at)} · {delivery.response_excerpt || 'no response excerpt'}
               </div>
+              {delivery.fingerprint_key ? (
+                <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <div className="font-mono break-all">fingerprint: {delivery.fingerprint_key}</div>
+                  <div className="mt-1">
+                    occurrence {Number(delivery.fingerprint?.occurrence_count || 0)}
+                    {' · '}suppressed {Number(delivery.fingerprint?.suppressed_count || 0)}
+                    {delivery.fingerprint?.cooldown_until ? ` · cooldown until ${formatTime(delivery.fingerprint.cooldown_until)}` : ''}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ))}
           {!notifications.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 Lark 通知投递记录。</div> : null}

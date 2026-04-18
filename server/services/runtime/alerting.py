@@ -31,6 +31,20 @@ _CHANNEL_TEMPLATES = {
     "release": "green",
 }
 
+_CHANNEL_KEYWORDS = {
+    "requirement": lambda: config.LARK_REQUIREMENT_KEYWORD,
+    "alert": lambda: config.LARK_ALERT_KEYWORD,
+    "approval": lambda: config.LARK_APPROVAL_KEYWORD,
+    "release": lambda: config.LARK_RELEASE_KEYWORD,
+}
+
+_CHANNEL_LABELS = {
+    "requirement": "需求 / Workflow",
+    "alert": "P0/P1 告警",
+    "approval": "人工审批",
+    "release": "发布交付",
+}
+
 
 def _isoformat(value: datetime | None) -> str:
     if value is None:
@@ -101,6 +115,33 @@ def _lark_context_block(payload: dict[str, object]) -> str:
     return "\n".join(rows) if rows else "-"
 
 
+def _channel_keyword(channel: str) -> str:
+    keyword = str(_CHANNEL_KEYWORDS.get(channel, lambda: config.LARK_BOT_KEYWORD)() or "").strip()
+    return keyword or str(config.LARK_BOT_KEYWORD or "告警").strip() or "告警"
+
+
+def _lark_overview_block(
+    *,
+    keyword: str,
+    channel_label: str,
+    service: str,
+    event_type: str,
+    status_or_severity: str,
+    actor_or_source: str,
+    occurred_at: str,
+) -> str:
+    return "\n".join(
+        [
+            f"**{keyword}｜{channel_label}**",
+            f"- **服务**：{service}",
+            f"- **事件**：`{event_type}`",
+            f"- **级别/状态**：`{status_or_severity}`",
+            f"- **来源**：{actor_or_source}",
+            f"- **时间**：{occurred_at}",
+        ]
+    )
+
+
 def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, object]:
     """Build a structured Lark interactive card payload for an Ops notification."""
 
@@ -111,6 +152,9 @@ def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, ob
     actor_or_source = str(payload.get("actor_or_source") or "system")
     summary = str(payload.get("summary") or "").strip() or "No summary provided."
     next_action = str(payload.get("next_action") or "").strip() or "No action required."
+    keyword = _channel_keyword(channel)
+    channel_label = _CHANNEL_LABELS.get(channel, channel)
+    title = f"{keyword}｜{channel_label}｜{service}"
     links = {
         str(label): str(url)
         for label, url in dict(payload.get("links") or {}).items()
@@ -123,23 +167,29 @@ def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, ob
             "config": {"wide_screen_mode": True, "enable_forward": True},
             "header": {
                 "template": _CHANNEL_TEMPLATES.get(channel, "blue"),
-                "title": {"tag": "plain_text", "content": f"[{service}] {event_type}"},
+                "title": {"tag": "plain_text", "content": title[:120]},
             },
             "elements": [
                 {
                     "tag": "div",
-                    "fields": [
-                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**发生时间**\n{occurred_at}"}},
-                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**状态/级别**\n{status_or_severity}"}},
-                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**来源**\n{actor_or_source}"}},
-                        {"is_short": True, "text": {"tag": "lark_md", "content": f"**事件类型**\n{event_type}"}},
-                    ],
+                    "text": {
+                        "tag": "lark_md",
+                        "content": _lark_overview_block(
+                            keyword=keyword,
+                            channel_label=channel_label,
+                            service=service,
+                            event_type=event_type,
+                            status_or_severity=status_or_severity,
+                            actor_or_source=actor_or_source,
+                            occurred_at=occurred_at,
+                        ),
+                    },
                 },
                 {"tag": "hr"},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**发生了什么**\n{summary}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**需要做什么**\n{next_action}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**相关链接**\n{_lark_link_block(links)}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**上下文**\n{_lark_context_block(payload)}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**发生了什么**\n> {summary}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**下一步动作**\n> {next_action}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**关联入口**\n{_lark_link_block(links)}"}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"**关键上下文**\n{_lark_context_block(payload)}"}},
             ],
         },
     }
@@ -185,6 +235,8 @@ def deliver_lark_notification(
     object_refs: dict[str, object] | None = None,
     links: dict[str, str] | None = None,
     extra_fields: dict[str, object] | None = None,
+    event_id: int | None = None,
+    fingerprint_key: str | None = None,
 ) -> NotificationDeliveryRow:
     """Persist and deliver a single Lark notification, skipping duplicate event keys."""
 
@@ -214,6 +266,8 @@ def deliver_lark_notification(
         service_name=service_name,
         status="pending",
         payload_json=_json_dump(payload),
+        event_id=event_id,
+        fingerprint_key=fingerprint_key,
     )
     db.add(row)
     db.flush()
@@ -265,51 +319,34 @@ def deliver_policy_notification(
     links: dict[str, str] | None = None,
     event_key: str | None = None,
 ) -> NotificationDeliveryRow | None:
-    """Resolve policy, persist, and deliver a Lark notification when policy says to send."""
+    """Resolve policy, enqueue, and dispatch through the notification queue."""
 
-    policy = resolve_notification_policy(
+    from server.services.runtime.notification_queue import enqueue_notification_event
+
+    event = enqueue_notification_event(
+        db,
         event_type=event_type,
         object_type=object_type,
         object_key=object_key,
+        service_name=service_name,
+        summary=summary,
+        next_action=next_action,
         severity=severity,
         risk_level=risk_level,
         status=status,
         requires_human=requires_human,
         workflow_key=workflow_key,
         current_state=current_state,
-    )
-    if not policy.should_send_now or policy.channel in {"none", "digest"}:
-        return None
-    refs = dict(object_refs or {})
-    refs.setdefault("priority", policy.priority)
-    refs.setdefault("risk_level", risk_level)
-    if workflow_key:
-        refs.setdefault("workflow_key", workflow_key)
-    if current_state:
-        refs.setdefault("current_state", current_state)
-    return deliver_lark_notification(
-        db,
-        channel=policy.channel,
-        event_type=event_type,
-        event_key=event_key or policy.dedupe_key,
-        object_type=object_type,
-        object_key=object_key,
-        service_name=service_name,
-        status_or_severity=f"{policy.priority} · {status or severity}",
-        summary=summary,
-        next_action=next_action or policy.next_action,
         actor_or_source=actor_or_source,
         occurred_at=occurred_at,
-        object_refs=refs,
+        object_refs=object_refs,
         links=links,
-        extra_fields={
-            "priority": policy.priority,
-            "risk_level": risk_level,
-            "workflow_key": workflow_key or "",
-            "current_state": current_state or "",
-            "policy_reason": policy.reason,
-        },
+        event_key=event_key,
+        dispatch_immediately=True,
     )
+    if event is None or event.delivery_id is None:
+        return None
+    return db.query(NotificationDeliveryRow).filter(NotificationDeliveryRow.id == int(event.delivery_id)).first()
 
 
 def send_lark_text_alert(

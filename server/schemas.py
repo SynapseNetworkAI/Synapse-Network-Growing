@@ -1364,6 +1364,9 @@ class NotificationDeliveryOut(BaseModel):
     service_name: Optional[str] = None
     status: str
     payload: dict[str, object] = {}
+    event_id: Optional[int] = None
+    fingerprint_key: Optional[str] = None
+    fingerprint: dict[str, object] = {}
     response_excerpt: Optional[str] = None
     delivered_at: Optional[datetime] = None
     created_at: Optional[datetime] = None

@@ -18,6 +18,7 @@ from server.database import (
     BlackboardSnapshotRow,
     HumanGateRequestRow,
     NotificationDeliveryRow,
+    NotificationFingerprintRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowDefinitionRow,
@@ -1256,6 +1257,7 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
         .order_by(NotificationDeliveryRow.id.desc())
         .all()
     )
+    fingerprint_by_key = _notification_fingerprints_for_deliveries(db, notification_rows)
     pending_gate_count = sum(1 for gate in gates if str(gate.status or "") == "pending")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
     return {
@@ -1335,12 +1337,37 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
                 "service_name": str(row.service_name or "").strip() or None,
                 "status": str(row.status or ""),
                 "payload": _json_load(row.payload_json, {}),
+                "event_id": int(row.event_id) if getattr(row, "event_id", None) is not None else None,
+                "fingerprint_key": str(row.fingerprint_key or "").strip() or None,
+                "fingerprint": fingerprint_by_key.get(str(row.fingerprint_key or ""), {}),
                 "response_excerpt": str(row.response_excerpt or "").strip() or None,
                 "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
             }
             for row in notification_rows
         ],
+    }
+
+
+def _notification_fingerprints_for_deliveries(
+    db: Session,
+    deliveries: list[NotificationDeliveryRow],
+) -> dict[str, dict[str, Any]]:
+    keys = sorted({str(row.fingerprint_key or "").strip() for row in deliveries if str(row.fingerprint_key or "").strip()})
+    if not keys:
+        return {}
+    rows = db.query(NotificationFingerprintRow).filter(NotificationFingerprintRow.fingerprint_key.in_(keys)).all()
+    return {
+        str(row.fingerprint_key): {
+            "status": str(row.status or ""),
+            "occurrence_count": int(row.occurrence_count or 0),
+            "suppressed_count": int(row.suppressed_count or 0),
+            "last_sent_at": row.last_sent_at.isoformat() if row.last_sent_at else None,
+            "cooldown_until": row.cooldown_until.isoformat() if row.cooldown_until else None,
+            "severity": str(row.severity or ""),
+            "risk_level": str(row.risk_level or ""),
+        }
+        for row in rows
     }
 
 

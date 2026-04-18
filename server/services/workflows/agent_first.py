@@ -100,7 +100,7 @@ from server.services.requirements.attachments import (
     requirement_attachment_context_files,
     serialize_requirement_attachment,
 )
-from server.services.runtime.alerting import build_ops_url, deliver_lark_notification, deliver_policy_notification, notification_service_label
+from server.services.runtime.alerting import build_ops_url, deliver_policy_notification, notification_service_label
 from server.services.runtime.codex_session_registry import (
     build_planner_project_session_key,
     find_reusable_planner_project_session,
@@ -2581,15 +2581,15 @@ def _service_name_for_requirement(db: Session, requirement: RequirementRow) -> s
 
 def _notify_requirement_created(db: Session, requirement: RequirementRow) -> None:
     service_name = _service_name_for_requirement(db, requirement)
-    deliver_lark_notification(
+    deliver_policy_notification(
         db,
-        channel="requirement",
         event_type="requirement_created",
-        event_key=f"requirement:requirement_created:{int(requirement.id)}",
         object_type="requirement",
         object_key=str(int(requirement.id)),
         service_name=service_name,
-        status_or_severity=str(requirement.priority or "normal"),
+        severity=str(requirement.priority or "normal"),
+        risk_level="normal",
+        status=str(requirement.status or "created"),
         summary=f"Requirement #{int(requirement.id)} 已创建：{str(requirement.title or '').strip()}",
         next_action="确认 requirement 描述与验收标准完整，然后通过 submit 进入自动审批与执行。",
         actor_or_source=str(requirement.source or "system"),
@@ -2654,15 +2654,15 @@ def _notify_execution_error(db: Session, run: ExecutionRunRow, requirement: Requ
         else f"Execution #{int(run.id)} node `{str(node.node_key or '')}` entered {str(node.status or status_token)}."
     )
     next_action = "查看执行面确认失败节点、错误摘要与恢复动作；必要时进入错误日志页继续排查。"
-    deliver_lark_notification(
+    deliver_policy_notification(
         db,
-        channel="alert",
         event_type="execution_error",
-        event_key=f"alert:execution_error:run:{object_key}:task:{task_token}:status:{status_token}",
         object_type="execution_run",
         object_key=object_key,
         service_name=service_name,
-        status_or_severity=str(run.status or "blocked"),
+        severity="high",
+        risk_level="high",
+        status=str(run.status or "blocked"),
         summary=summary,
         next_action=next_action,
         actor_or_source="runtime",
@@ -2681,15 +2681,15 @@ def _notify_execution_error(db: Session, run: ExecutionRunRow, requirement: Requ
 
 def _notify_pr_opened(db: Session, requirement: RequirementRow, release: ReleaseRecordRow) -> None:
     service_name = _service_name_for_requirement(db, requirement)
-    deliver_lark_notification(
+    deliver_policy_notification(
         db,
-        channel="release",
         event_type="pr_opened",
-        event_key=f"release:pr_opened:{int(requirement.id)}:{str(release.pr_number or release.pr_url or release.branch_name or '')}",
         object_type="release",
         object_key=str(int(release.id)),
         service_name=service_name,
-        status_or_severity=str(release.status or "pr_opened"),
+        severity="normal",
+        risk_level="normal",
+        status=str(release.status or "pr_opened"),
         summary=f"Requirement #{int(requirement.id)} 已创建 PR：{str(requirement.title or '').strip()}",
         next_action="进入发布面确认 PR、对比链接与后续 staging / production promotion。",
         actor_or_source="system",

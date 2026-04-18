@@ -1142,6 +1142,64 @@ class NotificationDeliveryRow(Base):
     payload_json = Column(Text, nullable=False, default="{}")
     response_excerpt = Column(Text)
     delivered_at = Column(DateTime)
+    event_id = Column(Integer)
+    fingerprint_key = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class NotificationEventRow(Base):
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        Index("notification_events_status_idx", "status"),
+        Index("notification_events_fingerprint_idx", "fingerprint_key"),
+        Index("notification_events_channel_priority_idx", "channel", "priority"),
+        Index("notification_events_object_idx", "object_type", "object_key"),
+        Index("notification_events_created_at_idx", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    channel = Column(Text, nullable=False)
+    event_type = Column(Text, nullable=False)
+    priority = Column(Text, nullable=False, default="p2")
+    severity = Column(Text, nullable=False, default="normal")
+    risk_level = Column(Text, nullable=False, default="normal")
+    object_type = Column(Text, nullable=False)
+    object_key = Column(Text, nullable=False)
+    fingerprint_key = Column(Text, nullable=False)
+    payload_json = Column(Text, nullable=False, default="{}")
+    status = Column(Text, nullable=False, default="queued")
+    delivery_id = Column(Integer)
+    suppressed_reason = Column(Text)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class NotificationFingerprintRow(Base):
+    __tablename__ = "notification_fingerprints"
+    __table_args__ = (
+        Index("notification_fingerprints_channel_idx", "channel"),
+        Index("notification_fingerprints_status_idx", "status"),
+        Index("notification_fingerprints_last_seen_idx", "last_seen_at"),
+    )
+
+    fingerprint_key = Column(Text, primary_key=True)
+    channel = Column(Text, nullable=False)
+    event_type = Column(Text, nullable=False)
+    priority = Column(Text, nullable=False, default="p2")
+    severity = Column(Text, nullable=False, default="normal")
+    risk_level = Column(Text, nullable=False, default="normal")
+    status = Column(Text, nullable=False, default="open")
+    first_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    last_sent_at = Column(DateTime)
+    occurrence_count = Column(Integer, nullable=False, default=0)
+    suppressed_count = Column(Integer, nullable=False, default=0)
+    latest_payload_json = Column(Text, nullable=False, default="{}")
+    cooldown_until = Column(DateTime)
+    escalation_level = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1596,9 +1654,29 @@ def _migrate(engine_):
         logger.info("Migrating: creating 'error_events' table")
         ErrorEventRow.__table__.create(bind=engine_, checkfirst=True)
 
+    if "notification_events" not in tables:
+        logger.info("Migrating: creating 'notification_events' table")
+        NotificationEventRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "notification_fingerprints" not in tables:
+        logger.info("Migrating: creating 'notification_fingerprints' table")
+        NotificationFingerprintRow.__table__.create(bind=engine_, checkfirst=True)
+
     if "notification_deliveries" not in tables:
         logger.info("Migrating: creating 'notification_deliveries' table")
         NotificationDeliveryRow.__table__.create(bind=engine_, checkfirst=True)
+    else:
+        existing = {c["name"] for c in insp.get_columns("notification_deliveries")}
+        delivery_cols = {
+            "event_id": "INTEGER",
+            "fingerprint_key": "TEXT",
+        }
+        for col, col_type in delivery_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to notification_deliveries table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE notification_deliveries ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "tasks" in tables:
         existing = {c["name"] for c in insp.get_columns("tasks")}

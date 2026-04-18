@@ -440,6 +440,26 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
 
 Lark 只承担高信号提醒与入口跳转，完整黑板、atom invocation、transition、artifact 和 gate 真相仍以 `/workflows/:id` 为准。普通 state transition、atom success、artifact created、blackboard snapshot 不发送 Lark，只在 Workflow Detail 中展示。
 
+通知发送采用统一队列：
+
+1. 业务模块只写入 `notification_events`。
+2. Dispatcher 按 fingerprint 更新 `notification_fingerprints`。
+3. 同类告警在 cooldown 内只累计 `suppressed_count`，不重复刷群。
+4. 真正发往 Lark 的记录写入 `notification_deliveries`。
+5. Workflow Detail 的 Lark Notifications 区块会显示 fingerprint、occurrence、suppressed count 和 cooldown。
+
+核心配置：
+
+```env
+OPS_NOTIFICATION_DISPATCHER_ENABLED=true
+OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE=5
+OPS_NOTIFICATION_DEFAULT_COOLDOWN_SECONDS=900
+OPS_NOTIFICATION_P0_COOLDOWN_SECONDS=300
+OPS_NOTIFICATION_P1_COOLDOWN_SECONDS=900
+OPS_NOTIFICATION_APPROVAL_REMINDER_SECONDS=7200
+OPS_NOTIFICATION_MAX_DELIVERY_ATTEMPTS=4
+```
+
 ## 8. 当前正式操作闭环
 
 推荐操作顺序：

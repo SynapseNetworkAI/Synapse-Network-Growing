@@ -1114,6 +1114,17 @@ export interface NotificationDelivery {
   service_name: string | null
   status: string
   payload: Record<string, unknown>
+  event_id?: number | null
+  fingerprint_key?: string | null
+  fingerprint?: {
+    status?: string
+    occurrence_count?: number
+    suppressed_count?: number
+    last_sent_at?: string | null
+    cooldown_until?: string | null
+    severity?: string
+    risk_level?: string
+  }
   response_excerpt: string | null
   delivered_at: string | null
   created_at: string | null

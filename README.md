@@ -229,12 +229,21 @@ OPS_RUNTIME_AUTH_ALERTS_ENABLED=true
 OPS_LARK_BOT_WEBHOOK_URL=...
 OPS_LARK_BOT_KEYWORD=告警
 OPS_LARK_REQUIREMENT_WEBHOOK_URL=...
+OPS_LARK_REQUIREMENT_KEYWORD=需求
 OPS_LARK_ALERT_WEBHOOK_URL=...
+OPS_LARK_ALERT_KEYWORD=告警
 OPS_LARK_APPROVAL_WEBHOOK_URL=...
+OPS_LARK_APPROVAL_KEYWORD=审批
 OPS_LARK_RELEASE_WEBHOOK_URL=...
+OPS_LARK_RELEASE_KEYWORD=发布
+OPS_NOTIFICATION_DISPATCHER_ENABLED=true
+OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE=5
+OPS_NOTIFICATION_DEFAULT_COOLDOWN_SECONDS=900
 ```
 
-When Copilot SDK returns an explicit enterprise-policy / authorization error, the system now sends a Lark alert and pauses the task + parent requirement instead of continuing into a misleading failure loop. Declarative workflows route external notifications through four Lark surfaces: `alert` for P0/P1 interruption, `approval` for human gates, `requirement` for workflow notifications, and `release` for PR / delivery events. `OPS_LARK_BOT_WEBHOOK_URL` remains the fallback for alert and approval channels.
+When Copilot SDK returns an explicit enterprise-policy / authorization error, the system now sends a Lark alert and pauses the task + parent requirement instead of continuing into a misleading failure loop. Declarative workflows route external notifications through four Lark surfaces: `alert` for P0/P1 interruption, `approval` for human gates, `requirement` for workflow notifications, and `release` for PR / delivery events. `OPS_LARK_BOT_WEBHOOK_URL` remains the fallback for alert and approval channels. Each `*_KEYWORD` is injected into the Lark card title and body so it can satisfy each bot's keyword security rule.
+
+Notifications are queued before delivery. Watcher / Runner / Human Gate / Delivery Atom code should enqueue `notification_events`; the dispatcher updates `notification_fingerprints`, suppresses duplicates during cooldown, rate-limits noisy channels, retries failed deliveries, and writes final `notification_deliveries`. This keeps P0/P1 high signal while avoiding repeated Lark spam for the same fingerprint.
 
 ## Python Runtime Standard
 
