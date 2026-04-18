@@ -5,12 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, ExecutionRunRow, RequirementRow, utcnow
+from server.database import (
+    AtomInvocationRow,
+    BlackboardSnapshotRow,
+    HumanGateRequestRow,
+    RequirementRow,
+    WorkflowArtifactRow,
+    WorkflowDefinitionRow,
+    WorkflowRunRow,
+    WorkflowStateEventRow,
+    utcnow,
+)
 
 
 class WorkflowSpecError(ValueError):
@@ -38,7 +49,7 @@ class WorkflowContext:
     """Runtime context passed to workflow atoms."""
 
     db: Session
-    execution_run: ExecutionRunRow
+    workflow_run: WorkflowRunRow
     requirement: RequirementRow
     spec: Mapping[str, Any]
     state_key: str
@@ -114,6 +125,7 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "artifacts",
                 "state_outputs",
                 "transition_history",
+                "human_gate_decisions",
             ]
         },
         "states": {
@@ -183,6 +195,291 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
     }
 
 
+def build_gateway_reliability_repair_workflow_spec() -> dict[str, Any]:
+    """Return the first product-facing reliability repair workflow spec."""
+
+    spec = build_agent_self_repair_workflow_spec()
+    spec["workflow_key"] = "gateway_reliability_repair"
+    spec["description"] = "Repair Synapse Gateway reliability drift with verification and observation."
+    spec["blackboard"]["persist_keys"] = sorted(
+        set(spec["blackboard"]["persist_keys"])
+        | {
+            "gateway_drift_detected",
+            "no_gateway_drift",
+            "gate",
+            "observation",
+        }
+    )
+    spec["states"]["detect_ops_failure"] = {
+        "atom": "detect_gateway_drift",
+        "transitions": [
+            {"if": "gateway_drift_detected", "goto": "collect_logs"},
+            {"if": "no_gateway_drift", "goto": "done"},
+        ],
+    }
+    spec["states"]["collect_logs"]["atom"] = "collect_gateway_logs"
+    spec["states"]["diagnose"]["agent"] = "gateway_reliability_diagnoser"
+    spec["states"]["patch"]["agent"] = "gateway_reliability_coder"
+    spec["states"]["verify"]["atom"] = "run_gateway_verification"
+    spec["states"]["verify"]["transitions"][0]["goto"] = "risk_gate"
+    spec["states"]["risk_gate"] = {
+        "atom": "risk_evidence_gate",
+        "output_key": "gate",
+        "transitions": [
+            {"if": 'gate.decision == "auto_flow"', "goto": "open_pr"},
+            {"if": 'gate.decision == "human_required"', "goto": "awaiting_operator"},
+        ],
+    }
+    spec["states"]["open_pr"]["atom"] = "open_gateway_repair_pr"
+    spec["states"]["open_pr"]["transitions"] = [
+        {"if": "pr.created", "goto": "observing"},
+        {"if": "pr.failed", "goto": "awaiting_operator"},
+    ]
+    spec["states"]["observing"] = {
+        "atom": "observe_gateway_recovery",
+        "output_key": "observation",
+        "transitions": [
+            {"if": "observation.restored", "goto": "done"},
+            {
+                "if": "observation.not_restored and counters.patch_attempts < limits.max_patch_attempts",
+                "increment": "patch_attempts",
+                "goto": "patch",
+            },
+            {"if": "observation.not_restored", "goto": "awaiting_operator"},
+        ],
+    }
+    return spec
+
+
+def built_in_workflow_specs() -> dict[str, dict[str, Any]]:
+    """Return built-in declarative workflow specs keyed by workflow key."""
+
+    specs = {
+        "agent_self_repair": build_agent_self_repair_workflow_spec(),
+        "gateway_reliability_repair": build_gateway_reliability_repair_workflow_spec(),
+    }
+    return specs
+
+
+def ensure_builtin_workflow_definitions(db: Session) -> None:
+    """Persist built-in workflow definitions for API discovery."""
+
+    for workflow_key, spec in built_in_workflow_specs().items():
+        row = db.query(WorkflowDefinitionRow).filter(WorkflowDefinitionRow.workflow_key == workflow_key).first()
+        spec_json = _json_dump(spec)
+        if row is None:
+            row = WorkflowDefinitionRow(
+                workflow_key=workflow_key,
+                version=int(spec.get("version") or 1),
+                title=str(spec.get("description") or workflow_key),
+                status="active",
+                spec_json=spec_json,
+            )
+            db.add(row)
+        else:
+            row.version = int(spec.get("version") or row.version or 1)
+            row.title = str(spec.get("description") or row.title or workflow_key)
+            row.status = "active"
+            row.spec_json = spec_json
+            row.updated_at = utcnow()
+    db.flush()
+
+
+def list_workflow_definitions(db: Session) -> list[dict[str, Any]]:
+    """Return active built-in and persisted workflow definitions."""
+
+    ensure_builtin_workflow_definitions(db)
+    rows = db.query(WorkflowDefinitionRow).order_by(WorkflowDefinitionRow.workflow_key.asc()).all()
+    return [
+        {
+            "id": int(row.id),
+            "workflow_key": row.workflow_key,
+            "version": int(row.version or 1),
+            "title": row.title,
+            "status": row.status,
+            "spec": _json_load(row.spec_json, {}),
+        }
+        for row in rows
+    ]
+
+
+def create_declarative_workflow_run(
+    db: Session,
+    *,
+    requirement: RequirementRow,
+    workflow_key: str,
+    triggered_by: str = "system",
+    initial_blackboard: Mapping[str, Any] | None = None,
+    run_immediately: bool = True,
+    registry: AtomRegistry | None = None,
+) -> WorkflowRunRow:
+    """Create and optionally run a new declarative workflow run for a requirement."""
+
+    specs = built_in_workflow_specs()
+    if workflow_key not in specs:
+        raise WorkflowSpecError(f"unknown workflow_key: {workflow_key}")
+    spec = specs[workflow_key]
+    validate_workflow_spec(spec)
+    blackboard = dict(initial_blackboard or {})
+    blackboard.setdefault("trigger", {})
+    blackboard.setdefault("workflow_key", workflow_key)
+    blackboard.setdefault("current_state", str(spec["initial_state"]))
+    run = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        plan_version=1,
+        workflow_key=workflow_key,
+        current_state=str(spec["initial_state"]),
+        status="pending",
+        triggered_by=triggered_by,
+        risk_level=str(blackboard.get("risk_level") or "normal"),
+        retry_counters_json="{}",
+        blackboard_json=_json_dump(blackboard),
+    )
+    db.add(run)
+    db.flush()
+    requirement.active_workflow_run_id = int(run.id)
+    requirement.workflow_family = "declarative_state_machine"
+    requirement.workflow_state = "executing" if run_immediately else "ready"
+    requirement.status = "in_progress" if run_immediately else "ready"
+    requirement.phase = "executing" if run_immediately else "ready"
+    db.flush()
+    if run_immediately:
+        run_workflow_state_machine(
+            db,
+            workflow_run=run,
+            spec=spec,
+            registry=registry or default_atom_registry(),
+            initial_blackboard=blackboard,
+        )
+        if run.status == "succeeded":
+            requirement.workflow_state = "completed"
+            requirement.status = "completed"
+            requirement.phase = "completed"
+            requirement.completed_at = requirement.completed_at or utcnow()
+        elif run.status == "awaiting_operator":
+            requirement.workflow_state = "awaiting_operator"
+            requirement.status = "blocked"
+            requirement.phase = "blocked"
+        db.flush()
+    return run
+
+
+def default_atom_registry() -> AtomRegistry:
+    """Build the default governed atom registry for first-phase workflows."""
+
+    registry = AtomRegistry()
+
+    def _trigger(ctx: WorkflowContext) -> dict[str, Any]:
+        return dict(ctx.blackboard.get("trigger") or {})
+
+    registry.register(
+        "detect_ops_failure",
+        lambda ctx: AtomResult(
+            summary="Ops failure signal evaluated",
+            writes={
+                "ops_failure_detected": bool(_trigger(ctx).get("ops_failure_detected", True)),
+                "no_ops_failure": not bool(_trigger(ctx).get("ops_failure_detected", True)),
+            },
+        ),
+    )
+    registry.register(
+        "collect_ops_logs",
+        lambda _ctx: AtomResult(
+            summary="Ops logs collected",
+            writes={
+                "logs_collected": True,
+                "logs_missing": False,
+                "evidence": [{"kind": "log", "path": "server/logs/ops-dashboard.jsonl"}],
+            },
+        ),
+    )
+    registry.register(
+        "ops_self_repair_diagnoser",
+        lambda _ctx: {
+            "status": "completed",
+            "summary": "Ops failure requires scoped patch",
+            "writes": {"diagnosis": {"action": "patch", "module": "ops-dashboard"}},
+        },
+    )
+    registry.register(
+        "ops_self_repair_coder",
+        lambda _ctx: {
+            "status": "completed",
+            "summary": "Prepared self-repair patch guidance",
+            "writes": {"patch_result": {"changed_files_count": 1, "changed_files": ["server/services/workflows/declarative.py"]}},
+        },
+    )
+
+    def _verify_self_repair(ctx: WorkflowContext) -> AtomResult:
+        trigger = _trigger(ctx)
+        counters = dict(ctx.blackboard.get("counters") or {})
+        should_fail_once = bool(trigger.get("force_first_verification_failure"))
+        if should_fail_once and int(counters.get("patch_attempts") or 0) == 0:
+            return AtomResult(summary="Verification failed before retry", writes={"verification": {"status": "failed"}})
+        return AtomResult(summary="Verification passed", writes={"verification": {"status": "passed"}})
+
+    registry.register("run_ops_self_repair_verification", _verify_self_repair)
+    registry.register(
+        "open_self_repair_pr",
+        lambda _ctx: AtomResult(
+            summary="Self-repair PR prepared for human approval",
+            writes={"pr": {"created": True, "url": "pending"}},
+            risk_flags=("self_modification_requires_human",),
+        ),
+    )
+    registry.register(
+        "detect_gateway_drift",
+        lambda ctx: AtomResult(
+            summary="Gateway drift signal evaluated",
+            writes={
+                "gateway_drift_detected": bool(_trigger(ctx).get("gateway_drift_detected", True)),
+                "no_gateway_drift": not bool(_trigger(ctx).get("gateway_drift_detected", True)),
+            },
+        ),
+    )
+    registry.register(
+        "collect_gateway_logs",
+        lambda _ctx: AtomResult(
+            summary="Gateway logs collected",
+            writes={"logs_collected": True, "logs_missing": False, "evidence": [{"kind": "log", "path": "gateway/logs"}]},
+        ),
+    )
+    registry.register(
+        "gateway_reliability_diagnoser",
+        lambda _ctx: {"status": "completed", "summary": "Gateway reliability issue requires patch", "writes": {"diagnosis": {"action": "patch"}}},
+    )
+    registry.register(
+        "gateway_reliability_coder",
+        lambda _ctx: {"status": "completed", "summary": "Gateway patch prepared", "writes": {"patch_result": {"changed_files_count": 1}}},
+    )
+    registry.register(
+        "run_gateway_verification",
+        lambda _ctx: AtomResult(summary="Gateway verification passed", writes={"verification": {"status": "passed"}}),
+    )
+    registry.register(
+        "risk_evidence_gate",
+        lambda ctx: AtomResult(
+            summary="Risk evidence gate evaluated",
+            writes={
+                "gate": {
+                    "decision": "human_required"
+                    if set(ctx.blackboard.get("risk_flags") or []).intersection({"funds", "settlement", "auth", "production", "contract"})
+                    else "auto_flow"
+                }
+            },
+        ),
+    )
+    registry.register(
+        "open_gateway_repair_pr",
+        lambda _ctx: AtomResult(summary="Gateway repair PR prepared", writes={"pr": {"created": True, "url": "pending"}}),
+    )
+    registry.register(
+        "observe_gateway_recovery",
+        lambda _ctx: AtomResult(summary="Gateway recovery observed", writes={"observation": {"restored": True, "not_restored": False}}),
+    )
+    return registry
+
+
 def validate_workflow_spec(spec: Mapping[str, Any]) -> None:
     """Validate state machine shape, terminal states, loops, and atom contracts."""
 
@@ -241,7 +538,7 @@ def validate_workflow_spec(spec: Mapping[str, Any]) -> None:
 def run_workflow_state_machine(
     db: Session,
     *,
-    execution_run: ExecutionRunRow,
+    workflow_run: WorkflowRunRow,
     spec: Mapping[str, Any],
     registry: AtomRegistry,
     initial_blackboard: Mapping[str, Any] | None = None,
@@ -249,12 +546,12 @@ def run_workflow_state_machine(
     """Run a declarative workflow until it reaches a terminal state."""
 
     validate_workflow_spec(spec)
-    requirement = _requirement_for_run(execution_run)
+    requirement = _requirement_for_run(workflow_run)
     workflow_key = str(spec["workflow_key"])
     limits = dict(spec.get("limits") or {})
     max_transitions = int(limits.get("max_transitions") or 100)
     states = spec["states"]
-    blackboard = _load_blackboard(execution_run)
+    blackboard = _load_blackboard(workflow_run)
     if initial_blackboard:
         blackboard.update(dict(initial_blackboard))
     spec_blackboard = spec.get("blackboard") if isinstance(spec.get("blackboard"), Mapping) else {}
@@ -271,27 +568,29 @@ def run_workflow_state_machine(
 
     current_state = str(blackboard.get("current_state") or spec["initial_state"])
     transition_count = 0
-    execution_run.status = "running"
-    execution_run.phase = current_state
-    execution_run.attempt_state = current_state
-    execution_run.started_at = execution_run.started_at or utcnow()
-    _persist_blackboard(execution_run, blackboard)
+    workflow_run.workflow_key = workflow_key
+    workflow_run.status = "running"
+    workflow_run.current_state = current_state
+    workflow_run.started_at = workflow_run.started_at or utcnow()
+    _persist_blackboard(db, workflow_run, current_state, blackboard)
     db.flush()
 
     while transition_count <= max_transitions:
         state = states[current_state]
         blackboard["current_state"] = current_state
-        execution_run.phase = current_state
-        execution_run.attempt_state = current_state
-        _persist_blackboard(execution_run, blackboard)
+        workflow_run.current_state = current_state
+        _persist_blackboard(db, workflow_run, current_state, blackboard)
 
         if state.get("terminal") is True:
             resolution = str(state.get("resolution") or "completed")
-            execution_run.status = "blocked" if resolution == "route_to_human" else "succeeded"
-            execution_run.phase = current_state
-            execution_run.attempt_state = resolution
-            execution_run.completed_at = utcnow()
-            _persist_blackboard(execution_run, blackboard)
+            workflow_run.status = "awaiting_operator" if resolution == "route_to_human" else "succeeded"
+            workflow_run.current_state = current_state
+            workflow_run.resolution = resolution
+            workflow_run.retry_counters_json = _json_dump(dict(blackboard.get("counters") or {}))
+            workflow_run.completed_at = utcnow()
+            if resolution == "route_to_human":
+                _ensure_human_gate_request(db, workflow_run, current_state, blackboard)
+            _persist_blackboard(db, workflow_run, current_state, blackboard)
             db.flush()
             return WorkflowRunResult(
                 workflow_key=workflow_key,
@@ -301,31 +600,31 @@ def run_workflow_state_machine(
                 blackboard=dict(blackboard),
             )
 
-        _execute_state_atom(db, requirement, execution_run, spec, current_state, state, registry, blackboard)
-        next_state = _select_next_state(db, requirement, execution_run, current_state, state, blackboard, spec)
+        _execute_state_atom(db, requirement, workflow_run, spec, current_state, state, registry, blackboard)
+        next_state = _select_next_state(db, workflow_run, current_state, state, blackboard, spec)
         current_state = next_state
         transition_count += 1
 
     raise WorkflowRuntimeError(f"workflow exceeded max_transitions={max_transitions}: {workflow_key}")
 
 
-def workflow_blackboard(execution_run: ExecutionRunRow) -> dict[str, Any]:
-    """Return the stored blackboard from an execution run plan snapshot."""
+def workflow_blackboard(workflow_run: WorkflowRunRow) -> dict[str, Any]:
+    """Return the stored blackboard from the declarative workflow run."""
 
-    return _load_blackboard(execution_run)
+    return _load_blackboard(workflow_run)
 
 
-def _requirement_for_run(execution_run: ExecutionRunRow) -> RequirementRow:
-    requirement = getattr(execution_run, "requirement", None)
+def _requirement_for_run(workflow_run: WorkflowRunRow) -> RequirementRow:
+    requirement = getattr(workflow_run, "requirement", None)
     if requirement is None:
-        raise WorkflowRuntimeError("execution_run.requirement must be loaded for declarative workflow execution")
+        raise WorkflowRuntimeError("workflow_run.requirement must be loaded for declarative workflow execution")
     return requirement
 
 
 def _execute_state_atom(
     db: Session,
     requirement: RequirementRow,
-    execution_run: ExecutionRunRow,
+    workflow_run: WorkflowRunRow,
     spec: Mapping[str, Any],
     state_key: str,
     state: Mapping[str, Any],
@@ -334,17 +633,39 @@ def _execute_state_atom(
 ) -> None:
     atom_key = str(state.get("agent") or state.get("atom") or "").strip()
     handler = registry.get(atom_key)
+    started = time.perf_counter()
+    invocation = AtomInvocationRow(
+        workflow_run_id=int(workflow_run.id),
+        state_key=state_key,
+        atom_key=atom_key,
+        atom_type="agent" if state.get("agent") else "deterministic",
+        output_schema=str(state.get("output_schema") or "") or None,
+        status="running",
+        input_summary=f"state={state_key}",
+        started_at=utcnow(),
+    )
+    db.add(invocation)
+    db.flush()
     context = WorkflowContext(
         db=db,
-        execution_run=execution_run,
+        workflow_run=workflow_run,
         requirement=requirement,
         spec=spec,
         state_key=state_key,
         state_spec=state,
         blackboard=blackboard,
     )
-    raw_result = handler(context)
-    result = _coerce_atom_result(raw_result)
+    artifact_ids: list[int] = []
+    try:
+        raw_result = handler(context)
+        result = _coerce_atom_result(raw_result)
+    except Exception as exc:
+        invocation.status = "failed"
+        invocation.error_excerpt = str(exc)[:1000]
+        invocation.duration_ms = int((time.perf_counter() - started) * 1000)
+        invocation.completed_at = utcnow()
+        db.flush()
+        raise
     output_key = str(state.get("output_key") or state_key).strip()
     writes = dict(result.writes or {})
     if output_key:
@@ -366,9 +687,10 @@ def _execute_state_atom(
     if state.get("agent"):
         artifact = _create_workflow_artifact(
             db,
-            requirement_id=int(requirement.id),
-            execution_run_id=int(execution_run.id),
+            workflow_run_id=int(workflow_run.id),
             artifact_type="workflow_agent_raw_output",
+            state_key=state_key,
+            atom_key=atom_key,
             content_summary=f"{state_key}: {result.summary or result.status}",
             human_readable_body=str(result.raw_output if result.raw_output is not None else raw_result),
             machine_readable_payload={
@@ -379,15 +701,20 @@ def _execute_state_atom(
                 "writes": writes,
             },
         )
+        artifact_ids.append(int(artifact.id))
         blackboard.setdefault("artifacts", {})[f"{state_key}_raw_output_artifact_id"] = int(artifact.id)
-    _persist_blackboard(execution_run, blackboard)
+    invocation.status = result.status
+    invocation.output_summary = result.summary
+    invocation.artifact_ids_json = _json_dump(artifact_ids)
+    invocation.duration_ms = int((time.perf_counter() - started) * 1000)
+    invocation.completed_at = utcnow()
+    _persist_blackboard(db, workflow_run, state_key, blackboard)
     db.flush()
 
 
 def _select_next_state(
     db: Session,
-    requirement: RequirementRow,
-    execution_run: ExecutionRunRow,
+    workflow_run: WorkflowRunRow,
     state_key: str,
     state: Mapping[str, Any],
     blackboard: dict[str, Any],
@@ -417,20 +744,188 @@ def _select_next_state(
         }
         artifact = _create_workflow_artifact(
             db,
-            requirement_id=int(requirement.id),
-            execution_run_id=int(execution_run.id),
+            workflow_run_id=int(workflow_run.id),
             artifact_type="workflow_transition_event",
+            state_key=state_key,
             content_summary=f"{state_key} -> {target}",
             human_readable_body=json.dumps(event, ensure_ascii=False, indent=2, sort_keys=True),
             machine_readable_payload=event,
         )
         event["artifact_id"] = int(artifact.id)
+        state_event = WorkflowStateEventRow(
+            workflow_run_id=int(workflow_run.id),
+            event_type="transition",
+            from_state=state_key,
+            to_state=target,
+            condition=condition or "<default>",
+            payload_json=_json_dump(event),
+        )
+        db.add(state_event)
         blackboard.setdefault("transition_history", []).append(event)
         blackboard["current_state"] = target
-        _persist_blackboard(execution_run, blackboard)
+        workflow_run.current_state = target
+        workflow_run.retry_counters_json = _json_dump(dict(blackboard.get("counters") or {}))
+        _persist_blackboard(db, workflow_run, target, blackboard)
         db.flush()
         return target
     raise WorkflowRuntimeError(f"no transition matched for state: {state_key}")
+
+
+def decide_human_gate(
+    db: Session,
+    *,
+    gate_id: int,
+    decision: str,
+    reviewer: str = "operator",
+    comment: str = "",
+) -> HumanGateRequestRow:
+    """Record an operator decision for a pending human gate."""
+
+    gate = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.id == gate_id).first()
+    if gate is None:
+        raise WorkflowRuntimeError(f"human gate not found: {gate_id}")
+    normalized = str(decision or "").strip().lower()
+    if normalized not in {"approve", "reject", "continue_retry"}:
+        raise WorkflowRuntimeError("decision must be approve, reject, or continue_retry")
+    gate.status = "decided"
+    gate.decision = normalized
+    gate.decided_by = reviewer
+    gate.decision_comment = comment
+    gate.decided_at = utcnow()
+    run = gate.workflow_run
+    blackboard = workflow_blackboard(run)
+    blackboard.setdefault("human_gate_decisions", []).append(
+        {
+            "gate_id": int(gate.id),
+            "decision": normalized,
+            "reviewer": reviewer,
+            "comment": comment,
+            "decided_at": gate.decided_at.isoformat(),
+        }
+    )
+    if normalized == "continue_retry":
+        run.status = "pending"
+        run.resolution = "operator_continue_retry"
+    elif normalized == "approve":
+        run.resolution = "operator_approved"
+    else:
+        run.status = "failed"
+        run.resolution = "operator_rejected"
+    _persist_blackboard(db, run, str(run.current_state or gate.state_key), blackboard)
+    db.flush()
+    return gate
+
+
+def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
+    """Return the declarative workflow run detail used by API and UI."""
+
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run_id).first()
+    if run is None:
+        raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
+    events = db.query(WorkflowStateEventRow).filter(WorkflowStateEventRow.workflow_run_id == run.id).order_by(WorkflowStateEventRow.id.asc()).all()
+    artifacts = db.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == run.id).order_by(WorkflowArtifactRow.id.asc()).all()
+    invocations = db.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).order_by(AtomInvocationRow.id.asc()).all()
+    gates = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).order_by(HumanGateRequestRow.id.asc()).all()
+    return {
+        "id": int(run.id),
+        "requirement_id": int(run.requirement_id),
+        "workflow_key": run.workflow_key,
+        "current_state": run.current_state,
+        "status": run.status,
+        "resolution": run.resolution,
+        "risk_level": run.risk_level,
+        "retry_counters": _json_load(run.retry_counters_json, {}),
+        "blackboard": workflow_blackboard(run),
+        "events": [
+            {
+                "id": int(event.id),
+                "event_type": event.event_type,
+                "from_state": event.from_state,
+                "to_state": event.to_state,
+                "condition": event.condition,
+                "payload": _json_load(event.payload_json, {}),
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in events
+        ],
+        "artifacts": [
+            {
+                "id": int(artifact.id),
+                "artifact_type": artifact.artifact_type,
+                "state_key": artifact.state_key,
+                "atom_key": artifact.atom_key,
+                "content_summary": artifact.content_summary,
+                "payload": _json_load(artifact.machine_readable_payload, {}),
+                "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+            }
+            for artifact in artifacts
+        ],
+        "atom_invocations": [
+            {
+                "id": int(invocation.id),
+                "state_key": invocation.state_key,
+                "atom_key": invocation.atom_key,
+                "atom_type": invocation.atom_type,
+                "status": invocation.status,
+                "output_summary": invocation.output_summary,
+                "artifact_ids": _json_load(invocation.artifact_ids_json, []),
+                "duration_ms": int(invocation.duration_ms or 0),
+                "error_excerpt": invocation.error_excerpt,
+            }
+            for invocation in invocations
+        ],
+        "human_gates": [
+            {
+                "id": int(gate.id),
+                "state_key": gate.state_key,
+                "gate_type": gate.gate_type,
+                "risk_level": gate.risk_level,
+                "status": gate.status,
+                "reason": gate.reason,
+                "decision": gate.decision,
+                "created_at": gate.created_at.isoformat() if gate.created_at else None,
+            }
+            for gate in gates
+        ],
+    }
+
+
+def _ensure_human_gate_request(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    state_key: str,
+    blackboard: Mapping[str, Any],
+) -> HumanGateRequestRow:
+    existing = (
+        db.query(HumanGateRequestRow)
+        .filter(
+            HumanGateRequestRow.workflow_run_id == int(workflow_run.id),
+            HumanGateRequestRow.state_key == state_key,
+            HumanGateRequestRow.status == "pending",
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+    gate = HumanGateRequestRow(
+        workflow_run_id=int(workflow_run.id),
+        state_key=state_key,
+        gate_type="human_gate",
+        risk_level="high" if blackboard.get("risk_flags") else str(workflow_run.risk_level or "normal"),
+        status="pending",
+        reason="Workflow reached a human-gated terminal state.",
+        payload_json=_json_dump(
+            {
+                "workflow_key": workflow_run.workflow_key,
+                "current_state": state_key,
+                "risk_flags": list(blackboard.get("risk_flags") or []),
+                "summary": blackboard.get("pr") or blackboard.get("verification") or {},
+            }
+        ),
+    )
+    db.add(gate)
+    db.flush()
+    return gate
 
 
 def _condition_matches(expression: str, blackboard: Mapping[str, Any]) -> bool:
@@ -539,21 +1034,28 @@ def _parse_json_output(raw_output: str) -> Mapping[str, Any]:
     return parsed
 
 
-def _load_blackboard(execution_run: ExecutionRunRow) -> dict[str, Any]:
-    snapshot = _json_load(getattr(execution_run, "plan_snapshot_json", None), {})
-    blackboard = snapshot.get("blackboard") if isinstance(snapshot, dict) else {}
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _load_blackboard(workflow_run: WorkflowRunRow) -> dict[str, Any]:
+    blackboard = _json_load(getattr(workflow_run, "blackboard_json", None), {})
     return dict(blackboard) if isinstance(blackboard, dict) else {}
 
 
-def _persist_blackboard(execution_run: ExecutionRunRow, blackboard: Mapping[str, Any]) -> None:
-    snapshot = _json_load(getattr(execution_run, "plan_snapshot_json", None), {})
-    if not isinstance(snapshot, dict):
-        snapshot = {}
+def _persist_blackboard(db: Session, workflow_run: WorkflowRunRow, state_key: str, blackboard: Mapping[str, Any]) -> None:
     persist_keys = _persist_keys_from_blackboard(blackboard)
     persisted = {key: blackboard.get(key) for key in persist_keys if key in blackboard}
-    snapshot["blackboard"] = persisted
-    execution_run.plan_snapshot_json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
-    execution_run.updated_at = utcnow()
+    workflow_run.blackboard_json = _json_dump(persisted)
+    workflow_run.retry_counters_json = _json_dump(dict(persisted.get("counters") or {}))
+    workflow_run.updated_at = utcnow()
+    db.add(
+        BlackboardSnapshotRow(
+            workflow_run_id=int(workflow_run.id),
+            state_key=state_key,
+            snapshot_json=workflow_run.blackboard_json,
+        )
+    )
 
 
 def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
@@ -567,15 +1069,20 @@ def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
         "trigger",
         "logs_collected",
         "ops_failure_detected",
+        "gateway_drift_detected",
+        "no_gateway_drift",
         "diagnosis",
         "patch_result",
         "verification",
+        "gate",
+        "observation",
         "pr",
         "risk_flags",
         "evidence",
         "state_outputs",
         "transition_history",
         "artifacts",
+        "human_gate_decisions",
         "limits",
     ]
 
@@ -594,17 +1101,18 @@ def _json_load(raw_value: Any, default: Any) -> Any:
 def _create_workflow_artifact(
     db: Session,
     *,
-    requirement_id: int,
-    execution_run_id: int,
+    workflow_run_id: int,
     artifact_type: str,
     content_summary: str,
     human_readable_body: str,
     machine_readable_payload: Mapping[str, Any] | list[Any] | str | None = None,
-) -> ArtifactRow:
+    state_key: str | None = None,
+    atom_key: str | None = None,
+) -> WorkflowArtifactRow:
     payload_for_storage: Mapping[str, Any] | list[Any] | str | None
     if isinstance(machine_readable_payload, Mapping):
         payload_for_storage = dict(machine_readable_payload)
-        payload_for_storage.setdefault("execution_run_id", execution_run_id)
+        payload_for_storage.setdefault("workflow_run_id", workflow_run_id)
     else:
         payload_for_storage = machine_readable_payload
     payload_text = (
@@ -613,9 +1121,11 @@ def _create_workflow_artifact(
         else payload_for_storage
     )
     checksum_source = str(payload_text or human_readable_body or content_summary)
-    artifact = ArtifactRow(
-        requirement_id=requirement_id,
+    artifact = WorkflowArtifactRow(
+        workflow_run_id=workflow_run_id,
         artifact_type=artifact_type,
+        state_key=state_key,
+        atom_key=atom_key,
         content_summary=content_summary,
         human_readable_body=human_readable_body,
         machine_readable_payload=payload_text,

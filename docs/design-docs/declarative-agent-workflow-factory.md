@@ -288,13 +288,18 @@ Required spec rules:
 
 Blackboard is the per-run shared memory for workflow execution.
 
-v1 storage:
+Implemented storage:
 
-1. compact structured values live in `ExecutionRunRow.plan_snapshot_json.blackboard`.
-2. large text, command logs, screenshots, raw model outputs, diffs, and evidence live in `ArtifactRow` or runtime files.
-3. the blackboard stores artifact ids and short summaries instead of duplicating large content.
-4. every state transition writes a transition event artifact.
-5. every state reads only declared blackboard keys and writes only declared output keys.
+1. `workflow_definitions` stores governed workflow specs and built-in workflow discovery records.
+2. `workflow_runs` is the new declarative run truth and stores `workflow_key`, `current_state`, `status`, `resolution`, `retry_counters_json`, and compact `blackboard_json`.
+3. `blackboard_snapshots` stores per-state compact blackboard snapshots for replay and audit.
+4. `workflow_artifacts` stores raw agent output, transition evidence, command logs, large text, screenshots, diffs, and evidence. Its `workflow_run_id` directly references `workflow_runs.id`.
+5. `workflow_state_events` stores every transition event with `from_state`, `to_state`, condition, counters, and payload.
+6. `atom_invocations` stores every deterministic/agent atom call, input summary, output schema, artifact ids, duration, status, and error excerpt.
+7. `human_gate_requests` stores high-risk or terminal operator gates and writes operator decisions back to blackboard.
+8. every state reads only declared blackboard keys and writes only declared output keys.
+
+Legacy `ExecutionRunRow.plan_snapshot_json.blackboard`, `ArtifactRow.workflow_run_id`, and fixed `workflow_steps` are not part of the new execution truth. They may remain in the database for historical reads, but new declarative workflows must not write through them.
 
 Blackboard is not a hidden prompt dump. It is a typed, auditable run context.
 
@@ -530,8 +535,8 @@ Add lower-risk operating workflows after engineering workflows are observable an
 
 ## Assumptions
 
-1. This document is a draft architecture and does not imply runtime implementation is complete.
-2. The current fixed self-repair loop remains valid until the generic state machine runner exists.
+1. This document is a draft architecture, but the first runtime slice now exists for `agent_self_repair` and `gateway_reliability_repair`.
+2. Fixed-step execution, legacy bugfix execution, and old workflow step compatibility are removal targets, not fallback paths for new complex workflows.
 3. Workflow specs are config-as-code and should be reviewed like code.
 4. Meta-Builder output is never activated without validation and human approval.
-5. The first implementation target should be `gateway_reliability_repair`, followed by `agent_self_repair`.
+5. The first production hardening target is `gateway_reliability_repair`, while `agent_self_repair` remains PR-only plus human approval.

@@ -4,19 +4,29 @@ import json
 
 import pytest
 
-from server.database import ArtifactRow, ExecutionRunRow, RequirementRow
+from server.database import (
+    AtomInvocationRow,
+    BlackboardSnapshotRow,
+    HumanGateRequestRow,
+    RequirementRow,
+    WorkflowArtifactRow,
+    WorkflowRunRow,
+    WorkflowStateEventRow,
+)
 from server.services.workflows.declarative import (
     AtomRegistry,
     AtomResult,
     WorkflowSpecError,
     build_agent_self_repair_workflow_spec,
+    build_gateway_reliability_repair_workflow_spec,
+    decide_human_gate,
     run_workflow_state_machine,
     validate_workflow_spec,
     workflow_blackboard,
 )
 
 
-def _create_execution_run(db_session) -> ExecutionRunRow:
+def _create_workflow_run(db_session, *, workflow_key: str = "agent_self_repair") -> WorkflowRunRow:
     requirement = RequirementRow(
         title="Agent Ops self repair",
         description_markdown="Detect Ops Dashboard traceback, repair it, verify, and open PR for human approval.",
@@ -24,14 +34,16 @@ def _create_execution_run(db_session) -> ExecutionRunRow:
     )
     db_session.add(requirement)
     db_session.flush()
-    run = ExecutionRunRow(
+    initial_state = "detect_ops_failure"
+    if workflow_key == "gateway_reliability_repair":
+        initial_state = "detect_ops_failure"
+    run = WorkflowRunRow(
         requirement_id=int(requirement.id),
-        execution_mode="state_machine",
-        execution_kind="agent_self_repair",
+        workflow_key=workflow_key,
+        current_state=initial_state,
         status="queued",
-        phase="queued",
-        attempt_state="queued",
-        plan_snapshot_json=json.dumps({"blackboard": {"trigger": {"source": "ops-dashboard"}}}),
+        triggered_by="test",
+        blackboard_json=json.dumps({"trigger": {"source": "ops-dashboard"}, "current_state": initial_state}),
     )
     db_session.add(run)
     db_session.flush()
@@ -39,7 +51,7 @@ def _create_execution_run(db_session) -> ExecutionRunRow:
 
 
 def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
-    run = _create_execution_run(db_session)
+    run = _create_workflow_run(db_session)
     spec = build_agent_self_repair_workflow_spec()
     registry = AtomRegistry()
     calls = {"patch": 0, "verify": 0}
@@ -112,7 +124,7 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
 
     result = run_workflow_state_machine(
         db_session,
-        execution_run=run,
+        workflow_run=run,
         spec=spec,
         registry=registry,
     )
@@ -121,8 +133,9 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     assert result.final_state == "awaiting_operator"
     assert result.resolution == "route_to_human"
     assert calls == {"patch": 2, "verify": 2}
-    assert run.status == "blocked"
-    assert run.attempt_state == "route_to_human"
+    assert run.status == "awaiting_operator"
+    assert run.current_state == "awaiting_operator"
+    assert run.resolution == "route_to_human"
 
     blackboard = workflow_blackboard(run)
     assert blackboard["current_state"] == "awaiting_operator"
@@ -138,26 +151,25 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     assert ("verify", "patch") in transition_pairs
     assert transition_pairs[-1] == ("open_pr", "awaiting_operator")
 
-    transition_artifacts = db_session.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == run.requirement_id,
-        ArtifactRow.artifact_type == "workflow_transition_event",
+    transition_artifacts = db_session.query(WorkflowArtifactRow).filter(
+        WorkflowArtifactRow.workflow_run_id == run.id,
+        WorkflowArtifactRow.artifact_type == "workflow_transition_event",
     ).all()
-    agent_raw_artifacts = db_session.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == run.requirement_id,
-        ArtifactRow.artifact_type == "workflow_agent_raw_output",
+    agent_raw_artifacts = db_session.query(WorkflowArtifactRow).filter(
+        WorkflowArtifactRow.workflow_run_id == run.id,
+        WorkflowArtifactRow.artifact_type == "workflow_agent_raw_output",
     ).all()
-    transition_artifacts = [
-        artifact
-        for artifact in transition_artifacts
-        if json.loads(str(artifact.machine_readable_payload or "{}")).get("execution_run_id") == run.id
-    ]
-    agent_raw_artifacts = [
-        artifact
-        for artifact in agent_raw_artifacts
-        if json.loads(str(artifact.machine_readable_payload or "{}")).get("execution_run_id") == run.id
-    ]
+    transition_events = db_session.query(WorkflowStateEventRow).filter(WorkflowStateEventRow.workflow_run_id == run.id).all()
+    invocations = db_session.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).all()
+    snapshots = db_session.query(BlackboardSnapshotRow).filter(BlackboardSnapshotRow.workflow_run_id == run.id).all()
+    gates = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).all()
     assert len(transition_artifacts) == len(transition_pairs)
+    assert len(transition_events) == len(transition_pairs)
     assert len(agent_raw_artifacts) == 3
+    assert len(invocations) == 8
+    assert len(snapshots) >= len(transition_pairs)
+    assert len(gates) == 1
+    assert gates[0].status == "pending"
 
 
 def test_workflow_spec_validation_rejects_unbounded_loop():
@@ -176,3 +188,81 @@ def test_workflow_spec_validation_requires_agent_output_schema():
 
     with pytest.raises(WorkflowSpecError, match="output_schema"):
         validate_workflow_spec(spec)
+
+
+def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):
+    run = _create_workflow_run(db_session, workflow_key="gateway_reliability_repair")
+    spec = build_gateway_reliability_repair_workflow_spec()
+    registry = AtomRegistry()
+
+    registry.register(
+        "detect_gateway_drift",
+        lambda _ctx: AtomResult(summary="drift detected", writes={"gateway_drift_detected": True, "no_gateway_drift": False}),
+    )
+    registry.register(
+        "collect_gateway_logs",
+        lambda _ctx: AtomResult(summary="logs collected", writes={"logs_collected": True, "logs_missing": False}),
+    )
+    registry.register(
+        "gateway_reliability_diagnoser",
+        lambda _ctx: {
+            "status": "completed",
+            "summary": "gateway timeout pattern",
+            "writes": {"diagnosis": {"action": "patch", "module": "gateway"}},
+        },
+    )
+    registry.register(
+        "gateway_reliability_coder",
+        lambda _ctx: {
+            "status": "completed",
+            "summary": "gateway patch prepared",
+            "writes": {"patch_result": {"changed_files_count": 1, "changed_files": ["services/gateway/gateway_fastapi.py"]}},
+        },
+    )
+    registry.register(
+        "run_gateway_verification",
+        lambda _ctx: AtomResult(summary="gateway tests passed", writes={"verification": {"status": "passed"}}),
+    )
+    registry.register(
+        "risk_evidence_gate",
+        lambda _ctx: AtomResult(summary="low-risk gate", writes={"gate": {"decision": "auto_flow"}}),
+    )
+    registry.register(
+        "open_gateway_repair_pr",
+        lambda _ctx: AtomResult(summary="draft PR prepared", writes={"pr": {"created": True, "url": "https://github.com/example/repo/pull/2"}}),
+    )
+    registry.register(
+        "observe_gateway_recovery",
+        lambda _ctx: AtomResult(summary="gateway restored", writes={"observation": {"restored": True, "not_restored": False}}),
+    )
+
+    result = run_workflow_state_machine(db_session, workflow_run=run, spec=spec, registry=registry)
+
+    assert result.workflow_key == "gateway_reliability_repair"
+    assert result.final_state == "done"
+    assert result.resolution == "completed"
+    assert run.status == "succeeded"
+    blackboard = workflow_blackboard(run)
+    assert blackboard["gate"]["decision"] == "auto_flow"
+    assert blackboard["observation"]["restored"] is True
+
+
+def test_human_gate_decision_writes_back_to_blackboard(db_session):
+    run = _create_workflow_run(db_session)
+    spec = build_agent_self_repair_workflow_spec()
+    registry = AtomRegistry()
+    registry.register("detect_ops_failure", lambda _ctx: AtomResult(writes={"ops_failure_detected": True}))
+    registry.register("collect_ops_logs", lambda _ctx: AtomResult(writes={"logs_collected": True}))
+    registry.register(
+        "ops_self_repair_diagnoser",
+        lambda _ctx: {"status": "completed", "writes": {"diagnosis": {"action": "needs_operator"}}},
+    )
+    run_workflow_state_machine(db_session, workflow_run=run, spec=spec, registry=registry)
+
+    gate = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).one()
+    decide_human_gate(db_session, gate_id=int(gate.id), decision="reject", reviewer="tester", comment="unsafe")
+
+    assert gate.status == "decided"
+    assert gate.decision == "reject"
+    assert run.status == "failed"
+    assert workflow_blackboard(run)["human_gate_decisions"][0]["comment"] == "unsafe"

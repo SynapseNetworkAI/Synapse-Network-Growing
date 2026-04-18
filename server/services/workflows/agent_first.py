@@ -2933,10 +2933,12 @@ def _auto_submit_approved_requirement(
         return None
     if _assets_status(requirement) != "ready":
         return None
-    if not str(_parse_execution_plan(requirement).get("summary_markdown") or "").strip():
-        return None
     if _latest_execution_run(db, requirement_id) is not None:
         return None
+    if getattr(requirement, "active_workflow_run_id", None):
+        active_workflow = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(requirement.active_workflow_run_id)).first()
+        if active_workflow is not None and str(getattr(active_workflow, "workflow_key", "") or "") != "legacy_fixed_step":
+            return None
 
     decision = evaluate_requirement_execution_approval(requirement)
     approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
@@ -2974,6 +2976,50 @@ def _auto_submit_approved_requirement(
         return None
 
 
+def _select_declarative_workflow_key(requirement: RequirementRow) -> str:
+    """Select the first-phase declarative workflow for a submitted requirement."""
+
+    text = " ".join(
+        [
+            str(getattr(requirement, "title", "") or ""),
+            str(getattr(requirement, "description_markdown", "") or ""),
+            str(getattr(requirement, "intake_metadata_json", "") or ""),
+        ]
+    ).lower()
+    gateway_markers = ("gateway", "5xx", "api success", "latency", "timeout", "reliability", "provider api")
+    if any(marker in text for marker in gateway_markers):
+        return "gateway_reliability_repair"
+    return "agent_self_repair"
+
+
+def _create_requirement_declarative_workflow(
+    db: Session,
+    requirement: RequirementRow,
+    *,
+    triggered_by: str,
+) -> WorkflowRunRow:
+    """Create the new declarative workflow run truth for a requirement."""
+
+    from server.services.workflows.declarative import create_declarative_workflow_run
+
+    workflow_key = _select_declarative_workflow_key(requirement)
+    return create_declarative_workflow_run(
+        db,
+        requirement=requirement,
+        workflow_key=workflow_key,
+        triggered_by=triggered_by,
+        initial_blackboard={
+            "trigger": {
+                "source": triggered_by,
+                "requirement_id": int(requirement.id),
+                "title": str(requirement.title or ""),
+            },
+            "risk_level": "normal",
+        },
+        run_immediately=True,
+    )
+
+
 def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequirementDetailOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
@@ -2981,6 +3027,10 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = reconcile_requirement_state(db, requirement)
     if str(requirement.status or "") == "deleted":
         raise ValueError("Deleted requirement cannot be submitted.")
+    if getattr(requirement, "active_workflow_run_id", None):
+        active_workflow = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(requirement.active_workflow_run_id)).first()
+        if active_workflow is not None and str(getattr(active_workflow, "workflow_key", "") or "") != "legacy_fixed_step":
+            return _build_requirement_detail(db, requirement_id)
     if _latest_execution_run(db, requirement_id) is not None:
         return _build_requirement_detail(db, requirement_id)
     if str(getattr(requirement, "phase", "") or "") in {"executing", "verifying", "delivery_ready", "pr_opened", "done"}:
@@ -3012,43 +3062,35 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
             reviewer="system",
             comment=approval_reason or "Automatically approved for execution",
         )
-        execution_plan = _ensure_execution_plan(db, requirement)
+        workflow_run = _create_requirement_declarative_workflow(db, requirement, triggered_by="requirement_submit")
         db.commit()
         _log_workflow_event(
-            "requirement_execution_plan_generated",
+            "requirement_declarative_workflow_created",
             requirement=requirement,
-            planning_mode=str(execution_plan.get("planning_mode") or "fallback"),
-            planned_steps=len(list(execution_plan.get("steps") or [])),
-            planned_checks=len(list(execution_plan.get("planned_checks") or [])),
+            workflow_key=str(workflow_run.workflow_key or ""),
+            workflow_run_id=int(workflow_run.id),
+            current_state=str(workflow_run.current_state or ""),
+            workflow_status=str(workflow_run.status or ""),
         )
-        execution = create_execution_run(db, int(requirement.id))
-        auto_started = False
-        pending_execution_start = False
-        try:
-            start_execution_run(db, int(execution.execution.id))
-            auto_started = True
-        except ValueError:
-            pending_execution_start = True
         detail = _build_requirement_detail(
             db,
             requirement_id,
-            latest_execution_id_override=int(execution.execution.id),
             approval_override=_approval_summary(
                 db,
                 requirement,
-                latest_execution_id=int(execution.execution.id),
-                auto_started=auto_started,
-                pending_execution_start=pending_execution_start,
+                auto_started=True,
+                pending_execution_start=False,
             ),
         )
         _log_workflow_event(
             "requirement_submitted",
             requirement=requirement,
-            execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(execution.execution.id)).first(),
             approval_decision=approval_status,
             approval_reason=approval_reason,
-            auto_started=auto_started,
-            pending_execution_start=pending_execution_start,
+            workflow_key=str(workflow_run.workflow_key or ""),
+            workflow_run_id=int(workflow_run.id),
+            auto_started=True,
+            pending_execution_start=False,
         )
         _notify_requirement_approval(db, requirement, detail.approval)
         db.commit()
@@ -3116,43 +3158,35 @@ def approve_requirement(
         reviewer=reviewer,
         comment=str(comment or "Approved for autonomous execution"),
     )
-    execution_plan = _ensure_execution_plan(db, requirement)
+    workflow_run = _create_requirement_declarative_workflow(db, requirement, triggered_by="requirement_approve")
     db.commit()
     _log_workflow_event(
-        "requirement_execution_plan_generated",
+        "requirement_declarative_workflow_created",
         requirement=requirement,
-        planning_mode=str(execution_plan.get("planning_mode") or "fallback"),
-        planned_steps=len(list(execution_plan.get("steps") or [])),
-        planned_checks=len(list(execution_plan.get("planned_checks") or [])),
+        workflow_key=str(workflow_run.workflow_key or ""),
+        workflow_run_id=int(workflow_run.id),
+        current_state=str(workflow_run.current_state or ""),
+        workflow_status=str(workflow_run.status or ""),
     )
-    execution = create_execution_run(db, int(requirement.id))
-    auto_started = False
-    pending_execution_start = False
-    try:
-        start_execution_run(db, int(execution.execution.id))
-        auto_started = True
-    except ValueError:
-        pending_execution_start = True
     detail = _build_requirement_detail(
         db,
         requirement_id,
-        latest_execution_id_override=int(execution.execution.id),
         approval_override=_approval_summary(
             db,
             requirement,
-            latest_execution_id=int(execution.execution.id),
-            auto_started=auto_started,
-            pending_execution_start=pending_execution_start,
+            auto_started=True,
+            pending_execution_start=False,
         ),
     )
     _log_workflow_event(
         "requirement_approved",
         requirement=requirement,
-        execution=db.query(ExecutionRunRow).filter(ExecutionRunRow.id == int(execution.execution.id)).first(),
+        workflow_key=str(workflow_run.workflow_key or ""),
+        workflow_run_id=int(workflow_run.id),
         reviewer=reviewer,
         approval_comment=str(comment or "").strip() or None,
-        auto_started=auto_started,
-        pending_execution_start=pending_execution_start,
+        auto_started=True,
+        pending_execution_start=False,
     )
     _notify_requirement_approval(db, requirement, detail.approval)
     db.commit()

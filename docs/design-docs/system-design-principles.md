@@ -67,6 +67,15 @@
 7. 下游 deterministic atom 只能读取 parsed payload，不能把非结构化模型输出当作可信输入。
 8. 高风险 atom 必须进入 human gate；资金、结算、合约、auth、生产部署和外部付费动作不得自动放行。
 
+## 6.6 No Legacy Workflow Compatibility
+
+1. 新复杂执行链的唯一真相是 declarative workflow run：`workflow_definitions`、`workflow_runs`、`workflow_state_events`、`workflow_artifacts`、`blackboard_snapshots`、`atom_invocations`、`human_gate_requests`。
+2. 历史 `workflow_steps`、fixed-step orchestrator、旧 agent-first bugfix loop、旧 delivery repair loop 只允许作为删除对象或只读历史残留，不得作为新链路 fallback。
+3. `WorkflowRunRow/WorkflowStepRow/active_workflow_run_id/current_plan_version` 的旧语义不再参与新执行链设计；新业务只能读取 declarative state machine 的 `workflow_key/current_state/status/resolution/blackboard`。
+4. `workflow_artifacts.workflow_run_id` 必须直接外键到新 declarative run，不得再绕到旧 `ArtifactRow.workflow_run_id` 或把 execution id 塞进 artifact payload 伪关联。
+5. Requirement submit 后只应创建 declarative workflow run；planner 只选择 `workflow_key` 与初始化 blackboard，不再生成固定 `research/plan/implementation/validate/closeout` steps。
+6. Agent 只能写 structured output 与 artifact；state transition、retry budget、terminal state、human gate 由 deterministic runner 决定。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

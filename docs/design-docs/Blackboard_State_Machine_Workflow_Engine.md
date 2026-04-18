@@ -194,8 +194,8 @@ Blackboard 不是聊天记录堆积，而是结构化上下文：
 ```
 
 落地方式：
-- v1 不新增表，存在 `ExecutionRunRow.plan_snapshot_json.blackboard`。
-- 大文本和证据继续写 `ArtifactRow` 或 runtime artifact 文件。
+- 新执行链使用独立 declarative workflow 表：`workflow_runs.blackboard_json`、`blackboard_snapshots`、`workflow_state_events`、`workflow_artifacts`、`atom_invocations`、`human_gate_requests`。
+- 大文本和证据写 `workflow_artifacts` 或 runtime artifact 文件，`workflow_artifacts.workflow_run_id` 直接关联 declarative run。
 - Blackboard 只存摘要、路径、结构化字段、计数器。
 - `patch` state 复用同一个 `runtime_session_id`，避免每轮重新理解上下文。
 - 每次 state transition 都写一条 event artifact，方便回放。
@@ -373,8 +373,8 @@ execution_mode = "state_machine"
 - v1 手写轻量状态路由，不引入 `transitions`。
 - v1 支持 state machine，不支持任意复杂 DAG + 并行。
 - v1 所有 loop 必须有 counter。
-- v1 Blackboard 存在 `ExecutionRunRow.plan_snapshot_json.blackboard`。
-- v1 大 artifact 仍用 `ArtifactRow` 或文件路径。
+- v1 Blackboard 存在 `workflow_runs.blackboard_json`，并通过 `blackboard_snapshots` 保留每次 state transition 的可审计快照。
+- v1 大 artifact 使用 `workflow_artifacts` 或文件路径，不再复用旧 `ArtifactRow.workflow_run_id` 语义。
 - v1 Agent atom 必须有 parser/schema。
 - v1 高风险全部人工门禁。
 - v1 首个工作流实现 `gateway_reliability_repair`。

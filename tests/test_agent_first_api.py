@@ -122,13 +122,16 @@ def test_low_risk_requirement_auto_submits_and_auto_starts_execution(synced_clie
     assert "Verification Guidance" in create_payload["requirement"]["acceptance_criteria_markdown"]
     requirement_id = create_resp.json()["requirement"]["id"]
     payload = create_payload
-    assert payload["requirement"]["state"] in {"executing", "delivering"}
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement_id).one()
+    assert workflow_run.workflow_key == "agent_self_repair"
+    assert workflow_run.current_state == "awaiting_operator"
+    assert workflow_run.status == "awaiting_operator"
     assert payload["requirement"]["approval_status"] == "approved"
     assert payload["approval"]["approval_decision"] == "approved"
     assert payload["approval"]["approval_source"] == "agent_auto_approved"
     assert payload["approval"]["auto_started"] is True
-    assert payload["approval"]["execution_run_id"] is not None
-    assert payload["latest_execution_id"] == payload["approval"]["execution_run_id"]
+    assert payload["approval"]["execution_run_id"] is None
+    assert payload["latest_execution_id"] is None
     assert payload["execution_plan"]["planning_mode"] == "codex_raw_exec_plan"
     assert payload["execution_plan"]["summary_markdown"]
     assert payload["execution_plan"]["steps"] == [
@@ -144,7 +147,8 @@ def test_low_risk_requirement_auto_submits_and_auto_starts_execution(synced_clie
 
     submit_resp = synced_client.post(f"/api/requirements/{requirement_id}/submit")
     assert submit_resp.status_code == 200
-    assert submit_resp.json()["latest_execution_id"] == payload["latest_execution_id"]
+    assert submit_resp.json()["latest_execution_id"] is None
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).all() == []
 
 
 def test_plan_agent_failure_marks_assets_failed_without_execution(synced_client, db_session, monkeypatch):
@@ -793,8 +797,9 @@ def test_requirement_submit_emits_structured_chain_logs(synced_client, caplog):
     assert submit_resp.status_code == 200
     text = caplog.text
     assert "requirement_submitted" in text
-    assert "execution_run_created" in text
-    assert "execution_run_started" in text
+    assert "requirement_declarative_workflow_created" in text
+    assert "execution_run_created" not in text
+    assert "execution_run_started" not in text
     assert f"'requirement_id': {requirement_id}" in text
 
 
@@ -1274,7 +1279,7 @@ def test_minimal_validate_prefers_execution_evidence_commands(synced_client, db_
     assert payload["requirement"]["state"] in {"delivering", "ready_for_merge", "awaiting_operator"}
 
 
-def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced_client, db_session):
+def test_submit_creates_declarative_run_without_legacy_branch_preparation(synced_client, db_session):
     project = _create_project(
         synced_client,
         project_key="synapse-network-growing",
@@ -1316,29 +1321,14 @@ def test_submit_blocks_execution_start_when_branch_preparation_is_blocked(synced
 
     assert submit_resp.status_code == 200
     payload = submit_resp.json()
-    assert payload["approval"]["auto_started"] is False
-    assert payload["approval"]["pending_execution_start"] is True
-    assert payload["approval"]["execution_run_id"] is not None
-    assert payload["latest_release"]["status"] == "release_blocked"
-    assert payload["latest_release"]["branch_name"] == "ops/req-1-blocked-by-dirty-worktree"
-    assert payload["latest_release"]["planned_branch_name"] == "ops/req-1-blocked-by-dirty-worktree"
-    assert payload["latest_release"]["actual_branch_name"] is None
-    assert payload["latest_release"]["branch_reuse_status"] == "blocked"
-    assert payload["latest_release"]["base_branch"] == "main"
-    assert payload["latest_release"]["delivery_blocker_type"] == "workspace_blocked"
-    assert payload["latest_release"]["repairability"] == "manual_only"
-    assert payload["latest_release"]["next_action"] == "restart_current"
-    assert "dirty worktree" in payload["latest_release"]["delivery_failure_excerpt"]
-    assert "prepare_release" in payload["allowed_actions"]
-    assert "open_pr" in payload["allowed_actions"]
-    execution = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).one()
-    assert execution.status == "queued"
-    detail_resp = synced_client.get(f"/api/executions/{int(execution.id)}")
-    assert detail_resp.status_code == 200
-    detail_payload = detail_resp.json()
-    assert detail_payload["queue_reason"].startswith("启动失败：")
-    assert detail_payload["blocking_reason_code"] == "branch_preparation_blocked"
-    assert "dirty worktree" in detail_payload["blocking_reason_message"]
+    assert payload["approval"]["auto_started"] is True
+    assert payload["approval"]["pending_execution_start"] is False
+    assert payload["approval"]["execution_run_id"] is None
+    assert payload["latest_release"] is None
+    assert db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement_id).all() == []
+    workflow_run = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement_id).one()
+    assert workflow_run.workflow_key == "agent_self_repair"
+    assert workflow_run.current_state == "awaiting_operator"
 
 
 def test_branch_preparation_blocker_restarts_same_execution_after_workspace_is_clean(synced_client, db_session, tmp_path):

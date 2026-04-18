@@ -43,6 +43,7 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 3. verification 必须独立于 implementation。
 4. 多代理的重点是隔离不确定性，不是堆 worker 数量。
 5. runtime / subagent 必须有生命周期、cleanup、abort 传播与可追踪 transcript。
+6. 复杂执行流的新唯一真相是 Declarative Workflow Factory：State Machine YAML + Blackboard + Atom Registry + Risk/Human Gate，不再为 fixed `workflow_steps` 主链做新兼容。
 
 ## 🏢 AI 时代公司架构映射
 

@@ -531,11 +531,19 @@ class WorkflowRunRow(Base):
         Index("workflow_runs_requirement_idx", "requirement_id"),
         Index("workflow_runs_status_idx", "status"),
         Index("workflow_runs_plan_version_idx", "requirement_id", "plan_version"),
+        Index("workflow_runs_workflow_key_idx", "workflow_key"),
+        Index("workflow_runs_current_state_idx", "current_state"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    plan_version = Column(Integer, nullable=False)
+    plan_version = Column(Integer, nullable=False, default=1)
+    workflow_key = Column(Text, nullable=False, default="legacy_fixed_step")
+    current_state = Column(Text, nullable=False, default="queued")
+    resolution = Column(Text)
+    risk_level = Column(Text, nullable=False, default="normal")
+    retry_counters_json = Column(Text, nullable=False, default="{}")
+    blackboard_json = Column(Text, nullable=False, default="{}")
     status = Column(Text, nullable=False, default="pending")
     triggered_by = Column(Text, nullable=False, default="system")
     planner_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
@@ -546,6 +554,137 @@ class WorkflowRunRow(Base):
 
     requirement = relationship("RequirementRow", back_populates="workflow_runs", foreign_keys=[requirement_id])
     steps = relationship("WorkflowStepRow", back_populates="workflow_run", order_by="WorkflowStepRow.sequence_no")
+    state_events = relationship("WorkflowStateEventRow", back_populates="workflow_run", order_by="WorkflowStateEventRow.id")
+    workflow_artifacts = relationship("WorkflowArtifactRow", back_populates="workflow_run", order_by="WorkflowArtifactRow.id")
+    blackboard_snapshots = relationship("BlackboardSnapshotRow", back_populates="workflow_run", order_by="BlackboardSnapshotRow.id")
+    atom_invocations = relationship("AtomInvocationRow", back_populates="workflow_run", order_by="AtomInvocationRow.id")
+    human_gate_requests = relationship("HumanGateRequestRow", back_populates="workflow_run", order_by="HumanGateRequestRow.id")
+
+
+class WorkflowDefinitionRow(Base):
+    __tablename__ = "workflow_definitions"
+    __table_args__ = (
+        Index("workflow_definitions_key_idx", "workflow_key", unique=True),
+        Index("workflow_definitions_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_key = Column(Text, nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    title = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="draft")
+    spec_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class WorkflowStateEventRow(Base):
+    __tablename__ = "workflow_state_events"
+    __table_args__ = (
+        Index("workflow_state_events_run_idx", "workflow_run_id"),
+        Index("workflow_state_events_state_idx", "to_state"),
+        Index("workflow_state_events_type_idx", "event_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    event_type = Column(Text, nullable=False, default="transition")
+    from_state = Column(Text)
+    to_state = Column(Text, nullable=False)
+    condition = Column(Text)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="state_events")
+
+
+class WorkflowArtifactRow(Base):
+    __tablename__ = "workflow_artifacts"
+    __table_args__ = (
+        Index("workflow_artifacts_run_idx", "workflow_run_id"),
+        Index("workflow_artifacts_type_idx", "artifact_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    artifact_type = Column(Text, nullable=False)
+    state_key = Column(Text)
+    atom_key = Column(Text)
+    path = Column(Text)
+    content_summary = Column(Text, nullable=False, default="")
+    human_readable_body = Column(Text, nullable=False, default="")
+    machine_readable_payload = Column(Text, nullable=False, default="{}")
+    checksum = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="workflow_artifacts")
+
+
+class BlackboardSnapshotRow(Base):
+    __tablename__ = "blackboard_snapshots"
+    __table_args__ = (
+        Index("blackboard_snapshots_run_idx", "workflow_run_id"),
+        Index("blackboard_snapshots_state_idx", "state_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    state_key = Column(Text, nullable=False)
+    snapshot_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="blackboard_snapshots")
+
+
+class AtomInvocationRow(Base):
+    __tablename__ = "atom_invocations"
+    __table_args__ = (
+        Index("atom_invocations_run_idx", "workflow_run_id"),
+        Index("atom_invocations_atom_idx", "atom_key"),
+        Index("atom_invocations_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    state_key = Column(Text, nullable=False)
+    atom_key = Column(Text, nullable=False)
+    atom_type = Column(Text, nullable=False, default="deterministic")
+    output_schema = Column(Text)
+    status = Column(Text, nullable=False, default="running")
+    input_summary = Column(Text, nullable=False, default="")
+    output_summary = Column(Text, nullable=False, default="")
+    artifact_ids_json = Column(Text, nullable=False, default="[]")
+    error_excerpt = Column(Text)
+    duration_ms = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    completed_at = Column(DateTime)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="atom_invocations")
+
+
+class HumanGateRequestRow(Base):
+    __tablename__ = "human_gate_requests"
+    __table_args__ = (
+        Index("human_gate_requests_run_idx", "workflow_run_id"),
+        Index("human_gate_requests_status_idx", "status"),
+        Index("human_gate_requests_risk_idx", "risk_level"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
+    state_key = Column(Text, nullable=False)
+    gate_type = Column(Text, nullable=False, default="human_gate")
+    risk_level = Column(Text, nullable=False, default="high")
+    status = Column(Text, nullable=False, default="pending")
+    reason = Column(Text, nullable=False, default="")
+    payload_json = Column(Text, nullable=False, default="{}")
+    decided_by = Column(Text)
+    decision = Column(Text)
+    decision_comment = Column(Text)
+    decided_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    workflow_run = relationship("WorkflowRunRow", back_populates="human_gate_requests")
 
 
 class WorkflowStepRow(Base):
@@ -1342,6 +1481,36 @@ def _migrate(engine_):
                 )
             )
             conn.commit()
+
+    if "workflow_runs" in tables:
+        existing = {c["name"] for c in insp.get_columns("workflow_runs")}
+        workflow_run_cols = {
+            "workflow_key": "TEXT DEFAULT 'legacy_fixed_step'",
+            "current_state": "TEXT DEFAULT 'queued'",
+            "resolution": "TEXT",
+            "risk_level": "TEXT DEFAULT 'normal'",
+            "retry_counters_json": "TEXT DEFAULT '{}'",
+            "blackboard_json": "TEXT DEFAULT '{}'",
+        }
+        for col, col_type in workflow_run_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to workflow_runs table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+
+    declarative_tables = {
+        "workflow_definitions": WorkflowDefinitionRow,
+        "workflow_state_events": WorkflowStateEventRow,
+        "workflow_artifacts": WorkflowArtifactRow,
+        "blackboard_snapshots": BlackboardSnapshotRow,
+        "atom_invocations": AtomInvocationRow,
+        "human_gate_requests": HumanGateRequestRow,
+    }
+    for table_name, row_class in declarative_tables.items():
+        if table_name not in tables:
+            logger.info("Migrating: creating '%s' table", table_name)
+            row_class.__table__.create(bind=engine_, checkfirst=True)
 
     if "execution_nodes" not in tables:
         logger.info("Migrating: creating 'execution_nodes' table")
