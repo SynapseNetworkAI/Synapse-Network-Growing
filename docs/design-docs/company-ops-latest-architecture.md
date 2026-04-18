@@ -279,6 +279,20 @@ intake -> execute -> validate -> deliver
 
 前端控制台需要把这套链路表达成 Operator 能直接理解的 Control Plane，而不是继续停留在表格和调试 JSON。整体页面方案见 [Workflow Factory Frontend Control Plane](workflow-factory-frontend-control-plane.md)：它定义 Command Center、Intake、Requirements、Workflows、Human Gates、Projects、Releases 和 Data Hygiene 的边界，并明确 Projects / Errors 在新架构中仍然保留但要降噪重组。
 
+### 2.8 Scheduled Jobs Control Plane
+
+后台自动化不能只藏在线程、日志或请求副作用里。当前系统新增 [Recurring Workflow Control Plane](recurring-workflow-control-plane.md)，把真实自动运行和可手动触发的 recurring workflows 作为一等可观测对象。
+
+当前边界：
+
+1. `/schedules` 展示内置 recurring workflow registry、运行历史、健康状态和手动 dry run / run now。
+2. Bug Log Sweep Scheduler 是真实自动定时运行的稳定性入口，负责日志扫描和 bug intake。
+3. Notification Dispatcher 是真实后台 loop，负责通知队列消费、dedupe、cooldown、suppression、retry 和 dead letter。
+4. 其他 recurring workflows 先作为可手动运行的一等任务定义，不由通用 scheduler 自动运行。
+5. 高风险 recurring workflow 的 `Run Now` 默认不 auto-start requirement，也不能绕过 human gate。
+
+这让 operator 能看到“谁在后台推动系统、上次跑了什么、失败在哪里、是否卡住”，避免后台任务变成新的黑盒。
+
 ## 3. Core Execution Model
 
 ### 3.1 Planner Contract
@@ -528,7 +542,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 2. company review
 3. role kpis
 4. autonomy
-5. recurring workflows
+5. recurring workflows 旧式控制台
 6. tasks / approvals / deployments 旧式控制台
 
 这些能力如果仍保留为内部支撑或历史设计记录，也不再代表当前正式操作面。
@@ -545,13 +559,14 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 6. deliver 只能发生在 validate 成功之后
 7. release candidate 只接受 validate 成功的 requirement
 8. requirement、alert、approval、release 四类 Lark 通知必须统一走结构化交互卡片；alert 只放 P0/P1，approval 只放 human gate，普通 workflow 细节留在 Ops Console。
+9. 后台 scheduler、dispatcher 和 recurring workflow 必须通过 `/schedules` 暴露健康、运行历史、手动 dry run 和失败信息，不能只藏在 daemon 日志里。
 
 ## 7. Current Status
 
 当前代码已经采用以下实现方向：
 
 1. requirements、workflows、releases 已拆成独立 API surface
-2. 前端导航已切成需求、工作流、发布、项目、错误
+2. 前端导航已切成需求、工作流、定时任务、发布、项目、错误
 3. requirement 页面不再混入 deploy / rollback 控制
 4. release 页面负责 branch / PR / deploy promotion
 5. optimization signals、company review、requirement source materialization 已改用新的 requirement intake 入口

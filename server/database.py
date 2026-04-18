@@ -450,6 +450,29 @@ class RecurringWorkflowRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class RecurringWorkflowRunRow(Base):
+    __tablename__ = "recurring_workflow_runs"
+    __table_args__ = (
+        Index("recurring_workflow_runs_workflow_idx", "workflow_key"),
+        Index("recurring_workflow_runs_status_idx", "status"),
+        Index("recurring_workflow_runs_started_idx", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workflow_key = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="running")
+    triggered_by = Column(Text, nullable=False, default="operator")
+    dry_run = Column(Boolean, nullable=False, default=False)
+    params_json = Column(Text, nullable=False, default="{}")
+    result_json = Column(Text, nullable=False, default="{}")
+    error_excerpt = Column(Text)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    completed_at = Column(DateTime)
+    duration_ms = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class CodexSessionRow(Base):
     __tablename__ = "codex_sessions"
     __table_args__ = (
@@ -1569,6 +1592,10 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+
+    if "recurring_workflow_runs" not in tables:
+        logger.info("Migrating: creating 'recurring_workflow_runs' table")
+        RecurringWorkflowRunRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "execution_nodes" not in tables:
         logger.info("Migrating: creating 'execution_nodes' table")

@@ -460,7 +460,48 @@ OPS_NOTIFICATION_APPROVAL_REMINDER_SECONDS=7200
 OPS_NOTIFICATION_MAX_DELIVERY_ATTEMPTS=4
 ```
 
-## 8. 当前正式操作闭环
+## 9. 定时任务
+
+`/schedules` 是后台自动化的管理与观测面。它不负责创建自定义任务，v1 只展示内置 recurring workflows、真实后台 scheduler 和 Notification Dispatcher 健康状态。
+
+页面模块：
+
+1. Health Overview
+   - Bug Log Scheduler
+   - Notification Dispatcher
+   - Recurring Registry
+2. Recurring Workflow Registry
+   - workflow key
+   - owner role
+   - schedule
+   - health status
+   - last run / next run
+3. Run History
+   - 每次运行的 status、dry run、triggered by、duration、params、result、error
+4. Result Inspector
+   - 默认折叠 raw JSON，只在需要排障时展开
+
+操作规则：
+
+1. `Dry Run` 优先用于验证配置，不应产生业务副作用。
+2. `Run Now` 对可能创建 requirement 的任务会弹确认。
+3. `Run Now` 默认 `auto_start=false`、`auto_dispatch_acceptance=false`。
+4. 高风险 recurring workflow 不能通过定时任务自动执行资金、生产部署、合约、auth 或外部付费动作。
+
+当前真实自动循环：
+
+1. Bug Log Sweep Scheduler 负责周期性扫描日志并进入 bug intake。
+2. Notification Dispatcher 负责消费通知队列、限流、抑制、重试和 dead letter。
+3. 其他 recurring workflows 当前作为可手动运行的一等任务定义，不由通用 scheduler 自动触发。
+
+关联接口：
+
+1. `GET /api/recurring-workflows`
+2. `POST /api/recurring-workflows/{workflow_key}/run`
+3. `GET /api/recurring-workflows/{workflow_key}/runs`
+4. `GET /api/recurring-workflows/health`
+
+## 10. 当前正式操作闭环
 
 推荐操作顺序：
 

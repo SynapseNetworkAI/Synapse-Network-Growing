@@ -77,6 +77,9 @@ class BugLogSweepScheduler:
         self._startup_delay_seconds = max(0, int(startup_delay_seconds or config.BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS))
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_tick_at: datetime | None = None
+        self._last_run_at: datetime | None = None
+        self._last_error: str | None = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -102,6 +105,18 @@ class BugLogSweepScheduler:
             self._thread.join(timeout=5)
         log_event(logger, "bug_log_scheduler_stopped")
 
+    def status_snapshot(self) -> dict[str, object]:
+        return {
+            "enabled": bool(config.BUG_LOG_SWEEP_SCHEDULER_ENABLED),
+            "running": bool(self._thread is not None and self._thread.is_alive() and not self._stop_event.is_set()),
+            "interval_minutes": int(config.BUG_LOG_SWEEP_INTERVAL_MINUTES),
+            "poll_seconds": int(self._poll_seconds),
+            "startup_delay_seconds": int(self._startup_delay_seconds),
+            "last_tick_at": self._last_tick_at.isoformat() if self._last_tick_at else None,
+            "last_run_at": self._last_run_at.isoformat() if self._last_run_at else None,
+            "last_error": self._last_error,
+        }
+
     def _run_loop(self) -> None:
         if self._startup_delay_seconds:
             if self._stop_event.wait(self._startup_delay_seconds):
@@ -109,9 +124,12 @@ class BugLogSweepScheduler:
         while not self._stop_event.is_set():
             db: Session | None = None
             try:
+                self._last_tick_at = datetime.now(timezone.utc)
                 db = self._session_factory()
                 result = maybe_run_bug_log_sweep_once(db)
                 if result is not None:
+                    self._last_run_at = datetime.now(timezone.utc)
+                    self._last_error = None
                     payload = dict(result.get("result") or {})
                     log_event(
                         logger,
@@ -121,6 +139,7 @@ class BugLogSweepScheduler:
                         materialized_requirement_count=len(payload.get("materialized_requirement_ids") or []),
                     )
             except Exception as exc:
+                self._last_error = str(exc)
                 log_event(
                     logger,
                     "bug_log_scheduler_failed",

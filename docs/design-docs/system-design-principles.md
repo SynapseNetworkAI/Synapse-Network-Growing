@@ -76,6 +76,15 @@
 5. Requirement submit 后只应创建 declarative workflow run；planner 只选择 `workflow_key` 与初始化 blackboard，不再生成固定 `research/plan/implementation/validate/closeout` steps。
 6. Agent 只能写 structured output 与 artifact；state transition、retry budget、terminal state、human gate 由 deterministic runner 决定。
 
+## 6.7 后台任务必须一等可观测
+
+1. 任何会定期运行、后台轮询、延迟重试或自动推进系统状态的机制，都必须在 Ops Console 中可见。
+2. 后台任务不能只存在于 thread、daemon、log、cron 或隐式请求副作用中。
+3. 每次后台运行必须记录 run history，包括 triggered_by、dry_run、params、result、error、started_at、completed_at 和 duration。
+4. 高风险 recurring workflow 默认不得 auto-start requirement、delivery、deploy、funds、auth、contract 或外部付费动作。
+5. `Dry Run` 是验证 recurring workflow 配置的默认方式；`Run Now` 必须有明确确认与可追踪结果。
+6. Notification Dispatcher 这类可靠性后台 loop 必须暴露 queue、dead letter、suppression、last tick 和 last error。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

@@ -3,6 +3,7 @@ import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
 import WorkflowRunsPage from './pages/WorkflowRunsPage'
 import WorkflowRunDetailPage from './pages/WorkflowRunDetailPage'
+import SchedulesPage from './pages/SchedulesPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
 import ProjectsPage from './pages/ProjectsPage'
@@ -13,6 +14,7 @@ import ErrorDetailPage from './pages/ErrorDetailPage'
 const primaryNav = [
   { to: '/requirements', label: '需求' },
   { to: '/workflows', label: '工作流' },
+  { to: '/schedules', label: '定时任务' },
   { to: '/releases', label: '发布' },
   { to: '/projects', label: '项目' },
   { to: '/errors', label: '错误' },
@@ -23,6 +25,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname.startsWith('/requirements/'), title: '需求详情', meta: 'Requirement detail' },
   { match: (pathname) => pathname === '/workflows', title: '工作流', meta: 'Workflow runs' },
   { match: (pathname) => pathname.startsWith('/workflows/'), title: '工作流详情', meta: 'State machine detail' },
+  { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
   { match: (pathname) => pathname === '/projects', title: '项目', meta: 'Project list' },
@@ -104,6 +107,7 @@ export default function App() {
                 <Route path="/requirements/:id" element={<RequirementDetail />} />
                 <Route path="/workflows" element={<WorkflowRunsPage />} />
                 <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
+                <Route path="/schedules" element={<SchedulesPage />} />
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />

@@ -2008,9 +2008,26 @@ class RecurringWorkflowOut(BaseModel):
     validation_signal: dict[str, object] = {}
     is_builtin: bool = True
     last_run_at: Optional[datetime] = None
+    next_run_at: Optional[datetime] = None
+    is_due: bool = False
+    health_status: str = "unknown"
     last_result: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class RecurringWorkflowRunOut(BaseModel):
+    id: int
+    workflow_key: str
+    status: str
+    triggered_by: str
+    dry_run: bool = False
+    params: dict[str, object] = {}
+    result: dict[str, object] = {}
+    error_excerpt: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: int = 0
 
 
 class RecurringWorkflowRunRequest(BaseModel):
@@ -2026,7 +2043,14 @@ class RecurringWorkflowRunResultOut(BaseModel):
     workflow_key: str
     status: str
     run_started_at: Optional[datetime] = None
+    run_id: Optional[int] = None
     result: dict[str, object] = {}
+
+
+class RecurringWorkflowHealthOut(BaseModel):
+    bug_log_scheduler: dict[str, object] = {}
+    notification_dispatcher: dict[str, object] = {}
+    recurring_registry: dict[str, object] = {}
 
 
 # ── Copilot Auth ─────────────────────────────────────────────

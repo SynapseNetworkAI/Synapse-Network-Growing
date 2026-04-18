@@ -15,6 +15,7 @@ from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
 from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
+from server.services.runtime.notification_dispatcher import NotificationDispatcher
 from server.services.runtime.openai_responses_monitor import OpenAIResponsesTaskMonitor
 from server.services.workflows.agent_first import reconcile_runtime_recovery
 
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
             db.close()
     monitor = None
     bug_scheduler = None
+    notification_dispatcher = None
     if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:
         monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
         monitor.start()
@@ -68,9 +70,15 @@ async def lifespan(app: FastAPI):
         bug_scheduler = BugLogSweepScheduler()
         bug_scheduler.start()
         app.state.bug_log_scheduler = bug_scheduler
+    if config.NOTIFICATION_DISPATCHER_ENABLED:
+        notification_dispatcher = NotificationDispatcher()
+        notification_dispatcher.start()
+        app.state.notification_dispatcher = notification_dispatcher
     try:
         yield
     finally:
+        if notification_dispatcher is not None:
+            notification_dispatcher.stop()
         if bug_scheduler is not None:
             bug_scheduler.stop()
         if monitor is not None:

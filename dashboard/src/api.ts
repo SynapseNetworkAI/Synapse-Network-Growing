@@ -1465,16 +1465,40 @@ export interface RecurringWorkflow {
   validation_signal: Record<string, unknown>
   is_builtin: boolean
   last_run_at: string | null
+  next_run_at: string | null
+  is_due: boolean
+  health_status: string
   last_result: Record<string, unknown>
   created_at: string | null
   updated_at: string | null
+}
+
+export interface RecurringWorkflowRun {
+  id: number
+  workflow_key: string
+  status: string
+  triggered_by: string
+  dry_run: boolean
+  params: Record<string, unknown>
+  result: Record<string, unknown>
+  error_excerpt: string | null
+  started_at: string | null
+  completed_at: string | null
+  duration_ms: number
 }
 
 export interface RecurringWorkflowRunResult {
   workflow_key: string
   status: string
   run_started_at: string | null
+  run_id: number | null
   result: Record<string, unknown>
+}
+
+export interface RecurringWorkflowHealth {
+  bug_log_scheduler: Record<string, unknown>
+  notification_dispatcher: Record<string, unknown>
+  recurring_registry: Record<string, unknown>
 }
 
 // API functions
@@ -1492,6 +1516,9 @@ export const api = {
       body: JSON.stringify(data || {}),
     }),
   getRecurringWorkflows: () => request<RecurringWorkflow[]>('/recurring-workflows'),
+  getRecurringWorkflowHealth: () => request<RecurringWorkflowHealth>('/recurring-workflows/health'),
+  getRecurringWorkflowRuns: (workflowKey: string, limit = 50) =>
+    request<RecurringWorkflowRun[]>(`/recurring-workflows/${workflowKey}/runs?limit=${encodeURIComponent(String(limit))}`),
   runRecurringWorkflow: (
     workflowKey: string,
     data?: {

@@ -243,6 +243,7 @@ runtime/
 server/services/runtime/*
 !server/services/runtime/codex_session_registry.py
 !server/services/runtime/codex_sdk.py
+!server/services/runtime/notification_dispatcher.py
 !server/services/runtime/notification_policy.py
 !server/services/runtime/notification_queue.py
 server/logs/

@@ -212,6 +212,7 @@
 1. 统一 Lark 通知结构。
    - requirement channel
    - alert channel
+   - approval channel
    - release channel
 2. Python 结构化日志。
    - `structlog + logging`
@@ -224,6 +225,50 @@
    - `execution_id`
    - `release_id`
    - `fingerprint_key`
+4. 统一通知队列。
+   - 业务模块写入 `notification_events`
+   - dispatcher 更新 `notification_fingerprints`
+   - cooldown 内重复事件累计 `suppressed_count`
+   - 实际 Lark 投递写入 `notification_deliveries`
+5. Notification Dispatcher 后台 loop。
+   - 服务启动时按配置启动
+   - 周期性消费 queued notification events
+   - 暴露 queued、dead letter、open fingerprints、suppressed fingerprints、last tick、last error
+
+## 7.1 定时任务与后台自动化
+
+当前已具备：
+
+1. `/schedules` 定时任务管理页。
+   - Health Overview
+   - Recurring Workflow Registry
+   - Run History
+   - Result Inspector
+2. 内置 recurring workflow registry。
+   - `bug_log_sweep`
+   - `morning_intake_sweep`
+   - `dispatcher_loop`
+   - `closeout_and_compact_sweep`
+   - `weekly_operating_review`
+   - `approval_sweep`
+   - `requirement_family_cleanup_sweep`
+3. recurring workflow 手动运行。
+   - `Dry Run`
+   - `Run Now`
+   - Run Now 对可能创建 requirement 的任务有确认保护
+   - 默认 `auto_start=false`
+4. recurring workflow 运行历史。
+   - `recurring_workflow_runs`
+   - status、triggered_by、dry_run、params、result、error、duration
+5. Bug Log Sweep Scheduler 健康快照。
+   - enabled
+   - running
+   - interval
+   - last tick
+   - last run
+   - last error
+6. `/api/recurring-workflows/health` 聚合后台健康状态。
+7. `/api/recurring-workflows/{workflow_key}/runs` 返回最近运行历史。
 
 ## 8. 前端交互规范
 
@@ -234,6 +279,7 @@
 3. 编辑 requirement 使用原位编辑或右侧 Drawer。
 4. 删除等危险动作使用统一确认弹窗。
 5. 成功 / 失败反馈使用统一 toast。
+6. 定时任务页只做观测、手动 dry run / run now 和运行历史，不开放自定义任务编辑器。
 
 ## 9. 当前正式主导航
 
@@ -241,9 +287,10 @@
 
 1. `需求`
 2. `执行`
-3. `发布`
-4. `项目`
-5. `错误`
+3. `定时任务`
+4. `发布`
+5. `项目`
+6. `错误`
 
 ## 10. 后续维护要求
 

@@ -8,7 +8,17 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import ApprovalRequestRow, ArtifactRow, RecurringWorkflowRow, RequirementRow, WorkflowRunRow, utcnow
+from server.database import (
+    ApprovalRequestRow,
+    ArtifactRow,
+    NotificationEventRow,
+    NotificationFingerprintRow,
+    RecurringWorkflowRow,
+    RecurringWorkflowRunRow,
+    RequirementRow,
+    WorkflowRunRow,
+    utcnow,
+)
 from server.services.bugs.log_sweep import run_bug_log_sweep
 from server.services.reviews.company_review import (
     company_review_to_dict,
@@ -590,7 +600,58 @@ def _end_of_day_summary_markdown(
     )
 
 
+def _next_run_at(row: RecurringWorkflowRow, *, now: datetime | None = None) -> datetime | None:
+    schedule = _json_loads(row.schedule_json, {})
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    last_run = _ensure_utc(row.last_run_at)
+    cadence = str(schedule.get("cadence") or "").strip().lower()
+    if cadence == "interval":
+        minutes = max(1, int(schedule.get("interval_minutes") or config.BUG_LOG_SWEEP_INTERVAL_MINUTES))
+        return (last_run or current) + timedelta(minutes=minutes)
+    if cadence == "hourly":
+        hours = max(1, int(schedule.get("interval_hours") or 1))
+        return (last_run or current) + timedelta(hours=hours)
+    if cadence == "daily":
+        hour, minute = _parse_local_time(str(schedule.get("suggested_local_time") or "09:00"))
+        candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= current:
+            candidate = candidate + timedelta(days=1)
+        return candidate
+    if cadence == "weekly":
+        hour, minute = _parse_local_time(str(schedule.get("suggested_local_time") or "10:00"))
+        day_token = str(schedule.get("day") or "MON").strip().upper()
+        day_index = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}.get(day_token, 0)
+        days_ahead = (day_index - current.weekday()) % 7
+        candidate = (current + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= current:
+            candidate = candidate + timedelta(days=7)
+        return candidate
+    return None
+
+
+def _parse_local_time(value: str) -> tuple[int, int]:
+    raw = str(value or "").strip()
+    try:
+        hour_text, minute_text = raw.split(":", 1)
+        return max(0, min(23, int(hour_text))), max(0, min(59, int(minute_text)))
+    except Exception:
+        return 9, 0
+
+
+def _workflow_health_status(row: RecurringWorkflowRow, *, next_run_at: datetime | None, now: datetime | None = None) -> str:
+    if str(row.status or "") != "active":
+        return "paused"
+    if str(_json_loads(row.last_result_json, {}).get("status") or "").lower() == "failed":
+        return "failed"
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    if next_run_at is not None and next_run_at <= current:
+        return "due"
+    return "healthy"
+
+
 def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    next_run_at = _next_run_at(row, now=now)
     return {
         "id": int(row.id),
         "workflow_key": str(row.workflow_key),
@@ -606,6 +667,9 @@ def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
         "validation_signal": _json_loads(row.validation_signal_json, {}),
         "is_builtin": bool(row.is_builtin),
         "last_run_at": row.last_run_at,
+        "next_run_at": next_run_at,
+        "is_due": bool(next_run_at is not None and next_run_at <= now),
+        "health_status": _workflow_health_status(row, next_run_at=next_run_at, now=now),
         "last_result": _json_loads(row.last_result_json, {}),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -813,6 +877,7 @@ def run_recurring_workflow(
     *,
     workflow_key: str,
     dry_run: bool = False,
+    triggered_by: str = "operator",
     auto_start: bool = False,
     intake_min_score: float = 60.0,
     intake_max_created: int = 2,
@@ -822,30 +887,100 @@ def run_recurring_workflow(
     row = get_recurring_workflow(db, workflow_key)
     if str(row.status) != "active":
         raise ValueError("Recurring workflow is not active")
+    params = {
+        "dry_run": bool(dry_run),
+        "auto_start": bool(auto_start),
+        "intake_min_score": float(intake_min_score),
+        "intake_max_created": int(intake_max_created),
+        "acceptance_limit": int(acceptance_limit),
+        "auto_dispatch_acceptance": bool(auto_dispatch_acceptance),
+    }
+    started_at = utcnow()
+    run_row = RecurringWorkflowRunRow(
+        workflow_key=str(row.workflow_key),
+        status="running",
+        triggered_by=str(triggered_by or "operator"),
+        dry_run=bool(dry_run),
+        params_json=_json_dumps(params),
+        started_at=started_at,
+    )
+    db.add(run_row)
+    db.flush()
+    try:
+        result = _execute_recurring_workflow(
+            db,
+            row=row,
+            workflow_key=workflow_key,
+            dry_run=dry_run,
+            auto_start=auto_start,
+            intake_min_score=intake_min_score,
+            intake_max_created=intake_max_created,
+            acceptance_limit=acceptance_limit,
+            auto_dispatch_acceptance=auto_dispatch_acceptance,
+        )
+    except Exception as exc:
+        completed_at = utcnow()
+        run_row.status = "failed"
+        run_row.error_excerpt = str(exc)[:1000]
+        run_row.completed_at = completed_at
+        run_row.duration_ms = _duration_ms(started_at, completed_at)
+        db.commit()
+        raise
 
+    completed_at = utcnow()
+    row.last_run_at = completed_at
+    row.last_result_json = _json_dumps(result)
+    run_row.status = "succeeded"
+    run_row.result_json = _json_dumps(result)
+    run_row.completed_at = completed_at
+    run_row.duration_ms = _duration_ms(started_at, completed_at)
+    db.commit()
+    db.refresh(row)
+    db.refresh(run_row)
+    return {
+        "workflow_key": str(row.workflow_key),
+        "status": "completed",
+        "run_started_at": run_row.started_at,
+        "run_id": int(run_row.id),
+        "result": result,
+    }
+
+
+def _execute_recurring_workflow(
+    db: Session,
+    *,
+    row: RecurringWorkflowRow,
+    workflow_key: str,
+    dry_run: bool,
+    auto_start: bool,
+    intake_min_score: float,
+    intake_max_created: int,
+    acceptance_limit: int,
+    auto_dispatch_acceptance: bool,
+) -> dict[str, Any]:
     if dry_run:
-        result = {
+        return {
             "dry_run": True,
             "workflow_key": workflow_key,
             "owner_role": row.owner_role,
             "schedule": _json_loads(row.schedule_json, {}),
             "output_action": _json_loads(row.output_action_json, {}),
         }
-    elif workflow_key == "morning_intake_sweep":
-        result = _morning_intake_sweep(
+    if workflow_key == "morning_intake_sweep":
+        return _morning_intake_sweep(
             db,
             auto_start=auto_start,
             intake_min_score=intake_min_score,
             intake_max_created=intake_max_created,
         )
-    elif workflow_key == "dispatcher_loop":
+    if workflow_key == "dispatcher_loop":
         queue_result = advance_requirement_queue(db)
         follow_through = _dispatcher_follow_through(db)
-        result = {
+        return {
             **queue_result,
             **follow_through,
         }
-    elif workflow_key == "bug_log_sweep":
+    if workflow_key == "bug_log_sweep":
         sweep_result = run_bug_log_sweep(db)
         materialize_result = intake_requirement_sources(
             db,
@@ -855,7 +990,7 @@ def run_recurring_workflow(
             min_score=max(float(intake_min_score), 70.0),
             max_created=max(1, min(int(intake_max_created or 2), 5)),
         )
-        result = {
+        return {
             **sweep_result,
             "auto_materialize_enabled": True,
             "materialized_requirement_ids": list(materialize_result.get("created_requirement_ids") or []),
@@ -864,22 +999,22 @@ def run_recurring_workflow(
             "materialization_items": list(materialize_result.get("items") or []),
             "requires_operator_review": bool(materialize_result.get("created_requirement_ids") or materialize_result.get("reused_requirement_ids")),
         }
-    elif workflow_key == "closeout_and_compact_sweep":
-        result = _closeout_and_compact_sweep(
+    if workflow_key == "closeout_and_compact_sweep":
+        return _closeout_and_compact_sweep(
             db,
             acceptance_limit=acceptance_limit,
             auto_dispatch_acceptance=auto_dispatch_acceptance,
         )
-    elif workflow_key == "approval_sweep":
-        result = _approval_sweep(db)
-    elif workflow_key == "requirement_family_cleanup_sweep":
-        result = _requirement_family_cleanup_sweep(db)
-    elif workflow_key == "weekly_operating_review":
+    if workflow_key == "approval_sweep":
+        return _approval_sweep(db)
+    if workflow_key == "requirement_family_cleanup_sweep":
+        return _requirement_family_cleanup_sweep(db)
+    if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
         rituals = dict((payload.get("source_snapshot") or {}).get("workflow_rituals") or {})
         operator_package = dict(payload.get("operator_review_package") or {})
-        result = {
+        return {
             "review_id": int(review.id),
             "cycle_label": str(review.cycle_label),
             "bundle_item_count": len(payload.get("next_cycle_requirement_bundle") or []),
@@ -897,16 +1032,62 @@ def run_recurring_workflow(
             },
             "autonomous_coo_posture": dict(payload.get("autonomous_coo_posture") or {}),
         }
-    else:
-        raise ValueError("Unsupported recurring workflow")
+    raise ValueError("Unsupported recurring workflow")
 
-    row.last_run_at = utcnow()
-    row.last_result_json = _json_dumps(result)
-    db.commit()
-    db.refresh(row)
+
+def _duration_ms(started_at: datetime, completed_at: datetime) -> int:
+    return max(0, int((completed_at - started_at).total_seconds() * 1000))
+
+
+def recurring_workflow_run_to_dict(row: RecurringWorkflowRunRow) -> dict[str, Any]:
     return {
+        "id": int(row.id),
         "workflow_key": str(row.workflow_key),
-        "status": "completed",
-        "run_started_at": row.last_run_at,
-        "result": result,
+        "status": str(row.status),
+        "triggered_by": str(row.triggered_by or "operator"),
+        "dry_run": bool(row.dry_run),
+        "params": _json_loads(row.params_json, {}),
+        "result": _json_loads(row.result_json, {}),
+        "error_excerpt": str(row.error_excerpt or "").strip() or None,
+        "started_at": row.started_at,
+        "completed_at": row.completed_at,
+        "duration_ms": int(row.duration_ms or 0),
+    }
+
+
+def list_recurring_workflow_runs(db: Session, workflow_key: str, *, limit: int = 50) -> list[RecurringWorkflowRunRow]:
+    get_recurring_workflow(db, workflow_key)
+    return (
+        db.query(RecurringWorkflowRunRow)
+        .filter(RecurringWorkflowRunRow.workflow_key == workflow_key)
+        .order_by(RecurringWorkflowRunRow.id.desc())
+        .limit(max(1, min(200, int(limit or 50))))
+        .all()
+    )
+
+
+def recurring_workflow_health(db: Session, *, bug_scheduler_status: dict[str, Any] | None = None, notification_dispatcher_status: dict[str, Any] | None = None) -> dict[str, Any]:
+    rows = list_recurring_workflows(db)
+    queued_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "queued").count()
+    dead_letter_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "dead_letter").count()
+    open_fingerprint_count = db.query(NotificationFingerprintRow).filter(NotificationFingerprintRow.status == "open").count()
+    suppressed_fingerprint_count = (
+        db.query(NotificationFingerprintRow)
+        .filter(NotificationFingerprintRow.suppressed_count > 0)
+        .count()
+    )
+    return {
+        "bug_log_scheduler": bug_scheduler_status or {"enabled": bool(config.BUG_LOG_SWEEP_SCHEDULER_ENABLED), "running": False},
+        "notification_dispatcher": {
+            **(notification_dispatcher_status or {"enabled": bool(config.NOTIFICATION_DISPATCHER_ENABLED), "running": False}),
+            "queued_count": int(queued_count),
+            "dead_letter_count": int(dead_letter_count),
+            "open_fingerprint_count": int(open_fingerprint_count),
+            "suppressed_fingerprint_count": int(suppressed_fingerprint_count),
+        },
+        "recurring_registry": {
+            "total_count": len(rows),
+            "active_count": sum(1 for row in rows if str(row.status or "") == "active"),
+            "due_count": sum(1 for row in rows if bool(recurring_workflow_to_dict(row).get("is_due"))),
+        },
     }

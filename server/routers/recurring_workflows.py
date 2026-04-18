@@ -3,15 +3,18 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.logging_utils import timed_operation
-from server.schemas import RecurringWorkflowOut, RecurringWorkflowRunRequest, RecurringWorkflowRunResultOut
+from server.schemas import RecurringWorkflowHealthOut, RecurringWorkflowOut, RecurringWorkflowRunOut, RecurringWorkflowRunRequest, RecurringWorkflowRunResultOut
 from server.services.scheduling.recurring_workflows import (
     get_recurring_workflow,
+    list_recurring_workflow_runs,
     recurring_workflow_to_dict,
+    recurring_workflow_health,
+    recurring_workflow_run_to_dict,
     run_recurring_workflow,
     sync_recurring_workflows,
 )
@@ -27,12 +30,38 @@ def list_recurring_workflows_endpoint(db: Session = Depends(get_db)):
         return [RecurringWorkflowOut(**recurring_workflow_to_dict(row)) for row in rows]
 
 
+@router.get("/health", response_model=RecurringWorkflowHealthOut)
+def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(get_db)):
+    bug_scheduler = getattr(request.app.state, "bug_log_scheduler", None)
+    notification_dispatcher = getattr(request.app.state, "notification_dispatcher", None)
+    return RecurringWorkflowHealthOut(
+        **recurring_workflow_health(
+            db,
+            bug_scheduler_status=bug_scheduler.status_snapshot() if bug_scheduler is not None else None,
+            notification_dispatcher_status=notification_dispatcher.status_snapshot(db) if notification_dispatcher is not None else None,
+        )
+    )
+
+
 @router.get("/{workflow_key}", response_model=RecurringWorkflowOut)
 def get_recurring_workflow_endpoint(workflow_key: str, db: Session = Depends(get_db)):
     try:
         with timed_operation(logger, "recurring_workflows_get", workflow_key=workflow_key, slow_ms=1000):
             row = get_recurring_workflow(db, workflow_key)
             return RecurringWorkflowOut(**recurring_workflow_to_dict(row))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{workflow_key}/runs", response_model=list[RecurringWorkflowRunOut])
+def list_recurring_workflow_runs_endpoint(
+    workflow_key: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    try:
+        rows = list_recurring_workflow_runs(db, workflow_key, limit=limit)
+        return [RecurringWorkflowRunOut(**recurring_workflow_run_to_dict(row)) for row in rows]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -57,6 +86,7 @@ def run_recurring_workflow_endpoint(
                     db,
                     workflow_key=workflow_key,
                     dry_run=body.dry_run,
+                    triggered_by="operator",
                     auto_start=body.auto_start,
                     intake_min_score=body.intake_min_score,
                     intake_max_created=body.intake_max_created,
