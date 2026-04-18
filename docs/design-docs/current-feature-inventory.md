@@ -136,10 +136,16 @@
    - `discovery_recommendation`
    - `materialized_requirement_id`
    - `last_discovery_at`
-5. 错误自修复 v1 范围固定为 defect self-healing。
+5. Requirement Intake Fingerprint Gate。
+   - 使用 `requirement_intake_fingerprints` 治理“错误是否 materialize 为新需求”
+   - 已有 active requirement / workflow 时，同 fingerprint 只复用原 requirement
+   - requirement 已终态但未 release/observing resolved 时，重复错误进入 `suppressed`
+   - release/observing resolved 后，同 fingerprint 再出现会创建 `Regression:` requirement
+   - 该 gate 与 Lark notification suppression 分表，避免通知投递策略承担业务副作用
+6. 错误自修复 v1 范围固定为 defect self-healing。
    - 包含：runtime error、external log center、task failure、workflow incident、verification 暴露的系统性缺陷
    - 不包含：机会发现、新增功能自动发现、市场/运营信号
-6. requirement execution approval 已采用 `approval agent 先审，人兜底` 口径。
+7. requirement execution approval 已采用 `approval agent 先审，人兜底` 口径。
    - 低风险高置信度自动放行
    - 高风险或低置信度转人工
    - 运行时是否必须人工审核只由 requirement `approval_contract` 与 approval router / hard rules 决定。
@@ -267,8 +273,13 @@
    - last tick
    - last run
    - last error
-6. `/api/recurring-workflows/health` 聚合后台健康状态。
-7. `/api/recurring-workflows/{workflow_key}/runs` 返回最近运行历史。
+   - scheduler lock owner / expires_at / stale 状态
+6. `bug_log_sweep` 数据库级防并发锁。
+   - 后台 scheduler 和手动 Run Now 共用 `scheduler:bug_log_sweep`
+   - 无法获得 lock 时 run history 记录 `skipped_locked`
+   - stale lock 过期后可由新 worker 抢占
+7. `/api/recurring-workflows/health` 聚合后台健康状态。
+8. `/api/recurring-workflows/{workflow_key}/runs` 返回最近运行历史。
 
 ## 8. 前端交互规范
 

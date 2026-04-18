@@ -30,6 +30,10 @@ from server.schemas import (
 )
 from server.logging_utils import get_logger, log_event
 from server.services.requirements.sources import ACTIVE_BUG_REQUIREMENT_STATUSES, normalize_requirement_intake_metadata
+from server.services.requirements.intake_gate import (
+    mark_requirement_intake_materialized,
+    should_materialize_requirement,
+)
 from server.services.runtime.alerting import build_ops_url, deliver_policy_notification, notification_service_label
 from server.services.bugs.discovery import (
     build_error_discovery_recommendation,
@@ -524,6 +528,26 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     requirement = _active_requirement_for_fingerprint(db, fingerprint_key)
     created_requirement = False
     recommendation = build_error_discovery_recommendation(fingerprint)
+    linked_requirement = requirement
+    if linked_requirement is None and fingerprint.linked_requirement_id is not None:
+        linked_requirement = db.query(RequirementRow).filter(RequirementRow.id == int(fingerprint.linked_requirement_id)).first()
+    gate_decision = should_materialize_requirement(
+        db,
+        source_kind="error_fingerprint",
+        source_key=source_kind,
+        fingerprint=fingerprint_key,
+        project_key=str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
+        project_root_path=str(target_project_path or body.project_root_path or "").strip() or None,
+        severity=severity,
+        active_requirement=requirement,
+        linked_requirement=linked_requirement,
+        latest_evidence={
+            "error_event_id": int(event.id),
+            "fingerprint_key": fingerprint_key,
+            "summary": body.summary.strip(),
+            "occurrence_count": int(fingerprint.occurrence_count or 1),
+        },
+    )
     log_event(
         logger,
         "error_discovery_recommendation",
@@ -533,8 +557,12 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
         severity=severity,
         occurrence_count=int(fingerprint.occurrence_count or 1),
     )
-    if requirement is not None:
+    if gate_decision.action == "reuse_requirement" and gate_decision.linked_requirement_id is not None:
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == int(gate_decision.linked_requirement_id)).first()
         update_error_discovery_state(fingerprint, recommendation=recommendation, status="linked_active_requirement")
+    elif gate_decision.action == "suppress":
+        requirement = None
+        update_error_discovery_state(fingerprint, recommendation=recommendation, status="suppressed")
     elif str(recommendation.get("discovery_action") or "") == "auto_materialize":
         project = resolve_or_create_signal_project(
             db,
@@ -550,7 +578,9 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
         else:
             update_error_discovery_state(fingerprint, recommendation=recommendation, status="recommended")
             body_payload = RequirementCreate(
-                title=str(recommendation.get("suggested_title") or f"Error Recovery: {body.summary.strip()[:96]}"),
+                title=(
+                    "Regression: " if gate_decision.action == "reopen_regression" else ""
+                ) + str(recommendation.get("suggested_title") or f"Error Recovery: {body.summary.strip()[:96]}"),
                 description_markdown=_error_description_markdown(
                     body=body,
                     fingerprint_key=fingerprint_key,
@@ -586,6 +616,8 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
                         "evidence_excerpt": evidence_excerpt,
                         "linked_error_page_url": error_page_url,
                         "affected_project_keys": [str(body.project_key or getattr(policy, "project_key", "") or "").strip()] if str(body.project_key or getattr(policy, "project_key", "") or "").strip() else [],
+                        "intake_gate_fingerprint_key": gate_decision.fingerprint_key,
+                        "previous_requirement_id": gate_decision.linked_requirement_id,
                     },
                 ),
                 target_project_path=target_project_path,
@@ -598,6 +630,11 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
             requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
             created_requirement = requirement is not None
             if requirement is not None:
+                mark_requirement_intake_materialized(
+                    db,
+                    fingerprint_key=gate_decision.fingerprint_key,
+                    requirement=requirement,
+                )
                 update_error_discovery_state(fingerprint, recommendation=recommendation, status="materialized")
                 log_event(
                     logger,

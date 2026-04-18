@@ -9,6 +9,7 @@ from server.database import (
     ApprovalRequestRow,
     ErrorFingerprintRow,
     NotificationDeliveryRow,
+    RequirementIntakeFingerprintRow,
     RequirementRow,
 )
 
@@ -76,7 +77,7 @@ def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
     assert payload["fingerprint"]["fingerprint_key"] in text
 
 
-def test_error_intake_materializes_new_requirement_when_previous_workflow_terminal(synced_client, db_session):
+def test_error_intake_reuses_active_requirement_for_same_fingerprint(synced_client, db_session):
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
         first = synced_client.post("/api/errors/intake", json=_intake_payload())
         second = synced_client.post("/api/errors/intake", json=_intake_payload(message="TimeoutError: request 999 exceeded 31s budget at /faq/77"))
@@ -85,9 +86,9 @@ def test_error_intake_materializes_new_requirement_when_previous_workflow_termin
     assert second.status_code == 201
     first_requirement_id = first.json()["requirement"]["id"]
     second_requirement_id = second.json()["requirement"]["id"]
-    assert first_requirement_id != second_requirement_id
+    assert first_requirement_id == second_requirement_id
     assert second.json()["fingerprint"]["occurrence_count"] == 2
-    assert db_session.query(RequirementRow).count() == 2
+    assert db_session.query(RequirementRow).count() == 1
     assert db_session.query(ErrorFingerprintRow).count() == 1
 
 
@@ -126,10 +127,35 @@ def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_s
     db_session.commit()
 
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        second = synced_client.post("/api/errors/intake", json=_intake_payload(message="TimeoutError: request 1001 exceeded 30s budget at /faq/88"))
+        second = synced_client.post("/api/errors/intake", json=_intake_payload())
+
+    assert second.status_code == 201
+    assert second.json()["requirement"]["id"] == requirement_id
+    assert db_session.query(RequirementRow).count() == 1
+    gate = db_session.query(RequirementIntakeFingerprintRow).one()
+    assert gate.status == "suppressed"
+    assert gate.suppressed_count >= 1
+
+
+def test_resolved_error_fingerprint_can_reopen_regression_requirement(synced_client, db_session):
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        first = synced_client.post("/api/errors/intake", json=_intake_payload())
+
+    assert first.status_code == 201
+    requirement_id = first.json()["requirement"]["id"]
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == requirement_id).one()
+    requirement.status = "done"
+    gate = db_session.query(RequirementIntakeFingerprintRow).one()
+    gate.status = "resolved"
+    db_session.commit()
+
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        second = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert second.status_code == 201
     assert second.json()["requirement"]["id"] != requirement_id
+    assert second.json()["requirement"]["title"].startswith("Regression:")
+    assert db_session.query(RequirementRow).count() == 2
 
 
 def test_low_signal_error_can_be_ignored_without_requirement(synced_client):

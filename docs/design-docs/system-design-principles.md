@@ -282,6 +282,8 @@ Release 负责：
 3. 没有 telemetry 的自动化，不应进入默认主路径。
 4. requirement、alert、approval、release 四类对外通知必须使用统一 envelope，至少包含服务、事件类型、优先级、风险等级、发生时间、发生了什么、下一步动作和关联链接。
 5. 普通 state transition、atom success、artifact created、blackboard snapshot 不得发送 Lark，只能进入 Ops Console 可观测面；P0/P1 才能进入 alert 群，human gate 才能进入 approval 群。
+6. 需求生成抑制和通知投递抑制必须分离。Notification queue 只决定“是否通知人”，Requirement Intake Gate 才决定“是否创建业务 requirement”。
+7. 会创建 requirement 或触发后台副作用的 scheduler 必须有数据库级 lease；无法获得 lease 时记录 skipped/locked 运行历史，而不是并发执行。
 
 ## 18. Python 日志必须结构化
 

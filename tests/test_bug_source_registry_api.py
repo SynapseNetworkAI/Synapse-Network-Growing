@@ -122,6 +122,26 @@ def test_bug_intake_creates_bug_record(synced_client, db_session):
     row = db_session.query(BugRecordRow).one()
     assert row.bug_key.startswith("manual_bug_report::synapse-network::fp_")
     assert row.source_kind == "manual_input"
+    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
+        repeat = synced_client.post(
+            "/api/bugs/intake",
+            json={
+                "source_key": "manual_bug_report",
+                "project_key": "synapse-network",
+                "project_root_path": "/Users/cliff/workspace/agent/Synapse-Network",
+                "title": "Gateway readiness endpoint returns 500",
+                "summary": "Observed repeated 500 responses on readiness checks.",
+                "severity": "high",
+                "source_ref": "sentry:evt-2",
+                "environment": "prod",
+                "log_excerpt": "GET /readyz -> 500",
+                "stack_trace": "Traceback: readiness crash",
+                "metadata": {"component": "gateway"},
+            },
+        )
+    assert repeat.status_code == 201
+    assert db_session.query(BugRecordRow).count() == 1
+    assert db_session.query(RequirementRow).count() == 1
 
 
 def test_bug_intake_dedupes_same_fingerprint(synced_client, db_session):

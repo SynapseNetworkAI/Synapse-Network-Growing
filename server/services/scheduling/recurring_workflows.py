@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -30,6 +32,7 @@ from server.services.signals.optimization_signals import list_optimization_signa
 from server.services.requirements.family import cleanup_requirement_families
 from server.services.requirements.approval import evaluate_requirement_execution_approval
 from server.services.requirements.sources import intake_requirement_sources
+from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 from server.services.workflows.orchestrator import advance_requirement_queue, decide_requirement_approval, dispatch_acceptance_sweep
 
 
@@ -906,6 +909,39 @@ def run_recurring_workflow(
     )
     db.add(run_row)
     db.flush()
+    lock_key = f"scheduler:{workflow_key}"
+    lock_owner_id = f"{socket.gethostname()}:{os.getpid()}:{workflow_key}:{int(run_row.id)}"
+    lock_acquired = False
+    if workflow_key == "bug_log_sweep":
+        ttl_seconds = max(int(config.BUG_LOG_SWEEP_INTERVAL_MINUTES) * 60, 300)
+        lock = acquire_scheduler_lock(
+            db,
+            lock_key=lock_key,
+            owner_id=lock_owner_id,
+            ttl_seconds=ttl_seconds,
+            metadata={"workflow_key": workflow_key, "run_id": int(run_row.id), "triggered_by": triggered_by},
+        )
+        if lock is None:
+            completed_at = utcnow()
+            result = {
+                "status": "skipped_locked",
+                "reason": "bug_log_sweep is already running under scheduler lock",
+                "lock": scheduler_lock_snapshot(db, lock_key),
+            }
+            run_row.status = "skipped_locked"
+            run_row.result_json = _json_dumps(result)
+            run_row.completed_at = completed_at
+            run_row.duration_ms = _duration_ms(started_at, completed_at)
+            db.commit()
+            db.refresh(run_row)
+            return {
+                "workflow_key": str(row.workflow_key),
+                "status": "skipped_locked",
+                "run_started_at": run_row.started_at,
+                "run_id": int(run_row.id),
+                "result": result,
+            }
+        lock_acquired = True
     try:
         result = _execute_recurring_workflow(
             db,
@@ -920,6 +956,8 @@ def run_recurring_workflow(
         )
     except Exception as exc:
         completed_at = utcnow()
+        if lock_acquired:
+            release_scheduler_lock(db, lock_key=lock_key, owner_id=lock_owner_id)
         run_row.status = "failed"
         run_row.error_excerpt = str(exc)[:1000]
         run_row.completed_at = completed_at
@@ -928,6 +966,8 @@ def run_recurring_workflow(
         raise
 
     completed_at = utcnow()
+    if lock_acquired:
+        release_scheduler_lock(db, lock_key=lock_key, owner_id=lock_owner_id)
     row.last_run_at = completed_at
     row.last_result_json = _json_dumps(result)
     run_row.status = "succeeded"
@@ -1076,8 +1116,10 @@ def recurring_workflow_health(db: Session, *, bug_scheduler_status: dict[str, An
         .filter(NotificationFingerprintRow.suppressed_count > 0)
         .count()
     )
+    bug_status = bug_scheduler_status or {"enabled": bool(config.BUG_LOG_SWEEP_SCHEDULER_ENABLED), "running": False}
+    bug_status = {**bug_status, "lock": scheduler_lock_snapshot(db, "scheduler:bug_log_sweep")}
     return {
-        "bug_log_scheduler": bug_scheduler_status or {"enabled": bool(config.BUG_LOG_SWEEP_SCHEDULER_ENABLED), "running": False},
+        "bug_log_scheduler": bug_status,
         "notification_dispatcher": {
             **(notification_dispatcher_status or {"enabled": bool(config.NOTIFICATION_DISPATCHER_ENABLED), "running": False}),
             "queued_count": int(queued_count),

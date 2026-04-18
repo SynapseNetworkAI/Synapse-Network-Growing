@@ -15,6 +15,10 @@ from server.services.bugs.discovery import (
     resolve_or_create_signal_project,
     update_bug_discovery_state,
 )
+from server.services.requirements.intake_gate import (
+    mark_requirement_intake_materialized,
+    should_materialize_requirement,
+)
 from server.services.projects.project_center import ensure_projects_materialized
 
 
@@ -430,62 +434,68 @@ def materialize_bug_backlog(
             continue
 
         source_ref = f"bug-intake:{bug_id}"
+        linked_requirement = None
         if row.converted_requirement_id is not None:
-            existing = db.query(RequirementRow).filter(RequirementRow.id == int(row.converted_requirement_id)).first()
-            if existing is not None:
-                update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
-                db.add(row)
-                db.commit()
-                reused_requirement_ids.append(int(existing.id))
-                items.append(
-                    {
-                        "source_key": "bug_intake",
-                        "status": "linked_existing",
-                        "action": "reuse_existing",
-                        "bug_id": bug_id,
-                        "requirement_id": int(existing.id),
-                        "source_ref": source_ref,
-                    }
-                )
-                continue
-        existing = db.query(RequirementRow).filter(RequirementRow.source_ref == source_ref).first()
-        if existing is not None:
-            row.converted_requirement_id = int(existing.id)
+            linked_requirement = db.query(RequirementRow).filter(RequirementRow.id == int(row.converted_requirement_id)).first()
+        if linked_requirement is None:
+            linked_requirement = db.query(RequirementRow).filter(RequirementRow.source_ref == source_ref).first()
+        if linked_requirement is None:
+            linked_requirement = _find_reusable_bug_requirement(db, row)
+        gate_decision = should_materialize_requirement(
+            db,
+            source_kind="bug_intake",
+            source_key=str(getattr(row, "source_key", "") or ""),
+            fingerprint=str(getattr(row, "fingerprint", "") or ""),
+            project_key=str(getattr(row, "project_key", "") or "").strip() or None,
+            project_root_path=_bug_target_project_path(db, row),
+            severity=severity,
+            linked_requirement=linked_requirement,
+            latest_evidence={
+                "bug_id": bug_id,
+                "source_ref": source_ref,
+                "title": str(getattr(row, "title", "") or ""),
+                "occurrence_count": int(getattr(row, "occurrence_count", 0) or 0),
+            },
+        )
+        if gate_decision.action == "reuse_requirement" and gate_decision.linked_requirement_id is not None:
+            row.converted_requirement_id = int(gate_decision.linked_requirement_id)
             row.status = "converted"
             update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
             db.add(row)
             db.commit()
-            reused_requirement_ids.append(int(existing.id))
+            reused_requirement_ids.append(int(gate_decision.linked_requirement_id))
             items.append(
                 {
                     "source_key": "bug_intake",
-                    "status": "already_exists",
+                    "status": "linked_existing",
                     "action": "reuse_existing",
                     "bug_id": bug_id,
-                    "requirement_id": int(existing.id),
+                    "requirement_id": int(gate_decision.linked_requirement_id),
                     "source_ref": source_ref,
+                    "intake_gate": gate_decision.reason,
                 }
             )
             continue
-        reusable = _find_reusable_bug_requirement(db, row)
-        if reusable is not None:
-            row.converted_requirement_id = int(reusable.id)
-            row.status = "converted"
-            update_bug_discovery_state(row, recommendation=recommendation, status="linked_active_requirement")
+        if gate_decision.action == "suppress":
+            update_bug_discovery_state(row, recommendation=recommendation, status="suppressed")
             db.add(row)
             db.commit()
-            reused_requirement_ids.append(int(reusable.id))
+            skipped.append(f"bug #{bug_id} suppressed by intake gate")
             items.append(
                 {
                     "source_key": "bug_intake",
-                    "status": "deduped_to_active_requirement",
-                    "action": "reuse_existing",
+                    "status": "suppressed",
+                    "action": "suppress",
                     "bug_id": bug_id,
-                    "requirement_id": int(reusable.id),
+                    "requirement_id": gate_decision.linked_requirement_id,
                     "source_ref": source_ref,
+                    "cooldown_until": gate_decision.cooldown_until.isoformat() if gate_decision.cooldown_until else None,
+                    "intake_gate": gate_decision.reason,
                 }
             )
             continue
+        if gate_decision.action == "reopen_regression":
+            source_ref = f"bug-intake:{bug_id}:regression:{int(getattr(row, 'occurrence_count', 0) or 0)}"
 
         confidence = round(max(0.6, min(0.98, total / 100.0)), 2)
         target_project_path = _bug_target_project_path(db, row)
@@ -511,7 +521,7 @@ def materialize_bug_backlog(
             )
             continue
         body = RequirementCreate(
-            title=f"Bug Fix: {row.title}",
+            title=f"{'Regression: ' if gate_decision.action == 'reopen_regression' else ''}Bug Fix: {row.title}",
             description_markdown=_bug_description_markdown(row),
             priority=_bug_priority(row),
             source="bug_intake",
@@ -536,6 +546,8 @@ def materialize_bug_backlog(
                     "blocker_flags": _bug_blocker_flags(row),
                     "affected_project_keys": _bug_affected_project_keys(row),
                     "cross_project_recovery": _bug_is_cross_project(row, db),
+                    "intake_gate_fingerprint_key": gate_decision.fingerprint_key,
+                    "previous_requirement_id": gate_decision.linked_requirement_id,
                 },
             ),
             target_project_path=target_project_path,
@@ -545,6 +557,11 @@ def materialize_bug_backlog(
         detail = create_requirement(db, body)
         row.converted_requirement_id = int(detail.requirement.id)
         row.status = "converted"
+        mark_requirement_intake_materialized(
+            db,
+            fingerprint_key=gate_decision.fingerprint_key,
+            requirement=detail.requirement,
+        )
         update_bug_discovery_state(row, recommendation=recommendation, status="materialized")
         db.add(row)
         db.commit()

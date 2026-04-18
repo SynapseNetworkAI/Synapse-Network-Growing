@@ -4,6 +4,7 @@ from server.services.scheduling.recurring_workflows import (
     run_recurring_workflow,
     sync_recurring_workflows,
 )
+from server.services.scheduling.locks import acquire_scheduler_lock
 
 
 def test_recurring_workflow_dry_run_records_history(db_session):
@@ -69,6 +70,7 @@ def test_recurring_workflows_health_endpoint(synced_client):
     assert response.status_code == 200
     payload = response.json()
     assert "bug_log_scheduler" in payload
+    assert "lock" in payload["bug_log_scheduler"]
     assert "notification_dispatcher" in payload
     assert payload["recurring_registry"]["total_count"] >= 7
 
@@ -83,3 +85,22 @@ def test_recurring_workflow_runs_endpoint(synced_client):
     assert runs
     assert runs[0]["workflow_key"] == "bug_log_sweep"
     assert runs[0]["dry_run"] is True
+
+
+def test_bug_log_sweep_skips_when_scheduler_lock_is_held(db_session):
+    sync_recurring_workflows(db_session)
+    lock = acquire_scheduler_lock(
+        db_session,
+        lock_key="scheduler:bug_log_sweep",
+        owner_id="test-owner",
+        ttl_seconds=300,
+        metadata={"test": True},
+    )
+    assert lock is not None
+
+    result = run_recurring_workflow(db_session, workflow_key="bug_log_sweep", dry_run=True)
+
+    assert result["status"] == "skipped_locked"
+    rows = list_recurring_workflow_runs(db_session, "bug_log_sweep")
+    assert len(rows) == 1
+    assert rows[0].status == "skipped_locked"

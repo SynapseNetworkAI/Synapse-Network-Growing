@@ -394,6 +394,9 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
    - 是否只排入 operator backlog
    - 是否视为噪声忽略
 4. 已 materialize 的 fingerprint 会继续进入 requirement → execution → verification → PR 主链。
+5. 已经进入 requirement / workflow 的同一 fingerprint 不会重复创建需求；系统会通过 Requirement Intake Fingerprint Gate 复用旧 requirement 或抑制重复 materialization。
+6. requirement 已完成但 release/observing 尚未标记 resolved 时，重复错误只累计 occurrence / suppressed count，不会再生成新需求。
+7. release/observing 标记 resolved 后，同 fingerprint 再出现会作为 `Regression:` requirement 重新进入主链。
 
 ### 6.2 `/errors/:fingerprintKey`
 
@@ -494,6 +497,14 @@ OPS_NOTIFICATION_MAX_DELIVERY_ATTEMPTS=4
 2. Notification Dispatcher 负责消费通知队列、限流、抑制、重试和 dead letter。
 3. 其他 recurring workflows 当前作为可手动运行的一等任务定义，不由通用 scheduler 自动触发。
 
+防重复与防并发：
+
+1. `bug_log_sweep` 使用数据库级 `scheduler:bug_log_sweep` lock。
+2. 后台 scheduler 与手动 Run Now 同时触发时，只有一个能执行扫描。
+3. 未获得 lock 的运行会在 Run History 中显示 `skipped_locked`，这表示保护生效，不是故障。
+4. 重复错误是否进入需求由 `requirement_intake_fingerprints` 决定，不由 Lark notification queue 决定。
+5. Lark 抑制只控制“是否发群消息”；intake gate 才控制“是否创建 requirement”。
+
 关联接口：
 
 1. `GET /api/recurring-workflows`
@@ -582,8 +593,19 @@ OPS_NOTIFICATION_MAX_DELIVERY_ATTEMPTS=4
 
 1. fingerprint / bug record 的 `discovery_action` 是否为 `queue_for_operator` 或 `ignore_as_noise`
 2. 是否已经存在 active requirement，因此被复用而不是重复 materialize
-3. 项目是否属于高风险，需要人工审批后才能真正启动 execution
-4. 当前 retry budget 是否已耗尽，导致系统保守收口
+3. `requirement_intake_fingerprints.status` 是否为 `suppressed` 或 `cooldown`
+4. 旧 requirement 是否已完成但还没有 release/observing 写入 `resolved`
+5. 项目是否属于高风险，需要人工审批后才能真正启动 execution
+6. 当前 retry budget 是否已耗尽，导致系统保守收口
+
+### 10.5 bug_log_sweep Run Now 没有扫描
+
+先检查：
+
+1. `/schedules` 的 Run History 是否显示 `skipped_locked`
+2. `/api/recurring-workflows/health` 里的 `bug_log_scheduler.lock.held` 是否为 true
+3. `expires_at` 是否尚未过期
+4. 如果 lock stale，等待 TTL 后重试；系统会允许新 worker 抢占过期 lock
 
 ### 8.3 release 里没有候选
 

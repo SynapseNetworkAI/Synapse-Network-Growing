@@ -77,7 +77,7 @@ v1 必须做这些事：
 recurring_workflow_runs
   id
   workflow_key
-  status: running | succeeded | failed
+  status: running | succeeded | failed | skipped_locked
   triggered_by: operator | scheduler | system
   dry_run
   params_json
@@ -140,6 +140,20 @@ notification_dispatcher
 recurring_registry
 ```
 
+`bug_log_scheduler` 额外暴露数据库租约状态：
+
+```text
+lock
+  lock_key
+  owner_id
+  status
+  held
+  stale
+  acquired_at
+  expires_at
+  heartbeat_at
+```
+
 ## Frontend Layout
 
 新增 `/schedules` 页面，导航名为 `定时任务`。
@@ -184,6 +198,16 @@ recurring_registry
 7. result
 8. error_excerpt
 
+`bug_log_sweep` 如果遇到另一个 scheduler 或手动 Run Now 正在运行，会写入：
+
+```text
+status = skipped_locked
+result.reason = scheduler_lock_held
+result.lock = <scheduler lock snapshot>
+```
+
+这不是失败，而是防并发保护生效。Operator 可以在历史记录里确认本次没有重复扫描，也没有重复创建 requirement。
+
 ### Result Inspector
 
 默认只展示摘要。raw JSON 使用折叠面板，避免页面变成日志垃圾场。
@@ -206,6 +230,86 @@ recurring_registry
 4. Notification Dispatcher 可以后台 loop，因为它只消费已入队通知，不创建业务 requirement。
 5. v1 不提供“新增任务”按钮，避免 operator 通过 UI 创建未经 review 的长期自动化。
 6. 资金、结算、合约、auth、生产部署、外部付费动作不得通过 recurring workflow 自动执行。
+7. `bug_log_sweep` 必须先获得数据库级 scheduler lease；后台 scheduler 与手动 Run Now 共用同一个 lock。
+
+## Requirement Intake Fingerprint Gate
+
+Bug sweep 的去重不能直接复用 Lark notification queue。原因是两者语义不同：
+
+1. Notification queue 决定“是否发消息到 Lark”。
+2. Requirement intake gate 决定“是否创建新的业务 requirement”。
+
+因此系统使用独立的 `requirement_intake_fingerprints` 表治理错误到需求的 materialization：
+
+```text
+requirement_intake_fingerprints
+  fingerprint_key
+  source_kind
+  source_key
+  project_key
+  project_root_path
+  status: open | linked_requirement | resolved | suppressed | cooldown | reopened
+  linked_requirement_id
+  linked_workflow_run_id
+  linked_release_id
+  first_seen_at
+  last_seen_at
+  last_materialized_at
+  resolved_at
+  cooldown_until
+  occurrence_count
+  suppressed_count
+  latest_evidence_json
+  resolution_json
+```
+
+Materialization 规则：
+
+1. 同一 fingerprint 首次出现且 discovery recommendation 允许时，创建 requirement。
+2. 如果已有 active requirement 或 active workflow，重复错误只更新 occurrence/evidence，并复用原 requirement。
+3. 如果 linked requirement 已终态但 release/observing 尚未写入 `resolved`，重复错误进入 `suppressed`，不创建新 requirement。
+4. 如果 release/observing 已写入 `resolved`，同 fingerprint 再次出现会创建 `Regression:` requirement，并链接上一次 requirement/release。
+5. severity 升级到 critical 可以突破 cooldown，但仍优先复用 active requirement，不重复建单。
+
+上线后不要删除 fingerprint 标记。正确做法是由 release/observing 写入：
+
+```text
+status = resolved
+resolved_at = <time>
+linked_release_id = <release>
+resolution_json = { pr_url, commit_sha, deployed_at, observing_window, recovery_signal }
+```
+
+这样系统才能区分“同一个未解决噪声还在刷屏”和“已修复后真实回归”。
+
+## Scheduler Lock
+
+`bug_log_sweep` 运行前必须获取：
+
+```text
+lock_key = scheduler:bug_log_sweep
+```
+
+锁记录保存在 `scheduler_locks`：
+
+```text
+scheduler_locks
+  lock_key
+  owner_id
+  status: held | released | expired
+  acquired_at
+  expires_at
+  heartbeat_at
+  metadata_json
+```
+
+规则：
+
+1. 后台 scheduler 和手动 Run Now 使用同一个 lock。
+2. TTL 默认不少于 300 秒。
+3. 运行成功或失败都释放 lock。
+4. 进程崩溃后，过 `expires_at` 其他 worker 可以抢占。
+5. 未获得 lock 时记录 `skipped_locked`，不报错、不重复执行。
 
 ## Notification Dispatcher Loop
 
@@ -250,6 +354,9 @@ v1 只把 **已有内置任务** 管理起来。后续如果要开放自定义 s
 5. `/runs` 返回最近运行历史。
 6. `/health` 返回 bug scheduler、notification dispatcher、registry 状态。
 7. Notification Dispatcher 后台 loop 可以消费 queued retry event。
+8. 同一 bug/error fingerprint 进入 requirement 后，重复出现只更新 `requirement_intake_fingerprints`，不重复创建 requirement。
+9. resolved 后同 fingerprint 再出现，会创建 regression requirement。
+10. 两个并发 `bug_log_sweep` 只有一个获得 scheduler lock，另一个记录 `skipped_locked`。
 
 前端：
 

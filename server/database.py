@@ -407,6 +407,41 @@ class BugRecordRow(Base):
     converted_requirement = relationship("RequirementRow")
 
 
+class RequirementIntakeFingerprintRow(Base):
+    __tablename__ = "requirement_intake_fingerprints"
+    __table_args__ = (
+        Index("requirement_intake_fingerprints_source_idx", "source_kind", "source_key"),
+        Index("requirement_intake_fingerprints_status_idx", "status"),
+        Index("requirement_intake_fingerprints_project_idx", "project_key"),
+        Index("requirement_intake_fingerprints_last_seen_idx", "last_seen_at"),
+    )
+
+    fingerprint_key = Column(Text, primary_key=True)
+    source_kind = Column(Text, nullable=False)
+    source_key = Column(Text, nullable=False, default="")
+    project_key = Column(Text)
+    project_root_path = Column(Text)
+    status = Column(Text, nullable=False, default="open")
+    linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    linked_workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
+    linked_release_id = Column(Integer, ForeignKey("release_records.id"))
+    first_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=utcnow)
+    last_materialized_at = Column(DateTime)
+    resolved_at = Column(DateTime)
+    cooldown_until = Column(DateTime)
+    occurrence_count = Column(Integer, nullable=False, default=0)
+    suppressed_count = Column(Integer, nullable=False, default=0)
+    latest_evidence_json = Column(Text, nullable=False, default="{}")
+    resolution_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    linked_requirement = relationship("RequirementRow")
+    linked_workflow_run = relationship("WorkflowRunRow")
+    linked_release = relationship("ReleaseRecordRow")
+
+
 class CompanyOperatingReviewRow(Base):
     __tablename__ = "company_operating_reviews"
     __table_args__ = (
@@ -469,6 +504,24 @@ class RecurringWorkflowRunRow(Base):
     started_at = Column(DateTime, nullable=False, default=utcnow)
     completed_at = Column(DateTime)
     duration_ms = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SchedulerLockRow(Base):
+    __tablename__ = "scheduler_locks"
+    __table_args__ = (
+        Index("scheduler_locks_status_idx", "status"),
+        Index("scheduler_locks_expires_idx", "expires_at"),
+    )
+
+    lock_key = Column(Text, primary_key=True)
+    owner_id = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="held")
+    acquired_at = Column(DateTime, nullable=False, default=utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    heartbeat_at = Column(DateTime)
+    metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1479,6 +1532,10 @@ def _migrate(engine_):
                     conn.execute(text(f"ALTER TABLE bug_records ADD COLUMN {col} {col_type}"))
                     conn.commit()
 
+    if "requirement_intake_fingerprints" not in tables:
+        logger.info("Migrating: creating 'requirement_intake_fingerprints' table")
+        RequirementIntakeFingerprintRow.__table__.create(bind=engine_, checkfirst=True)
+
     if "codex_sessions" not in tables:
         logger.info("Migrating: creating 'codex_sessions' table")
         CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
@@ -1596,6 +1653,10 @@ def _migrate(engine_):
     if "recurring_workflow_runs" not in tables:
         logger.info("Migrating: creating 'recurring_workflow_runs' table")
         RecurringWorkflowRunRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "scheduler_locks" not in tables:
+        logger.info("Migrating: creating 'scheduler_locks' table")
+        SchedulerLockRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "execution_nodes" not in tables:
         logger.info("Migrating: creating 'execution_nodes' table")
