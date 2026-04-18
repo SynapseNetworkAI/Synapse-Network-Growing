@@ -29,6 +29,7 @@ from server.database import (
     ErrorFingerprintRow,
     ExecutionNodeRow,
     ExecutionRunRow,
+    HumanGateRequestRow,
     OperationRequestRow,
     ProjectRow,
     ReleaseRecordRow,
@@ -52,6 +53,7 @@ from server.schemas import (
     AgentFirstRequirementApprovalOut,
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
+    DeclarativeWorkflowRunSummaryOut,
     ExecutionActivityEventOut,
     ExecutionBlockerOut,
     ExecutionChangedFileOut,
@@ -2288,6 +2290,38 @@ def _approval_risk_flags(decision: dict[str, Any]) -> list[str]:
     return flags
 
 
+def _active_workflow_run_summary(db: Session, requirement: RequirementRow) -> DeclarativeWorkflowRunSummaryOut | None:
+    """Return the declarative workflow run summary used by the new ops UI."""
+
+    workflow_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
+    if workflow_run_id <= 0:
+        return None
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run_id).first()
+    if run is None:
+        return None
+    pending_gate_count = (
+        db.query(HumanGateRequestRow)
+        .filter(
+            HumanGateRequestRow.workflow_run_id == int(run.id),
+            HumanGateRequestRow.status == "pending",
+        )
+        .count()
+    )
+    return DeclarativeWorkflowRunSummaryOut(
+        id=int(run.id),
+        requirement_id=int(run.requirement_id),
+        workflow_key=str(run.workflow_key or ""),
+        current_state=str(run.current_state or ""),
+        status=str(run.status or ""),
+        resolution=str(run.resolution or "").strip() or None,
+        risk_level=str(run.risk_level or "normal"),
+        pending_human_gate_count=int(pending_gate_count or 0),
+        updated_at=run.updated_at,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+    )
+
+
 def _approval_summary(
     db: Session,
     requirement: RequirementRow,
@@ -2324,6 +2358,7 @@ def _approval_summary(
         pending_execution_start=pending_execution_start,
         auto_started=auto_started,
         execution_run_id=latest_execution_id,
+        workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
     )
 
 
@@ -2501,6 +2536,8 @@ def _requirement_to_out(
         assets_error_message=_assets_error_message(requirement),
         created_at=requirement.created_at,
         updated_at=requirement.updated_at,
+        active_workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
+        active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
         active_execution_run_id=active_execution_run_id,
         latest_execution_run_id=int(latest_execution.id) if latest_execution is not None else None,
         latest_release_status=str(latest_release.status or "") if latest_release is not None else None,
@@ -2694,6 +2731,8 @@ def _build_requirement_detail(
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
         project=ProjectOut(**project_to_dict(project)) if project is not None else None,
         latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
+        active_workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
+        active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,
         latest_release=_release_to_out(latest_release),
         approval=approval_decision,

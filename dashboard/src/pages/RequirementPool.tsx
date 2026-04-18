@@ -115,8 +115,8 @@ function canEditRequirement(requirement: AgentRequirement) {
 function fallbackRequirementAllowedActions(requirement: AgentRequirement): string[] {
   const actions = new Set<string>(['view'])
   const state = requirement.state || requirement.status
-  if (requirement.active_execution_run_id != null || requirement.latest_execution_run_id != null) {
-    actions.add('view_execution')
+  if (requirement.active_workflow_run_id != null) {
+    actions.add('view_workflow')
   }
   if (requirement.latest_release_status) {
     actions.add('view_release')
@@ -134,10 +134,17 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
     actions.add('approve')
     actions.add('reject')
   }
-  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
+  if (requirement.active_workflow_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
     actions.add('delete')
   }
   return [...actions]
+}
+
+function workflowLabel(requirement: AgentRequirement) {
+  const summary = requirement.active_workflow_run_summary
+  if (!summary) return `${assetsLabel(requirement)} · ${phaseLabel(requirement)}`
+  const gate = summary.pending_human_gate_count ? ` · human gate ${summary.pending_human_gate_count}` : ''
+  return `${summary.workflow_key} · ${summary.current_state} · ${summary.status}${gate}`
 }
 
 function phaseLabel(requirement: AgentRequirement) {
@@ -612,16 +619,14 @@ export default function RequirementPool() {
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval?.state || (item.approval_required ? item.approval_status : 'not_required')}</td>
-                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                    {assetsLabel(item)} · {phaseLabel(item)} · attempt {item.current_attempt_id ?? item.active_execution_run_id ?? item.latest_execution_run_id ?? '-'} · delivery {item.current_delivery_id ?? item.latest_release_status ?? '-'}
-                  </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{workflowLabel(item)} · delivery {item.current_delivery_id ?? item.latest_release_status ?? '-'}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap justify-end gap-2">
                       {(() => {
                         const allowedActions = item.allowed_actions ?? fallbackRequirementAllowedActions(item)
                         const autoSubmitPending =
-                          item.latest_execution_run_id == null &&
+                          item.active_workflow_run_id == null &&
                           item.assets_status === 'ready' &&
                           ['approved', 'waived'].includes(item.approval_status) &&
                           ((item.pending_operations ?? []).includes('auto_submit') || allowedActions.includes('submit'))
@@ -648,6 +653,11 @@ export default function RequirementPool() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.id}`)}>
                         查看
                       </button>
+                      {item.active_workflow_run_id ? (
+                        <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => navigate(`/workflows/${item.active_workflow_run_id}`)}>
+                          工作流
+                        </button>
+                      ) : null}
                       {item.assets_status === 'failed' ? (
                         <button
                           type="button"
@@ -730,8 +740,9 @@ export default function RequirementPool() {
                           try {
                             const detail = await api.submitRequirement(item.id)
                             toast.success('需求已提交')
-                            if (detail.approval.execution_run_id && detail.approval.auto_started) {
-                              navigate(`/executions/${detail.approval.execution_run_id}`)
+                            const workflowRunId = detail.approval.workflow_run_id ?? detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
+                            if (workflowRunId && detail.approval.auto_started) {
+                              navigate(`/workflows/${workflowRunId}`)
                               return
                             }
                             navigate(`/requirements/${item.id}`)

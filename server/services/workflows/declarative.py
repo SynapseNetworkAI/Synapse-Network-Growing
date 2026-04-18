@@ -303,6 +303,51 @@ def list_workflow_definitions(db: Session) -> list[dict[str, Any]]:
     ]
 
 
+def list_workflow_runs(db: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+    """Return recent declarative workflow runs for the ops UI."""
+
+    rows = (
+        db.query(WorkflowRunRow)
+        .filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
+        .order_by(WorkflowRunRow.id.desc())
+        .limit(max(1, min(int(limit or 100), 500)))
+        .all()
+    )
+    requirement_ids = [int(row.requirement_id) for row in rows]
+    requirements = {
+        int(item.id): item
+        for item in db.query(RequirementRow).filter(RequirementRow.id.in_(requirement_ids)).all()
+    } if requirement_ids else {}
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        pending_gate_count = (
+            db.query(HumanGateRequestRow)
+            .filter(
+                HumanGateRequestRow.workflow_run_id == int(row.id),
+                HumanGateRequestRow.status == "pending",
+            )
+            .count()
+        )
+        requirement = requirements.get(int(row.requirement_id))
+        result.append(
+            {
+                "id": int(row.id),
+                "requirement_id": int(row.requirement_id),
+                "requirement_title": str(getattr(requirement, "title", "") or ""),
+                "workflow_key": row.workflow_key,
+                "current_state": row.current_state,
+                "status": row.status,
+                "resolution": row.resolution,
+                "risk_level": row.risk_level,
+                "pending_human_gate_count": int(pending_gate_count or 0),
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                "started_at": row.started_at.isoformat() if row.started_at else None,
+                "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+            }
+        )
+    return result
+
+
 def create_declarative_workflow_run(
     db: Session,
     *,
@@ -826,14 +871,21 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
     artifacts = db.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == run.id).order_by(WorkflowArtifactRow.id.asc()).all()
     invocations = db.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).order_by(AtomInvocationRow.id.asc()).all()
     gates = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).order_by(HumanGateRequestRow.id.asc()).all()
+    pending_gate_count = sum(1 for gate in gates if str(gate.status or "") == "pending")
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
     return {
         "id": int(run.id),
         "requirement_id": int(run.requirement_id),
+        "requirement_title": str(getattr(requirement, "title", "") or ""),
         "workflow_key": run.workflow_key,
         "current_state": run.current_state,
         "status": run.status,
         "resolution": run.resolution,
         "risk_level": run.risk_level,
+        "pending_human_gate_count": int(pending_gate_count),
+        "updated_at": run.updated_at.isoformat() if run.updated_at else None,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "retry_counters": _json_load(run.retry_counters_json, {}),
         "blackboard": workflow_blackboard(run),
         "events": [

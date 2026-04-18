@@ -101,8 +101,8 @@ const LIFECYCLE_STEPS = [
   { key: 'created', label: '创建' },
   { key: 'planning', label: '规划' },
   { key: 'approval', label: '审批' },
-  { key: 'ready', label: '待执行' },
-  { key: 'execution', label: '执行' },
+  { key: 'ready', label: '待工作流' },
+  { key: 'execution', label: '工作流' },
   { key: 'delivery', label: '交付' },
   { key: 'merge', label: '待合并' },
   { key: 'done', label: '完成' },
@@ -126,7 +126,7 @@ function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
   if (state in LIFECYCLE_STATE_INDEX) return LIFECYCLE_STATE_INDEX[state]
   if (state === 'failed' || state === 'cancelled' || state === 'awaiting_operator') {
     if (detail.latest_release_id || detail.latest_release) return 5
-    if (detail.latest_execution_id || detail.requirement.latest_execution_run_id) return 4
+    if (detail.active_workflow_run_id || detail.requirement.active_workflow_run_id || detail.latest_execution_id || detail.requirement.latest_execution_run_id) return 4
     if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') return 2
     return 3
   }
@@ -138,10 +138,10 @@ function lifecycleDescription(detail: AgentRequirementDetail, state: string) {
   if (state === 'failed') return detail.failure_reason ? `自动主链已终止：${detail.failure_reason}` : '自动主链已终止，需要人工介入'
   if (state === 'cancelled') return '需求已取消，不会继续自动推进'
   if (state === 'awaiting_operator') return detail.attention_reason ? `需要人工处理：${detail.attention_reason}` : '需要人工处理后才能继续'
-  if (state === 'planning' || detail.assets_status === 'pending') return '验收标准与执行计划正在生成'
-  if (state === 'awaiting_approval') return '等待审批结果，未通过前不会执行'
-  if (state === 'ready') return '需求已就绪，可以启动执行'
-  if (state === 'executing' || state === 'running') return 'agent 正在执行当前 attempt'
+  if (state === 'planning' || detail.assets_status === 'pending') return '验收标准与状态机计划正在生成'
+  if (state === 'awaiting_approval') return '等待审批结果，未通过前不会创建工作流'
+  if (state === 'ready') return '需求已就绪，可以创建状态机工作流'
+  if (state === 'executing' || state === 'running') return '状态机正在驱动 agent atom 和 deterministic atom'
   if (state === 'delivering' || state === 'delivery_ready') {
     if (releaseState === 'repairing') return 'delivery repair 自动修复中'
     return '验证已过，正在 push / open PR / delivery repair'
@@ -220,7 +220,7 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   const actions = new Set<string>(['view'])
   const state = requirement.state || requirement.status
   const latestRelease = detail.latest_release
-  if (detail.latest_execution_id != null) actions.add('view_execution')
+  if (detail.active_workflow_run_id != null || requirement.active_workflow_run_id != null) actions.add('view_workflow')
   if (detail.latest_release_id != null) actions.add('view_release')
   if (state === 'draft' || state === 'planning' || state === 'ready' || state === 'awaiting_operator') {
     actions.add('edit')
@@ -235,7 +235,7 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
     actions.add('approve')
     actions.add('reject')
   }
-  if (requirement.latest_execution_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
+  if (requirement.active_workflow_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
     actions.add('delete')
   }
   if (latestRelease?.status === 'branch_prepared') {
@@ -325,7 +325,6 @@ export default function RequirementDetail() {
   const requirement = detail.requirement
   const approval = detail.approval
   const requirementAllowedActions = requirement.allowed_actions ?? fallbackRequirementAllowedActions(detail)
-  const detailAllowedActions = detail.allowed_actions ?? requirementAllowedActions
   const canEdit = requirementAllowedActions.includes('edit')
   const finalApprovalState = detail.approval_decision?.state || approval.approval_status
   const showApprovalNotice =
@@ -346,8 +345,9 @@ export default function RequirementDetail() {
   const assetsReady = detail.assets_status === 'ready'
   const requirementState = requirement.state || detail.state || requirement.status
   const approvalPassed = ['approved', 'waived'].includes(approval.approval_status)
+  const activeWorkflowRunId = detail.active_workflow_run_id ?? requirement.active_workflow_run_id ?? detail.active_workflow_run_summary?.id ?? requirement.active_workflow_run_summary?.id ?? null
   const autoSubmitPending =
-    !detail.latest_execution_id &&
+    !activeWorkflowRunId &&
     assetsReady &&
     approvalPassed &&
     ((detail.pending_operations ?? []).includes('auto_submit') || requirementAllowedActions.includes('submit'))
@@ -434,8 +434,9 @@ export default function RequirementDetail() {
                   try {
                     const next = await api.submitRequirement(requirement.id)
                     setDetail(next)
-                    if (next.approval.auto_started && next.approval.execution_run_id) {
-                      navigate(`/executions/${next.approval.execution_run_id}`)
+                    const workflowRunId = next.approval.workflow_run_id ?? next.active_workflow_run_id ?? next.requirement.active_workflow_run_id
+                    if (next.approval.auto_started && workflowRunId) {
+                      navigate(`/workflows/${workflowRunId}`)
                     }
                   } catch (error) {
                     const message = error instanceof Error ? error.message : '提交失败，请重试'
@@ -448,7 +449,7 @@ export default function RequirementDetail() {
                   : detail.assets_status === 'failed'
                     ? '计划生成失败'
                     : autoSubmitPending
-                      ? '立即触发执行'
+                      ? '创建工作流'
                       : '提交'}
               </button>
             ) : null}
@@ -459,7 +460,7 @@ export default function RequirementDetail() {
                   try {
                     const next = await api.regenerateRequirementAssets(requirement.id)
                     setDetail(next)
-                    toast.success('已重新开始生成验收标准与执行计划')
+                    toast.success('已重新开始生成验收标准与状态机计划')
                   } catch (error) {
                     const message = error instanceof Error ? error.message : '重新生成失败，请重试'
                     toast.error(message)
@@ -479,12 +480,13 @@ export default function RequirementDetail() {
                       comment: approval.approval_recommendation_reason || approval.approval_reason || 'Approve and auto-start execution',
                     })
                     setDetail(next)
-                    if (next.approval.execution_run_id) {
-                      navigate(`/executions/${next.approval.execution_run_id}`)
+                    const workflowRunId = next.approval.workflow_run_id ?? next.active_workflow_run_id ?? next.requirement.active_workflow_run_id
+                    if (workflowRunId) {
+                      navigate(`/workflows/${workflowRunId}`)
                     }
                   }}
                 >
-                  批准并启动执行
+                  批准并启动工作流
                 </button>
                 <button
                   className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)]"
@@ -497,22 +499,9 @@ export default function RequirementDetail() {
                 </button>
               </>
             ) : null}
-            {!isEditing && approval.pending_execution_start && detail.latest_execution_id && detailAllowedActions.includes('view_execution') ? (
-              <button
-                className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
-                onClick={async () => {
-                  const executionId = detail.latest_execution_id
-                  if (!executionId) return
-                  await api.startExecution(executionId)
-                  navigate(`/executions/${executionId}`)
-                }}
-              >
-                恢复启动执行
-              </button>
-            ) : null}
-            {!isEditing && detail.latest_execution_id ? (
-              <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/executions/${detail.latest_execution_id}`)}>
-                查看执行
+            {!isEditing && activeWorkflowRunId ? (
+              <button className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => navigate(`/workflows/${activeWorkflowRunId}`)}>
+                查看工作流
               </button>
             ) : null}
             {!isEditing && detail.latest_release_id ? (
@@ -558,12 +547,30 @@ export default function RequirementDetail() {
         {!isEditing && autoSubmitPending ? (
           <div className="mb-5 rounded-2xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-ready-text)]">
             <div className="flex flex-wrap items-center gap-2">
-              <StateBadge tone="ready">自动执行</StateBadge>
-              <span>审批已通过，系统会自动提交并启动 execution。</span>
+              <StateBadge tone="ready">自动工作流</StateBadge>
+              <span>审批已通过，系统会创建 declarative workflow run 并由状态机推进。</span>
             </div>
             <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-              如果后台触发还未完成，可以用右上角“立即触发执行”作为 fallback，不需要再次人工审批。
+              如果后台触发还未完成，可以用右上角“创建工作流”作为 fallback，不需要再次人工审批。
             </div>
+          </div>
+        ) : null}
+
+        {!isEditing && (detail.active_workflow_run_summary || requirement.active_workflow_run_summary) ? (
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-body)]" data-testid="active-workflow-summary">
+            {(() => {
+              const summary = detail.active_workflow_run_summary || requirement.active_workflow_run_summary
+              if (!summary) return null
+              return (
+                <div className="flex flex-wrap items-center gap-2">
+                  <StateBadge tone={statusTone(summary.status)}>{summary.status}</StateBadge>
+                  <span>{summary.workflow_key}</span>
+                  <span>state: {summary.current_state}</span>
+                  <span>risk: {summary.risk_level}</span>
+                  {summary.pending_human_gate_count ? <span>human gate: {summary.pending_human_gate_count}</span> : null}
+                </div>
+              )
+            })()}
           </div>
         ) : null}
 
@@ -663,8 +670,8 @@ export default function RequirementDetail() {
               </StateBadge>
               <span>
                 {detail.assets_status === 'failed'
-                  ? detail.assets_error_message || 'plan agent 未生成有效执行计划，需求不会自动执行。'
-                  : '验收标准与执行计划正在生成，完成前不能提交。'}
+                  ? detail.assets_error_message || 'plan agent 未生成有效状态机计划，需求不会创建工作流。'
+                  : '验收标准与状态机计划正在生成，完成前不能提交。'}
               </span>
             </div>
           </div>
@@ -856,7 +863,7 @@ export default function RequirementDetail() {
         )}
       </SectionFrame>
 
-      <SectionFrame eyebrow="Plan" title="执行计划">
+      <SectionFrame eyebrow="Plan" title="状态机计划">
         {isEditing ? (
           <textarea
             data-testid="edit-requirement-plan"

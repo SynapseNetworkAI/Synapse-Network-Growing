@@ -14,6 +14,7 @@ from server.services.workflows.declarative import (
     create_declarative_workflow_run,
     decide_human_gate,
     list_workflow_definitions,
+    list_workflow_runs,
     workflow_run_detail,
 )
 
@@ -42,6 +43,11 @@ class HumanGateDecisionRequest(BaseModel):
 @router.get("/definitions")
 def list_workflow_definitions_endpoint(db: Session = Depends(get_db)):
     return list_workflow_definitions(db)
+
+
+@router.get("/runs")
+def list_workflow_runs_endpoint(limit: int = 100, db: Session = Depends(get_db)):
+    return list_workflow_runs(db, limit=limit)
 
 
 @router.post("/runs", status_code=201)

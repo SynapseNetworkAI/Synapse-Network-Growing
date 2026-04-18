@@ -237,6 +237,20 @@ class AgentMatch(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeclarativeWorkflowRunSummaryOut(BaseModel):
+    id: int
+    requirement_id: int
+    workflow_key: str
+    current_state: str
+    status: str
+    resolution: Optional[str] = None
+    risk_level: str = "normal"
+    pending_human_gate_count: int = 0
+    updated_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
 # ── Dashboard ─────────────────────────────────────────────────
 
 class DashboardStats(BaseModel):
@@ -936,6 +950,8 @@ class AgentFirstRequirementOut(BaseModel):
     assets_error_message: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    active_workflow_run_id: Optional[int] = None
+    active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     active_execution_run_id: Optional[int] = None
     latest_execution_run_id: Optional[int] = None
     latest_release_status: Optional[str] = None
@@ -958,6 +974,7 @@ class AgentFirstRequirementApprovalOut(BaseModel):
     pending_execution_start: bool = False
     auto_started: bool = False
     execution_run_id: Optional[int] = None
+    workflow_run_id: Optional[int] = None
 
 
 class AgentFirstRequirementDetailOut(BaseModel):
@@ -968,6 +985,8 @@ class AgentFirstRequirementDetailOut(BaseModel):
     policy_summary_markdown: str = ""
     project: Optional[ProjectOut] = None
     latest_execution_id: Optional[int] = None
+    active_workflow_run_id: Optional[int] = None
+    active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     latest_release_id: Optional[int] = None
     latest_release: Optional["ReleaseRecordSlimOut"] = None
     approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()

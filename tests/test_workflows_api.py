@@ -51,6 +51,8 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["workflow_key"] == "agent_self_repair"
     assert payload["status"] == "awaiting_operator"
     assert payload["current_state"] == "awaiting_operator"
+    assert payload["requirement_title"] == "Repair Ops Dashboard failure"
+    assert payload["pending_human_gate_count"] == 1
     assert payload["blackboard"]["verification"]["status"] == "passed"
     assert payload["events"]
     assert payload["atom_invocations"]
@@ -59,6 +61,12 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     events_response = synced_client.get(f"/api/workflows/runs/{payload['id']}/events")
     assert events_response.status_code == 200
     assert events_response.json()[-1]["to_state"] == "awaiting_operator"
+
+    list_response = synced_client.get("/api/workflows/runs")
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert list_payload[0]["id"] == payload["id"]
+    assert list_payload[0]["pending_human_gate_count"] == 1
 
 
 def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_session):
@@ -112,3 +120,31 @@ def test_submit_requirement_creates_declarative_workflow_run_not_legacy_executio
     assert runs[0].workflow_key == "gateway_reliability_repair"
     assert runs[0].current_state in {"done", "awaiting_operator"}
     assert legacy_executions == []
+
+
+def test_submit_requirement_response_exposes_declarative_workflow_summary(db_session):
+    requirement = RequirementRow(
+        title="Repair Ops Dashboard self failure",
+        description_markdown="Detect and repair an Ops Dashboard error with declarative workflow.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="ready",
+        phase="ready",
+        workflow_state="ready",
+        assets_status="ready",
+        approval_status="waived",
+        acceptance_contract_json='{"summary": "repair ops"}',
+        execution_plan_json='{"summary_markdown": "use agent_self_repair workflow"}',
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+
+    detail = submit_requirement(db_session, int(requirement.id))
+
+    assert detail.latest_execution_id is None
+    assert detail.active_workflow_run_id is not None
+    assert detail.approval.workflow_run_id == detail.active_workflow_run_id
+    assert detail.active_workflow_run_summary is not None
+    assert detail.active_workflow_run_summary.workflow_key == "agent_self_repair"
+    assert detail.active_workflow_run_summary.pending_human_gate_count >= 0
+    assert detail.requirement.active_workflow_run_id == detail.active_workflow_run_id

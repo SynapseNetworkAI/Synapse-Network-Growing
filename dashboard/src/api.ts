@@ -751,6 +751,73 @@ export interface WorkflowRun {
   steps: WorkflowStep[]
 }
 
+export interface DeclarativeWorkflowRunSummary {
+  id: number
+  requirement_id: number
+  requirement_title?: string
+  workflow_key: string
+  current_state: string
+  status: string
+  resolution: string | null
+  risk_level: string
+  pending_human_gate_count: number
+  updated_at: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface DeclarativeWorkflowEvent {
+  id: number
+  event_type: string
+  from_state: string | null
+  to_state: string
+  condition: string | null
+  payload: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface DeclarativeWorkflowArtifact {
+  id: number
+  artifact_type: string
+  state_key: string | null
+  atom_key: string | null
+  content_summary: string
+  payload: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface DeclarativeAtomInvocation {
+  id: number
+  state_key: string
+  atom_key: string
+  atom_type: string
+  status: string
+  output_summary: string
+  artifact_ids: number[]
+  duration_ms: number
+  error_excerpt: string | null
+}
+
+export interface DeclarativeHumanGate {
+  id: number
+  state_key: string
+  gate_type: string
+  risk_level: string
+  status: string
+  reason: string
+  decision: string | null
+  created_at: string | null
+}
+
+export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSummary {
+  blackboard: Record<string, unknown>
+  retry_counters: Record<string, number>
+  events: DeclarativeWorkflowEvent[]
+  artifacts: DeclarativeWorkflowArtifact[]
+  atom_invocations: DeclarativeAtomInvocation[]
+  human_gates: DeclarativeHumanGate[]
+}
+
 export interface Artifact {
   id: number
   requirement_id: number
@@ -855,6 +922,8 @@ export interface AgentRequirement {
   assets_error_message: string | null
   created_at: string | null
   updated_at: string | null
+  active_workflow_run_id: number | null
+  active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   active_execution_run_id: number | null
   latest_execution_run_id: number | null
   latest_release_status: string | null
@@ -877,6 +946,7 @@ export interface AgentRequirementApproval {
   pending_execution_start: boolean
   auto_started: boolean
   execution_run_id: number | null
+  workflow_run_id: number | null
 }
 
 export interface AcceptanceContractCheck {
@@ -958,6 +1028,8 @@ export interface AgentRequirementDetail {
   policy_summary_markdown: string
   project: Project | null
   latest_execution_id: number | null
+  active_workflow_run_id: number | null
+  active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   latest_release_id: number | null
   latest_release: ReleaseRecord | null
   approval: AgentRequirementApproval
@@ -1949,6 +2021,23 @@ export const api = {
   resumeExecution: (id: number) => request<ExecutionOperationResult>(`/executions/${id}/resume`, { method: 'POST' }),
   retryExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/retry`, { method: 'POST' }),
   validateExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/validate`, { method: 'POST' }),
+
+  getWorkflowRuns: (limit = 100) => request<DeclarativeWorkflowRunSummary[]>(`/workflows/runs?limit=${limit}`),
+  getWorkflowRun: (id: number) => request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}`),
+  getWorkflowRunEvents: (id: number) => request<DeclarativeWorkflowEvent[]>(`/workflows/runs/${id}/events`),
+  decideWorkflowHumanGate: (
+    workflowRunId: number,
+    gateId: number,
+    data: { decision: string; reviewer?: string; comment?: string },
+  ) =>
+    request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${workflowRunId}/human-gates/${gateId}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({
+        decision: data.decision,
+        reviewer: data.reviewer || 'operator',
+        comment: data.comment || '',
+      }),
+    }),
 
   getReleaseCandidates: () => request<ReleaseCandidate[]>('/releases/candidates'),
   getReleaseDetail: (requirementId: number) => request<ReleaseDetail>(`/releases/${requirementId}`),
