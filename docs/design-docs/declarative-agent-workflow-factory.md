@@ -25,6 +25,25 @@ The goal is not to downgrade Agent-First work into traditional CI/CD. The goal i
 
 This keeps the system flexible enough to create new operating workflows from high-level human intent, while still safe enough for a business that touches production systems, external spend, auth, contracts, and USDC settlement.
 
+## Overall Architecture Diagram
+
+This diagram is generated as a large SVG asset so the text stays readable when embedded in docs or opened directly. Regenerate it with:
+
+```bash
+python scripts/generate_declarative_workflow_architecture.py
+```
+
+![Declarative Agent Workflow Factory Architecture](../assets/declarative-agent-workflow-factory-architecture.png)
+
+Open the vector source when zooming or editing: [declarative-agent-workflow-factory-architecture.svg](../assets/declarative-agent-workflow-factory-architecture.svg).
+
+The most important boundary in the diagram is this:
+
+1. agents can write structured outputs into Blackboard.
+2. deterministic atoms can execute trusted operations and collect evidence.
+3. only the State Machine Runner changes workflow state.
+4. high-risk delivery always stops at Risk-Evidence Gate or Human Oracle.
+
 ## Core Architecture
 
 ### Human Intent / Desired State

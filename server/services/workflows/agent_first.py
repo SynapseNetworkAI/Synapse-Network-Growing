@@ -23,6 +23,8 @@ from server.database import (
     ApprovalRow,
     ApprovalRequestRow,
     ArtifactRow,
+    AtomInvocationRow,
+    BlackboardSnapshotRow,
     BugRecordRow,
     CodexSessionRow,
     DeploymentRecordRow,
@@ -42,6 +44,8 @@ from server.database import (
     ValidationLeaseRow,
     ValidationRecordRow,
     WorkflowRunRow,
+    WorkflowArtifactRow,
+    WorkflowStateEventRow,
     WorkflowStepEventRow,
     WorkflowStepDependencyRow,
     WorkflowStepRow,
@@ -5452,6 +5456,11 @@ def reset_workflow_state_data(db: Session) -> dict[str, int]:
         "requirement_attachments_deleted": int(db.query(RequirementAttachmentRow).count()),
         "acceptance_checks_deleted": int(db.query(RequirementAcceptanceCheckRow).count()),
         "workflow_runs_deleted": int(db.query(WorkflowRunRow).count()),
+        "workflow_state_events_deleted": int(db.query(WorkflowStateEventRow).count()),
+        "workflow_artifacts_deleted": int(db.query(WorkflowArtifactRow).count()),
+        "blackboard_snapshots_deleted": int(db.query(BlackboardSnapshotRow).count()),
+        "atom_invocations_deleted": int(db.query(AtomInvocationRow).count()),
+        "human_gate_requests_deleted": int(db.query(HumanGateRequestRow).count()),
         "workflow_steps_deleted": int(db.query(WorkflowStepRow).count()),
         "workflow_step_dependencies_deleted": int(db.query(WorkflowStepDependencyRow).count()),
         "workflow_step_events_deleted": int(db.query(WorkflowStepEventRow).count()),
@@ -5514,6 +5523,11 @@ def reset_workflow_state_data(db: Session) -> dict[str, int]:
     db.query(TaskRow).delete(synchronize_session=False)
     db.query(RequirementAttachmentRow).delete(synchronize_session=False)
     db.query(RequirementAcceptanceCheckRow).delete(synchronize_session=False)
+    db.query(HumanGateRequestRow).delete(synchronize_session=False)
+    db.query(AtomInvocationRow).delete(synchronize_session=False)
+    db.query(BlackboardSnapshotRow).delete(synchronize_session=False)
+    db.query(WorkflowArtifactRow).delete(synchronize_session=False)
+    db.query(WorkflowStateEventRow).delete(synchronize_session=False)
     db.query(WorkflowStepEventRow).delete(synchronize_session=False)
     db.query(StepInputBindingRow).delete(synchronize_session=False)
     db.query(WorkflowStepDependencyRow).delete(synchronize_session=False)

@@ -218,6 +218,7 @@ dashboard/playwright-report/
 # SQLite
 *.db
 *.db-shm
+*.db.bak-*
 
 # Local workdirs
 tmp/Synapse-Network-workdir/
