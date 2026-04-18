@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import RequirementPool from '../src/pages/RequirementPool'
-import ExecutionsPage from '../src/pages/ExecutionsPage'
 import ReleasesPage from '../src/pages/ReleasesPage'
 import ProjectsPage from '../src/pages/ProjectsPage'
 import ErrorsPage from '../src/pages/ErrorsPage'
@@ -16,9 +15,6 @@ const mockApi = {
   updateRequirement: vi.fn(),
   submitRequirement: vi.fn(),
   regenerateRequirementAssets: vi.fn(),
-  createExecution: vi.fn(),
-  getExecutions: vi.fn(),
-  startExecution: vi.fn(),
   getReleaseCandidates: vi.fn(),
   getErrors: vi.fn(),
 }
@@ -32,9 +28,6 @@ vi.mock('../src/api', () => ({
     updateRequirement: (...args: unknown[]) => mockApi.updateRequirement(...args),
     submitRequirement: (...args: unknown[]) => mockApi.submitRequirement(...args),
     regenerateRequirementAssets: (...args: unknown[]) => mockApi.regenerateRequirementAssets(...args),
-    createExecution: (...args: unknown[]) => mockApi.createExecution(...args),
-    getExecutions: (...args: unknown[]) => mockApi.getExecutions(...args),
-    startExecution: (...args: unknown[]) => mockApi.startExecution(...args),
     getReleaseCandidates: (...args: unknown[]) => mockApi.getReleaseCandidates(...args),
     getErrors: (...args: unknown[]) => mockApi.getErrors(...args),
   },
@@ -86,44 +79,8 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'ready',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
-        updated_at: '2026-04-14T00:00:00Z',
-      },
-    ])
-    mockApi.getExecutions.mockResolvedValue([
-      {
-        id: 11,
-        requirement_id: 1,
-        requirement_title: 'Launch FAQ',
-        status: 'queued',
-        phase: 'queued',
-        is_current_execution: true,
-        allowed_actions: ['start'],
-        pending_operations: [],
-        recovery_status: null,
-        recovery_scope: null,
-        recovery_deadline_at: null,
-        recovery_timeout_status: null,
-        time_remaining_seconds: null,
-        recovery_mode: null,
-        queue_reason: '等待启动',
-        blocking_reason_code: null,
-        blocking_reason_message: null,
-        workspace_blocker: null,
-        recovery_hint: null,
-        execution_mode: 'direct',
-        complexity: 'simple',
-        planner_summary: 'Direct execute.',
-        validation_profile: 'minimal',
-        delivery_intent: 'pr_required',
-        approval_required: false,
-        target_projects: ['Synapse-Network'],
-        latest_task_id: null,
-        started_at: null,
-        completed_at: null,
         updated_at: '2026-04-14T00:00:00Z',
       },
     ])
@@ -138,7 +95,21 @@ describe('agent-first pages smoke', () => {
         project_display_name: 'Synapse-Network',
         target_projects: ['Synapse-Network'],
         target_project_path_override: null,
-        latest_execution_run_id: 11,
+        active_workflow_run_id: 7,
+        active_workflow_run_summary: {
+          id: 7,
+          requirement_id: 1,
+          requirement_title: 'Launch FAQ',
+          workflow_key: 'agent_self_repair',
+          current_state: 'awaiting_operator',
+          status: 'paused',
+          resolution: null,
+          risk_level: 'high',
+          pending_human_gate_count: 1,
+          updated_at: '2026-04-14T00:00:00Z',
+          started_at: '2026-04-14T00:00:00Z',
+          completed_at: null,
+        },
       },
       validation: {
           status: 'passed',
@@ -174,7 +145,21 @@ describe('agent-first pages smoke', () => {
         latest_seen_at: '2026-04-14T01:00:00Z',
         latest_error_event_id: 9,
         linked_requirement_id: 1,
-        latest_execution_run_id: 11,
+        active_workflow_run_id: 7,
+        active_workflow_run_summary: {
+          id: 7,
+          requirement_id: 1,
+          requirement_title: 'Launch FAQ',
+          workflow_key: 'gateway_reliability_repair',
+          current_state: 'diagnose',
+          status: 'running',
+          resolution: null,
+          risk_level: 'high',
+          pending_human_gate_count: 0,
+          updated_at: '2026-04-14T01:00:00Z',
+          started_at: '2026-04-14T01:00:00Z',
+          completed_at: null,
+        },
       },
     ])
   })
@@ -226,8 +211,6 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'ready',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -253,8 +236,6 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'ready',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -269,7 +250,7 @@ describe('agent-first pages smoke', () => {
         risk_flags: [],
         pending_execution_start: false,
         auto_started: false,
-        execution_run_id: null,
+        workflow_run_id: null,
       },
       assets_status: 'ready',
       assets_error_message: null,
@@ -289,7 +270,6 @@ describe('agent-first pages smoke', () => {
         planned_checks: [],
         risks: [],
       },
-      latest_execution_id: null,
       latest_release_id: null,
       latest_release: null,
       project: null,
@@ -314,8 +294,6 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'ready',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -386,8 +364,6 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'ready',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -428,8 +404,6 @@ describe('agent-first pages smoke', () => {
         acceptance_criteria_markdown: '',
         approval_required: false,
         approval_status: 'waived',
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -444,12 +418,11 @@ describe('agent-first pages smoke', () => {
         risk_flags: [],
         pending_execution_start: false,
         auto_started: false,
-        execution_run_id: null,
+        workflow_run_id: null,
       },
       policy_summary_markdown: '',
       acceptance_contract: { done_criteria: [], verification_checks: [], scope_constraints: [], delivery_expectation: '', markdown: '' },
       execution_plan: { planning_mode: 'agent_plan_brief', goal_summary: '', summary_markdown: '', steps: [], planned_checks: [], risks: [] },
-      latest_execution_id: null,
       latest_release_id: null,
       latest_release: null,
       project: null,
@@ -517,8 +490,6 @@ describe('agent-first pages smoke', () => {
         approval_status: 'waived',
         assets_status: 'pending',
         assets_error_message: null,
-        active_execution_run_id: null,
-        latest_execution_run_id: null,
         latest_release_status: null,
         created_at: '2026-04-14T00:00:00Z',
         updated_at: '2026-04-14T00:00:00Z',
@@ -560,88 +531,6 @@ describe('agent-first pages smoke', () => {
     })
 
     await waitFor(() => expect(screen.getByText('clipboard.png')).toBeInTheDocument())
-  })
-
-  it('renders execution surface', async () => {
-    render(
-      <ToastProvider>
-        <MemoryRouter>
-          <ExecutionsPage />
-        </MemoryRouter>
-      </ToastProvider>,
-    )
-    await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
-    expect(screen.getByText('执行列表')).toBeInTheDocument()
-    expect(screen.getByText('Execution #11')).toBeInTheDocument()
-    expect(screen.getByText('需求：Launch FAQ')).toBeInTheDocument()
-    expect(screen.getByText(/恢复中的 execution 只影响当前需求/)).toBeInTheDocument()
-  })
-
-  it('filters execution rows by requirement title', async () => {
-    render(
-      <ToastProvider>
-        <MemoryRouter>
-          <ExecutionsPage />
-        </MemoryRouter>
-      </ToastProvider>,
-    )
-
-    await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
-    fireEvent.change(screen.getByPlaceholderText('搜索 execution / requirement'), { target: { value: 'launch faq' } })
-    expect(screen.getByText('Execution #11')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByPlaceholderText('搜索 execution / requirement'), { target: { value: 'different requirement' } })
-    expect(screen.queryByText('Execution #11')).not.toBeInTheDocument()
-  })
-
-  it('shows restart-current action for restartable blockers', async () => {
-    mockApi.getExecutions.mockResolvedValueOnce([
-      {
-        id: 12,
-        requirement_id: 1,
-        requirement_title: 'Launch FAQ',
-        status: 'blocked',
-        phase: 'blocked',
-        is_current_execution: true,
-        allowed_actions: ['start', 'view', 'view_requirement'],
-        pending_operations: [],
-        recovery_status: null,
-        recovery_scope: 'current_requirement',
-        recovery_deadline_at: '2026-04-14T07:10:00Z',
-        recovery_timeout_status: 'active',
-        time_remaining_seconds: 180,
-        recovery_mode: 'restart_current',
-        queue_reason: null,
-        blocking_reason_code: 'branch_preparation_blocked',
-        blocking_reason_message: 'dirty worktree on `main` blocks automatic execution branch preparation',
-        workspace_blocker: null,
-        recovery_hint: '清理目标仓库工作树后可直接再次启动当前 execution。',
-        execution_mode: 'direct',
-        complexity: 'simple',
-        planner_summary: 'Direct execute.',
-        validation_profile: 'minimal',
-        delivery_intent: 'pr_required',
-        approval_required: false,
-        target_projects: ['Synapse-Network'],
-        latest_task_id: null,
-        started_at: null,
-        completed_at: null,
-        updated_at: '2026-04-14T00:00:00Z',
-      },
-    ])
-
-    render(
-      <ToastProvider>
-        <MemoryRouter>
-          <ExecutionsPage />
-        </MemoryRouter>
-      </ToastProvider>,
-    )
-
-    await waitFor(() => expect(mockApi.getExecutions).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: '再次启动' })).toBeInTheDocument()
-    expect(screen.getByText(/仅影响当前需求/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '创建新 run 重试' })).not.toBeInTheDocument()
   })
 
   it('renders release surface', async () => {

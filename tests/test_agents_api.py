@@ -10,7 +10,7 @@ def test_list_agents_auto_loads_roles(client):
     resp = client.get("/api/agents")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 6
+    assert len(data) == 7
     ids = {a["id"] for a in data}
     assert "dev_rel" in ids
     assert "growth_lead" in ids
@@ -27,13 +27,13 @@ def test_list_agents_is_idempotent(client):
     client.get("/api/agents")
     resp = client.get("/api/agents")
     assert resp.status_code == 200
-    assert len(resp.json()) == 6
+    assert len(resp.json()) == 7
 
 
 def test_list_agents_after_auto_load(synced_client):
     resp = synced_client.get("/api/agents")
     assert resp.status_code == 200
-    assert len(resp.json()) == 6
+    assert len(resp.json()) == 7
 
 
 def test_get_agent(synced_client):

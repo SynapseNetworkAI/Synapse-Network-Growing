@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from server.database import (
     ErrorEventRow,
     ErrorFingerprintRow,
-    ExecutionRunRow,
     ProjectPolicyRow,
     ReleaseRecordRow,
     RequirementRow,
@@ -27,7 +26,6 @@ from server.schemas import (
     ErrorIntakeRequest,
     NotificationDeliveryOut,
     ReleaseRecordSlimOut,
-    ExecutionRunOut,
     RequirementCreate,
 )
 from server.logging_utils import get_logger, log_event
@@ -40,7 +38,6 @@ from server.services.bugs.discovery import (
 )
 from server.services.projects.project_center import ensure_projects_materialized
 from server.services.workflows.agent_first import (
-    build_execution_detail,
     build_release_detail,
     build_requirement_detail,
     create_requirement,
@@ -181,15 +178,6 @@ def _release_to_out(requirement_id: int, db: Session) -> ReleaseRecordSlimOut | 
         return None
 
 
-def _execution_to_out(execution_run_id: int | None, db: Session) -> ExecutionRunOut | None:
-    if execution_run_id is None:
-        return None
-    try:
-        return build_execution_detail(db, execution_run_id).execution
-    except Exception:
-        return None
-
-
 def _requirement_to_out(requirement_id: int | None, db: Session) -> AgentFirstRequirementOut | None:
     if requirement_id is None:
         return None
@@ -222,7 +210,6 @@ def _event_to_out(row: ErrorEventRow) -> ErrorEventOut:
 
 def _fingerprint_to_out(row: ErrorFingerprintRow, db: Session) -> ErrorFingerprintOut:
     requirement = _requirement_to_out(int(row.linked_requirement_id), db) if row.linked_requirement_id is not None else None
-    latest_execution_id = requirement.latest_execution_run_id if requirement is not None else None
     discovery = _json_load(getattr(row, "discovery_recommendation_json", None), {})
     return ErrorFingerprintOut(
         fingerprint_key=str(row.fingerprint_key or ""),
@@ -241,7 +228,8 @@ def _fingerprint_to_out(row: ErrorFingerprintRow, db: Session) -> ErrorFingerpri
         latest_error_event_id=int(row.latest_error_event_id) if row.latest_error_event_id is not None else None,
         linked_requirement_id=int(row.linked_requirement_id) if row.linked_requirement_id is not None else None,
         materialized_requirement_id=int(row.linked_requirement_id) if row.linked_requirement_id is not None else None,
-        latest_execution_run_id=latest_execution_id,
+        active_workflow_run_id=requirement.active_workflow_run_id if requirement is not None else None,
+        active_workflow_run_summary=requirement.active_workflow_run_summary if requirement is not None else None,
         discovery_status=str(getattr(row, "discovery_status", None) or "pending"),
         discovery_recommendation=discovery or None,
         last_discovery_at=getattr(row, "last_discovery_at", None),
@@ -337,7 +325,7 @@ def _notify_error_logged(
     body: ErrorIntakeRequest,
     event_id: int,
     requirement_id: int | None,
-    execution_id: int | None,
+    workflow_run_id: int | None,
     error_page_url: str | None,
 ) -> None:
     service = notification_service_label(service_name=body.service_name, project_key=body.project_key)
@@ -357,13 +345,13 @@ def _notify_error_logged(
         object_refs={
             "fingerprint_key": fingerprint_key,
             "requirement_id": requirement_id,
-            "execution_id": execution_id,
+            "workflow_run_id": workflow_run_id,
             "project_key": body.project_key,
         },
         links={
             "错误页": error_page_url or "",
             "需求": build_ops_url(f"/requirements/{requirement_id}") or "" if requirement_id else "",
-            "执行": build_ops_url(f"/executions/{execution_id}") or "" if execution_id else "",
+            "工作流": build_ops_url(f"/workflows/{workflow_run_id}") or "" if workflow_run_id else "",
         },
     )
 
@@ -420,12 +408,10 @@ def build_error_fingerprint_detail(db: Session, fingerprint_key: str) -> ErrorFi
         .all()
     )
     requirement = _requirement_to_out(int(row.linked_requirement_id), db) if row.linked_requirement_id is not None else None
-    latest_execution = _execution_to_out(requirement.latest_execution_run_id if requirement is not None else None, db)
     release = _release_to_out(int(requirement.id), db) if requirement is not None else None
     return ErrorFingerprintDetailOut(
         fingerprint=_fingerprint_to_out(row, db),
         requirement=requirement,
-        latest_execution=latest_execution,
         release=release,
         events=[_event_to_out(event) for event in events],
         notifications=_notification_deliveries_for_fingerprint(db, fingerprint_key),
@@ -624,37 +610,29 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     db.add(fingerprint)
     db.commit()
 
-    execution_id: int | None = None
+    workflow_run_id: int | None = None
     active_status = str(requirement.status or "") if requirement is not None else ""
-    latest_execution = (
-        db.query(ExecutionRunRow)
-        .filter(ExecutionRunRow.requirement_id == int(requirement.id))
-        .order_by(ExecutionRunRow.id.desc())
-        .first()
-        if requirement is not None
-        else None
-    )
-    latest_execution_id = int(latest_execution.id) if latest_execution is not None else 0
+    active_workflow_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0) if requirement is not None else 0
     should_submit_requirement = requirement is not None and (
         created_requirement
-        or latest_execution_id <= 0
+        or active_workflow_run_id <= 0
         or active_status in {"draft", "needs_revision"}
     )
     if should_submit_requirement:
         detail = submit_requirement(db, int(requirement.id))
-        execution_id = detail.approval.execution_run_id
+        workflow_run_id = detail.active_workflow_run_id or detail.approval.workflow_run_id
         log_event(
             logger,
             "error_requirement_submitted",
             fingerprint_key=fingerprint_key,
             requirement_id=int(requirement.id),
-            execution_id=execution_id,
+            workflow_run_id=workflow_run_id,
             approval_status=str(detail.requirement.approval_status or ""),
             requirement_status=str(detail.requirement.status or ""),
         )
     elif requirement is not None:
         detail = build_requirement_detail(db, int(requirement.id))
-        execution_id = detail.latest_execution_id
+        workflow_run_id = detail.active_workflow_run_id
 
     _notify_error_logged(
         db,
@@ -662,7 +640,7 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
         body=body,
         event_id=int(event.id),
         requirement_id=int(requirement.id) if requirement is not None else None,
-        execution_id=execution_id,
+        workflow_run_id=workflow_run_id,
         error_page_url=error_page_url,
     )
     db.commit()

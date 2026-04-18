@@ -38,6 +38,10 @@ function releaseAction(item: ReleaseCandidate): { key: 'prepare' | 'open-pr' | '
   return { key: null, label: '查看' }
 }
 
+function workflowRunIdFor(item: ReleaseCandidate) {
+  return item.requirement.active_workflow_run_id ?? item.requirement.active_workflow_run_summary?.id ?? null
+}
+
 export default function ReleasesPage() {
   const navigate = useNavigate()
   const toast = useToast()
@@ -108,6 +112,7 @@ export default function ReleasesPage() {
                 <th className="px-4 py-4 font-medium">验证</th>
                 <th className="px-4 py-4 font-medium">发布状态</th>
                 <th className="px-4 py-4 font-medium">分支 / PR</th>
+                <th className="px-4 py-4 font-medium">工作流</th>
                 <th className="px-4 py-4 font-medium">更新时间</th>
                 <th className="px-5 py-4 text-right font-medium">操作</th>
               </tr>
@@ -132,14 +137,19 @@ export default function ReleasesPage() {
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                     {item.release?.branch_name || '-'} · PR {item.release?.pr_number || '-'}
                   </td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    {item.requirement.active_workflow_run_summary
+                      ? `${item.requirement.active_workflow_run_summary.workflow_key} · ${item.requirement.active_workflow_run_summary.current_state}`
+                      : '-'}
+                  </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.release?.updated_at || item.validation.updated_at)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap justify-end gap-2">
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.requirement.id}`)}>
                         需求
                       </button>
-                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.requirement.latest_execution_run_id}`)} disabled={!item.requirement.latest_execution_run_id}>
-                        执行
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/workflows/${workflowRunIdFor(item)}`)} disabled={!workflowRunIdFor(item)}>
+                        工作流
                       </button>
                       {(() => {
                         const action = releaseAction(item)

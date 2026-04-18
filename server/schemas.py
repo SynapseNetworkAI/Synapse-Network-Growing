@@ -921,8 +921,6 @@ class AgentFirstRequirementOut(BaseModel):
     approval: Optional[ApprovalDecisionOut] = None
     current_attempt_id: Optional[int] = None
     current_delivery_id: Optional[int] = None
-    latest_delivery_repair_attempt_id: Optional[int] = None
-    delivery_repair_attempt_count: int = 0
     status: str
     priority: str
     source: str
@@ -952,8 +950,6 @@ class AgentFirstRequirementOut(BaseModel):
     updated_at: Optional[datetime] = None
     active_workflow_run_id: Optional[int] = None
     active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
-    active_execution_run_id: Optional[int] = None
-    latest_execution_run_id: Optional[int] = None
     latest_release_status: Optional[str] = None
 
 
@@ -973,7 +969,6 @@ class AgentFirstRequirementApprovalOut(BaseModel):
     risk_flags: list[str] = []
     pending_execution_start: bool = False
     auto_started: bool = False
-    execution_run_id: Optional[int] = None
     workflow_run_id: Optional[int] = None
 
 
@@ -984,7 +979,6 @@ class AgentFirstRequirementDetailOut(BaseModel):
     failure_reason: Optional[str] = None
     policy_summary_markdown: str = ""
     project: Optional[ProjectOut] = None
-    latest_execution_id: Optional[int] = None
     active_workflow_run_id: Optional[int] = None
     active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     latest_release_id: Optional[int] = None
@@ -1274,7 +1268,7 @@ class ExecutionCreateRequest(BaseModel):
 class ReleaseRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
-    execution_run_id: Optional[int] = None
+    workflow_run_id: Optional[int] = None
     state: str = "pending"
     project_id: Optional[int] = None
     project_key: Optional[str] = None
@@ -1409,7 +1403,8 @@ class ErrorFingerprintOut(BaseModel):
     latest_error_event_id: Optional[int] = None
     linked_requirement_id: Optional[int] = None
     materialized_requirement_id: Optional[int] = None
-    latest_execution_run_id: Optional[int] = None
+    active_workflow_run_id: Optional[int] = None
+    active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     discovery_status: str = "pending"
     discovery_recommendation: Optional[DiscoveryRecommendationOut] = None
     last_discovery_at: Optional[datetime] = None
@@ -1418,7 +1413,6 @@ class ErrorFingerprintOut(BaseModel):
 class ErrorFingerprintDetailOut(BaseModel):
     fingerprint: ErrorFingerprintOut
     requirement: Optional[AgentFirstRequirementOut] = None
-    latest_execution: Optional[ExecutionRunOut] = None
     release: Optional[ReleaseRecordSlimOut] = None
     events: list[ErrorEventOut] = []
     notifications: list[NotificationDeliveryOut] = []

@@ -174,7 +174,7 @@ def test_dashboard_stats(synced_client):
     resp = synced_client.get("/api/dashboard/stats")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["agent_count"] == 6
+    assert data["agent_count"] == 7
     assert data["task_total"] == 3
     assert data["task_pending"] == 1
     assert data["task_completed"] == 1

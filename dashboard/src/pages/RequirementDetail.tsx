@@ -126,7 +126,7 @@ function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
   if (state in LIFECYCLE_STATE_INDEX) return LIFECYCLE_STATE_INDEX[state]
   if (state === 'failed' || state === 'cancelled' || state === 'awaiting_operator') {
     if (detail.latest_release_id || detail.latest_release) return 5
-    if (detail.active_workflow_run_id || detail.requirement.active_workflow_run_id || detail.latest_execution_id || detail.requirement.latest_execution_run_id) return 4
+    if (detail.active_workflow_run_id || detail.requirement.active_workflow_run_id) return 4
     if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') return 2
     return 3
   }
@@ -625,7 +625,6 @@ export default function RequirementDetail() {
               {latestRelease.failed_gate_name ? <span>gate: {latestRelease.failed_gate_name}</span> : null}
               <span>next action: {latestRelease.next_action || '-'}</span>
               <span>repairable: {latestRelease.repairable ? 'yes' : 'no'}</span>
-              <span>repair attempts: {requirement.delivery_repair_attempt_count ?? 0}</span>
             </div>
             {isWorkspaceBlocked ? (
               <div className="mt-3 rounded-2xl border border-amber-200 bg-white/70 px-4 py-3">
@@ -759,7 +758,6 @@ export default function RequirementDetail() {
             {latestRelease ? (
               <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--ops-text-muted)]">
                 <div>交付状态：{latestRelease.state || latestRelease.status}</div>
-                <div>repair 次数：{requirement.delivery_repair_attempt_count ?? 0}</div>
                 <div>稳定目标分支：{plannedBranchName || '-'}</div>
                 <div>实际交付分支：{actualBranchName || '-'}</div>
                 <div>分支复用：{latestRelease.branch_reuse_status || '-'}</div>

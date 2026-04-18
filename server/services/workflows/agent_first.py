@@ -2357,7 +2357,6 @@ def _approval_summary(
         risk_flags=_approval_risk_flags(decision),
         pending_execution_start=pending_execution_start,
         auto_started=auto_started,
-        execution_run_id=latest_execution_id,
         workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
     )
 
@@ -2471,7 +2470,6 @@ def _requirement_to_out(
     recovery_status = cast(str | None, requirement_projection["recovery_status"])
     effective_status = cast(str, requirement_projection["status"])
     effective_phase = cast(str, requirement_projection["phase"])
-    active_execution_run_id = cast(int | None, requirement_projection["active_execution_run_id"])
     project = _project_for_requirement(db, requirement)
     approval_summary = _approval_summary(
         db,
@@ -2479,11 +2477,6 @@ def _requirement_to_out(
         latest_execution_id=int(latest_execution.id) if latest_execution is not None else None,
     )
     project_context = _project_context_out(requirement, project)
-    latest_delivery_repair = _latest_delivery_repair_attempt(db, int(requirement.id))
-    latest_delivery_repair_attempt_id = int(latest_delivery_repair.id) if latest_delivery_repair is not None else None
-    latest_delivery_repair_attempt_count = (
-        int(getattr(latest_release, "repair_attempt_count", 0) or 0) if latest_release is not None else 0
-    )
     return AgentFirstRequirementOut(
         id=int(requirement.id),
         title=str(requirement.title or ""),
@@ -2497,8 +2490,6 @@ def _requirement_to_out(
         approval=_approval_decision_state(requirement, approval_summary),
         current_attempt_id=int(latest_execution.id) if latest_execution is not None else None,
         current_delivery_id=int(latest_release.id) if latest_release is not None else None,
-        latest_delivery_repair_attempt_id=latest_delivery_repair_attempt_id,
-        delivery_repair_attempt_count=latest_delivery_repair_attempt_count,
         status=effective_status,
         priority=str(requirement.priority or "normal"),
         source=str(requirement.source or "manual"),
@@ -2538,8 +2529,6 @@ def _requirement_to_out(
         updated_at=requirement.updated_at,
         active_workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
         active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
-        active_execution_run_id=active_execution_run_id,
-        latest_execution_run_id=int(latest_execution.id) if latest_execution is not None else None,
         latest_release_status=str(latest_release.status or "") if latest_release is not None else None,
     )
 
@@ -2611,11 +2600,11 @@ def _notify_requirement_approval(
         occurred_at=utcnow(),
         object_refs={
             "requirement_id": int(requirement.id),
-            "execution_id": approval.execution_run_id,
+            "workflow_run_id": approval.workflow_run_id,
         },
         links={
             "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
-            "执行": build_ops_url(f"/executions/{approval.execution_run_id}") or "" if approval.execution_run_id else "",
+            "工作流": build_ops_url(f"/workflows/{approval.workflow_run_id}") or "" if approval.workflow_run_id else "",
         },
     )
 
@@ -2646,10 +2635,11 @@ def _notify_execution_error(db: Session, run: ExecutionRunRow, requirement: Requ
         occurred_at=utcnow(),
         object_refs={
             "requirement_id": int(requirement.id),
-            "execution_id": int(run.id),
+            "legacy_execution_id": int(run.id),
+            "workflow_run_id": int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
         },
         links={
-            "执行": build_ops_url(f"/executions/{int(run.id)}") or "",
+            "工作流": build_ops_url(f"/workflows/{int(requirement.active_workflow_run_id)}") or "" if getattr(requirement, "active_workflow_run_id", None) else "",
             "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
         },
     )
@@ -2730,7 +2720,6 @@ def _build_requirement_detail(
         failure_reason=failure_reason,
         policy_summary_markdown=_policy_summary_markdown(db, requirement),
         project=ProjectOut(**project_to_dict(project)) if project is not None else None,
-        latest_execution_id=latest_execution_id_override if latest_execution_id_override is not None else (int(latest_execution.id) if latest_execution is not None else None),
         active_workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
         active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,

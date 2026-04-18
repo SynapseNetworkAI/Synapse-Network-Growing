@@ -66,6 +66,7 @@ export default function ReleaseDetailPage() {
 
   const release = detail.release
   const releaseState = release?.state || release?.status || 'pending'
+  const workflowRunId = detail.requirement.active_workflow_run_id ?? detail.requirement.active_workflow_run_summary?.id ?? null
   const workspaceBlocker = release?.workspace_blocker || null
   const isWorkspaceBlocked =
     release?.delivery_blocker_type === 'workspace_blocked' ||
@@ -84,9 +85,9 @@ export default function ReleaseDetailPage() {
             <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${detail.requirement.id}`)}>
               查看需求
             </button>
-            {detail.requirement.latest_execution_run_id && (
-              <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/executions/${detail.requirement.latest_execution_run_id}`)}>
-                查看执行
+            {workflowRunId && (
+              <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/workflows/${workflowRunId}`)}>
+                查看工作流
               </button>
             )}
           </div>

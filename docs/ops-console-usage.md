@@ -22,7 +22,7 @@ intake -> execute -> validate -> deliver
 
 1. 不再把页面组织成同权重卡片拼盘。
 2. 页面默认采用简洁 SaaS 结构，优先突出列表、详情和轻量操作。
-3. Requirement、Execution、Release 三面使用不同的信息密度和页面模板。
+3. Requirement、Workflow、Release 三面使用不同的信息密度和页面模板。
 
 ## 1. 页面总览
 
@@ -30,8 +30,8 @@ intake -> execute -> validate -> deliver
 
 1. `/requirements`
 2. `/requirements/:id`
-3. `/executions`
-4. `/executions/:id`
+3. `/workflows`
+4. `/workflows/:id`
 5. `/releases`
 6. `/releases/:requirementId`
 7. `/projects`
@@ -45,7 +45,7 @@ intake -> execute -> validate -> deliver
 推荐心智模型：
 
 1. 在 `需求` 定义为什么做
-2. 在 `执行` 观察 agent 怎么做、做到什么程度、验证是否通过
+2. 在 `工作流` 观察状态机、Blackboard、Atom、验证证据与 Human Gate
 3. 在 `发布` 处理 branch / PR / deploy / rollback
 4. 在 `项目` 统一管理仓库、GitHub、部署与治理配置
 
@@ -87,8 +87,8 @@ intake -> execute -> validate -> deliver
 1. 从工具条打开 `新建需求` 浮层
 2. 从工具条或列表项打开 `编辑需求` Drawer
 3. 提交 requirement
-4. 低风险 requirement 会在后台补齐 acceptance contract 与 execution plan，再自动进入 execution；高风险 requirement 在需求面等待人工批准
-5. execution 真正启动前，系统会先在目标项目上准备 requirement delivery branch；如果目标仓库 worktree 不干净，会阻断自动执行
+4. 低风险 requirement 会在后台补齐 acceptance brief 与 workflow blackboard，再创建 declarative workflow run；高风险 requirement 在 workflow human gate 等待人工批准
+5. workflow 进入高风险 atom 或外部副作用前，必须通过 Risk-Evidence Gate；资金、生产、auth、自修改系统永远人工
 6. 跳转到 release 面
 7. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
 
@@ -101,16 +101,17 @@ intake -> execute -> validate -> deliver
 5. `POST /api/requirements/{id}/approve`
 6. `POST /api/requirements/{id}/reject`
 7. `POST /api/requirements/{id}/cancel`
-8. `POST /api/executions`
+8. `GET /api/workflows/runs`
+9. `GET /api/workflows/runs/{id}`
 
 #### 推荐使用方式
 
 1. 标题写结果，不写动作口号
-2. 描述里明确目标与约束；requirement 会先保存，随后在后台由 agent 生成真实 acceptance contract 与 execution plan
+2. 描述里明确目标与约束；requirement 会先保存，随后在后台由 agent 生成轻量 acceptance brief 与 workflow 初始化 blackboard
 3. requirement 必须先选择正式 `Project`
 4. 路径覆盖只在高级场景使用，不再把裸 `target_project_path` 当作主输入
-5. requirement submit 是 requirement 进入 execution 的唯一正式桥接点，并会先确保 acceptance contract 与 execution plan 可用
-6. 只有恢复/调试场景才手动创建 execution run
+5. requirement submit 是 requirement 进入 declarative workflow 的唯一正式桥接点，并会创建 active workflow run
+6. 不再手动创建 legacy execution run；恢复与重试由 State Machine Runner 和 Human Gate 决定
 7. requirement list page 不承载常驻 intake 表单，create / edit 默认走 `Toolbar + Drawer`
 
 ### 2.2 `/requirements/:id`
@@ -140,130 +141,79 @@ intake -> execute -> validate -> deliver
 
 #### 推荐使用方式
 
-1. 先确认 intent、acceptance contract 与 execution plan 写对
-2. 再跳去 execution 看 agent 执行
-3. verification agent 会在 execution 完成后基于真实 changed files、raw output 与命令证据生成最终 verification plan，再给出 verdict
-4. verification agent 给出 passed verdict 后系统会自动 commit / push / open PR；如果本地 `git push` 被 repo gate 挡住，系统会先分类 blocker，再决定是自动进入 `delivery_repair` execution 还是转人工
-5. verification failed 不再创建独立 bugfix execution；系统会把 `verification_result.md`、失败命令日志和 repair guidance 输入回同一个 Execution Agent session，最多自动修复 2 次
-6. `delivery_repair` 不是重新跑原需求实现。
-   - 系统会保留父 `requirement_plan`
-   - 再派生一个独立 child repair task，只修当前 delivery gate
-   - 如果 repair #1 失败，repair #2 会读取最新 blocker 和上次失败结果重新规划
-   - repair 总预算固定为 2；两次都失败时，主 requirement 进入 `failed`
-7. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 agent 流程
-8. requirement 创建后会先保存，再在后台异步生成 acceptance contract 与 execution plan；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
+1. 先确认 intent、acceptance brief 与目标项目写对。
+2. submit 后跳到 `/workflows/:id` 看状态机执行，而不是旧 execution 页面。
+3. verification / repair / delivery 都必须表现为同一个 declarative workflow run 内的状态流转。
+4. Agent 只在 atom 内做推理或产出结构化 payload；Harness / runner 负责状态推进和证据保存。
+5. 所有 retry loop 必须有预算，超过预算进入 `awaiting_operator` 或失败终态。
+6. 高风险动作永远进入 Human Gate，即使机器证据完全通过。
+7. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 workflow。
+8. requirement 创建后会先保存，再初始化 workflow 上下文；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
 
-## 3. 执行面
-
-### 3.1 `/executions`
+## 3. 工作流面
 
 #### 页面职责
 
-执行列表展示当前系统中的 execution run；同一 requirement 任何时刻只有一条当前执行主链。
+工作流列表展示当前系统中的 declarative workflow run。新执行真相是 `workflow_key/current_state/status/resolution/blackboard`，不再展示 fixed execution steps 作为主形状。
 
 #### 页面布局
 
-1. 顶部说明 execution console 的治理边界
-2. 主工作区是 run queue
-3. 每个 execution item 都必须突出 status、mode、summary
-4. 右侧 inspector 提供每条 run 的 compact summary
+1. 顶部说明 Workflow Factory / State Machine Runner 的治理边界
+2. 主工作区是 active workflow run queue
+3. 每个 workflow item 突出 `workflow_key`、`current_state`、`status`、`risk_level`、pending human gate
+4. 详情页展示 state timeline、Blackboard 摘要、Atom invocations、Artifacts 和 Human Gates
 
 #### 典型动作
 
-1. 查看 execution mode
-2. 查看复杂度与 validation profile
-3. 启动 queued execution
-4. 对当前 blocked run 区分“再次启动当前 run”和“创建新 run 重试”
-5. 跳转到 requirement 或 release
+1. 查看 workflow key 与当前状态
+2. 查看 Blackboard 和 atom 证据
+3. 对 pending human gate 做 `approve/reject/continue_retry`
+4. 跳转到 requirement 或 release
+5. 观察 `patch -> verify` loop 是否消耗 retry budget
 
 #### 状态说明
 
-1. 同一 requirement 任意时刻只有一个 `current run`
-2. replacement run 创建后，旧 run 会立即降级为历史 run
-3. 历史 run 只允许查看，不再显示 `启动 / 重试 / 暂停 / 恢复 / 提交 PR`
-4. execution 页面优先按 canonical `state` 渲染：
-   - `queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`
-   - `blocked` 只代表环境或前置条件未满足
-   - `failed` 代表一次尝试已经失败，需要新 attempt
-5. queued / blocked execution 会额外显示原因：
-   - `queue_reason`
-   - `blocking_reason_code`
-   - `blocking_reason_message`
-6. restartable blocker（例如 dirty worktree、approval blocked、manual pause）会在同一个 current run 上继续启动；verification / runtime failure 才会创建 replacement run
-7. `delivery_repair` 会显示两层计划：
-   - 当前 repair plan
-   - 父 requirement plan reference
-   这样 operator 能分清“当前在修交付门禁”，而不是“重新实现原需求”。
+1. 同一 requirement 任意时刻只有一个 active declarative workflow run
+2. State transition 只由 deterministic runner 决定，Agent atom 只能写 structured output
+3. 所有 loop 必须有 counter guard；预算耗尽进入 `awaiting_operator`
+4. 高风险 atom 即使 evidence 高，也必须 human gate
+5. 旧 execution API 和 fixed-step execution UI 已退役，不再作为 operator 主入口
 
 #### 后端接口
 
-1. `GET /api/executions`
-2. `POST /api/executions`
-3. `POST /api/executions/{id}/start`
+1. `GET /api/workflows/runs`
+2. `GET /api/workflows/runs/{id}`
+3. `GET /api/workflows/runs/{id}/events`
+4. `POST /api/workflows/runs/{id}/human-gates/{gate_id}/decide`
 
-### 3.2 `/executions/:id`
+### 3.2 `/workflows/:id`
 
 #### 页面职责
 
-Execution detail 是当前唯一 execution 主链的工作面。
-
-#### 页面布局
-
-1. 顶部是 run header、KPI 与控制动作
-2. Execution Plan 区展示当前 run 的计划摘要
-3. Runtime 区展示当前 run 的 node / task 表格
-4. Files 区展示当前 run 的改动文件
-5. Verification 区展示 verification agent 的验证记录
-6. Agent Output 区始终展示原始执行输出
-7. Activity 区展示 lifecycle 时间线与 incidents
+Workflow detail 是当前唯一 declarative workflow 主链的工作面。
 
 #### 页面内容
 
-1. execution status
-2. execution mode / complexity / validation profile
-3. 当前 agent / backend / provider / model
-4. 当前 branch / 总 token / 执行时长
-5. execution nodes runtime table
-6. execution plan
-7. changed files / command evidence
-8. verification result
-9. agent 原始输出
-10. activity timeline
-11. incidents
-
-#### 典型动作
-
-1. 启动 queued execution
-2. 继续 paused execution
-3. 对 restartable blocker 再次启动当前 execution
-4. 对 execution failure 创建新 run 重试
-5. 查看自动 verification 结果
-6. 打开改动文件预览，默认先看 `diff`
-7. 当结构化 summary 不足时，直接查看 agent 原始输出确认实际执行结果
-
-#### 后端接口
-
-1. `GET /api/executions/{id}`
-2. `GET /api/executions/{id}/files/{encoded_path}`
-3. `POST /api/executions/{id}/start`
-4. `POST /api/executions/{id}/pause`
-5. `POST /api/executions/{id}/resume`
-6. `POST /api/executions/{id}/retry`
-7. `POST /api/executions/{id}/validate`
-   主要作为调试 / 重跑入口保留，正常链路由系统在 execution 完成后自动触发 verification agent
+1. workflow key / current state / status / resolution
+2. retry counters
+3. Blackboard summary
+4. state transition timeline
+5. atom invocations
+6. artifacts
+7. pending / decided human gates
+8. requirement / release 跳转
 
 #### 推荐使用方式
 
-1. 对简单任务，预期只会看到一个 `execute` 节点
-2. 对复杂任务，才会看到 execution graph
-3. verification agent 判定失败或需修订时，关注 verification reasoning、self-repair timeline 和 incident，而不是回到 requirement 页猜测发生了什么
-4. `branch_preparation_blocked / approval_blocked / manual_pause / runtime_recovery_blocked` 这类环境阻塞会在同一个 current run 上 `start / resume`
-5. `verification_failed / verification_needs_revision` 默认先追加 `verification_repair_*` 节点并复用同一个 Execution Agent session；自动修复 2 次仍失败后才 `route_to_human`
-6. verification 已 passed 但 delivery 的 `git push` 被本地 repo gate 挡住时，系统会优先尝试创建 `delivery_repair` execution，而不是直接停在 `release_blocked`
-7. `task_failed` 或人工选择 replacement retry 时，旧 run 会降级为历史 run，只保留查看能力
-8. token、branch、agent/model、文件改动和活动流，都只按当前 execution 主链展示，不混入历史 run
-9. execution detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出
-10. verification plan 是 execution 结束后的晚绑定产物；acceptance contract 只负责说明完成标准、范围约束和期望证据，不再提前写死最终测试方案
+1. 简单任务可以只有 `execute -> done` 的最小状态机。
+2. 复杂任务使用 `diagnose -> patch -> verify -> gate -> deliver/observe` 等声明式状态。
+3. verification 判定失败或需修订时，关注 timeline、blackboard、atom invocation 和 command evidence。
+4. `approval_blocked / manual_pause / runtime_recovery_blocked` 这类环境阻塞必须停在当前 workflow run 上等待 human gate 或恢复动作。
+5. `verify_failed` 默认通过 state machine loop 回到 `patch`，复用同一个 run；自动修复 2 次仍失败后 `route_to_human`。
+6. 人工选择继续重试时写入 human gate decision，然后 runner 从当前 blackboard 恢复。
+7. token、branch、agent/model、文件改动和活动流，都按当前 workflow run 展示，不回退到旧 fixed steps。
+8. Workflow detail 即使缺少 changed files 或 validation，也必须能看到 agent 原始输出 artifact。
+9. Verification plan 是执行后的晚绑定产物；acceptance brief 只负责说明完成标准、范围约束和期望证据，不提前写死最终测试方案。
 11. verification plan 中的 required commands 由 Harness 统一执行并落库为权威 evidence；execution agent 自己跑过的测试只作为参考证据，不能单独打开 PR gate
 12. requirement detail 会展示 intake attachments；图片可直接预览打开，普通文件可下载查看
 
@@ -404,7 +354,7 @@ planner 和 execution runtime 已经分离。`ORCHESTRATION_BACKEND` 决定 exec
 
 Plan agent session 推荐按目标项目复用：`role_key="planner"`、`project_root=<canonical target project root>`、`requirement_id=NULL`。Execution Agent 继续按需求隔离，但同一 requirement 的 implementation 与 verification repair turns 复用同一个 runtime session，避免修复阶段重新理解上下文。详细设计见 [Plan Agent Project-Scoped Session Reuse](design-docs/plan-agent-project-scoped-session-reuse.md)。
 
-Execution / Verification 的同 session self-repair 闭环见 [Execution Self-Repair Loop Architecture](design-docs/execution-self-repair-loop-architecture.md)。
+Execution / Verification 的同 run self-repair 闭环由 [Declarative Agent Workflow Factory](design-docs/declarative-agent-workflow-factory.md) 统一表达。
 
 Workflow Factory 是复杂执行流的新入口，用于从 human intent / desired state 生成或选择声明式 workflow spec，并把执行收敛到 State Machine YAML + Blackboard。active workflow 必须先通过 sandbox fixtures 验证并经过 human approval；高风险 atom（funds、settlement、contract、auth、production、external paid spend）永远进入 human gate。详细设计见 [Declarative Agent Workflow Factory](design-docs/declarative-agent-workflow-factory.md)。
 
@@ -416,7 +366,7 @@ Workflow Factory 是复杂执行流的新入口，用于从 human intent / desir
 4. `GET /api/workflows/runs/{id}/events`
 5. `POST /api/workflows/runs/{id}/human-gates/{gate_id}/decide`
 
-Execution 页面后续应优先展示 declarative workflow run 的 state timeline、blackboard 摘要、atom invocations、artifacts 和 human gate，而不是旧 fixed `workflow_steps`。
+Workflow 页面展示 declarative workflow run 的 state timeline、blackboard 摘要、atom invocations、artifacts 和 human gate；旧 fixed execution 页面不再作为主入口。
 
 ## 7. 错误日志页（辅助）
 
@@ -476,16 +426,16 @@ Execution 页面后续应优先展示 declarative workflow run 的 state timelin
 2. 发生了什么
 3. 什么时候发生
 4. 需要做什么
-5. requirement / execution / release / errors 相关链接
+5. requirement / workflow / release / errors 相关链接
 
 ## 8. 当前正式操作闭环
 
 推荐操作顺序：
 
 1. 在 `/requirements` 创建 requirement
-2. 在 `/requirements/:id` 检查 intent、acceptance contract 与 execution plan
-3. `submit` requirement，低风险会自动审批、先生成 plan，再自动启动 execution
-4. 在 `/executions/:id` 观察执行与 verification verdict
+2. 在 `/requirements/:id` 检查 intent、acceptance brief 与 workflow 初始化信息
+3. `submit` requirement，低风险会自动审批并创建 declarative workflow run
+4. 在 `/workflows/:id` 观察状态机、Blackboard、Atom、Human Gate 与 verification evidence
 5. verification passed 后，在 `/releases/:requirementId` 做 PR / deploy / rollback
 6. 如果来自错误回流，可在 `/errors` 追踪 fingerprint 与通知历史
 

@@ -56,10 +56,10 @@
    - `verification_needs_revision / verification_failed / task_failed` 这类执行失败才会 `retry` 创建 replacement run，并立即自动尝试启动。
    - 历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
 7. validate。
-   - execution 完成后默认自动触发 verification agent。
-   - verification agent 读取 acceptance contract、execution plan、changed files、raw output 与 execution evidence，先生成晚绑定 verification plan。
+   - declarative workflow 通过 State Machine Runner 进入 verification state。
+   - verification agent 读取 acceptance brief、workflow blackboard、changed files、raw output 与 harness evidence，先生成晚绑定 verification plan。
    - Harness 执行 verification plan 中 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt，verification agent 再基于权威 evidence 产出正式 verdict。
-   - `POST /api/executions/{id}/validate` 仍保留为调试 / 重跑入口。
+   - 旧 execution validate endpoint 已从正式 API surface 退役；验证重跑应通过 workflow state / human gate 继续。
 8. execution evidence、validation summary、incident 展示。
 9. verification result 展示。
    - verdict
@@ -105,31 +105,16 @@
 
 1. Release candidate 列表。
 2. Release detail。
-3. execution approval 放行后自动 prepare branch。
-4. verification passed 后自动 commit / push / open PR。
-5. delivery gate 自修复。
-   - 本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 等 gate 挡住时，会把 blocker 分类成 `repo_gate_failed / workspace_blocked / git_auth_failed / remote_rejected / network_failed / branch_conflict / unknown_delivery_failure`。
-   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` child execution。
-   - child execution 使用独立 `repair_plan`；父 `requirement_plan` 只作为 reference，不会被覆盖。
-   - repair #2 必须读取 repair #1 的失败摘要、commands run、evidence 与最新 blocker 重新规划。
-   - repair 成功后继续主任务的 `re-verification -> re-delivery -> open PR`，不是重跑整个 implementation。
-   - 两次 repair 都失败时，父 requirement 进入 `failed`。
-   - dirty worktree、git 权限、网络、远端拒绝等不可自动修复 blocker 会停在 `release_blocked` 并转人工。
-6. verification failure self-loop。
-   - Verification Agent 是正式质量门，只生成验证计划、命令要求、失败证据和 repair guidance。
-   - failed / needs_revision 不再创建独立 bugfix execution，而是在当前 execution run 追加 `verification_repair_*` 节点。
-   - 修复 turn 复用同一 requirement 的 Execution Agent `runtime_session_id`，并读取 `verification_result.md`、Harness command logs、diff summary 和原始 acceptance / plan。
-   - 自动 self-repair 默认最多 2 次；第 3 次验证仍失败时进入 `route_to_human`，人工可继续触发同 session retry。
-   - 正式设计见 [Execution Self-Repair Loop Architecture](execution-self-repair-loop-architecture.md)。
-5. staging deploy。
-6. production deploy。
-7. rollback。
-8. deployment history 展示。
-9. release 与 deployment 配置从正式 Project 主数据读取。
-10. workflow v2 canonical state 已落地。
-   - `Requirement.state = draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / failed / completed / cancelled`
-   - `ExecutionAttempt.state = queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`
-   - `Delivery.state = pending / preparing_branch / pushing / opening_pr / repairing / blocked / pr_open / merged / abandoned`
+3. Workflow passed 后进入交付准备。
+4. PR / release 面只信任 workflow run 的 verification verdict 与 human gate 决策。
+5. 高风险 delivery、production deploy、外部发布动作必须进入 human gate。
+6. delivery / verification 修复不再派生旧 execution；统一表现为 declarative workflow run 内的 state transition、blackboard 更新与 atom invocation。
+7. release 与 deployment 配置从正式 Project 主数据读取。
+8. Declarative Workflow Factory 已成为新执行真相。
+   - `workflow_runs.current_state` 表达当前状态
+   - blackboard 保存跨状态共享上下文
+   - `workflow_state_events` 和 `atom_invocations` 保存证据链
+   - fixed-step execution / bugfix / delivery repair 只作为历史删除对象，不再是 fallback
 
 ## 3.1 Error Discovery / Self-Healing 面
 

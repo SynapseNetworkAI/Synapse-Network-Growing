@@ -27,15 +27,16 @@ def _intake_payload(**overrides):
     return payload
 
 
-def test_error_intake_creates_requirement_and_auto_starts_execution(synced_client, db_session):
+def test_error_intake_creates_requirement_and_declarative_workflow(synced_client, db_session):
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
         response = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert response.status_code == 201
     payload = response.json()
     assert payload["requirement"] is not None
-    assert payload["requirement"]["status"] in {"running", "ready"}
-    assert payload["latest_execution"]["status"] in {"running", "queued"}
+    assert payload["requirement"]["status"] in {"running", "ready", "completed"}
+    assert payload["fingerprint"]["active_workflow_run_id"] is not None
+    assert payload["fingerprint"]["active_workflow_run_summary"]["workflow_key"] == "gateway_reliability_repair"
     assert payload["fingerprint"]["occurrence_count"] == 1
     assert payload["fingerprint"]["discovery_status"] in {"materialized", "linked_active_requirement"}
     assert payload["fingerprint"]["discovery_recommendation"]["discovery_action"] == "auto_materialize"
@@ -62,7 +63,7 @@ def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
     assert payload["fingerprint"]["fingerprint_key"] in text
 
 
-def test_error_intake_reuses_single_active_requirement_for_same_fingerprint(synced_client, db_session):
+def test_error_intake_materializes_new_requirement_when_previous_workflow_terminal(synced_client, db_session):
     with patch("server.services.workflows.agent_first.dispatch", return_value=None):
         first = synced_client.post("/api/errors/intake", json=_intake_payload())
         second = synced_client.post("/api/errors/intake", json=_intake_payload(message="TimeoutError: request 999 exceeded 31s budget at /faq/77"))
@@ -71,9 +72,9 @@ def test_error_intake_reuses_single_active_requirement_for_same_fingerprint(sync
     assert second.status_code == 201
     first_requirement_id = first.json()["requirement"]["id"]
     second_requirement_id = second.json()["requirement"]["id"]
-    assert first_requirement_id == second_requirement_id
+    assert first_requirement_id != second_requirement_id
     assert second.json()["fingerprint"]["occurrence_count"] == 2
-    assert db_session.query(RequirementRow).count() == 1
+    assert db_session.query(RequirementRow).count() == 2
     assert db_session.query(ErrorFingerprintRow).count() == 1
 
 
@@ -135,5 +136,5 @@ def test_low_signal_error_can_be_ignored_without_requirement(synced_client):
     assert response.status_code == 201
     payload = response.json()
     assert payload["requirement"] is None
-    assert payload["latest_execution"] is None
+    assert payload["fingerprint"]["active_workflow_run_id"] is None
     assert payload["fingerprint"]["discovery_recommendation"]["discovery_action"] == "ignore_as_noise"

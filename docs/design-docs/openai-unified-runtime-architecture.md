@@ -179,12 +179,12 @@ OpenAI session runtime 产物：
 
 ## API / DB Impact
 
-不新增表结构，复用现有字段：
+Declarative workflow runs should store OpenAI Responses session metadata on atom invocations and artifacts, not on legacy fixed workflow steps:
 
-- `tasks.runtime_backend = "openai_responses"`
-- `tasks.runtime_session_id = <response_id>`
-- `workflow_steps.runtime_backend = "openai_responses"`
-- `workflow_steps.runtime_session_id = <response_id>`
+- `tasks.runtime_backend = "openai_responses"` remains valid for standalone task runtime records.
+- `tasks.runtime_session_id = <response_id>` remains valid for standalone task runtime records.
+- `atom_invocations.metadata_json.runtime_backend = "openai_responses"` should be used for declarative workflow atoms.
+- `atom_invocations.metadata_json.runtime_session_id = <response_id>` should be used for declarative workflow atoms.
 
 ## Required Code Changes
 

@@ -101,7 +101,7 @@ Requirement 到 Execution 的正式桥接规则：
 5. 高风险 requirement 停在 requirement surface 等待人工批准
 6. execution approval 只决定能否执行，不替代 release gate
 7. acceptance contract 只定义完成标准；最终 verification plan 在 execution 完成后由 verification agent 基于真实执行证据晚绑定生成
-8. requirement 只跟踪最新 execution run；replacement run 创建后旧 run 会降级为历史 run，queued / blocked 的真实原因通过正式接口字段返回，而不是由前端猜测
+8. requirement 只跟踪 active declarative workflow run；queued / blocked / awaiting_operator 的真实原因通过 workflow state、events 和 human gates 返回，而不是由前端猜测
 9. 错误自修复采用统一 discovery pipeline，而不是让各错误入口各自决定 requirement 行为。
    - `/api/errors/intake`、`/api/bugs/intake/log-center`、`bug_log_sweep`
    - 先形成 `error_fingerprint / bug_record`
@@ -110,15 +110,14 @@ Requirement 到 Execution 的正式桥接规则：
    - agent 负责推荐 `approve / waive / revise / route_to_human`
    - policy 负责高风险硬边界
    - 人主要只处理高风险或低置信度 case
-11. workflow v2 已改为 canonical state 设计。
-   - `Requirement` 只表达目标推进状态，不表达某次 run 成败
-   - `ExecutionAttempt` 只表达单次尝试，明确区分 `blocked` 与 `failed`
-   - `Delivery` 只表达 PR / 交付状态，repair loop 独立建模
-12. delivery 自修复采用 parent plan + child repair task。
-   - implementation 完成后若本地 repo gate 挡住 PR，系统不会覆盖原 `requirement_plan`
-   - 而是派生 `delivery_repair` 子任务，生成独立 repair plan
-   - repair #2 必须读取 repair #1 的失败结果与最新 blocker 重新规划
-   - 两次 repair 均失败时，父 requirement 进入 `failed`
+11. Declarative Workflow Factory 是新执行真相。
+   - `workflow_runs.current_state` 表达当前状态
+   - Blackboard 保存跨状态共享上下文
+   - state events 与 atom invocations 保存可审计证据
+12. 修复循环必须在同一个 workflow run 内通过 `patch -> verify` 等状态流转表达。
+   - 不再创建独立 bugfix / delivery repair execution
+   - 每个 loop 必须有 counter guard
+   - 超预算进入 `awaiting_operator` 或失败终态
 
 Requirement 面不再承担：
 
@@ -373,7 +372,7 @@ Execution 现在采用严格的单主链模型：
 3. 强制输出长篇结构化计划
 4. 用阶段名驱动 artifact 生成
 
-Execution self-repair 的正式设计见 [Execution Self-Repair Loop Architecture](execution-self-repair-loop-architecture.md)。
+Self-repair 现在由 [Declarative Agent Workflow Factory](declarative-agent-workflow-factory.md) 中的 state machine loop、blackboard 与 retry budget 统一表达。
 
 ### 3.5 Logging Layer
 
@@ -443,7 +442,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 当前控制台正式导航保留三面主链，并新增项目中心：
 
 1. `/requirements`
-2. `/executions`
+2. `/workflows`
 3. `/releases`
 4. `/projects`
 
@@ -453,10 +452,10 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
    requirement 列表、创建、编辑、提交、取消
 2. `/requirements/:id`
    requirement 意图、验收与顶部执行/发布动作
-3. `/executions`
-   execution run 列表与当前主链入口
-4. `/executions/:id`
-   execution 节点、状态、evidence、validate、pause、继续执行、创建新 run 重试
+3. `/workflows`
+   declarative workflow run 列表与当前状态机主链入口
+4. `/workflows/:id`
+   state timeline、Blackboard、atom invocations、artifacts、human gates、retry counters
 5. `/releases`
    release candidate 列表
 6. `/releases/:requirementId`
@@ -549,8 +548,8 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 
 当前代码已经采用以下实现方向：
 
-1. requirements、executions、releases 已拆成独立 API surface
-2. 前端导航已切成三面
+1. requirements、workflows、releases 已拆成独立 API surface
+2. 前端导航已切成需求、工作流、发布、项目、错误
 3. requirement 页面不再混入 deploy / rollback 控制
 4. release 页面负责 branch / PR / deploy promotion
 5. optimization signals、company review、requirement source materialization 已改用新的 requirement intake 入口

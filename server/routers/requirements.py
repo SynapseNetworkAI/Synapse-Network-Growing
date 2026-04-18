@@ -160,12 +160,12 @@ def regenerate_requirement_assets_endpoint(requirement_id: int, db: Session = De
 
 @router.post("/{requirement_id}/start")
 def removed_start_endpoint(requirement_id: int):
-    raise HTTPException(status_code=410, detail="Legacy start endpoint was removed. Use /api/executions to create and start execution runs.")
+    raise HTTPException(status_code=410, detail="Legacy start endpoint was removed. Submit the requirement and inspect the declarative run under /api/workflows/runs.")
 
 
 @router.post("/{requirement_id}/pause")
 def removed_pause_endpoint(requirement_id: int):
-    raise HTTPException(status_code=410, detail="Legacy pause endpoint was removed. Pause the active execution run instead.")
+    raise HTTPException(status_code=410, detail="Legacy pause endpoint was removed. Use workflow human gates or operator decisions instead.")
 
 
 @router.post("/{requirement_id}/publish")

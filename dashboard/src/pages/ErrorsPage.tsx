@@ -14,6 +14,10 @@ function toneForSeverity(value: string) {
   return 'muted'
 }
 
+function workflowRunIdFor(item: ErrorFingerprint) {
+  return item.active_workflow_run_id ?? item.active_workflow_run_summary?.id ?? null
+}
+
 export default function ErrorsPage() {
   const navigate = useNavigate()
   const [items, setItems] = useState<ErrorFingerprint[]>([])
@@ -72,7 +76,7 @@ export default function ErrorsPage() {
                 <th className="px-4 py-4 font-medium">严重级别</th>
                 <th className="px-4 py-4 font-medium">来源</th>
                 <th className="px-4 py-4 font-medium">发现策略</th>
-                <th className="px-4 py-4 font-medium">需求 / 执行</th>
+                <th className="px-4 py-4 font-medium">需求 / 工作流</th>
                 <th className="px-4 py-4 font-medium">最后出现</th>
                 <th className="px-5 py-4 text-right font-medium">操作</th>
               </tr>
@@ -92,7 +96,7 @@ export default function ErrorsPage() {
                     {item.discovery_recommendation?.discovery_action || item.discovery_status || '-'}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                    #{item.linked_requirement_id || '-'} · #{item.latest_execution_run_id || '-'}
+                    #{item.linked_requirement_id || '-'} · #{workflowRunIdFor(item) || '-'}
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.latest_seen_at)}</td>
                   <td className="px-5 py-4">
@@ -100,8 +104,8 @@ export default function ErrorsPage() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/requirements/${item.linked_requirement_id}`)} disabled={!item.linked_requirement_id}>
                         需求
                       </button>
-                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/executions/${item.latest_execution_run_id}`)} disabled={!item.latest_execution_run_id}>
-                        执行
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/workflows/${workflowRunIdFor(item)}`)} disabled={!workflowRunIdFor(item)}>
+                        工作流
                       </button>
                       <button type="button" className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white" onClick={() => navigate(`/errors/${encodeURIComponent(item.fingerprint_key)}`)}>
                         查看

@@ -141,7 +141,6 @@ def test_submit_requirement_response_exposes_declarative_workflow_summary(db_ses
 
     detail = submit_requirement(db_session, int(requirement.id))
 
-    assert detail.latest_execution_id is None
     assert detail.active_workflow_run_id is not None
     assert detail.approval.workflow_run_id == detail.active_workflow_run_id
     assert detail.active_workflow_run_summary is not None

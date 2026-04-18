@@ -1,4 +1,4 @@
-from server.database import DeploymentRecordRow, ProjectPolicyRow, RequirementRow
+from server.database import ProjectPolicyRow
 
 
 def test_project_policies_list_includes_default_managed_projects(synced_client):
@@ -102,128 +102,6 @@ def test_project_policy_can_be_updated(synced_client):
     assert updated["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
     assert updated["deploy_trigger_enabled"] is True
     assert updated["notes"] == "Tightened during validation."
-
-
-def test_project_policy_environment_status_reflects_latest_deployments(synced_client, db_session):
-    policies = synced_client.get("/api/project-policies").json()
-    policy = next(item for item in policies if item["project_key"] == "synapse-network")
-    requirement_one = RequirementRow(
-        title="Staging deployment seed",
-        description_markdown="seed",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
-    )
-    requirement_two = RequirementRow(
-        title="Production deployment seed",
-        description_markdown="seed",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
-    )
-    db_session.add_all([requirement_one, requirement_two])
-    db_session.commit()
-
-    db_session.add_all(
-        [
-            DeploymentRecordRow(
-                requirement_id=requirement_one.id,
-                project_policy_id=policy["id"],
-                project_key="synapse-network",
-                environment="staging",
-                action="deploy",
-                status="succeeded",
-                commit_sha="staging-sha-123",
-                branch_name="main",
-                workflow_file="deploy-staging.yml",
-                health_status="healthy",
-                trigger_source="ops_console",
-                external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/1",
-            ),
-            DeploymentRecordRow(
-                requirement_id=requirement_two.id,
-                project_policy_id=policy["id"],
-                project_key="synapse-network",
-                environment="production",
-                action="promote",
-                status="requested",
-                commit_sha="prod-sha-456",
-                branch_name="main",
-                workflow_file="deploy-production.yml",
-                trigger_source="ops_console",
-                external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/2",
-            ),
-        ]
-    )
-    db_session.commit()
-
-    resp = synced_client.get(f"/api/deployments/project-policies/{policy['id']}/environment-status")
-
-    assert resp.status_code == 200
-    payload = {item["environment"]: item for item in resp.json()}
-    assert payload["staging"]["current_commit_sha"] == "staging-sha-123"
-    assert payload["staging"]["health_status"] == "healthy"
-    assert payload["staging"]["trigger_enabled"] is True
-    assert payload["production"]["current_commit_sha"] == "prod-sha-456"
-    assert payload["production"]["deploy_strategy"] == "github_actions_ssh"
-
-
-def test_deployment_overview_returns_projects_and_release_candidates(synced_client, db_session):
-    policy = next(item for item in synced_client.get("/api/project-policies").json() if item["project_key"] == "synapse-network")
-    requirement = RequirementRow(
-        title="Release candidate requirement",
-        description_markdown="ready for release",
-        status="done",
-        priority="high",
-        source="manual",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
-    )
-    db_session.add(requirement)
-    db_session.commit()
-
-    db_session.add(
-        DeploymentRecordRow(
-            requirement_id=requirement.id,
-            project_policy_id=policy["id"],
-            project_key="synapse-network",
-            environment="staging",
-            action="deploy",
-            status="succeeded",
-            commit_sha="candidate-sha-123",
-            branch_name="ops/release-candidate",
-            workflow_file="deploy-staging.yml",
-            health_status="healthy",
-            trigger_source="ops_console",
-            external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/9",
-        )
-    )
-    db_session.commit()
-
-    resp = synced_client.get("/api/deployments/overview")
-
-    assert resp.status_code == 200
-    payload = resp.json()
-    project = next(item for item in payload["project_overviews"] if item["project_key"] == "synapse-network")
-    assert project["environment_statuses"][0]["environment"] == "staging"
-    assert project["recent_records"][0]["commit_sha"] == "candidate-sha-123"
-    candidate = next(item for item in payload["release_candidates"] if item["requirement_id"] == requirement.id)
-    assert candidate["project_key"] == "synapse-network"
-    assert candidate["delivery_state"]["staging_status"]["current_commit_sha"] == "candidate-sha-123"
-
-
-def test_deployment_overview_excludes_non_done_requirements_from_release_candidates(synced_client, db_session):
-    requirement = RequirementRow(
-        title="Still running release item",
-        description_markdown="not ready for release",
-        status="in_progress",
-        priority="high",
-        source="manual",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
-    )
-    db_session.add(requirement)
-    db_session.commit()
-
-    resp = synced_client.get("/api/deployments/overview")
-
-    assert resp.status_code == 200
-    candidate_ids = {item["requirement_id"] for item in resp.json()["release_candidates"]}
-    assert requirement.id not in candidate_ids
 
 
 def test_project_policy_can_be_created(synced_client):
@@ -363,13 +241,14 @@ def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(
         },
     )
     policy_id = create_resp.json()["id"]
+    project_id = create_resp.json()["project_id"]
 
     requirement_resp = synced_client.post(
         "/api/requirements",
         json={
             "title": "Linked requirement",
             "description_markdown": "Uses the linked project policy.",
-            "target_project_path": "/tmp/linked-app",
+            "project_id": project_id,
         },
     )
     assert requirement_resp.status_code == 201
@@ -378,48 +257,6 @@ def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(
 
     assert delete_resp.status_code == 400
     assert "active requirements" in delete_resp.json()["detail"]
-
-
-def test_planning_requires_registered_project_policy(synced_client):
-    create_resp = synced_client.post(
-        "/api/requirements",
-        json={
-            "title": "Unknown target project",
-            "description_markdown": "Implement code in an unmanaged project.",
-            "target_project_path": "/tmp/unknown-project",
-        },
-    )
-    requirement_id = create_resp.json()["requirement"]["id"]
-
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
-
-    assert plan_resp.status_code == 400
-    assert "No project policy registered" in plan_resp.json()["detail"]
-
-
-def test_start_requirement_revalidates_active_project_policy(synced_client, db_session):
-    create_resp = synced_client.post(
-        "/api/requirements",
-        json={
-            "title": "Managed target project",
-            "description_markdown": "Implement code in the managed product repo.",
-            "target_project_path": "/Users/cliff/workspace/agent/Synapse-Network",
-        },
-    )
-    requirement_id = create_resp.json()["requirement"]["id"]
-
-    plan_resp = synced_client.post(f"/api/requirements/{requirement_id}/plan")
-    assert plan_resp.status_code == 200
-
-    policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network").first()
-    assert policy is not None
-    policy.status = "disabled"
-    db_session.commit()
-
-    start_resp = synced_client.post(f"/api/requirements/{requirement_id}/start")
-    assert start_resp.status_code == 400
-    assert "not active" in start_resp.json()["detail"]
-
 
 def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path):
     repo = tmp_path / "sandbox-app"

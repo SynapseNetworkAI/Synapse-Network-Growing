@@ -697,60 +697,6 @@ export interface DeliveryState {
   deploy_readiness: Record<string, unknown> | null
 }
 
-export interface WorkflowStep {
-  id: number
-  workflow_run_id: number
-  requirement_id: number
-  step_key: string
-  step_type: string
-  title: string
-  status: string
-  sequence_no: number
-  assigned_agent_id: string | null
-  assigned_workflow_role: string | null
-  branch_from_step_id: number | null
-  compatibility_task_id: number | null
-  retry_count: number
-  handoff_summary_markdown: string | null
-  done_when_markdown: string
-  context_policy_json: string | null
-  execution_profile_json: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  runtime_session_id: string | null
-  runtime_selected_agent: string | null
-  execution_time_ms: number | null
-  tokens_used: number
-  started_at: string | null
-  completed_at: string | null
-}
-
-export interface RequirementPlanPatch {
-  human_readable_body: string
-}
-
-export interface WorkflowStepPatch {
-  title?: string
-  done_when_markdown?: string
-  handoff_summary_markdown?: string
-}
-
-export interface WorkflowRun {
-  id: number
-  requirement_id: number
-  plan_version: number
-  step_model_version: string
-  status: string
-  triggered_by: string
-  planner_artifact_id: number | null
-  started_at: string | null
-  completed_at: string | null
-  created_at: string | null
-  updated_at: string | null
-  steps: WorkflowStep[]
-}
-
 export interface DeclarativeWorkflowRunSummary {
   id: number
   requirement_id: number
@@ -818,52 +764,6 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   human_gates: DeclarativeHumanGate[]
 }
 
-export interface Artifact {
-  id: number
-  requirement_id: number
-  workflow_run_id: number | null
-  step_id: number | null
-  producer_step_id: number | null
-  artifact_type: string
-  path: string | null
-  content_summary: string | null
-  human_readable_body: string | null
-  machine_readable_payload: string | null
-  created_at: string | null
-}
-
-export interface RequirementDetail {
-  requirement: Requirement
-  workflow_run: WorkflowRun | null
-  dependencies: RequirementDependency[]
-  acceptance_checks: RequirementAcceptanceCheck[]
-  artifacts: Artifact[]
-  delivery_state: DeliveryState | null
-  deployment_records: DeploymentRecord[]
-  task_outputs: RequirementTaskOutput[]
-  merged_output_files: RequirementMergedOutputFile[]
-  incidents: Array<{
-    incident_key: string
-    requirement_id: number
-    workflow_run_id: number | null
-    step_id: number | null
-    source_artifact_id: number
-    source_artifact_type: string
-    incident_family: string
-    incident_code: string
-    severity: string
-    recovery_status: string
-    title: string
-    summary: string
-    recommended_action: string
-    project_root_path: string | null
-    project_display_name: string | null
-    evidence: Record<string, unknown>[]
-    occurred_at: string | null
-  }>
-  attachments: RequirementAttachment[]
-}
-
 export interface AgentRequirement {
   id: number
   title: string
@@ -893,8 +793,6 @@ export interface AgentRequirement {
   } | null
   current_attempt_id: number | null
   current_delivery_id: number | null
-  latest_delivery_repair_attempt_id?: number | null
-  delivery_repair_attempt_count?: number
   status: string
   priority: string
   source: string
@@ -924,8 +822,6 @@ export interface AgentRequirement {
   updated_at: string | null
   active_workflow_run_id: number | null
   active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
-  active_execution_run_id: number | null
-  latest_execution_run_id: number | null
   latest_release_status: string | null
 }
 
@@ -945,7 +841,6 @@ export interface AgentRequirementApproval {
   risk_flags: string[]
   pending_execution_start: boolean
   auto_started: boolean
-  execution_run_id: number | null
   workflow_run_id: number | null
 }
 
@@ -1027,7 +922,6 @@ export interface AgentRequirementDetail {
   failure_reason?: string | null
   policy_summary_markdown: string
   project: Project | null
-  latest_execution_id: number | null
   active_workflow_run_id: number | null
   active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   latest_release_id: number | null
@@ -1049,29 +943,6 @@ export interface AgentRequirementDetail {
   attachments: RequirementAttachment[]
   followup_requirement_id?: number | null
   resolution_path?: string | null
-}
-
-export interface ExecutionNode {
-  id: number
-  execution_run_id: number
-  requirement_id: number
-  node_key: string
-  node_type: string
-  title: string
-  status: string
-  sequence_no: number
-  task_id: number | null
-  task_status: string | null
-  agent_id: string | null
-  agent_label: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  tokens_used: number | null
-  elapsed_ms: number | null
-  summary_markdown: string | null
-  started_at: string | null
-  completed_at: string | null
 }
 
 export interface ValidationCheckResult {
@@ -1118,7 +989,7 @@ export interface WorkspaceBlocker {
 export interface ValidationRecord {
   id: number
   requirement_id: number
-  execution_run_id: number
+  workflow_run_id: number | null
   profile: string
   status: string
   summary_markdown: string
@@ -1139,157 +1010,10 @@ export interface ValidationRecord {
   updated_at: string | null
 }
 
-export interface ExecutionRun {
-  id: number
-  requirement_id: number
-  requirement_title: string | null
-  state: string
-  project: AgentRequirement['project']
-  execution_mode: string
-  execution_kind: string
-  attempt_kind: string
-  plan_kind?: string
-  derived_from_attempt_id?: number | null
-  attempt_index?: number | null
-  attempt_budget?: number | null
-  failed_gate_name?: string | null
-  parent_plan_reference_summary?: string | null
-  repair_attempt_count?: number
-  max_auto_repair_attempts?: number
-  manual_retry_count?: number
-  complexity: string
-  status: string
-  phase: string
-  is_current_execution: boolean
-  allowed_actions: string[]
-  pending_operations: string[]
-  recovery_status: string | null
-  recovery_scope: string | null
-  recovery_deadline_at: string | null
-  recovery_timeout_status: string | null
-  time_remaining_seconds: number | null
-  recovery_mode: string | null
-  queue_reason: string | null
-  blocking_reason_code: string | null
-  blocking_reason_message: string | null
-  workspace_blocker: WorkspaceBlocker | null
-  recovery_hint: string | null
-  blocker: {
-    kind: string
-    message: string
-    resume_mode: string
-    scope: string
-  } | null
-  failure: {
-    kind: string
-    message: string
-  } | null
-  validation_profile: string
-  delivery_intent: string
-  approval_required: boolean
-  source_release_id: number | null
-  source_delivery_blocker_type: string | null
-  planner_summary: string | null
-  target_projects: string[]
-  latest_task_id: number | null
-  agent_id: string | null
-  agent_label: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  runtime_session_id: string | null
-  resume_count: number | null
-  last_heartbeat_at: string | null
-  tokens_used_total: number | null
-  elapsed_ms: number | null
-  current_branch: string | null
-  started_at: string | null
-  completed_at: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface ExecutionChangedFile {
-  path: string
-  change_type: string
-  additions: number
-  deletions: number
-  preview_available: boolean
-}
-
-export interface ExecutionFilePreview {
-  path: string
-  diff_patch: string | null
-  current_content: string | null
-  truncated: boolean
-}
-
-export interface ExecutionRuntimeSummary {
-  tokens_used_total: number | null
-  elapsed_ms: number | null
-  agent_id: string | null
-  agent_label: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  current_branch: string | null
-}
-
-export interface ExecutionActivityEvent {
-  ts: string | null
-  event: string
-  status: string | null
-  message: string
-}
-
-export interface ExecutionDetail {
-  execution: ExecutionRun
-  requirement: AgentRequirement
-  state: string
-  phase: string
-  is_current_execution: boolean
-  allowed_actions: string[]
-  pending_operations: string[]
-  recovery_status: string | null
-  recovery_scope: string | null
-  recovery_deadline_at: string | null
-  recovery_timeout_status: string | null
-  time_remaining_seconds: number | null
-  recovery_mode: string | null
-  queue_reason: string | null
-  blocking_reason_code: string | null
-  blocking_reason_message: string | null
-  workspace_blocker: WorkspaceBlocker | null
-  recovery_hint: string | null
-  blocker: ExecutionRun['blocker']
-  failure: ExecutionRun['failure']
-  nodes: ExecutionNode[]
-  validation: ValidationRecord | null
-  verification_result: ValidationRecord | null
-  verification_plan: VerificationPlan | null
-  changed_files: ExecutionChangedFile[]
-  runtime_summary: ExecutionRuntimeSummary | null
-  delivery_summary: ReleaseRecord | null
-  activity_stream: ExecutionActivityEvent[]
-  incidents: Array<Record<string, unknown>>
-  plan_summary: ExecutionPlan
-  raw_task_output: string | null
-  raw_task_output_truncated: boolean
-}
-
-export interface ExecutionOperationResult {
-  status: 'applied' | 'noop' | 'blocked' | 'invalid_action'
-  reason: string | null
-  message: string | null
-  execution_id: number
-  replacement_execution_id: number | null
-  detail: ExecutionDetail
-}
-
 export interface ReleaseRecord {
   id: number
   requirement_id: number
-  execution_run_id: number | null
+  workflow_run_id: number | null
   state: string
   project_id: number | null
   project_key: string | null
@@ -1387,7 +1111,8 @@ export interface ErrorFingerprint {
   latest_error_event_id: number | null
   linked_requirement_id: number | null
   materialized_requirement_id?: number | null
-  latest_execution_run_id: number | null
+  active_workflow_run_id?: number | null
+  active_workflow_run_summary?: DeclarativeWorkflowRunSummary | null
   discovery_status?: string
   discovery_recommendation?: {
     discovery_action: string
@@ -1404,7 +1129,6 @@ export interface ErrorFingerprint {
 export interface ErrorFingerprintDetail {
   fingerprint: ErrorFingerprint
   requirement: AgentRequirement | null
-  latest_execution: ExecutionRun | null
   release: ReleaseRecord | null
   events: ErrorEvent[]
   notifications: NotificationDelivery[]
@@ -1961,7 +1685,7 @@ export const api = {
   createRequirementFromSignal: (id: number, data?: { title?: string; auto_start?: boolean }) =>
     request<AgentRequirementDetail>(`/optimization-signals/${id}/create-requirement`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
-  // Agent-first requirements / executions / releases
+  // Agent-first requirements / workflows / releases
   getRequirements: (status?: string, _sort?: string, search?: string) => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
@@ -2009,18 +1733,6 @@ export const api = {
   }) => request<AgentRequirementDetail>(`/requirements/${id}/revise`, { method: 'POST', body: JSON.stringify(data) }),
   cancelRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/cancel`, { method: 'POST' }),
   deleteRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/delete`, { method: 'POST' }),
-
-  getExecutions: () => request<ExecutionRun[]>('/executions'),
-  createExecution: (data: { requirement_id: number }) =>
-    request<ExecutionDetail>('/executions', { method: 'POST', body: JSON.stringify(data) }),
-  getExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}`),
-  getExecutionFilePreview: (id: number, filePath: string) =>
-    request<ExecutionFilePreview>(`/executions/${id}/files/${encodeURIComponent(filePath)}`),
-  startExecution: (id: number) => request<ExecutionOperationResult>(`/executions/${id}/start`, { method: 'POST' }),
-  pauseExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/pause`, { method: 'POST' }),
-  resumeExecution: (id: number) => request<ExecutionOperationResult>(`/executions/${id}/resume`, { method: 'POST' }),
-  retryExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/retry`, { method: 'POST' }),
-  validateExecution: (id: number) => request<ExecutionDetail>(`/executions/${id}/validate`, { method: 'POST' }),
 
   getWorkflowRuns: (limit = 100) => request<DeclarativeWorkflowRunSummary[]>(`/workflows/runs?limit=${limit}`),
   getWorkflowRun: (id: number) => request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}`),

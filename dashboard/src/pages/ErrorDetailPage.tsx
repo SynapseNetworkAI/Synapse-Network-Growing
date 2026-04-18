@@ -38,13 +38,19 @@ export default function ErrorDetailPage() {
   }
 
   const fingerprint = detail.fingerprint
+  const workflowRunId =
+    detail.requirement?.active_workflow_run_id ??
+    detail.requirement?.active_workflow_run_summary?.id ??
+    detail.fingerprint.active_workflow_run_id ??
+    detail.fingerprint.active_workflow_run_summary?.id ??
+    null
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="error-detail-page">
       <SectionFrame
         eyebrow="Error Fingerprint"
         title={fingerprint.service_name}
-        description="错误详情页只负责稳定性治理：查看证据、关联 requirement/execution、以及通知历史。"
+        description="错误详情页只负责稳定性治理：查看证据、关联 requirement/workflow、以及通知历史。"
         actions={
           <div className="flex flex-wrap gap-2">
             <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate('/errors')}>
@@ -53,8 +59,8 @@ export default function ErrorDetailPage() {
             <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/requirements/${detail.requirement?.id}`)} disabled={!detail.requirement}>
               查看需求
             </button>
-            <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/executions/${detail.latest_execution?.id}`)} disabled={!detail.latest_execution}>
-              查看执行
+            <button className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/workflows/${workflowRunId}`)} disabled={!workflowRunId}>
+              查看工作流
             </button>
           </div>
         }
@@ -116,7 +122,7 @@ export default function ErrorDetailPage() {
         </div>
 
         <div className="space-y-[var(--ops-section-gap)]">
-          <InspectorRail eyebrow="Linked Requirement" title="需求与执行">
+          <InspectorRail eyebrow="Linked Requirement" title="需求与工作流">
             <div>
               <FieldLabel>Discovery</FieldLabel>
               <div className="mt-2 text-[color:var(--ops-text-muted)]">
@@ -135,9 +141,9 @@ export default function ErrorDetailPage() {
               </div>
             </div>
             <div>
-              <FieldLabel>Execution</FieldLabel>
+              <FieldLabel>Workflow</FieldLabel>
               <div className="mt-2 text-[color:var(--ops-text-muted)]">
-                {detail.latest_execution ? `#${detail.latest_execution.id} · ${detail.latest_execution.status}` : '-'}
+                {workflowRunId ? `#${workflowRunId}` : '-'}
               </div>
             </div>
             <div>

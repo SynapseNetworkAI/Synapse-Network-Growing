@@ -24,8 +24,6 @@ const requirement = {
   },
   current_attempt_id: null,
   current_delivery_id: null,
-  latest_delivery_repair_attempt_id: null,
-  delivery_repair_attempt_count: 0,
   status: 'running',
   priority: 'normal',
   source: 'manual',
@@ -67,8 +65,6 @@ const requirement = {
     started_at: '2026-04-18T10:00:00Z',
     completed_at: null,
   },
-  active_execution_run_id: null,
-  latest_execution_run_id: null,
   latest_release_status: null,
 }
 

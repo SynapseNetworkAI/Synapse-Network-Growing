@@ -114,9 +114,9 @@ Session storage:
 
 1. `tasks.runtime_backend = "codex_sdk"`.
 2. `tasks.runtime_session_id = <codex thread id>`.
-3. `workflow_steps.runtime_session_id = <codex thread id>`.
+3. Declarative workflow atom invocations should store the Codex thread id in atom metadata when the atom uses Codex SDK.
 4. `metadata.json` stores turn id, usage, status, model, sandbox, output path, and last event timestamp.
-5. Existing `codex_sessions` remains the execution role/project/requirement-level thread registry.
+5. Existing `codex_sessions` remains the role/project/requirement-level thread registry.
 6. Planner sessions should use the same registry with project scope: `role_key="planner"`, `project_root=<canonical target project root>`, `requirement_id=NULL`.
 
 Planner provider selection:

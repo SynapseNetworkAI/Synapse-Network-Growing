@@ -1,8 +1,6 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
-import ExecutionsPage from './pages/ExecutionsPage'
-import ExecutionDetailPage from './pages/ExecutionDetailPage'
 import WorkflowRunsPage from './pages/WorkflowRunsPage'
 import WorkflowRunDetailPage from './pages/WorkflowRunDetailPage'
 import ReleasesPage from './pages/ReleasesPage'
@@ -25,8 +23,6 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname.startsWith('/requirements/'), title: '需求详情', meta: 'Requirement detail' },
   { match: (pathname) => pathname === '/workflows', title: '工作流', meta: 'Workflow runs' },
   { match: (pathname) => pathname.startsWith('/workflows/'), title: '工作流详情', meta: 'State machine detail' },
-  { match: (pathname) => pathname === '/executions', title: '执行', meta: 'Legacy execution list' },
-  { match: (pathname) => pathname.startsWith('/executions/'), title: '执行详情', meta: 'Execution detail' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
   { match: (pathname) => pathname === '/projects', title: '项目', meta: 'Project list' },
@@ -108,8 +104,6 @@ export default function App() {
                 <Route path="/requirements/:id" element={<RequirementDetail />} />
                 <Route path="/workflows" element={<WorkflowRunsPage />} />
                 <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
-                <Route path="/executions" element={<ExecutionsPage />} />
-                <Route path="/executions/:id" element={<ExecutionDetailPage />} />
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />

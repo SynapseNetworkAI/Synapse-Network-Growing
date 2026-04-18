@@ -110,66 +110,25 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 
 后续新增、删除或重构正式功能时，应与代码一起同步更新这份清单。
 
-Execution 详情页当前已经支持正式可观测性视图：
+Workflow 详情页当前是新的正式可观测性视图：
 
-1. 当前主链 run 的 agent、model、backend、provider
-2. 当前 branch 与交付上下文
-3. 每个 node / task 的 token 与执行时长
-4. 当前 run 改动文件列表与 diff 预览
-5. validation 结果与 activity timeline
-6. execution plan 与 agent 原始输出
+1. 当前 `workflow_key`、`current_state`、`status`、`resolution`。
+2. State timeline 与 transition events。
+3. Blackboard 摘要、retry counters 与风险状态。
+4. Atom invocations、artifacts、command evidence。
+5. pending / decided human gates。
+6. requirement / release / error fingerprint 的反向跳转。
 
-Requirement 与 Execution 当前还有三条正式约束：
+Requirement 与 Workflow 当前正式约束：
 
-1. requirement 创建会先保存记录，然后在后台由 agent 生成真实 acceptance contract 与 execution plan，而不是阻塞页面等待。
-2. requirement submit 通过后会先确保 acceptance / plan 可用，再自动创建并启动 execution。
-3. execution 完成后会自动派发 verification agent；release 只读取 verification verdict，不再走额外的 verification manual review。
-4. requirement approval 放行后会先在目标项目上 `fetch/pull main` 并准备 requirement delivery branch，然后 execution agent 才在该 branch 上工作。
-5. verification passed 后系统会自动 commit / push / open PR；PR merge 视为最终人工把关。
-6. acceptance contract 在 requirement 创建后前置生成，只负责定义完成标准、范围约束和期望证据；最终 `verification_plan` 会在 execution 完成后由 verification agent 基于真实 changed files、raw output 与执行证据晚绑定生成。
-7. verification plan 是 Markdown-first artifact；其中 `required_commands` 由 Harness 统一执行并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt，execution agent 自述测试结果只作为参考证据。
-8. 新建 requirement 支持 Codex 式附件输入：可拖拽、粘贴截图或上传文件，附件会持久化为 requirement context 并进入 plan / execution / verification 链路。
-9. requirement 创建后先保存，再在后台异步生成 acceptance contract 与 execution plan；资产未 ready 前不能 submit。
-10. 同一 requirement 任意时刻只认最新 execution run 为当前主链；历史 run 只保留查看能力，不再暴露 `retry / start / pause / resume / open_pr`。
-11. `retry` 的产品语义是“创建 replacement run 并立即自动尝试启动”；若启动失败，execution 会返回明确的 `queue_reason / blocking_reason_*`，而不是只显示 `queued / blocked`。
-12. 错误自修复 v1 已经进入正式主链。
-   - `/api/errors/intake`、`/api/bugs/intake/log-center`、`bug_log_sweep` 都会先进入统一 discovery pipeline。
-   - 系统先形成 `error_fingerprint / bug_record`，再由 discovery recommendation 与硬规则决定是 `auto_materialize`、`queue_for_operator` 还是 `ignore_as_noise`。
-   - requirement materialize 后继续走 acceptance contract、execution plan、execution、verification、PR 的 agent-first 主链。
-13. Approval 已按 `approval agent 先审，人兜底` 的方式正式化。
-   - 低风险且高置信度的 requirement 会自动放行。
-   - 运行时是否必须人工审核只由 requirement `approval_contract` 与 approval router / hard rules 决定。
-   - project policy 的 `requires_manual_approval` 只作为项目审批偏好信号，不再作为运行时 blanket gate。
-   - 高风险或低置信度仍保留人工 execution approval。硬规则固定为：
-     - `publish_or_delivery_impact`
-     - `critical_incident_recovery`
-     - `max_tier_execution`
-     - `over_budget_execution`
-     - `multi_project_high_risk_work`
-14. Delivery gate 自修复已经进入主链。
-   - verification passed 后仍先走自动 delivery / push / open PR。
-   - 若本地 `git push` 被 pre-push hook / `ci:pr` / `docs_checks` 挡住，系统会把 blocker 分类为 `repo_gate_failed / workspace_blocked / git_auth_failed ...`。
-   - 可修复的 `repo_gate_failed` 会自动创建 `delivery_repair` child execution。
-   - child execution 使用独立 `repair_plan`，父 `requirement_plan` 只作为 reference，不会被覆盖。
-   - repair #2 会读取 repair #1 的失败摘要、commands run、evidence 与最新 blocker 重新规划。
-   - repair 成功后继续主任务的 `re-verification -> re-delivery -> open PR`，不是重跑整个 implementation。
-   - 两次 repair 都失败时，父 requirement 进入 `failed`。
-   - dirty worktree、git 权限、网络、远端拒绝等不可代码化修复的 blocker 继续停在 `release_blocked` 并转人工。
-15. Verification failure 已切换为 Execution Agent self-loop。
-   - verification agent 只负责对抗式验证、生成 `verification_plan.md` / `verification_result.md` 和 repair guidance。
-   - verification failed 后不再创建独立 bugfix execution，而是把失败证据输入回同一个 execution agent session。
-   - 自动 self-repair 默认最多 2 次；第 3 次仍失败时 requirement 进入 `route_to_human`，人工可继续触发同 session retry。
-14. workflow 状态机已开始切到 canonical v2。
-   - `Requirement` 只表达目标推进状态：`draft / planning / awaiting_approval / ready / executing / delivering / ready_for_merge / awaiting_operator / failed / completed / cancelled`。
-   - `ExecutionAttempt` 只表达单次尝试：`queued / preparing_workspace / executing / verifying / blocked / failed / succeeded / cancelled`。
-   - `Delivery` 只表达 PR / 交付：`pending / preparing_branch / pushing / opening_pr / repairing / blocked / pr_open / merged / abandoned`。
-   - 前端已优先渲染 canonical `state`，旧 `status / phase` 仅作为过渡兼容读字段。
-
-切换到 v2 状态机并清空历史 workflow 运行态时，使用：
-
-```bash
-/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes
-```
+1. requirement 创建必须挂到正式 `Project`，不再只靠裸路径推断。
+2. requirement submit 后创建 declarative workflow run；新主链不再创建 `/api/executions` fixed-step run。
+3. 复杂执行流唯一真相是 State Machine YAML + Blackboard + Atom Registry + Risk/Human Gate。
+4. Agent atom 只产出结构化结果，不能直接改变 workflow state；state transition 由 deterministic runner 判定。
+5. 所有 loop 必须有 retry budget；超过预算进入 `awaiting_operator` 或失败终态。
+6. 资金、结算、合约、auth、生产部署、自修改系统、外部付费动作必须进入 human gate。
+7. `/api/errors/intake` 仍进入 discovery pipeline，但 materialize 后挂到 declarative workflow run，而不是旧 execution run。
+8. 前端主入口是 `/workflows` 与 `/workflows/:id`；旧 `/executions` API 和页面已从新业务主链移除。
 
 ## Browser Automation
 
@@ -339,8 +298,8 @@ The local and prod startup scripts call `scripts/python_runtime_guard.sh` before
 6. `docs/design-docs/planner-adapter-architecture.md` - Plan Agent provider adapter、配置优先级与扩展边界
 7. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
 8. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
-9. `docs/design-docs/execution-self-repair-loop-architecture.md` - Execution Agent 与 Verification Agent 的同 session 自修复闭环
-10. `docs/design-docs/declarative-agent-workflow-factory.md` - 声明式 Agent 工作流工厂、Blackboard、State Machine 与场景推演
+9. `docs/design-docs/declarative-agent-workflow-factory.md` - 声明式 Agent 工作流工厂、Blackboard、State Machine 与场景推演
+10. `docs/design-docs/legacy-execution-retirement-inventory.md` - 旧 execution 主链退役清单、已删除入口和剩余数据库边界
 11. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
 12. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
 13. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
