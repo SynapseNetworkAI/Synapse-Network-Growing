@@ -76,6 +76,11 @@ BUG_LOG_SWEEP_AUTO_START = os.environ.get("OPS_BUG_LOG_SWEEP_AUTO_START", "false
 BUG_LOG_SWEEP_MIN_SCORE = float(os.environ.get("OPS_BUG_LOG_SWEEP_MIN_SCORE", "70"))
 BUG_LOG_SWEEP_MAX_CREATED = max(1, int(os.environ.get("OPS_BUG_LOG_SWEEP_MAX_CREATED", "3")))
 BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS = max(5, int(os.environ.get("OPS_BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS", "30")))
+FORUM_FEEDBACK_GATEWAY_ADMIN_BASE_URL = os.environ.get("OPS_FORUM_FEEDBACK_GATEWAY_ADMIN_BASE_URL", "http://127.0.0.1:8300").strip().rstrip("/")
+FORUM_FEEDBACK_GATEWAY_ADMIN_TOKEN = os.environ.get("OPS_FORUM_FEEDBACK_GATEWAY_ADMIN_TOKEN", "").strip()
+FORUM_FEEDBACK_DEFAULT_PROJECT_KEY = os.environ.get("OPS_FORUM_FEEDBACK_DEFAULT_PROJECT_KEY", "synapse-network").strip() or "synapse-network"
+FORUM_FEEDBACK_DEFAULT_GOAL_KEY = os.environ.get("OPS_FORUM_FEEDBACK_DEFAULT_GOAL_KEY", "community_support").strip() or "community_support"
+FORUM_FEEDBACK_MAX_TASKS = max(1, int(os.environ.get("OPS_FORUM_FEEDBACK_MAX_TASKS", "10")))
 
 # ── Database ──────────────────────────────────────────────────
 DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))

@@ -31,6 +31,7 @@ from server.services.signals.optimization_signals import list_optimization_signa
 from server.services.requirements.family import cleanup_requirement_families
 from server.services.requirements.sources import intake_requirement_sources
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
+from server.services.forum_feedback import run_forum_feedback_sweep
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -95,6 +96,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "create_requirement_candidates", "auto_materialize": False},
         "escalation_rule": {"on_failure": "notify_portfolio_operator", "on_empty": "no_op"},
         "validation_signal": {"success_metric": "created_candidate_ids", "min_expected": 0},
+    },
+    {
+        "workflow_key": "forum_feedback_sweep",
+        "display_name": "Forum Feedback Sweep",
+        "description": "Pull unreplied forum posts from gateway-admin, classify them, create bug candidates when needed, and push reply drafts back for human review.",
+        "trigger_type": "scheduled",
+        "owner_role": "support_triage_agent",
+        "schedule": {"cadence": "hourly", "interval_hours": 1},
+        "input_query": {"source": "gateway_admin_forum_response_tasks", "status": ["awaiting_response", "draft_ready"]},
+        "output_action": {"kind": "push_forum_reply_suggestions", "auto_reply": False, "create_bug_candidates": True},
+        "escalation_rule": {"on_high_risk": "candidate_human_review", "on_push_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "pushed_task_ids", "min_expected": 0},
     },
     {
         "workflow_key": "dispatcher_loop",
@@ -942,6 +955,8 @@ def _execute_recurring_workflow(
     auto_dispatch_acceptance: bool,
 ) -> dict[str, Any]:
     if dry_run:
+        if workflow_key == "forum_feedback_sweep":
+            return run_forum_feedback_sweep(db, dry_run=True)
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -961,6 +976,8 @@ def _execute_recurring_workflow(
 
         sweep = run_planner_sweep(db, dry_run=False, triggered_by="scheduler")
         return sweep_to_dict(sweep)
+    if workflow_key == "forum_feedback_sweep":
+        return run_forum_feedback_sweep(db, dry_run=False)
     if workflow_key == "dispatcher_loop":
         follow_through = _dispatcher_follow_through(db)
         return {
