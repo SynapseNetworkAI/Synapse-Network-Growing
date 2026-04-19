@@ -260,6 +260,42 @@ def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_ses
     assert decided["human_gates"][0]["decision"] == "reject"
 
 
+def test_human_gate_approve_completes_workflow_and_requirement(synced_client, db_session):
+    requirement = _create_requirement(db_session)
+    create_response = synced_client.post(
+        "/api/workflows/runs",
+        json={
+            "requirement_id": int(requirement.id),
+            "workflow_key": "agent_self_repair",
+            "initial_blackboard": {"trigger": {"ops_failure_detected": True}},
+            "run_immediately": True,
+        },
+    )
+    payload = create_response.json()
+    gate_id = int(payload["human_gates"][0]["id"])
+
+    decision_response = synced_client.post(
+        f"/api/workflows/runs/{payload['id']}/human-gates/{gate_id}/decide",
+        json={"decision": "approve", "reviewer": "tester", "comment": "PR accepted"},
+    )
+
+    assert decision_response.status_code == 200
+    decided = decision_response.json()
+    assert decided["status"] == "succeeded"
+    assert decided["resolution"] == "operator_approved"
+    assert decided["pending_human_gate_count"] == 0
+    assert decided["outcome_label"] == "Completed"
+    assert decided["is_truly_completed"] is True
+    assert decided["human_gates"][0]["status"] == "decided"
+    assert decided["human_gates"][0]["decision"] == "approve"
+    assert any(event["event_type"] == "human_gate_decision" for event in decided["events"])
+
+    db_session.refresh(requirement)
+    assert requirement.status == "completed"
+    assert requirement.workflow_state == "completed"
+    assert requirement.completed_at is not None
+
+
 def test_submit_requirement_creates_declarative_workflow_run(db_session):
     requirement = RequirementRow(
         title="Gateway 5xx reliability repair",

@@ -1699,14 +1699,52 @@ def decide_human_gate(
             "decided_at": gate.decided_at.isoformat(),
         }
     )
+    state_before_decision = str(run.current_state or gate.state_key or "awaiting_operator")
     if normalized == "continue_retry":
         run.status = "pending"
         run.resolution = "operator_continue_retry"
+        run.completed_at = None
     elif normalized == "approve":
+        run.status = "succeeded"
         run.resolution = "operator_approved"
+        run.current_state = "done"
+        blackboard["current_state"] = "done"
+        run.completed_at = run.completed_at or utcnow()
+        requirement = run.requirement
+        if requirement is not None:
+            requirement.workflow_state = "completed"
+            requirement.status = "completed"
+            requirement.phase = "completed"
+            requirement.completed_at = requirement.completed_at or utcnow()
     else:
         run.status = "failed"
         run.resolution = "operator_rejected"
+        run.completed_at = run.completed_at or utcnow()
+        requirement = run.requirement
+        if requirement is not None:
+            requirement.workflow_state = "failed"
+            requirement.status = "failed"
+            requirement.phase = "failed"
+    decision_event = {
+        "gate_id": int(gate.id),
+        "decision": normalized,
+        "reviewer": reviewer,
+        "comment": comment,
+        "from_state": state_before_decision,
+        "status_after": run.status,
+        "resolution_after": run.resolution,
+        "ts": gate.decided_at.isoformat(),
+    }
+    db.add(
+        WorkflowStateEventRow(
+            workflow_run_id=int(run.id),
+            event_type="human_gate_decision",
+            from_state=state_before_decision,
+            to_state=str(run.current_state or state_before_decision),
+            condition=f"operator.{normalized}",
+            payload_json=_json_dump(decision_event),
+        )
+    )
     _persist_blackboard(db, run, str(run.current_state or gate.state_key), blackboard)
     db.flush()
     _notify_human_gate_decided(db, gate, run)
