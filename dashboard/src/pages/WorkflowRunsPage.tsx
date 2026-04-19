@@ -41,18 +41,19 @@ function statusTone(status: string) {
 }
 
 function workflowOutcome(item: DeclarativeWorkflowRunSummary) {
-  if (item.status === 'awaiting_operator') return '等待人工门禁'
+  if (item.needs_human || item.pending_human_gate_count > 0 || item.status === 'awaiting_operator') return '等待人工门禁'
   if (item.status === 'failed') return item.resolution || '失败'
-  if (['succeeded', 'completed', 'done'].includes(item.status)) return item.pr_url ? '已完成，PR 可查看' : '已完成'
+  if (item.completed_truthfully || item.is_truly_completed) return item.pr_url ? '已完成，PR 可查看' : '已完成'
+  if (['succeeded', 'completed', 'done'].includes(item.status)) return '终态但证据/门禁未完全收口'
   if (item.status === 'paused') return '已暂停'
   return '执行中'
 }
 
 function workflowNextAction(item: DeclarativeWorkflowRunSummary) {
-  if (item.pending_human_gate_count > 0 || item.status === 'awaiting_operator') return '处理 Human Gate'
+  if (item.needs_human || item.pending_human_gate_count > 0 || item.status === 'awaiting_operator') return '处理 Human Gate'
   if (item.status === 'failed') return '查看失败原因'
   if (item.pr_url) return '打开 PR'
-  if (['succeeded', 'completed', 'done'].includes(item.status)) return '查看完成证据'
+  if (item.completed_truthfully || item.is_truly_completed || ['succeeded', 'completed', 'done'].includes(item.status)) return '查看完成证据'
   return '查看运行详情'
 }
 
@@ -151,9 +152,11 @@ function WorkflowRunsTable({
                   </button>
                 </td>
                 <td className="px-4 py-4">
-                  <StateBadge tone={statusTone(item.status)}>{item.status}</StateBadge>
+                  <StateBadge tone={statusTone(item.needs_human ? 'awaiting_operator' : item.status)}>{item.outcome_label || item.status}</StateBadge>
                   <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{workflowOutcome(item)}</div>
                   {item.resolution ? <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{item.resolution}</div> : null}
+                  {item.simulated_delivery ? <div className="mt-1 text-xs text-amber-700">Simulated PR</div> : null}
+                  {item.evidence_complete === false ? <div className="mt-1 text-xs text-amber-700">Evidence incomplete</div> : null}
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                   <div>{item.atom_count ?? 0} atoms · {item.artifact_count ?? 0} artifacts</div>

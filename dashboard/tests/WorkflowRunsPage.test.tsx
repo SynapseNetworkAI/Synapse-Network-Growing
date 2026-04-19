@@ -64,6 +64,12 @@ describe('WorkflowRunsPage', () => {
           resolution: 'route_to_human',
           risk_level: 'high',
           pending_human_gate_count: 1,
+          outcome_label: 'Needs Human',
+          needs_human: true,
+          completed_truthfully: false,
+          is_truly_completed: false,
+          simulated_delivery: true,
+          evidence_complete: false,
           last_atom: 'open_gateway_repair_pr',
           artifact_count: 4,
           atom_count: 5,
@@ -90,6 +96,9 @@ describe('WorkflowRunsPage', () => {
     expect(screen.getAllByText('gateway_reliability_repair').length).toBeGreaterThan(0)
     expect(screen.getByText('open_gateway_repair_pr')).toBeInTheDocument()
     expect(screen.getByText('处理 Human Gate')).toBeInTheDocument()
+    expect(screen.getAllByText('Needs Human').length).toBeGreaterThan(0)
+    expect(screen.getByText('Simulated PR')).toBeInTheDocument()
+    expect(screen.getByText('Evidence incomplete')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Definitions'))
     await waitFor(() => expect(screen.getByTestId('workflow-definitions-panel')).toBeInTheDocument())

@@ -374,6 +374,171 @@ def _workflow_duration_ms(row: WorkflowRunRow) -> int | None:
     return max(0, int((completed - started).total_seconds() * 1000))
 
 
+def _is_completed_status(status: str | None) -> bool:
+    return str(status or "").strip() in {"succeeded", "completed", "done"}
+
+
+def _blackboard_pr(blackboard: Mapping[str, Any]) -> Mapping[str, Any]:
+    pr = blackboard.get("pr")
+    return pr if isinstance(pr, Mapping) else {}
+
+
+def _pr_is_simulated(pr: Mapping[str, Any]) -> bool:
+    sync = pr.get("sync") if isinstance(pr.get("sync"), Mapping) else {}
+    vcs = pr.get("vcs") if isinstance(pr.get("vcs"), Mapping) else {}
+    values = [
+        pr.get("sync_action"),
+        pr.get("status"),
+        sync.get("sync_action"),
+        sync.get("status"),
+        vcs.get("sync_action"),
+        vcs.get("status"),
+    ]
+    return any(str(value or "").strip().lower() == "simulated" for value in values)
+
+
+def _command_results_from_blackboard(blackboard: Mapping[str, Any]) -> list[dict[str, Any]]:
+    verification = blackboard.get("verification") if isinstance(blackboard.get("verification"), Mapping) else {}
+    candidates = [
+        verification.get("command_results"),
+        verification.get("commands"),
+        blackboard.get("command_results"),
+    ]
+    results: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if isinstance(candidate, list):
+            for item in candidate:
+                if isinstance(item, Mapping):
+                    results.append(dict(item))
+    return results
+
+
+def _delivery_summary_from_blackboard(blackboard: Mapping[str, Any], release: ReleaseRecordRow | None) -> dict[str, Any]:
+    pr = _blackboard_pr(blackboard)
+    sync = pr.get("sync") if isinstance(pr.get("sync"), Mapping) else {}
+    url = str(getattr(release, "pr_url", "") or pr.get("url") or sync.get("pr_url") or "").strip() or None
+    return {
+        "pr_created": bool(pr.get("created") or url),
+        "pr_url": url,
+        "branch_name": str(pr.get("branch_name") or sync.get("branch_name") or sync.get("head_branch") or "").strip() or None,
+        "compare_url": str(pr.get("compare_url") or sync.get("compare_url") or "").strip() or None,
+        "pr_status": str(getattr(release, "pr_status", "") or pr.get("pr_status") or sync.get("pr_status") or "").strip() or None,
+        "release_status": str(getattr(release, "status", "") or "").strip() or None,
+        "sync_action": str(pr.get("sync_action") or sync.get("sync_action") or "").strip() or None,
+        "simulated": _pr_is_simulated(pr),
+    }
+
+
+def _changed_files_summary_from_blackboard(blackboard: Mapping[str, Any]) -> dict[str, Any]:
+    patch_result = blackboard.get("patch_result") if isinstance(blackboard.get("patch_result"), Mapping) else {}
+    changed = [str(item) for item in patch_result.get("changed_files") or []]
+    added = [str(item) for item in patch_result.get("added_files") or []]
+    modified = [str(item) for item in patch_result.get("modified_files") or []]
+    deleted = [str(item) for item in patch_result.get("deleted_files") or []]
+    if changed and not modified and not added and not deleted:
+        modified = list(changed)
+    return {
+        "changed_files": changed,
+        "added_files": added,
+        "modified_files": modified,
+        "deleted_files": deleted,
+        "changed_files_count": int(patch_result.get("changed_files_count") or len(changed)),
+        "diff_summary": str(patch_result.get("diff_summary") or "").strip(),
+        "patch_artifact_id": patch_result.get("patch_artifact_id"),
+        "planned_change_only": bool(patch_result.get("planned_change_only", True)),
+    }
+
+
+def _workflow_truth_fields(
+    row: WorkflowRunRow,
+    *,
+    blackboard: Mapping[str, Any],
+    pending_gate_count: int,
+    release: ReleaseRecordRow | None,
+) -> dict[str, Any]:
+    command_results = _command_results_from_blackboard(blackboard)
+    verification = blackboard.get("verification") if isinstance(blackboard.get("verification"), Mapping) else {}
+    verification_passed = str(verification.get("status") or "").strip().lower() == "passed"
+    delivery = _delivery_summary_from_blackboard(blackboard, release)
+    is_completed = _is_completed_status(row.status)
+    needs_human = pending_gate_count > 0 or str(row.status or "") == "awaiting_operator" or str(row.current_state or "") == "awaiting_operator"
+    evidence_complete = (not verification_passed) or bool(command_results)
+    warnings: list[str] = []
+    if needs_human:
+        warnings.append("Pending human gate: this run is not truly completed.")
+    if getattr(row, "archived_at", None) is not None and pending_gate_count > 0:
+        warnings.append("Archived with pending gate: hidden state still requires operator review.")
+    if verification_passed and not command_results:
+        warnings.append("Evidence incomplete: verification passed without recorded command evidence.")
+    if bool(delivery.get("simulated")):
+        warnings.append("Simulated PR: delivery evidence is not a real external PR.")
+    truly_completed = is_completed and not needs_human
+    return {
+        "outcome_label": "Needs Human" if needs_human else ("Completed" if truly_completed else ("Failed" if row.status == "failed" else "Running")),
+        "is_truly_completed": truly_completed,
+        "completed_truthfully": truly_completed,
+        "needs_human": needs_human,
+        "is_simulated": bool(delivery.get("simulated")) or any(bool(item.get("simulated")) for item in command_results),
+        "simulated_delivery": bool(delivery.get("simulated")),
+        "evidence_complete": evidence_complete,
+        "observability_warnings": warnings,
+        "changed_files_summary": _changed_files_summary_from_blackboard(blackboard),
+        "command_results": command_results,
+        "delivery_summary": delivery,
+    }
+
+
+def _agent_outputs_from_rows(
+    artifacts: list[WorkflowArtifactRow],
+    invocations: list[AtomInvocationRow],
+) -> list[dict[str, Any]]:
+    artifacts_by_id = {int(artifact.id): artifact for artifact in artifacts}
+    outputs: list[dict[str, Any]] = []
+    for invocation in invocations:
+        if str(invocation.atom_type or "") != "agent":
+            continue
+        artifact_ids = _json_load(invocation.artifact_ids_json, [])
+        raw_artifact = next(
+            (
+                artifacts_by_id.get(int(artifact_id))
+                for artifact_id in artifact_ids
+                if str(artifact_id).isdigit() and artifacts_by_id.get(int(artifact_id)) is not None
+            ),
+            None,
+        )
+        payload = _json_load(raw_artifact.machine_readable_payload, {}) if raw_artifact is not None else {}
+        outputs.append(
+            {
+                "state_key": invocation.state_key,
+                "atom_key": invocation.atom_key,
+                "agent_name": invocation.atom_key,
+                "status": invocation.status,
+                "summary": invocation.output_summary,
+                "input_summary": invocation.input_summary,
+                "parsed_writes": payload.get("writes") if isinstance(payload, Mapping) else {},
+                "raw_artifact_id": int(raw_artifact.id) if raw_artifact is not None else None,
+                "raw_output": raw_artifact.human_readable_body if raw_artifact is not None else "",
+                "created_at": raw_artifact.created_at.isoformat() if raw_artifact is not None and raw_artifact.created_at else None,
+            }
+        )
+    return outputs
+
+
+def _command_results_from_artifacts(artifacts: list[WorkflowArtifactRow]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        if artifact.artifact_type != "workflow_command_result":
+            continue
+        payload = _json_load(artifact.machine_readable_payload, {})
+        if isinstance(payload, Mapping):
+            item = dict(payload)
+            item.setdefault("log_artifact_id", int(artifact.id))
+            item.setdefault("state_key", artifact.state_key)
+            item.setdefault("atom_key", artifact.atom_key)
+            results.append(item)
+    return results
+
+
 def _latest_release_for_run(db: Session, row: WorkflowRunRow) -> ReleaseRecordRow | None:
     release = (
         db.query(ReleaseRecordRow)
@@ -424,6 +589,8 @@ def _workflow_run_summary_item(
     release = _latest_release_for_run(db, row)
     if requirement is None:
         requirement = db.query(RequirementRow).filter(RequirementRow.id == int(row.requirement_id)).first()
+    blackboard = workflow_blackboard(row)
+    truth = _workflow_truth_fields(row, blackboard=blackboard, pending_gate_count=int(pending_gate_count or 0), release=release)
     return {
         "id": int(row.id),
         "requirement_id": int(row.requirement_id),
@@ -449,6 +616,13 @@ def _workflow_run_summary_item(
         "archived_at": row.archived_at.isoformat() if getattr(row, "archived_at", None) else None,
         "archived_by": str(getattr(row, "archived_by", "") or "") or None,
         "archive_reason": str(getattr(row, "archive_reason", "") or "") or None,
+        "outcome_label": truth["outcome_label"],
+        "is_truly_completed": truth["is_truly_completed"],
+        "completed_truthfully": truth["completed_truthfully"],
+        "needs_human": truth["needs_human"],
+        "is_simulated": truth["is_simulated"],
+        "simulated_delivery": truth["simulated_delivery"],
+        "evidence_complete": truth["evidence_complete"],
     }
 
 
@@ -471,7 +645,7 @@ def list_workflow_runs(
 
     query = db.query(WorkflowRunRow).filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
     normalized_tab = str(tab or "").strip().lower()
-    if not include_archived and normalized_tab != "archived":
+    if not include_archived and normalized_tab not in {"archived", "needs_human", "human"}:
         query = query.filter(WorkflowRunRow.archived_at.is_(None))
     if normalized_tab == "active":
         query = query.filter(WorkflowRunRow.status.in_(["pending", "running", "paused"]))
@@ -482,6 +656,8 @@ def list_workflow_runs(
         query = query.filter(WorkflowRunRow.status == "failed")
     elif normalized_tab == "completed":
         query = query.filter(WorkflowRunRow.status.in_(["succeeded", "completed", "done"]))
+        pending_subquery = db.query(HumanGateRequestRow.workflow_run_id).filter(HumanGateRequestRow.status == "pending")
+        query = query.filter(~WorkflowRunRow.id.in_(pending_subquery))
     elif normalized_tab == "archived":
         query = query.filter(WorkflowRunRow.archived_at.isnot(None))
     if status:
@@ -533,11 +709,21 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
         WorkflowRunRow.archived_at.is_(None),
     )
     all_rows = base.all()
+    pending_gate_run_ids = {
+        int(row.workflow_run_id)
+        for row in db.query(HumanGateRequestRow.workflow_run_id)
+        .filter(HumanGateRequestRow.status == "pending")
+        .all()
+    }
+    needs_human_rows = db.query(WorkflowRunRow).filter(
+        WorkflowRunRow.workflow_key != "legacy_fixed_step",
+        WorkflowRunRow.id.in_(pending_gate_run_ids or {-1}),
+    ).all()
     now = utcnow()
     durations = [_workflow_duration_ms(row) for row in all_rows if _workflow_duration_ms(row) is not None]
     completed_today = [
         row for row in all_rows
-        if row.completed_at is not None and row.completed_at.date() == now.date() and row.status in {"succeeded", "completed", "done"}
+        if row.completed_at is not None and row.completed_at.date() == now.date() and row.status in {"succeeded", "completed", "done"} and int(row.id) not in pending_gate_run_ids
     ]
     pending_candidates = (
         db.query(RequirementCandidateRow)
@@ -548,9 +734,9 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
     )
     return {
         "running": sum(1 for row in all_rows if row.status in {"pending", "running", "paused"}),
-        "needs_human": sum(1 for row in all_rows if row.status == "awaiting_operator"),
+        "needs_human": len(needs_human_rows) + sum(1 for row in all_rows if row.status == "awaiting_operator" and int(row.id) not in pending_gate_run_ids),
         "failed": sum(1 for row in all_rows if row.status == "failed"),
-        "completed": sum(1 for row in all_rows if row.status in {"succeeded", "completed", "done"}),
+        "completed": sum(1 for row in all_rows if row.status in {"succeeded", "completed", "done"} and int(row.id) not in pending_gate_run_ids),
         "completed_today": len(completed_today),
         "pending_release": db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(["ready", "release_ready", "blocked"])).count(),
         "average_duration_ms": int(sum(durations) / len(durations)) if durations else 0,
@@ -736,22 +922,72 @@ def default_atom_registry() -> AtomRegistry:
             "writes": {"diagnosis": {"action": "patch", "module": "ops-dashboard"}},
         },
     )
-    registry.register(
-        "ops_self_repair_coder",
-        lambda _ctx: {
+    def _file_change_summary_artifact(ctx: WorkflowContext, *, changed_files: list[str], diff_summary: str) -> int:
+        artifact = _create_workflow_artifact(
+            ctx.db,
+            workflow_run_id=int(ctx.workflow_run.id),
+            artifact_type="workflow_file_change_summary",
+            state_key=ctx.state_key,
+            atom_key=str(ctx.state_spec.get("agent") or ctx.state_spec.get("atom") or ""),
+            content_summary=f"{ctx.state_key}: planned file change summary",
+            human_readable_body=diff_summary,
+            machine_readable_payload={
+                "changed_files": changed_files,
+                "modified_files": changed_files,
+                "added_files": [],
+                "deleted_files": [],
+                "diff_summary": diff_summary,
+                "planned_change_only": True,
+            },
+        )
+        return int(artifact.id)
+
+    def _ops_self_repair_coder(ctx: WorkflowContext) -> dict[str, Any]:
+        changed_files = ["server/services/workflows/declarative.py"]
+        diff_summary = "Planned self-repair patch scoped to workflow observability/runtime behavior."
+        artifact_id = _file_change_summary_artifact(ctx, changed_files=changed_files, diff_summary=diff_summary)
+        return {
             "status": "completed",
             "summary": "Prepared self-repair patch guidance",
-            "writes": {"patch_result": {"changed_files_count": 1, "changed_files": ["server/services/workflows/declarative.py"]}},
-        },
-    )
+            "writes": {
+                "patch_result": {
+                    "changed_files_count": len(changed_files),
+                    "changed_files": changed_files,
+                    "modified_files": changed_files,
+                    "added_files": [],
+                    "deleted_files": [],
+                    "diff_summary": diff_summary,
+                    "planned_change_only": True,
+                    "patch_artifact_id": artifact_id,
+                }
+            },
+            "artifacts": [artifact_id],
+        }
+
+    registry.register("ops_self_repair_coder", _ops_self_repair_coder)
 
     def _verify_self_repair(ctx: WorkflowContext) -> AtomResult:
         trigger = _trigger(ctx)
         counters = dict(ctx.blackboard.get("counters") or {})
         should_fail_once = bool(trigger.get("force_first_verification_failure"))
+        command_result = _record_command_result_artifact(
+            ctx,
+            command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
+            purpose="Verify the self-repair runtime module still compiles.",
+            exit_code=1 if should_fail_once and int(counters.get("patch_attempts") or 0) == 0 else 0,
+            simulated=True,
+        )
         if should_fail_once and int(counters.get("patch_attempts") or 0) == 0:
-            return AtomResult(summary="Verification failed before retry", writes={"verification": {"status": "failed"}})
-        return AtomResult(summary="Verification passed", writes={"verification": {"status": "passed"}})
+            return AtomResult(
+                summary="Verification failed before retry",
+                writes={"verification": {"status": "failed", "command_results": [command_result]}},
+                artifacts=(str(command_result["log_artifact_id"]),),
+            )
+        return AtomResult(
+            summary="Verification passed",
+            writes={"verification": {"status": "passed", "command_results": [command_result]}},
+            artifacts=(str(command_result["log_artifact_id"]),),
+        )
 
     registry.register("run_ops_self_repair_verification", _verify_self_repair)
     registry.register(
@@ -783,14 +1019,44 @@ def default_atom_registry() -> AtomRegistry:
         "gateway_reliability_diagnoser",
         lambda _ctx: {"status": "completed", "summary": "Gateway reliability issue requires patch", "writes": {"diagnosis": {"action": "patch"}}},
     )
-    registry.register(
-        "gateway_reliability_coder",
-        lambda _ctx: {"status": "completed", "summary": "Gateway patch prepared", "writes": {"patch_result": {"changed_files_count": 1}}},
-    )
-    registry.register(
-        "run_gateway_verification",
-        lambda _ctx: AtomResult(summary="Gateway verification passed", writes={"verification": {"status": "passed"}}),
-    )
+    def _gateway_reliability_coder(ctx: WorkflowContext) -> dict[str, Any]:
+        changed_files = ["gateway/reliability/path-placeholder"]
+        diff_summary = "Planned gateway reliability repair; concrete diff depends on target project checkout."
+        artifact_id = _file_change_summary_artifact(ctx, changed_files=changed_files, diff_summary=diff_summary)
+        return {
+            "status": "completed",
+            "summary": "Gateway patch prepared",
+            "writes": {
+                "patch_result": {
+                    "changed_files_count": len(changed_files),
+                    "changed_files": changed_files,
+                    "modified_files": changed_files,
+                    "added_files": [],
+                    "deleted_files": [],
+                    "diff_summary": diff_summary,
+                    "planned_change_only": True,
+                    "patch_artifact_id": artifact_id,
+                }
+            },
+            "artifacts": [artifact_id],
+        }
+
+    def _run_gateway_verification(ctx: WorkflowContext) -> AtomResult:
+        command_result = _record_command_result_artifact(
+            ctx,
+            command="pytest -q tests/test_gateway_reliability.py",
+            purpose="Verify the gateway reliability repair path.",
+            exit_code=0,
+            simulated=True,
+        )
+        return AtomResult(
+            summary="Gateway verification passed",
+            writes={"verification": {"status": "passed", "command_results": [command_result]}},
+            artifacts=(str(command_result["log_artifact_id"]),),
+        )
+
+    registry.register("gateway_reliability_coder", _gateway_reliability_coder)
+    registry.register("run_gateway_verification", _run_gateway_verification)
     registry.register(
         "risk_evidence_gate",
         _risk_evidence_gate,
@@ -1481,6 +1747,22 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
     pending_gate_count = sum(1 for gate in gates if str(gate.status or "") == "pending")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
     summary = _workflow_run_summary_item(db, run, requirement=requirement)
+    blackboard = workflow_blackboard(run)
+    release = _latest_release_for_run(db, run)
+    truth = _workflow_truth_fields(run, blackboard=blackboard, pending_gate_count=int(pending_gate_count), release=release)
+    artifact_command_results = _command_results_from_artifacts(artifacts)
+    command_results = truth["command_results"] or artifact_command_results
+    if artifact_command_results and not truth["command_results"]:
+        truth = {
+            **truth,
+            "command_results": artifact_command_results,
+            "evidence_complete": True,
+            "observability_warnings": [
+                warning
+                for warning in truth["observability_warnings"]
+                if "verification passed without recorded command evidence" not in warning
+            ],
+        }
     return {
         **summary,
         "id": int(run.id),
@@ -1496,7 +1778,19 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
         "retry_counters": _json_load(run.retry_counters_json, {}),
-        "blackboard": workflow_blackboard(run),
+        "blackboard": blackboard,
+        "outcome_label": truth["outcome_label"],
+        "is_truly_completed": truth["is_truly_completed"],
+        "completed_truthfully": truth["completed_truthfully"],
+        "needs_human": truth["needs_human"],
+        "is_simulated": truth["is_simulated"],
+        "simulated_delivery": truth["simulated_delivery"],
+        "evidence_complete": truth["evidence_complete"],
+        "observability_warnings": truth["observability_warnings"],
+        "agent_outputs": _agent_outputs_from_rows(artifacts, invocations),
+        "changed_files_summary": truth["changed_files_summary"],
+        "command_results": command_results,
+        "delivery_summary": truth["delivery_summary"],
         "events": [
             {
                 "id": int(event.id),
@@ -1857,6 +2151,53 @@ def _notify_workflow_pr_delivery(
             "Compare": str(pr.get("compare_url") or "").strip(),
         },
     )
+
+
+def _record_command_result_artifact(
+    ctx: WorkflowContext,
+    *,
+    command: str,
+    purpose: str,
+    exit_code: int,
+    simulated: bool,
+    cwd: str | None = None,
+    stdout_excerpt: str = "",
+    stderr_excerpt: str = "",
+    duration_ms: int = 0,
+    timeout: bool = False,
+) -> dict[str, Any]:
+    """Persist command evidence for verification atoms.
+
+    These first-phase workflows still use governed built-in atoms rather than
+    arbitrary shell execution. Marking the evidence as simulated keeps the UI
+    honest while giving operators a stable command-evidence contract.
+    """
+
+    payload: dict[str, Any] = {
+        "cwd": cwd or str(getattr(ctx.requirement, "target_project_path", "") or "."),
+        "command": command,
+        "purpose": purpose,
+        "exit_code": int(exit_code),
+        "duration_ms": int(duration_ms),
+        "stdout_excerpt": stdout_excerpt or ("simulated command passed" if exit_code == 0 else ""),
+        "stderr_excerpt": stderr_excerpt or ("simulated command failed" if exit_code != 0 else ""),
+        "timeout": bool(timeout),
+        "simulated": bool(simulated),
+    }
+    artifact = _create_workflow_artifact(
+        ctx.db,
+        workflow_run_id=int(ctx.workflow_run.id),
+        artifact_type="workflow_command_result",
+        state_key=ctx.state_key,
+        atom_key=str(ctx.state_spec.get("atom") or ctx.state_spec.get("agent") or ""),
+        content_summary=f"{ctx.state_key}: {command}",
+        human_readable_body=json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        machine_readable_payload=payload,
+    )
+    payload["log_artifact_id"] = int(artifact.id)
+    artifact.machine_readable_payload = _json_dump(payload)
+    ctx.db.flush()
+    return payload
 
 
 def _condition_matches(expression: str, blackboard: Mapping[str, Any]) -> bool:

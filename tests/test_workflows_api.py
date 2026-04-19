@@ -61,9 +61,18 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["workflow_key"] == "agent_self_repair"
     assert payload["status"] == "awaiting_operator"
     assert payload["current_state"] == "awaiting_operator"
+    assert payload["outcome_label"] == "Needs Human"
+    assert payload["is_truly_completed"] is False
+    assert payload["needs_human"] is True
+    assert payload["simulated_delivery"] is True
     assert payload["requirement_title"] == "Repair Ops Dashboard failure"
     assert payload["pending_human_gate_count"] == 1
     assert payload["blackboard"]["verification"]["status"] == "passed"
+    assert payload["evidence_complete"] is True
+    assert payload["command_results"][0]["exit_code"] == 0
+    assert payload["command_results"][0]["simulated"] is True
+    assert any(output["state_key"] == "diagnose" for output in payload["agent_outputs"])
+    assert "server/services/workflows/declarative.py" in payload["changed_files_summary"]["changed_files"]
     assert payload["blackboard"]["pr"]["created"] is True
     assert payload["blackboard"]["pr"]["url"] != "pending"
     assert payload["blackboard"]["pr"]["sync"]["status"] == "synced"
@@ -81,6 +90,8 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert list_payload[0]["id"] == payload["id"]
     assert list_payload[0]["pending_human_gate_count"] == 1
     assert list_payload[0]["last_atom"] == "open_self_repair_pr"
+    assert list_payload[0]["completed_truthfully"] is False
+    assert list_payload[0]["needs_human"] is True
 
     gated_response = synced_client.get("/api/workflows/runs?pending_human_gate=true")
     assert gated_response.status_code == 200
@@ -126,6 +137,8 @@ def test_workflow_operations_summary_archive_and_completed_tab(synced_client, db
     assert item["pr_url"] == "https://github.com/example/repo/pull/1"
     assert item["artifact_count"] >= 1
     assert item["duration_ms"] is not None
+    assert item["completed_truthfully"] is True
+    assert item["needs_human"] is False
 
     archive_response = synced_client.post(
         f"/api/workflows/runs/{payload['id']}/archive",
@@ -139,6 +152,32 @@ def test_workflow_operations_summary_archive_and_completed_tab(synced_client, db
 
     archived_response = synced_client.get("/api/workflows/runs?tab=archived&page=1&page_size=20")
     assert any(row["id"] == payload["id"] for row in archived_response.json()["items"])
+
+
+def test_pending_human_gate_run_is_not_completed_truthfully(synced_client, db_session):
+    requirement = _create_requirement(db_session)
+    create_response = synced_client.post(
+        "/api/workflows/runs",
+        json={
+            "requirement_id": int(requirement.id),
+            "workflow_key": "agent_self_repair",
+            "initial_blackboard": {"trigger": {"ops_failure_detected": True}},
+            "run_immediately": True,
+        },
+    )
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["status"] == "awaiting_operator"
+    assert payload["pending_human_gate_count"] == 1
+    assert payload["is_truly_completed"] is False
+
+    completed_response = synced_client.get("/api/workflows/runs?tab=completed&page=1&page_size=20")
+    assert completed_response.status_code == 200
+    assert all(row["id"] != payload["id"] for row in completed_response.json()["items"])
+
+    needs_human_response = synced_client.get("/api/workflows/runs?tab=needs_human&page=1&page_size=20")
+    assert needs_human_response.status_code == 200
+    assert any(row["id"] == payload["id"] for row in needs_human_response.json()["items"])
 
 
 def test_workflow_empty_state_summary_exposes_pending_candidates(synced_client, db_session):

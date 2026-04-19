@@ -565,6 +565,13 @@ export interface DeclarativeWorkflowRunSummary {
   archived_at?: string | null
   archived_by?: string | null
   archive_reason?: string | null
+  outcome_label?: string
+  is_truly_completed?: boolean
+  completed_truthfully?: boolean
+  needs_human?: boolean
+  is_simulated?: boolean
+  simulated_delivery?: boolean
+  evidence_complete?: boolean
 }
 
 export interface DeclarativeWorkflowRunPage {
@@ -678,6 +685,56 @@ export interface DeclarativeHumanGate {
   created_at: string | null
 }
 
+export interface DeclarativeAgentOutput {
+  state_key: string
+  atom_key: string
+  agent_name: string
+  status: string
+  summary: string
+  input_summary: string
+  parsed_writes: Record<string, unknown>
+  raw_artifact_id: number | null
+  raw_output: string
+  created_at: string | null
+}
+
+export interface DeclarativeChangedFilesSummary {
+  changed_files: string[]
+  added_files: string[]
+  modified_files: string[]
+  deleted_files: string[]
+  changed_files_count: number
+  diff_summary: string
+  patch_artifact_id?: number | null
+  planned_change_only: boolean
+}
+
+export interface DeclarativeCommandResult {
+  cwd?: string
+  command: string
+  purpose?: string
+  exit_code: number
+  duration_ms?: number
+  stdout_excerpt?: string
+  stderr_excerpt?: string
+  log_artifact_id?: number | null
+  timeout?: boolean
+  simulated?: boolean
+  state_key?: string | null
+  atom_key?: string | null
+}
+
+export interface DeclarativeDeliverySummary {
+  pr_created: boolean
+  pr_url: string | null
+  branch_name: string | null
+  compare_url: string | null
+  pr_status: string | null
+  release_status: string | null
+  sync_action: string | null
+  simulated: boolean
+}
+
 export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSummary {
   blackboard: Record<string, unknown>
   retry_counters: Record<string, number>
@@ -686,6 +743,18 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   atom_invocations: DeclarativeAtomInvocation[]
   human_gates: DeclarativeHumanGate[]
   notifications?: NotificationDelivery[]
+  outcome_label?: string
+  is_truly_completed?: boolean
+  completed_truthfully?: boolean
+  needs_human?: boolean
+  is_simulated?: boolean
+  simulated_delivery?: boolean
+  evidence_complete?: boolean
+  observability_warnings?: string[]
+  agent_outputs?: DeclarativeAgentOutput[]
+  changed_files_summary?: DeclarativeChangedFilesSummary
+  command_results?: DeclarativeCommandResult[]
+  delivery_summary?: DeclarativeDeliverySummary
 }
 
 export interface AgentRequirement {

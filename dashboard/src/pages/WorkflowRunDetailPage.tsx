@@ -45,6 +45,14 @@ function statusClass(status: string) {
   return 'border-blue-200 bg-blue-50 text-blue-700'
 }
 
+function isTrulyCompleted(detail: DeclarativeWorkflowRunDetail) {
+  return Boolean(detail.is_truly_completed ?? (['succeeded', 'completed', 'done'].includes(detail.status) && detail.pending_human_gate_count === 0))
+}
+
+function hasPendingGate(detail: DeclarativeWorkflowRunDetail) {
+  return detail.pending_human_gate_count > 0 || Boolean(detail.needs_human)
+}
+
 function actionClass(tone: 'ready' | 'blocked' | 'running' | 'muted') {
   if (tone === 'ready') return 'border-emerald-200 bg-emerald-600 text-white'
   if (tone === 'blocked') return 'border-rose-200 bg-rose-600 text-white'
@@ -82,6 +90,7 @@ function WorkflowRunHeader({
   onSetTab: (tab: WorkflowTab) => void
 }>) {
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
+  const outcomeLabel = detail.outcome_label || (hasPendingGate(detail) ? 'Needs Human' : isTrulyCompleted(detail) ? 'Completed' : detail.status)
   return (
     <section className="sticky top-0 z-10 rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white/95 px-5 py-5 shadow-sm backdrop-blur" data-testid="workflow-run-header">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -89,10 +98,12 @@ function WorkflowRunHeader({
           <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Explainable Workflow Run</div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{detail.workflow_key}</h2>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className={['rounded-full border px-3 py-1 font-medium', statusClass(detail.status)].join(' ')}>{detail.status}</span>
+            <span className={['rounded-full border px-3 py-1 font-medium', statusClass(hasPendingGate(detail) ? 'awaiting_operator' : detail.status)].join(' ')}>{outcomeLabel}</span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">run #{detail.id}</span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">state: {detail.current_state}</span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">risk: {detail.risk_level}</span>
+            {detail.simulated_delivery ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated PR</span> : null}
+            {detail.evidence_complete === false ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Evidence incomplete</span> : null}
             {detail.resolution ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">resolution: {detail.resolution}</span> : null}
             {pr.url ? <a className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700" href={String(pr.url)} target="_blank" rel="noreferrer">PR</a> : null}
           </div>
@@ -147,9 +158,9 @@ function WorkflowRunTabs({ activeTab, onChange }: Readonly<{ activeTab: Workflow
 function RunBriefPanel({ detail, nextAction }: Readonly<{ detail: DeclarativeWorkflowRunDetail; nextAction: ReturnType<typeof buildNextAction> }>) {
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
   const observation = (detail.blackboard.observation || {}) as Record<string, unknown>
-  const outcome = detail.pending_human_gate_count > 0
+  const outcome = hasPendingGate(detail)
     ? '需要 operator 审查后才能继续。'
-    : detail.status === 'succeeded'
+    : isTrulyCompleted(detail)
       ? '工作流已完成，关键验证与收口状态已记录。'
       : `工作流当前停在 ${detail.current_state}。`
   return (
@@ -159,9 +170,10 @@ function RunBriefPanel({ detail, nextAction }: Readonly<{ detail: DeclarativeWor
           Run #{detail.id} 执行 `{detail.workflow_key}`，关联需求 #{detail.requirement_id}「{detail.requirement_title || '未命名需求'}」。{outcome}
         </p>
         <div className="grid gap-3 md:grid-cols-4">
+          <MiniFact label="Outcome" value={detail.outcome_label || detail.status} />
           <MiniFact label="Current State" value={detail.current_state} />
           <MiniFact label="Resolution" value={detail.resolution || '-'} />
-          <MiniFact label="PR" value={pr.url ? 'created' : pr.created ? 'created without url' : '-'} />
+          <MiniFact label="PR" value={detail.simulated_delivery ? 'simulated' : pr.url ? 'created' : pr.created ? 'created without url' : '-'} />
           <MiniFact label="Observation" value={observation.restored ? 'restored' : observation.not_restored ? 'not restored' : '-'} />
         </div>
         <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 p-4">
@@ -192,8 +204,9 @@ function CompletionArchivePanel({
   onArchive: () => void
   onCreateFollowup: () => void
 }>) {
-  const completed = ['succeeded', 'completed', 'done'].includes(detail.status)
+  const completed = isTrulyCompleted(detail)
   const prUrl = detail.pr_url || String(((detail.blackboard.pr || {}) as Record<string, unknown>).url || '')
+  const archiveLabel = hasPendingGate(detail) ? 'Pause / Hide from active' : 'Archive Run'
   return (
     <Panel title="Outcome Summary" testId="workflow-outcome-summary">
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -203,7 +216,7 @@ function CompletionArchivePanel({
               ? '这次 workflow 已进入完成档案。后续不删除运行证据，只通过归档从默认管理视图隐藏。'
               : detail.status === 'failed'
                 ? '这次 workflow 未完成。优先检查失败 atom、verification evidence 和下一步修复建议。'
-                : detail.status === 'awaiting_operator'
+                : hasPendingGate(detail)
                   ? '这次 workflow 正在等待人工门禁。请在 Gates & Delivery 里处理决策。'
                   : '这次 workflow 仍在运行或暂停中。请查看 Step Timeline 和当前 atom 输出。'}
           </p>
@@ -226,7 +239,7 @@ function CompletionArchivePanel({
               Create Follow-up Requirement
             </button>
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm disabled:opacity-50" disabled={Boolean(detail.archived_at)} onClick={onArchive}>
-              {detail.archived_at ? 'Archived' : 'Archive Run'}
+              {detail.archived_at ? (hasPendingGate(detail) ? 'Hidden while gate pending' : 'Archived') : archiveLabel}
             </button>
           </div>
         </div>
@@ -256,6 +269,114 @@ function CorrectnessPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunD
           This run contains simulated evidence. Do not treat it as production proof.
         </div>
       ) : null}
+      {detail.observability_warnings?.length ? (
+        <div className="mt-4 space-y-2" data-testid="workflow-observability-warnings">
+          {detail.observability_warnings.map((warning) => (
+            <div key={warning} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {warning}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Panel>
+  )
+}
+
+function AgentOutputPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const outputs = detail.agent_outputs || []
+  return (
+    <Panel title="Agent Output" testId="workflow-agent-output-panel">
+      <div className="space-y-3">
+        {outputs.map((output) => (
+          <details key={`${output.state_key}-${output.raw_artifact_id || output.atom_key}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4" open>
+            <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">
+              {output.state_key}: {output.agent_name}
+            </summary>
+            <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">{output.summary || output.status}</div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Parsed Writes</div>
+                <div className="mt-2">
+                  <JsonBlock value={output.parsed_writes || {}} maxHeight="max-h-[220px]" />
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Raw Output</div>
+                <pre className="mt-2 max-h-[220px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{output.raw_output || 'No raw output artifact recorded.'}</pre>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
+              artifact #{output.raw_artifact_id || '-'} · {output.input_summary || 'no input summary'} · {formatTime(output.created_at)}
+            </div>
+          </details>
+        ))}
+        {!outputs.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No agent output artifacts recorded.</div> : null}
+      </div>
+    </Panel>
+  )
+}
+
+function ChangedFilesPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const summary = detail.changed_files_summary
+  const files = summary?.changed_files || []
+  return (
+    <Panel title="Changed Files / Diff" testId="workflow-changed-files-panel">
+      {summary?.planned_change_only ? (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Planned change only. This is not proof of an actual committed diff.
+        </div>
+      ) : null}
+      <div className="grid gap-3 md:grid-cols-4">
+        <MiniFact label="Changed" value={String(summary?.changed_files_count ?? files.length)} />
+        <MiniFact label="Added" value={String(summary?.added_files?.length ?? 0)} />
+        <MiniFact label="Modified" value={String(summary?.modified_files?.length ?? 0)} />
+        <MiniFact label="Deleted" value={String(summary?.deleted_files?.length ?? 0)} />
+      </div>
+      <div className="mt-4 space-y-2">
+        {files.map((file) => (
+          <div key={file} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 px-3 py-2 font-mono text-sm text-[color:var(--ops-text-title)]">
+            {file}
+          </div>
+        ))}
+        {!files.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No changed files recorded.</div> : null}
+      </div>
+      {summary?.diff_summary ? (
+        <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 p-4 text-sm leading-6 text-[color:var(--ops-text-muted)]">
+          {summary.diff_summary}
+        </div>
+      ) : null}
+    </Panel>
+  )
+}
+
+function CommandEvidencePanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const commands = detail.command_results || []
+  return (
+    <Panel title="Commands Run" testId="workflow-command-evidence-panel">
+      <div className="space-y-3">
+        {commands.map((command, index) => (
+          <details key={`${command.command}-${index}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4" open>
+            <summary className="cursor-pointer font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{command.command}</summary>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className={['rounded-full border px-3 py-1', command.exit_code === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'].join(' ')}>
+                exit {command.exit_code}
+              </span>
+              {command.simulated ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated verification</span> : null}
+              {command.timeout ? <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">timeout</span> : null}
+              {command.log_artifact_id ? <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">log artifact #{command.log_artifact_id}</span> : null}
+            </div>
+            <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{command.purpose || 'No purpose recorded.'}</div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <pre className="max-h-[180px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{command.stdout_excerpt || 'No stdout excerpt.'}</pre>
+              <pre className="max-h-[180px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{command.stderr_excerpt || 'No stderr excerpt.'}</pre>
+            </div>
+            <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
+              cwd: {command.cwd || '-'} · duration {command.duration_ms ?? 0}ms
+            </div>
+          </details>
+        ))}
+        {!commands.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No command evidence recorded.</div> : null}
+      </div>
     </Panel>
   )
 }
@@ -533,6 +654,11 @@ function GateDeliveryPanel({
           <MiniFact label="Base" value={String(pr.base_branch || sync.base_branch || vcs.base_branch || '-')} />
           <MiniFact label="VCS" value={String(vcs.status || '-')} />
         </div>
+        {detail.delivery_summary?.simulated || detail.simulated_delivery ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            Simulated PR. This delivery did not create a real external GitHub PR.
+          </div>
+        ) : null}
         {pr.url ? (
           <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={String(pr.url)} target="_blank" rel="noreferrer">
             Open GitHub PR
@@ -740,6 +866,9 @@ export default function WorkflowRunDetailPage() {
           <RunBriefPanel detail={detail} nextAction={nextAction} />
           <CompletionArchivePanel detail={detail} onArchive={() => archiveRun().catch(() => {})} onCreateFollowup={() => createFollowup().catch(() => {})} />
           <CorrectnessPanel detail={detail} />
+          <AgentOutputPanel detail={detail} />
+          <ChangedFilesPanel detail={detail} />
+          <CommandEvidencePanel detail={detail} />
           <CompactStepRail steps={steps} selectedStepKey={selectedStep?.stateKey || ''} onSelect={selectStep} />
         </div>
       ) : null}
@@ -753,7 +882,14 @@ export default function WorkflowRunDetailPage() {
         </div>
       ) : null}
 
-      {activeTab === 'evidence' ? <EvidenceMap steps={steps} /> : null}
+      {activeTab === 'evidence' ? (
+        <div className="space-y-5">
+          <AgentOutputPanel detail={detail} />
+          <ChangedFilesPanel detail={detail} />
+          <CommandEvidencePanel detail={detail} />
+          <EvidenceMap steps={steps} />
+        </div>
+      ) : null}
 
       {activeTab === 'gates' ? (
         <GateDeliveryPanel detail={detail} busyGateId={busyGateId} onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }} />

@@ -13,6 +13,17 @@ const workflowDetail = {
   resolution: 'route_to_human',
   risk_level: 'high',
   pending_human_gate_count: 1,
+  outcome_label: 'Needs Human',
+  is_truly_completed: false,
+  completed_truthfully: false,
+  needs_human: true,
+  is_simulated: true,
+  simulated_delivery: true,
+  evidence_complete: false,
+  observability_warnings: [
+    'Pending human gate: this run is not truly completed.',
+    'Simulated PR: delivery evidence is not a real external PR.',
+  ],
   updated_at: '2026-04-18T10:00:00Z',
   started_at: '2026-04-18T09:58:00Z',
   completed_at: null,
@@ -21,7 +32,7 @@ const workflowDetail = {
     trigger: { ops_failure_detected: true },
     evidence: [{ kind: 'log_excerpt', summary: 'Traceback from ops-dashboard runtime' }],
     diagnosis: { action: 'patch' },
-    patch_result: { changed_files_count: 1 },
+    patch_result: { changed_files_count: 1, changed_files: ['server/services/workflows/declarative.py'], planned_change_only: true },
     verification: { status: 'passed' },
     pr: { created: true, url: 'https://github.com/example/repo/pull/7', branch_name: 'ops/req-4-agent-self-repair' },
     risk_flags: ['self_modification_requires_human'],
@@ -99,6 +110,41 @@ const workflowDetail = {
       error_excerpt: null,
     },
   ],
+  agent_outputs: [
+    {
+      state_key: 'diagnose',
+      atom_key: 'ops_self_repair_diagnoser',
+      agent_name: 'ops_self_repair_diagnoser',
+      status: 'completed',
+      summary: 'TypeError from stale parser boundary',
+      input_summary: 'state=diagnose',
+      parsed_writes: { diagnosis: { action: 'patch' } },
+      raw_artifact_id: 31,
+      raw_output: '{"writes":{"diagnosis":{"action":"patch"}}}',
+      created_at: '2026-04-18T09:58:30Z',
+    },
+  ],
+  changed_files_summary: {
+    changed_files: ['server/services/workflows/declarative.py'],
+    added_files: [],
+    modified_files: ['server/services/workflows/declarative.py'],
+    deleted_files: [],
+    changed_files_count: 1,
+    diff_summary: 'Planned observability patch',
+    patch_artifact_id: null,
+    planned_change_only: true,
+  },
+  command_results: [],
+  delivery_summary: {
+    pr_created: true,
+    pr_url: 'https://github.com/example/repo/pull/7',
+    branch_name: 'ops/req-4-agent-self-repair',
+    compare_url: null,
+    pr_status: 'draft',
+    release_status: null,
+    sync_action: 'simulated',
+    simulated: true,
+  },
   human_gates: [
     {
       id: 41,
@@ -203,8 +249,15 @@ describe('WorkflowRunDetailPage', () => {
     await waitFor(() => expect(mockApi.getWorkflowDefinition).toHaveBeenCalledWith('agent_self_repair'))
 
     expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('agent_self_repair')
+    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Needs Human')
+    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Simulated PR')
     expect(screen.getByTestId('workflow-overview-tab')).toHaveTextContent('Run #7 执行')
     expect(screen.getByTestId('workflow-correctness-panel')).toHaveTextContent('Verification passed')
+    expect(screen.getByTestId('workflow-observability-warnings')).toHaveTextContent('Pending human gate')
+    expect(screen.getByTestId('workflow-agent-output-panel')).toHaveTextContent('ops_self_repair_diagnoser')
+    expect(screen.getByTestId('workflow-changed-files-panel')).toHaveTextContent('server/services/workflows/declarative.py')
+    expect(screen.getByTestId('workflow-changed-files-panel')).toHaveTextContent('Planned change only')
+    expect(screen.getByTestId('workflow-command-evidence-panel')).toHaveTextContent('No command evidence recorded')
     expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Review Human Gate')
     expect(screen.getByTestId('workflow-compact-step-rail')).toHaveTextContent('diagnose')
     expect(screen.queryByText('Generated Work Items')).not.toBeInTheDocument()
@@ -244,6 +297,9 @@ describe('WorkflowRunDetailPage', () => {
     await waitFor(() => expect(screen.getByTestId('workflow-run-tabs')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Evidence'))
 
+    expect(screen.getByTestId('workflow-agent-output-panel')).toHaveTextContent('ops_self_repair_diagnoser')
+    expect(screen.getByTestId('workflow-changed-files-panel')).toHaveTextContent('server/services/workflows/declarative.py')
+    expect(screen.getByTestId('workflow-command-evidence-panel')).toHaveTextContent('No command evidence recorded')
     expect(screen.getByTestId('workflow-evidence-map')).toHaveTextContent('Agent Output: diagnose')
     expect(screen.getByTestId('workflow-evidence-map')).toHaveTextContent('GitHub PR: draft PR synced')
     expect(screen.queryByText('Raw Blackboard JSON')).not.toBeInTheDocument()
