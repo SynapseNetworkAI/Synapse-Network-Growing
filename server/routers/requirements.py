@@ -16,7 +16,7 @@ from server.schemas import (
     RequirementRevisionRequest,
     WorkflowReadinessOut,
 )
-from server.services.workflows.agent_first import (
+from server.services.requirements.service import (
     approve_requirement,
     build_requirement_detail,
     cancel_requirement,

@@ -11,18 +11,16 @@ from sqlalchemy.orm import Session
 
 from server.database import (
     ApprovalRequestRow,
-    ApprovalRow,
     ArtifactRow,
     OptimizationSignalRow,
     RequirementRow,
-    TaskRow,
 )
 from server.schemas import RequirementCreate
 from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_templates import build_template_instance, template_key_for_signal
 from server.services.projects.intelligence import build_project_catalog
 from server.services.requirements.sources import normalize_requirement_intake_metadata
-from server.services.workflows.agent_first import create_requirement
+from server.services.requirements.service import create_requirement
 
 logger = logging.getLogger("ops-dashboard.optimization_signals")
 
@@ -106,23 +104,6 @@ def _requirement_project_contexts(requirement: RequirementRow, project_map: dict
             }
         )
     return contexts
-
-
-def _task_project_context(task: TaskRow, project_map: dict[str, dict[str, Any]], requirement_by_id: dict[int, RequirementRow]) -> dict[str, Any]:
-    if task.project_id and task.project_id in project_map:
-        return dict(project_map[task.project_id])
-    for step in task.workflow_steps:
-        requirement = requirement_by_id.get(int(step.requirement_id))
-        if requirement is None:
-            continue
-        contexts = _requirement_project_contexts(requirement, project_map)
-        if contexts:
-            return contexts[0]
-    return {
-        "project_key": None,
-        "display_name": "TaskBoard",
-        "root_path": None,
-    }
 
 
 def _signal_title(prefix: str, display_name: str, suffix: str) -> str:
@@ -463,51 +444,6 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                 },
                 approval.decided_at or approval.created_at,
             )
-
-    task_by_id = {int(row.id): row for row in db.query(TaskRow).all()}
-    for approval in db.query(ApprovalRow).order_by(ApprovalRow.id.asc()).all():
-        task = task_by_id.get(int(approval.task_id))
-        if task is None:
-            continue
-        project = _task_project_context(task, project_map, requirements)
-        key = (project.get("project_key"), str(project.get("root_path") or ""))
-        signal = grouped.get(key)
-        display_name = str(project.get("display_name") or project.get("root_path") or "TaskBoard")
-        if signal is None:
-            signal = {
-                "dedupe_key": f"manual-override::{project.get('project_key') or 'taskboard'}",
-                "signal_type": "manual_override",
-                "source_kind": "approval",
-                "status": "open",
-                "title": f"Manual override load: {display_name}",
-                "summary": f"Task approvals are repeatedly requiring manual operator decisions in {display_name}.",
-                "severity": "medium",
-                "confidence": 0.68,
-                "project_key": project.get("project_key"),
-                "project_root_path": project.get("root_path"),
-                "routing_target_path": project.get("root_path"),
-                "evidence": [],
-                "occurrence_count": 0,
-                "latest_evidence_at": approval.decided_at or approval.created_at,
-            }
-            grouped[key] = signal
-        _record_signal_evidence(
-            signal,
-            {
-                "approval_id": int(approval.id),
-                "task_id": int(task.id),
-                "task_description": str(task.description),
-                "status": str(approval.status),
-                "reviewer": approval.reviewer,
-                "comment": approval.comment,
-                "created_at": approval.created_at.isoformat() if approval.created_at else None,
-                "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
-            },
-            approval.decided_at or approval.created_at,
-        )
-        if int(signal.get("occurrence_count") or 0) >= 3:
-            signal["severity"] = "high"
-            signal["confidence"] = 0.82
 
     return list(grouped.values())
 

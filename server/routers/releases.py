@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.schemas import ReleaseActionRequest, ReleaseCandidateOut, ReleaseDetailOut, ReleaseRollbackRequest
-from server.services.workflows.agent_first import (
+from server.services.releases.service import (
     build_release_detail,
     deploy_release,
     list_release_candidates,

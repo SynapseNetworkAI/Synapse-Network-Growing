@@ -7,17 +7,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import init_db, get_db, AgentRow, TaskRow, ApprovalRow
+from server.database import (
+    AgentRow,
+    HumanGateRequestRow,
+    RequirementRow,
+    WorkflowRunRow,
+    get_db,
+    init_db,
+)
 from server.logging_utils import bind_context, clear_context, get_logger, log_event, setup_ops_logging
 from server.schemas import DashboardStats
-from server.routers import agents, tasks, approvals, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, releases, errors, projects, workflows, planning
+from server.routers import agents, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, releases, errors, projects, workflows, planning
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
-from server.services.runtime.codex_cli_monitor import CodexCLITaskMonitor
-from server.services.runtime.copilot_sdk_monitor import CopilotSDKTaskMonitor
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
-from server.services.runtime.openai_responses_monitor import OpenAIResponsesTaskMonitor
-from server.services.workflows.agent_first import reconcile_runtime_recovery
 
 setup_ops_logging(
     log_level=config.LOG_LEVEL,
@@ -43,29 +46,8 @@ async def lifespan(app: FastAPI):
     )
     init_db()
     log_event(logger, "database_initialized", db_path=config.DB_PATH)
-    db = None
-    try:
-        from server.database import SessionLocal as _SessionLocal
-        db = _SessionLocal()
-        reconcile_runtime_recovery(db)
-    finally:
-        if db is not None:
-            db.close()
-    monitor = None
     bug_scheduler = None
     notification_dispatcher = None
-    if config.ORCHESTRATION_BACKEND.lower() == "copilot_sdk" and config.COPILOT_SDK_MONITOR_ENABLED:
-        monitor = CopilotSDKTaskMonitor(project_root=config.PROJECT_ROOT)
-        monitor.start()
-        app.state.copilot_runtime_monitor = monitor
-    elif config.ORCHESTRATION_BACKEND.lower() in {"codex_cli", "codex_sdk"} and config.CODEX_CLI_MONITOR_ENABLED:
-        monitor = CodexCLITaskMonitor(project_root=config.PROJECT_ROOT)
-        monitor.start()
-        app.state.codex_runtime_monitor = monitor
-    elif config.ORCHESTRATION_BACKEND.lower() == "openai_responses" and config.OPENAI_RESPONSES_MONITOR_ENABLED:
-        monitor = OpenAIResponsesTaskMonitor(project_root=config.PROJECT_ROOT)
-        monitor.start()
-        app.state.openai_runtime_monitor = monitor
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
         bug_scheduler.start()
@@ -81,8 +63,6 @@ async def lifespan(app: FastAPI):
             notification_dispatcher.stop()
         if bug_scheduler is not None:
             bug_scheduler.stop()
-        if monitor is not None:
-            monitor.stop()
         log_event(logger, "service_stopped")
 
 
@@ -97,8 +77,6 @@ app.add_middleware(
 )
 
 app.include_router(agents.router)
-app.include_router(tasks.router)
-app.include_router(approvals.router)
 app.include_router(skills.router)
 app.include_router(copilot_auth.router)
 app.include_router(requirements.router)
@@ -163,12 +141,13 @@ def dashboard_stats(db: Session = Depends(get_db)):
     ensure_agents_loaded(db)
     return DashboardStats(
         agent_count=db.query(AgentRow).count(),
-        task_total=db.query(TaskRow).count(),
-        task_pending=db.query(TaskRow).filter(TaskRow.status == "pending").count(),
-        task_running=db.query(TaskRow).filter(TaskRow.status.in_(["running", "pending_approval"])).count(),
-        task_completed=db.query(TaskRow).filter(TaskRow.status == "completed").count(),
-        task_failed=db.query(TaskRow).filter(TaskRow.status.in_(["failed", "rejected"])).count(),
-        approval_pending=db.query(ApprovalRow).filter(ApprovalRow.status == "pending").count(),
+        requirement_total=db.query(RequirementRow).count(),
+        requirement_active=db.query(RequirementRow).filter(RequirementRow.status.notin_(["done", "cancelled", "deleted"])).count(),
+        workflow_total=db.query(WorkflowRunRow).count(),
+        workflow_running=db.query(WorkflowRunRow).filter(WorkflowRunRow.status.in_(["running", "paused"])).count(),
+        workflow_succeeded=db.query(WorkflowRunRow).filter(WorkflowRunRow.status == "succeeded").count(),
+        workflow_failed=db.query(WorkflowRunRow).filter(WorkflowRunRow.status == "failed").count(),
+        human_gate_pending=db.query(HumanGateRequestRow).filter(HumanGateRequestRow.status == "pending").count(),
     )
 
 @app.get("/health")

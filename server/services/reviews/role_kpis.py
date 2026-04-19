@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,12 +12,7 @@ from server.database import (
     AgentRow,
     ApprovalRequestRow,
     ArtifactRow,
-    TaskRow,
-    WorkflowStepRow,
 )
-
-TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled", "rejected"}
-ACTIVE_TASK_STATUSES = {"running", "pending_approval"}
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -67,84 +61,24 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
     """Aggregate execution and approval KPI metrics by role."""
 
     agents = db.query(AgentRow).order_by(AgentRow.group.asc(), AgentRow.display_name.asc()).all()
-    tasks = db.query(TaskRow).all()
-    steps = db.query(WorkflowStepRow).all()
     approvals = db.query(ApprovalRequestRow).all()
     approval_payloads = _latest_requirement_approval_payloads(db)
-
-    task_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    completed_counts: Counter[str] = Counter()
-    active_counts: Counter[str] = Counter()
-    pending_counts: Counter[str] = Counter()
-    failed_counts: Counter[str] = Counter()
-    reopened_counts: Counter[str] = Counter()
-    approval_dependency_counts: Counter[str] = Counter()
-    token_totals: Counter[str] = Counter()
-    budget_totals: Counter[str] = Counter()
-    completed_with_cost_counts: Counter[str] = Counter()
-    requirement_sets: dict[str, set[int]] = defaultdict(set)
-    task_requirement_ids: dict[int, set[int]] = defaultdict(set)
-
-    for step in steps:
-        if step.compatibility_task_id is not None and step.requirement_id is not None:
-            task_requirement_ids[int(step.compatibility_task_id)].add(int(step.requirement_id))
-
-    for task in tasks:
-        role_id = str(task.agent_id or "").strip()
-        if not role_id:
-            continue
-        status = str(task.status or "pending")
-        task_counts[role_id][status] += 1
-        if status == "completed":
-            completed_counts[role_id] += 1
-            token_totals[role_id] += int(task.tokens_used or 0)
-            budget_totals[role_id] += int(task.budget_cost_points or 0)
-            completed_with_cost_counts[role_id] += 1
-        elif status in ACTIVE_TASK_STATUSES:
-            active_counts[role_id] += 1
-        elif status == "pending":
-            pending_counts[role_id] += 1
-        elif status in {"failed", "rejected"}:
-            failed_counts[role_id] += 1
-        if int(task.attempt_no or 1) > 1 or task.retry_of_task_id is not None:
-            reopened_counts[role_id] += 1
-        if bool(task.requires_approval) or status == "pending_approval":
-            approval_dependency_counts[role_id] += 1
-        if status not in TERMINAL_TASK_STATUSES:
-            for requirement_id in task_requirement_ids.get(int(task.id), set()):
-                requirement_sets[role_id].add(requirement_id)
-
-    for step in steps:
-        role_id = str(step.assigned_agent_id or "").strip()
-        if not role_id:
-            continue
-        if step.requirement_id is not None and str(step.status or "pending") not in {"completed", "skipped", "cancelled"}:
-            requirement_sets[role_id].add(int(step.requirement_id))
 
     role_rows: list[dict[str, Any]] = []
     total_backlog_count = 0
     for agent in agents:
         role_id = str(agent.id)
-        status_mix = dict(task_counts.get(role_id) or {})
-        task_count = sum(status_mix.values())
-        completed_count = int(completed_counts.get(role_id, 0))
-        active_task_count = int(active_counts.get(role_id, 0))
-        pending_task_count = int(pending_counts.get(role_id, 0))
-        failed_task_count = int(failed_counts.get(role_id, 0))
-        backlog_count = active_task_count + pending_task_count
-        total_backlog_count += backlog_count
-        reopened_task_count = int(reopened_counts.get(role_id, 0))
-        approval_dependency_count = int(approval_dependency_counts.get(role_id, 0))
-        average_token_cost = (
-            round(token_totals[role_id] / completed_with_cost_counts[role_id], 2)
-            if completed_with_cost_counts[role_id]
-            else 0.0
-        )
-        average_budget_cost_points = (
-            round(budget_totals[role_id] / completed_with_cost_counts[role_id], 2)
-            if completed_with_cost_counts[role_id]
-            else 0.0
-        )
+        status_mix: dict[str, int] = {}
+        task_count = 0
+        completed_count = 0
+        active_task_count = 0
+        pending_task_count = 0
+        failed_task_count = 0
+        backlog_count = 0
+        reopened_task_count = 0
+        approval_dependency_count = 0
+        average_token_cost = 0.0
+        average_budget_cost_points = 0.0
         role_rows.append(
             {
                 "role_id": role_id,
@@ -164,9 +98,9 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
                 "approval_dependency_rate": round((approval_dependency_count / task_count) * 100, 2) if task_count else 0.0,
                 "average_token_cost": average_token_cost,
                 "average_budget_cost_points": average_budget_cost_points,
-                "tokens_used_total": int(token_totals.get(role_id, 0)),
-                "budget_cost_points_total": int(budget_totals.get(role_id, 0)),
-                "open_requirement_count": len(requirement_sets.get(role_id) or set()),
+                "tokens_used_total": 0,
+                "budget_cost_points_total": 0,
+                "open_requirement_count": 0,
                 "status_mix": status_mix,
             }
         )

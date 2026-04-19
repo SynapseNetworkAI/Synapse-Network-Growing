@@ -19,7 +19,6 @@ PACKAGE_DIRS = [
     "scheduling",
     "delivery",
     "workflows",
-    "workflows/orchestrator",
 ]
 
 REMOVED_FLAT_MODULES = [

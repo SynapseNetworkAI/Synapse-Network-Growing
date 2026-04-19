@@ -11,6 +11,10 @@ Canonical sources:
 3. `docs/design-docs/declarative-agent-workflow-factory.md`
 4. `docs/design-docs/planning-lifecycle-operating-manifest.md`
 5. `docs/design-docs/recurring-workflow-control-plane.md`
+6. `docs/design-docs/workflow-factory-frontend-control-plane.md`
+7. `docs/design-docs/current-feature-inventory.md`
+
+Historical plans, validation notes, and retired design drafts live under `docs/archive/`. Archived files are evidence, not active requirements.
 
 ## 1. Core Philosophy
 
@@ -40,6 +44,7 @@ Canonical sources:
 5. Verification must be independent from execution.
 6. Execution self-repair must stay in the same workflow run/session and stop after budget exhaustion.
 7. Raw agent output must be persisted as artifact; downstream deterministic atoms may only trust parsed/schema-valid payload.
+8. Legacy `/api/tasks`, `/api/approvals`, fixed-step orchestrator, and old task runner are retired. Do not reintroduce TaskBoard-style execution or fixed `workflow_steps` as product behavior.
 
 ## 4. Planning Lifecycle Constraints
 

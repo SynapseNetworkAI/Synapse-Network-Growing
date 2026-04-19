@@ -162,26 +162,9 @@ def setup_db():
     """Create all tables before each test, drop after."""
     app.dependency_overrides[get_db] = _override_get_db
     Base.metadata.create_all(bind=TEST_ENGINE)
-    # Also patch SessionLocal used by task_runner to use test DB
-    with patch("server.services.runtime.task_runner.SessionLocal", TestSession), patch(
-        "server.services.runtime.copilot_sdk_monitor.SessionLocal", TestSession
-    ), patch(
-        "server.services.workflows.orchestrator.SessionLocal", TestSession
-    ), patch(
-        "server.services.workflows.orchestrator._execute_requirement_vcs_delivery", _fake_vcs_delivery
-    ), patch(
-        "server.services.workflows.orchestrator._sync_requirement_review_pr", _fake_review_pr_sync
-    ), patch(
-        "server.services.workflows.orchestrator.capture_task_file_change_baseline",
-        _fake_capture_task_file_change_baseline,
-    ), patch(
-        "server.services.workflows.orchestrator._snapshot_file_changes",
-        _fake_snapshot_file_changes,
-    ), patch(
-        "server.services.workflows.agent_first._generate_plan_brief_markdown_with_agent",
+    with patch(
+        "server.services.requirements.service._generate_plan_brief_markdown_with_agent",
         _fake_generate_plan_brief_markdown_with_agent,
-    ), patch(
-        "server.services.workflows.orchestrator._schedule_advance_queue", lambda: None
     ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
         "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
     ), patch(

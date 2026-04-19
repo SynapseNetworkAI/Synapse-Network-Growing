@@ -25,7 +25,7 @@ from server.database import (
 )
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
-from server.services.workflows.agent_first import create_requirement
+from server.services.requirements.service import create_requirement
 
 
 GOAL_ACTIVE = "active"

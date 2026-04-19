@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from server.database import get_db, AgentRow, TaskRow
+from server.database import get_db, AgentRow
 from server.schemas import AgentOut, AgentMatch, RoleKpiSnapshotOut
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.agents.matcher import match_agents
@@ -19,14 +19,10 @@ def list_agents(db: Session = Depends(get_db)):
     rows = ensure_agents_loaded(db)
     result = []
     for r in rows:
-        total = db.query(TaskRow).filter(TaskRow.agent_id == r.id).count()
-        completed = db.query(TaskRow).filter(
-            TaskRow.agent_id == r.id, TaskRow.status == "completed"
-        ).count()
         out = AgentOut.model_validate(r)
         out.role_contract = json.loads(getattr(r, "role_contract_json", None) or "{}")
-        out.task_count = total
-        out.completed_count = completed
+        out.task_count = 0
+        out.completed_count = 0
         result.append(out)
     return result
 
@@ -62,12 +58,8 @@ def get_agent(agent_id: str, db: Session = Depends(get_db)):
     row = db.query(AgentRow).filter(AgentRow.id == agent_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Agent not found")
-    total = db.query(TaskRow).filter(TaskRow.agent_id == agent_id).count()
-    completed = db.query(TaskRow).filter(
-        TaskRow.agent_id == agent_id, TaskRow.status == "completed"
-    ).count()
     out = AgentOut.model_validate(row)
     out.role_contract = json.loads(getattr(row, "role_contract_json", None) or "{}")
-    out.task_count = total
-    out.completed_count = completed
+    out.task_count = 0
+    out.completed_count = 0
     return out

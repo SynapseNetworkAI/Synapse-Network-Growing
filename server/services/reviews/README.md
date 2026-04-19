@@ -9,7 +9,7 @@
 
 ## 依赖边界
 
-- 可以聚合 portfolio、signals、requirements、tasks 数据。
+- 可以聚合 portfolio、signals、requirements、workflow runs 与 release 数据。
 - 不直接控制 workflow dispatch。
 
 ## 迁移映射

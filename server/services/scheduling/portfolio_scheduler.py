@@ -593,7 +593,7 @@ def execute_portfolio_schedule(
     deferred_signal_intake = False
 
     from server.services.signals.optimization_signals import create_requirement_from_signal
-    from server.services.workflows.orchestrator import pause_requirement, plan_requirement, start_requirement
+    from server.services.requirements.service import generate_requirement_workflow_assets, start_requirement_workflow
 
     def _process_decisions(decisions: list[dict[str, Any]], *, skip_signal_intake: bool) -> None:
         nonlocal deferred_signal_intake
@@ -609,7 +609,10 @@ def execute_portfolio_schedule(
                 if action == "rebalance_start":
                     preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
                     if preempt_requirement_id:
-                        pause_requirement(db, preempt_requirement_id)
+                        preempted = db.query(RequirementRow).filter(RequirementRow.id == preempt_requirement_id).first()
+                        if preempted is not None:
+                            preempted.status = "paused"
+                            db.flush()
                         preempted_ids.append(preempt_requirement_id)
                 if action == "intake":
                     signal_id = int(decision["signal_id"])
@@ -621,9 +624,9 @@ def execute_portfolio_schedule(
                 requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
                 if requirement is None:
                     raise ValueError(f"requirement #{requirement_id} not found")
-                if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
-                    plan_requirement(db, requirement_id)
-                start_requirement(db, requirement_id)
+                if requirement.active_workflow_run_id is None:
+                    generate_requirement_workflow_assets(db, requirement_id)
+                start_requirement_workflow(db, requirement_id, triggered_by="portfolio_scheduler")
                 started_ids.append(requirement_id)
                 if action == "rebalance_start":
                     rebalanced_ids.append(requirement_id)
@@ -680,7 +683,7 @@ def execute_portfolio_rebalance(
     skipped: list[str] = []
 
     from server.services.signals.optimization_signals import create_requirement_from_signal
-    from server.services.workflows.orchestrator import pause_requirement, plan_requirement, start_requirement
+    from server.services.requirements.service import generate_requirement_workflow_assets, start_requirement_workflow
 
     candidates = [
         decision
@@ -691,7 +694,10 @@ def execute_portfolio_rebalance(
         try:
             preempt_requirement_id = int(decision.get("preempt_requirement_id") or 0)
             if preempt_requirement_id:
-                pause_requirement(db, preempt_requirement_id)
+                preempted = db.query(RequirementRow).filter(RequirementRow.id == preempt_requirement_id).first()
+                if preempted is not None:
+                    preempted.status = "paused"
+                    db.flush()
                 preempted_ids.append(preempt_requirement_id)
             if decision["candidate_type"] == "signal":
                 if not allow_intake:
@@ -706,9 +712,9 @@ def execute_portfolio_rebalance(
             requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
             if requirement is None:
                 raise ValueError(f"requirement #{requirement_id} not found")
-            if int(requirement.current_plan_version or 0) == 0 or requirement.active_workflow_run_id is None:
-                plan_requirement(db, requirement_id)
-            start_requirement(db, requirement_id)
+            if requirement.active_workflow_run_id is None:
+                generate_requirement_workflow_assets(db, requirement_id)
+            start_requirement_workflow(db, requirement_id, triggered_by="portfolio_scheduler")
             started_ids.append(requirement_id)
             rebalanced_ids.append(requirement_id)
             break

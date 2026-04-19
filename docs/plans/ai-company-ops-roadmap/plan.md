@@ -185,7 +185,7 @@ For each roadmap requirement, the implementation lifecycle must be:
 4. implement the feature
 5. run automated tests
 6. run browser or operator validation when needed
-7. if any check fails, record the defect in `docs/test/bugfix.md`
+7. if any check fails, record the defect in `docs/archive/evidence/test/bugfix.md`
 8. create or continue the self-repair loop until the validation plan passes
 9. only then mark the requirement complete
 

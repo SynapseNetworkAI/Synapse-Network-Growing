@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import RequirementRow
+from server.database import ArtifactRow, RequirementRow, utcnow
 
 ACTIVE_FAMILY_REQUIREMENT_STATUSES = {
     "draft",
@@ -316,8 +316,6 @@ def cleanup_requirement_families(
     duplicate_groups: list[dict[str, Any]] = []
     visited: set[int] = set()
 
-    from server.services.workflows.orchestrator import _create_artifact, _soft_delete_requirement_tree
-
     for family_key, members in groups.items():
         if len(members) <= 1:
             continue
@@ -372,7 +370,7 @@ def cleanup_requirement_families(
                         "action": "archived_duplicate_experiment",
                     },
                 )
-                _soft_delete_requirement_tree(db, duplicate, visited)
+                _archive_duplicate_requirement(db, duplicate, visited)
                 archived_requirement_ids.append(duplicate_id)
                 archived_ids_for_group.append(duplicate_id)
             action = "archive_experiment"
@@ -440,3 +438,36 @@ def cleanup_requirement_families(
         "archived_requirement_ids": sorted(set(archived_requirement_ids)),
         "duplicate_groups": duplicate_groups,
     }
+
+
+def _create_artifact(
+    db: Session,
+    *,
+    requirement_id: int,
+    artifact_type: str,
+    content_summary: str,
+    human_readable_body: str,
+    machine_readable_payload: dict[str, Any],
+) -> ArtifactRow:
+    row = ArtifactRow(
+        requirement_id=requirement_id,
+        artifact_type=artifact_type,
+        content_summary=content_summary,
+        human_readable_body=human_readable_body,
+        machine_readable_payload=json.dumps(machine_readable_payload, ensure_ascii=False, default=str),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _archive_duplicate_requirement(db: Session, requirement: RequirementRow, visited: set[int]) -> None:
+    requirement_id = int(requirement.id)
+    if requirement_id in visited:
+        return
+    visited.add(requirement_id)
+    intake = _json_loads(getattr(requirement, "intake_metadata_json", None), {})
+    intake["deleted_reason"] = "family_cleanup_duplicate"
+    intake["deleted_at"] = utcnow().isoformat()
+    requirement.intake_metadata_json = json.dumps(intake, ensure_ascii=False)
+    requirement.status = "deleted"

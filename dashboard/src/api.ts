@@ -101,136 +101,6 @@ export interface RoleKpiSnapshot {
   summary: RoleWorkAllocationSummary
 }
 
-export interface Task {
-  id: number
-  description: string
-  agent_id: string
-  status: string
-  requires_approval: boolean
-  priority: string
-  project_id: string | null
-  project_label: string | null
-  agent_group: string | null
-  skill_name: string | null
-  context_files: string | null
-  retry_of_task_id: number | null
-  attempt_no: number
-  last_error_message: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  runtime_session_id: string | null
-  runtime_selected_agent: string | null
-  output_path: string | null
-  output_content: string | null
-  execution_time_ms: number | null
-  tokens_used: number
-  budget_cost_points: number
-  requirement_id: number | null
-  requirement_title: string | null
-  workflow_step_type: string | null
-  workflow_step_title: string | null
-  output_files: string[] | null
-  created_at: string
-  started_at: string | null
-  completed_at: string | null
-}
-
-export interface Approval {
-  id: number
-  task_id: number
-  status: string
-  reviewer: string | null
-  comment: string | null
-  created_at: string
-  decided_at: string | null
-  task: Task | null
-}
-
-export interface TaskLog {
-  id: number
-  task_id: number
-  event_type: string
-  detail: string | null
-  created_at: string
-}
-
-export interface TaskHistoryItem {
-  task_id: number
-  retry_of_task_id: number | null
-  attempt_no: number
-  status: string
-  project_id: string | null
-  agent_group: string | null
-  agent_id: string
-  skill_name: string | null
-  last_error_message: string | null
-  runtime_backend: string | null
-  runtime_provider: string | null
-  runtime_model: string | null
-  tokens_used: number
-  budget_cost_points: number
-  created_at: string | null
-  started_at: string | null
-  completed_at: string | null
-}
-
-export interface FileChange {
-  filename: string
-  additions: number
-  deletions: number
-  patch: string
-}
-
-export interface TaskFileChanges {
-  changed_files: FileChange[]
-  target_project_path: string | null
-  source: 'snapshot' | 'live'
-  captured_at: string | null
-  error?: string
-}
-
-export interface TaskOutputFile {
-  file_name: string
-  content: string
-  size_bytes: number
-  truncated: boolean
-  content_type: string
-}
-
-export interface RequirementTaskOutput {
-  task_id: number
-  step_id: number | null
-  step_key: string
-  step_type: string
-  step_title: string
-  task_status: string
-  output_files: string[]
-  changed_files: FileChange[]
-  target_project_paths: string[]
-  source: string
-  captured_at: string | null
-  legacy_snapshot: boolean
-  change_warning: string | null
-}
-
-export interface RequirementMergedOutputFile {
-  file_name: string
-  task_ids: number[]
-  step_keys: string[]
-  step_types: string[]
-  step_titles: string[]
-}
-
-export interface TaskPage {
-  items: Task[]
-  total: number
-  page: number
-  page_size: number
-  total_pages: number
-  status_counts: Record<string, number>
-}
-
 // Agents-Memory types
 export interface AgentsMemoryResult {
   type: 'error' | 'wiki'
@@ -258,37 +128,15 @@ export const agentsMemoryApi = {
       : `http://localhost:10000/errors/${result.id}`,
 }
 
-export interface TaskBulkRetryRequest {
-  task_ids: number[]
-  mode?: 'run_now' | 'edit_first'
-}
-
-export interface TaskExecutionCandidate {
-  agent_id: string
-  display_name: string
-  agent_group: string
-  skill_name: string
-  confidence: number
-  reason: string
-}
-
-export interface TaskExecutionSuggestion {
-  agent_id: string | null
-  skill_name: string | null
-  confidence: number
-  reason: string
-  requires_confirmation: boolean
-  candidates: TaskExecutionCandidate[]
-}
-
 export interface DashboardStats {
   agent_count: number
-  task_total: number
-  task_pending: number
-  task_running: number
-  task_completed: number
-  task_failed: number
-  approval_pending: number
+  requirement_total: number
+  requirement_active: number
+  workflow_total: number
+  workflow_running: number
+  workflow_succeeded: number
+  workflow_failed: number
+  human_gate_pending: number
 }
 
 export interface ProjectPolicy {
@@ -1670,53 +1518,6 @@ export const api = {
     request<RequirementCandidate>(`/planning/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify(data) }),
   materializeRequirementCandidate: (id: number, data?: { operator?: string }) =>
     request<{ candidate: RequirementCandidate; requirement_id: number }>(`/planning/candidates/${id}/materialize`, { method: 'POST', body: JSON.stringify(data || {}) }),
-
-  // Tasks
-  getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean; search?: string; page?: number; page_size?: number }) => {
-    const qs = new URLSearchParams()
-    if (params?.status) qs.set('status', params.status)
-    if (params?.agent_id) qs.set('agent_id', params.agent_id)
-    if (params?.agent_group) qs.set('agent_group', params.agent_group)
-    if (params?.project_id) qs.set('project_id', params.project_id)
-    if (params?.requirement_id != null) qs.set('requirement_id', String(params.requirement_id))
-    if (params?.only_anomalies) qs.set('only_anomalies', 'true')
-    if (params?.search) qs.set('search', params.search)
-    if (params?.page != null) qs.set('page', String(params.page))
-    if (params?.page_size != null) qs.set('page_size', String(params.page_size))
-    const q = qs.toString()
-    return request<TaskPage>(`/tasks${q ? '?' + q : ''}`)
-  },
-  createTask: (data: { description: string; agent_id?: string; requires_approval?: boolean; priority?: string; skill_name?: string; confirm_auto_selection?: boolean }) =>
-    request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
-  suggestTaskExecution: (data: { description: string; agent_id?: string; skill_name?: string; limit?: number }) =>
-    request<TaskExecutionSuggestion>('/tasks/suggest-execution', { method: 'POST', body: JSON.stringify(data) }),
-  runTask: (id: number, skill?: string) => {
-    const qs = skill ? `?skill=${encodeURIComponent(skill)}` : ''
-    return request<Task>(`/tasks/${id}/run${qs}`, { method: 'POST' })
-  },
-  retryTask: (id: number, mode: 'run_now' | 'edit_first' = 'run_now') =>
-    request<Task>(`/tasks/${id}/retry?mode=${encodeURIComponent(mode)}`, { method: 'POST' }),
-  bulkRetryTasks: (data: TaskBulkRetryRequest) =>
-    request<Task[]>('/tasks/bulk-retry', { method: 'POST', body: JSON.stringify(data) }),
-  pauseTask: (id: number) =>
-    request<Task>(`/tasks/${id}/pause`, { method: 'POST' }),
-  updateTask: (id: number, data: { description?: string; priority?: string }) =>
-    request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  getTaskLogs: (id: number) => request<TaskLog[]>(`/tasks/${id}/logs`),
-  getTaskHistory: (id: number) => request<TaskHistoryItem[]>(`/tasks/${id}/history`),
-  getTaskFileChanges: (id: number) => request<TaskFileChanges>(`/tasks/${id}/file-changes`),
-  getTaskOutputFile: (id: number, fileName: string) =>
-    request<TaskOutputFile>(`/tasks/${id}/output-files/${encodeURIComponent(fileName)}`),
-
-  // Approvals
-  getApprovals: (status?: string) => {
-    const q = status ? `?status=${status}` : ''
-    return request<Approval[]>(`/approvals${q}`)
-  },
-  decideApproval: (id: number, data: { action: string; comment?: string; reviewer?: string }) =>
-    request<Approval>(`/approvals/${id}/decide`, { method: 'POST', body: JSON.stringify(data) }),
-  bulkDecideApprovals: (data: { approval_ids: number[]; action: string; comment?: string; reviewer?: string }) =>
-    request<Approval[]>('/approvals/bulk-decide', { method: 'POST', body: JSON.stringify(data) }),
 
   // Dashboard
   getStats: () => request<DashboardStats>('/dashboard/stats'),

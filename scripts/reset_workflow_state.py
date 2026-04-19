@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from server.config import DB_PATH
 from server.database import SessionLocal, init_db
-from server.services.workflows.agent_first import reset_workflow_state_data
+from server.services.workflows.reset import reset_company_ops_state_data
 
 
 def main() -> int:
@@ -36,7 +36,7 @@ def main() -> int:
 
     init_db()
     with SessionLocal() as db:
-        summary = reset_workflow_state_data(db)
+        summary = reset_company_ops_state_data(db)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

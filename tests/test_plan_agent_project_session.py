@@ -5,13 +5,12 @@ from pathlib import Path
 
 from server.database import CodexSessionRow, RequirementRow
 from server.services.runtime.codex_session_registry import build_planner_project_session_key
-from server.services.workflows.agent_first import _generate_plan_brief_markdown_with_agent
+from server.services.requirements import service as requirement_service
+from server.services.requirements.service import _generate_plan_brief_markdown_with_agent
 from server.services.workflows.planner_provider import PlannerResponse
 
 
 def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, tmp_path, monkeypatch):
-    from server.services.workflows import agent_first
-
     project_root = (tmp_path / "Synapse-Network").resolve()
     project_root.mkdir()
     calls: list[dict] = []
@@ -29,9 +28,9 @@ def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, t
         )
         return PlannerResponse(text="Project scoped plan", tokens=0, backend="codex_cli", model=metadata["planning_model"])
 
-    monkeypatch.setattr(agent_first, "resolve_planner_backend", lambda: "codex_cli")
-    monkeypatch.setattr(agent_first, "resolve_planner_model", lambda backend: "gpt-5.4")
-    monkeypatch.setattr(agent_first, "generate_planner_text", fake_generate_planner_text)
+    monkeypatch.setattr(requirement_service, "resolve_planner_backend", lambda: "codex_cli")
+    monkeypatch.setattr(requirement_service, "resolve_planner_model", lambda backend: "gpt-5.4")
+    monkeypatch.setattr(requirement_service, "generate_planner_text", fake_generate_planner_text)
 
     req1 = RequirementRow(
         title="Requirement one",
@@ -80,8 +79,6 @@ def test_plan_agent_reuses_project_scoped_session_for_same_project(db_session, t
 
 
 def test_plan_agent_keeps_different_projects_isolated(db_session, tmp_path, monkeypatch):
-    from server.services.workflows import agent_first
-
     project_a = (tmp_path / "Project-A").resolve()
     project_b = (tmp_path / "Project-B").resolve()
     project_a.mkdir()
@@ -95,9 +92,9 @@ def test_plan_agent_keeps_different_projects_isolated(db_session, tmp_path, monk
         request.metadata.update({"planning_session_id": thread_id})
         return PlannerResponse(text=f"Plan for {output_path.stem}", tokens=0, backend="codex_cli", model="gpt-5.4")
 
-    monkeypatch.setattr(agent_first, "resolve_planner_backend", lambda: "codex_cli")
-    monkeypatch.setattr(agent_first, "resolve_planner_model", lambda backend: "gpt-5.4")
-    monkeypatch.setattr(agent_first, "generate_planner_text", fake_generate_planner_text)
+    monkeypatch.setattr(requirement_service, "resolve_planner_backend", lambda: "codex_cli")
+    monkeypatch.setattr(requirement_service, "resolve_planner_model", lambda backend: "gpt-5.4")
+    monkeypatch.setattr(requirement_service, "generate_planner_text", fake_generate_planner_text)
 
     req_a = RequirementRow(
         title="Requirement A",

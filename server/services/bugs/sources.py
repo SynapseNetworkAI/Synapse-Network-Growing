@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, OptimizationSignalRow, TaskRow
+from server.database import ArtifactRow, OptimizationSignalRow
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -102,26 +102,6 @@ _BUILTIN_BUG_SOURCE_REGISTRY: list[dict[str, Any]] = [
         "notes": "Workflow incidents already exist in the runtime evidence model and should feed bug intake.",
     },
     {
-        "source_key": "task_failure",
-        "display_name": "Task Failure",
-        "source_kind": "task_runtime",
-        "ingest_mode": "artifact_derived",
-        "project_resolution_rule": "derive_from_task_project_or_requirement_target",
-        "severity_mapping": {
-            "critical": "systemic_runtime_failure_or_high_budget_blocker",
-            "high": "repeated_failed_task",
-            "normal": "isolated_failed_task",
-        },
-        "dedupe_scope": "project_id + runtime_backend + normalized_error_stem",
-        "auto_requirement_policy": {
-            "allowed": False,
-            "default_priority": "normal",
-            "requires_scoring": True,
-        },
-        "sample_evidence_types": ["task_log", "runtime_error", "task_output"],
-        "notes": "Single task failures are signals first; repeated or blocking failures become backlog candidates.",
-    },
-    {
         "source_key": "delivery_blocker_bug",
         "display_name": "Delivery Blocker Bug",
         "source_kind": "delivery_state",
@@ -165,7 +145,9 @@ def _count_external_log_center_errors(db: Session) -> int:
 
 
 def _count_runtime_log_errors(db: Session) -> int:
-    return db.query(TaskRow).filter(TaskRow.status.in_(("failed", "rejected"))).count()
+    from server.database import BugRecordRow
+
+    return db.query(BugRecordRow).filter(BugRecordRow.source_key == "runtime_log_error", BugRecordRow.status == "open").count()
 
 
 def _count_workflow_incidents(db: Session) -> int:
@@ -173,10 +155,6 @@ def _count_workflow_incidents(db: Session) -> int:
         OptimizationSignalRow.signal_type == "workflow_incident",
         OptimizationSignalRow.status == "open",
     ).count()
-
-
-def _count_task_failures(db: Session) -> int:
-    return db.query(TaskRow).filter(TaskRow.status.in_(("failed", "rejected"))).count()
 
 
 def _count_delivery_blockers(db: Session) -> int:
@@ -198,7 +176,6 @@ def list_bug_source_registry(db: Session) -> dict[str, Any]:
         "manual_bug_report": _count_manual_bug_reports(db),
         "runtime_log_error": _count_runtime_log_errors(db),
         "workflow_incident": _count_workflow_incidents(db),
-        "task_failure": _count_task_failures(db),
         "delivery_blocker_bug": _count_delivery_blockers(db),
     }
     sources = []

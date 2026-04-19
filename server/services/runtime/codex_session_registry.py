@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
 from server import config
-from server.database import CodexSessionRow, TaskRow, utcnow
+from server.database import CodexSessionRow, utcnow
 
 
 _SESSION_HEARTBEAT_WRITE_INTERVAL_SECONDS = max(
@@ -440,12 +440,6 @@ def validate_codex_session_registry(
         threshold_seconds = max(config.CODEX_CLI_STALE_AFTER_SEC * 2, 1)
     now = utcnow()
 
-    task_ids = [int(row.current_task_id) for row in rows if row.current_task_id]
-    task_map: dict[int, TaskRow] = {}
-    if task_ids:
-        task_rows = db.query(TaskRow).filter(TaskRow.id.in_(task_ids)).all()
-        task_map = {int(task.id): task for task in task_rows}
-
     sessions: list[dict[str, Any]] = []
     total_issues = 0
 
@@ -529,33 +523,15 @@ def validate_codex_session_registry(
                 }
             )
 
-        task = task_map.get(int(row.current_task_id or 0)) if row.current_task_id else None
-        if row.current_task_id and task is None:
+        if row.current_task_id:
             issues.append(
                 {
-                    "code": "task_not_found",
-                    "detail": f"current_task_id={row.current_task_id}",
+                    "code": "legacy_task_binding",
+                    "detail": f"current_task_id={row.current_task_id} belongs to the retired task runtime",
                 }
             )
 
         row_status = str(row.status or "").lower()
-        if task is not None:
-            task_status = str(task.status or "")
-            if row_status == "active" and task_status != "running":
-                issues.append(
-                    {
-                        "code": "task_status_mismatch",
-                        "detail": f"registry active but task status={task_status}",
-                    }
-                )
-            if row_status == "completed" and task_status not in {"completed", "pending_approval"}:
-                issues.append(
-                    {
-                        "code": "task_status_mismatch",
-                        "detail": f"registry completed but task status={task_status}",
-                    }
-                )
-
         last_heartbeat = _as_aware(row.last_heartbeat_at)
         if row_status in {"active", "resumable"}:
             if last_heartbeat is None:
@@ -632,8 +608,8 @@ def validate_codex_session_registry(
             "resume_count": row.resume_count,
             "last_used_at": last_used.isoformat() if last_used else None,
             "last_heartbeat_at": last_heartbeat.isoformat() if last_heartbeat else None,
-            "task_status": str(task.status or "") if task else None,
-            "task_runtime_session_id": str(task.runtime_session_id or "") if task else None,
+            "task_status": None,
+            "task_runtime_session_id": None,
             "issues": issues,
             "metadata_snapshot": metadata_snapshot,
             "state_snapshot": state_snapshot,

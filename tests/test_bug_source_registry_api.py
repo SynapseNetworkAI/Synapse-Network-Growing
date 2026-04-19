@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from server.database import ArtifactRow, BugRecordRow, OptimizationSignalRow, RequirementRow, TaskRow
+from server.database import ArtifactRow, BugRecordRow, OptimizationSignalRow, RequirementRow
 
 
 def test_bug_source_registry_lists_builtin_sources(synced_client):
@@ -17,7 +17,6 @@ def test_bug_source_registry_lists_builtin_sources(synced_client):
         "manual_bug_report",
         "runtime_log_error",
         "workflow_incident",
-        "task_failure",
         "delivery_blocker_bug",
     } <= source_keys
 
@@ -34,15 +33,6 @@ def test_bug_source_registry_includes_live_observed_counts(synced_client, db_ses
     db_session.add(requirement)
     db_session.flush()
 
-    db_session.add(
-        TaskRow(
-            description="Failed runtime task",
-            agent_id="content_writer",
-            status="failed",
-            priority="high",
-            project_id="synapse-network-growing",
-        )
-    )
     db_session.add(
         ArtifactRow(
             requirement_id=requirement.id,
@@ -80,31 +70,28 @@ def test_bug_source_registry_includes_live_observed_counts(synced_client, db_ses
     payload = response.json()
     by_key = {item["source_key"]: item for item in payload["sources"]}
     assert by_key["manual_bug_report"]["observed_open_count"] >= 1
-    assert by_key["runtime_log_error"]["observed_open_count"] >= 1
     assert by_key["workflow_incident"]["observed_open_count"] >= 1
-    assert by_key["task_failure"]["observed_open_count"] >= 1
     assert by_key["delivery_blocker_bug"]["observed_open_count"] >= 1
-    assert payload["total_open_candidates"] >= 5
+    assert payload["total_open_candidates"] >= 3
 
 
 def test_bug_intake_creates_bug_record(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        response = synced_client.post(
-            "/api/bugs/intake",
-            json={
-                "source_key": "manual_bug_report",
-                "project_key": "synapse-network",
-                "project_root_path": "/Users/cliff/workspace/agent/Synapse-Network",
-                "title": "Gateway readiness endpoint returns 500",
-                "summary": "Observed repeated 500 responses on readiness checks.",
-                "severity": "high",
-                "source_ref": "sentry:evt-1",
-                "environment": "prod",
-                "log_excerpt": "GET /readyz -> 500",
-                "stack_trace": "Traceback: readiness crash",
-                "metadata": {"component": "gateway"},
-            },
-        )
+    response = synced_client.post(
+        "/api/bugs/intake",
+        json={
+            "source_key": "manual_bug_report",
+            "project_key": "synapse-network",
+            "project_root_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            "title": "Gateway readiness endpoint returns 500",
+            "summary": "Observed repeated 500 responses on readiness checks.",
+            "severity": "high",
+            "source_ref": "sentry:evt-1",
+            "environment": "prod",
+            "log_excerpt": "GET /readyz -> 500",
+            "stack_trace": "Traceback: readiness crash",
+            "metadata": {"component": "gateway"},
+        },
+    )
     assert response.status_code == 201
     payload = response.json()
     assert payload["result"] == "created"
@@ -122,23 +109,22 @@ def test_bug_intake_creates_bug_record(synced_client, db_session):
     row = db_session.query(BugRecordRow).one()
     assert row.bug_key.startswith("manual_bug_report::synapse-network::fp_")
     assert row.source_kind == "manual_input"
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        repeat = synced_client.post(
-            "/api/bugs/intake",
-            json={
-                "source_key": "manual_bug_report",
-                "project_key": "synapse-network",
-                "project_root_path": "/Users/cliff/workspace/agent/Synapse-Network",
-                "title": "Gateway readiness endpoint returns 500",
-                "summary": "Observed repeated 500 responses on readiness checks.",
-                "severity": "high",
-                "source_ref": "sentry:evt-2",
-                "environment": "prod",
-                "log_excerpt": "GET /readyz -> 500",
-                "stack_trace": "Traceback: readiness crash",
-                "metadata": {"component": "gateway"},
-            },
-        )
+    repeat = synced_client.post(
+        "/api/bugs/intake",
+        json={
+            "source_key": "manual_bug_report",
+            "project_key": "synapse-network",
+            "project_root_path": "/Users/cliff/workspace/agent/Synapse-Network",
+            "title": "Gateway readiness endpoint returns 500",
+            "summary": "Observed repeated 500 responses on readiness checks.",
+            "severity": "high",
+            "source_ref": "sentry:evt-2",
+            "environment": "prod",
+            "log_excerpt": "GET /readyz -> 500",
+            "stack_trace": "Traceback: readiness crash",
+            "metadata": {"component": "gateway"},
+        },
+    )
     assert repeat.status_code == 201
     assert db_session.query(BugRecordRow).count() == 1
     assert db_session.query(RequirementRow).count() == 1
@@ -203,36 +189,35 @@ def test_bug_intake_rejects_unknown_source(synced_client):
 
 
 def test_external_log_center_batch_intake_creates_and_updates_bug_records(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        response = synced_client.post(
-            "/api/bugs/intake/log-center",
-            json={
-                "source_system": "loki",
-                "events": [
-                    {
-                        "project_key": "synapse-network",
-                        "service_name": "gateway",
-                        "title": "Gateway 500 spike",
-                        "message": "GET /readyz returned 500 repeatedly",
-                        "severity": "error",
-                        "fingerprint": "gateway-500-readyz",
-                        "source_ref": "loki:evt-1",
-                        "environment": "prod",
-                        "metadata": {"cluster": "prod-a"},
-                    },
-                    {
-                        "project_key": "synapse-network",
-                        "service_name": "gateway",
-                        "message": "GET /readyz returned 500 repeatedly",
-                        "severity": "fatal",
-                        "fingerprint": "gateway-500-readyz",
-                        "source_ref": "loki:evt-2",
-                        "environment": "prod",
-                        "metadata": {"cluster": "prod-a"},
-                    },
-                ],
-            },
-        )
+    response = synced_client.post(
+        "/api/bugs/intake/log-center",
+        json={
+            "source_system": "loki",
+            "events": [
+                {
+                    "project_key": "synapse-network",
+                    "service_name": "gateway",
+                    "title": "Gateway 500 spike",
+                    "message": "GET /readyz returned 500 repeatedly",
+                    "severity": "error",
+                    "fingerprint": "gateway-500-readyz",
+                    "source_ref": "loki:evt-1",
+                    "environment": "prod",
+                    "metadata": {"cluster": "prod-a"},
+                },
+                {
+                    "project_key": "synapse-network",
+                    "service_name": "gateway",
+                    "message": "GET /readyz returned 500 repeatedly",
+                    "severity": "fatal",
+                    "fingerprint": "gateway-500-readyz",
+                    "source_ref": "loki:evt-2",
+                    "environment": "prod",
+                    "metadata": {"cluster": "prod-a"},
+                },
+            ],
+        },
+    )
     assert response.status_code == 201
     payload = response.json()
     assert payload["source_system"] == "loki"
@@ -266,18 +251,7 @@ def test_bug_intake_scores_blocking_delivery_bug(synced_client):
     assert payload["bug"]["scorecard"]["auto_intake_eligible"] is True
 
 
-def test_bug_log_sweep_materializes_runtime_and_failure_candidates(synced_client, db_session, tmp_path):
-    db_session.add(
-        TaskRow(
-            description="Rejected task",
-            agent_id="content_writer",
-            status="failed",
-            priority="high",
-            project_id="synapse-network-growing",
-            last_error_message="LLM API error 500 during implementation",
-            runtime_backend="codex_cli",
-        )
-    )
+def test_bug_log_sweep_materializes_runtime_and_workflow_incident_candidates(synced_client, db_session, tmp_path):
     db_session.add(
         OptimizationSignalRow(
             dedupe_key="workflow-incident::42",
@@ -309,11 +283,11 @@ def test_bug_log_sweep_materializes_runtime_and_failure_candidates(synced_client
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["result"]["total_candidates"] >= 3
-    assert len(payload["result"]["created_bug_ids"]) >= 3
+    assert payload["result"]["total_candidates"] >= 2
+    assert len(payload["result"]["created_bug_ids"]) >= 2
     rows = db_session.query(BugRecordRow).all()
-    assert len(rows) >= 3
-    assert {"runtime_log_error", "task_failure", "workflow_incident"} <= {row.source_key for row in rows}
+    assert len(rows) >= 2
+    assert {"runtime_log_error", "workflow_incident"} <= {row.source_key for row in rows}
 
 
 def test_bug_log_sweep_groups_traceback_and_keeps_stack_snippet(synced_client, db_session, tmp_path):

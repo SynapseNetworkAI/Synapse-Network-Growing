@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from server import config
-from server.services.runtime.codex_cli import CodexAsyncExecResult
 from server.services.runtime.codex_sdk import CodexSDKPlanResult, run_codex_sdk_plan
-from server.services.runtime.task_runtime import CodexSDKTaskRuntime
 from server.services.workflows.planner_provider import (
     PlannerRequest,
     generate_planner_text,
@@ -147,36 +144,3 @@ def test_resolve_planner_backend_and_model_support_codex_sdk(monkeypatch):
 
     assert resolve_planner_backend() == "codex_sdk"
     assert resolve_planner_model("codex_sdk") == "gpt-5.4"
-
-
-def test_codex_sdk_task_runtime_falls_back_to_codex_cli(tmp_path):
-    runtime = CodexSDKTaskRuntime(project_root=tmp_path)
-
-    def _fake_start_codex_exec_async(*, output_dir: Path, **kwargs):
-        output_dir.mkdir(parents=True, exist_ok=True)
-        return CodexAsyncExecResult(
-            command=["codex", "exec", "--json"],
-            output_path=output_dir / "output.md",
-            stdout_path=output_dir / "codex.stdout.jsonl",
-            stderr_path=output_dir / "codex.stderr.log",
-            state_path=output_dir / "codex.state.json",
-            metadata_path=output_dir / "metadata.json",
-            prompt_path=output_dir / "prompt.md",
-            pid=12345,
-            thread_id="thread-cli-fallback",
-        )
-
-    with patch("server.services.runtime.task_runtime.start_codex_exec_async", side_effect=_fake_start_codex_exec_async):
-        result = runtime.execute(
-            persona={"role": "dev_rel", "display_name": "DevRel", "goal": "Build", "body": ""},
-            skill_name="content-strategy",
-            task_description="Target project path: /Users/cliff/workspace/agent/Synapse-Network-Growing",
-            output_dir=tmp_path / "roles" / "dev_rel" / "outputs" / "task-1",
-        )
-
-    assert result.runtime_backend == "codex_cli"
-    assert result.deferred is True
-    assert result.runtime_session_id == "thread-cli-fallback"
-    assert result.metadata["requested_backend"] == "codex_sdk"
-    assert result.metadata["fallback_backend"] == "codex_cli"
-    assert result.events[0].event_type == "runtime_fallback"

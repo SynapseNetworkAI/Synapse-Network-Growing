@@ -41,14 +41,10 @@ from server.services.bugs.discovery import (
     update_error_discovery_state,
 )
 from server.services.projects.project_center import ensure_projects_materialized
-from server.services.workflows.agent_first import (
-    build_release_detail,
-    build_requirement_detail,
-    create_requirement,
-    submit_requirement,
-)
+from server.services.releases.service import build_release_detail
+from server.services.requirements.service import build_requirement_detail, create_requirement, submit_requirement
 
-ALLOWED_ERROR_SOURCE_KINDS = {"runtime_log_error", "task_failure", "workflow_incident"}
+ALLOWED_ERROR_SOURCE_KINDS = {"runtime_log_error", "workflow_incident"}
 _SEVERITY_RANK = {"low": 0, "normal": 1, "warning": 1, "high": 2, "critical": 3}
 logger = get_logger("ops-dashboard.error_loop")
 
@@ -442,7 +438,7 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     ensure_projects_materialized(db)
     source_kind = str(body.source_kind or "").strip()
     if source_kind not in ALLOWED_ERROR_SOURCE_KINDS:
-        raise ValueError("source_kind must be one of runtime_log_error|task_failure|workflow_incident")
+        raise ValueError("source_kind must be one of runtime_log_error|workflow_incident")
     if not str(body.service_name or "").strip():
         raise ValueError("service_name is required.")
     if not str(body.summary or "").strip():

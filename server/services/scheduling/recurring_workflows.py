@@ -33,7 +33,6 @@ from server.services.requirements.family import cleanup_requirement_families
 from server.services.requirements.approval import evaluate_requirement_execution_approval
 from server.services.requirements.sources import intake_requirement_sources
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
-from server.services.workflows.orchestrator import advance_requirement_queue, decide_requirement_approval, dispatch_acceptance_sweep
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -66,11 +65,11 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     {
         "workflow_key": "bug_log_sweep",
         "display_name": "Bug Log Sweep",
-        "description": "Sweep runtime logs and failed executions into bug backlog records, then auto-materialize high-value bugs.",
+        "description": "Sweep runtime logs and workflow incidents into bug backlog records, then auto-materialize high-value bugs.",
         "trigger_type": "scheduled",
         "owner_role": "runtime_reliability_engineer",
         "schedule": {"cadence": "interval", "interval_minutes": config.BUG_LOG_SWEEP_INTERVAL_MINUTES},
-        "input_query": {"sources": ["runtime_log_error", "task_failure", "workflow_incident"]},
+        "input_query": {"sources": ["runtime_log_error", "workflow_incident"]},
         "output_action": {"kind": "update_bug_backlog", "auto_materialize_high_value_bugs": True},
         "escalation_rule": {"on_new_critical_bug": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "materialized_requirement_ids"},
@@ -752,11 +751,20 @@ def get_recurring_workflow(db: Session, workflow_key: str) -> RecurringWorkflowR
 
 
 def _closeout_and_compact_sweep(db: Session, *, acceptance_limit: int, auto_dispatch_acceptance: bool) -> dict[str, Any]:
-    acceptance_result = dispatch_acceptance_sweep(
-        db,
-        limit=acceptance_limit,
-        auto_dispatch=auto_dispatch_acceptance,
+    acceptance_candidates = (
+        db.query(RequirementRow)
+        .filter(RequirementRow.status.in_(["done", "paused", "blocked", "needs_revision"]))
+        .order_by(RequirementRow.updated_at.desc(), RequirementRow.id.desc())
+        .limit(max(1, min(int(acceptance_limit or 20), 200)))
+        .all()
     )
+    acceptance_result = {
+        "scanned": len(acceptance_candidates),
+        "candidates": [int(row.id) for row in acceptance_candidates],
+        "dispatched_requirement_ids": [],
+        "auto_dispatch": bool(auto_dispatch_acceptance),
+        "note": "Legacy fixed-step acceptance dispatch is retired; declarative workflows own verification.",
+    }
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(hours=8)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -835,14 +843,31 @@ def _approval_sweep(db: Session) -> dict[str, Any]:
 
         if str(decision.get("approval_status") or "") in {"approved", "waived"}:
             action = "waive" if str(decision.get("approval_status")) == "waived" else "approve"
-            detail = decide_requirement_approval(
-                db,
-                requirement_id,
-                action=action,
-                reviewer=str(recommendation.get("role") or "system"),
-                comment=str(recommendation.get("reason") or decision.get("reason") or "Auto-approved by approval sweep"),
+            pending_request = db.query(ApprovalRequestRow).filter(
+                ApprovalRequestRow.requirement_id == requirement_id,
+                ApprovalRequestRow.approval_type == "requirement_execution_approval",
+                ApprovalRequestRow.status == "pending",
+            ).order_by(ApprovalRequestRow.id.desc()).first()
+            comment = str(recommendation.get("reason") or decision.get("reason") or "Auto-approved by approval sweep")
+            if pending_request is not None:
+                pending_request.status = action
+                pending_request.reviewer = str(recommendation.get("role") or "system")
+                pending_request.comment = comment
+                pending_request.decided_at = utcnow()
+            requirement.approval_status = "waived" if action == "waive" else "approved"
+            requirement.status = "ready" if str(requirement.status or "") == "pending_approval" else requirement.status
+            requirement.system_recommendation_json = _json_dumps(
+                {
+                    **_json_loads(requirement.system_recommendation_json, {}),
+                    "approval_sweep": {
+                        "action": action,
+                        "comment": comment,
+                        "decided_at": utcnow().isoformat(),
+                    },
+                }
             )
-            auto_approved_requirement_ids.append(int(detail.requirement.id))
+            db.flush()
+            auto_approved_requirement_ids.append(int(requirement.id))
             continue
 
         pending_request = db.query(ApprovalRequestRow).filter(
@@ -1031,10 +1056,13 @@ def _execute_recurring_workflow(
         sweep = run_planner_sweep(db, dry_run=False, triggered_by="scheduler")
         return sweep_to_dict(sweep)
     if workflow_key == "dispatcher_loop":
-        queue_result = advance_requirement_queue(db)
         follow_through = _dispatcher_follow_through(db)
         return {
-            **queue_result,
+            "started_ids": [],
+            "created_requirement_ids": [],
+            "preempted_ids": [],
+            "rebalanced_ids": [],
+            "skipped": ["Legacy fixed-step dispatcher is retired; declarative workflow runs are started from requirement workflow APIs."],
             **follow_through,
         }
     if workflow_key == "bug_log_sweep":

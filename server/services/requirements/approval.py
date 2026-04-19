@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from server.database import RequirementRow, WorkflowRunRow, WorkflowStepRow
+from server.database import RequirementRow, WorkflowRunRow
 
 DEFAULT_REQUIREMENT_APPROVAL_CONTRACT: dict[str, Any] = {
     "approval_mode": "auto_or_human",
@@ -114,29 +114,27 @@ def _split_target_paths(target_project_path: str | None) -> list[str]:
     return [item.strip() for item in str(target_project_path or "").splitlines() if item.strip()]
 
 
-def _workflow_steps_from_sources(
+def _plan_items_from_sources(
     *,
     planner_output: dict[str, Any] | None = None,
     workflow_run: WorkflowRunRow | None = None,
 ) -> list[dict[str, Any]]:
     if isinstance(planner_output, dict):
-        steps = planner_output.get("workflow_steps") or []
-        if isinstance(steps, list):
-            return [dict(step) for step in steps if isinstance(step, dict)]
+        items = planner_output.get("plan_items") or []
+        if isinstance(items, list):
+            return [dict(item) for item in items if isinstance(item, dict)]
     if workflow_run is None:
         return []
-    packets: list[dict[str, Any]] = []
-    for step in workflow_run.steps or []:
-        if not isinstance(step, WorkflowStepRow):
-            continue
-        execution_profile = _json_loads(getattr(step, "execution_profile_json", None), {})
-        packets.append(
+    blackboard = _json_loads(getattr(workflow_run, "blackboard_json", None), {})
+    workflow_key = str(getattr(workflow_run, "workflow_key", "") or "")
+    if workflow_key:
+        return [
             {
-                "step_type": str(getattr(step, "step_type", "") or ""),
-                "complexity_tier": str((execution_profile or {}).get("complexity_tier") or ""),
+                "item_type": workflow_key,
+                "complexity_tier": str((blackboard or {}).get("complexity_tier") or "standard"),
             }
-        )
-    return packets
+        ]
+    return []
 
 
 def build_requirement_approval_context(
@@ -146,17 +144,17 @@ def build_requirement_approval_context(
     workflow_run: WorkflowRunRow | None = None,
 ) -> dict[str, Any]:
     target_paths = _split_target_paths(getattr(requirement, "target_project_path", None))
-    workflow_steps = _workflow_steps_from_sources(planner_output=planner_output, workflow_run=workflow_run)
+    plan_items = _plan_items_from_sources(planner_output=planner_output, workflow_run=workflow_run)
     max_tier = "mini"
     estimated_budget_points = 0
-    for step in workflow_steps:
-        tier = str(step.get("complexity_tier") or "standard").strip()
+    for item in plan_items:
+        tier = str(item.get("complexity_tier") or "standard").strip()
         if _TIER_RANK.get(tier, 1) > _TIER_RANK.get(max_tier, 0):
             max_tier = tier
         try:
             estimated_budget_points = max(
                 estimated_budget_points,
-                int((step.get("budget_cap") or {}).get("max_cost_points") or 0),
+                int((item.get("budget_cap") or {}).get("max_cost_points") or 0),
             )
         except (AttributeError, TypeError, ValueError):
             continue
@@ -177,7 +175,7 @@ def build_requirement_approval_context(
         "target_project_count": len(target_paths),
         "target_paths": target_paths,
         "max_complexity_tier": max_tier,
-        "workflow_step_count": len(workflow_steps),
+        "plan_item_count": len(plan_items),
         "is_incident_recovery": is_incident,
         "is_bug_recovery": is_bug_recovery,
         "cross_project_bug_recovery": cross_project_bug_recovery,
@@ -315,8 +313,8 @@ def build_requirement_approval_recommendation(
         or int(getattr(requirement, "current_plan_version", 0) or 0) > 0
         or has_plan_brief
     )
-    if has_active_plan and not has_plan_brief and int(context.get("workflow_step_count") or 0) == 0:
-        completeness_gaps.append("workflow plan is missing")
+    if has_active_plan and not has_plan_brief and int(context.get("plan_item_count") or 0) == 0:
+        completeness_gaps.append("workflow selection is missing")
     if int(context.get("target_project_count") or 0) == 0:
         completeness_gaps.append("target project is missing")
     if completeness_gaps:

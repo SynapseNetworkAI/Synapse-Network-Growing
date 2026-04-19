@@ -164,7 +164,6 @@ def test_projects_api_delete_rejects_project_with_releases(synced_client, db_ses
     db_session.add(
         ReleaseRecordRow(
             requirement_id=requirement_id,
-            execution_run_id=None,
             project_id=project["id"],
             project_key=project["project_key"],
             project_display_name=project["display_name"],

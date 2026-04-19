@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
 
 import pytest
 
@@ -42,8 +41,7 @@ def _intake_payload(**overrides):
 
 
 def test_error_intake_creates_requirement_and_declarative_workflow(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        response = synced_client.post("/api/errors/intake", json=_intake_payload())
+    response = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert response.status_code == 201
     payload = response.json()
@@ -61,11 +59,11 @@ def test_error_intake_creates_requirement_and_declarative_workflow(synced_client
 
     deliveries = db_session.query(NotificationDeliveryRow).all()
     event_types = {row.event_type for row in deliveries}
-    assert {"requirement_created", "approval_auto_approved", "error_logged"} <= event_types
+    assert {"requirement_created", "approval_approved", "error_logged"} <= event_types
 
 
 def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None), caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.INFO):
         response = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert response.status_code == 201
@@ -78,9 +76,11 @@ def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
 
 
 def test_error_intake_reuses_active_requirement_for_same_fingerprint(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        first = synced_client.post("/api/errors/intake", json=_intake_payload())
-        second = synced_client.post("/api/errors/intake", json=_intake_payload(message="TimeoutError: request 999 exceeded 31s budget at /faq/77"))
+    first = synced_client.post("/api/errors/intake", json=_intake_payload())
+    second = synced_client.post(
+        "/api/errors/intake",
+        json=_intake_payload(message="TimeoutError: request 999 exceeded 31s budget at /faq/77"),
+    )
 
     assert first.status_code == 201
     assert second.status_code == 201
@@ -117,8 +117,7 @@ def test_high_risk_error_intake_routes_to_manual_approval(synced_client, db_sess
 
 
 def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        first = synced_client.post("/api/errors/intake", json=_intake_payload())
+    first = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert first.status_code == 201
     requirement_id = first.json()["requirement"]["id"]
@@ -126,8 +125,7 @@ def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_s
     requirement.status = "done"
     db_session.commit()
 
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        second = synced_client.post("/api/errors/intake", json=_intake_payload())
+    second = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert second.status_code == 201
     assert second.json()["requirement"]["id"] == requirement_id
@@ -138,8 +136,7 @@ def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_s
 
 
 def test_resolved_error_fingerprint_can_reopen_regression_requirement(synced_client, db_session):
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        first = synced_client.post("/api/errors/intake", json=_intake_payload())
+    first = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert first.status_code == 201
     requirement_id = first.json()["requirement"]["id"]
@@ -149,8 +146,7 @@ def test_resolved_error_fingerprint_can_reopen_regression_requirement(synced_cli
     gate.status = "resolved"
     db_session.commit()
 
-    with patch("server.services.workflows.agent_first.dispatch", return_value=None):
-        second = synced_client.post("/api/errors/intake", json=_intake_payload())
+    second = synced_client.post("/api/errors/intake", json=_intake_payload())
 
     assert second.status_code == 201
     assert second.json()["requirement"]["id"] != requirement_id
@@ -162,7 +158,7 @@ def test_low_signal_error_can_be_ignored_without_requirement(synced_client):
     response = synced_client.post(
         "/api/errors/intake",
         json=_intake_payload(
-            source_kind="task_failure",
+            source_kind="runtime_log_error",
             severity="low",
             project_key=None,
             project_root_path=None,

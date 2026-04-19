@@ -338,7 +338,7 @@ Implemented storage:
 7. `human_gate_requests` stores high-risk or terminal operator gates and writes operator decisions back to blackboard.
 8. every state reads only declared blackboard keys and writes only declared output keys.
 
-Legacy `ExecutionRunRow.plan_snapshot_json.blackboard`, `ArtifactRow.workflow_run_id`, and fixed `workflow_steps` are not part of the new execution truth. They may remain in the database for historical reads, but new declarative workflows must not write through them.
+Legacy execution ORM models and fixed `workflow_steps` are not part of the new execution truth. Old physical tables may remain in a local SQLite file until the operator resets or archives the database, but the application no longer declares them as active models and new declarative workflows must not write through them.
 
 Blackboard is not a hidden prompt dump. It is a typed, auditable run context.
 

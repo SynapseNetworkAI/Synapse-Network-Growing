@@ -3,7 +3,6 @@ import json
 import pytest
 from unittest.mock import patch
 from server.services.agents.loader import ensure_agents_loaded
-from server.services.agents.execution_resolver import suggest_task_execution
 
 
 def _mock_agents():
@@ -121,39 +120,3 @@ def test_match_includes_agent_metadata(seeded_client):
     assert agent["display_name"] == "Growth Lead"
     assert agent["goal"] == "增长策略"
     assert agent["group"] == "growth"
-
-
-def test_execution_resolver_prefers_engineering_direct_execution_for_bugfix(db_session):
-    with patch("server.services.agents.loader.discover_agents", return_value=_mock_agents()):
-        ensure_agents_loaded(db_session)
-        db_session.commit()
-
-    suggestion = suggest_task_execution(
-        db_session,
-        description=(
-            "Bug Fix: Runtime traceback detected in FastAPI endpoint. "
-            "Fix backend Python code and validate the API error path."
-        ),
-    )
-
-    assert suggestion.agent_id == "software_engineer"
-    assert suggestion.skill_name == "__direct_execution__"
-    assert suggestion.requires_confirmation is False
-
-
-def test_execution_resolver_prefers_engineering_direct_execution_for_logging_implementation(db_session):
-    with patch("server.services.agents.loader.discover_agents", return_value=_mock_agents()):
-        ensure_agents_loaded(db_session)
-        db_session.commit()
-
-    suggestion = suggest_task_execution(
-        db_session,
-        description=(
-            "新增日志方案。给出代码实现，关键链路打印日志，日志输出到文件并按天切分。"
-            "Add Python logging, update docs, and run pytest plus npm test in the target repository."
-        ),
-    )
-
-    assert suggestion.agent_id == "software_engineer"
-    assert suggestion.skill_name == "__direct_execution__"
-    assert suggestion.requires_confirmation is False

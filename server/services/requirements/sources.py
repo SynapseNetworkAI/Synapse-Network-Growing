@@ -359,7 +359,7 @@ def materialize_bug_backlog(
     bug_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     from server.services.bugs.log_sweep import run_bug_log_sweep
-    from server.services.workflows.agent_first import create_requirement
+    from server.services.requirements.service import create_requirement
 
     if refresh:
         run_bug_log_sweep(db)

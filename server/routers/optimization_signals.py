@@ -33,7 +33,7 @@ from server.services.signals.optimization_signals import (
     refresh_optimization_signals,
 )
 from server.services.requirements.sources import normalize_requirement_intake_metadata
-from server.services.workflows.agent_first import create_requirement
+from server.services.requirements.service import create_requirement
 
 
 router = APIRouter(prefix="/api/optimization-signals", tags=["optimization-signals"])

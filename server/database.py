@@ -101,73 +101,6 @@ class AgentRow(Base):
     role_contract_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=utcnow)
 
-    tasks = relationship("TaskRow", back_populates="agent")
-    workflow_steps = relationship("WorkflowStepRow", back_populates="agent")
-
-
-class TaskRow(Base):
-    __tablename__ = "tasks"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    description = Column(Text, nullable=False)
-    agent_id = Column(Text, ForeignKey("agents.id"), nullable=False)
-    status = Column(Text, nullable=False, default="pending")
-    requires_approval = Column(Boolean, default=False)
-    priority = Column(Text, default="normal")
-    project_id = Column(Text, default="")
-    agent_group = Column(Text, default="")
-    skill_name = Column(Text)
-    context_files = Column(Text)  # JSON array of relative paths
-    retry_of_task_id = Column(Integer)
-    attempt_no = Column(Integer, default=1)
-    last_error_message = Column(Text)
-    runtime_backend = Column(Text, default="")
-    runtime_provider = Column(Text, default="")
-    runtime_model = Column(Text, default="")
-    runtime_session_id = Column(Text)
-    runtime_selected_agent = Column(Text)
-    runtime_event_cursor = Column(Integer, default=0)
-    output_path = Column(Text)
-    output_content = Column(Text)
-    execution_time_ms = Column(Integer)
-    tokens_used = Column(Integer, default=0)
-    budget_cost_points = Column(Integer, default=0)
-    created_at = Column(DateTime, default=utcnow)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-
-    agent = relationship("AgentRow", back_populates="tasks")
-    approvals = relationship("ApprovalRow", back_populates="task")
-    logs = relationship("TaskLogRow", back_populates="task", order_by="TaskLogRow.created_at")
-    workflow_steps = relationship("WorkflowStepRow", back_populates="compatibility_task")
-    execution_nodes = relationship("ExecutionNodeRow", back_populates="task")
-
-
-class ApprovalRow(Base):
-    __tablename__ = "approvals"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    status = Column(Text, nullable=False, default="pending")
-    reviewer = Column(Text)
-    comment = Column(Text)
-    created_at = Column(DateTime, default=utcnow)
-    decided_at = Column(DateTime)
-
-    task = relationship("TaskRow", back_populates="approvals")
-
-
-class TaskLogRow(Base):
-    __tablename__ = "task_logs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    event_type = Column(Text, nullable=False)
-    detail = Column(Text)
-    created_at = Column(DateTime, default=utcnow)
-
-    task = relationship("TaskRow", back_populates="logs")
-
 
 class RequirementRow(Base):
     __tablename__ = "requirements"
@@ -199,7 +132,7 @@ class RequirementRow(Base):
     execution_plan_json = Column(Text, nullable=False, default="{}")
     assets_status = Column(Text, nullable=False, default="pending")
     assets_error_message = Column(Text)
-    workflow_family = Column(Text, nullable=False, default="agent_first")
+    workflow_family = Column(Text, nullable=False, default="declarative_state_machine")
     phase = Column(Text, nullable=False, default="draft")
     workflow_state = Column(Text, nullable=False, default="draft")
     attention_reason = Column(Text)
@@ -211,7 +144,7 @@ class RequirementRow(Base):
     approved_at = Column(DateTime)
     linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
     followup_requirement_id = Column(Integer, ForeignKey("requirements.id"))
-    origin_execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    origin_execution_run_id = Column(Integer)
     origin_validation_id = Column(Integer, ForeignKey("validation_records.id"))
     resolution_path = Column(Text)
     current_plan_version = Column(Integer, nullable=False, default=0)
@@ -547,7 +480,7 @@ class CodexSessionRow(Base):
     project_root = Column(Text, nullable=False)
     requirement_id = Column(Integer, ForeignKey("requirements.id"))
     workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
-    current_task_id = Column(Integer, ForeignKey("tasks.id"))
+    current_task_id = Column(Integer)
     thread_id = Column(Text)
     status = Column(Text, nullable=False, default="active")
     last_used_at = Column(DateTime, nullable=False, default=utcnow)
@@ -623,7 +556,7 @@ class WorkflowRunRow(Base):
     operating_manifest_id = Column(Integer, ForeignKey("operating_manifests.id"))
     goal_key = Column(Text)
     plan_version = Column(Integer, nullable=False, default=1)
-    workflow_key = Column(Text, nullable=False, default="legacy_fixed_step")
+    workflow_key = Column(Text, nullable=False, default="declarative_workflow")
     current_state = Column(Text, nullable=False, default="queued")
     resolution = Column(Text)
     risk_level = Column(Text, nullable=False, default="normal")
@@ -639,7 +572,6 @@ class WorkflowRunRow(Base):
 
     requirement = relationship("RequirementRow", back_populates="workflow_runs", foreign_keys=[requirement_id])
     operating_manifest = relationship("OperatingManifestRow", foreign_keys=[operating_manifest_id])
-    steps = relationship("WorkflowStepRow", back_populates="workflow_run", order_by="WorkflowStepRow.sequence_no")
     state_events = relationship("WorkflowStateEventRow", back_populates="workflow_run", order_by="WorkflowStateEventRow.id")
     workflow_artifacts = relationship("WorkflowArtifactRow", back_populates="workflow_run", order_by="WorkflowArtifactRow.id")
     blackboard_snapshots = relationship("BlackboardSnapshotRow", back_populates="workflow_run", order_by="BlackboardSnapshotRow.id")
@@ -773,70 +705,6 @@ class HumanGateRequestRow(Base):
     workflow_run = relationship("WorkflowRunRow", back_populates="human_gate_requests")
 
 
-class WorkflowStepRow(Base):
-    __tablename__ = "workflow_steps"
-    __table_args__ = (
-        Index("workflow_steps_run_idx", "workflow_run_id"),
-        Index("workflow_steps_requirement_idx", "requirement_id"),
-        Index("workflow_steps_status_idx", "status"),
-        Index("workflow_steps_assigned_agent_idx", "assigned_agent_id"),
-        Index("workflow_steps_compat_task_idx", "compatibility_task_id"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    step_key = Column(Text, nullable=False)
-    step_type = Column(Text, nullable=False)
-    title = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, default="pending")
-    sequence_no = Column(Integer, nullable=False, default=0)
-    assigned_agent_id = Column(Text, ForeignKey("agents.id"))
-    assigned_workflow_role = Column(Text)
-    branch_from_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
-    context_scope = Column(Text, nullable=False, default="step_private")
-    handoff_summary_markdown = Column(Text)
-    done_when_markdown = Column(Text, nullable=False, default="")
-    context_policy_json = Column(Text, nullable=False, default="{}")
-    execution_profile_json = Column(Text, nullable=False, default="{}")
-    file_scope_json = Column(Text, nullable=False, default="{}")
-    validation_targets_json = Column(Text, nullable=False, default="[]")
-    failure_policy_json = Column(Text, nullable=False, default="{}")
-    approval_policy_json = Column(Text, nullable=False, default="{}")
-    runtime_backend = Column(Text, nullable=False, default="")
-    runtime_session_id = Column(Text)
-    compatibility_task_id = Column(Integer, ForeignKey("tasks.id"))
-    retry_count = Column(Integer, nullable=False, default=0)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-    workflow_run = relationship("WorkflowRunRow", back_populates="steps")
-    requirement = relationship("RequirementRow")
-    agent = relationship("AgentRow", back_populates="workflow_steps")
-    compatibility_task = relationship("TaskRow", back_populates="workflow_steps")
-    branch_from_step = relationship("WorkflowStepRow", remote_side=[id])
-    input_bindings = relationship("StepInputBindingRow", back_populates="step", order_by="StepInputBindingRow.id")
-    produced_artifacts = relationship("ArtifactRow", back_populates="step", foreign_keys="ArtifactRow.step_id")
-
-
-class WorkflowStepDependencyRow(Base):
-    __tablename__ = "workflow_step_dependencies"
-    __table_args__ = (
-        Index("step_deps_step_idx", "step_id"),
-        Index("step_deps_depends_on_idx", "depends_on_step_id"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
-    depends_on_step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
-    dependency_kind = Column(Text, nullable=False)
-    required_artifact_types_json = Column(Text, nullable=False, default="[]")
-    is_blocking = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-
 class ArtifactRow(Base):
     __tablename__ = "artifacts"
     __table_args__ = (
@@ -850,8 +718,8 @@ class ArtifactRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
     workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
-    step_id = Column(Integer, ForeignKey("workflow_steps.id"))
-    producer_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    step_id = Column(Integer)
+    producer_step_id = Column(Integer)
     artifact_type = Column(Text, nullable=False)
     path = Column(Text)
     content_summary = Column(Text)
@@ -863,26 +731,6 @@ class ArtifactRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
     requirement = relationship("RequirementRow", back_populates="artifacts")
-    step = relationship("WorkflowStepRow", back_populates="produced_artifacts", foreign_keys=[step_id])
-
-
-class StepInputBindingRow(Base):
-    __tablename__ = "step_input_bindings"
-    __table_args__ = (
-        Index("step_input_bindings_step_idx", "step_id"),
-        Index("step_input_bindings_artifact_idx", "artifact_id"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
-    artifact_id = Column(Integer, ForeignKey("artifacts.id"), nullable=False)
-    purpose = Column(Text, nullable=False)
-    is_required = Column(Boolean, nullable=False, default=True)
-    consumed_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-    step = relationship("WorkflowStepRow", back_populates="input_bindings")
-    artifact = relationship("ArtifactRow")
 
 
 class RequirementAcceptanceCheckRow(Base):
@@ -901,7 +749,7 @@ class RequirementAcceptanceCheckRow(Base):
     owner_role = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="pending")
     success_criteria_markdown = Column(Text)
-    verified_by_step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    verified_by_step_id = Column(Integer)
     evidence_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -929,79 +777,6 @@ class RequirementAttachmentRow(Base):
     requirement = relationship("RequirementRow", back_populates="attachments")
 
 
-class ExecutionRunRow(Base):
-    __tablename__ = "execution_runs"
-    __table_args__ = (
-        Index("execution_runs_requirement_idx", "requirement_id"),
-        Index("execution_runs_status_idx", "status"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    execution_mode = Column(Text, nullable=False, default="direct")
-    execution_kind = Column(Text, nullable=False, default="implementation")
-    complexity = Column(Text, nullable=False, default="simple")
-    status = Column(Text, nullable=False, default="queued")
-    phase = Column(Text, nullable=False, default="queued")
-    attempt_state = Column(Text, nullable=False, default="queued")
-    blocker_kind = Column(Text)
-    failure_kind = Column(Text)
-    resume_mode = Column(Text)
-    recovery_status = Column(Text)
-    recovery_started_at = Column(DateTime)
-    recovery_deadline_at = Column(DateTime)
-    recovery_attempt_count = Column(Integer, nullable=False, default=0)
-    recovery_timeout_status = Column(Text)
-    validation_profile = Column(Text, nullable=False, default="minimal")
-    delivery_intent = Column(Text, nullable=False, default="pr_required")
-    approval_required = Column(Boolean, nullable=False, default=False)
-    source_release_id = Column(Integer, ForeignKey("release_records.id"))
-    source_delivery_blocker_type = Column(Text)
-    planner_summary = Column(Text)
-    plan_snapshot_json = Column(Text, nullable=False, default="{}")
-    target_projects_json = Column(Text, nullable=False, default="[]")
-    latest_task_id = Column(Integer, ForeignKey("tasks.id"))
-    verification_requested_at = Column(DateTime)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
-    latest_task = relationship("TaskRow")
-
-
-class ExecutionNodeRow(Base):
-    __tablename__ = "execution_nodes"
-    __table_args__ = (
-        Index("execution_nodes_run_idx", "execution_run_id"),
-        Index("execution_nodes_status_idx", "status"),
-        Index("execution_nodes_task_idx", "task_id"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    node_key = Column(Text, nullable=False)
-    node_type = Column(Text, nullable=False, default="execute")
-    title = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, default="queued")
-    sequence_no = Column(Integer, nullable=False, default=1)
-    task_id = Column(Integer, ForeignKey("tasks.id"))
-    runtime_backend = Column(Text)
-    runtime_provider = Column(Text)
-    runtime_model = Column(Text)
-    summary_markdown = Column(Text)
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
-    requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
-    task = relationship("TaskRow", back_populates="execution_nodes")
-
-
 class ValidationRecordRow(Base):
     __tablename__ = "validation_records"
     __table_args__ = (
@@ -1012,7 +787,7 @@ class ValidationRecordRow(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
+    execution_run_id = Column(Integer, nullable=False, default=0)
     profile = Column(Text, nullable=False, default="minimal")
     status = Column(Text, nullable=False, default="pending")
     summary_markdown = Column(Text, nullable=False, default="")
@@ -1033,43 +808,21 @@ class ValidationRecordRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
-    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
     followup_requirement = relationship("RequirementRow", foreign_keys=[followup_requirement_id])
-
-
-class ValidationLeaseRow(Base):
-    __tablename__ = "validation_leases"
-    __table_args__ = (
-        Index("validation_leases_execution_idx", "execution_run_id", unique=True),
-        Index("validation_leases_status_idx", "lease_status"),
-        Index("validation_leases_expires_idx", "lease_expires_at"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"), nullable=False)
-    lease_key = Column(Text, nullable=False)
-    lease_status = Column(Text, nullable=False, default="pending")
-    lease_owner = Column(Text)
-    lease_acquired_at = Column(DateTime)
-    lease_expires_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
 
 
 class ReleaseRecordRow(Base):
     __tablename__ = "release_records"
     __table_args__ = (
         Index("release_records_requirement_idx", "requirement_id"),
-        Index("release_records_execution_idx", "execution_run_id"),
+        Index("release_records_workflow_run_idx", "workflow_run_id"),
         Index("release_records_status_idx", "status"),
         Index("release_records_planning_goal_idx", "operating_manifest_id", "goal_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
     operating_manifest_id = Column(Integer, ForeignKey("operating_manifests.id"))
     goal_key = Column(Text)
     project_id = Column(Integer, ForeignKey("projects.id"))
@@ -1104,7 +857,7 @@ class ReleaseRecordRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
-    execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
+    workflow_run = relationship("WorkflowRunRow", foreign_keys=[workflow_run_id])
     operating_manifest = relationship("OperatingManifestRow", foreign_keys=[operating_manifest_id])
     project = relationship("ProjectRow")
 
@@ -1234,7 +987,7 @@ class ApprovalRequestRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"))
     workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
-    step_id = Column(Integer, ForeignKey("workflow_steps.id"))
+    step_id = Column(Integer)
     approval_type = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="pending")
     reviewer = Column(Text)
@@ -1389,16 +1142,6 @@ class NotificationFingerprintRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
-class WorkflowStepEventRow(Base):
-    __tablename__ = "workflow_step_events"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    step_id = Column(Integer, ForeignKey("workflow_steps.id"), nullable=False)
-    event_type = Column(Text, nullable=False)
-    detail = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-
 # ── Init ──────────────────────────────────────────────────────
 
 def _migrate(engine_):
@@ -1435,7 +1178,7 @@ def _migrate(engine_):
             "operating_manifest_id": "INTEGER",
             "goal_key": "TEXT",
             "requirement_candidate_id": "INTEGER",
-            "workflow_family": "TEXT DEFAULT 'agent_first'",
+            "workflow_family": "TEXT DEFAULT 'declarative_state_machine'",
             "phase": "TEXT DEFAULT 'draft'",
             "workflow_state": "TEXT DEFAULT 'draft'",
             "attention_reason": "TEXT",
@@ -1530,8 +1273,8 @@ def _migrate(engine_):
                 text(
                     """
                     UPDATE requirements
-                    SET workflow_family = 'agent_first'
-                    WHERE COALESCE(NULLIF(TRIM(workflow_family), ''), 'agent_first') != workflow_family
+                    SET workflow_family = 'declarative_state_machine'
+                    WHERE COALESCE(NULLIF(TRIM(workflow_family), ''), 'declarative_state_machine') != workflow_family
                        OR workflow_family IS NULL
                     """
                 )
@@ -1609,20 +1352,6 @@ def _migrate(engine_):
                     conn.execute(text(f"ALTER TABLE project_policies ADD COLUMN {col} {col_type}"))
                     conn.commit()
 
-    if "workflow_steps" in tables:
-        existing = {c["name"] for c in insp.get_columns("workflow_steps")}
-        workflow_step_cols = {
-            "compatibility_task_id": "INTEGER",
-            "context_policy_json": "TEXT DEFAULT '{}'",
-            "execution_profile_json": "TEXT DEFAULT '{}'",
-        }
-        for col, col_type in workflow_step_cols.items():
-            if col not in existing:
-                logger.info("Migrating: adding '%s' column to workflow_steps table", col)
-                with engine_.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE workflow_steps ADD COLUMN {col} {col_type}"))
-                    conn.commit()
-
     if "company_operating_reviews" not in tables:
         logger.info("Migrating: company_operating_reviews table will be created via metadata")
 
@@ -1656,88 +1385,12 @@ def _migrate(engine_):
         logger.info("Migrating: creating 'deployment_records' table")
         DeploymentRecordRow.__table__.create(bind=engine_, checkfirst=True)
 
-    if "execution_runs" not in tables:
-        logger.info("Migrating: creating 'execution_runs' table")
-        ExecutionRunRow.__table__.create(bind=engine_, checkfirst=True)
-    else:
-        existing = {c["name"] for c in insp.get_columns("execution_runs")}
-        execution_cols = {
-            "execution_kind": "TEXT DEFAULT 'implementation'",
-            "phase": "TEXT DEFAULT 'queued'",
-            "attempt_state": "TEXT DEFAULT 'queued'",
-            "blocker_kind": "TEXT",
-            "failure_kind": "TEXT",
-            "resume_mode": "TEXT",
-            "recovery_status": "TEXT",
-            "recovery_started_at": "DATETIME",
-            "recovery_deadline_at": "DATETIME",
-            "recovery_attempt_count": "INTEGER DEFAULT 0",
-            "recovery_timeout_status": "TEXT",
-            "source_release_id": "INTEGER",
-            "source_delivery_blocker_type": "TEXT",
-        }
-        for col, col_type in execution_cols.items():
-            if col not in existing:
-                logger.info("Migrating: adding '%s' column to execution_runs table", col)
-                with engine_.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE execution_runs ADD COLUMN {col} {col_type}"))
-                    conn.commit()
-        if "verification_requested_at" not in existing:
-            logger.info("Migrating: adding 'verification_requested_at' column to execution_runs table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE execution_runs ADD COLUMN verification_requested_at DATETIME"))
-                conn.commit()
-        if "plan_snapshot_json" not in existing:
-            logger.info("Migrating: adding 'plan_snapshot_json' column to execution_runs table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE execution_runs ADD COLUMN plan_snapshot_json TEXT DEFAULT '{}'"))
-                conn.commit()
-        with engine_.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                    UPDATE execution_runs
-                    SET phase = CASE
-                        WHEN status = 'queued' THEN 'queued'
-                        WHEN status = 'running' THEN 'executing'
-                        WHEN status = 'validating' THEN 'verifying'
-                        WHEN status = 'paused' THEN 'blocked'
-                        WHEN status = 'blocked' THEN 'blocked'
-                        WHEN status IN ('succeeded', 'failed') THEN 'completed'
-                        ELSE COALESCE(NULLIF(phase, ''), 'queued')
-                    END
-                    WHERE COALESCE(NULLIF(TRIM(phase), ''), '') = ''
-                       OR phase IS NULL
-                    """
-                )
-            )
-            conn.execute(
-                text(
-                    """
-                    UPDATE execution_runs
-                    SET attempt_state = CASE
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'queued' THEN 'queued'
-                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') = 'branch_preparing' THEN 'preparing_workspace'
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'running' THEN 'executing'
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'validating' THEN 'verifying'
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'failed' THEN 'failed'
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'succeeded' THEN 'succeeded'
-                        WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'blocked' THEN 'blocked'
-                        ELSE COALESCE(NULLIF(TRIM(attempt_state), ''), 'queued')
-                    END
-                    WHERE COALESCE(NULLIF(TRIM(attempt_state), ''), '') = ''
-                       OR attempt_state IS NULL
-                    """
-                )
-            )
-            conn.commit()
-
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}
         workflow_run_cols = {
             "operating_manifest_id": "INTEGER",
             "goal_key": "TEXT",
-            "workflow_key": "TEXT DEFAULT 'legacy_fixed_step'",
+            "workflow_key": "TEXT DEFAULT 'declarative_workflow'",
             "current_state": "TEXT DEFAULT 'queued'",
             "resolution": "TEXT",
             "risk_level": "TEXT DEFAULT 'normal'",
@@ -1772,10 +1425,6 @@ def _migrate(engine_):
         logger.info("Migrating: creating 'scheduler_locks' table")
         SchedulerLockRow.__table__.create(bind=engine_, checkfirst=True)
 
-    if "execution_nodes" not in tables:
-        logger.info("Migrating: creating 'execution_nodes' table")
-        ExecutionNodeRow.__table__.create(bind=engine_, checkfirst=True)
-
     if "validation_records" not in tables:
         logger.info("Migrating: creating 'validation_records' table")
         ValidationRecordRow.__table__.create(bind=engine_, checkfirst=True)
@@ -1802,16 +1451,13 @@ def _migrate(engine_):
                     conn.execute(text(f"ALTER TABLE validation_records ADD COLUMN {col} {col_type}"))
                     conn.commit()
 
-    if "validation_leases" not in tables:
-        logger.info("Migrating: creating 'validation_leases' table")
-        ValidationLeaseRow.__table__.create(bind=engine_, checkfirst=True)
-
     if "release_records" not in tables:
         logger.info("Migrating: creating 'release_records' table")
         ReleaseRecordRow.__table__.create(bind=engine_, checkfirst=True)
     else:
         existing = {c["name"] for c in insp.get_columns("release_records")}
         release_cols = {
+            "workflow_run_id": "INTEGER",
             "operating_manifest_id": "INTEGER",
             "goal_key": "TEXT",
             "project_id": "INTEGER",
@@ -1881,51 +1527,6 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE notification_deliveries ADD COLUMN {col} {col_type}"))
                     conn.commit()
-
-    if "tasks" in tables:
-        existing = {c["name"] for c in insp.get_columns("tasks")}
-        new_cols = {
-            "project_id": "TEXT DEFAULT ''",
-            "agent_group": "TEXT DEFAULT ''",
-            "skill_name": "TEXT",
-            "context_files": "TEXT",
-            "execution_time_ms": "INTEGER",
-            "tokens_used": "INTEGER DEFAULT 0",
-            "budget_cost_points": "INTEGER DEFAULT 0",
-            "retry_of_task_id": "INTEGER",
-            "attempt_no": "INTEGER DEFAULT 1",
-            "last_error_message": "TEXT",
-            "runtime_backend": "TEXT DEFAULT ''",
-            "runtime_provider": "TEXT DEFAULT ''",
-            "runtime_model": "TEXT DEFAULT ''",
-            "runtime_session_id": "TEXT",
-            "runtime_selected_agent": "TEXT",
-            "runtime_event_cursor": "INTEGER DEFAULT 0",
-        }
-        for col, col_type in new_cols.items():
-            if col not in existing:
-                logger.info("Migrating: adding '%s' column to tasks table", col)
-                with engine_.connect() as conn:
-                    conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {col_type}"))
-                    conn.commit()
-
-        if "project_id" in {c["name"] for c in insp.get_columns("tasks")} and "agent_group" in {c["name"] for c in insp.get_columns("tasks")}:
-            from server.services.runtime.task_metadata import project_for_group
-
-            with engine_.connect() as conn:
-                rows = conn.execute(text(
-                    "SELECT tasks.id, COALESCE(tasks.project_id, ''), COALESCE(tasks.agent_group, ''), COALESCE(agents.\"group\", '') "
-                    "FROM tasks LEFT JOIN agents ON agents.id = tasks.agent_id"
-                )).fetchall()
-                for task_id, project_id, agent_group, current_group in rows:
-                    next_group = agent_group or current_group or ""
-                    next_project = project_id or project_for_group(next_group)
-                    if next_group != agent_group or next_project != project_id:
-                        conn.execute(
-                            text("UPDATE tasks SET agent_group = :agent_group, project_id = :project_id WHERE id = :task_id"),
-                            {"agent_group": next_group, "project_id": next_project, "task_id": task_id},
-                        )
-                conn.commit()
 
     if "requirement_attachments" not in tables:
         logger.info("Migrating: creating 'requirement_attachments' table")

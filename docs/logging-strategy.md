@@ -54,7 +54,7 @@ Handlers are configured during FastAPI boot (`server/main.py`) via `setup_ops_lo
 | `task_dispatch_inline`, `task_dispatch_enqueued` | `server/services/runtime/task_runner.dispatch` | task id, skill, mode, thread |
 | `task_execution_started`, `task_execution_completed`, `task_runtime_crashed` | `server/services/runtime/task_runner._run_task_sync` | runtime backend/provider/model, selection reason, execution time, status |
 | `task_runtime_guard_paused` | Same module when OpenAI guard pauses a run | runtime backend, guard reason |
-| `execution_runtime_reset`, `requirement_assets_generated`, etc. | Workflow services (`server/services/workflows/agent_first.py`) | requirement + execution ids |
+| `requirement_assets_generated`, `workflow_run_started`, etc. | Requirement and workflow services (`server/services/requirements/service.py`, `server/services/workflows/declarative.py`) | requirement + workflow run ids |
 
 These structured events allow dashboards and alerting rules to filter on `event`, `service`, and `env` without parsing free-form text.
 Each event consistently includes numeric identifiers (`task_id`, `requirement_id`, `execution_id`), making it possible to join

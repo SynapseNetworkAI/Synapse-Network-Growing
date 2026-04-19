@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from server.database import ApprovalRequestRow, ArtifactRow, RequirementRow, TaskRow, WorkflowRunRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, RequirementRow
 
 
 def test_list_agents_auto_loads_roles(client):
@@ -52,7 +52,7 @@ def test_get_agent_not_found(client):
     assert resp.status_code == 404
 
 
-def test_get_role_kpis_returns_execution_and_approval_metrics(synced_client, db_session):
+def test_get_role_kpis_returns_capability_profiles_and_approval_metrics(synced_client, db_session):
     requirement = RequirementRow(
         title="Approval-routed requirement",
         description_markdown="Detailed requirement ready for execution.",
@@ -62,75 +62,6 @@ def test_get_role_kpis_returns_execution_and_approval_metrics(synced_client, db_
     )
     db_session.add(requirement)
     db_session.flush()
-
-    db_session.add_all(
-        [
-            TaskRow(
-                description="Completed task",
-                agent_id="dev_rel",
-                status="completed",
-                tokens_used=1200,
-                budget_cost_points=12,
-            ),
-            TaskRow(
-                description="Running task",
-                agent_id="dev_rel",
-                status="running",
-                requires_approval=True,
-            ),
-            TaskRow(
-                description="Retry task",
-                agent_id="dev_rel",
-                status="completed",
-                attempt_no=2,
-                retry_of_task_id=1,
-                tokens_used=800,
-                budget_cost_points=8,
-            ),
-        ]
-    )
-    db_session.flush()
-    tasks = db_session.query(TaskRow).order_by(TaskRow.id.asc()).all()
-    workflow_run = WorkflowRunRow(requirement_id=requirement.id, plan_version=1, status="running")
-    db_session.add(workflow_run)
-    db_session.flush()
-    db_session.add_all(
-        [
-            WorkflowStepRow(
-                workflow_run_id=workflow_run.id,
-                requirement_id=requirement.id,
-                step_key="implementation",
-                step_type="implementation",
-                title="Implementation",
-                status="completed",
-                sequence_no=1,
-                assigned_agent_id="dev_rel",
-                compatibility_task_id=tasks[0].id,
-            ),
-            WorkflowStepRow(
-                workflow_run_id=workflow_run.id,
-                requirement_id=requirement.id,
-                step_key="review",
-                step_type="review",
-                title="Review",
-                status="running",
-                sequence_no=2,
-                assigned_agent_id="dev_rel",
-                compatibility_task_id=tasks[1].id,
-            ),
-            WorkflowStepRow(
-                workflow_run_id=workflow_run.id,
-                requirement_id=requirement.id,
-                step_key="retry",
-                step_type="implementation",
-                title="Retry",
-                status="completed",
-                sequence_no=3,
-                assigned_agent_id="dev_rel",
-                compatibility_task_id=tasks[2].id,
-            ),
-        ]
-    )
 
     db_session.add(
         ArtifactRow(
@@ -166,14 +97,14 @@ def test_get_role_kpis_returns_execution_and_approval_metrics(synced_client, db_
     payload = resp.json()
     assert payload["summary"]["role_count"] >= 1
     role = next(item for item in payload["roles"] if item["role_id"] == "dev_rel")
-    assert role["task_count"] == 3
-    assert role["completed_count"] == 2
-    assert role["active_task_count"] == 1
-    assert role["backlog_count"] == 1
-    assert role["reopened_task_count"] == 1
-    assert role["approval_dependency_count"] == 1
-    assert role["average_token_cost"] == 1000.0
-    assert role["open_requirement_count"] >= 1
+    assert role["task_count"] == 0
+    assert role["completed_count"] == 0
+    assert role["active_task_count"] == 0
+    assert role["backlog_count"] == 0
+    assert role["reopened_task_count"] == 0
+    assert role["approval_dependency_count"] == 0
+    assert role["average_token_cost"] == 0.0
+    assert role["open_requirement_count"] == 0
 
     approval_role = next(item for item in payload["approval_roles"] if item["role_id"] == "reviewer")
     assert approval_role["assigned_count"] == 1

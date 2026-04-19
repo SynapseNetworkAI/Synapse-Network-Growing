@@ -43,7 +43,7 @@ For each roadmap requirement, create a validation plan containing:
 
 If any automated or manual check fails:
 
-1. record the defect in `docs/test/bugfix.md`
+1. record the defect in `docs/archive/evidence/test/bugfix.md`
 2. include time, module, failing behavior, and fix summary
 3. implement the bugfix as a new step or requirement continuation
 4. re-run the exact failing test first

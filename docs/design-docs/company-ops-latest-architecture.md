@@ -454,12 +454,17 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 1. `requirements`
 2. requirement 只记录业务意图、约束与治理字段
 
-### 4.2 Execution
+### 4.2 Workflow Execution
 
-1. `execution_runs`
-2. `execution_nodes`
-3. `validation_records`
-4. `incidents`
+1. `workflow_definitions`
+2. `workflow_runs`
+3. `workflow_state_events`
+4. `workflow_artifacts`
+5. `blackboard_snapshots`
+6. `atom_invocations`
+7. `human_gate_requests`
+8. `validation_records`
+9. `incidents`
 
 ### 4.3 Release
 
@@ -471,7 +476,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 1. `projects`
 2. `project_policies`
 
-这意味着旧的固定 `workflow_run / workflow_step` 5-step 语义已经退出正式主线，不再作为当前架构的中心对象；同时 `target_project_path` 也不再是用户侧项目管理的主入口。
+这意味着旧的 fixed-step execution / task / workflow_step 语义已经退出正式主线，不再作为当前架构的中心对象；同时 `target_project_path` 也不再是用户侧项目管理的主入口。
 
 ## 5. Product Surface
 
@@ -522,12 +527,16 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 /Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes
 ```
 
-该命令会清空：
+该命令会清空 declarative runtime：
 
-1. `execution_runs`
-2. `execution_nodes`
-3. `validation_records`
-4. `release_records`
+1. `workflow_runs`
+2. `workflow_state_events`
+3. `workflow_artifacts`
+4. `blackboard_snapshots`
+5. `atom_invocations`
+6. `human_gate_requests`
+7. `validation_records`
+8. `release_records`
 
 并把 requirement 状态重置回可重新推导的基线。
 

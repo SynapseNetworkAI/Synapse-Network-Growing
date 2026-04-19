@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import OptimizationSignalRow, TaskRow
+from server.database import OptimizationSignalRow
 from server.schemas import BugIntakeRequest
 from server.services.bugs.intake import intake_bug
 
@@ -149,39 +149,6 @@ def _runtime_log_candidates() -> list[dict[str, object]]:
     return candidates
 
 
-def _task_failure_candidates(db: Session) -> list[dict[str, object]]:
-    rows = (
-        db.query(TaskRow)
-        .filter(TaskRow.status.in_(("failed", "rejected")))
-        .order_by(TaskRow.id.desc())
-        .limit(20)
-        .all()
-    )
-    candidates: list[dict[str, object]] = []
-    for row in rows:
-        error_text = str(row.last_error_message or row.description or "task failure")
-        candidates.append(
-            {
-                "source_key": "task_failure",
-                "project_key": str(row.project_id or "").strip().lower() or None,
-                "title": f"Task failure #{int(row.id)}",
-                "summary": error_text[:400],
-                "severity": "high" if int(row.attempt_no or 1) > 1 else "normal",
-                "fingerprint": f"{row.runtime_backend}:{error_text[:180]}",
-                "source_ref": f"task:{int(row.id)}",
-                "environment": config.ENV,
-                "log_excerpt": error_text[:500],
-                "metadata": {
-                    "task_id": int(row.id),
-                    "runtime_backend": str(row.runtime_backend or ""),
-                    "attempt_no": int(row.attempt_no or 1),
-                    "status": str(row.status or ""),
-                },
-            }
-        )
-    return candidates
-
-
 def _workflow_incident_candidates(db: Session) -> list[dict[str, object]]:
     rows = (
         db.query(OptimizationSignalRow)
@@ -223,7 +190,6 @@ def run_bug_log_sweep(db: Session) -> dict[str, object]:
 
     source_batches = {
         "runtime_log_error": _runtime_log_candidates(),
-        "task_failure": _task_failure_candidates(db),
         "workflow_incident": _workflow_incident_candidates(db),
     }
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from server.database import ExecutionRunRow, RequirementRow, WorkflowRunRow
+from server.database import RequirementRow, WorkflowRunRow
 from server.services.workflows import declarative
-from server.services.workflows.agent_first import submit_requirement
+from server.services.requirements.service import submit_requirement
 
 
 def _create_requirement(db_session) -> RequirementRow:
@@ -114,7 +114,7 @@ def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_ses
     assert decided["human_gates"][0]["decision"] == "reject"
 
 
-def test_submit_requirement_creates_declarative_workflow_run_not_legacy_execution(db_session):
+def test_submit_requirement_creates_declarative_workflow_run(db_session):
     requirement = RequirementRow(
         title="Gateway 5xx reliability repair",
         description_markdown="Fix gateway reliability drift and prepare a PR.",
@@ -134,11 +134,9 @@ def test_submit_requirement_creates_declarative_workflow_run_not_legacy_executio
     submit_requirement(db_session, int(requirement.id))
 
     runs = db_session.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement.id).all()
-    legacy_executions = db_session.query(ExecutionRunRow).filter(ExecutionRunRow.requirement_id == requirement.id).all()
     assert len(runs) == 1
     assert runs[0].workflow_key == "gateway_reliability_repair"
     assert runs[0].current_state in {"done", "awaiting_operator"}
-    assert legacy_executions == []
 
 
 def test_submit_requirement_response_exposes_declarative_workflow_summary(db_session):

@@ -2,7 +2,7 @@
 id: legacy-execution-retirement-inventory
 title: Legacy Execution Retirement Inventory
 role: dev_rel
-status: draft
+status: ready
 created_at: 2026-04-18
 updated_at: 2026-04-18
 author: codex
@@ -47,17 +47,21 @@ Current frontend coverage is intentionally smaller and aligned to the new truth:
 2. Workflow run detail timeline, blackboard, atom invocations, artifacts, and human gates.
 3. Agent-first page smoke tests for requirement, release, project, and error surfaces.
 
-## Remaining Historical Code
+## Completed Destructive Retirement
 
-Some backend modules still contain historical classes and helpers:
+The destructive backend cleanup has landed. The active codebase no longer declares or imports these historical ORM models:
 
 1. `ExecutionRunRow`
 2. `ExecutionNodeRow`
 3. `WorkflowStepRow`
-4. legacy execution response models
-5. old agent-first execution helpers used by historical tests and cleanup routines
+4. `WorkflowStepDependencyRow`
+5. `StepInputBindingRow`
+6. `TaskRow`
+7. `TaskLogRow`
+8. `ApprovalRow`
+9. `ValidationLeaseRow`
 
-These are not part of the active product surface after the router was unregistered. They remain only because physical deletion requires a destructive database migration and a broader backend test rewrite.
+The old `agent_first.py`, fixed-step planner helpers, task backfill script, and workflow orchestrator package have also been removed from the active tree.
 
 ## Database Boundary
 
@@ -71,22 +75,17 @@ Do not create new business logic that writes through the historical execution ta
 6. `atom_invocations`
 7. `human_gate_requests`
 
-Historical execution tables can be dropped only after:
+Old physical SQLite tables can still exist in a developer's local database file until that database is reset or archived. They are no longer represented by active SQLAlchemy models and must not be queried by application code.
 
-1. release records no longer carry historical execution foreign keys,
-2. validation records are rekeyed to workflow runs,
-3. old tests are deleted or rewritten,
-4. cleanup endpoints no longer query old rows,
-5. local operators have accepted that historical execution details will no longer be readable.
+Use these local reset scripts when a developer wants to clear runtime residue:
 
-## Follow-Up Destructive Migration
+```bash
+/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes
+/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes
+```
 
-The next cleanup should be a deliberate destructive migration, not an opportunistic refactor. Its expected scope:
+## Remaining Compatibility Names
 
-1. Drop old execution API module and internal service helpers that only served that API.
-2. Remove old execution response schemas from `server/schemas.py`.
-3. Remove old execution foreign keys from release and validation projections.
-4. Remove old fixed-step orchestration helpers once no current services import them.
-5. Add migration notes for local database reset and production archive strategy.
+Some response schemas still expose historical field names such as `execution_run_id` inside validation summaries for UI compatibility. These fields are now inert identifiers, not foreign keys to an active execution model.
 
-Until that migration lands, the rule is strict: old tables may be read for historical cleanup only, but new workflows must never use them as source of truth.
+The rule remains strict: new workflows must use declarative workflow runs, state events, atom invocations, blackboard snapshots, workflow artifacts, and human gates as the only execution truth.

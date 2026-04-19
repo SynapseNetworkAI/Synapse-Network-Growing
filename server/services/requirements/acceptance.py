@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import RequirementRow, WorkflowRunRow, WorkflowStepDependencyRow, WorkflowStepRow
+from server.database import RequirementRow, WorkflowRunRow
 
 
 DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
@@ -95,21 +95,14 @@ def acceptance_contract_for_requirement(requirement: RequirementRow) -> dict[str
     )
 
 
-def _step_is_dispatchable(db: Session, step: WorkflowStepRow) -> bool:
-    dependencies = db.query(WorkflowStepDependencyRow).filter(
-        WorkflowStepDependencyRow.step_id == step.id,
-        WorkflowStepDependencyRow.is_blocking == True,  # noqa: E712
-    ).all()
-    if not dependencies:
-        return True
-    prior_ids = [int(dep.depends_on_step_id) for dep in dependencies if dep.depends_on_step_id is not None]
-    if not prior_ids:
-        return True
-    prior_steps = db.query(WorkflowStepRow).filter(WorkflowStepRow.id.in_(prior_ids)).all()
-    return all(str(item.status or "") == "completed" for item in prior_steps)
-
-
 def list_acceptance_dispatch_candidates(db: Session, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Return declarative workflow runs that may need operator validation attention.
+
+    The legacy fixed-step acceptance dispatcher has been retired; this helper now
+    exposes high-level workflow candidates only, without creating or dispatching
+    hidden task/step records.
+    """
+
     candidates: list[dict[str, Any]] = []
     requirements = db.query(RequirementRow).filter(
         RequirementRow.active_workflow_run_id.isnot(None)
@@ -118,44 +111,22 @@ def list_acceptance_dispatch_candidates(db: Session, *, limit: int = 20) -> list
         run = db.query(WorkflowRunRow).filter(
             WorkflowRunRow.id == requirement.active_workflow_run_id
         ).first()
-        if run is None or str(run.status or "") in {"completed", "failed"}:
+        if run is None or str(run.status or "") in {"succeeded", "failed", "cancelled"}:
             continue
         contract = acceptance_contract_for_requirement(requirement)
-        step_types = {
-            str(item).strip()
-            for item in contract.get("workflow_step_types") or []
-            if str(item).strip()
-        }
-        steps = db.query(WorkflowStepRow).filter(
-            WorkflowStepRow.workflow_run_id == run.id
-        ).order_by(WorkflowStepRow.sequence_no.asc(), WorkflowStepRow.id.asc()).all()
-        for step in steps:
-            if str(step.status or "") != "pending":
-                continue
-            if str(step.step_type or "") not in step_types:
-                continue
-            if not _step_is_dispatchable(db, step):
-                continue
-            candidates.append(
-                {
-                    "requirement_id": int(requirement.id),
-                    "requirement_title": str(requirement.title or ""),
-                    "workflow_run_id": int(run.id),
-                    "step_id": int(step.id),
-                    "step_key": str(step.step_key or ""),
-                    "step_type": str(step.step_type or ""),
-                    "step_title": str(step.title or ""),
-                    "acceptance_owner_role": (
-                        str(contract.get("review_owner_role") or "reviewer")
-                        if str(step.step_type or "") == "review"
-                        else str(contract.get("acceptance_owner_role") or "tester")
-                    ),
-                    "acceptance_mode": str(contract.get("acceptance_mode") or "scheduled"),
-                    "acceptance_trigger": str(contract.get("acceptance_trigger") or "implementation_completed"),
-                    "required_evidence_artifact_types": list(contract.get("required_evidence_artifact_types") or []),
-                }
-            )
-            break
+        candidates.append(
+            {
+                "requirement_id": int(requirement.id),
+                "requirement_title": str(requirement.title or ""),
+                "workflow_run_id": int(run.id),
+                "current_state": str(run.current_state or ""),
+                "workflow_status": str(run.status or ""),
+                "acceptance_owner_role": str(contract.get("acceptance_owner_role") or "tester"),
+                "acceptance_mode": str(contract.get("acceptance_mode") or "scheduled"),
+                "acceptance_trigger": "declarative_workflow_observation",
+                "required_evidence_artifact_types": list(contract.get("required_evidence_artifact_types") or []),
+            }
+        )
         if len(candidates) >= limit:
             break
     return candidates[:limit]

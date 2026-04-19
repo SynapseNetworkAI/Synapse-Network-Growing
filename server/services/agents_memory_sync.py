@@ -1,4 +1,4 @@
-"""Non-blocking sync of requirement/task data to Agents-Memory (http://localhost:10100)."""
+"""Non-blocking sync of requirement and workflow data to Agents-Memory."""
 from __future__ import annotations
 
 import logging
@@ -55,76 +55,6 @@ def _project_name(target_project_path: str | None) -> str:
 
 
 # ── Public push functions ────────────────────────────────────────────────────
-
-
-def push_task_completed(task: Any, step: Any, requirement: Any) -> None:
-    """Push a completed task to Agents-Memory as a task_completion record."""
-    project = _project_name(getattr(requirement, "target_project_path", None))
-    title = (getattr(step, "title", None) or (task.description or "")[:80]) if step else (task.description or "")[:80]
-    done_when = getattr(step, "done_when_markdown", "") if step else ""
-    output = (task.output_content or "")[:3000]
-    req_id = getattr(requirement, "id", "")
-
-    content = f"""---
-id: TASK-{task.id}
-title: "{title}"
-project: {project}
-source_type: task_completion
-status: completed
-agent_id: {task.agent_id}
-requirement_id: {req_id}
-execution_time_ms: {task.execution_time_ms or 0}
----
-
-## 任务描述
-
-{task.description}
-
-## 验收标准（done_when）
-
-{done_when}
-
-## 执行结果
-
-{output}
-"""
-    _push(content, "task_completion", project)
-
-
-def push_task_failed(task: Any, step: Any, requirement: Any) -> None:
-    """Push a failed task to Agents-Memory as an error_record."""
-    project = _project_name(getattr(requirement, "target_project_path", None))
-    title = f"{(task.description or '')[:80]} — 失败"
-    req_id = getattr(requirement, "id", "")
-    step_title = getattr(step, "title", "（未知）") if step else "（未知）"
-    step_role = getattr(step, "assigned_workflow_role", "") if step else ""
-    done_when = getattr(step, "done_when_markdown", "") if step else ""
-
-    content = f"""---
-id: TASK-{task.id}-FAIL
-title: "{title}"
-project: {project}
-source_type: error_record
-status: new
-agent_id: {task.agent_id}
-requirement_id: {req_id}
----
-
-## 错误信息
-
-{task.last_error_message or '（无错误信息）'}
-
-## 任务描述
-
-{task.description}
-
-## 步骤上下文
-
-- 步骤：{step_title}
-- 角色：{step_role}
-- 验收标准：{done_when}
-"""
-    _push(content, "error_record", project)
 
 
 def push_requirement_completed(

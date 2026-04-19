@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from collections import defaultdict
 
-from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow, TaskRow, WorkflowStepRow
+from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
 from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_signals import list_optimization_signals, refresh_optimization_signals
@@ -18,7 +18,7 @@ from server.services.signals.optimization_templates import build_template_instan
 from server.services.scheduling.portfolio_scheduler import build_portfolio_schedule
 from server.services.projects.intelligence import build_project_catalog
 from server.services.requirements.sources import normalize_requirement_intake_metadata
-from server.services.workflows.agent_first import create_requirement
+from server.services.requirements.service import create_requirement
 from server.services.reviews.company_payload_builder import build_operating_review_payload
 from server.services.reviews.company_materialization import latest_company_operating_review, refresh_company_operating_review
 from server.services.reviews.company_payload import _review_payload, company_review_to_dict
@@ -129,7 +129,6 @@ def _aggregate_runtime_metrics(
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     overall = _empty_runtime_metric_bucket()
     per_project: dict[str, dict[str, Any]] = defaultdict(_empty_runtime_metric_bucket)
-    requirement_by_task_id: dict[int, RequirementRow] = {}
 
     scoped_requirements = [req for req in requirements.values() if str(req.status or "") != "deleted"]
     for requirement in scoped_requirements:
@@ -138,36 +137,6 @@ def _aggregate_runtime_metrics(
         for project_key in _requirement_project_keys(requirement, project_catalog):
             if str(requirement.status or "") == "done":
                 per_project[project_key]["completed_requirements"] += 1
-
-    for step in db.query(WorkflowStepRow).filter(WorkflowStepRow.compatibility_task_id.isnot(None)).all():
-        task_id = int(step.compatibility_task_id or 0)
-        requirement = requirements.get(int(step.requirement_id or 0))
-        if task_id > 0 and requirement is not None:
-            requirement_by_task_id[task_id] = requirement
-
-    for task in db.query(TaskRow).all():
-        requirement = requirement_by_task_id.get(int(task.id or 0))
-        if requirement is None:
-            continue
-        budget_cost = int(task.budget_cost_points or 0)
-        tokens_used = int(task.tokens_used or 0)
-        overall["budget_spent_points"] += budget_cost
-        overall["tokens_used"] += tokens_used
-        for project_key in _requirement_project_keys(requirement, project_catalog):
-            per_project[project_key]["budget_spent_points"] += budget_cost
-            per_project[project_key]["tokens_used"] += tokens_used
-
-    for step in db.query(WorkflowStepRow).all():
-        requirement = requirements.get(int(step.requirement_id or 0))
-        if requirement is None:
-            continue
-        profile = _json_loads(getattr(step, "execution_profile_json", None), {})
-        tier = str(profile.get("complexity_tier") or "standard").strip().lower() or "standard"
-        if tier not in {"mini", "standard", "max"}:
-            tier = "standard"
-        overall["tier_mix"][tier] += 1
-        for project_key in _requirement_project_keys(requirement, project_catalog):
-            per_project[project_key]["tier_mix"][tier] += 1
 
     for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "prompt_cache_profile").all():
         requirement = requirements.get(int(artifact.requirement_id or 0))
@@ -421,20 +390,12 @@ def _human_gate_hotspots(
             bucket["pending_count"] += 1
         bucket["latest_status"] = status
 
-    steps_by_id = {
-        int(step.id): step
-        for step in db.query(WorkflowStepRow).all()
-        if step.id is not None
-    }
-
     for approval in db.query(ApprovalRequestRow).all():
         requirement = requirements.get(int(approval.requirement_id or 0))
         if requirement is None:
             continue
-        step = steps_by_id.get(int(approval.step_id or 0))
-        approval_policy = _json_loads(getattr(step, "approval_policy_json", None), {}) if step is not None else {}
-        approval_scope = str(approval_policy.get("approval_scope") or "").strip() or None
-        step_type = str(getattr(step, "step_type", "") or "").strip() or None
+        approval_scope = str(getattr(approval, "approval_scope", "") or "").strip() or None
+        step_type = "human_gate"
         project_key, project_display_name = _project_display_for_keys(
             _requirement_project_keys(requirement, project_catalog),
             project_catalog,

@@ -70,9 +70,9 @@
 ## 6.6 No Legacy Workflow Compatibility
 
 1. 新复杂执行链的唯一真相是 declarative workflow run：`workflow_definitions`、`workflow_runs`、`workflow_state_events`、`workflow_artifacts`、`blackboard_snapshots`、`atom_invocations`、`human_gate_requests`。
-2. 历史 `workflow_steps`、fixed-step orchestrator、旧 agent-first bugfix loop、旧 delivery repair loop 只允许作为删除对象或只读历史残留，不得作为新链路 fallback。
-3. `WorkflowRunRow/WorkflowStepRow/active_workflow_run_id/current_plan_version` 的旧语义不再参与新执行链设计；新业务只能读取 declarative state machine 的 `workflow_key/current_state/status/resolution/blackboard`。
-4. `workflow_artifacts.workflow_run_id` 必须直接外键到新 declarative run，不得再绕到旧 `ArtifactRow.workflow_run_id` 或把 execution id 塞进 artifact payload 伪关联。
+2. 历史 fixed-step orchestrator、旧 agent-first bugfix loop、旧 delivery repair loop、旧 task runner 已从主代码路径删除，不得作为新链路 fallback。
+3. 新业务只能读取 declarative state machine 的 `workflow_key/current_state/status/resolution/blackboard` 与 state events / atom invocations / human gates，不得恢复旧 fixed-step execution 表达。
+4. `workflow_artifacts.workflow_run_id` 必须直接外键到 declarative run，不得把历史 execution id 塞进 artifact payload 伪关联。
 5. Requirement submit 后只应创建 declarative workflow run；planner 只选择 `workflow_key` 与初始化 blackboard，不再生成固定 `research/plan/implementation/validate/closeout` steps。
 6. Agent 只能写 structured output 与 artifact；state transition、retry budget、terminal state、human gate 由 deterministic runner 决定。
 
@@ -283,8 +283,8 @@ Release 负责：
 1. 所有 runtime 都必须可 start、running、pause、fail、cleanup、abort。
 2. transcript、session、artifact、log 和 ownership 必须可追踪。
 3. 父执行结束时，子资源必须可收口、可复盘。
-4. 当 execution 运行态失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置，不保留旧脏数据兼容逻辑。
-5. 当需要切换到新的 canonical workflow 状态机并丢弃历史 workflow 数据时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes`。
+4. 当 workflow runtime 失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置 declarative runtime，不保留旧脏数据兼容逻辑。
+5. 当需要丢弃本地 requirement / workflow 状态重新开始时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes`。
 6. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
 6. verification passed 后应默认自动推进 commit / push / open PR；PR merge 视为最终人工把关。
 

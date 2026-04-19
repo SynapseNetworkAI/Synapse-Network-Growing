@@ -73,156 +73,6 @@ class RoleKpiSnapshotOut(BaseModel):
     summary: RoleWorkAllocationSummaryOut = RoleWorkAllocationSummaryOut()
 
 
-# ── Task ──────────────────────────────────────────────────────
-
-class TaskCreate(BaseModel):
-    description: str
-    agent_id: Optional[str] = None
-    requires_approval: bool = False
-    priority: str = "normal"
-    skill_name: Optional[str] = None
-    context_files: Optional[list[str]] = None
-    confirm_auto_selection: bool = False
-
-
-class TaskOut(BaseModel):
-    id: int
-    description: str
-    agent_id: str
-    status: str
-    requires_approval: bool
-    priority: str
-    project_id: Optional[str] = None
-    project_label: Optional[str] = None
-    agent_group: Optional[str] = None
-    skill_name: Optional[str] = None
-    context_files: Optional[str] = None
-    retry_of_task_id: Optional[int] = None
-    attempt_no: int = 1
-    last_error_message: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    runtime_session_id: Optional[str] = None
-    runtime_selected_agent: Optional[str] = None
-    output_path: Optional[str] = None
-    output_content: Optional[str] = None
-    execution_time_ms: Optional[int] = None
-    tokens_used: int = 0
-    budget_cost_points: int = 0
-    requirement_id: Optional[int] = None
-    requirement_title: Optional[str] = None
-    workflow_step_type: Optional[str] = None
-    workflow_step_title: Optional[str] = None
-    output_files: Optional[list[str]] = None
-    created_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
-class TaskHistoryOut(BaseModel):
-    task_id: int
-    retry_of_task_id: Optional[int] = None
-    attempt_no: int = 1
-    status: str
-    project_id: Optional[str] = None
-    agent_group: Optional[str] = None
-    agent_id: str
-    skill_name: Optional[str] = None
-    last_error_message: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    tokens_used: int = 0
-    budget_cost_points: int = 0
-    created_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
-class TaskPage(BaseModel):
-    items: list[TaskOut]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
-    status_counts: dict[str, int]
-
-
-class TaskBulkRetryRequest(BaseModel):
-    task_ids: list[int]
-    mode: str = "run_now"
-
-
-class TaskExecutionSuggestionRequest(BaseModel):
-    description: str
-    agent_id: Optional[str] = None
-    skill_name: Optional[str] = None
-    limit: int = 3
-
-
-class TaskExecutionCandidate(BaseModel):
-    agent_id: str
-    display_name: str
-    agent_group: str = ""
-    skill_name: str
-    confidence: float = 0.0
-    reason: str = ""
-
-
-class TaskExecutionSuggestion(BaseModel):
-    agent_id: Optional[str] = None
-    skill_name: Optional[str] = None
-    confidence: float = 0.0
-    reason: str = ""
-    requires_confirmation: bool = False
-    candidates: list[TaskExecutionCandidate] = []
-
-
-# ── Approval ──────────────────────────────────────────────────
-
-class ApprovalOut(BaseModel):
-    id: int
-    task_id: int
-    status: str
-    reviewer: Optional[str] = None
-    comment: Optional[str] = None
-    created_at: Optional[datetime] = None
-    decided_at: Optional[datetime] = None
-    task: Optional[TaskOut] = None
-
-    model_config = {"from_attributes": True}
-
-
-class ApprovalDecide(BaseModel):
-    action: str  # "approve" | "reject"
-    comment: str = ""
-    reviewer: str = "cto"
-
-
-class ApprovalBulkDecide(BaseModel):
-    approval_ids: list[int]
-    action: str  # "approve" | "reject"
-    comment: str = ""
-    reviewer: str = "cto"
-
-
-# ── TaskLog ───────────────────────────────────────────────────
-
-class TaskLogOut(BaseModel):
-    id: int
-    task_id: int
-    event_type: str
-    detail: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
 # ── Agent Match ───────────────────────────────────────────────
 
 class AgentMatch(BaseModel):
@@ -405,12 +255,13 @@ class PlannerSweepOut(BaseModel):
 
 class DashboardStats(BaseModel):
     agent_count: int
-    task_total: int
-    task_pending: int
-    task_running: int
-    task_completed: int
-    task_failed: int
-    approval_pending: int
+    requirement_total: int
+    requirement_active: int
+    workflow_total: int
+    workflow_running: int
+    workflow_succeeded: int
+    workflow_failed: int
+    human_gate_pending: int
 
 
 class OperatingReviewPortfolioSummaryOut(BaseModel):
@@ -1041,12 +892,6 @@ class RequirementPlanPatch(BaseModel):
     human_readable_body: str
 
 
-class WorkflowStepPatch(BaseModel):
-    title: Optional[str] = None
-    done_when_markdown: Optional[str] = None
-    handoff_summary_markdown: Optional[str] = None
-
-
 class RequirementApprovalDecisionRequest(BaseModel):
     action: str  # approve | reject | waive
     reviewer: str = "operator"
@@ -1156,29 +1001,6 @@ class AgentFirstRequirementDetailOut(BaseModel):
     resolution_path: Optional[str] = None
 
 
-class ExecutionNodeOut(BaseModel):
-    id: int
-    execution_run_id: int
-    requirement_id: int
-    node_key: str
-    node_type: str
-    title: str
-    status: str
-    sequence_no: int
-    task_id: Optional[int] = None
-    task_status: Optional[str] = None
-    agent_id: Optional[str] = None
-    agent_label: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    tokens_used: Optional[int] = None
-    elapsed_ms: Optional[int] = None
-    summary_markdown: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-
 class ValidationCheckResultOut(BaseModel):
     label: str
     command: Optional[str] = None
@@ -1240,18 +1062,6 @@ class ApprovalDecisionOut(BaseModel):
     required_approver_roles: list[str] = []
 
 
-class ExecutionBlockerOut(BaseModel):
-    kind: str
-    message: str
-    resume_mode: str = "operator_only"
-    scope: str = "current_requirement"
-
-
-class ExecutionFailureOut(BaseModel):
-    kind: str
-    message: str
-
-
 class ValidationRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
@@ -1274,149 +1084,6 @@ class ValidationRecordSlimOut(BaseModel):
     followup_requirement_payload: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-
-
-class ExecutionRunOut(BaseModel):
-    id: int
-    requirement_id: int
-    requirement_title: Optional[str] = None
-    state: str = "queued"
-    project: Optional[RequirementProjectRefOut] = None
-    execution_mode: str
-    execution_kind: str = "implementation"
-    attempt_kind: str = "implementation"
-    plan_kind: str = "requirement"
-    derived_from_attempt_id: Optional[int] = None
-    attempt_index: Optional[int] = None
-    attempt_budget: Optional[int] = None
-    failed_gate_name: Optional[str] = None
-    parent_plan_reference_summary: Optional[str] = None
-    repair_attempt_count: int = 0
-    max_auto_repair_attempts: int = 2
-    manual_retry_count: int = 0
-    complexity: str
-    status: str
-    phase: str = "queued"
-    is_current_execution: bool = True
-    allowed_actions: list[str] = []
-    pending_operations: list[str] = []
-    recovery_status: Optional[str] = None
-    recovery_scope: Optional[str] = None
-    recovery_deadline_at: Optional[datetime] = None
-    recovery_timeout_status: Optional[str] = None
-    time_remaining_seconds: Optional[int] = None
-    recovery_mode: Optional[str] = None
-    queue_reason: Optional[str] = None
-    blocking_reason_code: Optional[str] = None
-    blocking_reason_message: Optional[str] = None
-    workspace_blocker: Optional[WorkspaceBlockerOut] = None
-    recovery_hint: Optional[str] = None
-    blocker: Optional[ExecutionBlockerOut] = None
-    failure: Optional[ExecutionFailureOut] = None
-    validation_profile: str
-    delivery_intent: str
-    approval_required: bool = False
-    source_release_id: Optional[int] = None
-    source_delivery_blocker_type: Optional[str] = None
-    planner_summary: Optional[str] = None
-    target_projects: list[str] = []
-    latest_task_id: Optional[int] = None
-    agent_id: Optional[str] = None
-    agent_label: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    runtime_session_id: Optional[str] = None
-    resume_count: Optional[int] = None
-    last_heartbeat_at: Optional[datetime] = None
-    tokens_used_total: Optional[int] = None
-    elapsed_ms: Optional[int] = None
-    current_branch: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-
-class ExecutionChangedFileOut(BaseModel):
-    path: str
-    change_type: str = "modified"
-    additions: int = 0
-    deletions: int = 0
-    preview_available: bool = False
-
-
-class ExecutionFilePreviewOut(BaseModel):
-    path: str
-    diff_patch: Optional[str] = None
-    current_content: Optional[str] = None
-    truncated: bool = False
-
-
-class ExecutionRuntimeSummaryOut(BaseModel):
-    tokens_used_total: Optional[int] = None
-    elapsed_ms: Optional[int] = None
-    agent_id: Optional[str] = None
-    agent_label: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    current_branch: Optional[str] = None
-
-
-class ExecutionActivityEventOut(BaseModel):
-    ts: Optional[datetime] = None
-    event: str
-    status: Optional[str] = None
-    message: str = ""
-
-
-class ExecutionRunDetailOut(BaseModel):
-    execution: ExecutionRunOut
-    requirement: AgentFirstRequirementOut
-    state: str = "queued"
-    phase: str = "queued"
-    is_current_execution: bool = True
-    allowed_actions: list[str] = []
-    pending_operations: list[str] = []
-    recovery_status: Optional[str] = None
-    recovery_scope: Optional[str] = None
-    recovery_deadline_at: Optional[datetime] = None
-    recovery_timeout_status: Optional[str] = None
-    time_remaining_seconds: Optional[int] = None
-    recovery_mode: Optional[str] = None
-    queue_reason: Optional[str] = None
-    blocking_reason_code: Optional[str] = None
-    blocking_reason_message: Optional[str] = None
-    workspace_blocker: Optional[WorkspaceBlockerOut] = None
-    recovery_hint: Optional[str] = None
-    blocker: Optional[ExecutionBlockerOut] = None
-    failure: Optional[ExecutionFailureOut] = None
-    nodes: list[ExecutionNodeOut] = []
-    validation: Optional[ValidationRecordSlimOut] = None
-    verification_result: Optional[ValidationRecordSlimOut] = None
-    verification_plan: Optional[VerificationPlanOut] = None
-    changed_files: list[ExecutionChangedFileOut] = []
-    runtime_summary: Optional[ExecutionRuntimeSummaryOut] = None
-    delivery_summary: Optional[ReleaseRecordSlimOut] = None
-    activity_stream: list[ExecutionActivityEventOut] = []
-    incidents: list[dict[str, object]] = []
-    plan_summary: dict[str, object] = {}
-    raw_task_output: Optional[str] = None
-    raw_task_output_truncated: bool = False
-
-
-class ExecutionOperationResultOut(BaseModel):
-    status: str
-    reason: Optional[str] = None
-    message: Optional[str] = None
-    execution_id: int
-    replacement_execution_id: Optional[int] = None
-    detail: ExecutionRunDetailOut
-
-
-class ExecutionCreateRequest(BaseModel):
-    requirement_id: int
 
 
 class ReleaseRecordSlimOut(BaseModel):
@@ -1573,11 +1240,6 @@ class ErrorFingerprintDetailOut(BaseModel):
     release: Optional[ReleaseRecordSlimOut] = None
     events: list[ErrorEventOut] = []
     notifications: list[NotificationDeliveryOut] = []
-
-
-class TaskPatch(BaseModel):
-    description: Optional[str] = None
-    priority: Optional[str] = None
 
 
 class ArtifactOut(BaseModel):
@@ -1827,37 +1489,6 @@ class RequirementScoreBreakdownOut(BaseModel):
     automation_gap: float = 0.0
 
 
-class WorkflowStepOut(BaseModel):
-    id: int
-    workflow_run_id: int
-    requirement_id: int
-    step_key: str
-    step_type: str
-    title: str
-    status: str
-    sequence_no: int
-    assigned_agent_id: Optional[str] = None
-    assigned_workflow_role: Optional[str] = None
-    branch_from_step_id: Optional[int] = None
-    compatibility_task_id: Optional[int] = None
-    retry_count: int = 0
-    handoff_summary_markdown: Optional[str] = None
-    done_when_markdown: str = ""
-    context_policy_json: Optional[str] = None
-    execution_profile_json: Optional[str] = None
-    runtime_backend: Optional[str] = None
-    runtime_provider: Optional[str] = None
-    runtime_model: Optional[str] = None
-    runtime_session_id: Optional[str] = None
-    runtime_selected_agent: Optional[str] = None
-    execution_time_ms: Optional[int] = None
-    tokens_used: int = 0
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
 class RequirementAttachmentOut(BaseModel):
     id: int
     requirement_id: int
@@ -1868,55 +1499,6 @@ class RequirementAttachmentOut(BaseModel):
     source: str
     size_bytes: int
     created_at: Optional[datetime] = None
-
-
-class WorkflowRunOut(BaseModel):
-    id: int
-    requirement_id: int
-    plan_version: int
-    step_model_version: str = "1.0"
-    status: str
-    triggered_by: str
-    planner_artifact_id: Optional[int] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    steps: list[WorkflowStepOut] = []
-
-    model_config = {"from_attributes": True}
-
-
-class TaskChangedFileOut(BaseModel):
-    filename: str
-    additions: int = 0
-    deletions: int = 0
-    patch: str = ""
-    target_project_path: Optional[str] = None
-
-
-class RequirementTaskOutputOut(BaseModel):
-    task_id: int
-    step_id: Optional[int] = None
-    step_key: str = ""
-    step_type: str = ""
-    step_title: str = ""
-    task_status: str = "pending"
-    output_files: list[str] = []
-    changed_files: list[TaskChangedFileOut] = []
-    target_project_paths: list[str] = []
-    source: str = "snapshot"
-    captured_at: Optional[str] = None
-    legacy_snapshot: bool = False
-    change_warning: Optional[str] = None
-
-
-class RequirementMergedOutputFileOut(BaseModel):
-    file_name: str
-    task_ids: list[int] = []
-    step_keys: list[str] = []
-    step_types: list[str] = []
-    step_titles: list[str] = []
 
 
 class RequirementOut(BaseModel):
@@ -1946,46 +1528,6 @@ class RequirementOut(BaseModel):
     updated_at: Optional[datetime] = None
     routing_context: RequirementRoutingContextOut = RequirementRoutingContextOut()
     score_breakdown: RequirementScoreBreakdownOut = RequirementScoreBreakdownOut()
-
-
-class RequirementDetailOut(BaseModel):
-    requirement: RequirementOut
-    workflow_run: Optional[WorkflowRunOut] = None
-    dependencies: list[RequirementDependencyOut] = []
-    acceptance_checks: list[RequirementAcceptanceCheckOut] = []
-    artifacts: list[ArtifactOut] = []
-    attachments: list[RequirementAttachmentOut] = []
-    delivery_state: Optional[DeliveryStateOut] = None
-    deployment_records: list[DeploymentRecordOut] = []
-    incidents: list[IncidentRecordOut] = []
-    task_outputs: list[RequirementTaskOutputOut] = []
-    merged_output_files: list[RequirementMergedOutputFileOut] = []
-
-
-class AcceptanceDispatchRequest(BaseModel):
-    limit: int = 20
-    auto_dispatch: bool = False
-
-
-class AcceptanceDispatchCandidateOut(BaseModel):
-    requirement_id: int
-    requirement_title: str
-    workflow_run_id: int
-    step_id: int
-    step_key: str
-    step_type: str
-    step_title: str
-    acceptance_owner_role: str
-    acceptance_mode: str
-    acceptance_trigger: str
-    required_evidence_artifact_types: list[str] = []
-
-
-class AcceptanceDispatchResultOut(BaseModel):
-    scanned: int = 0
-    dispatched_requirement_ids: list[int] = []
-    candidates: list[AcceptanceDispatchCandidateOut] = []
-
 
 class RequirementSourceRegistryItemOut(BaseModel):
     source_key: str

@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ApprovalRequestRow, ApprovalRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow, TaskRow
+from server.database import ApprovalRequestRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow
 from server.services.requirements.acceptance import acceptance_contract_for_requirement
 from server.services.requirements.approval import (
     evaluate_requirement_execution_approval,
@@ -242,22 +242,6 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
         if requirement is None or str(requirement.status) == "deleted":
             continue
         for root in requirement_roots.get(int(requirement.id), []):
-            manual_overrides[root] += 1
-
-    tasks_by_id = {int(row.id): row for row in db.query(TaskRow).all()}
-    for approval in db.query(ApprovalRow).all():
-        task = tasks_by_id.get(int(approval.task_id))
-        if task is None:
-            continue
-        roots: set[str] = set()
-        if str(task.project_id or "").strip():
-            roots.add(str(task.project_id))
-        for step in task.workflow_steps:
-            requirement = requirement_by_id.get(int(step.requirement_id))
-            if requirement is None or str(requirement.status) == "deleted":
-                continue
-            roots.update(requirement_roots.get(int(requirement.id), []))
-        for root in roots:
             manual_overrides[root] += 1
 
     catalog: dict[str, dict[str, Any]] = {}
