@@ -53,8 +53,8 @@
 - Summary: Optional status=WATCH (ok=2, warn=5, fail=0, info=0)
 - [OK] `copilot_activation` Agents-Memory activation block present -> /Users/cliff/workspace/agent/Synapse-Network-Growing/.github/copilot-instructions.md
 - [OK] `agents_read_order` AGENTS.md references current bridge and 8 managed standard(s)
-- [WARN] `refactor_watch` server/services/portfolio_scheduler.py::execute_portfolio_schedule high complexity (lines=44>40, branches=9>5, nesting=4>=4, locals=14>8, missing_guiding_comment)
-- [WARN] `refactor_watch` server/services/workflow_orchestrator.py::_soft_delete_requirement_tree high complexity (lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment)
-- [WARN] `refactor_watch` server/services/portfolio_scheduler.py::build_portfolio_schedule high complexity (lines=277>40, branches=17>5, nesting=4>=4, locals=45>8, missing_guiding_comment)
-- [WARN] `refactor_watch` server/services/recurring_workflows.py::run_recurring_workflow high complexity (lines=94>40, branches=7>5, nesting=6>=4, locals=10>8, missing_guiding_comment)
-- [WARN] `refactor_watch` server/services/workflow_orchestrator.py::_snapshot_file_changes high complexity (lines=105>40, branches=14>5, nesting=4>=4, locals=24>8, missing_guiding_comment)
+- [WARN] `refactor_watch` scripts/generate_architecture_graph.py::detect_import_edges high complexity (lines=56>40, branches=19>5, nesting=5>=4, locals=16>8, missing_guiding_comment)
+- [WARN] `refactor_watch` server/services/workflows/agent_first.py::reconcile_execution_state high complexity (lines=148>40, branches=23>5, nesting=10>=4, locals=25>8, missing_guiding_comment)
+- [WARN] `refactor_watch` server/services/reviews/company_review.py::_cross_project_bug_recoveries high complexity (lines=64>40, branches=7>5, nesting=4>=4, locals=14>8, missing_guiding_comment)
+- [WARN] `refactor_watch` server/services/workflows/orchestrator/__init__.py::_soft_delete_requirement_tree high complexity (lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment)
+- [WARN] `refactor_watch` server/services/scheduling/portfolio_scheduler.py::execute_portfolio_rebalance high complexity (lines=61>40, branches=8>5, nesting=4>=4, locals=14>8, missing_guiding_comment)

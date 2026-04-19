@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-12T16:05:54.526662+00:00",
+  "generated_at": "2026-04-19T02:32:32.348521+00:00",
   "project_id": "synapse-network-growing",
   "project_root": "/Users/cliff/workspace/agent/Synapse-Network-Growing",
   "overall": "PARTIAL",
@@ -108,27 +108,27 @@
         {
           "status": "WARN",
           "key": "refactor_watch",
-          "detail": "server/services/portfolio_scheduler.py::execute_portfolio_schedule high complexity (lines=44>40, branches=9>5, nesting=4>=4, locals=14>8, missing_guiding_comment)"
+          "detail": "scripts/generate_architecture_graph.py::detect_import_edges high complexity (lines=56>40, branches=19>5, nesting=5>=4, locals=16>8, missing_guiding_comment)"
         },
         {
           "status": "WARN",
           "key": "refactor_watch",
-          "detail": "server/services/workflow_orchestrator.py::_soft_delete_requirement_tree high complexity (lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment)"
+          "detail": "server/services/workflows/agent_first.py::reconcile_execution_state high complexity (lines=148>40, branches=23>5, nesting=10>=4, locals=25>8, missing_guiding_comment)"
         },
         {
           "status": "WARN",
           "key": "refactor_watch",
-          "detail": "server/services/portfolio_scheduler.py::build_portfolio_schedule high complexity (lines=277>40, branches=17>5, nesting=4>=4, locals=45>8, missing_guiding_comment)"
+          "detail": "server/services/reviews/company_review.py::_cross_project_bug_recoveries high complexity (lines=64>40, branches=7>5, nesting=4>=4, locals=14>8, missing_guiding_comment)"
         },
         {
           "status": "WARN",
           "key": "refactor_watch",
-          "detail": "server/services/recurring_workflows.py::run_recurring_workflow high complexity (lines=94>40, branches=7>5, nesting=6>=4, locals=10>8, missing_guiding_comment)"
+          "detail": "server/services/workflows/orchestrator/__init__.py::_soft_delete_requirement_tree high complexity (lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment)"
         },
         {
           "status": "WARN",
           "key": "refactor_watch",
-          "detail": "server/services/workflow_orchestrator.py::_snapshot_file_changes high complexity (lines=105>40, branches=14>5, nesting=4>=4, locals=24>8, missing_guiding_comment)"
+          "detail": "server/services/scheduling/portfolio_scheduler.py::execute_portfolio_rebalance high complexity (lines=61>40, branches=8>5, nesting=4>=4, locals=14>8, missing_guiding_comment)"
         }
       ]
     }
@@ -160,5 +160,78 @@
     "[x] Integration - Integration status=HEALTHY (ok=2, warn=0, fail=0, info=0)",
     "[ ] Optional - Optional status=WATCH (ok=2, warn=5, fail=0, info=0)",
     "[ ] Final verification - re-run `amem doctor .` and confirm no remaining WARN / FAIL steps"
-  ]
+  ],
+  "recommended_steps": [
+    {
+      "group": "Refactor",
+      "priority": "recommended",
+      "key": "refactor_bundle",
+      "status": "WARN",
+      "detail": "refactor bundle ready for scripts/generate_architecture_graph.py::detect_import_edges",
+      "action": "Review and execute the generated refactor bundle at docs/plans/refactor-scripts-generate-architecture-graph-py-detect-import-edges before adding more behavior.",
+      "command": "python3 scripts/memory.py refactor-bundle . --token hotspot-0e89c9d2bec2",
+      "verify_with": "amem doctor .",
+      "done_when": "`amem doctor .` no longer reports `scripts/generate_architecture_graph.py::detect_import_edges` as the top refactor hotspot.",
+      "safe_to_auto_execute": true,
+      "approval_required": false,
+      "approval_reason": "refreshes generated planning docs only",
+      "next_command": "amem doctor .",
+      "bundle_path": "docs/plans/refactor-scripts-generate-architecture-graph-py-detect-import-edges",
+      "task_name": "Refactor hotspot: scripts/generate_architecture_graph.py::detect_import_edges",
+      "task_slug": "refactor-scripts-generate-architecture-graph-py-detect-import-edges",
+      "hotspot_index": 1,
+      "hotspot_token": "hotspot-0e89c9d2bec2",
+      "hotspot": {
+        "identifier": "scripts/generate_architecture_graph.py::detect_import_edges",
+        "rank_token": "hotspot-0e89c9d2bec2",
+        "relative_path": "scripts/generate_architecture_graph.py",
+        "function_name": "detect_import_edges",
+        "qualified_name": "detect_import_edges",
+        "line": 307,
+        "status": "WARN",
+        "effective_lines": 56,
+        "branches": 19,
+        "nesting": 5,
+        "local_vars": 16,
+        "has_guiding_comment": false,
+        "issues": [
+          "lines=56>40",
+          "branches=19>5",
+          "nesting=5>=4",
+          "locals=16>8",
+          "missing_guiding_comment"
+        ],
+        "score": 41
+      }
+    }
+  ],
+  "recommended_refactor_bundle": {
+    "bundle_path": "docs/plans/refactor-scripts-generate-architecture-graph-py-detect-import-edges",
+    "task_name": "Refactor hotspot: scripts/generate_architecture_graph.py::detect_import_edges",
+    "task_slug": "refactor-scripts-generate-architecture-graph-py-detect-import-edges",
+    "hotspot_index": 1,
+    "hotspot_token": "hotspot-0e89c9d2bec2",
+    "hotspot": {
+      "identifier": "scripts/generate_architecture_graph.py::detect_import_edges",
+      "rank_token": "hotspot-0e89c9d2bec2",
+      "relative_path": "scripts/generate_architecture_graph.py",
+      "function_name": "detect_import_edges",
+      "qualified_name": "detect_import_edges",
+      "line": 307,
+      "status": "WARN",
+      "effective_lines": 56,
+      "branches": 19,
+      "nesting": 5,
+      "local_vars": 16,
+      "has_guiding_comment": false,
+      "issues": [
+        "lines=56>40",
+        "branches=19>5",
+        "nesting=5>=4",
+        "locals=16>8",
+        "missing_guiding_comment"
+      ],
+      "score": 41
+    }
+  }
 }

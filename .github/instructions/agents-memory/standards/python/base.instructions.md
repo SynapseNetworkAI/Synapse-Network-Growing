@@ -16,7 +16,7 @@ doc_status: active
 
 ## 基线规则
 
-1. Python 版本基线：3.10+
+1. Python 版本基线：3.13+
 2. 新逻辑优先写在 `agents_memory/services/`，而不是 `scripts/` 包装层
 3. 命令分发逻辑只放在 `agents_memory/commands/`
 4. 路径解析、logger、bootstrap 只放在 `agents_memory/runtime.py`

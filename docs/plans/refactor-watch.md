@@ -22,26 +22,26 @@ Track Python functions that are already high-complexity or are approaching the c
 
 ## Hotspots
 
-1. [WARN] `server/services/portfolio_scheduler.py::execute_portfolio_schedule` line=537 metrics=(lines=44, branches=9, nesting=4, locals=14)
-   - token: `hotspot-025a0c05b0ae`
-   - issues: `lines=44>40, branches=9>5, nesting=4>=4, locals=14>8, missing_guiding_comment`
-   - bundle command: `amem refactor-bundle . --token hotspot-025a0c05b0ae`
-2. [WARN] `server/services/workflow_orchestrator.py::_soft_delete_requirement_tree` line=5351 metrics=(lines=57, branches=12, nesting=4, locals=12)
-   - token: `hotspot-16cee63ef81e`
+1. [WARN] `scripts/generate_architecture_graph.py::detect_import_edges` line=307 metrics=(lines=56, branches=19, nesting=5, locals=16)
+   - token: `hotspot-0e89c9d2bec2`
+   - issues: `lines=56>40, branches=19>5, nesting=5>=4, locals=16>8, missing_guiding_comment`
+   - bundle command: `amem refactor-bundle . --token hotspot-0e89c9d2bec2`
+2. [WARN] `server/services/workflows/agent_first.py::reconcile_execution_state` line=1464 metrics=(lines=148, branches=23, nesting=10, locals=25)
+   - token: `hotspot-248b67f5afe3`
+   - issues: `lines=148>40, branches=23>5, nesting=10>=4, locals=25>8, missing_guiding_comment`
+   - bundle command: `amem refactor-bundle . --token hotspot-248b67f5afe3`
+3. [WARN] `server/services/reviews/company_review.py::_cross_project_bug_recoveries` line=303 metrics=(lines=64, branches=7, nesting=4, locals=14)
+   - token: `hotspot-258fa257e3de`
+   - issues: `lines=64>40, branches=7>5, nesting=4>=4, locals=14>8, missing_guiding_comment`
+   - bundle command: `amem refactor-bundle . --token hotspot-258fa257e3de`
+4. [WARN] `server/services/workflows/orchestrator/__init__.py::_soft_delete_requirement_tree` line=5743 metrics=(lines=57, branches=12, nesting=4, locals=12)
+   - token: `hotspot-27e722eb8667`
    - issues: `lines=57>40, branches=12>5, nesting=4>=4, locals=12>8, missing_guiding_comment`
-   - bundle command: `amem refactor-bundle . --token hotspot-16cee63ef81e`
-3. [WARN] `server/services/portfolio_scheduler.py::build_portfolio_schedule` line=217 metrics=(lines=277, branches=17, nesting=4, locals=45)
-   - token: `hotspot-1c3308f24dbf`
-   - issues: `lines=277>40, branches=17>5, nesting=4>=4, locals=45>8, missing_guiding_comment`
-   - bundle command: `amem refactor-bundle . --token hotspot-1c3308f24dbf`
-4. [WARN] `server/services/recurring_workflows.py::run_recurring_workflow` line=694 metrics=(lines=94, branches=7, nesting=6, locals=10)
-   - token: `hotspot-37c0e63b7c2e`
-   - issues: `lines=94>40, branches=7>5, nesting=6>=4, locals=10>8, missing_guiding_comment`
-   - bundle command: `amem refactor-bundle . --token hotspot-37c0e63b7c2e`
-5. [WARN] `server/services/workflow_orchestrator.py::_snapshot_file_changes` line=467 metrics=(lines=105, branches=14, nesting=4, locals=24)
-   - token: `hotspot-496d4d30bc00`
-   - issues: `lines=105>40, branches=14>5, nesting=4>=4, locals=24>8, missing_guiding_comment`
-   - bundle command: `amem refactor-bundle . --token hotspot-496d4d30bc00`
+   - bundle command: `amem refactor-bundle . --token hotspot-27e722eb8667`
+5. [WARN] `server/services/scheduling/portfolio_scheduler.py::execute_portfolio_rebalance` line=662 metrics=(lines=61, branches=8, nesting=4, locals=14)
+   - token: `hotspot-33e6149a23cd`
+   - issues: `lines=61>40, branches=8>5, nesting=4>=4, locals=14>8, missing_guiding_comment`
+   - bundle command: `amem refactor-bundle . --token hotspot-33e6149a23cd`
 
 ## Suggested Action
 

@@ -34,7 +34,9 @@ Synapse-Network-Growing 的目标，不只是做增长内容仓库，而是逐�
 
 ## 🧭 系统设计原则
 
-后续设计与实现必须遵守 [系统设计原则](docs/design-docs/system-design-principles.md)。
+后续设计与实现必须先读取根目录 [ARCHITECTURE.md](ARCHITECTURE.md)，再遵守 [系统设计原则](docs/design-docs/system-design-principles.md)。
+
+`ARCHITECTURE.md` 是 Codex、Cursor、Copilot、Gemini、Claude 等 coding agent 的短入口；完整规则仍以设计文档为准。涉及 workflow、planning、scheduler、release、notification、runtime、auth、finance、settlement 或 production-safety 的改动，还必须读取 `.github/instructions/architecture-constraints.instructions.md`。
 
 当前最重要的硬约束是：
 
@@ -307,18 +309,20 @@ The local and prod startup scripts call `scripts/python_runtime_guard.sh` before
 2. `docs/ops-console-usage.md` - 控制台页面用途、后端接口映射与 `/requirements` 空白排查
 3. `docs/plans/ai-company-ops-roadmap/README.md` - AI 时代公司操作系统路线图与下一阶段需求池
 4. `docs/design-docs/company-ops-latest-architecture.md` - 最新模块交互、signal 来源、日志与数据库策略
-5. `docs/design-docs/system-design-principles.md` - 当前正式硬约束，包括三面分治与最小执行流
-6. `docs/design-docs/planner-adapter-architecture.md` - Plan Agent provider adapter、配置优先级与扩展边界
-7. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
-8. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
-9. `docs/design-docs/declarative-agent-workflow-factory.md` - 声明式 Agent 工作流工厂、Blackboard、State Machine 与场景推演
-10. `docs/design-docs/workflow-factory-frontend-control-plane.md` - Workflow Factory 前端控制台、模块划分、历史数据清理与 operator UX 方案
-11. `docs/design-docs/recurring-workflow-control-plane.md` - 定时任务管理面、后台 scheduler、Notification Dispatcher 与运行历史
-12. `docs/design-docs/planning-lifecycle-operating-manifest.md` - Operating Manifest、Planner Sweep、候选需求、Drop Goal 级联阻断与非自动回滚边界
-13. `docs/design-docs/legacy-execution-retirement-inventory.md` - 旧 execution 主链退役清单、已删除入口和剩余数据库边界
-14. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
-14. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
-15. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
+5. `ARCHITECTURE.md` - Codex / Cursor / Copilot / Gemini / Claude 共享的短架构宪法入口
+6. `.github/instructions/architecture-constraints.instructions.md` - GitHub instruction-aware 工具的架构约束入口
+7. `docs/design-docs/system-design-principles.md` - 当前正式硬约束，包括三面分治与最小执行流
+8. `docs/design-docs/planner-adapter-architecture.md` - Plan Agent provider adapter、配置优先级与扩展边界
+9. `docs/design-docs/codex-python-sdk-runtime-architecture.md` - Codex Python SDK runtime 与 CLI fallback 方案
+10. `docs/design-docs/plan-agent-project-scoped-session-reuse.md` - Plan Agent 按项目复用 Codex session 的 scope 与 registry
+11. `docs/design-docs/declarative-agent-workflow-factory.md` - 声明式 Agent 工作流工厂、Blackboard、State Machine 与场景推演
+12. `docs/design-docs/workflow-factory-frontend-control-plane.md` - Workflow Factory 前端控制台、模块划分、历史数据清理与 operator UX 方案
+13. `docs/design-docs/recurring-workflow-control-plane.md` - 定时任务管理面、后台 scheduler、Notification Dispatcher 与运行历史
+14. `docs/design-docs/planning-lifecycle-operating-manifest.md` - Operating Manifest、Planner Sweep、候选需求、Drop Goal 级联阻断与非自动回滚边界
+15. `docs/design-docs/legacy-execution-retirement-inventory.md` - 旧 execution 主链退役清单、已删除入口和剩余数据库边界
+16. `docs/design-docs/current-feature-inventory.md` - 当前正式功能清单
+17. `docs/plans/coo-operating-workflows/README.md` - 把系统升级成 AI 公司 COO operating system 的自动工作流方案与实施计划
+18. `docs/plans/bug-intake-and-auto-remediation/README.md` - 把系统 bug 接入需求池、自动修复与验证闭环的方案与实施计划
 
 Synapse-Network-Growing/
 ├── README.md                 # 项目定位、系统目标、能力边界与演进方向

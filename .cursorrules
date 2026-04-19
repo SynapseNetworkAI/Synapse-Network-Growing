@@ -1,0 +1,11 @@
+# Synapse-Network-Growing Cursor Rules
+
+Read these first:
+
+1. `AGENTS.md`
+2. `ARCHITECTURE.md`
+3. `docs/design-docs/system-design-principles.md`
+
+For workflow, planning, scheduler, release, notification, runtime, auth, finance, settlement, or production-safety work, also read `.github/instructions/architecture-constraints.instructions.md`.
+
+Do not duplicate architecture rules here. `ARCHITECTURE.md` is the shared source for Cursor, Codex, Copilot, Gemini, and Claude.

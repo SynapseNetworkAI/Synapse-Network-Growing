@@ -23,6 +23,21 @@ Generated for the `python-service` profile. Treat the files below as the source 
 - Re-run `amem enable . --full` or `amem standards-sync .` after profile-managed standard changes.
 <!-- agents-memory:read-order:end -->
 
+## Codex / Architecture Read Order
+
+Codex reads `AGENTS.md` reliably, but it must not assume `.github/instructions/*.instructions.md` are loaded implicitly. Treat this section as the explicit bridge from Codex to repo instructions.
+
+Before substantial analysis or edits, read in this order:
+
+1. `/Users/cliff/workspace/agent/llms.txt`
+2. `AGENTS.md`
+3. `.github/instructions/agents-memory-bridge.instructions.md`
+4. `.github/instructions/architecture-constraints.instructions.md`
+5. `ARCHITECTURE.md`
+6. `docs/design-docs/system-design-principles.md`
+
+If the task touches workflow, planning lifecycle, scheduler, release, notification, runtime, auth, finance, settlement, or production safety, also read the relevant design doc linked from `ARCHITECTURE.md`.
+
 # Synapse-Growing: Agentic Operations Protocol
 
 Inspired by Harness Engineering, this root AGENTS file defines the operating system for our automated Growth & DevRel agents.

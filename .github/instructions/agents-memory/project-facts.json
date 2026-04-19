@@ -5,7 +5,7 @@
     "tests_dir": "tests"
   },
   "facts": {
-    "language.python": false,
+    "language.python": true,
     "testing.pytest_configured": false,
     "testing.layout": true
   },
@@ -14,8 +14,10 @@
       "id": "python_project",
       "kind": "path_exists",
       "output": "language.python",
-      "matched": false,
-      "matched_paths": [],
+      "matched": true,
+      "matched_paths": [
+        "requirements.txt"
+      ],
       "config": {
         "any_of": [
           "pyproject.toml",

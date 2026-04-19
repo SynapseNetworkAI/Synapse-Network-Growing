@@ -21,6 +21,15 @@ When working in this repository, treat Agents-Memory as mandatory session contex
    - `docs` for README, AGENTS, instruction, contract, workflow, or runbook updates
 4. When the task resembles a previous failure pattern, call `memory_search(query)` before writing code.
 
+## Required architecture sequence
+
+After the Agents-Memory startup sequence and before substantial edits, read:
+
+1. `ARCHITECTURE.md`
+2. `docs/design-docs/system-design-principles.md`
+
+If the change touches workflow factory, planning lifecycle, recurring jobs, notifications, release/deploy, auth, finance, settlement, runtime, or production safety, also read `.github/instructions/architecture-constraints.instructions.md` and the relevant design doc linked from `ARCHITECTURE.md`.
+
 ## Error capture protocol
 
 - Use `project="synapse-network-growing"` when calling `memory_record_error(...)` for this repository.
