@@ -171,6 +171,8 @@ def setup_db():
         "server.main.config.CODEX_CLI_MONITOR_ENABLED", False
     ), patch(
         "server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False
+    ), patch(
+        "server.config.LARK_DELIVERY_DRY_RUN", True
     ):
         yield
     with TEST_ENGINE.begin() as conn:

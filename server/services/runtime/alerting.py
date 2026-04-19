@@ -218,6 +218,12 @@ def _send_lark_payload(
         return False, str(exc)
 
 
+def _delivery_dry_run_enabled() -> bool:
+    """Return whether Lark deliveries should be recorded without webhook calls."""
+
+    return bool(getattr(config, "LARK_DELIVERY_DRY_RUN", False))
+
+
 def deliver_lark_notification(
     db: Session,
     *,
@@ -278,6 +284,13 @@ def deliver_lark_notification(
         row.response_excerpt = "Webhook not configured"
         row.updated_at = row.updated_at
         logger.info("event=lark_notification_skipped channel=%s event_type=%s", channel, event_type)
+        db.flush()
+        return row
+
+    if _delivery_dry_run_enabled():
+        row.status = "dry_run"
+        row.response_excerpt = "Dry run enabled; Lark webhook was not called"
+        logger.info("event=lark_notification_dry_run channel=%s event_type=%s", channel, event_type)
         db.flush()
         return row
 

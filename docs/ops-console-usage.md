@@ -505,6 +505,7 @@ Lark 只承担高信号提醒与入口跳转，完整黑板、atom invocation、
 核心配置：
 
 ```env
+OPS_LARK_DELIVERY_DRY_RUN=false
 OPS_NOTIFICATION_DISPATCHER_ENABLED=true
 OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE=5
 OPS_NOTIFICATION_DEFAULT_COOLDOWN_SECONDS=900
@@ -513,6 +514,14 @@ OPS_NOTIFICATION_P1_COOLDOWN_SECONDS=900
 OPS_NOTIFICATION_APPROVAL_REMINDER_SECONDS=7200
 OPS_NOTIFICATION_MAX_DELIVERY_ATTEMPTS=4
 ```
+
+本地 smoke test 或演示环境如果已经配置真实 webhook，必须先设置：
+
+```env
+OPS_LARK_DELIVERY_DRY_RUN=true
+```
+
+干跑模式会完整创建 `notification_events`、`notification_fingerprints`、`notification_deliveries`，并渲染 Lark card payload，但不会调用真实 Lark webhook，避免污染告警群。
 
 ## 9. 定时任务
 

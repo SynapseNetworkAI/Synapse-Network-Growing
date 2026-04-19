@@ -56,6 +56,7 @@ Historical plans, validation notes, and retired design drafts live under `docs/a
 6. Drop Goal means stop future investment and safe-halt unfinished work.
 7. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
 8. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
+9. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
 
 ## 5. Human Gate And Kill-Switch Constraints
 

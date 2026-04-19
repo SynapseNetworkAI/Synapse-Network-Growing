@@ -74,7 +74,7 @@ describe('SchedulesPage', () => {
     expect(await screen.findByText('定时任务')).toBeTruthy()
     expect(screen.getByText('Bug Log Scheduler')).toBeTruthy()
     expect(screen.getByText('Notification Dispatcher')).toBeTruthy()
-    expect(screen.getByText('Bug Log Sweep')).toBeTruthy()
+    expect(screen.getAllByText('Bug Log Sweep').length).toBeGreaterThan(0)
 
     await waitFor(() => expect(apiMock.getRecurringWorkflowRuns).toHaveBeenCalledWith('bug_log_sweep', 50))
     expect(screen.getByText(/#12/)).toBeTruthy()
@@ -84,7 +84,7 @@ describe('SchedulesPage', () => {
     const user = userEvent.setup()
     render(<SchedulesPage />)
 
-    await screen.findByText('Bug Log Sweep')
+    expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: 'Dry Run' }))
 
     await waitFor(() => {

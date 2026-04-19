@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from server.database import NotificationDeliveryRow, NotificationEventRow, NotificationFingerprintRow, utcnow
-from server.services.runtime.alerting import build_lark_card, deliver_policy_notification
+from server.services.runtime.alerting import build_lark_card, deliver_lark_notification, deliver_policy_notification
 from server.services.runtime.notification_queue import dispatch_notification_queue, enqueue_notification_event
 
 
@@ -49,6 +49,32 @@ def test_deliver_policy_notification_suppresses_low_signal_atom_success(db_sessi
 
     assert row is None
     assert db_session.query(NotificationDeliveryRow).count() == 0
+
+
+def test_lark_delivery_dry_run_records_without_webhook_call(db_session, monkeypatch):
+    monkeypatch.setattr("server.config.LARK_ALERT_WEBHOOK_URL", "https://open.larksuite.com/open-apis/bot/v2/hook/test")
+    monkeypatch.setattr("server.config.LARK_DELIVERY_DRY_RUN", True)
+
+    def _forbidden_send(*_args, **_kwargs):
+        raise AssertionError("dry-run delivery must not call the Lark webhook")
+
+    monkeypatch.setattr("server.services.runtime.alerting._send_lark_payload", _forbidden_send)
+
+    row = deliver_lark_notification(
+        db_session,
+        channel="alert",
+        event_type="smoke_test",
+        event_key="lark:dry-run:test",
+        object_type="smoke",
+        object_key="dry-run",
+        service_name="Synapse Ops",
+        status_or_severity="p3 · dry-run",
+        summary="Dry-run smoke validates card persistence without sending to Lark.",
+        next_action="No action required.",
+    )
+
+    assert row.status == "dry_run"
+    assert "webhook was not called" in str(row.response_excerpt)
 
 
 def test_notification_queue_suppresses_duplicate_within_cooldown(db_session, monkeypatch):
@@ -125,6 +151,7 @@ def test_notification_queue_severity_upgrade_breaks_cooldown(db_session, monkeyp
 
 def test_notification_queue_retries_and_dead_letters_failed_lark_delivery(db_session, monkeypatch):
     monkeypatch.setattr("server.config.LARK_ALERT_WEBHOOK_URL", "https://example.invalid/hook")
+    monkeypatch.setattr("server.config.LARK_DELIVERY_DRY_RUN", False)
     monkeypatch.setattr("server.config.NOTIFICATION_MAX_DELIVERY_ATTEMPTS", 2)
     monkeypatch.setattr(
         "server.services.runtime.alerting._send_lark_payload",

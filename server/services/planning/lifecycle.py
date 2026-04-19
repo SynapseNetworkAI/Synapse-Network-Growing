@@ -364,6 +364,72 @@ def goal_rollup(db: Session, manifest_id: int, goal_key: str) -> dict[str, Any]:
     }
 
 
+def _global_steering_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    focus_weights = payload.get("focus_weights")
+    global_budget = payload.get("global_budget")
+    global_constraints = payload.get("global_constraints")
+    return {
+        "focus_weights": focus_weights if isinstance(focus_weights, dict) else {},
+        "global_budget": global_budget if isinstance(global_budget, dict) else {},
+        "global_constraints": global_constraints if isinstance(global_constraints, list) else [],
+    }
+
+
+def _candidate_totals(db: Session, manifest_id: int) -> dict[str, int]:
+    rows = db.query(RequirementCandidateRow).filter(RequirementCandidateRow.manifest_id == manifest_id)
+    result: dict[str, int] = {}
+    for row in rows:
+        status = str(row.status or "pending")
+        result[status] = result.get(status, 0) + 1
+    for status in ["pending", "approved", "materialized", "rejected", "suppressed"]:
+        result.setdefault(status, 0)
+    return result
+
+
+def mission_control_snapshot(db: Session) -> dict[str, Any]:
+    manifest = ensure_active_manifest(db)
+    manifest_id = int(manifest.id)
+    payload = _manifest_payload(manifest)
+    all_candidates = (
+        db.query(RequirementCandidateRow)
+        .filter(RequirementCandidateRow.manifest_id == manifest_id)
+        .order_by(RequirementCandidateRow.updated_at.desc(), RequirementCandidateRow.id.desc())
+        .all()
+    )
+    candidates_by_goal: dict[str, list[dict[str, Any]]] = {}
+    for candidate in all_candidates:
+        candidates_by_goal.setdefault(str(candidate.goal_key or ""), []).append(candidate_to_dict(candidate))
+
+    lanes: list[dict[str, Any]] = []
+    for goal in _goal_list(payload):
+        goal_key = str(goal.get("goal_key") or "").strip()
+        if not goal_key:
+            continue
+        lanes.append(
+            {
+                "goal_key": goal_key,
+                "goal": goal,
+                "rollup": goal_rollup(db, manifest_id, goal_key),
+                "candidates": candidates_by_goal.get(goal_key, []),
+            }
+        )
+
+    latest_sweep = (
+        db.query(PlannerSweepRow)
+        .filter(PlannerSweepRow.manifest_id == manifest_id)
+        .order_by(PlannerSweepRow.started_at.desc(), PlannerSweepRow.id.desc())
+        .first()
+    )
+    return {
+        "manifest": manifest_to_dict(manifest),
+        "global_steering": _global_steering_from_payload(payload),
+        "goal_lanes": lanes,
+        "candidate_totals": _candidate_totals(db, manifest_id),
+        "history_preview": list_manifest_history(db, page=1, page_size=5),
+        "last_sweep": sweep_to_dict(latest_sweep) if latest_sweep is not None else None,
+    }
+
+
 def _count_by_status(query: Any, attr: str) -> dict[str, int]:
     result: dict[str, int] = {}
     for row in query.all():

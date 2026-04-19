@@ -206,17 +206,24 @@ POST /api/planning/candidates/{id}/materialize
 
 ## UI Surface
 
-`/planning` is the operator control plane.
+`/planning` is the operator control plane and must be a goal-centric mission control surface.
 
 It contains:
 
-1. Active Manifest overview.
-2. Goal cards with `Drop Goal`.
-3. JSON editor for minor revisions.
-4. Planner Sweep dry run and real run.
-5. Requirement Candidate queue.
-6. Manifest History paginated table.
-7. Halt Summary after a goal is dropped.
+1. Global Steering Wheel: current version, revision, cycle, Planner Sweep actions, archive cycle action, focus weights, global budget and global constraints.
+2. Goal Mission Control: one lane per goal, with rollups and candidates nested under the owning `goal_key`.
+3. History & Archive: a separate tab or secondary surface with paginated/searchable manifest history.
+4. Debug: raw manifest JSON and planner sweep payloads behind progressive disclosure only.
+5. Halt Summary after a goal is dropped.
+
+### Planning Console UX Contract
+
+1. `/planning` must organize work by `goal_key`; candidates must not appear as a detached global queue in the primary view.
+2. Candidate approval, rejection and materialization must happen inside the relevant goal lane so the operator sees the business context.
+3. Raw Manifest JSON must not be the default editing surface. Use form controls for `focus_weights`, `global_budget` and `global_constraints`.
+4. Raw JSON is allowed only in a Debug tab or drawer for fields not covered by the structured controls.
+5. Manifest History must be paginated and searchable, and must not crowd the Mission Control primary surface.
+6. The primary view should answer: what goal is this for, what is pending, what is running, what shipped, and what should the operator decide next.
 
 The Drop Goal modal must explicitly say:
 
@@ -241,4 +248,3 @@ Required tests:
 8. Drop Goal pauses active workflow and creates human gate.
 9. Drop Goal retains delivered release records.
 10. Drop Goal never calls rollback or creates revert commits.
-

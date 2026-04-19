@@ -1390,6 +1390,12 @@ export interface PlanningGoalRollup {
   release_status_counts: Record<string, number>
 }
 
+export interface GlobalSteering {
+  focus_weights: Record<string, unknown>
+  global_budget: Record<string, unknown>
+  global_constraints: unknown[]
+}
+
 export interface RequirementCandidate {
   id: number
   manifest_id: number
@@ -1449,6 +1455,24 @@ export interface DropGoalResult {
   decision: Record<string, unknown>
 }
 
+export interface GoalMissionLane {
+  goal_key: string
+  goal: Record<string, unknown>
+  rollup: PlanningGoalRollup
+  candidates: RequirementCandidate[]
+}
+
+export interface MissionControlHistoryPreview extends PlanningManifestHistory {}
+
+export interface PlanningMissionControl {
+  manifest: PlanningManifest
+  global_steering: GlobalSteering
+  goal_lanes: GoalMissionLane[]
+  candidate_totals: Record<string, number>
+  history_preview: MissionControlHistoryPreview
+  last_sweep: PlannerSweep | null
+}
+
 // API functions
 export const api = {
   // Agents
@@ -1484,6 +1508,7 @@ export const api = {
     }),
 
   // Planning lifecycle
+  getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
   getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
   saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
     request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),

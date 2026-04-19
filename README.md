@@ -127,10 +127,13 @@ OPS_LARK_APPROVAL_WEBHOOK_URL=...
 OPS_LARK_APPROVAL_KEYWORD=审批
 OPS_LARK_RELEASE_WEBHOOK_URL=...
 OPS_LARK_RELEASE_KEYWORD=发布
+OPS_LARK_DELIVERY_DRY_RUN=false
 OPS_NOTIFICATION_DISPATCHER_ENABLED=true
 OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE=5
 OPS_NOTIFICATION_DEFAULT_COOLDOWN_SECONDS=900
 ```
+
+Set `OPS_LARK_DELIVERY_DRY_RUN=true` when running smoke tests against configured webhooks. Dry-run mode still persists notification deliveries and renders Lark cards, but it never calls the Lark webhook.
 
 Routing rules:
 

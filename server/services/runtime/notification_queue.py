@@ -244,7 +244,7 @@ def _dispatch_one(db: Session, event: NotificationEventRow, *, now: datetime) ->
         fingerprint_key=str(event.fingerprint_key or ""),
     )
     event.delivery_id = int(delivery.id)
-    if delivery.status in {"sent", "skipped"}:
+    if delivery.status in {"sent", "skipped", "dry_run"}:
         event.status = "delivered"
         event.suppressed_reason = None
         fingerprint.last_sent_at = now

@@ -55,6 +55,7 @@ LARK_APPROVAL_WEBHOOK_URL = os.environ.get("OPS_LARK_APPROVAL_WEBHOOK_URL", LARK
 LARK_APPROVAL_KEYWORD = os.environ.get("OPS_LARK_APPROVAL_KEYWORD", "审批").strip() or "审批"
 LARK_RELEASE_WEBHOOK_URL = os.environ.get("OPS_LARK_RELEASE_WEBHOOK_URL", "").strip()
 LARK_RELEASE_KEYWORD = os.environ.get("OPS_LARK_RELEASE_KEYWORD", "发布").strip() or "发布"
+LARK_DELIVERY_DRY_RUN = os.environ.get("OPS_LARK_DELIVERY_DRY_RUN", "false").lower() in {"1", "true", "yes", "on"}
 OPS_BASE_URL = os.environ.get("OPS_BASE_URL", "").strip().rstrip("/")
 NOTIFICATION_DISPATCHER_ENABLED = os.environ.get("OPS_NOTIFICATION_DISPATCHER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS = max(1, int(os.environ.get("OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS", "5")))

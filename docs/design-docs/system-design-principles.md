@@ -98,6 +98,14 @@
 9. 已上线功能如需下线，必须创建新的 decommission requirement，并按正常 workflow、verification、human gate、release 流程执行。
 10. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
 
+## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
+
+1. Operator 页面必须优先展示“状态、原因、下一步动作”，而不是把 JSON、表、日志和对象列表平铺在同一个主视图。
+2. Planning Console 必须体现 `goal_key` 数据穿透：goal、candidate、requirement、workflow、release 的信息要在 goal lane 中汇聚。
+3. Candidate 不得在 Planning 主视图中作为孤立全局队列展示；审批动作必须发生在所属 goal 上下文里。
+4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、drawer 或 details 展开，不得成为默认主操作面板。
+5. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

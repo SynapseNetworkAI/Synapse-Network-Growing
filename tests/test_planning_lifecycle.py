@@ -95,6 +95,58 @@ def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):
     assert requirement.requirement_candidate_id == candidate.id
 
 
+def test_mission_control_api_groups_candidates_by_goal_and_includes_history(client, db_session):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    payload = json.loads(manifest.payload_json)
+    payload["goals"][1]["status"] = "dropped"
+    manifest.payload_json = json.dumps(payload)
+    db_session.add(
+        RequirementCandidateRow(
+            manifest_id=int(manifest.id),
+            goal_key="gateway_reliability",
+            candidate_fingerprint="fp-mission-pending",
+            title="Add gateway guardrail",
+            description_markdown="Candidate belongs to gateway reliability.",
+            project_id=int(project.id),
+            project_key=project.project_key,
+            workflow_key="gateway_reliability_repair",
+            status="pending",
+        )
+    )
+    db_session.add(
+        RequirementCandidateRow(
+            manifest_id=int(manifest.id),
+            goal_key="operator_growth",
+            candidate_fingerprint="fp-mission-dropped",
+            title="Old growth candidate",
+            description_markdown="Candidate belongs to a dropped goal.",
+            project_id=int(project.id),
+            project_key=project.project_key,
+            workflow_key="agent_self_repair",
+            status="suppressed",
+            suppression_reason="goal_dropped",
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/planning/mission-control")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["manifest"]["id"] == manifest.id
+    assert payload["global_steering"]["focus_weights"]["reliability"] == 0.6
+    assert payload["candidate_totals"]["pending"] == 1
+    assert payload["candidate_totals"]["suppressed"] == 1
+    assert payload["history_preview"]["total"] >= 1
+
+    lanes = {lane["goal_key"]: lane for lane in payload["goal_lanes"]}
+    assert lanes["gateway_reliability"]["candidates"][0]["title"] == "Add gateway guardrail"
+    assert lanes["gateway_reliability"]["rollup"]["candidate_status_counts"]["pending"] == 1
+    assert lanes["operator_growth"]["goal"]["status"] == "dropped"
+    assert lanes["operator_growth"]["candidates"][0]["suppression_reason"] == "goal_dropped"
+
+
 def test_drop_goal_cascades_without_rollback(db_session):
     project = _project(db_session)
     manifest = ensure_active_manifest(db_session)
@@ -196,4 +248,3 @@ def test_drop_goal_cascades_without_rollback(db_session):
     assert result["halt_summary"]["rollback_triggered"] is False
     assert db_session.query(WorkflowStateEventRow).filter(WorkflowStateEventRow.event_type == "goal_dropped_halt_requested").count() == 1
     assert db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.gate_type == "goal_dropped_halt").count() == 1
-

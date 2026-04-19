@@ -183,6 +183,12 @@ class PlanningGoalRollupOut(BaseModel):
     release_status_counts: dict[str, int] = {}
 
 
+class PlanningGlobalSteeringOut(BaseModel):
+    focus_weights: dict[str, object] = {}
+    global_budget: dict[str, object] = {}
+    global_constraints: list[object] = []
+
+
 class RequirementCandidateOut(BaseModel):
     id: int
     manifest_id: int
@@ -249,6 +255,22 @@ class PlannerSweepOut(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     duration_ms: int = 0
+
+
+class PlanningGoalMissionLaneOut(BaseModel):
+    goal_key: str
+    goal: dict[str, object] = {}
+    rollup: PlanningGoalRollupOut
+    candidates: list[RequirementCandidateOut] = []
+
+
+class PlanningMissionControlOut(BaseModel):
+    manifest: PlanningManifestOut
+    global_steering: PlanningGlobalSteeringOut
+    goal_lanes: list[PlanningGoalMissionLaneOut] = []
+    candidate_totals: dict[str, int] = {}
+    history_preview: PlanningManifestHistoryOut
+    last_sweep: Optional[PlannerSweepOut] = None
 
 
 # ── Dashboard ─────────────────────────────────────────────────

@@ -13,6 +13,7 @@ from server.schemas import (
     PlanningDropGoalRequest,
     PlanningDropGoalResultOut,
     PlanningGoalRollupOut,
+    PlanningMissionControlOut,
     PlanningGoalStatusRequest,
     PlanningManifestHistoryOut,
     PlanningManifestOut,
@@ -31,6 +32,7 @@ from server.services.planning.lifecycle import (
     list_manifest_history,
     manifest_to_dict,
     materialize_candidate,
+    mission_control_snapshot,
     reject_candidate,
     run_planner_sweep,
     save_active_manifest,
@@ -42,6 +44,11 @@ router = APIRouter(prefix="/api/planning", tags=["planning"])
 
 def _bad_request(exc: Exception) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/mission-control", response_model=PlanningMissionControlOut)
+def get_mission_control(db: Session = Depends(get_db)):
+    return mission_control_snapshot(db)
 
 
 @router.get("/manifest/active", response_model=PlanningManifestOut)
@@ -209,4 +216,3 @@ def post_materialize_candidate(
         return materialize_candidate(db, candidate_id, operator=body.operator)
     except ValueError as exc:
         raise _bad_request(exc) from exc
-
