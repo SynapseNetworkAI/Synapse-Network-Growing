@@ -88,6 +88,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "validation_signal": {"success_metric": "created_requirement_ids", "min_expected": 0},
     },
     {
+        "workflow_key": "goal_planner_sweep",
+        "display_name": "Goal Planner Sweep",
+        "description": "Evaluate the active Operating Manifest and create Requirement Candidates for active goals.",
+        "trigger_type": "scheduled",
+        "owner_role": "portfolio_planner",
+        "schedule": {"cadence": "daily", "window": "morning", "suggested_local_time": "09:00"},
+        "input_query": {"active_manifest": True, "goal_lifecycle": ["active"]},
+        "output_action": {"kind": "create_requirement_candidates", "auto_materialize": False},
+        "escalation_rule": {"on_failure": "notify_portfolio_operator", "on_empty": "no_op"},
+        "validation_signal": {"success_metric": "created_candidate_ids", "min_expected": 0},
+    },
+    {
         "workflow_key": "dispatcher_loop",
         "display_name": "Dispatcher Loop",
         "description": "Advance the requirement queue like a COO duty cycle.",
@@ -1013,6 +1025,11 @@ def _execute_recurring_workflow(
             intake_min_score=intake_min_score,
             intake_max_created=intake_max_created,
         )
+    if workflow_key == "goal_planner_sweep":
+        from server.services.planning.lifecycle import run_planner_sweep, sweep_to_dict
+
+        sweep = run_planner_sweep(db, dry_run=False, triggered_by="scheduler")
+        return sweep_to_dict(sweep)
     if workflow_key == "dispatcher_loop":
         queue_result = advance_requirement_queue(db)
         follow_through = _dispatcher_follow_through(db)

@@ -85,6 +85,19 @@
 5. `Dry Run` 是验证 recurring workflow 配置的默认方式；`Run Now` 必须有明确确认与可追踪结果。
 6. Notification Dispatcher 这类可靠性后台 loop 必须暴露 queue、dead letter、suppression、last tick 和 last error。
 
+## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
+
+1. 系统只能有一个 active Operating Manifest，用 `active_slot="global"` 表达当前公司策略。
+2. Manifest 可以包含多个 goal，但 `goal_key` 必须稳定，并穿透 `requirement_candidates`、`requirements`、`workflow_runs` 和 `release_records`。
+3. Planner Sweep 是无状态评估器，只能基于 active manifest 与聚合进度生成候选需求，不得扮演长生命周期 PM。
+4. Planner Sweep 不得为 `dropped` goal 生成新 candidate。
+5. Candidate 是自动规划与正式 requirement pool 之间的缓冲区；未经过 operator approval 的 candidate 不得直接污染需求池。
+6. Drop Goal 的语义是停止未来投入并安全阻断未交付链路，不是撤销已经发布的物理世界状态。
+7. Drop Goal 必须 suppress pending candidates、cancel 未开始 requirements、pause / human-gate running workflows、block 未发布 release-ready artifacts。
+8. Drop Goal 绝不能自动 rollback、revert commit、删除数据库变更、撤回外部发布或修改 delivered release。
+9. 已上线功能如需下线，必须创建新的 decommission requirement，并按正常 workflow、verification、human gate、release 流程执行。
+10. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

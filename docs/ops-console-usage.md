@@ -30,12 +30,13 @@ intake -> execute -> validate -> deliver
 
 1. `/requirements`
 2. `/requirements/:id`
-3. `/workflows`
-4. `/workflows/:id`
-5. `/releases`
-6. `/releases/:requirementId`
-7. `/projects`
-8. `/projects/:id`
+3. `/planning`
+4. `/workflows`
+5. `/workflows/:id`
+6. `/releases`
+7. `/releases/:requirementId`
+8. `/projects`
+9. `/projects/:id`
 
 辅助治理页：
 
@@ -45,9 +46,10 @@ intake -> execute -> validate -> deliver
 推荐心智模型：
 
 1. 在 `需求` 定义为什么做
-2. 在 `工作流` 观察状态机、Blackboard、Atom、验证证据与 Human Gate
-3. 在 `发布` 处理 branch / PR / deploy / rollback
-4. 在 `项目` 统一管理仓库、GitHub、部署与治理配置
+2. 在 `规划` 定义当前 active manifest、运行 Planner Sweep、审批候选需求和 Drop Goal
+3. 在 `工作流` 观察状态机、Blackboard、Atom、验证证据与 Human Gate
+4. 在 `发布` 处理 branch / PR / deploy / rollback
+5. 在 `项目` 统一管理仓库、GitHub、部署与治理配置
 
 当前正式功能范围请同时参考：
 
@@ -149,6 +151,55 @@ intake -> execute -> validate -> deliver
 6. 高风险动作永远进入 Human Gate，即使机器证据完全通过。
 7. 新建需求弹层支持类似 Codex 的附件输入：可拖拽文件、粘贴截图、选择图片或文档，附件会作为 requirement context 持久化并进入后续 workflow。
 8. requirement 创建后会先保存，再初始化 workflow 上下文；资产仍在生成时，需求面会显示“正在生成计划”，并禁用提交按钮。
+
+## 2.5 规划面
+
+### 2.5.1 `/planning`
+
+#### 页面职责
+
+规划面是需求发现的上游控制台，不直接执行代码、不直接发布、不直接回滚。
+
+它负责：
+
+1. 展示唯一 active Operating Manifest。
+2. 展示 goals、budgets、global constraints。
+3. 运行 Planner Sweep 生成 Requirement Candidate。
+4. 审批、拒绝或 materialize candidate。
+5. 分页搜索全部 manifest history。
+6. 执行 Drop Goal 的 safe halt，并展示 Halt Summary。
+
+#### 推荐使用方式
+
+1. 每次只维护一个 active manifest。
+2. 小调整使用 `保存 Minor Revision`。
+3. 阶段切换使用 `Archive & Start New Cycle`。
+4. Planner Sweep 先 dry run，再正式 run。
+5. Candidate 先 approve，再 materialize 成正式 requirement。
+6. Reject candidate 时保留原因，后续 Planner Sweep 会把拒绝反馈作为抑制信号。
+7. Drop Goal 必须写清 reason。
+
+#### Drop Goal 语义
+
+Drop Goal 会：
+
+1. suppress pending / approved candidates。
+2. cancel 未开始 requirements。
+3. pause / human-gate running workflows。
+4. block release-ready 但未发布记录。
+5. 保留已发布产物。
+
+Drop Goal 不会：
+
+1. 自动 rollback。
+2. 自动 revert commit。
+3. 删除数据库迁移。
+4. 撤回已经发出去的内容。
+5. 下线已发布功能。
+
+如果需要下线已发布功能，应创建新的 decommission requirement，并走正常 workflow、verification、human gate、release 流程。
+
+详细设计见 [Planning Lifecycle Operating Manifest](design-docs/planning-lifecycle-operating-manifest.md)。
 
 ## 3. 工作流面
 

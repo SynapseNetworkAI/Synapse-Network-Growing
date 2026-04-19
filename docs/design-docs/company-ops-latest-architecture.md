@@ -256,6 +256,26 @@ Execution 现在除了“能跑”，还要求“可解释、可展示、可审�
 3. 不做实时 git 探测来拼展示字段
 4. token 真源固定为 task 记录中的 `tokens_used`
 
+### 2.6.5 Planning Lifecycle Control Plane
+
+当前系统补齐了需求发现上游：[Planning Lifecycle Operating Manifest](planning-lifecycle-operating-manifest.md)。
+
+核心模型：
+
+1. `OperatingManifest` 是唯一 active 的公司策略快照。
+2. `goals[]` 定义当前目标、权重、成功指标和约束。
+3. `Planner Sweep` 是无状态评估器，只读取 active manifest 与聚合进度，生成 `RequirementCandidate`。
+4. `RequirementCandidate` 是自动规划与正式 requirement pool 之间的缓冲区。
+5. `goal_key` 穿透 candidate、requirement、workflow run 和 release record，形成全生命周期 rollup。
+
+关键边界：
+
+1. Archived Manifest 历史通过分页和搜索展示全部，不截断到最近 12 个周期。
+2. Drop Goal 只停止未来投入并安全阻断未交付链路。
+3. Drop Goal 会 suppress candidates、cancel 未开始 requirements、pause running workflows、block 未发布 release-ready 记录。
+4. Drop Goal 绝不自动 rollback、revert commit 或删除已发布产物。
+5. 下线已发布功能必须创建新的 decommission requirement，并走正常 workflow / verification / human gate / release。
+
 ### 2.7 Declarative Workflow Factory
 
 当前默认执行流仍保持最小核心形状：

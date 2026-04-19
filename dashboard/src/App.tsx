@@ -3,6 +3,7 @@ import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
 import WorkflowRunsPage from './pages/WorkflowRunsPage'
 import WorkflowRunDetailPage from './pages/WorkflowRunDetailPage'
+import PlanningPage from './pages/PlanningPage'
 import SchedulesPage from './pages/SchedulesPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
@@ -13,6 +14,7 @@ import ErrorDetailPage from './pages/ErrorDetailPage'
 
 const primaryNav = [
   { to: '/requirements', label: '需求' },
+  { to: '/planning', label: '规划' },
   { to: '/workflows', label: '工作流' },
   { to: '/schedules', label: '定时任务' },
   { to: '/releases', label: '发布' },
@@ -23,6 +25,7 @@ const primaryNav = [
 const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; meta: string }> = [
   { match: (pathname) => pathname === '/' || pathname === '/requirements', title: '需求', meta: 'Requirement list' },
   { match: (pathname) => pathname.startsWith('/requirements/'), title: '需求详情', meta: 'Requirement detail' },
+  { match: (pathname) => pathname === '/planning', title: '经营规划', meta: 'Planning control plane' },
   { match: (pathname) => pathname === '/workflows', title: '工作流', meta: 'Workflow runs' },
   { match: (pathname) => pathname.startsWith('/workflows/'), title: '工作流详情', meta: 'State machine detail' },
   { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
@@ -105,6 +108,7 @@ export default function App() {
                 <Route path="/" element={<Navigate to="/requirements" replace />} />
                 <Route path="/requirements" element={<RequirementPool />} />
                 <Route path="/requirements/:id" element={<RequirementDetail />} />
+                <Route path="/planning" element={<PlanningPage />} />
                 <Route path="/workflows" element={<WorkflowRunsPage />} />
                 <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
                 <Route path="/schedules" element={<SchedulesPage />} />

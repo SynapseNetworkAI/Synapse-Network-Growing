@@ -262,6 +262,145 @@ class WorkflowReadinessOut(BaseModel):
     recommended_workflow_key: Optional[str] = None
 
 
+class PlanningManifestOut(BaseModel):
+    id: int
+    manifest_key: str
+    version_name: str = ""
+    cycle_label: str = ""
+    status: str = "draft"
+    revision: int = 1
+    payload: dict[str, object] = {}
+    goal_count: int = 0
+    active_goal_count: int = 0
+    dropped_goal_count: int = 0
+    achieved_goal_count: int = 0
+    review_summary: dict[str, object] = {}
+    change_log: list[dict[str, object]] = []
+    created_by: str = "operator"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+
+
+class PlanningManifestSaveRequest(BaseModel):
+    version_name: Optional[str] = None
+    cycle_label: Optional[str] = None
+    payload: dict[str, object]
+    operator: str = "operator"
+
+
+class PlanningManifestHistoryOut(BaseModel):
+    items: list[PlanningManifestOut] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+    total_pages: int = 1
+
+
+class PlanningArchiveCycleRequest(BaseModel):
+    version_name: str
+    cycle_label: str
+    operator: str = "operator"
+    payload_patch: dict[str, object] = {}
+
+
+class PlanningDropGoalRequest(BaseModel):
+    reason: str
+    operator: str = "operator"
+    halt_mode: str = "safe_halt"
+
+
+class PlanningGoalStatusRequest(BaseModel):
+    status: str
+    reason: str = ""
+    operator: str = "operator"
+
+
+class PlanningDropGoalResultOut(BaseModel):
+    manifest: PlanningManifestOut
+    goal_key: str
+    halt_summary: dict[str, object] = {}
+    decision: dict[str, object] = {}
+
+
+class PlanningGoalRollupOut(BaseModel):
+    manifest_id: int
+    goal_key: str
+    goal: dict[str, object] = {}
+    candidate_status_counts: dict[str, int] = {}
+    requirement_status_counts: dict[str, int] = {}
+    workflow_status_counts: dict[str, int] = {}
+    release_status_counts: dict[str, int] = {}
+
+
+class RequirementCandidateOut(BaseModel):
+    id: int
+    manifest_id: int
+    goal_key: str
+    candidate_fingerprint: str
+    title: str
+    description_markdown: str = ""
+    project_id: Optional[int] = None
+    project_key: Optional[str] = None
+    workflow_key: str = ""
+    priority: str = "normal"
+    risk_level: str = "normal"
+    confidence: float = 0.0
+    rationale: str = ""
+    expected_evidence: list[object] = []
+    status: str = "pending"
+    suppression_reason: Optional[str] = None
+    reject_reason: Optional[str] = None
+    reject_comment: Optional[str] = None
+    approved_by: Optional[str] = None
+    materialized_requirement_id: Optional[int] = None
+    metadata: dict[str, object] = {}
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+
+
+class RequirementCandidatePageOut(BaseModel):
+    items: list[RequirementCandidateOut] = []
+    total: int = 0
+    page: int = 1
+    page_size: int = 30
+    total_pages: int = 1
+
+
+class CandidateDecisionRequest(BaseModel):
+    operator: str = "operator"
+    reason: str = ""
+    comment: Optional[str] = None
+
+
+class CandidateMaterializeResultOut(BaseModel):
+    candidate: RequirementCandidateOut
+    requirement_id: int
+
+
+class PlannerSweepRunRequest(BaseModel):
+    dry_run: bool = False
+    triggered_by: str = "operator"
+
+
+class PlannerSweepOut(BaseModel):
+    id: int
+    manifest_id: int
+    status: str = "running"
+    triggered_by: str = "operator"
+    dry_run: bool = False
+    input_snapshot: dict[str, object] = {}
+    parsed_output: dict[str, object] = {}
+    created_candidate_ids: list[int] = []
+    suppressed_items: list[dict[str, object]] = []
+    error_excerpt: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: int = 0
+
+
 # ── Dashboard ─────────────────────────────────────────────────
 
 class DashboardStats(BaseModel):
@@ -939,6 +1078,9 @@ class AgentFirstRequirementOut(BaseModel):
     linked_requirement_id: Optional[int] = None
     followup_requirement_id: Optional[int] = None
     resolution_path: Optional[str] = None
+    operating_manifest_id: Optional[int] = None
+    goal_key: Optional[str] = None
+    requirement_candidate_id: Optional[int] = None
     project_id: Optional[int] = None
     project_key: Optional[str] = None
     project_display_name: Optional[str] = None

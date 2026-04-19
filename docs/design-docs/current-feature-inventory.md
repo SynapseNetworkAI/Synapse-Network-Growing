@@ -35,6 +35,39 @@
    - replacement run 创建后，旧 run 会降级为历史 run。
    - requirement 的执行态只由最新 run 派生。
 
+## 1.5 Planning 面
+
+当前已具备：
+
+1. `/planning` 经营规划控制台。
+2. 唯一 active Operating Manifest。
+   - `operating_manifests.active_slot="global"` 表达当前公司策略。
+   - Manifest payload 包含 goals、focus weights、global budget 和 constraints。
+   - 小调整保存为 minor revision。
+3. Manifest History 全量分页与搜索。
+   - `GET /api/planning/manifests/history?page=&page_size=&status=&search=`
+   - 搜索覆盖 `cycle_label`、`version_name`、`goal_key` 与 status。
+   - 不再只展示最近 12 个周期。
+4. Planner Sweep。
+   - `POST /api/planning/sweeps/run`
+   - 读取 active manifest 与聚合状态。
+   - 只为 active goals 生成 `RequirementCandidate`。
+   - dropped goals 不进入 sweep 候选生成。
+5. Requirement Candidate 队列。
+   - candidate 是自动规划与正式 requirement pool 之间的缓冲区。
+   - 支持 approve / reject / materialize。
+   - materialize 后正式创建 requirement，并继承 `operating_manifest_id`、`goal_key`、`requirement_candidate_id`。
+6. Drop Goal safe halt。
+   - `POST /api/planning/manifest/{id}/goals/{goal_key}/drop`
+   - reason 必填。
+   - pending / approved candidates 会 suppressed。
+   - 未开始 requirements 会 cancelled。
+   - running workflows 会进入 `awaiting_operator` 并生成 human gate。
+   - release-ready 但未交付记录会 blocked。
+   - delivered / released 记录保持不变。
+7. Drop Goal 明确不会触发 rollback / revert。
+   - 已发布功能的下线必须创建新的 decommission requirement，并走正常 workflow、verification、human gate、release。
+
 ## 2. Execution 面
 
 当前已具备：

@@ -448,8 +448,12 @@ def create_declarative_workflow_run(
     blackboard.setdefault("trigger", {})
     blackboard.setdefault("workflow_key", workflow_key)
     blackboard.setdefault("current_state", str(spec["initial_state"]))
+    blackboard.setdefault("operating_manifest_id", int(getattr(requirement, "operating_manifest_id", 0) or 0) or None)
+    blackboard.setdefault("goal_key", str(getattr(requirement, "goal_key", "") or "").strip() or None)
     run = WorkflowRunRow(
         requirement_id=int(requirement.id),
+        operating_manifest_id=int(getattr(requirement, "operating_manifest_id", 0) or 0) or None,
+        goal_key=str(getattr(requirement, "goal_key", "") or "").strip() or None,
         plan_version=1,
         workflow_key=workflow_key,
         current_state=str(spec["initial_state"]),

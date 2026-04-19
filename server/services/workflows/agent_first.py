@@ -2528,6 +2528,9 @@ def _requirement_to_out(
         linked_requirement_id=int(getattr(requirement, "linked_requirement_id", 0) or 0) or None,
         followup_requirement_id=int(getattr(requirement, "followup_requirement_id", 0) or 0) or None,
         resolution_path=str(getattr(requirement, "resolution_path", "") or "").strip() or None,
+        operating_manifest_id=int(getattr(requirement, "operating_manifest_id", 0) or 0) or None,
+        goal_key=str(getattr(requirement, "goal_key", "") or "").strip() or None,
+        requirement_candidate_id=int(getattr(requirement, "requirement_candidate_id", 0) or 0) or None,
         project_id=project_context.project_id,
         project_key=project_context.project_key,
         project_display_name=project_context.project_display_name,
@@ -6230,10 +6233,14 @@ def _release_record(db: Session, requirement: RequirementRow) -> ReleaseRecordRo
             release.project_key = str(project.project_key or "")
             release.project_display_name = str(project.display_name or "")
             release.target_project_path = str(requirement.target_project_path or "").strip() or str(project.root_path or "").strip() or None
+        release.operating_manifest_id = int(getattr(requirement, "operating_manifest_id", 0) or 0) or None
+        release.goal_key = str(getattr(requirement, "goal_key", "") or "").strip() or None
         return release
     release = ReleaseRecordRow(
         requirement_id=int(requirement.id),
         execution_run_id=current_execution_id,
+        operating_manifest_id=int(getattr(requirement, "operating_manifest_id", 0) or 0) or None,
+        goal_key=str(getattr(requirement, "goal_key", "") or "").strip() or None,
         project_id=int(project.id) if project is not None else None,
         project_key=str(getattr(project, "project_key", "") or "").strip() or None,
         project_display_name=str(getattr(project, "display_name", "") or "").strip() or None,

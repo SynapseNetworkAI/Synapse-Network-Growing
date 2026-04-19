@@ -843,6 +843,9 @@ export interface AgentRequirement {
   linked_requirement_id?: number | null
   followup_requirement_id?: number | null
   resolution_path?: string | null
+  operating_manifest_id?: number | null
+  goal_key?: string | null
+  requirement_candidate_id?: number | null
   project_id: number | null
   project_key: string | null
   project_display_name: string | null
@@ -1501,6 +1504,103 @@ export interface RecurringWorkflowHealth {
   recurring_registry: Record<string, unknown>
 }
 
+export interface PlanningManifest {
+  id: number
+  manifest_key: string
+  version_name: string
+  cycle_label: string
+  status: string
+  revision: number
+  payload: Record<string, unknown>
+  goal_count: number
+  active_goal_count: number
+  dropped_goal_count: number
+  achieved_goal_count: number
+  review_summary: Record<string, unknown>
+  change_log: Array<Record<string, unknown>>
+  created_by: string
+  created_at: string | null
+  updated_at: string | null
+  archived_at: string | null
+}
+
+export interface PlanningManifestHistory {
+  items: PlanningManifest[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface PlanningGoalRollup {
+  manifest_id: number
+  goal_key: string
+  goal: Record<string, unknown>
+  candidate_status_counts: Record<string, number>
+  requirement_status_counts: Record<string, number>
+  workflow_status_counts: Record<string, number>
+  release_status_counts: Record<string, number>
+}
+
+export interface RequirementCandidate {
+  id: number
+  manifest_id: number
+  goal_key: string
+  candidate_fingerprint: string
+  title: string
+  description_markdown: string
+  project_id: number | null
+  project_key: string | null
+  workflow_key: string
+  priority: string
+  risk_level: string
+  confidence: number
+  rationale: string
+  expected_evidence: unknown[]
+  status: string
+  suppression_reason: string | null
+  reject_reason: string | null
+  reject_comment: string | null
+  approved_by: string | null
+  materialized_requirement_id: number | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+  approved_at: string | null
+  rejected_at: string | null
+}
+
+export interface RequirementCandidatePage {
+  items: RequirementCandidate[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface PlannerSweep {
+  id: number
+  manifest_id: number
+  status: string
+  triggered_by: string
+  dry_run: boolean
+  input_snapshot: Record<string, unknown>
+  parsed_output: Record<string, unknown>
+  created_candidate_ids: number[]
+  suppressed_items: Array<Record<string, unknown>>
+  error_excerpt: string | null
+  started_at: string | null
+  completed_at: string | null
+  duration_ms: number
+}
+
+export interface DropGoalResult {
+  manifest: PlanningManifest
+  goal_key: string
+  halt_summary: Record<string, unknown>
+  decision: Record<string, unknown>
+}
+
 // API functions
 export const api = {
   // Agents
@@ -1534,6 +1634,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
+
+  // Planning lifecycle
+  getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
+  saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
+    request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),
+  getPlanningManifestHistory: (filters?: { page?: number; page_size?: number; status?: string; search?: string }) => {
+    const params = new URLSearchParams()
+    params.set('page', String(filters?.page ?? 1))
+    params.set('page_size', String(filters?.page_size ?? 20))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.search) params.set('search', filters.search)
+    return request<PlanningManifestHistory>(`/planning/manifests/history?${params.toString()}`)
+  },
+  archiveAndStartPlanningCycle: (manifestId: number, data: { version_name: string; cycle_label: string; operator?: string; payload_patch?: Record<string, unknown> }) =>
+    request<PlanningManifest>(`/planning/manifest/${manifestId}/archive-and-start-cycle`, { method: 'POST', body: JSON.stringify(data) }),
+  dropPlanningGoal: (manifestId: number, goalKey: string, data: { reason: string; operator?: string; halt_mode?: string }) =>
+    request<DropGoalResult>(`/planning/manifest/${manifestId}/goals/${encodeURIComponent(goalKey)}/drop`, { method: 'POST', body: JSON.stringify(data) }),
+  getPlanningGoalRollup: (manifestId: number, goalKey: string) =>
+    request<PlanningGoalRollup>(`/planning/manifest/${manifestId}/goals/${encodeURIComponent(goalKey)}/rollup`),
+  runPlannerSweep: (data?: { dry_run?: boolean; triggered_by?: string }) =>
+    request<PlannerSweep>('/planning/sweeps/run', { method: 'POST', body: JSON.stringify(data || {}) }),
+  getRequirementCandidates: (filters?: { manifest_id?: number; status?: string; goal_key?: string; page?: number; page_size?: number }) => {
+    const params = new URLSearchParams()
+    params.set('page', String(filters?.page ?? 1))
+    params.set('page_size', String(filters?.page_size ?? 30))
+    if (filters?.manifest_id != null) params.set('manifest_id', String(filters.manifest_id))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.goal_key) params.set('goal_key', filters.goal_key)
+    return request<RequirementCandidatePage>(`/planning/candidates?${params.toString()}`)
+  },
+  approveRequirementCandidate: (id: number, data?: { operator?: string }) =>
+    request<RequirementCandidate>(`/planning/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  rejectRequirementCandidate: (id: number, data: { reason: string; operator?: string; comment?: string | null }) =>
+    request<RequirementCandidate>(`/planning/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify(data) }),
+  materializeRequirementCandidate: (id: number, data?: { operator?: string }) =>
+    request<{ candidate: RequirementCandidate; requirement_id: number }>(`/planning/candidates/${id}/materialize`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
   // Tasks
   getTasks: (params?: { status?: string; agent_id?: string; agent_group?: string; project_id?: string; requirement_id?: number; only_anomalies?: boolean; search?: string; page?: number; page_size?: number }) => {

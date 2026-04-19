@@ -176,6 +176,7 @@ class RequirementRow(Base):
         Index("requirements_priority_idx", "priority"),
         Index("requirements_created_at_idx", "created_at"),
         Index("requirements_active_run_idx", "active_workflow_run_id"),
+        Index("requirements_planning_goal_idx", "operating_manifest_id", "goal_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -186,6 +187,9 @@ class RequirementRow(Base):
     source = Column(Text, nullable=False, default="manual")
     source_ref = Column(Text)
     intake_metadata_json = Column(Text, nullable=False, default="{}")
+    operating_manifest_id = Column(Integer, ForeignKey("operating_manifests.id"))
+    goal_key = Column(Text)
+    requirement_candidate_id = Column(Integer, ForeignKey("requirement_candidates.id"))
     project_id = Column(Integer, ForeignKey("projects.id"))
     project_key = Column(Text)
     project_display_name = Column(Text)
@@ -238,6 +242,8 @@ class RequirementRow(Base):
         back_populates="requirement",
         order_by="RequirementAttachmentRow.id",
     )
+    operating_manifest = relationship("OperatingManifestRow", foreign_keys=[operating_manifest_id])
+    requirement_candidate = relationship("RequirementCandidateRow", foreign_keys=[requirement_candidate_id])
 
 
 class ProjectPolicyRow(Base):
@@ -609,10 +615,13 @@ class WorkflowRunRow(Base):
         Index("workflow_runs_plan_version_idx", "requirement_id", "plan_version"),
         Index("workflow_runs_workflow_key_idx", "workflow_key"),
         Index("workflow_runs_current_state_idx", "current_state"),
+        Index("workflow_runs_planning_goal_idx", "operating_manifest_id", "goal_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    operating_manifest_id = Column(Integer, ForeignKey("operating_manifests.id"))
+    goal_key = Column(Text)
     plan_version = Column(Integer, nullable=False, default=1)
     workflow_key = Column(Text, nullable=False, default="legacy_fixed_step")
     current_state = Column(Text, nullable=False, default="queued")
@@ -629,6 +638,7 @@ class WorkflowRunRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     requirement = relationship("RequirementRow", back_populates="workflow_runs", foreign_keys=[requirement_id])
+    operating_manifest = relationship("OperatingManifestRow", foreign_keys=[operating_manifest_id])
     steps = relationship("WorkflowStepRow", back_populates="workflow_run", order_by="WorkflowStepRow.sequence_no")
     state_events = relationship("WorkflowStateEventRow", back_populates="workflow_run", order_by="WorkflowStateEventRow.id")
     workflow_artifacts = relationship("WorkflowArtifactRow", back_populates="workflow_run", order_by="WorkflowArtifactRow.id")
@@ -1054,11 +1064,14 @@ class ReleaseRecordRow(Base):
         Index("release_records_requirement_idx", "requirement_id"),
         Index("release_records_execution_idx", "execution_run_id"),
         Index("release_records_status_idx", "status"),
+        Index("release_records_planning_goal_idx", "operating_manifest_id", "goal_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
     execution_run_id = Column(Integer, ForeignKey("execution_runs.id"))
+    operating_manifest_id = Column(Integer, ForeignKey("operating_manifests.id"))
+    goal_key = Column(Text)
     project_id = Column(Integer, ForeignKey("projects.id"))
     project_key = Column(Text)
     project_display_name = Column(Text)
@@ -1092,6 +1105,7 @@ class ReleaseRecordRow(Base):
 
     requirement = relationship("RequirementRow", foreign_keys=[requirement_id])
     execution_run = relationship("ExecutionRunRow", foreign_keys=[execution_run_id])
+    operating_manifest = relationship("OperatingManifestRow", foreign_keys=[operating_manifest_id])
     project = relationship("ProjectRow")
 
 
@@ -1112,6 +1126,101 @@ class OperationRequestRow(Base):
     result_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class OperatingManifestRow(Base):
+    __tablename__ = "operating_manifests"
+    __table_args__ = (
+        Index("operating_manifests_key_idx", "manifest_key", unique=True),
+        Index("operating_manifests_status_idx", "status"),
+        Index("operating_manifests_active_slot_idx", "active_slot", unique=True),
+        Index("operating_manifests_cycle_idx", "cycle_label"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    manifest_key = Column(Text, nullable=False)
+    version_name = Column(Text, nullable=False, default="")
+    cycle_label = Column(Text, nullable=False, default="")
+    status = Column(Text, nullable=False, default="draft")
+    active_slot = Column(Text)
+    revision = Column(Integer, nullable=False, default=1)
+    payload_json = Column(Text, nullable=False, default="{}")
+    review_summary_json = Column(Text, nullable=False, default="{}")
+    change_log_json = Column(Text, nullable=False, default="[]")
+    created_by = Column(Text, nullable=False, default="operator")
+    archived_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class RequirementCandidateRow(Base):
+    __tablename__ = "requirement_candidates"
+    __table_args__ = (
+        Index("requirement_candidates_manifest_idx", "manifest_id"),
+        Index("requirement_candidates_goal_idx", "manifest_id", "goal_key"),
+        Index("requirement_candidates_status_idx", "status"),
+        Index("requirement_candidates_fingerprint_idx", "candidate_fingerprint"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    manifest_id = Column(Integer, ForeignKey("operating_manifests.id"), nullable=False)
+    goal_key = Column(Text, nullable=False)
+    candidate_fingerprint = Column(Text, nullable=False)
+    title = Column(Text, nullable=False)
+    description_markdown = Column(Text, nullable=False, default="")
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    project_key = Column(Text)
+    workflow_key = Column(Text, nullable=False, default="gateway_reliability_repair")
+    priority = Column(Text, nullable=False, default="normal")
+    risk_level = Column(Text, nullable=False, default="normal")
+    confidence = Column(Float, nullable=False, default=0.0)
+    rationale = Column(Text, nullable=False, default="")
+    expected_evidence_json = Column(Text, nullable=False, default="[]")
+    status = Column(Text, nullable=False, default="pending")
+    suppression_reason = Column(Text)
+    rejected_at = Column(DateTime)
+    rejected_by = Column(Text)
+    reject_reason = Column(Text)
+    reject_comment = Column(Text)
+    approved_at = Column(DateTime)
+    approved_by = Column(Text)
+    materialized_requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    cooldown_until = Column(DateTime)
+    stale_at = Column(DateTime)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    manifest = relationship("OperatingManifestRow")
+    project = relationship("ProjectRow", foreign_keys=[project_id])
+    materialized_requirement = relationship("RequirementRow", foreign_keys=[materialized_requirement_id])
+
+
+class PlannerSweepRow(Base):
+    __tablename__ = "planner_sweeps"
+    __table_args__ = (
+        Index("planner_sweeps_manifest_idx", "manifest_id"),
+        Index("planner_sweeps_status_idx", "status"),
+        Index("planner_sweeps_created_idx", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    manifest_id = Column(Integer, ForeignKey("operating_manifests.id"), nullable=False)
+    status = Column(Text, nullable=False, default="running")
+    triggered_by = Column(Text, nullable=False, default="operator")
+    dry_run = Column(Boolean, nullable=False, default=False)
+    input_snapshot_json = Column(Text, nullable=False, default="{}")
+    parsed_output_json = Column(Text, nullable=False, default="{}")
+    created_candidate_ids_json = Column(Text, nullable=False, default="[]")
+    suppressed_items_json = Column(Text, nullable=False, default="[]")
+    error_excerpt = Column(Text)
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    completed_at = Column(DateTime)
+    duration_ms = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    manifest = relationship("OperatingManifestRow")
 
 
 class ApprovalRequestRow(Base):
@@ -1323,6 +1432,9 @@ def _migrate(engine_):
             "project_key": "TEXT",
             "project_display_name": "TEXT",
             "target_project_path_override": "TEXT",
+            "operating_manifest_id": "INTEGER",
+            "goal_key": "TEXT",
+            "requirement_candidate_id": "INTEGER",
             "workflow_family": "TEXT DEFAULT 'agent_first'",
             "phase": "TEXT DEFAULT 'draft'",
             "workflow_state": "TEXT DEFAULT 'draft'",
@@ -1623,6 +1735,8 @@ def _migrate(engine_):
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}
         workflow_run_cols = {
+            "operating_manifest_id": "INTEGER",
+            "goal_key": "TEXT",
             "workflow_key": "TEXT DEFAULT 'legacy_fixed_step'",
             "current_state": "TEXT DEFAULT 'queued'",
             "resolution": "TEXT",
@@ -1698,6 +1812,8 @@ def _migrate(engine_):
     else:
         existing = {c["name"] for c in insp.get_columns("release_records")}
         release_cols = {
+            "operating_manifest_id": "INTEGER",
+            "goal_key": "TEXT",
             "project_id": "INTEGER",
             "project_display_name": "TEXT",
             "delivery_state": "TEXT DEFAULT 'pending'",
