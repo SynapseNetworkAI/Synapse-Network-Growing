@@ -138,17 +138,10 @@ class RequirementRow(Base):
     attention_reason = Column(Text)
     failure_reason = Column(Text)
     recovery_status = Column(Text)
-    approval_status = Column(Text, nullable=False, default="pending_approval")
-    approval_contract_json = Column(Text, nullable=False, default="{}")
-    approval_requested_at = Column(DateTime)
-    approved_at = Column(DateTime)
     linked_requirement_id = Column(Integer, ForeignKey("requirements.id"))
     followup_requirement_id = Column(Integer, ForeignKey("requirements.id"))
-    origin_execution_run_id = Column(Integer)
     origin_validation_id = Column(Integer, ForeignKey("validation_records.id"))
     resolution_path = Column(Text)
-    current_plan_version = Column(Integer, nullable=False, default=0)
-    planned_roles_json = Column(Text, nullable=False, default="[]")
     blocked_by_count = Column(Integer, nullable=False, default=0)
     active_workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
     started_at = Column(DateTime)
@@ -169,7 +162,6 @@ class RequirementRow(Base):
         back_populates="requirement",
         order_by="RequirementAcceptanceCheckRow.id",
     )
-    artifacts = relationship("ArtifactRow", back_populates="requirement", order_by="ArtifactRow.id")
     attachments = relationship(
         "RequirementAttachmentRow",
         back_populates="requirement",
@@ -564,7 +556,7 @@ class WorkflowRunRow(Base):
     blackboard_json = Column(Text, nullable=False, default="{}")
     status = Column(Text, nullable=False, default="pending")
     triggered_by = Column(Text, nullable=False, default="system")
-    planner_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
+    planner_artifact_id = Column(Integer)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -705,34 +697,6 @@ class HumanGateRequestRow(Base):
     workflow_run = relationship("WorkflowRunRow", back_populates="human_gate_requests")
 
 
-class ArtifactRow(Base):
-    __tablename__ = "artifacts"
-    __table_args__ = (
-        Index("artifacts_requirement_idx", "requirement_id"),
-        Index("artifacts_run_idx", "workflow_run_id"),
-        Index("artifacts_step_idx", "step_id"),
-        Index("artifacts_type_idx", "artifact_type"),
-        Index("artifacts_producer_step_idx", "producer_step_id"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
-    step_id = Column(Integer)
-    producer_step_id = Column(Integer)
-    artifact_type = Column(Text, nullable=False)
-    path = Column(Text)
-    content_summary = Column(Text)
-    human_readable_body = Column(Text)
-    machine_readable_payload = Column(Text)
-    checksum = Column(Text)
-    snapshot_version = Column(Integer, nullable=False, default=1)
-    schema_version = Column(Text, nullable=False, default="1.0")
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-
-    requirement = relationship("RequirementRow", back_populates="artifacts")
-
-
 class RequirementAcceptanceCheckRow(Base):
     __tablename__ = "requirement_acceptance_checks"
     __table_args__ = (
@@ -750,7 +714,7 @@ class RequirementAcceptanceCheckRow(Base):
     status = Column(Text, nullable=False, default="pending")
     success_criteria_markdown = Column(Text)
     verified_by_step_id = Column(Integer)
-    evidence_artifact_id = Column(Integer, ForeignKey("artifacts.id"))
+    evidence_artifact_id = Column(Integer)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -781,13 +745,13 @@ class ValidationRecordRow(Base):
     __tablename__ = "validation_records"
     __table_args__ = (
         Index("validation_records_requirement_idx", "requirement_id"),
-        Index("validation_records_execution_idx", "execution_run_id"),
+        Index("validation_records_workflow_run_idx", "workflow_run_id"),
         Index("validation_records_status_idx", "status"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
-    execution_run_id = Column(Integer, nullable=False, default=0)
+    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"), nullable=False, default=0)
     profile = Column(Text, nullable=False, default="minimal")
     status = Column(Text, nullable=False, default="pending")
     summary_markdown = Column(Text, nullable=False, default="")
@@ -974,26 +938,6 @@ class PlannerSweepRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
     manifest = relationship("OperatingManifestRow")
-
-
-class ApprovalRequestRow(Base):
-    __tablename__ = "approval_requests"
-    __table_args__ = (
-        Index("approval_requests_requirement_idx", "requirement_id"),
-        Index("approval_requests_step_idx", "step_id"),
-        Index("approval_requests_status_idx", "status"),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"))
-    workflow_run_id = Column(Integer, ForeignKey("workflow_runs.id"))
-    step_id = Column(Integer)
-    approval_type = Column(Text, nullable=False)
-    status = Column(Text, nullable=False, default="pending")
-    reviewer = Column(Text)
-    comment = Column(Text)
-    created_at = Column(DateTime, nullable=False, default=utcnow)
-    decided_at = Column(DateTime)
 
 
 class ErrorFingerprintRow(Base):
@@ -1235,30 +1179,9 @@ def _migrate(engine_):
                 )
             )
             conn.commit()
-        if "approval_status" not in existing:
-            logger.info("Migrating: adding 'approval_status' column to requirements table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_status TEXT DEFAULT 'pending_approval'"))
-                conn.commit()
-        if "approval_contract_json" not in existing:
-            logger.info("Migrating: adding 'approval_contract_json' column to requirements table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_contract_json TEXT DEFAULT '{}'"))
-                conn.commit()
-        if "approval_requested_at" not in existing:
-            logger.info("Migrating: adding 'approval_requested_at' column to requirements table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE requirements ADD COLUMN approval_requested_at DATETIME"))
-                conn.commit()
-        if "approved_at" not in existing:
-            logger.info("Migrating: adding 'approved_at' column to requirements table")
-            with engine_.connect() as conn:
-                conn.execute(text("ALTER TABLE requirements ADD COLUMN approved_at DATETIME"))
-                conn.commit()
         requirement_cols = {
             "linked_requirement_id": "INTEGER",
             "followup_requirement_id": "INTEGER",
-            "origin_execution_run_id": "INTEGER",
             "origin_validation_id": "INTEGER",
             "resolution_path": "TEXT",
         }
@@ -1285,7 +1208,7 @@ def _migrate(engine_):
                     UPDATE requirements
                     SET phase = CASE
                         WHEN status IN ('draft', 'planning') THEN 'draft'
-                        WHEN status IN ('ready', 'waiting_execution', 'queued') THEN 'awaiting_execution_approval'
+                        WHEN status IN ('ready', 'waiting_execution', 'queued') THEN 'ready'
                         WHEN status IN ('running', 'validating') THEN 'executing'
                         WHEN status IN ('blocked', 'paused', 'cancelled') THEN 'blocked'
                         WHEN status = 'needs_revision' THEN 'needs_revision'
@@ -1306,7 +1229,7 @@ def _migrate(engine_):
                         WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'deleted' THEN 'cancelled'
                         WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'cancelled' THEN 'cancelled'
                         WHEN COALESCE(NULLIF(TRIM(phase), ''), '') IN ('draft', 'planning') THEN 'draft'
-                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') = 'awaiting_execution_approval' THEN 'awaiting_approval'
+                        WHEN COALESCE(NULLIF(TRIM(phase), ''), '') = 'awaiting_execution_approval' THEN 'ready'
                         WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'ready' THEN 'ready'
                         WHEN COALESCE(NULLIF(TRIM(status), ''), '') = 'running' THEN 'executing'
                         WHEN COALESCE(NULLIF(TRIM(status), ''), '') IN ('blocked', 'needs_revision') THEN 'awaiting_operator'

@@ -96,7 +96,7 @@ def _workflow_validation_out(run: WorkflowRunRow | None, requirement_id: int) ->
     return ValidationRecordSlimOut(
         id=int(run.id),
         requirement_id=requirement_id,
-        execution_run_id=0,
+        workflow_run_id=int(run.id),
         profile=str(run.workflow_key or "declarative_workflow"),
         status=status,
         summary_markdown=f"Declarative workflow `{run.workflow_key}` reached `{run.current_state}` with status `{run.status}`.",

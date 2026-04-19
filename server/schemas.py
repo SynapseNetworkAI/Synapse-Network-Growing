@@ -34,10 +34,10 @@ class RoleKPIOut(BaseModel):
     failed_task_count: int = 0
     backlog_count: int = 0
     reopened_task_count: int = 0
-    approval_dependency_count: int = 0
+    human_gate_dependency_count: int = 0
     completion_rate: float = 0.0
     reopen_rate: float = 0.0
-    approval_dependency_rate: float = 0.0
+    human_gate_dependency_rate: float = 0.0
     average_token_cost: float = 0.0
     average_budget_cost_points: float = 0.0
     tokens_used_total: int = 0
@@ -46,7 +46,7 @@ class RoleKPIOut(BaseModel):
     status_mix: dict[str, int] = {}
 
 
-class ApprovalRoleKPIOut(BaseModel):
+class HumanGateRoleKPIOut(BaseModel):
     role_id: str
     assigned_count: int = 0
     pending_count: int = 0
@@ -63,13 +63,13 @@ class RoleWorkAllocationSummaryOut(BaseModel):
     role_count: int = 0
     total_backlog_count: int = 0
     overloaded_role_count: int = 0
-    approval_pending_count: int = 0
-    approval_stale_count: int = 0
+    human_gate_pending_count: int = 0
+    human_gate_stale_count: int = 0
 
 
 class RoleKpiSnapshotOut(BaseModel):
     roles: list[RoleKPIOut] = []
-    approval_roles: list[ApprovalRoleKPIOut] = []
+    human_gate_roles: list[HumanGateRoleKPIOut] = []
     summary: RoleWorkAllocationSummaryOut = RoleWorkAllocationSummaryOut()
 
 
@@ -291,7 +291,7 @@ class OperatingReviewPortfolioSummaryOut(BaseModel):
     completed_requirements: int = 0
     completion_rate: float = 0.0
     open_signals: int = 0
-    approval_required_decisions: int = 0
+    human_gate_required_decisions: int = 0
     rebalance_opportunities: int = 0
     projects_over_budget: int = 0
     blocked_publish_projects: int = 0
@@ -420,7 +420,7 @@ class OperatingReviewRecommendationOut(BaseModel):
     budget_cost: int = 0
     source_ref: Optional[str] = None
     rationale: str
-    approval_required: bool = False
+    human_gate_required: bool = False
     requirement_id: Optional[int] = None
     signal_id: Optional[int] = None
     incident_family: Optional[str] = None
@@ -446,7 +446,7 @@ class OperatingReviewBundleItemOut(BaseModel):
     rationale: str
     description_markdown: str
     acceptance_checks: list[dict[str, object]] = []
-    approval_required: bool = False
+    human_gate_required: bool = False
 
 
 class OperatingReviewOperatorDecisionOut(BaseModel):
@@ -842,7 +842,7 @@ class SchedulerDecisionOut(BaseModel):
     template_key: Optional[str] = None
     source: Optional[str] = None
     preempt_requirement_id: Optional[int] = None
-    approval_required: bool = False
+    human_gate_required: bool = False
 
 
 class SchedulerPlanOut(BaseModel):
@@ -878,7 +878,6 @@ class RequirementCreate(BaseModel):
     template_payload: Optional[dict[str, object]] = None
     template_acceptance_checks: list[dict[str, object]] = []
     acceptance_contract: Optional[dict[str, object]] = None
-    approval_contract: Optional[dict[str, object]] = None
     attachments: list[dict[str, object]] = []
 
 
@@ -907,17 +906,10 @@ class RequirementPatch(BaseModel):
     target_project_path: Optional[str] = None
     acceptance_contract: Optional[dict[str, object]] = None
     execution_plan: Optional[dict[str, object]] = None
-    approval_contract: Optional[dict[str, object]] = None
 
 
 class RequirementPlanPatch(BaseModel):
     human_readable_body: str
-
-
-class RequirementApprovalDecisionRequest(BaseModel):
-    action: str  # approve | reject | waive
-    reviewer: str = "operator"
-    comment: Optional[str] = None
 
 
 class RequirementPublishRequest(BaseModel):
@@ -935,7 +927,6 @@ class AgentFirstRequirementOut(BaseModel):
     failure_reason: Optional[str] = None
     requirement_plan_summary: Optional[str] = None
     project: Optional[RequirementProjectRefOut] = None
-    approval: Optional[ApprovalDecisionOut] = None
     current_attempt_id: Optional[int] = None
     current_delivery_id: Optional[int] = None
     status: str
@@ -954,8 +945,6 @@ class AgentFirstRequirementOut(BaseModel):
     target_project_path: Optional[str] = None
     target_project_path_override: Optional[str] = None
     target_projects: list[str] = []
-    approval_required: bool = False
-    approval_status: str = "pending_approval"
     phase: str = "draft"
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
@@ -973,25 +962,6 @@ class AgentFirstRequirementOut(BaseModel):
     latest_release_status: Optional[str] = None
 
 
-class AgentFirstRequirementApprovalOut(BaseModel):
-    approval_decision: str = "pending_manual_approval"
-    approval_status: str = "pending_approval"
-    approval_reason: Optional[str] = None
-    approval_source: Optional[str] = None
-    final_decision_source: Optional[str] = None
-    approval_agent_id: Optional[str] = None
-    approval_agent_label: Optional[str] = None
-    approval_recommendation: Optional[str] = None
-    approval_recommendation_reason: Optional[str] = None
-    recommendation_source: Optional[str] = None
-    approval_confidence: Optional[float] = None
-    required_approver_roles: list[str] = []
-    risk_flags: list[str] = []
-    pending_execution_start: bool = False
-    auto_started: bool = False
-    workflow_run_id: Optional[int] = None
-
-
 class AgentFirstRequirementDetailOut(BaseModel):
     requirement: AgentFirstRequirementOut
     state: str = "draft"
@@ -1003,8 +973,6 @@ class AgentFirstRequirementDetailOut(BaseModel):
     active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     latest_release_id: Optional[int] = None
     latest_release: Optional["ReleaseRecordSlimOut"] = None
-    approval: AgentFirstRequirementApprovalOut = AgentFirstRequirementApprovalOut()
-    approval_decision: Optional[ApprovalDecisionOut] = None
     phase: str = "draft"
     allowed_actions: list[str] = []
     pending_operations: list[str] = []
@@ -1072,22 +1040,10 @@ class RequirementProjectRefOut(BaseModel):
     target_project_path_override: Optional[str] = None
 
 
-class ApprovalDecisionOut(BaseModel):
-    state: str
-    reason: Optional[str] = None
-    source: Optional[str] = None
-    agent_recommendation: Optional[str] = None
-    confidence: Optional[float] = None
-    recommendation_reason: Optional[str] = None
-    recommendation_source: Optional[str] = None
-    risk_flags: list[str] = []
-    required_approver_roles: list[str] = []
-
-
 class ValidationRecordSlimOut(BaseModel):
     id: int
     requirement_id: int
-    execution_run_id: int
+    workflow_run_id: int
     profile: str
     status: str
     summary_markdown: str = ""
@@ -1534,14 +1490,6 @@ class RequirementOut(BaseModel):
     intake_metadata: dict[str, object] = {}
     target_project_path: Optional[str] = None
     acceptance_contract: dict[str, object] = {}
-    approval_status: str = "pending_approval"
-    approval_contract: dict[str, object] = {}
-    approval_source: str = "human"
-    approval_router: dict[str, object] = {}
-    approval_recommendation: dict[str, object] = {}
-    approval_requested_at: Optional[datetime] = None
-    approved_at: Optional[datetime] = None
-    current_plan_version: int
     blocked_by_count: int
     active_workflow_run_id: Optional[int] = None
     started_at: Optional[datetime] = None

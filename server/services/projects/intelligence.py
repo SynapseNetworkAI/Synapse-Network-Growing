@@ -10,13 +10,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ApprovalRequestRow, ArtifactRow, OptimizationSignalRow, ProjectOnboardingRow, RequirementRow
-from server.services.requirements.acceptance import acceptance_contract_for_requirement
-from server.services.requirements.approval import (
-    evaluate_requirement_execution_approval,
-    normalize_requirement_approval_status,
-    requirement_approval_contract_for_requirement,
+from server.database import (
+    BugRecordRow,
+    HumanGateRequestRow,
+    OptimizationSignalRow,
+    ProjectOnboardingRow,
+    ReleaseRecordRow,
+    RequirementRow,
 )
+from server.services.requirements.acceptance import acceptance_contract_for_requirement
 from server.services.projects.onboarding import project_onboarding_to_dict
 from server.services.projects.policy import (
     list_project_policies,
@@ -182,13 +184,23 @@ def _requirement_project_roots(db: Session, requirement: RequirementRow) -> list
 
 def _latest_delivery_state_payloads(db: Session) -> dict[int, dict[str, Any]]:
     payloads: dict[int, dict[str, Any]] = {}
-    rows = db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "delivery_state").order_by(ArtifactRow.id.desc()).all()
+    rows = db.query(ReleaseRecordRow).order_by(ReleaseRecordRow.id.desc()).all()
     for row in rows:
         requirement_id = int(row.requirement_id)
         if requirement_id in payloads:
             continue
-        payload = _json_loads(row.machine_readable_payload, {})
-        payloads[requirement_id] = payload if isinstance(payload, dict) else {}
+        payloads[requirement_id] = {
+            "publish_status": str(row.status or ""),
+            "publish_blockers": [
+                value
+                for value in (
+                    str(row.delivery_failure_excerpt or "").strip(),
+                    str(row.delivery_blocker_type or "").strip(),
+                    str(row.blocker_kind or "").strip(),
+                )
+                if value
+            ],
+        }
     return payloads
 
 
@@ -220,15 +232,16 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
                 completed_requirements[root] += 1
             if str(row.status) in {"in_progress", "paused"}:
                 active_requirements[root] += 1
-            if int(row.current_plan_version or 0) > 0:
+            if int(getattr(row, "active_workflow_run_id", 0) or 0) > 0:
                 planned_requirements[root] += 1
 
-    for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "bug_report").all():
-        requirement = requirement_by_id.get(int(artifact.requirement_id))
-        if requirement is None or str(requirement.status) == "deleted":
+    for bug in db.query(BugRecordRow).filter(BugRecordRow.status == "open").all():
+        project_key = str(getattr(bug, "project_key", "") or "").strip()
+        if not project_key:
             continue
-        for root in requirement_roots.get(int(requirement.id), []):
-            bugged_requirements[root].add(int(requirement.id))
+        for root, policy in {str(policy["root_path"]): policy for policy in policies}.items():
+            if str(policy.get("project_key") or "") == project_key:
+                bugged_requirements[root].add(int(getattr(bug, "converted_requirement_id", 0) or bug.id))
 
     for requirement_id, payload in _latest_delivery_state_payloads(db).items():
         publish_status = str(payload.get("publish_status") or "")
@@ -237,8 +250,8 @@ def build_project_catalog(db: Session) -> dict[str, dict[str, Any]]:
         for root in requirement_roots.get(requirement_id, []):
             blocked_delivery[root] += 1
 
-    for approval_request in db.query(ApprovalRequestRow).all():
-        requirement = requirement_by_id.get(int(approval_request.requirement_id or 0))
+    for gate in db.query(HumanGateRequestRow).all():
+        requirement = requirement_by_id.get(int(gate.requirement_id or 0))
         if requirement is None or str(requirement.status) == "deleted":
             continue
         for root in requirement_roots.get(int(requirement.id), []):
@@ -324,32 +337,11 @@ def _project_match_score(project: dict[str, Any], text: str) -> tuple[float, lis
 
 
 def _latest_routing_decision_payload(db: Session, requirement_id: int) -> dict[str, Any] | None:
-    row = db.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == requirement_id,
-        ArtifactRow.artifact_type == "routing_decision",
-    ).order_by(ArtifactRow.id.desc()).first()
-    if row is None:
-        return None
-    payload = _json_loads(row.machine_readable_payload, {})
-    return payload if isinstance(payload, dict) else None
+    return None
 
 
 def _latest_routing_decision_payloads(db: Session, requirement_ids: list[int]) -> dict[int, dict[str, Any]]:
-    if not requirement_ids:
-        return {}
-    payloads: dict[int, dict[str, Any]] = {}
-    rows = db.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id.in_(requirement_ids),
-        ArtifactRow.artifact_type == "routing_decision",
-    ).order_by(ArtifactRow.id.desc()).all()
-    for row in rows:
-        requirement_id = int(row.requirement_id)
-        if requirement_id in payloads:
-            continue
-        payload = _json_loads(row.machine_readable_payload, {})
-        if isinstance(payload, dict):
-            payloads[requirement_id] = payload
-    return payloads
+    return {}
 
 
 def _aggregate_readiness_status(projects: list[dict[str, Any]]) -> str:
@@ -634,13 +626,7 @@ def serialize_requirement(
         if stored_routing.get("skipped_project_keys") is not None:
             routing["skipped_project_keys"] = list(stored_routing.get("skipped_project_keys") or [])
     from server.services.requirements.sources import requirement_intake_metadata_for_requirement
-    workflow_run = None
     active_workflow_run_id = int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None
-    if active_workflow_run_id is not None:
-        from server.database import WorkflowRunRow
-
-        workflow_run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == active_workflow_run_id).first()
-    approval_decision = evaluate_requirement_execution_approval(requirement, workflow_run=workflow_run)
     return {
         "id": int(requirement.id),
         "title": str(requirement.title),
@@ -652,14 +638,6 @@ def serialize_requirement(
         "intake_metadata": requirement_intake_metadata_for_requirement(requirement),
         "target_project_path": getattr(requirement, "target_project_path", None),
         "acceptance_contract": acceptance_contract_for_requirement(requirement),
-        "approval_status": normalize_requirement_approval_status(getattr(requirement, "approval_status", None)),
-        "approval_contract": requirement_approval_contract_for_requirement(requirement),
-        "approval_source": str(approval_decision.get("approval_source") or "human"),
-        "approval_router": dict(approval_decision.get("approval_router") or {}),
-        "approval_recommendation": dict(approval_decision.get("approval_recommendation") or {}),
-        "approval_requested_at": getattr(requirement, "approval_requested_at", None),
-        "approved_at": getattr(requirement, "approved_at", None),
-        "current_plan_version": int(requirement.current_plan_version or 0),
         "blocked_by_count": int(requirement.blocked_by_count or 0),
         "active_workflow_run_id": int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None,
         "started_at": requirement.started_at,

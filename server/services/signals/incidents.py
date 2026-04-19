@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, RequirementRow, WorkflowRunRow
+from server.database import RequirementRow, WorkflowArtifactRow, WorkflowRunRow
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -50,7 +50,7 @@ def _severity_rank(value: str) -> int:
 def _incident_record(
     *,
     requirement: RequirementRow,
-    artifact: ArtifactRow,
+    artifact: WorkflowArtifactRow,
     incident_key: str,
     family: str,
     code: str,
@@ -66,7 +66,7 @@ def _incident_record(
         "incident_key": incident_key,
         "requirement_id": int(requirement.id),
         "workflow_run_id": int(artifact.workflow_run_id) if artifact.workflow_run_id is not None else None,
-        "step_id": int(artifact.step_id) if artifact.step_id is not None else None,
+        "step_id": None,
         "source_artifact_id": int(artifact.id),
         "source_artifact_type": str(artifact.artifact_type),
         "incident_family": family,
@@ -84,7 +84,7 @@ def _incident_record(
     }
 
 
-def classify_artifact_incident(requirement: RequirementRow, artifact: ArtifactRow) -> dict[str, Any] | None:
+def classify_artifact_incident(requirement: RequirementRow, artifact: WorkflowArtifactRow) -> dict[str, Any] | None:
     payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
     artifact_type = str(getattr(artifact, "artifact_type", "") or "")
     incident_key = f"{artifact_type}:{int(artifact.id)}"
@@ -214,9 +214,15 @@ def list_requirement_incidents(db: Session, requirement_id: int) -> list[dict[st
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         return []
-    artifacts = db.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == requirement_id,
-        ArtifactRow.artifact_type.in_(
+    run_ids = [
+        int(row.id)
+        for row in db.query(WorkflowRunRow).filter(WorkflowRunRow.requirement_id == requirement_id).all()
+    ]
+    if not run_ids:
+        return []
+    artifacts = db.query(WorkflowArtifactRow).filter(
+        WorkflowArtifactRow.workflow_run_id.in_(run_ids),
+        WorkflowArtifactRow.artifact_type.in_(
             (
                 "bug_report",
                 "capability_interrupt",
@@ -225,7 +231,7 @@ def list_requirement_incidents(db: Session, requirement_id: int) -> list[dict[st
                 "runtime_lifecycle",
             )
         ),
-    ).order_by(ArtifactRow.id.asc()).all()
+    ).order_by(WorkflowArtifactRow.id.asc()).all()
     incidents = [classify_artifact_incident(requirement, artifact) for artifact in artifacts]
     filtered = [item for item in incidents if item is not None]
     filtered.sort(

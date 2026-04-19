@@ -10,9 +10,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import (
-    ApprovalRequestRow,
-    ArtifactRow,
+    BugRecordRow,
+    HumanGateRequestRow,
     OptimizationSignalRow,
+    ReleaseRecordRow,
     RequirementRow,
 )
 from server.schemas import RequirementCreate
@@ -305,25 +306,23 @@ def build_optimization_signal_score_breakdown(
 
 def _summarize_bug_signals(db: Session, project_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[str | None, str, str], dict[str, Any]] = {}
-    requirements = {int(row.id): row for row in db.query(RequirementRow).all()}
-    bug_artifacts = db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "bug_report").order_by(ArtifactRow.id.asc()).all()
-    for artifact in bug_artifacts:
-        requirement = requirements.get(int(artifact.requirement_id))
-        if requirement is None or str(requirement.status) == "deleted":
-            continue
-        payload = _json_loads(artifact.machine_readable_payload, {})
-        failed_checks = [str(item.get("check_key") or "") for item in payload.get("failed_checks") or [] if str(item.get("check_key") or "").strip()]
-        fingerprint = ",".join(sorted(failed_checks)) or str(payload.get("step_type") or "bug_report")
-        for project in _requirement_project_contexts(requirement, project_map):
+    for bug in db.query(BugRecordRow).filter(BugRecordRow.status == "open").order_by(BugRecordRow.id.asc()).all():
+        project_key = str(getattr(bug, "project_key", "") or "").strip() or None
+        project = next((dict(item) for item in project_map.values() if str(item.get("project_key") or "") == str(project_key or "")), None)
+        if project is None:
+            project = {"project_key": project_key, "display_name": project_key or "Org Ops", "root_path": None}
+        fingerprint = str(getattr(bug, "fingerprint", "") or getattr(bug, "bug_key", "") or "bug_report")
+        evidence = {
+            "bug_id": int(bug.id),
+            "bug_key": str(getattr(bug, "bug_key", "") or ""),
+            "fingerprint": fingerprint,
+            "severity": str(getattr(bug, "severity", "") or "normal"),
+            "summary": str(getattr(bug, "summary", "") or ""),
+            "occurrence_count": int(getattr(bug, "occurrence_count", 0) or 0),
+            "created_at": bug.first_seen_at.isoformat() if getattr(bug, "first_seen_at", None) else None,
+        }
+        for project in [project]:
             key = (project.get("project_key"), str(project.get("root_path") or ""), fingerprint)
-            evidence = {
-                "requirement_id": int(requirement.id),
-                "artifact_id": int(artifact.id),
-                "step_type": str(payload.get("step_type") or ""),
-                "failed_checks": failed_checks,
-                "content_summary": str(artifact.content_summary or ""),
-                "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
-            }
             signal = groups.get(key)
             if signal is None:
                 display_name = str(project.get("display_name") or project.get("root_path") or "Org Ops")
@@ -341,10 +340,10 @@ def _summarize_bug_signals(db: Session, project_map: dict[str, dict[str, Any]]) 
                     "routing_target_path": project.get("root_path"),
                     "evidence": [],
                     "occurrence_count": 0,
-                    "latest_evidence_at": artifact.created_at,
+                    "latest_evidence_at": getattr(bug, "last_seen_at", None),
                 }
                 groups[key] = signal
-            _record_signal_evidence(signal, evidence, artifact.created_at)
+            _record_signal_evidence(signal, evidence, getattr(bug, "last_seen_at", None) or getattr(bug, "first_seen_at", None))
             if int(signal.get("occurrence_count") or 0) >= 3:
                 signal["severity"] = "high"
                 signal["confidence"] = 0.93
@@ -354,16 +353,16 @@ def _summarize_bug_signals(db: Session, project_map: dict[str, dict[str, Any]]) 
 def _summarize_delivery_blockers(db: Session, project_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[str | None, str, str], dict[str, Any]] = {}
     requirements = {int(row.id): row for row in db.query(RequirementRow).all()}
-    delivery_rows = db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "delivery_state").order_by(ArtifactRow.id.asc()).all()
-    latest_per_requirement: dict[int, ArtifactRow] = {}
-    for row in delivery_rows:
-        latest_per_requirement[int(row.requirement_id)] = row
-    for artifact in latest_per_requirement.values():
-        requirement = requirements.get(int(artifact.requirement_id))
+    for release in db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(("blocked", "failed"))).order_by(ReleaseRecordRow.id.asc()).all():
+        requirement = requirements.get(int(release.requirement_id))
         if requirement is None or str(requirement.status) == "deleted":
             continue
-        payload = _json_loads(artifact.machine_readable_payload, {})
-        blockers = [str(item).strip() for item in payload.get("publish_blockers") or [] if str(item).strip()]
+        blockers = [
+            str(getattr(release, "delivery_failure_excerpt", "") or "").strip()
+            or str(getattr(release, "delivery_blocker_type", "") or "").strip()
+            or str(getattr(release, "blocker_kind", "") or "").strip()
+            or str(getattr(release, "status", "") or "release blocked")
+        ]
         if not blockers:
             continue
         for blocker in blockers:
@@ -372,10 +371,10 @@ def _summarize_delivery_blockers(db: Session, project_map: dict[str, dict[str, A
                 signal = groups.get(key)
                 evidence = {
                     "requirement_id": int(requirement.id),
-                    "artifact_id": int(artifact.id),
-                    "publish_status": str(payload.get("publish_status") or ""),
+                    "release_id": int(release.id),
+                    "publish_status": str(getattr(release, "status", "") or ""),
                     "blocker": blocker,
-                    "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+                    "created_at": release.created_at.isoformat() if release.created_at else None,
                 }
                 if signal is None:
                     display_name = str(project.get("display_name") or project.get("root_path") or "Org Ops")
@@ -396,7 +395,7 @@ def _summarize_delivery_blockers(db: Session, project_map: dict[str, dict[str, A
                         "latest_evidence_at": artifact.created_at,
                     }
                     groups[key] = signal
-                _record_signal_evidence(signal, evidence, artifact.created_at)
+                _record_signal_evidence(signal, evidence, release.updated_at or release.created_at)
     return list(groups.values())
 
 
@@ -404,8 +403,8 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
     requirements = {int(row.id): row for row in db.query(RequirementRow).all()}
     grouped: dict[tuple[str | None, str], dict[str, Any]] = {}
 
-    for approval in db.query(ApprovalRequestRow).order_by(ApprovalRequestRow.id.asc()).all():
-        requirement = requirements.get(int(approval.requirement_id or 0))
+    for gate in db.query(HumanGateRequestRow).order_by(HumanGateRequestRow.id.asc()).all():
+        requirement = requirements.get(int(gate.requirement_id or 0))
         if requirement is None or str(requirement.status) == "deleted":
             continue
         for project in _requirement_project_contexts(requirement, project_map):
@@ -416,10 +415,10 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                 signal = {
                     "dedupe_key": f"manual-override::{project.get('project_key') or 'org'}",
                     "signal_type": "manual_override",
-                    "source_kind": "approval_request",
+                    "source_kind": "human_gate",
                     "status": "open",
                     "title": f"Manual override load: {display_name}",
-                    "summary": f"Workflow approvals are repeatedly pulling human operators into {display_name}.",
+                    "summary": f"Workflow human gates are repeatedly pulling operators into {display_name}.",
                     "severity": "medium",
                     "confidence": 0.72,
                     "project_key": project.get("project_key"),
@@ -427,22 +426,22 @@ def _summarize_manual_overrides(db: Session, project_map: dict[str, dict[str, An
                     "routing_target_path": project.get("root_path"),
                     "evidence": [],
                     "occurrence_count": 0,
-                    "latest_evidence_at": approval.decided_at or approval.created_at,
+                    "latest_evidence_at": gate.decided_at or gate.created_at,
                 }
                 grouped[key] = signal
             _record_signal_evidence(
                 signal,
                 {
-                    "approval_request_id": int(approval.id),
+                    "human_gate_id": int(gate.id),
                     "requirement_id": int(requirement.id),
-                    "approval_type": str(approval.approval_type),
-                    "status": str(approval.status),
-                    "reviewer": approval.reviewer,
-                    "comment": approval.comment,
-                    "created_at": approval.created_at.isoformat() if approval.created_at else None,
-                    "decided_at": approval.decided_at.isoformat() if approval.decided_at else None,
+                    "gate_type": str(gate.gate_type),
+                    "status": str(gate.status),
+                    "reviewer": gate.decided_by,
+                    "comment": gate.decision_reason,
+                    "created_at": gate.created_at.isoformat() if gate.created_at else None,
+                    "decided_at": gate.decided_at.isoformat() if gate.decided_at else None,
                 },
-                approval.decided_at or approval.created_at,
+                gate.decided_at or gate.created_at,
             )
 
     return list(grouped.values())

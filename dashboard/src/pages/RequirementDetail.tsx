@@ -7,7 +7,6 @@ import { FieldLabel, LoadingPane, SectionFrame, StateBadge, useToast } from '../
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   planning: '规划中',
-  awaiting_approval: '待审批',
   ready: '待执行',
   executing: '执行中',
   delivering: '交付中',
@@ -29,7 +28,7 @@ function statusTone(status: string) {
   if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
   if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
   if (status === 'failed') return 'blocked'
-  if (status === 'ready' || status === 'awaiting_approval') return 'ready'
+  if (status === 'ready') return 'ready'
   return 'muted'
 }
 
@@ -37,37 +36,6 @@ function assetsTone(status: string) {
   if (status === 'ready') return 'ready'
   if (status === 'failed') return 'blocked'
   return 'running'
-}
-
-const APPROVAL_STATUS_LABEL: Record<string, string> = {
-  pending_manual_approval: '待人工审批',
-  pending_approval: '待人工审批',
-  pending: '待人工审批',
-  approved: '已批准',
-  waived: '已豁免',
-  not_required: '已豁免',
-  rejected: '已拒绝',
-}
-
-const FINAL_DECISION_SOURCE_LABEL: Record<string, string> = {
-  human_required_by_policy: '结果来源：策略要求人工审批',
-  auto_approved: '结果来源：系统自动批准',
-  agent_approved: '结果来源：审批代理批准',
-  waived: '结果来源：合同豁免',
-  manual_decision: '结果来源：人工审批结论',
-  manual_review_required: '结果来源：等待人工审批',
-}
-
-const RECOMMENDATION_LABEL: Record<string, string> = {
-  approve: '批准',
-  revise: '修订',
-  route_to_human: '转人工',
-  waive: '豁免',
-}
-
-const RECOMMENDATION_SOURCE_LABEL: Record<string, string> = {
-  deterministic_policy: 'deterministic policy',
-  approval_agent: 'approval agent',
 }
 
 function formatTime(value: string | null) {
@@ -92,15 +60,9 @@ function releaseBlockerText(release: AgentRequirementDetail['latest_release']) {
     .find(Boolean) || ''
 }
 
-function approvalStatusLabel(detail: AgentRequirementDetail) {
-  const state = detail.approval_decision?.state || detail.approval.approval_status
-  return APPROVAL_STATUS_LABEL[state] || APPROVAL_STATUS_LABEL[detail.approval.approval_decision] || state
-}
-
 const LIFECYCLE_STEPS = [
   { key: 'created', label: '创建' },
   { key: 'planning', label: '规划' },
-  { key: 'approval', label: '审批' },
   { key: 'ready', label: '待工作流' },
   { key: 'execution', label: '工作流' },
   { key: 'delivery', label: '交付' },
@@ -111,15 +73,14 @@ const LIFECYCLE_STEPS = [
 const LIFECYCLE_STATE_INDEX: Record<string, number> = {
   draft: 0,
   planning: 1,
-  awaiting_approval: 2,
-  ready: 3,
-  executing: 4,
-  running: 4,
-  delivering: 5,
-  delivery_ready: 5,
-  ready_for_merge: 6,
-  completed: 7,
-  done: 7,
+  ready: 2,
+  executing: 3,
+  running: 3,
+  delivering: 4,
+  delivery_ready: 4,
+  ready_for_merge: 5,
+  completed: 6,
+  done: 6,
 }
 
 function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
@@ -127,8 +88,7 @@ function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
   if (state === 'failed' || state === 'cancelled' || state === 'awaiting_operator') {
     if (detail.latest_release_id || detail.latest_release) return 5
     if (detail.active_workflow_run_id || detail.requirement.active_workflow_run_id) return 4
-    if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') return 2
-    return 3
+    return 2
   }
   return 0
 }
@@ -139,7 +99,6 @@ function lifecycleDescription(detail: AgentRequirementDetail, state: string) {
   if (state === 'cancelled') return '需求已取消，不会继续自动推进'
   if (state === 'awaiting_operator') return detail.attention_reason ? `需要人工处理：${detail.attention_reason}` : '需要人工处理后才能继续'
   if (state === 'planning' || detail.assets_status === 'pending') return '验收标准与状态机计划正在生成'
-  if (state === 'awaiting_approval') return '等待审批结果，未通过前不会创建工作流'
   if (state === 'ready') return '需求已就绪，可以创建状态机工作流'
   if (state === 'executing' || state === 'running') return '状态机正在驱动 agent atom 和 deterministic atom'
   if (state === 'delivering' || state === 'delivery_ready') {
@@ -225,13 +184,6 @@ function workflowReadinessCopy(detail: AgentRequirementDetail) {
       tone: 'ready' as const,
     }
   }
-  if (readiness?.blocking_reason === 'approval_pending') {
-    return {
-      title: 'Workflow 等待审批',
-      body: '需求还未通过审批，State Machine Runner 不会创建工作流。',
-      tone: 'blocked' as const,
-    }
-  }
   if (detail.assets_status === 'failed' || readiness?.blocking_reason === 'asset_generation_failed') {
     return {
       title: 'Workflow Assets 生成失败',
@@ -269,11 +221,7 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   if (detail.assets_status === 'failed') {
     actions.add('regenerate_assets')
   }
-  if ((detail.approval_decision?.state || detail.approval.approval_status) === 'pending') {
-    actions.add('approve')
-    actions.add('reject')
-  }
-  if (requirement.active_workflow_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
+  if (requirement.active_workflow_run_id == null && ['draft', 'planning'].includes(state)) {
     actions.add('delete')
   }
   if (latestRelease?.status === 'branch_prepared') {
@@ -374,14 +322,8 @@ export default function RequirementDetail() {
   }
 
   const requirement = detail.requirement
-  const approval = detail.approval
   const requirementAllowedActions = requirement.allowed_actions ?? fallbackRequirementAllowedActions(detail)
   const canEdit = requirementAllowedActions.includes('edit')
-  const finalApprovalState = detail.approval_decision?.state || approval.approval_status
-  const showApprovalNotice =
-    finalApprovalState === 'pending' ||
-    finalApprovalState === 'rejected' ||
-    Boolean(approval.approval_recommendation || approval.approval_reason)
   const currentProject = detail.project
   const latestRelease = detail.latest_release
   const workspaceBlocker = latestRelease?.workspace_blocker || null
@@ -395,14 +337,12 @@ export default function RequirementDetail() {
     /dirty worktree|automatic execution branch preparation/i.test(releaseBlocker)
   const assetsReady = detail.assets_status === 'ready'
   const requirementState = requirement.state || detail.state || requirement.status
-  const approvalPassed = ['approved', 'waived'].includes(approval.approval_status)
   const activeWorkflowRunId = detail.active_workflow_run_id ?? requirement.active_workflow_run_id ?? detail.active_workflow_run_summary?.id ?? requirement.active_workflow_run_summary?.id ?? null
   const readiness = detail.workflow_readiness
   const readinessCopy = workflowReadinessCopy(detail)
   const autoSubmitPending =
     !activeWorkflowRunId &&
     assetsReady &&
-    approvalPassed &&
     ((detail.pending_operations ?? []).includes('auto_submit') || requirementAllowedActions.includes('submit'))
 
   return (
@@ -487,8 +427,8 @@ export default function RequirementDetail() {
                   try {
                     const next = await api.submitRequirement(requirement.id)
                     setDetail(next)
-                    const workflowRunId = next.approval.workflow_run_id ?? next.active_workflow_run_id ?? next.requirement.active_workflow_run_id
-                    if (next.approval.auto_started && workflowRunId) {
+                    const workflowRunId = next.active_workflow_run_id ?? next.requirement.active_workflow_run_id
+                    if (workflowRunId) {
                       navigate(`/workflows/${workflowRunId}`)
                     }
                   } catch (error) {
@@ -522,35 +462,6 @@ export default function RequirementDetail() {
               >
                 重新生成计划
               </button>
-            ) : null}
-            {!isEditing && requirementAllowedActions.includes('approve') && (detail.approval_decision?.state || approval.approval_status) === 'pending' ? (
-              <>
-                <button
-                  className="rounded-2xl bg-[color:var(--ops-state-running-text)] px-4 py-2 text-sm text-white"
-                  onClick={async () => {
-                    const next = await api.approveRequirement(requirement.id, {
-                      reviewer: 'operator',
-                      comment: approval.approval_recommendation_reason || approval.approval_reason || 'Approve and auto-start execution',
-                    })
-                    setDetail(next)
-                    const workflowRunId = next.approval.workflow_run_id ?? next.active_workflow_run_id ?? next.requirement.active_workflow_run_id
-                    if (workflowRunId) {
-                      navigate(`/workflows/${workflowRunId}`)
-                    }
-                  }}
-                >
-                  批准并启动工作流
-                </button>
-                <button
-                  className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)]"
-                  onClick={async () => {
-                    const next = await api.rejectRequirement(requirement.id, { reviewer: 'operator', comment: 'Need revision before execution can start' })
-                    setDetail(next)
-                  }}
-                >
-                  驳回
-                </button>
-              </>
             ) : null}
             {!isEditing && activeWorkflowRunId ? (
               <button className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => navigate(`/workflows/${activeWorkflowRunId}`)}>
@@ -678,10 +589,10 @@ export default function RequirementDetail() {
           <div className="mb-5 rounded-2xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-ready-text)]">
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge tone="ready">自动工作流</StateBadge>
-              <span>审批已通过，系统会创建 declarative workflow run 并由状态机推进。</span>
+              <span>Assets 已就绪，系统会创建 declarative workflow run 并由状态机推进。</span>
             </div>
             <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-              如果后台触发还未完成，可以用右上角“创建工作流”作为 fallback，不需要再次人工审批。
+              如果后台触发还未完成，可以用右上角“创建工作流”作为 fallback；高风险动作会在 workflow human gate 中处理。
             </div>
           </div>
         ) : null}
@@ -701,41 +612,6 @@ export default function RequirementDetail() {
                 </div>
               )
             })()}
-          </div>
-        ) : null}
-
-        {showApprovalNotice ? (
-          <div
-            data-testid="requirement-approval-notice"
-            className="mb-5 rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <StateBadge tone={finalApprovalState === 'approved' || finalApprovalState === 'waived' ? 'ready' : 'blocked'}>
-                {approvalStatusLabel(detail)}
-              </StateBadge>
-              {approval.required_approver_roles.length ? <span>需要角色：{approval.required_approver_roles.join(' / ')}</span> : null}
-            </div>
-            {approval.approval_reason ? <div className="mt-2">审批状态原因：{approval.approval_reason}</div> : null}
-            {(approval.final_decision_source || detail.approval_decision?.source) ? (
-              <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-                {FINAL_DECISION_SOURCE_LABEL[approval.final_decision_source || detail.approval_decision?.source || ''] ||
-                  `结果来源：${approval.final_decision_source || detail.approval_decision?.source}`}
-              </div>
-            ) : null}
-            {approval.approval_recommendation ? (
-              <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/70 px-3 py-2 text-xs text-[color:var(--ops-text-caption)]">
-                <div>
-                  系统推荐：{RECOMMENDATION_LABEL[approval.approval_recommendation] || approval.approval_recommendation}
-                  {approval.approval_confidence != null ? ` · 置信度 ${approval.approval_confidence}` : ''}
-                </div>
-                {approval.recommendation_source ? (
-                  <div className="mt-1">
-                    推荐来源：{RECOMMENDATION_SOURCE_LABEL[approval.recommendation_source] || approval.recommendation_source}
-                  </div>
-                ) : null}
-                {approval.approval_recommendation_reason ? <div className="mt-1">推荐理由：{approval.approval_recommendation_reason}</div> : null}
-              </div>
-            ) : null}
           </div>
         ) : null}
 

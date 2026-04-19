@@ -29,8 +29,8 @@ def _build_portfolio_summary(
         "completed_requirements": int(runtime_metrics.get("completed_requirements") or 0),
         "completion_rate": completion_rate,
         "open_signals": len(signals),
-        "approval_required_decisions": sum(
-            1 for item in scheduler_plan.get("decisions") or [] if bool(item.get("approval_required"))
+        "human_gate_required_decisions": sum(
+            1 for item in scheduler_plan.get("decisions") or [] if bool(item.get("human_gate_required"))
         ),
         "rebalance_opportunities": sum(
             1 for item in scheduler_plan.get("decisions") or []

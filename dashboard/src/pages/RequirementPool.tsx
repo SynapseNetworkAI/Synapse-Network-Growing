@@ -71,7 +71,6 @@ async function fileToAttachment(file: File, source: string): Promise<ComposerAtt
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
   planning: '规划中',
-  awaiting_approval: '待审批',
   ready: '待执行',
   executing: '执行中',
   delivering: '交付中',
@@ -98,7 +97,7 @@ function statusTone(status: string) {
   if (status === 'executing' || status === 'running' || status === 'delivering') return 'running'
   if (status === 'awaiting_operator' || status === 'blocked' || status === 'needs_revision' || status === 'cancelled') return 'blocked'
   if (status === 'failed') return 'blocked'
-  if (status === 'ready' || status === 'awaiting_approval') return 'ready'
+  if (status === 'ready') return 'ready'
   return 'muted'
 }
 
@@ -130,11 +129,7 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
   if (requirement.assets_status === 'failed') {
     actions.add('regenerate_assets')
   }
-  if ((requirement.approval?.state || requirement.approval_status) === 'pending') {
-    actions.add('approve')
-    actions.add('reject')
-  }
-  if (requirement.active_workflow_run_id == null && ['draft', 'planning', 'awaiting_approval'].includes(state)) {
+  if (requirement.active_workflow_run_id == null && ['draft', 'planning'].includes(state)) {
     actions.add('delete')
   }
   return [...actions]
@@ -591,8 +586,7 @@ export default function RequirementPool() {
                 <th className="px-4 py-4 font-medium">项目</th>
                 <th className="px-4 py-4 font-medium">状态</th>
                 <th className="px-4 py-4 font-medium">优先级</th>
-                <th className="px-4 py-4 font-medium">审批</th>
-                <th className="px-4 py-4 font-medium">执行 / 发布</th>
+                <th className="px-4 py-4 font-medium">Workflow</th>
                 <th className="px-4 py-4 font-medium">更新时间</th>
                 <th className="px-5 py-4 text-right font-medium">操作</th>
               </tr>
@@ -618,7 +612,6 @@ export default function RequirementPool() {
                     <StateBadge tone={statusTone(item.state || item.status)}>{STATUS_LABEL[item.state || item.status] || item.state || item.status}</StateBadge>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
-                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{item.approval?.state || (item.approval_required ? item.approval_status : 'not_required')}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{workflowLabel(item)} · delivery {item.current_delivery_id ?? item.latest_release_status ?? '-'}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">
@@ -628,7 +621,6 @@ export default function RequirementPool() {
                         const autoSubmitPending =
                           item.active_workflow_run_id == null &&
                           item.assets_status === 'ready' &&
-                          ['approved', 'waived'].includes(item.approval_status) &&
                           ((item.pending_operations ?? []).includes('auto_submit') || allowedActions.includes('submit'))
                         return (
                           <>
@@ -740,8 +732,8 @@ export default function RequirementPool() {
                           try {
                             const detail = await api.submitRequirement(item.id)
                             toast.success('需求已提交')
-                            const workflowRunId = detail.approval.workflow_run_id ?? detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
-                            if (workflowRunId && detail.approval.auto_started) {
+                            const workflowRunId = detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
+                            if (workflowRunId) {
                               navigate(`/workflows/${workflowRunId}`)
                               return
                             }
@@ -762,7 +754,7 @@ export default function RequirementPool() {
                             : item.assets_status === 'failed'
                               ? '计划生成失败'
                               : autoSubmitPending
-                                ? '立即触发执行'
+                                ? '创建工作流'
                                 : '提交'}
                       </button>
                           </>

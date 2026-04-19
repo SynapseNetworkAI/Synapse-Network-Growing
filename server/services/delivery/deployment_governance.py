@@ -10,7 +10,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import ArtifactRow, DeploymentRecordRow, ProjectPolicyRow, RequirementRow, utcnow
+from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseRecordRow, RequirementRow, utcnow
 from server.schemas import (
     DeliveryStateOut,
     DeploymentOverviewOut,
@@ -180,16 +180,22 @@ def build_project_environment_statuses(db: Session, policy: ProjectPolicyRow) ->
 
 
 def _requirement_delivery_payload(db: Session, requirement_id: int) -> dict[str, Any]:
-    artifact = (
-        db.query(ArtifactRow)
-        .filter(
-            ArtifactRow.requirement_id == requirement_id,
-            ArtifactRow.artifact_type == "delivery_state",
-        )
-        .order_by(ArtifactRow.id.desc())
+    release = (
+        db.query(ReleaseRecordRow)
+        .filter(ReleaseRecordRow.requirement_id == requirement_id)
+        .order_by(ReleaseRecordRow.id.desc())
         .first()
     )
-    return _json_load(getattr(artifact, "machine_readable_payload", None), {})
+    if release is None:
+        return {}
+    metadata = _json_load(getattr(release, "metadata_json", None), {})
+    return {
+        **metadata,
+        "latest_remote_sha": str(getattr(release, "commit_sha", "") or "").strip() or None,
+        "latest_commit_sha": str(getattr(release, "commit_sha", "") or "").strip() or None,
+        "head_branch": str(getattr(release, "actual_branch_name", "") or getattr(release, "branch_name", "") or "").strip() or None,
+        "branch_name": str(getattr(release, "branch_name", "") or "").strip() or None,
+    }
 
 
 def _resolve_commit_sha(db: Session, requirement: RequirementRow, explicit_commit_sha: str | None = None) -> str:

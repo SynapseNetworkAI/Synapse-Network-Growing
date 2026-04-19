@@ -92,7 +92,7 @@ intake -> execute -> validate -> deliver
 4. 低风险 requirement 会在后台补齐 acceptance brief 与 workflow blackboard，再创建 declarative workflow run；高风险 requirement 在 workflow human gate 等待人工批准
 5. workflow 进入高风险 atom 或外部副作用前，必须通过 Risk-Evidence Gate；资金、生产、auth、自修改系统永远人工
 6. 跳转到 release 面
-7. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入审批、plan 与执行
+7. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入 workflow、human gate 与执行
 
 #### 后端接口
 
@@ -100,11 +100,10 @@ intake -> execute -> validate -> deliver
 2. `POST /api/requirements`
 3. `PATCH /api/requirements/{id}`
 4. `POST /api/requirements/{id}/submit`
-5. `POST /api/requirements/{id}/approve`
-6. `POST /api/requirements/{id}/reject`
-7. `POST /api/requirements/{id}/cancel`
-8. `GET /api/workflows/runs`
-9. `GET /api/workflows/runs/{id}`
+5. `POST /api/requirements/{id}/cancel`
+6. `GET /api/workflows/runs`
+7. `GET /api/workflows/runs/{id}`
+8. `POST /api/workflows/runs/{run_id}/human-gates/{gate_id}/decide`
 
 #### 推荐使用方式
 
@@ -477,7 +476,7 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
 3. approval 群
    - human gate created
    - risk evidence gate requires human
-   - manual approval required
+   - workflow human gate required
    - approve / reject / continue_retry 回执
 4. release 群
    - PR 已创建或创建失败
@@ -585,7 +584,7 @@ OPS_LARK_DELIVERY_DRY_RUN=true
 
 审批标准说明：
 
-1. 运行时“是否必须人工审核”的唯一真相是 requirement `approval_contract` 与 approval router / hard rules。
+1. 运行时“是否必须人工审核”的唯一真相是 workflow 内的 `risk_evidence_gate` 与 `human_gate_requests`。
 2. project policy 的 `requires_manual_approval` 只作为项目审批偏好信号，不再直接表示“当前 requirement 必须人工审核”。
 3. 会强制人工审核的 hard rules 固定为：
    - `publish_or_delivery_impact`

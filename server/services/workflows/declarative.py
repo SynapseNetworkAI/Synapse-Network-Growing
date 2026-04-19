@@ -587,16 +587,7 @@ def default_atom_registry() -> AtomRegistry:
     )
     registry.register(
         "risk_evidence_gate",
-        lambda ctx: AtomResult(
-            summary="Risk evidence gate evaluated",
-            writes={
-                "gate": {
-                    "decision": "human_required"
-                    if set(ctx.blackboard.get("risk_flags") or []).intersection({"funds", "settlement", "auth", "production", "contract"})
-                    else "auto_flow"
-                }
-            },
-        ),
+        _risk_evidence_gate,
     )
     registry.register(
         "open_gateway_repair_pr",
@@ -607,6 +598,25 @@ def default_atom_registry() -> AtomRegistry:
         lambda _ctx: AtomResult(summary="Gateway recovery observed", writes={"observation": {"restored": True, "not_restored": False}}),
     )
     return registry
+
+
+def _risk_evidence_gate(ctx: WorkflowContext) -> AtomResult:
+    risk_flags = {str(item).strip().lower() for item in ctx.blackboard.get("risk_flags") or [] if str(item).strip()}
+    risk_level = str(ctx.blackboard.get("risk_level") or ctx.workflow_run.risk_level or "normal").strip().lower()
+    hard_gate_flags = {"funds", "settlement", "auth", "production", "contract", "external_paid_spend"}
+    requires_human = bool(risk_flags.intersection(hard_gate_flags)) or risk_level in {"high", "critical"}
+    decision = "human_required" if requires_human else "auto_flow"
+    return AtomResult(
+        summary=f"Risk evidence gate evaluated: {decision}",
+        writes={
+            "gate": {
+                "decision": decision,
+                "risk_level": risk_level or "normal",
+                "risk_flags": sorted(risk_flags),
+                "why": "High-risk workflow requires Human Gate." if requires_human else "Evidence is sufficient for automatic flow.",
+            }
+        },
+    )
 
 
 def _open_requirement_review_pr(

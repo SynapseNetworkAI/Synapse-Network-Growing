@@ -233,35 +233,6 @@ def _bug_is_high_value(row: BugRecordRow, *, min_score: float) -> bool:
     return _bug_score_total(row) >= float(min_score)
 
 
-def _bug_approval_contract(db: Session, row: BugRecordRow) -> dict[str, object]:
-    requires_human = _bug_requires_human_approval(row) or _bug_is_cross_project(row, db)
-    if requires_human:
-        return {
-            "approval_mode": "manual_required",
-            "required_approver_roles": ["request_owner", "reviewer", "tester", "operator"],
-            "fallback_reviewer": "operator",
-            "auto_approve": {
-                "enabled": False,
-                "max_priority": "normal",
-                "max_complexity_tier": "standard",
-                "single_project_only": True,
-                "allow_incident_recovery": False,
-            },
-        }
-    return {
-        "approval_mode": "auto_or_human",
-        "required_approver_roles": ["request_owner", "reviewer", "tester"],
-        "fallback_reviewer": "operator",
-        "auto_approve": {
-            "enabled": True,
-            "max_priority": "normal",
-            "max_complexity_tier": "standard",
-            "single_project_only": True,
-            "allow_incident_recovery": False,
-        },
-    }
-
-
 def _bug_description_markdown(row: BugRecordRow) -> str:
     scorecard = _json_loads(getattr(row, "scorecard_json", None), {})
     evidence = list(_json_loads(getattr(row, "evidence_json", None), []))
@@ -552,7 +523,6 @@ def materialize_bug_backlog(
             ),
             target_project_path=target_project_path,
             auto_start=auto_start,
-            approval_contract=_bug_approval_contract(db, row),
         )
         detail = create_requirement(db, body)
         row.converted_requirement_id = int(detail.requirement.id)

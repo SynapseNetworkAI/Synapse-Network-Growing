@@ -62,10 +62,10 @@ export interface RoleKPI {
   failed_task_count: number
   backlog_count: number
   reopened_task_count: number
-  approval_dependency_count: number
+  human_gate_dependency_count: number
   completion_rate: number
   reopen_rate: number
-  approval_dependency_rate: number
+  human_gate_dependency_rate: number
   average_token_cost: number
   average_budget_cost_points: number
   tokens_used_total: number
@@ -74,7 +74,7 @@ export interface RoleKPI {
   status_mix: Record<string, number>
 }
 
-export interface ApprovalRoleKPI {
+export interface HumanGateRoleKPI {
   role_id: string
   assigned_count: number
   pending_count: number
@@ -91,13 +91,13 @@ export interface RoleWorkAllocationSummary {
   role_count: number
   total_backlog_count: number
   overloaded_role_count: number
-  approval_pending_count: number
-  approval_stale_count: number
+  human_gate_pending_count: number
+  human_gate_stale_count: number
 }
 
 export interface RoleKpiSnapshot {
   roles: RoleKPI[]
-  approval_roles: ApprovalRoleKPI[]
+  human_gate_roles: HumanGateRoleKPI[]
   summary: RoleWorkAllocationSummary
 }
 
@@ -383,7 +383,7 @@ export interface SchedulerDecision {
   template_key?: string | null
   source?: string | null
   preempt_requirement_id?: number | null
-  approval_required: boolean
+  human_gate_required: boolean
 }
 
 export interface SchedulerPlan {
@@ -415,11 +415,6 @@ export interface Requirement {
   source: string
   source_ref: string | null
   target_project_path: string | null
-  approval_status: string
-  approval_contract: Record<string, unknown>
-  approval_requested_at: string | null
-  approved_at: string | null
-  current_plan_version: number
   blocked_by_count: number
   active_workflow_run_id: number | null
   started_at: string | null
@@ -671,17 +666,6 @@ export interface AgentRequirement {
     target_project_path: string | null
     target_project_path_override: string | null
   } | null
-  approval: {
-    state: string
-    reason: string | null
-    source: string | null
-    agent_recommendation: string | null
-    confidence: number | null
-    recommendation_reason?: string | null
-    recommendation_source?: string | null
-    risk_flags: string[]
-    required_approver_roles: string[]
-  } | null
   current_attempt_id: number | null
   current_delivery_id: number | null
   status: string
@@ -700,8 +684,6 @@ export interface AgentRequirement {
   target_project_path: string | null
   target_project_path_override: string | null
   target_projects: string[]
-  approval_required: boolean
-  approval_status: string
   phase: string
   allowed_actions: string[]
   pending_operations: string[]
@@ -717,25 +699,6 @@ export interface AgentRequirement {
   active_workflow_run_id: number | null
   active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   latest_release_status: string | null
-}
-
-export interface AgentRequirementApproval {
-  approval_decision: string
-  approval_status: string
-  approval_reason: string | null
-  approval_source: string | null
-  final_decision_source?: string | null
-  approval_agent_id?: string | null
-  approval_agent_label?: string | null
-  approval_recommendation?: string | null
-  approval_recommendation_reason?: string | null
-  recommendation_source?: string | null
-  approval_confidence?: number | null
-  required_approver_roles: string[]
-  risk_flags: string[]
-  pending_execution_start: boolean
-  auto_started: boolean
-  workflow_run_id: number | null
 }
 
 export interface AcceptanceContractCheck {
@@ -820,8 +783,6 @@ export interface AgentRequirementDetail {
   active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   latest_release_id: number | null
   latest_release: ReleaseRecord | null
-  approval: AgentRequirementApproval
-  approval_decision: AgentRequirement['approval']
   phase: string
   allowed_actions: string[]
   pending_operations: string[]
@@ -1070,7 +1031,7 @@ export interface OperatingReviewPortfolioSummary {
   completed_requirements: number
   completion_rate: number
   open_signals: number
-  approval_required_decisions: number
+  human_gate_required_decisions: number
   rebalance_opportunities: number
   projects_over_budget: number
   blocked_publish_projects: number
@@ -1199,7 +1160,7 @@ export interface OperatingReviewRecommendation {
   budget_cost: number
   source_ref?: string | null
   rationale: string
-  approval_required?: boolean
+  human_gate_required?: boolean
   requirement_id?: number | null
   signal_id?: number | null
   incident_family?: string | null
@@ -1225,7 +1186,7 @@ export interface OperatingReviewBundleItem {
   rationale: string
   description_markdown: string
   acceptance_checks: Record<string, unknown>[]
-  approval_required: boolean
+  human_gate_required: boolean
 }
 
 export interface OperatingReviewOperatorDecision {
@@ -1770,10 +1731,6 @@ export const api = {
     id: number,
     data?: { workflow_key?: string | null; run_immediately?: boolean; triggered_by?: string },
   ) => request<DeclarativeWorkflowRunDetail>(`/requirements/${id}/workflow/start`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  approveRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
-    request<AgentRequirementDetail>(`/requirements/${id}/approve`, { method: 'POST', body: JSON.stringify({ action: 'approve', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
-  rejectRequirement: (id: number, data?: { reviewer?: string; comment?: string | null }) =>
-    request<AgentRequirementDetail>(`/requirements/${id}/reject`, { method: 'POST', body: JSON.stringify({ action: 'reject', reviewer: data?.reviewer || 'operator', comment: data?.comment || '' }) }),
   reviseRequirement: (id: number, data: {
     title?: string
     description_markdown: string

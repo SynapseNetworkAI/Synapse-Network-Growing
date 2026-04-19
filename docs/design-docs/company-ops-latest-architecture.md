@@ -347,7 +347,7 @@ planner 现在是 **执行形状选择器**，不是固定阶段生成器。
    - `complex`
 3. `validation_profile`
 4. `delivery_intent`
-5. `approval_required`
+5. `human_gate_required`
 6. `target_projects`
 
 默认规则：

@@ -10,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from collections import defaultdict
 
-from server.database import ApprovalRequestRow, ArtifactRow, BugRecordRow, CompanyOperatingReviewRow, RecurringWorkflowRow, RequirementRow
+from server.database import (
+    BugRecordRow,
+    CompanyOperatingReviewRow,
+    HumanGateRequestRow,
+    RecurringWorkflowRow,
+    ReleaseRecordRow,
+    RequirementRow,
+)
 from server.schemas import CompanyReviewBundleMaterializeResultOut, RequirementCreate
 from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_signals import list_optimization_signals, refresh_optimization_signals
@@ -74,7 +81,7 @@ def _cycle_summary_markdown(
         f"Cycle focus: {lead_bottleneck}.\n\n"
         f"Portfolio active requirements: {portfolio_summary['active_requirements']}, "
         f"open signals: {portfolio_summary['open_signals']}, "
-        f"approval-required decisions: {portfolio_summary['approval_required_decisions']}.\n\n"
+        f"human-gate-required decisions: {portfolio_summary['human_gate_required_decisions']}.\n\n"
         f"Completion rate: {portfolio_summary['completion_rate']}%, "
         f"budget spent: {portfolio_summary['budget_spent_points']} pts, "
         f"prompt cache saved chars: {portfolio_summary['prompt_cache_saved_chars']}, "
@@ -137,37 +144,6 @@ def _aggregate_runtime_metrics(
         for project_key in _requirement_project_keys(requirement, project_catalog):
             if str(requirement.status or "") == "done":
                 per_project[project_key]["completed_requirements"] += 1
-
-    for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "prompt_cache_profile").all():
-        requirement = requirements.get(int(artifact.requirement_id or 0))
-        if requirement is None:
-            continue
-        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
-        saved_chars = int(payload.get("cached_chars_saved") or 0)
-        deduped_bindings = int(payload.get("deduped_binding_count") or 0)
-        overall["prompt_cache_saved_chars"] += saved_chars
-        overall["deduped_bindings"] += deduped_bindings
-        for project_key in _requirement_project_keys(requirement, project_catalog):
-            per_project[project_key]["prompt_cache_saved_chars"] += saved_chars
-            per_project[project_key]["deduped_bindings"] += deduped_bindings
-
-    for artifact in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "runtime_adaptation").all():
-        requirement = requirements.get(int(artifact.requirement_id or 0))
-        if requirement is None:
-            continue
-        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
-        adaptation_type = str(payload.get("adaptation_type") or "").strip().lower()
-        if adaptation_type == "escalation":
-            overall["escalations"] += 1
-        elif adaptation_type == "downgrade":
-            overall["downgrades"] += 1
-        else:
-            continue
-        for project_key in _requirement_project_keys(requirement, project_catalog):
-            if adaptation_type == "escalation":
-                per_project[project_key]["escalations"] += 1
-            elif adaptation_type == "downgrade":
-                per_project[project_key]["downgrades"] += 1
 
     return overall, dict(per_project)
 
@@ -390,11 +366,11 @@ def _human_gate_hotspots(
             bucket["pending_count"] += 1
         bucket["latest_status"] = status
 
-    for approval in db.query(ApprovalRequestRow).all():
-        requirement = requirements.get(int(approval.requirement_id or 0))
+    for gate in db.query(HumanGateRequestRow).all():
+        requirement = requirements.get(int(gate.requirement_id or 0))
         if requirement is None:
             continue
-        approval_scope = str(getattr(approval, "approval_scope", "") or "").strip() or None
+        approval_scope = str(getattr(gate, "gate_type", "") or "").strip() or None
         step_type = "human_gate"
         project_key, project_display_name = _project_display_for_keys(
             _requirement_project_keys(requirement, project_catalog),
@@ -402,7 +378,7 @@ def _human_gate_hotspots(
         )
         gate_key = "::".join(
             [
-                str(approval.approval_type or ""),
+                str(getattr(gate, "gate_type", "") or ""),
                 str(approval_scope or "unspecified"),
                 str(step_type or "requirement"),
                 str(project_key or "org-ops"),
@@ -410,32 +386,28 @@ def _human_gate_hotspots(
         )
         _upsert_gate(
             gate_key=gate_key,
-            title=f"{project_display_name or 'Org Ops'} {approval_scope or approval.approval_type}",
-            approval_type=str(approval.approval_type or ""),
+            title=f"{project_display_name or 'Org Ops'} {approval_scope or 'human gate'}",
+            approval_type=str(getattr(gate, "gate_type", "") or "human_gate"),
             approval_scope=approval_scope,
             step_type=step_type,
             project_key=project_key,
             project_display_name=project_display_name,
-            status=str(approval.status or "pending"),
+            status=str(gate.status or "pending"),
             summary=(
-                f"{project_display_name or 'Org Ops'} triggered `{approval.approval_type}`"
+                f"{project_display_name or 'Org Ops'} triggered `{getattr(gate, 'gate_type', '') or 'human_gate'}`"
                 f" on `{step_type or 'requirement'}` with scope `{approval_scope or 'unspecified'}`."
             ),
         )
 
     for requirement in requirements.values():
-        latest_delivery_state = db.query(ArtifactRow).filter(
-            ArtifactRow.requirement_id == requirement.id,
-            ArtifactRow.artifact_type == "delivery_state",
-        ).order_by(ArtifactRow.id.desc()).first()
-        if latest_delivery_state is None:
+        latest_release = db.query(ReleaseRecordRow).filter(
+            ReleaseRecordRow.requirement_id == requirement.id,
+        ).order_by(ReleaseRecordRow.id.desc()).first()
+        if latest_release is None:
             continue
-        payload = _json_loads(getattr(latest_delivery_state, "machine_readable_payload", None), {})
-        if not isinstance(payload, dict):
+        if str(getattr(latest_release, "status", "") or "") not in {"ready", "blocked", "review_ready"}:
             continue
-        if str(payload.get("publish_status") or "") != "review_ready":
-            continue
-        if not bool(payload.get("requires_manual_approval")):
+        if str(getattr(latest_release, "next_action", "") or "") not in {"review_pr", "human_gate", "approve_release"}:
             continue
         project_key, project_display_name = _project_display_for_keys(
             _requirement_project_keys(requirement, project_catalog),
@@ -586,17 +558,17 @@ def _bottlenecks(project_catalog: dict[str, dict[str, Any]], scheduler_plan: dic
                 "project_key": project_key,
                 "recommendation": "Run onboarding hardening or policy setup before more autonomous execution.",
             })
-    approval_required = [
+    human_gate_required = [
         decision for decision in scheduler_plan.get("decisions") or []
-        if bool(decision.get("approval_required"))
+        if bool(decision.get("human_gate_required"))
     ]
-    if approval_required:
-        top = approval_required[0]
+    if human_gate_required:
+        top = human_gate_required[0]
         items.append({
             "item_key": "approval-backlog",
             "title": "Portfolio has approval-gated high-value work",
             "severity": "high",
-            "summary": f"{len(approval_required)} scheduler decisions need operator approval. Top item: {top.get('title')}.",
+            "summary": f"{len(human_gate_required)} scheduler decisions need operator approval. Top item: {top.get('title')}.",
             "project_key": str(top.get("project_key") or ""),
             "recommendation": "Review the approval queue so the scheduler can continue compounding value.",
         })
@@ -664,7 +636,7 @@ def _recommendations(scheduler_plan: dict[str, Any], incidents: list[dict[str, A
     decisions = []
     for decision in scheduler_plan.get("decisions") or []:
         action = str(decision.get("action") or "")
-        if action not in {"start", "intake", "rebalance_start", "preempt_candidate", "approval_required"}:
+        if action not in {"start", "intake", "rebalance_start", "preempt_candidate", "human_gate_required"}:
             continue
         reason = str(decision.get("reason") or "")
         reasons = [str(item) for item in decision.get("reasons") or [] if str(item).strip()]
@@ -684,7 +656,7 @@ def _recommendations(scheduler_plan: dict[str, Any], incidents: list[dict[str, A
                 else None
             ),
             "rationale": reason or ", ".join(reasons[:2]) or "Top-ranked portfolio candidate.",
-            "approval_required": bool(decision.get("approval_required")),
+            "human_gate_required": bool(decision.get("human_gate_required")),
             "requirement_id": int(decision["requirement_id"]) if decision.get("requirement_id") is not None else None,
             "signal_id": int(decision["signal_id"]) if decision.get("signal_id") is not None else None,
             "incident_family": None,
@@ -696,7 +668,7 @@ def _recommendations(scheduler_plan: dict[str, Any], incidents: list[dict[str, A
         base_score = 92.0 if severity in {"critical", "high"} else 68.0
         recovery_status = str(incident.get("recovery_status") or "")
         if recovery_status == "operator_review_required":
-            action = "approval_required"
+            action = "human_gate_required"
         elif recovery_status in {"replan_required", "runtime_recovery_required"}:
             action = "intake"
         else:
@@ -711,7 +683,7 @@ def _recommendations(scheduler_plan: dict[str, Any], incidents: list[dict[str, A
             "budget_cost": 24 if severity in {"critical", "high"} else 16,
             "source_ref": str(incident.get("source_ref") or "") or None,
             "rationale": str(incident.get("recommendation") or "Resolve the active incident before expanding automation scope."),
-            "approval_required": action == "approval_required",
+            "human_gate_required": action == "human_gate_required",
             "requirement_id": int(incident.get("requirement_id") or 0) or None,
             "signal_id": None,
             "incident_family": str(incident.get("incident_family") or ""),
@@ -739,7 +711,7 @@ def _signal_id_from_source_ref(source_ref: str | None) -> int | None:
 def _priority_from_score(score: float, *, action: str, severity: str | None = None) -> str:
     if str(severity or "medium") in {"critical", "high"}:
         return "high"
-    if action in {"approval_required", "rebalance_start", "preempt_candidate"} or score >= 75:
+    if action in {"human_gate_required", "rebalance_start", "preempt_candidate"} or score >= 75:
         return "high"
     if score >= 40:
         return "normal"
@@ -816,7 +788,7 @@ def _build_bundle_item_from_requirement(
         "rationale": str(recommendation.get("rationale") or "Existing ready requirement selected for the next cycle."),
         "description_markdown": str(requirement.description_markdown or ""),
         "acceptance_checks": [],
-        "approval_required": bool(recommendation.get("approval_required")),
+        "human_gate_required": bool(recommendation.get("human_gate_required")),
         "template_payload": {},
     }
 
@@ -833,7 +805,7 @@ def _build_bundle_item_from_template_body(
     score: float,
     budget_cost: int,
     action: str,
-    approval_required: bool,
+    human_gate_required: bool,
     requirement_id: int | None = None,
 ) -> dict[str, Any]:
     return {
@@ -854,7 +826,7 @@ def _build_bundle_item_from_template_body(
         "rationale": str((recommendation or {}).get("rationale") or f"Bundle candidate generated from {title}."),
         "description_markdown": str(template_body.description_markdown),
         "acceptance_checks": _acceptance_checks_from_body(template_body),
-        "approval_required": approval_required,
+        "human_gate_required": human_gate_required,
         "template_payload": dict(template_body.template_payload or {}),
     }
 
@@ -918,7 +890,7 @@ def _build_signal_bundle_item(
         score=score,
         budget_cost=int(recommendation.get("budget_cost") or 0),
         action=action,
-        approval_required=bool(recommendation.get("approval_required")),
+        human_gate_required=bool(recommendation.get("human_gate_required")),
     )
 
 
@@ -983,7 +955,7 @@ def _build_incident_bundle_item(
         score=score,
         budget_cost=int(recommendation.get("budget_cost") or 0),
         action=action,
-        approval_required=bool(recommendation.get("approval_required")),
+        human_gate_required=bool(recommendation.get("human_gate_required")),
         requirement_id=int(recommendation.get("requirement_id") or 0) or None,
     )
 
@@ -1044,7 +1016,7 @@ def _build_derived_bundle_item(
         score=score,
         budget_cost=18 if candidate_type == "bottleneck" else 22,
         action="intake",
-        approval_required=str(item.get("severity") or "medium") in {"high", "critical"},
+        human_gate_required=str(item.get("severity") or "medium") in {"high", "critical"},
     )
 
 
@@ -1115,7 +1087,7 @@ def _next_cycle_requirement_bundle(
 
     bundle.sort(
         key=lambda item: (
-            0 if bool(item.get("approval_required")) else 1,
+            0 if bool(item.get("human_gate_required")) else 1,
             _PRIORITY_RANK.get(str(item.get("priority") or "normal"), 9),
             -(float(item.get("score") or 0.0)),
             str(item.get("title") or ""),
@@ -1136,7 +1108,7 @@ def _operator_review_package(
 ) -> dict[str, Any]:
     all_decisions: list[dict[str, Any]] = []
     for item in bundle:
-        if bool(item.get("approval_required")):
+        if bool(item.get("human_gate_required")):
             all_decisions.append({
                 "decision_key": f"bundle-approval:{item['bundle_item_key']}",
                 "title": f"Approve next-cycle bundle item: {item['title']}",
@@ -1239,7 +1211,7 @@ def _operator_review_package(
         f"- Decisions requiring operator review: {len(decisions)}\n"
         f"- Lower-risk decisions handled autonomously: {max(0, len(all_decisions) - len(decisions))}\n"
         f"- Open portfolio risk: {top_risk}\n"
-        f"- Approval-required scheduler items: {portfolio_summary['approval_required_decisions']}\n"
+        f"- Human-gate-required scheduler items: {portfolio_summary['human_gate_required_decisions']}\n"
         f"- Morning intake attention items: {int(intake.get('operator_attention_count') or 0)}\n"
         f"- Dispatcher approval reminders: {int(dispatcher.get('approval_reminder_count') or 0)}\n"
         f"- End-of-day stale carryover: {int(closeout.get('stale_requirement_count') or 0)}"

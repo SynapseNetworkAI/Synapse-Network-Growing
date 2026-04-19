@@ -232,7 +232,7 @@ blackboard:
     - verification_evidence_artifact_id
     - risk_score
     - evidence_score
-    - approval_decision
+    - human_gate_decision
     - observation_result
 
 states:

@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session
 
 from server import config
 from server.database import (
-    ApprovalRequestRow,
-    ArtifactRow,
+    HumanGateRequestRow,
     NotificationEventRow,
     NotificationFingerprintRow,
     RecurringWorkflowRow,
@@ -30,7 +29,6 @@ from server.services.reviews.company_review import (
 from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_signals import list_optimization_signals
 from server.services.requirements.family import cleanup_requirement_families
-from server.services.requirements.approval import evaluate_requirement_execution_approval
 from server.services.requirements.sources import intake_requirement_sources
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 
@@ -141,8 +139,8 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "trigger_type": "scheduled",
         "owner_role": "portfolio_operator",
         "schedule": {"cadence": "hourly", "interval_hours": 1},
-        "input_query": {"status": ["pending_approval"]},
-        "output_action": {"kind": "refresh_requirement_approvals", "auto_approve": True},
+        "input_query": {"status": ["awaiting_operator"]},
+        "output_action": {"kind": "refresh_workflow_human_gates", "auto_approve": False},
         "escalation_rule": {"on_stale_backlog": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "auto_approved_requirement_ids"},
     },
@@ -153,7 +151,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "trigger_type": "scheduled",
         "owner_role": "portfolio_operator",
         "schedule": {"cadence": "daily", "window": "evening", "suggested_local_time": "20:00"},
-        "input_query": {"status": ["draft", "ready", "paused", "blocked", "pending_approval"], "family_cleanup": True},
+        "input_query": {"status": ["draft", "ready", "paused", "blocked"], "family_cleanup": True},
         "output_action": {"kind": "cleanup_requirement_families", "archive_validation_experiments": True},
         "escalation_rule": {"on_duplicate_growth": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "archived_requirement_ids"},
@@ -210,11 +208,11 @@ def _dispatcher_follow_through(
         if req_id:
             incidents_by_requirement.setdefault(req_id, []).append(incident)
 
-    pending_approvals = db.query(ApprovalRequestRow).filter(ApprovalRequestRow.status == "pending").all()
-    approval_by_requirement: dict[int, list[ApprovalRequestRow]] = {}
-    for approval in pending_approvals:
-        if approval.requirement_id is not None:
-            approval_by_requirement.setdefault(int(approval.requirement_id), []).append(approval)
+    pending_gates = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.status == "pending").all()
+    gates_by_requirement: dict[int, list[HumanGateRequestRow]] = {}
+    for gate in pending_gates:
+        if gate.requirement_id is not None:
+            gates_by_requirement.setdefault(int(gate.requirement_id), []).append(gate)
 
     follow_up_actions: list[dict[str, Any]] = []
     stuck_requirement_ids: list[int] = []
@@ -227,7 +225,7 @@ def _dispatcher_follow_through(
         status = str(requirement.status or "")
         updated = _ensure_utc(requirement.updated_at or requirement.created_at) or now
         requirement_incidents = incidents_by_requirement.get(requirement_id, [])
-        pending = approval_by_requirement.get(requirement_id, [])
+        pending = gates_by_requirement.get(requirement_id, [])
 
         if status == "in_progress" and updated.timestamp() <= stuck_cutoff:
             stuck_requirement_ids.append(requirement_id)
@@ -270,10 +268,10 @@ def _dispatcher_follow_through(
             elif pending:
                 follow_up_actions.append(
                     {
-                        "action": "approval_reminder",
+                        "action": "human_gate_reminder",
                         "requirement_id": requirement_id,
                         "title": str(requirement.title),
-                        "reason": str(pending[0].approval_type or "pending_approval"),
+                        "reason": str(pending[0].gate_type or "pending_human_gate"),
                     }
                 )
             elif requirement_incidents:
@@ -297,26 +295,26 @@ def _dispatcher_follow_through(
             )
 
     approval_reminders: list[dict[str, Any]] = []
-    for approval in pending_approvals:
-        created = _ensure_utc(approval.created_at) or now
+    for gate in pending_gates:
+        created = _ensure_utc(gate.created_at) or now
         if created.timestamp() > approval_cutoff:
             continue
         approval_reminders.append(
             {
-                "approval_request_id": int(approval.id),
-                "requirement_id": int(approval.requirement_id) if approval.requirement_id is not None else None,
-                "approval_type": str(approval.approval_type),
-                "reviewer": str(approval.reviewer or ""),
+                "human_gate_id": int(gate.id),
+                "requirement_id": int(gate.requirement_id) if gate.requirement_id is not None else None,
+                "gate_type": str(gate.gate_type),
+                "reviewer": str(gate.decided_by or ""),
                 "age_hours": round((now - created).total_seconds() / 3600, 2),
             }
         )
-        if approval.requirement_id is not None:
+        if gate.requirement_id is not None:
             follow_up_actions.append(
                 {
-                    "action": "approval_reminder",
-                    "requirement_id": int(approval.requirement_id),
-                    "title": f"Approval {approval.approval_type}",
-                    "reason": str(approval.approval_type),
+                    "action": "human_gate_reminder",
+                    "requirement_id": int(gate.requirement_id),
+                    "title": f"Human gate {gate.gate_type}",
+                    "reason": str(gate.gate_type),
                 }
             )
 
@@ -474,32 +472,7 @@ def _maybe_record_requirement_artifact(
     payload: dict[str, Any],
     body: str,
 ) -> bool:
-    latest = (
-        db.query(ArtifactRow)
-        .filter(
-            ArtifactRow.requirement_id == int(requirement.id),
-            ArtifactRow.artifact_type == artifact_type,
-        )
-        .order_by(ArtifactRow.id.desc())
-        .first()
-    )
-    payload_marker = str(payload.get("requirement_updated_at") or "")
-    if latest is not None:
-        latest_payload = _json_loads(latest.machine_readable_payload, {})
-        if isinstance(latest_payload, dict) and str(latest_payload.get("requirement_updated_at") or "") == payload_marker:
-            return False
-    db.add(
-        ArtifactRow(
-            requirement_id=int(requirement.id),
-            workflow_run_id=int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None,
-            artifact_type=artifact_type,
-            content_summary=summary,
-            human_readable_body=body,
-            machine_readable_payload=_json_dumps(payload),
-        )
-    )
-    db.flush()
-    return True
+    return False
 
 
 def _review_snapshot_markdown(requirement: RequirementRow, payload: dict[str, Any]) -> str:
@@ -519,15 +492,8 @@ def _review_snapshot_markdown(requirement: RequirementRow, payload: dict[str, An
 
 
 def _record_review_snapshot(db: Session, requirement: RequirementRow) -> bool:
-    artifacts = (
-        db.query(ArtifactRow)
-        .filter(ArtifactRow.requirement_id == int(requirement.id))
-        .order_by(ArtifactRow.id.asc())
-        .all()
-    )
-    artifact_types = [str(item.artifact_type) for item in artifacts[-8:]]
-    latest_delivery = next((item for item in reversed(artifacts) if str(item.artifact_type) == "delivery_state"), None)
-    delivery_payload = _json_loads(getattr(latest_delivery, "machine_readable_payload", None), {})
+    artifact_types: list[str] = []
+    delivery_payload: dict[str, Any] = {}
     updated = _ensure_utc(requirement.updated_at or requirement.created_at) or datetime.now(timezone.utc)
     payload = {
         "requirement_id": int(requirement.id),
@@ -565,19 +531,13 @@ def _compaction_markdown(requirement: RequirementRow, payload: dict[str, Any]) -
 
 
 def _record_end_of_day_compaction(db: Session, requirement: RequirementRow, *, now: datetime) -> bool:
-    artifacts = (
-        db.query(ArtifactRow)
-        .filter(ArtifactRow.requirement_id == int(requirement.id))
-        .order_by(ArtifactRow.id.asc())
-        .all()
-    )
     updated = _ensure_utc(requirement.updated_at or requirement.created_at) or now
     payload = {
         "requirement_id": int(requirement.id),
         "title": str(requirement.title),
         "status": str(requirement.status or ""),
         "active_workflow_run_id": int(requirement.active_workflow_run_id) if requirement.active_workflow_run_id is not None else None,
-        "recent_artifact_types": [str(item.artifact_type) for item in artifacts[-8:]],
+        "recent_artifact_types": [],
         "stale_hours": round(max(0.0, (now - updated).total_seconds()) / 3600, 2),
         "requirement_updated_at": updated.isoformat(),
         "generated_at": utcnow().isoformat(),
@@ -811,85 +771,31 @@ def _closeout_and_compact_sweep(db: Session, *, acceptance_limit: int, auto_disp
 def _approval_sweep(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(hours=4)
-    requirement_ids: set[int] = {
-        int(row.requirement_id)
-        for row in db.query(ApprovalRequestRow).filter(
-            ApprovalRequestRow.approval_type == "requirement_execution_approval",
-            ApprovalRequestRow.status == "pending",
-        ).all()
-        if row.requirement_id is not None
-    }
-    for requirement in db.query(RequirementRow).filter(RequirementRow.approval_status == "pending_approval").all():
-        requirement_ids.add(int(requirement.id))
-
-    auto_approved_requirement_ids: list[int] = []
+    pending_gates = db.query(HumanGateRequestRow).filter(HumanGateRequestRow.status == "pending").all()
+    requirement_ids: set[int] = {int(row.requirement_id) for row in pending_gates if row.requirement_id is not None}
     stale_approval_request_ids: list[int] = []
-    approval_source_counts: dict[str, int] = {}
+    gate_type_counts: dict[str, int] = {}
     pending_items: list[dict[str, Any]] = []
 
-    for requirement_id in sorted(requirement_ids):
-        requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
-        if requirement is None or str(requirement.status or "") == "deleted":
-            continue
-        workflow_run = None
-        if requirement.active_workflow_run_id is not None:
-            workflow_run = db.query(WorkflowRunRow).filter(
-                WorkflowRunRow.id == int(requirement.active_workflow_run_id)
-            ).first()
-        decision = evaluate_requirement_execution_approval(requirement, workflow_run=workflow_run)
-        approval_source = str(decision.get("approval_source") or "human")
-        approval_source_counts[approval_source] = approval_source_counts.get(approval_source, 0) + 1
-        recommendation = dict(decision.get("approval_recommendation") or {})
-
-        if str(decision.get("approval_status") or "") in {"approved", "waived"}:
-            action = "waive" if str(decision.get("approval_status")) == "waived" else "approve"
-            pending_request = db.query(ApprovalRequestRow).filter(
-                ApprovalRequestRow.requirement_id == requirement_id,
-                ApprovalRequestRow.approval_type == "requirement_execution_approval",
-                ApprovalRequestRow.status == "pending",
-            ).order_by(ApprovalRequestRow.id.desc()).first()
-            comment = str(recommendation.get("reason") or decision.get("reason") or "Auto-approved by approval sweep")
-            if pending_request is not None:
-                pending_request.status = action
-                pending_request.reviewer = str(recommendation.get("role") or "system")
-                pending_request.comment = comment
-                pending_request.decided_at = utcnow()
-            requirement.approval_status = "waived" if action == "waive" else "approved"
-            requirement.status = "ready" if str(requirement.status or "") == "pending_approval" else requirement.status
-            requirement.system_recommendation_json = _json_dumps(
-                {
-                    **_json_loads(requirement.system_recommendation_json, {}),
-                    "approval_sweep": {
-                        "action": action,
-                        "comment": comment,
-                        "decided_at": utcnow().isoformat(),
-                    },
-                }
-            )
-            db.flush()
-            auto_approved_requirement_ids.append(int(requirement.id))
-            continue
-
-        pending_request = db.query(ApprovalRequestRow).filter(
-            ApprovalRequestRow.requirement_id == requirement_id,
-            ApprovalRequestRow.approval_type == "requirement_execution_approval",
-            ApprovalRequestRow.status == "pending",
-        ).order_by(ApprovalRequestRow.id.desc()).first()
+    for pending_request in pending_gates:
+        requirement_id = int(pending_request.requirement_id or 0)
         age_hours = 0.0
-        if pending_request is not None:
-            created = _ensure_utc(pending_request.created_at) or now
-            age_hours = round((now - created).total_seconds() / 3600, 2)
-            if created <= stale_cutoff:
-                stale_approval_request_ids.append(int(pending_request.id))
+        created = _ensure_utc(pending_request.created_at) or now
+        age_hours = round((now - created).total_seconds() / 3600, 2)
+        if created <= stale_cutoff:
+            stale_approval_request_ids.append(int(pending_request.id))
+        gate_type = str(pending_request.gate_type or "human_gate")
+        gate_type_counts[gate_type] = gate_type_counts.get(gate_type, 0) + 1
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first() if requirement_id else None
 
         pending_items.append(
             {
                 "requirement_id": requirement_id,
-                "title": str(requirement.title),
-                "approval_source": approval_source,
-                "required_roles": list(decision.get("required_approver_roles") or []),
-                "recommendation": recommendation,
-                "needs_human_gate": bool(decision.get("needs_human_gate")),
+                "workflow_run_id": int(pending_request.workflow_run_id) if pending_request.workflow_run_id is not None else None,
+                "human_gate_id": int(pending_request.id),
+                "title": str(getattr(requirement, "title", "") or f"Human gate #{int(pending_request.id)}"),
+                "gate_type": gate_type,
+                "needs_human_gate": True,
                 "age_hours": age_hours,
             }
         )
@@ -897,9 +803,9 @@ def _approval_sweep(db: Session) -> dict[str, Any]:
     return {
         "scanned_requirement_ids": sorted(requirement_ids),
         "pending_count": len(pending_items),
-        "auto_approved_requirement_ids": auto_approved_requirement_ids,
+        "auto_approved_requirement_ids": [],
         "stale_approval_request_ids": stale_approval_request_ids,
-        "approval_source_counts": approval_source_counts,
+        "approval_source_counts": gate_type_counts,
         "pending_items": pending_items,
     }
 

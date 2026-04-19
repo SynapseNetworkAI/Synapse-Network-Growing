@@ -867,7 +867,7 @@ def drop_goal(
         if active_run_id:
             continue
         status = str(requirement.status or "")
-        if status in {"draft", "ready", "blocked", "planning", "pending_approval"} or str(requirement.approval_status or "") == "pending_approval":
+        if status in {"draft", "ready", "blocked", "planning"}:
             requirement.status = "cancelled"
             requirement.phase = "cancelled"
             requirement.workflow_state = "cancelled"

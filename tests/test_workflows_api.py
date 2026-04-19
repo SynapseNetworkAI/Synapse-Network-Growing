@@ -10,8 +10,7 @@ def _create_requirement(db_session) -> RequirementRow:
         title="Repair Ops Dashboard failure",
         description_markdown="Detect, diagnose, patch, verify, and prepare PR for Ops Dashboard failure.",
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
-        status="approved",
-        approval_status="approved",
+        status="ready",
     )
     db_session.add(requirement)
     db_session.commit()
@@ -123,7 +122,6 @@ def test_submit_requirement_creates_declarative_workflow_run(db_session):
         phase="ready",
         workflow_state="ready",
         assets_status="ready",
-        approval_status="waived",
         acceptance_contract_json='{"summary": "restore reliability"}',
         execution_plan_json='{"summary_markdown": "use declarative workflow"}',
     )
@@ -148,7 +146,6 @@ def test_submit_requirement_response_exposes_declarative_workflow_summary(db_ses
         phase="ready",
         workflow_state="ready",
         assets_status="ready",
-        approval_status="waived",
         acceptance_contract_json='{"summary": "repair ops"}',
         execution_plan_json='{"summary_markdown": "use agent_self_repair workflow"}',
     )
@@ -159,7 +156,6 @@ def test_submit_requirement_response_exposes_declarative_workflow_summary(db_ses
     detail = submit_requirement(db_session, int(requirement.id))
 
     assert detail.active_workflow_run_id is not None
-    assert detail.approval.workflow_run_id == detail.active_workflow_run_id
     assert detail.active_workflow_run_summary is not None
     assert detail.active_workflow_run_summary.workflow_key == "agent_self_repair"
     assert detail.active_workflow_run_summary.pending_human_gate_count >= 0
@@ -177,7 +173,6 @@ def test_requirement_workflow_readiness_and_manual_start_endpoint(synced_client,
         source="bug_intake",
         source_ref="error-fingerprint:gateway-timeout",
         assets_status="pending",
-        approval_status="waived",
         acceptance_contract_json='{"markdown": "## Done Criteria\\n- Gateway recovers", "done_criteria": ["Gateway recovers"]}',
         execution_plan_json="{}",
     )
@@ -280,8 +275,7 @@ def test_gateway_pr_atom_calls_vcs_delivery_and_github_pr_sync(
         title="Gateway reliability repair opens PR",
         description_markdown="Fix gateway reliability drift and open a real review PR.",
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network",
-        status="approved",
-        approval_status="approved",
+        status="ready",
     )
     db_session.add(requirement)
     db_session.commit()

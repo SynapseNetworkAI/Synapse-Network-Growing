@@ -132,7 +132,7 @@ When a bug is materialized into a requirement, the requirement should carry:
 3. `intake_metadata`
 4. `target_project_path`
 5. `acceptance_contract`
-6. `approval_contract`
+6. workflow risk context for `risk_evidence_gate`
 7. `validation_contract` focused on bug closure
 
 Expected acceptance focus for bug requirements:

@@ -27,12 +27,12 @@
    8. `portfolio_operator`
 3. 组织架构页增加 role contract 摘要
 4. requirement 新增 `acceptance_contract`
-5. requirement 新增 `approval_status / approval_contract`
-6. planner 后按 complexity tier / project count / incident 属性自动判定 auto-approve 还是 pending approval
-7. scheduler 与 start 只允许 `approved / waived` requirement 自动执行
+5. workflow 新增 `risk_evidence_gate / human_gate_requests`
+6. planner 后按 complexity tier / project count / incident 属性自动选择 workflow 和风险上下文
+7. scheduler 与 start 只允许 assets ready 且未取消的 requirement 创建 declarative workflow run
 8. 新增 `acceptance dispatcher` 骨架接口，供定时任务后续接入
-9. 新增 `approval_router`，按 `source / project_count / complexity_tier / budget / incident flags` 做 deterministic 分流
-10. 新增 `approval_recommendation` 契约，允许 agent/roles 给出 `approve / revise / route_to_human`
+9. 新增 workflow risk gate，按 `source / project_count / complexity_tier / budget / incident flags` 做 deterministic 分流
+10. 新增 `gate_recommendation` 契约，允许 agent/roles 给出 `approve / revise / route_to_human`
 
 ### P0-R2 Requirement Source Registry
 
@@ -71,11 +71,11 @@
    2. dispatcher loop
    3. closeout and compact sweep
    4. weekly operating review
-   5. approval sweep
+   5. human gate sweep
 3. 暴露统一 API：
    1. list / sync recurring workflows
    2. run workflow skeleton manually
-4. `approval sweep` 现在会重新评估 `pending_approval` requirement，自动放行低风险项，并输出 stale approval backlog 摘要
+4. `human gate sweep` 现在会重新评估 pending workflow gates，提醒 operator 处理高风险项，并输出 stale gate backlog 摘要
 
 ## P1
 
@@ -112,9 +112,9 @@
    1. retry
    2. replan
    3. incident recovery
-   4. approval reminder
+   4. human gate reminder
 4. 将 follow-through 结果固化到 recurring workflow `last_result`，供 operator 日常值班查看
-5. 跟踪 `pending_approval` requirement，并把 stale approval backlog 纳入 follow-through
+5. 跟踪 pending workflow human gates，并把 stale gate backlog 纳入 follow-through
 6. 同项目 slot 释放后，优先启动同项目下一个 `ready` requirement，而不是被异项目抢占
 
 ### P1-R3 End-Of-Day Closeout Sweep

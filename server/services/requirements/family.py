@@ -7,12 +7,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, RequirementRow, utcnow
+from server.database import RequirementRow, utcnow
 
 ACTIVE_FAMILY_REQUIREMENT_STATUSES = {
     "draft",
-    "pending_approval",
-    "approved",
     "planning",
     "plan_failed",
     "ready",
@@ -28,8 +26,6 @@ _STATUS_RANK = {
     "paused": 2,
     "ready": 3,
     "planning": 4,
-    "approved": 5,
-    "pending_approval": 6,
     "draft": 7,
     "plan_failed": 8,
     "needs_revision": 9,
@@ -211,7 +207,7 @@ def _canonical_requirement_sort_key(requirement: RequirementRow) -> tuple[int, i
     epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
     return (
         _STATUS_RANK.get(status, 99),
-        -int(getattr(requirement, "current_plan_version", 0) or 0),
+        -int(getattr(requirement, "active_workflow_run_id", 0) or 0),
         -float((updated - epoch).total_seconds()),
         -int(getattr(requirement, "id", 0) or 0),
     )
@@ -352,7 +348,7 @@ def cleanup_requirement_families(
                     }
                 )
                 duplicate.intake_metadata_json = json.dumps(duplicate_intake, ensure_ascii=False)
-                _create_artifact(
+                _family_cleanup_note(
                     db,
                     requirement_id=duplicate_id,
                     artifact_type="family_cleanup_decision",
@@ -393,7 +389,7 @@ def cleanup_requirement_families(
             }
         )
         canonical.intake_metadata_json = json.dumps(canonical_intake, ensure_ascii=False)
-        _create_artifact(
+        _family_cleanup_note(
             db,
             requirement_id=canonical_id,
             artifact_type="family_cleanup_decision",
@@ -440,7 +436,7 @@ def cleanup_requirement_families(
     }
 
 
-def _create_artifact(
+def _family_cleanup_note(
     db: Session,
     *,
     requirement_id: int,
@@ -448,17 +444,14 @@ def _create_artifact(
     content_summary: str,
     human_readable_body: str,
     machine_readable_payload: dict[str, Any],
-) -> ArtifactRow:
-    row = ArtifactRow(
-        requirement_id=requirement_id,
-        artifact_type=artifact_type,
-        content_summary=content_summary,
-        human_readable_body=human_readable_body,
-        machine_readable_payload=json.dumps(machine_readable_payload, ensure_ascii=False, default=str),
-    )
-    db.add(row)
-    db.flush()
-    return row
+) -> dict[str, Any]:
+    return {
+        "requirement_id": requirement_id,
+        "artifact_type": artifact_type,
+        "content_summary": content_summary,
+        "human_readable_body": human_readable_body,
+        "machine_readable_payload": machine_readable_payload,
+    }
 
 
 def _archive_duplicate_requirement(db: Session, requirement: RequirementRow, visited: set[int]) -> None:

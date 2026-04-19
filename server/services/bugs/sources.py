@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, OptimizationSignalRow
+from server.database import BugRecordRow, OptimizationSignalRow, ReleaseRecordRow
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -135,18 +135,14 @@ def get_bug_source_definition(source_key: str) -> dict[str, Any]:
 
 
 def _count_manual_bug_reports(db: Session) -> int:
-    return db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "bug_report").count()
+    return db.query(BugRecordRow).filter(BugRecordRow.source_key == "manual_bug_report", BugRecordRow.status == "open").count()
 
 
 def _count_external_log_center_errors(db: Session) -> int:
-    from server.database import BugRecordRow
-
     return db.query(BugRecordRow).filter(BugRecordRow.source_key == "external_log_center_error", BugRecordRow.status == "open").count()
 
 
 def _count_runtime_log_errors(db: Session) -> int:
-    from server.database import BugRecordRow
-
     return db.query(BugRecordRow).filter(BugRecordRow.source_key == "runtime_log_error", BugRecordRow.status == "open").count()
 
 
@@ -158,13 +154,7 @@ def _count_workflow_incidents(db: Session) -> int:
 
 
 def _count_delivery_blockers(db: Session) -> int:
-    total = 0
-    for row in db.query(ArtifactRow).filter(ArtifactRow.artifact_type == "delivery_state").all():
-        payload = _json_loads(getattr(row, "machine_readable_payload", None), {})
-        blockers = payload.get("publish_blockers") or []
-        if isinstance(blockers, list) and blockers:
-            total += 1
-    return total
+    return db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(("blocked", "failed"))).count()
 
 
 def list_bug_source_registry(db: Session) -> dict[str, Any]:

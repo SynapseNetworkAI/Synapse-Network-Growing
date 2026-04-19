@@ -17,8 +17,6 @@ from sqlalchemy.orm import Session
 
 from server.config import PROJECT_ROOT
 from server.database import (
-    ApprovalRequestRow,
-    ArtifactRow,
     HumanGateRequestRow,
     ProjectRow,
     ReleaseRecordRow,
@@ -30,10 +28,8 @@ from server.database import (
 )
 from server.logging_utils import get_logger, log_event
 from server.schemas import (
-    AgentFirstRequirementApprovalOut,
     AgentFirstRequirementDetailOut,
     AgentFirstRequirementOut,
-    ApprovalDecisionOut,
     DeclarativeWorkflowRunSummaryOut,
     ProjectOut,
     RequirementAttachmentOut,
@@ -49,11 +45,6 @@ from server.services.projects.project_center import (
     resolve_project,
 )
 from server.services.requirements.acceptance import normalize_acceptance_contract
-from server.services.requirements.approval import (
-    evaluate_requirement_execution_approval,
-    normalize_requirement_approval_contract,
-    normalize_requirement_approval_status,
-)
 from server.services.requirements.attachments import (
     persist_requirement_attachments,
     requirement_attachment_context_files,
@@ -258,7 +249,7 @@ def _requirement_status_from_phase(phase: str) -> str:
         return "draft"
     if token in {"ready", "branch_prepared", "branch_preparing"}:
         return "ready"
-    if token in {"awaiting_execution_approval", "blocked", "recovering"}:
+    if token in {"blocked", "recovering"}:
         return "blocked"
     if token == "needs_revision":
         return "needs_revision"
@@ -271,83 +262,6 @@ def _requirement_status_from_phase(phase: str) -> str:
     if token == "cancelled":
         return "cancelled"
     return "draft"
-
-
-def _approval_required(db: Session, requirement: RequirementRow) -> bool:
-    decision = evaluate_requirement_execution_approval(requirement)
-    return normalize_requirement_approval_status(decision.get("approval_status")) == "pending_approval"
-
-
-def _approval_float(value: Any) -> float | None:
-    try:
-        if value is None or str(value).strip() == "":
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _approval_final_reason(decision: dict[str, Any], approval_status: str) -> str | None:
-    router = dict(decision.get("approval_router") or {})
-    if approval_status == "waived":
-        return str(router.get("reason") or "").strip() or "approval waived by contract"
-    if approval_status == "approved":
-        return "approved by policy or operator"
-    if approval_status == "rejected":
-        return "manual approval rejected"
-    return str(router.get("reason") or "").strip() or "manual approval required"
-
-
-def _approval_summary(
-    db: Session,
-    requirement: RequirementRow,
-    *,
-    auto_started: bool = False,
-    pending_execution_start: bool = False,
-) -> AgentFirstRequirementApprovalOut:
-    decision = evaluate_requirement_execution_approval(requirement)
-    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
-    recommendation = dict(decision.get("approval_recommendation") or {})
-    router = dict(decision.get("approval_router") or {})
-    risk_flags = [str(item) for item in [*(router.get("hard_rule_hits") or []), *(router.get("soft_rule_hits") or [])] if str(item).strip()]
-    approval_decision = approval_status if approval_status in {"approved", "waived", "rejected"} else "pending_manual_approval"
-    return AgentFirstRequirementApprovalOut(
-        approval_decision=approval_decision,
-        approval_status=approval_status,
-        approval_reason=_approval_final_reason(decision, approval_status),
-        approval_source=str(decision.get("approval_source") or "").strip() or None,
-        final_decision_source="manual_decision" if approval_status in {"approved", "rejected"} else str(decision.get("approval_source") or "").strip() or None,
-        approval_recommendation=str(recommendation.get("action") or "").strip() or None,
-        approval_recommendation_reason=str(recommendation.get("reason") or "").strip() or None,
-        recommendation_source="deterministic_policy" if recommendation else None,
-        approval_confidence=_approval_float(recommendation.get("confidence")),
-        required_approver_roles=[str(item) for item in decision.get("required_approver_roles") or [] if str(item).strip()],
-        risk_flags=risk_flags,
-        pending_execution_start=pending_execution_start,
-        auto_started=auto_started,
-        workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
-    )
-
-
-def _approval_decision_state(requirement: RequirementRow, approval: AgentFirstRequirementApprovalOut | None = None) -> ApprovalDecisionOut:
-    approval_state = str(getattr(requirement, "approval_status", "") or "pending_approval").strip() or "pending_approval"
-    state = {
-        "waived": "not_required",
-        "approved": "approved",
-        "rejected": "rejected",
-        "pending_approval": "pending",
-    }.get(approval_state, "pending")
-    return ApprovalDecisionOut(
-        state=state,
-        reason=approval.approval_reason if approval else None,
-        source=approval.final_decision_source if approval else None,
-        agent_recommendation=approval.approval_recommendation if approval else None,
-        confidence=approval.approval_confidence if approval else None,
-        recommendation_reason=approval.approval_recommendation_reason if approval else None,
-        recommendation_source=approval.recommendation_source if approval else None,
-        risk_flags=list(approval.risk_flags or []) if approval else [],
-        required_approver_roles=list(approval.required_approver_roles or []) if approval else [],
-    )
 
 
 def _latest_release(db: Session, requirement_id: int) -> ReleaseRecordRow | None:
@@ -438,21 +352,18 @@ def _requirement_allowed_actions(
     latest_release: ReleaseRecordRow | None,
 ) -> list[str]:
     state = _workflow_state_for_requirement(requirement)
-    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
     assets_status = _assets_status(requirement)
     has_active_workflow = int(getattr(requirement, "active_workflow_run_id", 0) or 0) > 0
     actions = ["view"]
     if has_active_workflow:
         actions.append("view_workflow")
-    if not has_active_workflow and state in {"draft", "planning", "awaiting_approval", "ready", "awaiting_operator"}:
+    if not has_active_workflow and state in {"draft", "planning", "ready", "awaiting_operator"}:
         actions.append("edit")
     if not has_active_workflow and assets_status == "ready" and state in {"draft", "ready", "planning"}:
         actions.append("submit")
     if not has_active_workflow and assets_status in {"pending", "failed"}:
         actions.append("regenerate_assets")
-    if state == "awaiting_approval" and approval_status == "pending_approval":
-        actions.extend(["approve", "reject"])
-    if not has_active_workflow and state in {"draft", "planning", "awaiting_approval", "ready", "needs_revision"}:
+    if not has_active_workflow and state in {"draft", "planning", "ready", "needs_revision"}:
         actions.append("delete")
     if latest_release is not None:
         actions.append("view_release")
@@ -466,7 +377,7 @@ def _requirement_allowed_actions(
 def _pending_operations(requirement: RequirementRow) -> list[str]:
     if getattr(requirement, "active_workflow_run_id", None):
         return []
-    if _assets_status(requirement) == "ready" and normalize_requirement_approval_status(requirement.approval_status) in {"approved", "waived"}:
+    if _assets_status(requirement) == "ready":
         return ["start_workflow"]
     return []
 
@@ -475,7 +386,6 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
     latest_release = _latest_release(db, int(requirement.id))
     project = _project_for_requirement(db, requirement)
     project_context = _project_context_out(requirement, project)
-    approval_summary = _approval_summary(db, requirement)
     state = _workflow_state_for_requirement(requirement)
     return AgentFirstRequirementOut(
         id=int(requirement.id),
@@ -487,7 +397,6 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         failure_reason=str(getattr(requirement, "failure_reason", "") or "").strip() or None,
         requirement_plan_summary=str(_parse_execution_plan(requirement).get("summary_markdown") or "").strip() or None,
         project=project_context,
-        approval=_approval_decision_state(requirement, approval_summary),
         current_attempt_id=None,
         current_delivery_id=int(latest_release.id) if latest_release is not None else None,
         status=str(requirement.status or "draft"),
@@ -506,8 +415,6 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         target_project_path=project_context.target_project_path,
         target_project_path_override=project_context.target_project_path_override,
         target_projects=_target_projects_for_requirement(db, requirement),
-        approval_required=_approval_required(db, requirement),
-        approval_status=normalize_requirement_approval_status(requirement.approval_status),
         phase=str(getattr(requirement, "phase", "") or "draft"),
         allowed_actions=_requirement_allowed_actions(requirement, latest_release),
         pending_operations=_pending_operations(requirement),
@@ -540,15 +447,10 @@ def _workflow_readiness_out(db: Session, requirement: RequirementRow) -> Workflo
     assets_status = _assets_status(requirement)
     summary = _active_workflow_run_summary(db, requirement)
     active_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None
-    approval_status = normalize_requirement_approval_status(getattr(requirement, "approval_status", None))
     recommended_workflow_key = _select_declarative_workflow_key(requirement)
     if active_run_id or summary is not None:
         blocking_reason = None
         next_action = "view_workflow"
-        can_start = False
-    elif approval_status not in {"approved", "waived"}:
-        blocking_reason = "approval_pending"
-        next_action = "wait_for_approval"
         can_start = False
     elif assets_status == "failed":
         blocking_reason = "asset_generation_failed"
@@ -580,7 +482,6 @@ def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequ
         raise ValueError("Requirement not found.")
     latest_release = _latest_release(db, requirement_id)
     project = _project_for_requirement(db, requirement)
-    approval = _approval_summary(db, requirement)
     state = _workflow_state_for_requirement(requirement)
     return AgentFirstRequirementDetailOut(
         requirement=_requirement_to_out(db, requirement),
@@ -593,8 +494,6 @@ def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequ
         active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
         latest_release_id=int(latest_release.id) if latest_release is not None else None,
         latest_release=release_to_out(latest_release),
-        approval=approval,
-        approval_decision=_approval_decision_state(requirement, approval),
         phase=str(getattr(requirement, "phase", "") or "draft"),
         allowed_actions=_requirement_allowed_actions(requirement, latest_release),
         pending_operations=_pending_operations(requirement),
@@ -662,35 +561,6 @@ def _notify_requirement_created(db: Session, requirement: RequirementRow) -> Non
     )
 
 
-def _notify_requirement_approval(db: Session, requirement: RequirementRow, approval: AgentFirstRequirementApprovalOut) -> None:
-    if approval.approval_status in {"approved", "waived"}:
-        event_type = "approval_auto_approved" if approval.approval_status == "waived" or approval.auto_started else "approval_approved"
-        severity = "normal"
-        next_action = "Inspect workflow run."
-    else:
-        event_type = "approval_manual_required"
-        severity = "high" if str(requirement.priority or "") == "high" else "normal"
-        next_action = "Review and approve or reject the requirement."
-    deliver_policy_notification(
-        db,
-        event_type=event_type,
-        object_type="requirement",
-        object_key=str(int(requirement.id)),
-        service_name=_service_name_for_requirement(db, requirement),
-        severity=severity,
-        risk_level="high" if approval.required_approver_roles else "normal",
-        summary=f"{approval.approval_status}: {requirement.title}",
-        next_action=next_action,
-        actor_or_source="approval_policy",
-        event_key=f"{event_type}:{int(requirement.id)}:{approval.approval_status}",
-        object_refs={"requirement_id": int(requirement.id), "workflow_run_id": approval.workflow_run_id},
-        links={
-            "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
-            "工作流": build_ops_url(f"/workflows/{approval.workflow_run_id}") or "" if approval.workflow_run_id else "",
-        },
-    )
-
-
 def create_requirement(db: Session, body: Any) -> AgentFirstRequirementDetailOut:
     ensure_projects_materialized(db)
     project = _resolve_project_for_body(db, body)
@@ -705,7 +575,6 @@ def create_requirement(db: Session, body: Any) -> AgentFirstRequirementDetailOut
     provided_markdown = str(getattr(body, "acceptance_criteria_markdown", "") or "").strip()
     if provided_markdown:
         acceptance["markdown"] = provided_markdown
-    approval_contract = normalize_requirement_approval_contract(dict(getattr(body, "approval_contract", None) or {}))
     requirement = RequirementRow(
         title=str(body.title).strip(),
         description_markdown=str(body.description_markdown).strip(),
@@ -726,8 +595,6 @@ def create_requirement(db: Session, body: Any) -> AgentFirstRequirementDetailOut
         target_project_path_override=str(getattr(body, "target_project_path_override", "") or "").strip() or None,
         acceptance_contract_json=_json_dump(acceptance),
         execution_plan_json=_json_dump({}),
-        approval_status="pending_approval",
-        approval_contract_json=_json_dump(approval_contract),
         assets_status="pending",
     )
     db.add(requirement)
@@ -744,7 +611,6 @@ def create_requirement(db: Session, body: Any) -> AgentFirstRequirementDetailOut
         requirement.intake_metadata_json = _json_dump(metadata)
         db.commit()
         db.refresh(requirement)
-    requirement.approval_status = "pending_approval" if _approval_required(db, requirement) else "waived"
     requirement.phase = "planning"
     requirement.workflow_state = "planning"
     requirement.status = "draft"
@@ -756,7 +622,7 @@ def create_requirement(db: Session, body: Any) -> AgentFirstRequirementDetailOut
             _ensure_declarative_workflow_assets(db, requirement)
             db.commit()
             db.refresh(requirement)
-            auto_submit_detail = _auto_submit_approved_requirement(db, int(requirement.id), trigger="requirement_assets_generated_sync")
+            auto_submit_detail = _auto_submit_ready_requirement(db, int(requirement.id), trigger="requirement_assets_generated_sync")
         except Exception as exc:  # pragma: no cover - surfaced in tests through status
             db.rollback()
             requirement.assets_status = "failed"
@@ -790,8 +656,6 @@ def update_requirement(db: Session, requirement_id: int, body: Any) -> AgentFirs
         if not str(contract.get("markdown") or "").strip():
             contract["markdown"] = _acceptance_contract_markdown(contract)
         requirement.acceptance_contract_json = _json_dump(contract)
-    if getattr(body, "approval_contract", None) is not None:
-        requirement.approval_contract_json = _json_dump(normalize_requirement_approval_contract(dict(body.approval_contract or {})))
     if getattr(body, "priority", None) is not None:
         requirement.priority = str(body.priority)
     if getattr(body, "source_ref", None) is not None:
@@ -819,7 +683,6 @@ def update_requirement(db: Session, requirement_id: int, body: Any) -> AgentFirs
         current = _parse_execution_plan(requirement)
         current.update({key: value for key, value in dict(body.execution_plan or {}).items() if value is not None})
         requirement.execution_plan_json = _json_dump(current)
-        requirement.current_plan_version = int(getattr(requirement, "current_plan_version", 0) or 0) + 1
     requirement.updated_at = utcnow()
     db.commit()
     return build_requirement_detail(db, requirement_id)
@@ -898,7 +761,7 @@ def _background_requirement_asset_generation(requirement_id: int) -> None:
             return
         _ensure_declarative_workflow_assets(db, requirement)
         db.commit()
-        _auto_submit_approved_requirement(db, requirement_id, trigger="requirement_assets_generated")
+        _auto_submit_ready_requirement(db, requirement_id, trigger="requirement_assets_generated")
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
@@ -954,7 +817,6 @@ def regenerate_requirement_plan(db: Session, requirement_id: int) -> AgentFirstR
     if requirement is None:
         raise ValueError("Requirement not found.")
     _ensure_declarative_workflow_assets(db, requirement)
-    requirement.current_plan_version = int(getattr(requirement, "current_plan_version", 0) or 0) + 1
     db.commit()
     return build_requirement_detail(db, requirement_id)
 
@@ -977,6 +839,7 @@ def _create_requirement_declarative_workflow(
     from server.services.workflows.declarative import create_declarative_workflow_run
 
     selected = str(workflow_key or "").strip() or _select_declarative_workflow_key(requirement)
+    workflow_risk = _workflow_risk_context_for_requirement(requirement)
     return create_declarative_workflow_run(
         db,
         requirement=requirement,
@@ -994,7 +857,8 @@ def _create_requirement_declarative_workflow(
                 "ops_failure_detected": True,
                 "gateway_drift_detected": selected == "gateway_reliability_repair",
             },
-            "risk_level": "normal",
+            "risk_level": workflow_risk["risk_level"],
+            "risk_flags": workflow_risk["risk_flags"],
             "requirement": {
                 "id": int(requirement.id),
                 "title": str(requirement.title or ""),
@@ -1007,6 +871,23 @@ def _create_requirement_declarative_workflow(
         },
         run_immediately=run_immediately,
     )
+
+
+def _workflow_risk_context_for_requirement(requirement: RequirementRow) -> dict[str, Any]:
+    """Derive declarative workflow risk context from requirement intake metadata."""
+
+    metadata = _json_load(getattr(requirement, "intake_metadata_json", None), {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    severity = str(metadata.get("severity") or getattr(requirement, "priority", "") or "normal").strip().lower()
+    source_kind = str(metadata.get("source_kind") or getattr(requirement, "source", "") or "").strip().lower()
+    explicit_flags = metadata.get("risk_flags") if isinstance(metadata.get("risk_flags"), list) else []
+    flags = {str(item).strip().lower() for item in explicit_flags if str(item).strip()}
+    if severity in {"high", "critical"}:
+        flags.add("production")
+    if source_kind == "workflow_incident":
+        flags.add("production")
+    risk_level = "critical" if severity == "critical" else "high" if flags or severity == "high" else "normal"
+    return {"risk_level": risk_level, "risk_flags": sorted(flags)}
 
 
 def start_requirement_workflow(
@@ -1025,8 +906,6 @@ def start_requirement_workflow(
     existing_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
     if existing_run_id > 0:
         return workflow_run_detail(db, existing_run_id)
-    if normalize_requirement_approval_status(requirement.approval_status) not in {"approved", "waived"}:
-        raise ValueError("Requirement must be approved before creating a workflow run.")
     if _assets_status(requirement) != "ready":
         _ensure_declarative_workflow_assets(db, requirement)
         db.flush()
@@ -1041,7 +920,7 @@ def start_requirement_workflow(
     return workflow_run_detail(db, int(run.id))
 
 
-def _auto_submit_approved_requirement(db: Session, requirement_id: int, *, trigger: str) -> AgentFirstRequirementDetailOut | None:
+def _auto_submit_ready_requirement(db: Session, requirement_id: int, *, trigger: str) -> AgentFirstRequirementDetailOut | None:
     if not _auto_submit_enabled():
         return None
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
@@ -1050,10 +929,6 @@ def _auto_submit_approved_requirement(db: Session, requirement_id: int, *, trigg
     if str(getattr(requirement, "status", "") or "") in {"deleted", "cancelled"}:
         return None
     if _assets_status(requirement) != "ready":
-        return None
-    approval_status = normalize_requirement_approval_status(evaluate_requirement_execution_approval(requirement).get("approval_status"))
-    if approval_status not in {"approved", "waived"}:
-        log_event(logger, "requirement_auto_submit_skipped", requirement_id=requirement_id, trigger=trigger, approval_status=approval_status)
         return None
     return submit_requirement(db, requirement_id)
 
@@ -1072,76 +947,16 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         if _assets_status(requirement) == "failed":
             raise ValueError(_assets_error_message(requirement) or "计划生成失败，请先重新生成。")
         raise ValueError("验收标准与执行计划仍在生成中，请稍后再提交。")
-    decision = evaluate_requirement_execution_approval(requirement)
-    approval_status = normalize_requirement_approval_status(decision.get("approval_status"))
     requirement.updated_at = utcnow()
-    if approval_status in {"approved", "waived"}:
-        requirement.approval_status = approval_status
-        requirement.approved_at = requirement.approved_at or utcnow()
-        requirement.approval_requested_at = None
-        requirement.phase = "ready"
-        requirement.status = "ready"
-        requirement.workflow_state = "ready"
-        _resolve_requirement_approval_requests(db, requirement_id=int(requirement.id), status="approved", reviewer="system", comment="Approved for declarative workflow")
-        workflow_run = _create_requirement_declarative_workflow(db, requirement, triggered_by="requirement_submit")
-        db.commit()
-        detail = build_requirement_detail(db, requirement_id)
-        _notify_requirement_approval(db, requirement, detail.approval)
-        log_event(logger, "requirement_declarative_workflow_created", requirement_id=int(requirement.id), workflow_run_id=int(workflow_run.id), workflow_key=workflow_run.workflow_key)
-        db.commit()
-        return detail
-
-    requirement.approval_status = "pending_approval"
-    requirement.approved_at = None
-    requirement.phase = "awaiting_execution_approval"
-    requirement.status = _requirement_status_from_phase(requirement.phase)
-    requirement.workflow_state = "awaiting_approval"
-    _ensure_requirement_approval_request(db, requirement=requirement, reviewer=str(decision.get("reviewer") or "operator"), comment=_approval_final_reason(decision, approval_status) or "manual approval required")
-    db.commit()
-    detail = build_requirement_detail(db, requirement_id)
-    _notify_requirement_approval(db, requirement, detail.approval)
-    db.commit()
-    return detail
-
-
-def approve_requirement(db: Session, requirement_id: int, *, reviewer: str = "operator", comment: str | None = None) -> AgentFirstRequirementDetailOut:
-    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
-    if requirement is None:
-        raise ValueError("Requirement not found.")
-    if normalize_requirement_approval_status(requirement.approval_status) == "approved":
-        return build_requirement_detail(db, requirement_id)
-    requirement.approval_status = "approved"
-    requirement.approved_at = utcnow()
-    requirement.approval_requested_at = None
     requirement.phase = "ready"
     requirement.status = "ready"
     requirement.workflow_state = "ready"
-    _ensure_declarative_workflow_assets(db, requirement)
-    _resolve_requirement_approval_requests(db, requirement_id=int(requirement.id), status="approved", reviewer=reviewer, comment=str(comment or "Approved"))
-    workflow_run = _create_requirement_declarative_workflow(db, requirement, triggered_by="requirement_approve")
+    workflow_run = _create_requirement_declarative_workflow(db, requirement, triggered_by="requirement_submit")
     db.commit()
     detail = build_requirement_detail(db, requirement_id)
-    _notify_requirement_approval(db, requirement, detail.approval)
-    log_event(logger, "requirement_approved", requirement_id=int(requirement.id), workflow_run_id=int(workflow_run.id), reviewer=reviewer)
+    log_event(logger, "requirement_declarative_workflow_created", requirement_id=int(requirement.id), workflow_run_id=int(workflow_run.id), workflow_key=workflow_run.workflow_key)
     db.commit()
     return detail
-
-
-def reject_requirement(db: Session, requirement_id: int, *, reviewer: str = "operator", comment: str | None = None) -> AgentFirstRequirementDetailOut:
-    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
-    if requirement is None:
-        raise ValueError("Requirement not found.")
-    requirement.approval_status = "rejected"
-    requirement.approved_at = None
-    requirement.approval_requested_at = None
-    requirement.phase = "needs_revision"
-    requirement.status = "needs_revision"
-    requirement.workflow_state = "awaiting_operator"
-    requirement.attention_reason = "approval_rejected"
-    requirement.updated_at = utcnow()
-    _resolve_requirement_approval_requests(db, requirement_id=int(requirement.id), status="rejected", reviewer=reviewer, comment=str(comment or "Rejected"))
-    db.commit()
-    return build_requirement_detail(db, requirement_id)
 
 
 def revise_requirement(db: Session, requirement_id: int, body: Any) -> AgentFirstRequirementDetailOut:
@@ -1176,7 +991,7 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
         raise ValueError("Requirement not found.")
     if getattr(requirement, "active_workflow_run_id", None):
         raise ValueError("Requirements with workflow history cannot be deleted.")
-    if str(getattr(requirement, "phase", "") or requirement.status or "draft") not in {"draft", "planning", "ready", "awaiting_approval", "awaiting_execution_approval", "needs_revision", "blocked"}:
+    if str(getattr(requirement, "phase", "") or requirement.status or "draft") not in {"draft", "planning", "ready", "needs_revision", "blocked"}:
         raise ValueError("Only pre-workflow requirements can be deleted.")
     requirement.phase = "deleted"
     requirement.status = "deleted"
@@ -1184,52 +999,6 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement.updated_at = utcnow()
     db.commit()
     return build_requirement_detail(db, requirement_id)
-
-
-def _latest_pending_requirement_approval(db: Session, requirement_id: int) -> ApprovalRequestRow | None:
-    return (
-        db.query(ApprovalRequestRow)
-        .filter(
-            ApprovalRequestRow.requirement_id == requirement_id,
-            ApprovalRequestRow.approval_type == "requirement_execution_approval",
-            ApprovalRequestRow.status == "pending",
-        )
-        .order_by(ApprovalRequestRow.id.desc())
-        .first()
-    )
-
-
-def _ensure_requirement_approval_request(db: Session, *, requirement: RequirementRow, reviewer: str, comment: str) -> None:
-    pending = _latest_pending_requirement_approval(db, int(requirement.id))
-    requirement.approval_requested_at = requirement.approval_requested_at or utcnow()
-    if pending is None:
-        db.add(
-            ApprovalRequestRow(
-                requirement_id=int(requirement.id),
-                workflow_run_id=None,
-                step_id=None,
-                approval_type="requirement_execution_approval",
-                status="pending",
-                reviewer=reviewer,
-                comment=comment,
-            )
-        )
-    else:
-        pending.reviewer = reviewer
-        pending.comment = comment
-
-
-def _resolve_requirement_approval_requests(db: Session, *, requirement_id: int, status: str, reviewer: str, comment: str) -> None:
-    rows = db.query(ApprovalRequestRow).filter(
-        ApprovalRequestRow.requirement_id == requirement_id,
-        ApprovalRequestRow.approval_type == "requirement_execution_approval",
-        ApprovalRequestRow.status == "pending",
-    ).all()
-    for row in rows:
-        row.status = status
-        row.reviewer = reviewer
-        row.comment = comment
-        row.decided_at = utcnow()
 
 
 def _raw_planning_prompt(db: Session, requirement: RequirementRow) -> str:
@@ -1315,26 +1084,3 @@ def _generate_plan_brief_markdown_with_agent(
             metadata=metadata,
         )
     return plan_markdown, metadata
-
-
-def create_artifact(
-    db: Session,
-    *,
-    requirement_id: int,
-    artifact_type: str,
-    content_summary: str = "",
-    human_readable_body: str = "",
-    machine_readable_payload: dict[str, Any] | None = None,
-    workflow_run_id: int | None = None,
-) -> ArtifactRow:
-    artifact = ArtifactRow(
-        requirement_id=requirement_id,
-        workflow_run_id=workflow_run_id,
-        artifact_type=artifact_type,
-        content_summary=content_summary,
-        human_readable_body=human_readable_body,
-        machine_readable_payload=_json_dump(machine_readable_payload or {}),
-    )
-    db.add(artifact)
-    db.flush()
-    return artifact

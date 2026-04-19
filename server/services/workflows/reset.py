@@ -7,8 +7,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import (
-    ApprovalRequestRow,
-    ArtifactRow,
     AtomInvocationRow,
     BlackboardSnapshotRow,
     DeploymentRecordRow,
@@ -84,11 +82,9 @@ def reset_company_ops_state_data(db: Session) -> dict[str, int]:
     )
     db.flush()
     for key, model in (
-        ("approval_requests_deleted", ApprovalRequestRow),
         ("requirement_dependencies_deleted", RequirementDependencyRow),
         ("acceptance_checks_deleted", RequirementAcceptanceCheckRow),
         ("requirement_attachments_deleted", RequirementAttachmentRow),
-        ("artifacts_deleted", ArtifactRow),
         ("requirements_deleted", RequirementRow),
     ):
         summary[key] = _delete_all(db, model)

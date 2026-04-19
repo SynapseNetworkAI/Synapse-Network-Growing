@@ -300,38 +300,6 @@ def _error_acceptance_markdown(service_name: str) -> str:
     )
 
 
-def _error_approval_contract(body: ErrorIntakeRequest, *, project_count: int) -> dict[str, object]:
-    if _severity(_severity(body.severity)) == "high" and body.source_kind == "workflow_incident":
-        manual = True
-    else:
-        manual = _severity(body.severity) == "critical" or project_count > 1
-    if manual:
-        return {
-            "approval_mode": "manual_required",
-            "required_approver_roles": ["request_owner", "reviewer", "tester", "operator"],
-            "fallback_reviewer": "operator",
-            "auto_approve": {
-                "enabled": False,
-                "max_priority": "normal",
-                "max_complexity_tier": "standard",
-                "single_project_only": True,
-                "allow_incident_recovery": False,
-            },
-        }
-    return {
-        "approval_mode": "auto_or_human",
-        "required_approver_roles": ["request_owner", "reviewer", "tester"],
-        "fallback_reviewer": "operator",
-        "auto_approve": {
-            "enabled": True,
-            "max_priority": "normal",
-            "max_complexity_tier": "standard",
-            "single_project_only": True,
-            "allow_incident_recovery": False,
-        },
-    }
-
-
 def _notify_error_logged(
     db: Session,
     *,
@@ -354,7 +322,7 @@ def _notify_error_logged(
         risk_level="high" if severity in {"high", "critical"} else "normal",
         status=severity,
         summary=body.summary.strip() or body.message.strip()[:120],
-        next_action="查看错误日志页与关联 requirement，确认是否需要人工审批或等待自动执行完成。",
+        next_action="查看错误日志页与关联 requirement，确认 workflow 是否已进入 human gate 或完成自动处理。",
         actor_or_source=body.source_kind,
         occurred_at=_ensure_utc(body.occurred_at),
         event_key=f"error_logged:event:{event_id}:{severity}",
@@ -617,10 +585,6 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
                     },
                 ),
                 target_project_path=target_project_path,
-                approval_contract=_error_approval_contract(
-                    body,
-                    project_count=len([item for item in str(target_project_path or "").splitlines() if item.strip()]) or 1,
-                ),
             )
             requirement = create_requirement(db, body_payload).requirement
             requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement.id).first()
@@ -669,14 +633,13 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
     )
     if should_submit_requirement:
         detail = submit_requirement(db, int(requirement.id))
-        workflow_run_id = detail.active_workflow_run_id or detail.approval.workflow_run_id
+        workflow_run_id = detail.active_workflow_run_id
         log_event(
             logger,
             "error_requirement_submitted",
             fingerprint_key=fingerprint_key,
             requirement_id=int(requirement.id),
             workflow_run_id=workflow_run_id,
-            approval_status=str(detail.requirement.approval_status or ""),
             requirement_status=str(detail.requirement.status or ""),
         )
     elif requirement is not None:

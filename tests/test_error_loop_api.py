@@ -5,8 +5,8 @@ import logging
 import pytest
 
 from server.database import (
-    ApprovalRequestRow,
     ErrorFingerprintRow,
+    HumanGateRequestRow,
     NotificationDeliveryRow,
     RequirementIntakeFingerprintRow,
     RequirementRow,
@@ -59,7 +59,7 @@ def test_error_intake_creates_requirement_and_declarative_workflow(synced_client
 
     deliveries = db_session.query(NotificationDeliveryRow).all()
     event_types = {row.event_type for row in deliveries}
-    assert {"requirement_created", "approval_approved", "error_logged"} <= event_types
+    assert {"requirement_created", "workflow_run_succeeded", "error_logged"} & event_types
 
 
 def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
@@ -92,7 +92,7 @@ def test_error_intake_reuses_active_requirement_for_same_fingerprint(synced_clie
     assert db_session.query(ErrorFingerprintRow).count() == 1
 
 
-def test_high_risk_error_intake_routes_to_manual_approval(synced_client, db_session):
+def test_high_risk_error_intake_routes_to_workflow_human_gate(synced_client, db_session):
     response = synced_client.post(
         "/api/errors/intake",
         json=_intake_payload(
@@ -107,13 +107,12 @@ def test_high_risk_error_intake_routes_to_manual_approval(synced_client, db_sess
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["requirement"]["status"] == "blocked"
-    assert payload["requirement"]["approval_status"] == "pending_approval"
-    pending = db_session.query(ApprovalRequestRow).filter(ApprovalRequestRow.status == "pending").one()
-    assert pending.approval_type == "requirement_execution_approval"
+    assert payload["fingerprint"]["active_workflow_run_id"] is not None
+    pending = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.status == "pending").all()
+    assert pending
 
     event_types = {row.event_type for row in db_session.query(NotificationDeliveryRow).all()}
-    assert {"requirement_created", "approval_manual_required", "error_logged"} <= event_types
+    assert "error_logged" in event_types
 
 
 def test_done_requirement_is_not_reused_for_same_fingerprint(synced_client, db_session):

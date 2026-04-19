@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import ArtifactRow, RequirementRow
+from server.database import RequirementRow
 from server.services.signals.optimization_signals import (
     build_optimization_signal_score_breakdown,
     get_optimization_signal_requirement_context,
@@ -59,38 +59,11 @@ def _policy_for_project(
 
 
 def _latest_template_key(db: Session, requirement_id: int) -> str | None:
-    artifact = db.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == requirement_id,
-        ArtifactRow.artifact_type == "requirement_template",
-    ).order_by(ArtifactRow.id.desc()).first()
-    if artifact is None or not artifact.machine_readable_payload:
-        return None
-    import json
-
-    try:
-        payload = json.loads(artifact.machine_readable_payload)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    template_key = str(payload.get("template_key") or "").strip()
-    return template_key or None
+    return None
 
 
 def _latest_budget_usage_summary(db: Session, requirement_id: int) -> dict[str, Any]:
-    artifact = db.query(ArtifactRow).filter(
-        ArtifactRow.requirement_id == requirement_id,
-        ArtifactRow.artifact_type == "budget_usage_summary",
-    ).order_by(ArtifactRow.id.desc()).first()
-    if artifact is None or not artifact.machine_readable_payload:
-        return {}
-    import json
-
-    try:
-        payload = json.loads(artifact.machine_readable_payload)
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return {}
 
 
 def _project_policy_maps(db: Session) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -225,7 +198,7 @@ def _running_requirement_decision(
         "template_key": template_key,
         "source": str(requirement.source),
         "preempt_requirement_id": None,
-        "approval_required": False,
+        "human_gate_required": False,
         "allow_rebalance": bool(context["allow_rebalance"]),
         "allow_preemption": bool(context["allow_preemption"]),
     }
@@ -254,9 +227,8 @@ def build_portfolio_schedule(
     running_requirements = db.query(RequirementRow).filter(RequirementRow.status == "in_progress").all()
     ready_requirements = db.query(RequirementRow).filter(
         RequirementRow.status == "ready",
-        RequirementRow.current_plan_version > 0,
         RequirementRow.blocked_by_count == 0,
-        RequirementRow.approval_status.in_(("approved", "waived")),
+        RequirementRow.assets_status == "ready",
     ).all()
 
     project_active_counts: dict[str, int] = {}
@@ -321,7 +293,7 @@ def build_portfolio_schedule(
                 "template_key": template_key,
                 "source": str(requirement.source),
                 "preempt_requirement_id": None,
-                "approval_required": False,
+                "human_gate_required": False,
                 "allow_rebalance": bool(context["allow_rebalance"]),
                 "allow_preemption": bool(context["allow_preemption"]),
             })
@@ -346,7 +318,7 @@ def build_portfolio_schedule(
             "template_key": template_key,
             "source": str(requirement.source),
             "preempt_requirement_id": None,
-            "approval_required": False,
+            "human_gate_required": False,
             "allow_rebalance": bool(context["allow_rebalance"]),
             "allow_preemption": bool(context["allow_preemption"]),
         })
@@ -394,7 +366,7 @@ def build_portfolio_schedule(
             "source": "optimization_signal",
             "preempt_requirement_id": None,
             "auto_intake_eligible": bool(breakdown.get("auto_intake_eligible")),
-            "approval_required": False,
+            "human_gate_required": False,
             "allow_rebalance": bool(policy.get("allow_rebalance", True)),
             "allow_preemption": bool(policy.get("allow_preemption", False)),
         })
@@ -450,8 +422,8 @@ def build_portfolio_schedule(
             if candidate["candidate_type"] == "signal":
                 autonomy_mode = str(candidate.get("autonomy_mode") or "recommend")
                 if autonomy_mode != "execute_autonomously":
-                    candidate["action"] = "delay" if autonomy_mode in {"observe", "recommend"} else "approval_required"
-                    candidate["approval_required"] = autonomy_mode == "execute_with_approval"
+                    candidate["action"] = "delay" if autonomy_mode in {"observe", "recommend"} else "human_gate_required"
+                    candidate["human_gate_required"] = autonomy_mode == "execute_with_approval"
                     candidate["reason"] = (
                         "signal intake requires operator approval"
                         if autonomy_mode == "execute_with_approval"
@@ -479,7 +451,7 @@ def build_portfolio_schedule(
                 continue
             if not bool(weakest_running.get("allow_preemption", False)):
                 candidate["action"] = "preempt_candidate"
-                candidate["approval_required"] = True
+                candidate["human_gate_required"] = True
                 candidate["preempt_requirement_id"] = weakest_running.get("requirement_id")
                 candidate["reason"] = f"candidate outranks running requirement #{weakest_running.get('requirement_id')}, but target project blocks autonomous preemption"
                 candidate["reasons"] = list(candidate["reasons"]) + [candidate["reason"]]
@@ -487,7 +459,7 @@ def build_portfolio_schedule(
                 continue
             candidate["action"] = "rebalance_start" if str(candidate.get("autonomy_mode") or "recommend") == "execute_autonomously" else "preempt_candidate"
             candidate["preempt_requirement_id"] = weakest_running.get("requirement_id")
-            candidate["approval_required"] = candidate["action"] != "rebalance_start"
+            candidate["human_gate_required"] = candidate["action"] != "rebalance_start"
             candidate["reason"] = (
                 f"auto rebalance will preempt requirement #{weakest_running.get('requirement_id')}"
                 if candidate["action"] == "rebalance_start"

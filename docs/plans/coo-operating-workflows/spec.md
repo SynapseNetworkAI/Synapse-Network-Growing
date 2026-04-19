@@ -367,26 +367,26 @@ This phase does not require:
 2. real-time bidding across all model vendors
 3. replacing the requirement workflow with free-form agent swarms
 
-## Detailed Approval Operating Model
+## Detailed Human Gate Operating Model
 
-### Requirement Approval State
+### Workflow Human Gate State
 
-Requirement approval should remain independent from workflow execution status.
+Requirement-level pre-execution approval is retired. Operator decisions now live inside the declarative workflow run as `human_gate_requests`.
 
-Recommended approval states:
+Recommended gate states:
 
-1. `pending_approval`
+1. `pending`
 2. `approved`
 3. `rejected`
-4. `waived`
+4. `continued`
 
 Recommended review signals:
 
-1. `approval_source`
-2. `approval_recommendation`
-3. `approval_reason`
-4. `approval_decided_by`
-5. `approval_decided_at`
+1. `gate_source`
+2. `gate_recommendation`
+3. `gate_reason`
+4. `gate_decided_by`
+5. `gate_decided_at`
 
 ### Approval Contract
 

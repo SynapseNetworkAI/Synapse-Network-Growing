@@ -1,4 +1,4 @@
-"""Execution and approval KPI aggregation for agent roles."""
+"""Workflow and human-gate KPI aggregation for agent capability profiles."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session
 
 from server.database import (
     AgentRow,
-    ApprovalRequestRow,
-    ArtifactRow,
+    HumanGateRequestRow,
 )
 
 
@@ -40,29 +39,11 @@ def _safe_hours_between(start: datetime | None, end: datetime | None) -> float:
     return max(0.0, (end_utc - start_utc).total_seconds() / 3600.0)
 
 
-def _latest_requirement_approval_payloads(db: Session) -> dict[int, dict[str, Any]]:
-    payloads: dict[int, dict[str, Any]] = {}
-    artifacts = (
-        db.query(ArtifactRow)
-        .filter(ArtifactRow.artifact_type == "requirement_approval_state")
-        .order_by(ArtifactRow.id.asc())
-        .all()
-    )
-    for artifact in artifacts:
-        if artifact.requirement_id is None:
-            continue
-        payload = _json_loads(getattr(artifact, "machine_readable_payload", None), {})
-        if isinstance(payload, dict):
-            payloads[int(artifact.requirement_id)] = payload
-    return payloads
-
-
 def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
-    """Aggregate execution and approval KPI metrics by role."""
+    """Aggregate workflow and human-gate KPI metrics by capability profile."""
 
     agents = db.query(AgentRow).order_by(AgentRow.group.asc(), AgentRow.display_name.asc()).all()
-    approvals = db.query(ApprovalRequestRow).all()
-    approval_payloads = _latest_requirement_approval_payloads(db)
+    human_gates = db.query(HumanGateRequestRow).all()
 
     role_rows: list[dict[str, Any]] = []
     total_backlog_count = 0
@@ -76,7 +57,7 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
         failed_task_count = 0
         backlog_count = 0
         reopened_task_count = 0
-        approval_dependency_count = 0
+        human_gate_dependency_count = 0
         average_token_cost = 0.0
         average_budget_cost_points = 0.0
         role_rows.append(
@@ -92,10 +73,10 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
                 "failed_task_count": failed_task_count,
                 "backlog_count": backlog_count,
                 "reopened_task_count": reopened_task_count,
-                "approval_dependency_count": approval_dependency_count,
+                "human_gate_dependency_count": human_gate_dependency_count,
                 "completion_rate": round((completed_count / task_count) * 100, 2) if task_count else 0.0,
                 "reopen_rate": round((reopened_task_count / task_count) * 100, 2) if task_count else 0.0,
-                "approval_dependency_rate": round((approval_dependency_count / task_count) * 100, 2) if task_count else 0.0,
+                "human_gate_dependency_rate": round((human_gate_dependency_count / task_count) * 100, 2) if task_count else 0.0,
                 "average_token_cost": average_token_cost,
                 "average_budget_cost_points": average_budget_cost_points,
                 "tokens_used_total": 0,
@@ -105,17 +86,11 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
             }
         )
 
-    recommendation_by_requirement: dict[int, dict[str, Any]] = {}
-    for requirement_id, payload in approval_payloads.items():
-        recommendation = dict(payload.get("approval_recommendation") or {})
-        if recommendation:
-            recommendation_by_requirement[requirement_id] = recommendation
+    gate_role_stats: dict[str, dict[str, Any]] = {}
 
-    approval_role_stats: dict[str, dict[str, Any]] = {}
-
-    def _approval_role_entry(role_id: str) -> dict[str, Any]:
-        if role_id not in approval_role_stats:
-            approval_role_stats[role_id] = {
+    def _gate_role_entry(role_id: str) -> dict[str, Any]:
+        if role_id not in gate_role_stats:
+            gate_role_stats[role_id] = {
                 "role_id": role_id,
                 "assigned_count": 0,
                 "pending_count": 0,
@@ -130,44 +105,20 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
                 "_disagreement_checks": 0,
                 "_disagreement_hits": 0,
             }
-        return approval_role_stats[role_id]
+        return gate_role_stats[role_id]
 
-    for recommendation in recommendation_by_requirement.values():
-        role_id = str(recommendation.get("role") or "").strip()
-        if not role_id:
-            continue
-        entry = _approval_role_entry(role_id)
+    for gate in human_gates:
+        role_id = str(getattr(gate, "decided_by", "") or "operator").strip()
+        entry = _gate_role_entry(role_id)
         entry["assigned_count"] += 1
-        action = str(recommendation.get("action") or "")
-        if action == "approve":
-            entry["approve_recommendation_count"] += 1
-        elif action == "revise":
-            entry["revise_recommendation_count"] += 1
-        elif action == "route_to_human":
-            entry["route_to_human_count"] += 1
-
-    for approval in approvals:
-        role_id = str(approval.reviewer or "").strip()
-        if not role_id:
-            continue
-        entry = _approval_role_entry(role_id)
-        if str(approval.status or "") == "pending":
+        if str(gate.status or "") == "pending":
             entry["pending_count"] += 1
             continue
         entry["decided_count"] += 1
-        entry["_turnaround_total_hours"] += _safe_hours_between(approval.created_at, approval.decided_at)
-        recommendation = recommendation_by_requirement.get(int(approval.requirement_id or 0), {})
-        recommendation_action = str(recommendation.get("action") or "")
-        if recommendation_action in {"approve", "revise"}:
-            entry["_disagreement_checks"] += 1
-            final_approved = str(approval.status or "") == "approved"
-            if (recommendation_action == "approve" and not final_approved) or (
-                recommendation_action == "revise" and final_approved
-            ):
-                entry["_disagreement_hits"] += 1
+        entry["_turnaround_total_hours"] += _safe_hours_between(gate.created_at, gate.decided_at)
 
     approval_rows: list[dict[str, Any]] = []
-    for role_id, entry in sorted(approval_role_stats.items(), key=lambda item: item[0]):
+    for role_id, entry in sorted(gate_role_stats.items(), key=lambda item: item[0]):
         decided_count = int(entry["decided_count"])
         assigned_count = int(entry["assigned_count"])
         disagreement_checks = int(entry["_disagreement_checks"])
@@ -192,25 +143,25 @@ def build_role_kpi_snapshot(db: Session) -> dict[str, Any]:
             }
         )
 
-    approval_pending_count = sum(row["pending_count"] for row in approval_rows)
+    gate_pending_count = sum(row["pending_count"] for row in approval_rows)
     stale_cutoff = _to_utc(datetime.now(timezone.utc))
-    approval_stale_count = 0
+    human_gate_stale_count = 0
     if stale_cutoff is not None:
-        for approval in approvals:
-            if str(approval.status or "") != "pending":
+        for gate in human_gates:
+            if str(gate.status or "") != "pending":
                 continue
-            created_at = _to_utc(approval.created_at)
+            created_at = _to_utc(gate.created_at)
             if created_at is not None and (stale_cutoff - created_at).total_seconds() >= 24 * 3600:
-                approval_stale_count += 1
+                human_gate_stale_count += 1
 
     return {
         "roles": role_rows,
-        "approval_roles": approval_rows,
+        "human_gate_roles": approval_rows,
         "summary": {
             "role_count": len(role_rows),
             "total_backlog_count": total_backlog_count,
             "overloaded_role_count": sum(1 for row in role_rows if row["backlog_count"] >= 3),
-            "approval_pending_count": approval_pending_count,
-            "approval_stale_count": approval_stale_count,
+            "human_gate_pending_count": gate_pending_count,
+            "human_gate_stale_count": human_gate_stale_count,
         },
     }

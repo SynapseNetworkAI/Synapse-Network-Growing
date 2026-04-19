@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from server.database import ApprovalRequestRow, ArtifactRow, RequirementRow
+from server.database import HumanGateRequestRow, RequirementRow, WorkflowRunRow
 
 
 def test_list_agents_auto_loads_roles(client):
@@ -52,42 +52,34 @@ def test_get_agent_not_found(client):
     assert resp.status_code == 404
 
 
-def test_get_role_kpis_returns_capability_profiles_and_approval_metrics(synced_client, db_session):
+def test_get_role_kpis_returns_capability_profiles_and_human_gate_metrics(synced_client, db_session):
     requirement = RequirementRow(
-        title="Approval-routed requirement",
+        title="Human-gated requirement",
         description_markdown="Detailed requirement ready for execution.",
         priority="normal",
-        approval_status="pending_approval",
-        approval_contract_json=json.dumps({"approval_mode": "auto_or_human"}),
     )
     db_session.add(requirement)
     db_session.flush()
-
-    db_session.add(
-        ArtifactRow(
-            requirement_id=requirement.id,
-            artifact_type="requirement_approval_state",
-            content_summary="Requirement approval state",
-            machine_readable_payload=json.dumps(
-                {
-                    "approval_recommendation": {
-                        "action": "approve",
-                        "role": "reviewer",
-                        "confidence": 0.91,
-                        "reason": "low risk",
-                    }
-                }
-            ),
-        )
+    run = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="awaiting_operator",
+        status="awaiting_operator",
     )
+    db_session.add(run)
+    db_session.flush()
     db_session.add(
-        ApprovalRequestRow(
-            requirement_id=requirement.id,
-            approval_type="requirement_execution_approval",
-            reviewer="reviewer",
+        HumanGateRequestRow(
+            workflow_run_id=int(run.id),
+            state_key="open_pr",
+            gate_type="self_modification",
+            risk_level="high",
             status="approved",
-            created_at=datetime.now(timezone.utc) - timedelta(hours=4),
+            reason="Self-repair PR requires review.",
+            decided_by="reviewer",
+            decision="approve",
             decided_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            created_at=datetime.now(timezone.utc) - timedelta(hours=4),
         )
     )
     db_session.commit()
@@ -102,14 +94,13 @@ def test_get_role_kpis_returns_capability_profiles_and_approval_metrics(synced_c
     assert role["active_task_count"] == 0
     assert role["backlog_count"] == 0
     assert role["reopened_task_count"] == 0
-    assert role["approval_dependency_count"] == 0
+    assert role["human_gate_dependency_count"] == 0
     assert role["average_token_cost"] == 0.0
     assert role["open_requirement_count"] == 0
 
-    approval_role = next(item for item in payload["approval_roles"] if item["role_id"] == "reviewer")
+    approval_role = next(item for item in payload["human_gate_roles"] if item["role_id"] == "reviewer")
     assert approval_role["assigned_count"] == 1
     assert approval_role["decided_count"] == 1
     assert approval_role["pending_count"] == 0
-    assert approval_role["approve_recommendation_count"] == 1
     assert approval_role["route_to_human_rate"] == 0.0
     assert approval_role["average_turnaround_hours"] == 3.0

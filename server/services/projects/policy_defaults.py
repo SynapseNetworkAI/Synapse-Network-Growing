@@ -101,7 +101,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "production_host_label": "prod-vm",
         "staging_workflow_file": "deploy-staging.yml",
         "production_workflow_file": "deploy-production.yml",
-        "notes": "Primary product repo. Human approval required before publish or merge.",
+        "notes": "Primary product repo. Workflow human gate required before publish or merge.",
     },
     {
         "project_key": "synapse-network-provider",

@@ -49,7 +49,7 @@
 1. `source = bug_intake`
 2. `source_ref = bug_key`
 3. `target_project_path` 指向正确项目
-4. `approval_contract` 与 `acceptance_contract` 被正确补齐
+4. `acceptance_contract` 与 workflow risk context 被正确补齐
 5. priority 与 severity / impact 一致
 
 ### 6. Fix Validation

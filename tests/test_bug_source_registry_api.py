@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from server.database import ArtifactRow, BugRecordRow, OptimizationSignalRow, RequirementRow
+from server.database import BugRecordRow, OptimizationSignalRow, ReleaseRecordRow, RequirementRow
 
 
 def test_bug_source_registry_lists_builtin_sources(synced_client):
@@ -28,25 +28,28 @@ def test_bug_source_registry_includes_live_observed_counts(synced_client, db_ses
         status="done",
         priority="normal",
         source="manual",
-        current_plan_version=1,
     )
     db_session.add(requirement)
     db_session.flush()
 
     db_session.add(
-        ArtifactRow(
-            requirement_id=requirement.id,
-            artifact_type="bug_report",
-            content_summary="Manual bug report candidate",
-            machine_readable_payload=json.dumps({"severity": "high"}),
+        BugRecordRow(
+            bug_key="manual:test",
+            title="Manual bug report candidate",
+            summary="Manual bug report candidate",
+            severity="high",
+            fingerprint="manual:test",
+            source_key="manual_bug_report",
+            source_kind="manual_input",
+            status="open",
         )
     )
     db_session.add(
-        ArtifactRow(
+        ReleaseRecordRow(
             requirement_id=requirement.id,
-            artifact_type="delivery_state",
-            content_summary="Blocked publish",
-            machine_readable_payload=json.dumps({"publish_blockers": ["required check pending: pytest -q"]}),
+            status="blocked",
+            delivery_state="blocked",
+            delivery_failure_excerpt="required check pending: pytest -q",
         )
     )
     db_session.add(
