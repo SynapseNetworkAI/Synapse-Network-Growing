@@ -35,7 +35,7 @@ function badgeTone(status: string) {
   if (['active', 'approved', 'materialized', 'succeeded', 'released'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (['pending', 'draft', 'running', 'awaiting_operator'].includes(status)) return 'border-blue-200 bg-blue-50 text-blue-700'
   if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
-  return 'border-slate-200 bg-slate-50 text-slate-600'
+  return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]'
 }
 
 function asGoal(value: Record<string, unknown>): Goal {
@@ -153,10 +153,10 @@ function CandidateMiniQueue({
           <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Candidate Ammunition</div>
           <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Planner proposals for this exact goal.</div>
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{candidates.length} total</span>
+        <span className="rounded-full bg-[color:var(--ops-panel-strong)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{candidates.length} total</span>
       </div>
       {active.map((candidate) => (
-        <article key={candidate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-3" data-testid="goal-candidate-card">
+        <article key={candidate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3" data-testid="goal-candidate-card">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{candidate.title}</div>
@@ -170,7 +170,7 @@ function CandidateMiniQueue({
       ))}
       {!active.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">No active proposals for this goal. Run Planner Sweep when capacity is available.</div>}
       {quiet.length > 0 && (
-        <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 px-4 py-3">
+        <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
           <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-body)]">Show rejected / suppressed ({quiet.length})</summary>
           <div className="mt-3 space-y-2">
             {quiet.map((candidate) => (
@@ -200,7 +200,7 @@ function GoalMissionLaneSection({
   const goal = asGoal(lane.goal)
   const status = goal.status || 'active'
   return (
-    <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-white p-5 shadow-sm" data-testid="goal-mission-lane">
+    <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 shadow-sm" data-testid="goal-mission-lane">
       <div className="grid gap-5 xl:grid-cols-[0.75fr_1.25fr]">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -209,7 +209,7 @@ function GoalMissionLaneSection({
           </div>
           <h3 className="mt-3 text-xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{goal.domain || 'operations'}</h3>
           <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{goal.intent || 'No intent defined.'}</p>
-          <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
+          <div className="mt-4 rounded-2xl bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
             <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Success Metric</div>
             <div className="mt-1">{goal.success_metric || '-'}</div>
           </div>
@@ -218,7 +218,7 @@ function GoalMissionLaneSection({
             {status === 'dropped' ? <span className="text-rose-700">Delivered artifacts retained.</span> : null}
           </div>
           {status !== 'dropped' && (
-            <button className="mt-4 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
+            <button className="mt-4 rounded-xl border border-rose-200 bg-[color:var(--ops-panel)] px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
           )}
         </div>
         <div className="space-y-4">
@@ -302,7 +302,7 @@ function GlobalConstraintsEditor({ draft, onChange }: Readonly<{ draft: Steering
     <label className="block">
       <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Global Constraints</div>
       <textarea
-        className="mt-3 h-28 w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-3 py-2 text-sm leading-6 text-[color:var(--ops-text-body)]"
+        className="mt-3 h-28 w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm leading-6 text-[color:var(--ops-text-body)]"
         value={draft.constraintsText}
         onChange={(event) => onChange({ ...draft, constraintsText: event.target.value })}
         placeholder="One constraint per line"
@@ -336,7 +336,7 @@ function PlanningSteeringPanel({
   const total = weightTotal(draft.focusWeights)
   const canSave = Math.abs(total - 100) <= 0.01
   return (
-    <section className="rounded-[32px] border border-[color:var(--ops-stroke-soft)] bg-white p-5 shadow-sm" data-testid="planning-steering-panel">
+    <section className="rounded-[32px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 shadow-sm" data-testid="planning-steering-panel">
       <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
         <div>
           <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Planning Mission Control</div>
@@ -346,7 +346,7 @@ function PlanningSteeringPanel({
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onRefresh}>刷新</button>
             <button className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700" disabled={busy === 'dry_sweep'} onClick={() => onRunSweep(true)}>Dry Run Planner</button>
             <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white" disabled={busy === 'sweep'} onClick={() => onRunSweep(false)}>Run Planner Sweep</button>
-            <button className="rounded-xl border border-slate-200 px-4 py-2 text-sm" onClick={onOpenArchive}>Archive & Start New Cycle</button>
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenArchive}>Archive & Start New Cycle</button>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <div>
@@ -368,7 +368,7 @@ function PlanningSteeringPanel({
           <GlobalBudgetEditor draft={draft} onChange={onDraftChange} />
           <GlobalConstraintsEditor draft={draft} onChange={onDraftChange} />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button className="rounded-xl border border-slate-200 px-4 py-2 text-sm" onClick={onOpenRaw}>{'</>'} Edit raw JSON</button>
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenRaw}>{'</>'} Edit raw JSON</button>
             <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!canSave || busy === 'save'} onClick={onSave}>Save Steering Revision</button>
           </div>
           {!canSave && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="weight-total-warning">Focus weights total must equal 100% before saving.</div>}
@@ -392,7 +392,7 @@ function ManifestHistoryPanel({
   loadHistory: (page: number) => void
 }>) {
   return (
-    <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-white p-5" data-testid="manifest-history-panel">
+    <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid="manifest-history-panel">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">History & Archive</div>
@@ -405,7 +405,7 @@ function ManifestHistoryPanel({
       </div>
       <div className="mt-4 overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)]">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">
+          <thead className="bg-[color:var(--ops-panel-subtle)] text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">
             <tr>
               <th className="px-4 py-3">Cycle</th>
               <th className="px-4 py-3">Status</th>
@@ -459,7 +459,7 @@ function RawManifestDrawer({
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40" data-testid="raw-manifest-drawer">
-      <aside className="h-full w-full max-w-2xl overflow-auto bg-white p-6 shadow-2xl">
+      <aside className="h-full w-full max-w-2xl overflow-auto bg-[color:var(--ops-panel)] p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Debug Drawer</div>
@@ -501,7 +501,7 @@ function ArchiveCycleModal({
   const activeGoals = (mission?.goal_lanes || []).filter((lane) => asGoal(lane.goal).status !== 'dropped' && asGoal(lane.goal).status !== 'achieved')
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-2xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl">
         <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Archive Cycle</div>
         <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Archive & Start New Cycle</h3>
         <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">Active goals will carry forward. Achieved and dropped goals stay in the archived review.</p>
@@ -509,7 +509,7 @@ function ArchiveCycleModal({
           <label className="block text-sm font-medium text-[color:var(--ops-text-title)]">Version name<input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={versionName} onChange={(event) => setVersionName(event.target.value)} /></label>
           <label className="block text-sm font-medium text-[color:var(--ops-text-title)]">Cycle label<input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" placeholder="2026-W17" value={cycleLabel} onChange={(event) => setCycleLabel(event.target.value)} /></label>
         </div>
-        <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">Carry forward: {activeGoals.map((lane) => lane.goal_key).join(', ') || 'none'}</div>
+        <div className="mt-4 rounded-2xl bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">Carry forward: {activeGoals.map((lane) => lane.goal_key).join(', ') || 'none'}</div>
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded-xl border px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
           <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white" disabled={!versionName.trim() || !cycleLabel.trim() || busy === 'archive'} onClick={() => onArchive(versionName, cycleLabel)}>Archive Current Cycle</button>
@@ -537,7 +537,7 @@ function DropGoalModal({
   if (!goal) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-xl rounded-[28px] bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl">
         <div className="text-[11px] uppercase tracking-[0.22em] text-rose-600">Danger Zone</div>
         <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Drop Goal: {goal.goal_key}</h3>
         <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800">
@@ -729,13 +729,13 @@ export default function PlanningPage() {
         onOpenArchive={() => setArchiveOpen(true)}
       />
 
-      <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-2" data-testid="planning-tabs">
+      <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="planning-tabs">
         {([
           ['mission', `Mission Control · ${pendingActions} actions`],
           ['history', `History · ${history?.total || mission?.history_preview.total || 0}`],
           ['debug', 'Debug'],
         ] as Array<[ActiveTab, string]>).map(([key, label]) => (
-          <button key={key} className={['rounded-xl px-4 py-2 text-sm font-medium transition', activeTab === key ? 'bg-slate-900 text-white' : 'text-[color:var(--ops-text-muted)] hover:bg-slate-100'].join(' ')} onClick={() => setActiveTab(key)}>{label}</button>
+          <button key={key} className={['rounded-xl px-4 py-2 text-sm font-medium transition', activeTab === key ? 'bg-slate-900 text-white' : 'text-[color:var(--ops-text-muted)] hover:bg-[color:var(--ops-panel-strong)]'].join(' ')} onClick={() => setActiveTab(key)}>{label}</button>
         ))}
       </nav>
 
@@ -746,7 +746,7 @@ export default function PlanningPage() {
           <p className="mt-2 text-sm text-amber-800">已发布产物保留；如需下线，请创建新的 decommission requirement，不会自动 rollback。</p>
           <div className="mt-4 grid gap-3 md:grid-cols-5">
             {Object.entries(dropResult.halt_summary).map(([key, value]) => (
-              <div key={key} className="rounded-2xl bg-white/70 p-3">
+              <div key={key} className="rounded-2xl bg-[color:var(--ops-panel)] p-3">
                 <div className="font-mono text-[10px] text-amber-700">{key}</div>
                 <div className="mt-1 text-lg font-semibold text-amber-950">{String(value)}</div>
               </div>
@@ -759,7 +759,7 @@ export default function PlanningPage() {
         <main className="space-y-4" data-testid="mission-control-tab">
           <div className="grid gap-3 md:grid-cols-5">
             {['pending', 'approved', 'materialized', 'rejected', 'suppressed'].map((status) => (
-              <div key={status} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-3">
+              <div key={status} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3">
                 <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{status}</div>
                 <div className="mt-1 text-2xl font-semibold text-[color:var(--ops-text-title)]">{candidateTotals[status] || 0}</div>
               </div>
@@ -768,7 +768,7 @@ export default function PlanningPage() {
           {(mission?.goal_lanes || []).map((lane) => (
             <GoalMissionLaneSection key={lane.goal_key} lane={lane} busy={busy} onCandidateAction={actOnCandidate} onDropGoal={setDropGoal} />
           ))}
-          {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-white px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
+          {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
         </main>
       )}
 
@@ -778,11 +778,11 @@ export default function PlanningPage() {
 
       {activeTab === 'debug' && (
         <section className="grid gap-5 xl:grid-cols-2" data-testid="planning-debug-tab">
-          <div className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-white p-5">
+          <div className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Raw Manifest</div>
             <div className="mt-4"><JsonBlock value={mission?.manifest.payload} /></div>
           </div>
-          <div className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-white p-5">
+          <div className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Last Sweep</div>
             <div className="mt-4"><JsonBlock value={mission?.last_sweep} /></div>
           </div>

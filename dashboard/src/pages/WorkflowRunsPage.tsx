@@ -59,7 +59,7 @@ function workflowNextAction(item: DeclarativeWorkflowRunSummary) {
 
 function SummaryCard({ label, value, detail }: Readonly<{ label: string; value: number | string; detail: string }>) {
   return (
-    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-4">
+    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
       <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
       <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{value}</div>
       <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{detail}</div>
@@ -77,7 +77,7 @@ function EmptyWorkflowState({
   const navigate = useNavigate()
   const count = summary?.pending_candidate_count ?? 0
   return (
-    <div className="rounded-[var(--ops-radius-panel)] border border-dashed border-[color:var(--ops-stroke-strong)] bg-white px-6 py-10">
+    <div className="rounded-[var(--ops-radius-panel)] border border-dashed border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-6 py-10">
       <div className="max-w-3xl">
         <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">No Workflow Runs Yet</div>
         <h3 className="mt-3 text-xl font-semibold text-[color:var(--ops-text-title)]">还没有工作流运行记录</h3>
@@ -88,7 +88,7 @@ function EmptyWorkflowState({
         {summary?.recent_candidates?.length ? (
           <div className="mt-5 grid gap-2">
             {summary.recent_candidates.map((candidate) => (
-              <div key={candidate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 px-4 py-3 text-sm">
+              <div key={candidate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm">
                 <div className="font-medium text-[color:var(--ops-text-title)]">#{candidate.id} {candidate.title}</div>
                 <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-caption)]">{candidate.goal_key || '-'} · {candidate.workflow_key || 'workflow TBD'} · {candidate.status}</div>
               </div>
@@ -124,10 +124,10 @@ function WorkflowRunsTable({
 }>) {
   const navigate = useNavigate()
   return (
-    <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+    <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse">
-          <thead className="bg-slate-50/90">
+          <thead className="bg-[color:var(--ops-panel-subtle)]">
             <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
               <th className="px-5 py-4 font-medium">Workflow</th>
               <th className="px-4 py-4 font-medium">Requirement</th>
@@ -140,7 +140,7 @@ function WorkflowRunsTable({
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} className="border-t border-[color:var(--ops-stroke-soft)] transition hover:bg-slate-50/80">
+              <tr key={item.id} className="border-t border-[color:var(--ops-stroke-soft)] transition hover:bg-[color:var(--ops-panel-subtle)]">
                 <td className="px-5 py-4">
                   <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.workflow_key}</div>
                   <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-caption)]">run #{item.id} · {item.current_state}</div>
@@ -208,7 +208,7 @@ function DefinitionsPanel({ definitions }: Readonly<{ definitions: DeclarativeWo
         const atomCount = definition.states.filter((state) => state.atom_key).length
         const humanGateRequired = JSON.stringify(definition.risk_policy || {}).toLowerCase().includes('human')
         return (
-          <div key={definition.workflow_key} className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+          <div key={definition.workflow_key} className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{definition.workflow_key}</div>
@@ -324,7 +324,7 @@ export default function WorkflowRunsPage() {
 
   return (
     <div className="space-y-5" data-testid="workflow-runs-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Workflow Operations Center</div>
@@ -350,7 +350,7 @@ export default function WorkflowRunsPage() {
         <SummaryCard label="Pending Release" value={summary?.pending_release ?? 0} detail="PR / release 待处理" />
       </section>
 
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-4">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
         <div className="flex flex-wrap gap-2">
           {TABS.map((item) => (
             <button
@@ -359,20 +359,20 @@ export default function WorkflowRunsPage() {
               className={[
                 'rounded-2xl px-4 py-3 text-left text-sm transition',
                 tab === item.key
-                  ? 'bg-[color:var(--ops-text-title)] text-white'
-                  : 'border border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-body)] hover:bg-slate-50',
+                  ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]'
+                  : 'border border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-body)] hover:bg-[color:var(--ops-panel-subtle)]',
               ].join(' ')}
               onClick={() => setTab(item.key)}
             >
               <span className="block font-semibold">{item.label}</span>
-              <span className={tab === item.key ? 'text-white/70' : 'text-[color:var(--ops-text-caption)]'}>{item.helper}</span>
+              <span className={tab === item.key ? 'text-cyan-100/70' : 'text-[color:var(--ops-text-caption)]'}>{item.helper}</span>
             </button>
           ))}
         </div>
       </section>
 
       {tab !== 'definitions' ? (
-        <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-4" data-testid="workflow-run-filters">
+        <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-4" data-testid="workflow-run-filters">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" value={filters.workflow_key} onChange={(event) => setFilters((current) => ({ ...current, workflow_key: event.target.value }))}>
               <option value="">全部 workflow</option>
@@ -399,7 +399,7 @@ export default function WorkflowRunsPage() {
         <WorkflowRunsTable items={items} tab={tab} onArchive={archiveRun} onCreateFollowup={createFollowup} />
       ) : null}
       {loading ? (
-        <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-8 text-center text-sm text-[color:var(--ops-text-muted)]">
+        <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-center text-sm text-[color:var(--ops-text-muted)]">
           加载工作流运行台账…
         </div>
       ) : null}

@@ -259,7 +259,7 @@ function RequirementForm({
         <FieldLabel>需求描述</FieldLabel>
         <div
           className={[
-            'mt-2 rounded-2xl border bg-white transition',
+            'mt-2 rounded-2xl border bg-[color:var(--ops-panel)] transition',
             dragActive ? 'border-[color:var(--ops-accent-strong)] ring-2 ring-[color:var(--ops-accent-soft)]' : 'border-[color:var(--ops-stroke-strong)]',
           ].join(' ')}
           onDragEnter={(event) => {
@@ -327,7 +327,7 @@ function RequirementForm({
                 {draft.attachments.map((attachment) => (
                   <div
                     key={attachment.local_id}
-                    className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80"
+                    className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)]"
                   >
                     {attachment.attachment_kind === 'image' && attachment.preview_url ? (
                       <img
@@ -361,7 +361,7 @@ function RequirementForm({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/70 px-4 py-4">
+      <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-4">
         <button type="button" className="text-sm font-medium text-[color:var(--ops-text-title)]" onClick={() => setShowAdvanced((current) => !current)}>
           {showAdvanced ? '隐藏高级设置' : '显示高级设置'}
         </button>
@@ -555,7 +555,7 @@ export default function RequirementPool() {
 
   return (
     <div className="space-y-5" data-testid="agent-first-requirements-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Requirements</div>
@@ -588,10 +588,10 @@ export default function RequirementPool() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse">
-            <thead className="bg-slate-50/90">
+            <thead className="bg-[color:var(--ops-panel-subtle)]">
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <th className="px-5 py-4 font-medium">标题</th>
                 <th className="px-4 py-4 font-medium">项目</th>
@@ -607,8 +607,8 @@ export default function RequirementPool() {
                 <tr
                   key={item.id}
                   className={[
-                    'border-t border-[color:var(--ops-stroke-soft)] transition hover:bg-slate-50/80',
-                    item.id === selectedRequirementId ? 'bg-slate-50/70' : '',
+                    'border-t border-[color:var(--ops-stroke-soft)] transition hover:bg-[color:var(--ops-panel-subtle)]',
+                    item.id === selectedRequirementId ? 'bg-[color:var(--ops-panel-subtle)]' : '',
                   ].join(' ')}
                   onClick={() => setSelectedRequirementId(item.id)}
                 >
@@ -744,7 +744,7 @@ export default function RequirementPool() {
                         className={
                           autoSubmitPending
                             ? 'rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50'
-                            : 'rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white disabled:opacity-50'
+                            : 'rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50'
                         }
                         disabled={
                           submittingId === item.id ||

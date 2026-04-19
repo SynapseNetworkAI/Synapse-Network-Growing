@@ -175,3 +175,110 @@ a:focus-visible {
       rgba(255, 255, 255, 0.035);
   }
 }
+
+@layer utilities {
+  /*
+   * Legacy light-utility compatibility map.
+   *
+   * The Ops Console is now a sovereign dark control plane. Older pages still
+   * carry light Tailwind utilities from the MVP UI; remap them globally so no
+   * route can regress into white SaaS surfaces while page-level refactors
+   * continue to converge on CockpitPanel/MetricTile primitives.
+   */
+  .bg-white,
+  .bg-white\/95,
+  .bg-white\/90,
+  .bg-white\/88,
+  .bg-white\/85,
+  .bg-white\/80,
+  .bg-white\/76,
+  .bg-white\/75,
+  .bg-white\/74,
+  .bg-white\/70 {
+    background-color: var(--ops-panel) !important;
+  }
+
+  .bg-slate-50,
+  .bg-slate-50\/95,
+  .bg-slate-50\/90,
+  .bg-slate-50\/80,
+  .bg-slate-50\/70,
+  .bg-slate-100 {
+    background-color: var(--ops-panel-subtle) !important;
+  }
+
+  .bg-blue-50,
+  .bg-blue-50\/80,
+  .bg-cyan-50,
+  .bg-emerald-50,
+  .bg-green-50,
+  .bg-amber-50,
+  .bg-yellow-50,
+  .bg-orange-50,
+  .bg-rose-50,
+  .bg-red-50 {
+    background-color: rgba(255, 255, 255, 0.045) !important;
+  }
+
+  .hover\:bg-white:hover,
+  .hover\:bg-slate-50:hover,
+  .hover\:bg-slate-50\/80:hover,
+  .hover\:bg-slate-100:hover,
+  .hover\:bg-blue-50:hover,
+  .hover\:bg-cyan-50:hover,
+  .hover\:bg-emerald-50:hover,
+  .hover\:bg-amber-50:hover,
+  .hover\:bg-rose-50:hover {
+    background-color: rgba(255, 255, 255, 0.075) !important;
+  }
+
+  .border-slate-200,
+  .border-slate-300,
+  .border-blue-200,
+  .border-blue-300,
+  .border-cyan-200,
+  .border-cyan-300,
+  .border-emerald-200,
+  .border-green-200,
+  .border-amber-200,
+  .border-yellow-200,
+  .border-orange-200,
+  .border-rose-200,
+  .border-red-200 {
+    border-color: var(--ops-stroke-strong) !important;
+  }
+
+  .text-slate-400,
+  .text-slate-500,
+  .text-slate-600,
+  .text-blue-600,
+  .text-cyan-600,
+  .text-emerald-600,
+  .text-green-600,
+  .text-amber-600,
+  .text-yellow-600,
+  .text-orange-600,
+  .text-rose-600,
+  .text-red-600 {
+    color: var(--ops-text-muted) !important;
+  }
+
+  .text-slate-700,
+  .text-slate-800,
+  .text-slate-900,
+  .text-blue-700,
+  .text-cyan-700,
+  .text-emerald-700,
+  .text-green-700,
+  .text-amber-700,
+  .text-yellow-700,
+  .text-orange-700,
+  .text-rose-700,
+  .text-red-700 {
+    color: var(--ops-text-title) !important;
+  }
+
+  .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+    border-color: var(--ops-stroke-soft) !important;
+  }
+}

@@ -114,7 +114,7 @@ function lifecycleStepTone(stepStatus: 'done' | 'current' | 'upcoming' | 'termin
   if (stepStatus === 'done') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (stepStatus === 'terminal') return 'border-rose-200 bg-rose-50 text-rose-700'
   if (stepStatus === 'current') return 'border-blue-200 bg-blue-50 text-blue-700'
-  return 'border-[color:var(--ops-stroke-soft)] bg-slate-50 text-[color:var(--ops-text-caption)]'
+  return 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-caption)]'
 }
 
 function lifecycleDotTone(stepStatus: 'done' | 'current' | 'upcoming' | 'terminal') {
@@ -131,7 +131,7 @@ function RequirementLifecycleStepper({ detail }: Readonly<{ detail: AgentRequire
   const description = lifecycleDescription(detail, state)
   const currentStep = LIFECYCLE_STEPS[currentIndex] || LIFECYCLE_STEPS[0]
   return (
-    <div data-testid="requirement-lifecycle" className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/75 px-4 py-4">
+    <div data-testid="requirement-lifecycle" className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <StateBadge tone={isTerminal ? 'blocked' : statusTone(state)}>{isTerminal ? (state === 'failed' ? '需求失败' : '需求已取消') : `当前：${currentStep.label}`}</StateBadge>
         <span data-testid="requirement-lifecycle-current" className="text-sm text-[color:var(--ops-text-muted)]">
@@ -511,7 +511,7 @@ export default function RequirementDetail() {
         {!isEditing ? (
           <div
             data-testid="workflow-readiness-panel"
-            className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/85 px-4 py-4 text-sm text-[color:var(--ops-text-body)]"
+            className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4 text-sm text-[color:var(--ops-text-body)]"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -598,7 +598,7 @@ export default function RequirementDetail() {
         ) : null}
 
         {!isEditing && (detail.active_workflow_run_summary || requirement.active_workflow_run_summary) ? (
-          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-body)]" data-testid="active-workflow-summary">
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-body)]" data-testid="active-workflow-summary">
             {(() => {
               const summary = detail.active_workflow_run_summary || requirement.active_workflow_run_summary
               if (!summary) return null
@@ -616,7 +616,7 @@ export default function RequirementDetail() {
         ) : null}
 
         {!isEditing && (detail.resolution_path || detail.followup_requirement_id) ? (
-          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-body)]">
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-body)]">
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge tone="muted">{detail.resolution_path || 'resolution'}</StateBadge>
               {detail.followup_requirement_id ? <span>已转派修复需求 #{detail.followup_requirement_id}</span> : null}
@@ -633,7 +633,7 @@ export default function RequirementDetail() {
               <span>repairable: {latestRelease.repairable ? 'yes' : 'no'}</span>
             </div>
             {isWorkspaceBlocked ? (
-              <div className="mt-3 rounded-2xl border border-amber-200 bg-white/70 px-4 py-3">
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-[color:var(--ops-panel)] px-4 py-3">
                 <div className="font-medium">交付工作区阻塞，清理后可继续当前 release。</div>
                 <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
                   <div>当前工作区分支：{currentWorkspaceBranch || '-'}</div>
@@ -668,7 +668,7 @@ export default function RequirementDetail() {
         ) : null}
 
         {!isEditing && detail.assets_status !== 'ready' ? (
-          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/90 px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
+          <div className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge tone={assetsTone(detail.assets_status)}>
                 {detail.assets_status === 'failed' ? '计划生成失败' : '正在生成计划'}
@@ -724,7 +724,7 @@ export default function RequirementDetail() {
                 <option value="high">high</option>
               </select>
             </div>
-            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/70 px-4 py-4">
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-4">
               <button type="button" className="text-sm font-medium text-[color:var(--ops-text-title)]" onClick={() => setShowAdvanced((current) => !current)}>
                 {showAdvanced ? '隐藏高级设置' : '显示高级设置'}
               </button>
@@ -812,7 +812,7 @@ export default function RequirementDetail() {
                   href={href}
                   target="_blank"
                   rel="noreferrer"
-                  className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80"
+                  className="overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)]"
                 >
                   {attachment.attachment_kind === 'image' ? (
                     <img src={href} alt={attachment.file_name} className="h-44 w-full object-cover" />

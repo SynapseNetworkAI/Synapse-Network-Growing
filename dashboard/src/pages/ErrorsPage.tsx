@@ -47,7 +47,7 @@ export default function ErrorsPage() {
 
   return (
     <div className="space-y-5" data-testid="errors-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Errors</div>
@@ -67,10 +67,10 @@ export default function ErrorsPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse">
-            <thead className="bg-slate-50/90">
+            <thead className="bg-[color:var(--ops-panel-subtle)]">
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <th className="px-5 py-4 font-medium">服务</th>
                 <th className="px-4 py-4 font-medium">严重级别</th>
@@ -83,7 +83,7 @@ export default function ErrorsPage() {
             </thead>
             <tbody>
               {filtered.map((item) => (
-                <tr key={item.fingerprint_key} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                <tr key={item.fingerprint_key} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                   <td className="px-5 py-4">
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.service_name}</div>
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{item.fingerprint_key}</div>
@@ -107,7 +107,7 @@ export default function ErrorsPage() {
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/workflows/${workflowRunIdFor(item)}`)} disabled={!workflowRunIdFor(item)}>
                         工作流
                       </button>
-                      <button type="button" className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white" onClick={() => navigate(`/errors/${encodeURIComponent(item.fingerprint_key)}`)}>
+                      <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white" onClick={() => navigate(`/errors/${encodeURIComponent(item.fingerprint_key)}`)}>
                         查看
                       </button>
                     </div>
