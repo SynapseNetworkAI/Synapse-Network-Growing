@@ -31,6 +31,9 @@ The console is not a database object browser. Each page must explain what it is 
 
 | Page | Purpose | Primary inputs | Primary outputs | Source of truth | Next action |
 |---|---|---|---|---|---|
+| `/command-center` | Global Human-Agent control plane | Dashboard stats, workflow summary, active manifest, scheduler health | Desired state summary, blockers, active fronts, next operator action | `requirements`, `workflow_runs`, `operating_manifests`, scheduler health projections | Open Planning, Gates, or Workflow Operations |
+| `/intake` | Requirement discovery entry point | Error, watcher, forum, planner signal sources | Signal routing map and links to concrete queues | `error_fingerprints`, `requirement_intake_fingerprints`, `requirement_candidates` | Open errors, planning, or schedules |
+| `/gates` | Human Oracle queue | Pending human gates and failed workflows | High-risk decisions with evidence links | `human_gate_requests`, `workflow_runs` | Review gate in `/workflows/:id` |
 | `/requirements` | Requirement pool and workflow readiness queue | Requirement filters, new requirement form, project selection | Requirement rows with workflow status and actions | `requirements`, active `workflow_runs` | Create, edit, submit, or open workflow |
 | `/requirements/:id` | Requirement detail and workflow readiness | Requirement id, acceptance, workflow assets | Workflow readiness, generated acceptance/plan, active workflow link | `requirements`, workflow readiness projection | Generate/start workflow or inspect active run |
 | `/planning` | Goal-centric Mission Control | Active Operating Manifest, goals, budgets, Planner Sweep | RequirementCandidates grouped under goals | `operating_manifests`, `requirement_candidates` | Run sweep, approve/reject/materialize candidate, drop goal |
@@ -43,6 +46,10 @@ The console is not a database object browser. Each page must explain what it is 
 | `/projects/:id` | Project and policy detail | Project id | Project metadata, GitHub/deploy policy | `projects`, `project_policies` | Save project or governance policy |
 | `/errors` | Error fingerprint queue | Error filters and search | Fingerprints linked to requirements/workflows | `error_fingerprints`, `requirement_intake_fingerprints` | Inspect error detail or linked workflow |
 | `/errors/:fingerprintKey` | Error evidence and notification history | Fingerprint key | Error events, linked requirement/workflow, notification delivery history | `error_events`, `notification_deliveries` | Open linked requirement/workflow or inspect suppression |
+| `/factory/workflows` | Read-only workflow factory | Workflow definitions | State machine specs, states, transitions, limits, risk policy | workflow definitions projection | Inspect states or copy spec |
+| `/factory/atoms` | Read-only atom registry | Workflow definitions | Agent/deterministic/terminal atom catalog | workflow definition states | Inspect where an atom is used |
+| `/knowledge` | Knowledge and SOP entry point | Workflow evidence and future SOP ledger | Artifacts/SOP direction and workflow evidence links | `workflow_artifacts`, future SOP ledger | Open workflow evidence or build SOP rules |
+| `/system/notifications` | Notification queue observability | Dispatcher health | Queue, dead letter, open fingerprint status | notification queue health projection | Inspect notification health or schedules |
 
 ## Page Test Matrix
 
@@ -54,6 +61,9 @@ Every page needs three levels of validation:
 
 | Page | Render smoke | Click checks | Data proof |
 |---|---|---|---|
+| `/command-center` | Stats, active goals, blockers, scheduler health render | Planning/Gates/Workflow links | Values come from stats, workflow summary, planning mission control |
+| `/intake` | Signal source cards render | Errors/Planning/Schedules links | Concrete queues remain source-specific |
+| `/gates` | Pending gate and failed run cards render | Review Gate opens workflow detail | Pending gates match workflow run summaries |
 | `/requirements` | Requirement list and empty state render | New requirement, edit drawer, refresh, workflow link | Created requirement exists and selected project id persists |
 | `/requirements/:id` | Workflow readiness panel renders | Generate assets, start workflow, navigate to `/workflows/:id` | Requirement `active_workflow_run_id` is set |
 | `/planning` | Mission Control, goal lanes, history/debug tabs render | Run Planner Sweep, approve/reject/materialize candidate, raw drawer, history tab | Candidate and requirement inherit `manifest_id` and `goal_key` |
@@ -66,6 +76,10 @@ Every page needs three levels of validation:
 | `/projects/:id` | Project form and policy form render | Save project, save governance | `projects` and `project_policies` update |
 | `/errors` | Fingerprint table renders | Filters, open linked requirement/workflow | Linked requirement/workflow ids match fingerprint |
 | `/errors/:fingerprintKey` | Evidence, linked objects, notifications render | Back, open requirement, open workflow | Notification and intake suppression state is visible |
+| `/factory/workflows` | Definition registry and selected state machine render | Select definition, copy spec | Definitions API returns selected workflow states |
+| `/factory/atoms` | Atom catalog renders | Type filters work | Atom list derives from workflow definition states |
+| `/knowledge` | Knowledge entry point renders | Workflow evidence link works | Artifacts remain attached to workflow runs |
+| `/system/notifications` | Dispatcher cards render | Refresh works | Values come from recurring workflow health |
 
 ## GoalB E2E Scenario
 

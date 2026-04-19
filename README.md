@@ -42,22 +42,30 @@ Coding agents and humans should start here:
 5. [Planning Lifecycle Operating Manifest](docs/design-docs/planning-lifecycle-operating-manifest.md) - manifest, planner sweep, candidates, drop goal.
 6. [Recurring Workflow Control Plane](docs/design-docs/recurring-workflow-control-plane.md) - scheduled jobs and dispatcher observability.
 7. [Workflow Factory Frontend Control Plane](docs/design-docs/workflow-factory-frontend-control-plane.md) - operator UI for workflow observability.
-8. [Current Feature Inventory](docs/design-docs/current-feature-inventory.md) - implemented capability baseline.
-9. [Ops Console Usage](docs/ops-console-usage.md) - local UI/API usage notes.
-10. [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md) - page-by-page function map, tests, and GoalB dogfood validation.
+8. [Figma Driven Human-Agent Control Plane Frontend](docs/design-docs/frontend-control-plane-figma-implementation.md) - Figma/Stitch-driven cockpit UI direction and implementation contract.
+9. [Current Feature Inventory](docs/design-docs/current-feature-inventory.md) - implemented capability baseline.
+10. [Ops Console Usage](docs/ops-console-usage.md) - local UI/API usage notes.
+11. [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md) - page-by-page function map, tests, and GoalB dogfood validation.
 
 Historical evidence and legacy docs are intentionally moved under `docs/archive/`.
 
 ## Main Surfaces
 
-1. `/requirements`: requirement pool and workflow readiness.
-2. `/workflows`: declarative workflow run list.
-3. `/workflows/:id`: explainable workflow workbench with steps, evidence, gates, delivery, and debug views.
-4. `/planning`: active Operating Manifest, planner candidates, goal rollups, drop-goal safe halt, manifest history.
-5. `/schedules`: recurring workflow registry, run history, scheduler/dispatcher health.
-6. `/errors`: error fingerprints and bug materialization state.
-7. `/projects`: project registry and delivery policy configuration.
-8. `/releases`: PR, delivery, deploy, and rollback governance.
+1. `/command-center`: Human-Agent control plane overview, desired state, blockers, active runs, and background health.
+2. `/planning`: active Operating Manifest, planner candidates, goal rollups, drop-goal safe halt, manifest history.
+3. `/intake`: requirement discovery entry point for errors, watcher events, forum feedback, and planner signals.
+4. `/gates`: Human Oracle queue for pending gates, failed runs, and high-risk decisions.
+5. `/requirements`: requirement pool and workflow readiness.
+6. `/workflows`: declarative workflow run operations center.
+7. `/workflows/:id`: explainable workflow workbench with steps, evidence, gates, delivery, and debug views.
+8. `/factory/workflows`: read-only workflow definition registry.
+9. `/factory/atoms`: read-only atom registry.
+10. `/knowledge`: artifacts and SOP Ledger entry point.
+11. `/schedules`: recurring workflow registry, run history, scheduler/dispatcher health.
+12. `/system/notifications`: notification queue, dispatcher health, suppression, and delivery observability.
+13. `/errors`: error fingerprints and bug materialization state.
+14. `/projects`: project registry and delivery policy configuration.
+15. `/releases`: PR, delivery, deploy, and rollback governance.
 
 The current product-level validation target is **GoalB**: the system must show that an Operating Manifest goal can become a `RequirementCandidate`, then a formal `Requirement`, then a completed declarative `WorkflowRun` with evidence. See [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md).
 

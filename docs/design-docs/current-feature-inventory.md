@@ -33,7 +33,7 @@
 当前已具备：
 
 1. Requirement 列表、搜索、状态筛选。
-2. 新建、编辑、提交、审批、拒绝、修订、取消、逻辑删除。
+2. 新建、编辑、提交、修订、取消、逻辑删除。
 3. Requirement 必须挂到正式 Project。
 4. Requirement 创建后可生成轻量 acceptance / workflow assets。
 5. `assets_status = pending | ready | failed` 用于表达资产生成状态。
@@ -41,6 +41,7 @@
 7. Submit / workflow start 后创建 declarative workflow run。
 8. Requirement detail 展示 acceptance、workflow readiness、active workflow summary 与跳转入口。
 9. Error / bug materialization 可进入 requirement pool，但会经过 intake fingerprint gate 去重和抑制。
+10. Requirement 不再有 pre-execution approval；人工决策统一进入 workflow human gate。
 
 ## 3. Declarative Workflow Factory
 
@@ -156,3 +157,23 @@
 4. `docs/design-docs/` 保存当前 canonical design。
 5. `docs/archive/` 保存历史证据、旧计划、旧设计和测试截图。
 6. Browser automation / dogfood 技能保留，用于页面验收与缺陷取证。
+
+## 10. Ops Console Frontend
+
+当前已具备：
+
+1. `/command-center` 作为 Human-Agent Control Plane 首页。
+2. 深色 cockpit AppShell 和分组导航：
+   - Strategy
+   - Intervention
+   - Execution
+   - Factory
+   - System Ops
+3. `/gates` 集中展示 pending human gates、failed / blocked workflow。
+4. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。
+5. `/factory/atoms` 从 workflow definitions 反推 agent / deterministic / terminal atom registry。
+6. `/intake` 作为需求发现入口，连接 errors、planner、forum feedback 和 watcher events。
+7. `/knowledge` 作为 artifacts / SOP Ledger 的一等入口。
+8. `/system/notifications` 展示 notification dispatcher、queue、dead letter、open fingerprint 概览。
+9. Figma / Stitch 原型视觉方向已记录在 `frontend-control-plane-figma-implementation.md`。
+10. Factory pages v1 只读，不开放在线 YAML 编辑。

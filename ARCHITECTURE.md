@@ -12,7 +12,8 @@ Canonical sources:
 4. `docs/design-docs/planning-lifecycle-operating-manifest.md`
 5. `docs/design-docs/recurring-workflow-control-plane.md`
 6. `docs/design-docs/workflow-factory-frontend-control-plane.md`
-7. `docs/design-docs/current-feature-inventory.md`
+7. `docs/design-docs/frontend-control-plane-figma-implementation.md`
+8. `docs/design-docs/current-feature-inventory.md`
 
 Historical plans, validation notes, and retired design drafts live under `docs/archive/`. Archived files are evidence, not active requirements.
 
@@ -83,10 +84,13 @@ High evidence does not bypass high risk.
 
 ## 7. Frontend Constraints
 
-1. Frontend is an Enterprise Workbench, not a mosaic of equal white cards.
+1. Frontend is a Human-Agent Control Plane, not a mosaic of equal white cards or a CRUD admin clone.
 2. Dangerous actions must use explicit confirmation UI, not browser-native `alert` or `confirm`.
 3. Pages must explain purpose, inputs, outputs, evidence, current state, and next action.
 4. Raw JSON belongs in debug views, not the default operator path.
+5. Figma/Stitch prototypes define the current visual direction: dark cockpit, restrained density, machine-readable evidence, and clear Human Oracle gates.
+6. Workflow detail must expose Agent outputs, command evidence, file changes, blackboard summaries, delivery status, and pending human gates.
+7. Factory pages are read-only until workflow spec versioning, schema validation, sandbox execution, and human approval are production-ready.
 
 ## 8. When In Doubt
 

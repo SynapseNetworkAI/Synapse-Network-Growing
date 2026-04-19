@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-dim": "#10131a",
+                    "surface-bright": "#363940",
+                    "secondary-fixed": "#6ffbbe",
+                    "on-background": "#e1e2eb",
+                    "tertiary-fixed": "#ffddb8",
+                    "surface-container-lowest": "#0b0e14",
+                    "tertiary-container": "#ca8100",
+                    "on-tertiary-fixed": "#2a1700",
+                    "surface": "#10131a",
+                    "primary": "#adc6ff",
+                    "on-surface-variant": "#c2c6d6",
+                    "on-error-container": "#ffdad6",
+                    "surface-container-highest": "#32353c",
+                    "error-container": "#93000a",
+                    "on-secondary-fixed-variant": "#005236",
+                    "inverse-surface": "#e1e2eb",
+                    "surface-tint": "#adc6ff",
+                    "primary-container": "#4d8eff",
+                    "outline-variant": "#424754",
+                    "on-primary-fixed": "#001a42",
+                    "secondary-fixed-dim": "#4edea3",
+                    "secondary-container": "#00a572",
+                    "primary-fixed-dim": "#adc6ff",
+                    "primary-fixed": "#d8e2ff",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "on-primary-container": "#00285d",
+                    "surface-container-low": "#191c22",
+                    "inverse-on-surface": "#2e3037",
+                    "on-error": "#690005",
+                    "surface-container-high": "#272a31",
+                    "inverse-primary": "#005ac2",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "on-primary": "#002e6a",
+                    "error": "#ffb4ab",
+                    "tertiary": "#ffb95f",
+                    "on-tertiary": "#472a00",
+                    "secondary": "#4edea3",
+                    "on-primary-fixed-variant": "#004395",
+                    "on-tertiary-container": "#3e2400",
+                    "on-secondary-container": "#00311f",
+                    "on-surface": "#e1e2eb",
+                    "on-secondary-fixed": "#002113",
+                    "background": "#10131a",
+                    "surface-variant": "#32353c",
+                    "outline": "#8c909f",
+                    "surface-container": "#1d2026",
+                    "on-secondary": "#003824"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"],
+                    "mono": ["JetBrains Mono"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .pulse-secondary {
+            box-shadow: 0 0 0 0 rgba(78, 222, 163, 0.4);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(78, 222, 163, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(78, 222, 163, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(78, 222, 163, 0); }
+        }
+        .recessed-panel {
+            background: linear-gradient(180deg, rgba(11, 14, 20, 1) 0%, rgba(25, 28, 34, 1) 100%);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body selection:bg-primary selection:text-on-primary">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-[#10131a] dark:bg-[#10131a] flex justify-between items-center px-6 py-3 border-b border-[#424754]/15 shadow-[0_0_40px_rgba(173,198,255,0.05)]">
+<div class="flex items-center gap-8">
+<span class="text-lg font-bold tracking-widest uppercase text-[#adc6ff] font-headline">Control Plane</span>
+<div class="hidden md:flex items-center bg-surface-container-low px-4 py-1.5 rounded border border-outline-variant/10">
+<span class="material-symbols-outlined text-on-surface-variant text-sm mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm font-mono text-on-surface w-64" placeholder="Global Search..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex gap-4">
+<span class="material-symbols-outlined text-[#e1e2eb]/60 hover:text-[#adc6ff] cursor-crosshair transition-colors" data-icon="sensors">sensors</span>
+<span class="material-symbols-outlined text-[#e1e2eb]/60 hover:text-[#adc6ff] cursor-crosshair transition-colors" data-icon="settings_input_component">settings_input_component</span>
+<span class="material-symbols-outlined text-[#e1e2eb]/60 hover:text-[#adc6ff] cursor-crosshair transition-colors" data-icon="terminal">terminal</span>
+</div>
+<img alt="Avatar" class="w-8 h-8 rounded border border-primary/20" data-alt="High-resolution portrait of a professional system administrator in a dark tech environment with blue ambient lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCHzpz1FjJRHW1HcyeAhAXjrZ7mzp5PIjhIuuCZhV-5LH3cbeSkeVjh-Z9S52r1PkyN9UqKER7Dt3fHOQAiF6ff8XLiXmBtEQc7yHSlWjZxXOBcuuUO731Ni8TN4QbYtREUxVCi7CYuoonejye6KBV4UQ_mhRwBOiCv3GTkVFLVqnBfXjtzWiqs11fI_Au2p_Dk_0DtBpWIdT239BebYBBJQsw7Ugi7t1zlfr2d84V6FWW3lBHJN4A124E-_j51ry4RMkXf0D-NNbU"/>
+</div>
+<div class="bg-gradient-to-b from-[#191c22] to-transparent h-px w-full absolute bottom-0 left-0"></div>
+</header>
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-[#0b0e14] dark:bg-[#0b0e14] border-r border-[#424754]/10 flex flex-col pt-20 pb-6 font-['Inter'] text-xs font-medium uppercase tracking-wider">
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-high flex items-center justify-center rounded">
+<span class="material-symbols-outlined text-secondary text-lg" style="font-variation-settings: 'FILL' 1;">shield</span>
+</div>
+<div>
+<h2 class="font-['JetBrains_Mono'] text-[#4edea3] text-sm">SOVEREIGN</h2>
+<p class="text-[10px] text-on-surface-variant/50">Protocol v4.0</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="dashboard_customize">dashboard_customize</span>
+<span>Command Center</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="event_note">event_note</span>
+<span>Planning</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="input">input</span>
+<span>Intake</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="security">security</span>
+<span>Oracle Gates</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="play_circle">play_circle</span>
+<span>Execution</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="local_shipping">local_shipping</span>
+<span>Delivery</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="precision_manufacturing">precision_manufacturing</span>
+<span>Factory</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[#191c22] hover:text-[#e1e2eb] transition-all group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="database">database</span>
+<span>Knowledge</span>
+</div>
+<!-- Active Navigation -->
+<div class="text-[#adc6ff] border-l-2 border-[#adc6ff] bg-[#191c22] pl-4 py-3 flex items-center gap-3 cursor-pointer group">
+<span class="material-symbols-outlined group-hover:translate-x-1 duration-150" data-icon="settings_remote">settings_remote</span>
+<span>System Ops</span>
+</div>
+</nav>
+<div class="mt-auto pt-6 border-t border-[#424754]/10">
+<div class="px-6 mb-4">
+<button class="w-full bg-[#191c22] text-[#adc6ff] py-2 text-[10px] border border-primary/20 hover:bg-primary/10 transition-colors">Initialize Sequence</button>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-2 flex items-center gap-3 cursor-pointer hover:text-[#e1e2eb] transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="gpp_maybe">gpp_maybe</span>
+<span>Security</span>
+</div>
+<div class="text-[#e1e2eb]/40 pl-4 py-2 flex items-center gap-3 cursor-pointer hover:text-[#e1e2eb] transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="receipt_long">receipt_long</span>
+<span>Logs</span>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 pt-20 p-8 min-h-screen">
+<div class="max-w-[1400px] mx-auto">
+<!-- Header Section -->
+<div class="flex justify-between items-end mb-10">
+<div>
+<h1 class="text-3xl font-extrabold tracking-tight text-on-surface mb-2 font-headline uppercase">Infrastructure Health</h1>
+<div class="flex items-center gap-4 text-on-surface-variant/60 font-mono text-xs uppercase tracking-widest">
+<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-secondary pulse-secondary"></span> Cluster: Alpha-Prime</span>
+<span class="w-1 h-1 bg-outline-variant/40 rounded-full"></span>
+<span>Uptime: 142d 12h 44m</span>
+<span class="w-1 h-1 bg-outline-variant/40 rounded-full"></span>
+<span class="text-secondary">Node Load: 42.1%</span>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="bg-surface-container-high border border-outline-variant/20 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-surface-bright transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">refresh</span> Refresh Telemetry
+                    </button>
+<button class="bg-primary text-on-primary-container px-4 py-2 text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">emergency_home</span> Disaster Recovery
+                    </button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Section 1: Scheduled Jobs (Bento Span 8) -->
+<section class="col-span-12 lg:col-span-8 bg-surface-container-low p-1 rounded-sm">
+<div class="bg-surface-container-lowest p-6 h-full">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline font-bold text-sm uppercase tracking-widest text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-lg">event_repeat</span> Scheduled Jobs
+                            </h3>
+<span class="text-[10px] font-mono text-on-surface-variant/50">Active Threads: 12</span>
+</div>
+<div class="space-y-4">
+<!-- Job Item -->
+<div class="group flex items-center justify-between p-4 bg-surface-container/30 border-l-2 border-secondary hover:bg-surface-container-high transition-all">
+<div class="flex items-center gap-4">
+<div class="bg-secondary/10 p-2 rounded">
+<span class="material-symbols-outlined text-secondary text-xl">sync</span>
+</div>
+<div>
+<h4 class="text-sm font-semibold text-on-surface">Data_Warehouse_Mirroring</h4>
+<p class="text-[10px] font-mono text-on-surface-variant">Cron: 0 0 * * * | Last Run: 22m ago</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="text-[10px] font-mono text-on-surface-variant uppercase">Success Rate</p>
+<div class="flex items-center gap-1">
+<div class="h-1.5 w-16 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[98%]"></div>
+</div>
+<span class="text-[10px] font-bold text-secondary">98%</span>
+</div>
+</div>
+<span class="bg-secondary/10 text-secondary text-[10px] px-2 py-1 border border-secondary/20 font-bold uppercase">Healthy</span>
+</div>
+</div>
+<!-- Job Item -->
+<div class="group flex items-center justify-between p-4 bg-surface-container/30 border-l-2 border-primary hover:bg-surface-container-high transition-all">
+<div class="flex items-center gap-4">
+<div class="bg-primary/10 p-2 rounded">
+<span class="material-symbols-outlined text-primary text-xl">cleaning_services</span>
+</div>
+<div>
+<h4 class="text-sm font-semibold text-on-surface">Temporary_Cache_Purge</h4>
+<p class="text-[10px] font-mono text-on-surface-variant">Cron: */15 * * * * | Next Run: 3m</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="text-[10px] font-mono text-on-surface-variant uppercase">Success Rate</p>
+<div class="flex items-center gap-1">
+<div class="h-1.5 w-16 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[100%]"></div>
+</div>
+<span class="text-[10px] font-bold text-primary">100%</span>
+</div>
+</div>
+<span class="bg-primary/10 text-primary text-[10px] px-2 py-1 border border-primary/20 font-bold uppercase">In-Queue</span>
+</div>
+</div>
+<!-- Job Item -->
+<div class="group flex items-center justify-between p-4 bg-surface-container/30 border-l-2 border-tertiary hover:bg-surface-container-high transition-all">
+<div class="flex items-center gap-4">
+<div class="bg-tertiary/10 p-2 rounded">
+<span class="material-symbols-outlined text-tertiary text-xl">analytics</span>
+</div>
+<div>
+<h4 class="text-sm font-semibold text-on-surface">Sentiment_Analytics_Aggregator</h4>
+<p class="text-[10px] font-mono text-on-surface-variant">Cron: 0 */6 * * * | Status: Retrying...</p>
+</div>
+</div>
+<div class="flex items-center gap-8">
+<div class="text-right">
+<p class="text-[10px] font-mono text-on-surface-variant uppercase">Success Rate</p>
+<div class="flex items-center gap-1">
+<div class="h-1.5 w-16 bg-surface-variant rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[74%]"></div>
+</div>
+<span class="text-[10px] font-bold text-tertiary">74%</span>
+</div>
+</div>
+<span class="bg-tertiary/10 text-tertiary text-[10px] px-2 py-1 border border-tertiary/20 font-bold uppercase">Unstable</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Section 2: System Hygiene (Bento Span 4) -->
+<section class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<div class="bg-surface-container-low p-6 flex-1 border border-outline-variant/10 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-8xl">health_metrics</span>
+</div>
+<h3 class="font-headline font-bold text-sm uppercase tracking-widest text-secondary flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">cleaning_services</span> Hygiene &amp; Hygiene
+                        </h3>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between text-[10px] font-mono uppercase text-on-surface-variant mb-2">
+<span>Data Retention (90D)</span>
+<span>4.2 TB / 10 TB</span>
+</div>
+<div class="h-1 bg-surface-container-highest rounded-full">
+<div class="h-full bg-secondary w-[42%]"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-[10px] font-mono uppercase text-on-surface-variant mb-2">
+<span>L1/L2 Cache Heat</span>
+<span>88% Optimal</span>
+</div>
+<div class="h-1 bg-surface-container-highest rounded-full">
+<div class="h-full bg-primary w-[88%]"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container-lowest p-3 border-l border-secondary/30">
+<p class="text-[10px] text-on-surface-variant/50 uppercase font-mono mb-1">Heap Use</p>
+<p class="text-xl font-bold font-mono text-secondary">2.4 GB</p>
+</div>
+<div class="bg-surface-container-lowest p-3 border-l border-primary/30">
+<p class="text-[10px] text-on-surface-variant/50 uppercase font-mono mb-1">Garbage Coll.</p>
+<p class="text-xl font-bold font-mono text-primary">Active</p>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-high p-6 h-32 border border-outline-variant/20 flex items-center justify-between">
+<div>
+<p class="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Global Sync Status</p>
+<p class="text-2xl font-black font-headline text-on-surface">NOMINAL</p>
+</div>
+<div class="w-12 h-12 rounded-full border-2 border-secondary/20 flex items-center justify-center">
+<div class="w-3 h-3 bg-secondary rounded-full pulse-secondary"></div>
+</div>
+</div>
+</section>
+<!-- Section 3: Notification Queue (Bento Span 12 - Wide Stream) -->
+<section class="col-span-12">
+<div class="bg-surface-container-low border border-outline-variant/10 rounded-sm overflow-hidden">
+<div class="px-6 py-4 bg-surface-container-high/50 border-b border-outline-variant/10 flex justify-between items-center">
+<h3 class="font-headline font-bold text-sm uppercase tracking-widest text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-lg">hub</span> Notification Queue
+                            </h3>
+<div class="flex gap-4">
+<span class="text-[10px] font-mono text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> 1.2k Sent
+                                </span>
+<span class="text-[10px] font-mono text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> 12 Pending
+                                </span>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead class="text-[10px] uppercase font-mono text-on-surface-variant/60 bg-surface-container-lowest">
+<tr>
+<th class="px-6 py-3 font-medium">Timestamp</th>
+<th class="px-6 py-3 font-medium">Protocol</th>
+<th class="px-6 py-3 font-medium">Payload Subject</th>
+<th class="px-6 py-3 font-medium">Target Node</th>
+<th class="px-6 py-3 font-medium">Latency</th>
+<th class="px-6 py-3 font-medium text-right">Status</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-surface-container transition-colors font-mono text-xs">
+<td class="px-6 py-4 text-on-surface-variant">14:22:01.442</td>
+<td class="px-6 py-4">
+<span class="bg-[#5865F2]/10 text-[#5865F2] px-2 py-0.5 rounded text-[10px] font-bold">DISCORD</span>
+</td>
+<td class="px-6 py-4 text-on-surface font-sans font-medium">Anomalous API Spike detected in US-EAST-1</td>
+<td class="px-6 py-4 text-on-surface-variant">sec-ops-channel-main</td>
+<td class="px-6 py-4 text-secondary">42ms</td>
+<td class="px-6 py-4 text-right">
+<span class="text-secondary flex items-center justify-end gap-1"><span class="material-symbols-outlined text-sm">check_circle</span> DELIVERED</span>
+</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors font-mono text-xs">
+<td class="px-6 py-4 text-on-surface-variant">14:21:58.210</td>
+<td class="px-6 py-4">
+<span class="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold">SMTP</span>
+</td>
+<td class="px-6 py-4 text-on-surface font-sans font-medium">Weekly Resource Utilization Digest</td>
+<td class="px-6 py-4 text-on-surface-variant">sysadmin@sovereign.cmd</td>
+<td class="px-6 py-4 text-secondary">156ms</td>
+<td class="px-6 py-4 text-right">
+<span class="text-secondary flex items-center justify-end gap-1"><span class="material-symbols-outlined text-sm">check_circle</span> DELIVERED</span>
+</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors font-mono text-xs bg-surface-container/10">
+<td class="px-6 py-4 text-on-surface-variant">14:21:55.002</td>
+<td class="px-6 py-4">
+<span class="bg-tertiary/10 text-tertiary px-2 py-0.5 rounded text-[10px] font-bold">LARK</span>
+</td>
+<td class="px-6 py-4 text-on-surface font-sans font-medium">Backup Sequence Initiated: DB_MASTER_PROD</td>
+<td class="px-6 py-4 text-on-surface-variant">infra-alerts-v2</td>
+<td class="px-6 py-4 text-tertiary">PENDING</td>
+<td class="px-6 py-4 text-right">
+<span class="text-tertiary flex items-center justify-end gap-1"><span class="material-symbols-outlined text-sm">hourglass_empty</span> QUEUED</span>
+</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors font-mono text-xs">
+<td class="px-6 py-4 text-on-surface-variant">14:21:40.891</td>
+<td class="px-6 py-4">
+<span class="bg-error/10 text-error px-2 py-0.5 rounded text-[10px] font-bold">WEBHOOK</span>
+</td>
+<td class="px-6 py-4 text-on-surface font-sans font-medium">Critical: Node_09_Thermal_Warning</td>
+<td class="px-6 py-4 text-on-surface-variant">internal-monitoring-endpoint</td>
+<td class="px-6 py-4 text-error">ERR_TIMED_OUT</td>
+<td class="px-6 py-4 text-right">
+<span class="text-error flex items-center justify-end gap-1 font-bold"><span class="material-symbols-outlined text-sm">error</span> RETRYING</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<!-- Reasoning Agent Block (Custom Component) -->
+<section class="col-span-12">
+<div class="bg-surface-container-lowest border-l-2 border-secondary p-6">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">psychology</span>
+<h4 class="font-mono text-xs text-secondary font-bold uppercase tracking-widest">Sovereign_Agent Reasoning</h4>
+</div>
+<div class="font-mono text-sm text-on-surface-variant/80 leading-relaxed max-w-4xl">
+<p class="mb-2">&gt; Analysing infrastructure telemetry across 4,281 metrics.</p>
+<p class="mb-2">&gt; Detected slight latency inflation in <span class="text-primary">LARK</span> notification protocol (avg. +12ms deviation from baseline).</p>
+<p class="mb-2">&gt; Recommendation: Adjust worker thread priority for <span class="text-secondary">Data_Warehouse_Mirroring</span> to avoid I/O blocking during peak intake window.</p>
+<p class="flex items-center gap-2 text-secondary">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-secondary"></span>
+                                Standing by for authorization to re-route traffic...
+                            </p>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Contextual FAB (Suppressed based on logic, but here if needed for dashboard actions) -->
+<!-- Hidden because it is an Ops Details page -->
+</body></html>

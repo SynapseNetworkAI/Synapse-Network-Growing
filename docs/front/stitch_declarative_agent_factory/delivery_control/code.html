@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline-variant": "#424754",
+                        "on-tertiary-fixed": "#2a1700",
+                        "surface-dim": "#10131a",
+                        "on-primary": "#002e6a",
+                        "outline": "#8c909f",
+                        "surface-container-low": "#191c22",
+                        "on-tertiary-container": "#3e2400",
+                        "surface-container-lowest": "#0b0e14",
+                        "surface-tint": "#adc6ff",
+                        "on-primary-fixed": "#001a42",
+                        "surface-container-highest": "#32353c",
+                        "on-tertiary": "#472a00",
+                        "secondary": "#4edea3",
+                        "tertiary-fixed": "#ffddb8",
+                        "primary": "#adc6ff",
+                        "error": "#ffb4ab",
+                        "primary-fixed-dim": "#adc6ff",
+                        "error-container": "#93000a",
+                        "surface-variant": "#32353c",
+                        "primary-fixed": "#d8e2ff",
+                        "on-secondary": "#003824",
+                        "secondary-container": "#00a572",
+                        "on-secondary-fixed": "#002113",
+                        "on-error-container": "#ffdad6",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#c2c6d6",
+                        "inverse-surface": "#e1e2eb",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-background": "#e1e2eb",
+                        "inverse-on-surface": "#2e3037",
+                        "tertiary": "#ffb95f",
+                        "surface": "#10131a",
+                        "on-surface": "#e1e2eb",
+                        "on-primary-fixed-variant": "#004395",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "on-primary-container": "#00285d",
+                        "primary-container": "#4d8eff",
+                        "surface-bright": "#363940",
+                        "secondary-fixed-dim": "#4edea3",
+                        "inverse-primary": "#005ac2",
+                        "on-secondary-container": "#00311f",
+                        "tertiary-container": "#ca8100",
+                        "secondary-fixed": "#6ffbbe",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "surface-container-high": "#272a31",
+                        "surface-container": "#1d2026",
+                        "background": "#10131a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Inter"],
+                        "mono": ["JetBrains Mono"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0b0e14; }
+        ::-webkit-scrollbar-thumb { background: #32353c; }
+    </style>
+</head>
+<body class="bg-background text-on-surface flex overflow-hidden h-screen">
+<!-- SideNavBar -->
+<aside class="bg-[#0b0e14] flex flex-col h-full w-64 py-8 space-y-2 relative border-r border-[#191c22]">
+<div class="px-6 mb-8">
+<h1 class="font-black text-2xl text-[#adc6ff] mb-1">SOVEREIGN</h1>
+<p class="font-['Inter'] font-medium text-[10px] tracking-widest text-slate-500 uppercase">OBSIDIAN PROTOCOL</p>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">dashboard_customize</span>
+<span class="font-medium text-sm tracking-tight">Command Center</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">strategy</span>
+<span class="font-medium text-sm tracking-tight">Planning</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">input</span>
+<span class="font-medium text-sm tracking-tight">Intake</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">security</span>
+<span class="font-medium text-sm tracking-tight">Oracle Gates</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">terminal</span>
+<span class="font-medium text-sm tracking-tight">Execution</span>
+</div>
+<!-- Active Tab -->
+<div class="text-[#adc6ff] bg-[#191c22] border-l-2 border-[#4edea3] shadow-[0_0_15px_rgba(78,222,163,0.1)] px-6 py-3 flex items-center gap-3 cursor-pointer">
+<span class="material-symbols-outlined text-xl" data-weight="fill" style="font-variation-settings: 'FILL' 1;">local_shipping</span>
+<span class="font-medium text-sm tracking-tight">Delivery</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">precision_manufacturing</span>
+<span class="font-medium text-sm tracking-tight">Factory</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">menu_book</span>
+<span class="font-medium text-sm tracking-tight">Knowledge</span>
+</div>
+<div class="text-slate-400 hover:text-slate-100 px-6 py-3 flex items-center gap-3 transition-all duration-150 hover:bg-[#191c22] cursor-pointer">
+<span class="material-symbols-outlined text-xl">settings</span>
+<span class="font-medium text-sm tracking-tight">System Ops</span>
+</div>
+</nav>
+<div class="px-6 pt-4 border-t border-[#191c22]">
+<button class="w-full bg-[#191c22] text-[#adc6ff] border border-outline-variant/30 py-2 text-xs font-bold tracking-widest uppercase rounded hover:bg-surface-container-high transition-colors">NEW MISSION</button>
+<div class="mt-4 flex flex-col gap-2">
+<div class="flex items-center gap-2 text-slate-500 hover:text-slate-200 text-xs cursor-pointer">
+<span class="material-symbols-outlined text-sm">help</span>
+<span>Docs</span>
+</div>
+<div class="flex items-center gap-2 text-slate-500 hover:text-slate-200 text-xs cursor-pointer">
+<span class="material-symbols-outlined text-sm">contact_support</span>
+<span>Support</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<div class="flex-1 flex flex-col min-w-0 relative">
+<!-- TopAppBar -->
+<header class="bg-[#10131a]/80 backdrop-blur-xl h-16 flex items-center justify-between px-6 sticky top-0 z-50 border-b border-[#191c22]">
+<div class="flex items-center gap-8">
+<span class="font-black tracking-tighter text-[#adc6ff] text-lg">CONTROL PLANE</span>
+<div class="flex items-center bg-surface-container-low px-3 py-1.5 rounded-sm border border-outline-variant/20">
+<span class="material-symbols-outlined text-outline text-lg">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-[10px] font-mono tracking-widest text-on-surface w-48 uppercase" placeholder="QUERY ASSETS..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4 text-slate-500">
+<span class="material-symbols-outlined hover:text-primary cursor-pointer transition-colors">health_and_safety</span>
+<span class="material-symbols-outlined hover:text-primary cursor-pointer transition-colors">monitor_heart</span>
+<span class="material-symbols-outlined hover:text-primary cursor-pointer transition-colors">payments</span>
+</div>
+<button class="bg-error-container text-on-error-container text-[10px] font-bold px-4 py-1.5 rounded-sm uppercase tracking-widest hover:brightness-110 transition-all">EMERGENCY STOP</button>
+<div class="h-8 w-8 rounded bg-surface-container-highest border border-outline-variant/50 overflow-hidden">
+<img alt="Commander Profile" class="w-full h-full object-cover" data-alt="close up professional headshot of a stern systems commander in dark futuristic clothing high contrast lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQn2B7LpsncMEYGX7e05msQdZxjE69nBM7p7BwZTSg2oGZxfp0YQWWRvzhgLsj0r_YqkaFOMv4ATPp5m_NPDSF2Wj8i-gNqIKt2WhqKYi7bvYD6D33CJJrSjW68NNrljafKgD4oo7cS0mcXqzvDMZqOQT0ioM2eN8l6GsybnwI0yc2GLabmAu4e6Lrx1w38hs1iMytbdlpnO2ZcuIVfASJYsi3DGPVNF4a9RwWDjisq50RKJmoIYBMVVu8EJjOi1XAStpVQSskSDk"/>
+</div>
+</div>
+</header>
+<main class="flex-1 p-6 overflow-y-auto grid grid-cols-12 gap-6">
+<!-- Left Panel: Active Deliveries -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<section class="bg-surface-container-low p-4 relative overflow-hidden">
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-bold text-xs tracking-widest text-primary uppercase">Active Deliveries</h2>
+<span class="font-mono text-[10px] text-secondary">LIVE_STREAM</span>
+</div>
+<div class="space-y-3">
+<!-- Active Item -->
+<div class="bg-surface-container-high border-l-2 border-primary p-3 cursor-pointer group">
+<div class="flex justify-between items-start mb-1">
+<span class="font-mono text-[10px] text-primary">PR #45</span>
+<span class="bg-secondary/10 text-secondary text-[9px] px-1.5 py-0.5 font-bold">READY</span>
+</div>
+<p class="text-sm font-semibold mb-2">Repair Gateway</p>
+<div class="flex items-center gap-2">
+<div class="flex -space-x-2">
+<div class="w-5 h-5 rounded-full border border-surface-container-low bg-surface-container-highest overflow-hidden">
+<img alt="Agent 1" class="w-full h-full object-cover" data-alt="small circular avatar of a tech developer profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWpn7-S9bqMbFxmp_mQSChYmMYblftF89diD3quFgcv1EQiDpir-NlAV0DcieP1tamhAegZ-ZtOD5GwcRcwvWS--hVpDoCQJTy3NJ3DKa7XYswvDbukiRC2wnHi9XyHT0FCbd-VSTSZa-Kn0wwcmzV6iJlCWwQqqVTedw0A2vs4ej6rw4IZJk7T7px2siliphIQIr2O1dQx_Qr5RvUUDMtrcOEL71kZmkfJGgxA5PnsVsUNuRDyrxrRfWHXot-UgjwyGw9N8mXaDo"/>
+</div>
+<div class="w-5 h-5 rounded-full border border-surface-container-low bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px]">smart_toy</span>
+</div>
+</div>
+<span class="text-[10px] text-on-surface-variant font-mono">HASH: 7a2f9..b</span>
+</div>
+</div>
+<!-- Inactive Item -->
+<div class="bg-surface-container-lowest/50 border-l border-outline-variant p-3 cursor-pointer hover:bg-surface-container-low transition-colors">
+<div class="flex justify-between items-start mb-1">
+<span class="font-mono text-[10px] text-on-surface-variant">Release v2.1.4</span>
+<span class="text-tertiary text-[9px] px-1.5 py-0.5 font-bold border border-tertiary/30">PENDING_REVIEW</span>
+</div>
+<p class="text-sm font-semibold mb-2">Growth Campaign</p>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-on-surface-variant">schedule</span>
+<span class="text-[10px] text-on-surface-variant font-mono">ETA: 14:00 UTC</span>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-surface-container-low p-4">
+<h3 class="font-bold text-[10px] tracking-widest text-on-surface-variant uppercase mb-4">Node Health Summary</h3>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container-lowest p-3 border-b border-secondary/20">
+<p class="text-[9px] font-mono text-secondary mb-1">Uptime</p>
+<p class="text-xl font-black text-on-surface">99.98%</p>
+</div>
+<div class="bg-surface-container-lowest p-3 border-b border-primary/20">
+<p class="text-[9px] font-mono text-primary mb-1">Latency</p>
+<p class="text-xl font-black text-on-surface">14ms</p>
+</div>
+</div>
+</section>
+</div>
+<!-- Right Panel: Delivery Detail for PR #45 -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<!-- Detail Header -->
+<div class="bg-surface-container-low p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="bg-primary/10 text-primary text-[10px] font-mono px-2 py-1 border border-primary/20">PR #45: REPAIR_GATEWAY</span>
+<span class="text-on-surface-variant text-xs font-mono">Merged by Agent_X-9</span>
+</div>
+<h2 class="text-2xl font-black tracking-tight text-on-surface">Sub-System Protocol Alignment</h2>
+</div>
+<div class="flex items-center gap-3">
+<button class="bg-surface-container-highest px-4 py-2 text-xs font-bold border border-outline-variant hover:bg-surface-bright transition-colors">ABORT</button>
+<button class="bg-primary text-on-primary px-6 py-2 text-xs font-bold shadow-[0_0_15px_rgba(173,198,255,0.3)] hover:brightness-110 transition-all">RE-VALIDATE</button>
+</div>
+</div>
+<!-- Bento Grid Layout for Detail Modules -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Artifact Provenance -->
+<div class="bg-surface-container-low p-5 flex flex-col">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-xl">verified_user</span>
+<h3 class="font-bold text-xs tracking-widest uppercase">Artifact Provenance</h3>
+</div>
+<div class="space-y-4">
+<!-- Reasoning Card Style -->
+<div class="bg-surface-container-lowest border-l-2 border-secondary p-4 font-mono text-xs">
+<div class="flex justify-between mb-2">
+<span class="text-secondary opacity-80">AGENT_SIGNATURE:</span>
+<span class="text-on-surface">VERIFIED</span>
+</div>
+<p class="text-on-surface-variant text-[10px] leading-relaxed">
+                                    ECDSA Key: 0x4f...9c21<br/>
+                                    Agent ID: sovereign-autonomous-compiler-v4
+                                </p>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="p-3 bg-surface-container-highest/40 flex items-center justify-between border-b border-secondary/40">
+<span class="text-[10px] font-bold uppercase tracking-tight">Lint Pass</span>
+<span class="material-symbols-outlined text-secondary text-sm">check_circle</span>
+</div>
+<div class="p-3 bg-surface-container-highest/40 flex items-center justify-between border-b border-secondary/40">
+<span class="text-[10px] font-bold uppercase tracking-tight">Security Scan</span>
+<span class="material-symbols-outlined text-secondary text-sm">shield</span>
+</div>
+</div>
+<div class="text-[10px] text-on-surface-variant font-mono bg-[#0b0e14] p-3 border border-outline-variant/10">
+<p class="mb-1 text-primary">$ scout analyze --target pr-45</p>
+<p class="text-secondary">[OK] Zero vulnerabilities found in package manifest.</p>
+<p class="text-secondary">[OK] Circular dependencies resolved.</p>
+</div>
+</div>
+</div>
+<!-- Production Observation Timeline -->
+<div class="bg-surface-container-low p-5 flex flex-col">
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-xl">monitoring</span>
+<h3 class="font-bold text-xs tracking-widest uppercase">Production Observation</h3>
+</div>
+<span class="text-[10px] font-mono text-secondary">STABLE</span>
+</div>
+<div class="flex-1 flex flex-col gap-4">
+<div class="h-32 bg-surface-container-lowest relative flex items-end justify-between px-2 pb-2 gap-1 overflow-hidden group">
+<div class="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#424754_1px,transparent_1px),linear-gradient(to_bottom,#424754_1px,transparent_1px)] bg-[size:20px_20px]"></div>
+<!-- Mock Recovery Chart -->
+<div class="w-full bg-error/20 h-[30%] absolute bottom-0"></div>
+<div class="w-full h-full flex items-end justify-between relative z-10">
+<div class="w-2 h-[20%] bg-error"></div>
+<div class="w-2 h-[15%] bg-error"></div>
+<div class="w-2 h-[25%] bg-error"></div>
+<div class="w-2 h-[45%] bg-tertiary"></div>
+<div class="w-2 h-[65%] bg-secondary"></div>
+<div class="w-2 h-[80%] bg-secondary"></div>
+<div class="w-2 h-[85%] bg-secondary"></div>
+<div class="w-2 h-[90%] bg-secondary"></div>
+<div class="w-2 h-[92%] bg-secondary"></div>
+<div class="w-2 h-[95%] bg-secondary"></div>
+</div>
+</div>
+<div class="flex justify-between text-[9px] font-mono text-on-surface-variant uppercase">
+<span>T-Minus 4h</span>
+<span>Now (Recovery detected)</span>
+</div>
+<p class="text-xs text-on-surface-variant leading-relaxed">
+                                Deploy of PR #44 caused a <span class="text-error">12% drop</span> in transaction success. Automated rollback initiated by Oracle. Recovery to 95% complete. PR #45 contains the definitive fix.
+                            </p>
+</div>
+</div>
+</div>
+<!-- Final Deployment Action -->
+<div class="bg-surface-container-high border border-error/20 p-6 flex flex-col md:flex-row items-center gap-6">
+<div class="flex-1">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-tertiary">warning</span>
+<h4 class="text-tertiary font-bold text-xs uppercase tracking-widest">High-Risk Production Commit</h4>
+</div>
+<p class="text-sm text-on-surface-variant">Commiting this artifact will immediately overwrite the gateway buffer. Rollback is inhibited during the first 60 seconds of injection.</p>
+</div>
+<button class="w-full md:w-auto bg-error text-on-error px-10 py-4 font-black uppercase tracking-[0.2em] text-sm hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_30px_rgba(255,180,171,0.2)]">
+                        Commit to Production
+                    </button>
+</div>
+</div>
+</main>
+</div>
+<!-- Right Side Telemetry (Asymmetry Pattern) -->
+<aside class="hidden xl:flex w-72 bg-[#0b0e14] flex-col border-l border-[#191c22] overflow-y-auto">
+<div class="p-6 border-b border-[#191c22]">
+<h3 class="font-bold text-[10px] tracking-widest text-primary uppercase mb-4">Network Telemetry</h3>
+<div class="space-y-4">
+<div class="flex justify-between items-center">
+<span class="text-[10px] text-on-surface-variant font-mono">NORTH_GATE</span>
+<span class="text-[10px] text-secondary font-mono">LIVE</span>
+</div>
+<div class="h-1 bg-surface-container-high rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[85%]"></div>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-[10px] text-on-surface-variant font-mono">SOUTH_GATE</span>
+<span class="text-[10px] text-tertiary font-mono">CONGESTED</span>
+</div>
+<div class="h-1 bg-surface-container-high rounded-full overflow-hidden">
+<div class="bg-tertiary h-full w-[40%]"></div>
+</div>
+</div>
+</div>
+<div class="p-6">
+<h3 class="font-bold text-[10px] tracking-widest text-on-surface-variant uppercase mb-4">System Logs</h3>
+<div class="space-y-2 font-mono text-[9px] leading-tight">
+<div class="flex gap-2 text-slate-500">
+<span>14:21:02</span>
+<span class="text-secondary">[SYS]</span>
+<span class="text-on-surface-variant">Gateway handshake initiated...</span>
+</div>
+<div class="flex gap-2 text-slate-500">
+<span>14:21:05</span>
+<span class="text-primary">[PROV]</span>
+<span class="text-on-surface-variant">Signature verified for PR #45</span>
+</div>
+<div class="flex gap-2 text-slate-500">
+<span>14:21:10</span>
+<span class="text-tertiary">[WARN]</span>
+<span class="text-on-surface-variant">Manual override requested</span>
+</div>
+<div class="flex gap-2 text-slate-500">
+<span>14:21:15</span>
+<span class="text-secondary">[SYS]</span>
+<span class="text-on-surface-variant">Telemetry stream established</span>
+</div>
+<div class="flex gap-2 text-slate-500">
+<span>14:21:22</span>
+<span class="text-on-surface-variant opacity-40">Polling sensor clusters...</span>
+</div>
+</div>
+</div>
+<div class="mt-auto p-6 bg-surface-container-low/30">
+<div class="flex items-center gap-3">
+<div class="relative">
+<div class="w-10 h-10 rounded-sm bg-surface-container-highest overflow-hidden">
+<img alt="Hardware Node" class="w-full h-full object-cover" data-alt="close up of high tech computer circuitry with glowing blue leds and metallic surfaces" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBSiidpzAg2wrLqKV4VtCcPWB86nLN3l6ttP7BrqZ0H0qna7DSOuaMOLdTiprH2Qo3Al2n7mw7xhTq7GrVGayfcCCrc01uMEZJiJP71TNcSurtbnxuTgJyTW2IRg54Wk-hupWozjbn0i1kXGwq0m4XFxVtH-_MwUjZjRO8NVXE9waUeLxuqicyWzPGB1AcYaBF5eR6l7yI6NyO7MOYVhoohU6OoJlPNsEqbTDsiwNjEhJE-oE4OKJDzs2mGtdXhxST2XeaUBuj6k2E"/>
+</div>
+<div class="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-[#0b0e14] animate-pulse"></div>
+</div>
+<div>
+<p class="text-xs font-bold text-on-surface uppercase">Core Node Alpha</p>
+<p class="text-[10px] text-on-surface-variant font-mono">Location: US-EAST-1</p>
+</div>
+</div>
+</div>
+</aside>
+</body></html>

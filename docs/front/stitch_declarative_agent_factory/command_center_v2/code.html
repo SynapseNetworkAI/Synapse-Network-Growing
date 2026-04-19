@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SOVEREIGN | Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#424754",
+                    "on-tertiary-fixed": "#2a1700",
+                    "surface-dim": "#10131a",
+                    "on-primary": "#002e6a",
+                    "outline": "#8c909f",
+                    "surface-container-low": "#191c22",
+                    "on-tertiary-container": "#3e2400",
+                    "surface-container-lowest": "#0b0e14",
+                    "surface-tint": "#adc6ff",
+                    "on-primary-fixed": "#001a42",
+                    "surface-container-highest": "#32353c",
+                    "on-tertiary": "#472a00",
+                    "secondary": "#4edea3",
+                    "tertiary-fixed": "#ffddb8",
+                    "primary": "#adc6ff",
+                    "error": "#ffb4ab",
+                    "primary-fixed-dim": "#adc6ff",
+                    "error-container": "#93000a",
+                    "surface-variant": "#32353c",
+                    "primary-fixed": "#d8e2ff",
+                    "on-secondary": "#003824",
+                    "secondary-container": "#00a572",
+                    "on-secondary-fixed": "#002113",
+                    "on-error-container": "#ffdad6",
+                    "on-error": "#690005",
+                    "on-surface-variant": "#c2c6d6",
+                    "inverse-surface": "#e1e2eb",
+                    "on-secondary-fixed-variant": "#005236",
+                    "on-background": "#e1e2eb",
+                    "inverse-on-surface": "#2e3037",
+                    "tertiary": "#ffb95f",
+                    "surface": "#10131a",
+                    "on-surface": "#e1e2eb",
+                    "on-primary-fixed-variant": "#004395",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "on-primary-container": "#00285d",
+                    "primary-container": "#4d8eff",
+                    "surface-bright": "#363940",
+                    "secondary-fixed-dim": "#4edea3",
+                    "inverse-primary": "#005ac2",
+                    "on-secondary-container": "#00311f",
+                    "tertiary-container": "#ca8100",
+                    "secondary-fixed": "#6ffbbe",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "surface-container-high": "#272a31",
+                    "surface-container": "#1d2026",
+                    "background": "#10131a"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Inter"],
+                    "body": ["Inter"],
+                    "label": ["Inter"],
+                    "mono": ["JetBrains Mono"]
+            }
+          },
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .ghost-border { border: 1px solid rgba(66, 71, 84, 0.15); }
+        .reasoning-accent { border-left: 2px solid #4edea3; }
+        .glass-panel {
+            background: rgba(29, 32, 38, 0.8);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen selection:bg-primary selection:text-on-primary">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-screen w-64 bg-[#0b0e14] flex flex-col py-8 space-y-2 z-50">
+<div class="absolute right-0 w-[1px] h-full bg-[#191c22]"></div>
+<div class="px-6 mb-8">
+<h1 class="font-black text-2xl text-[#adc6ff] mb-1">SOVEREIGN</h1>
+<p class="font-['Inter'] uppercase tracking-widest text-[10px] font-bold text-slate-500">OBSIDIAN PROTOCOL</p>
+</div>
+<nav class="flex-1 px-2 space-y-1">
+<!-- Active: Command Center -->
+<a class="flex items-center gap-3 text-[#adc6ff] bg-[#191c22] border-l-2 border-[#4edea3] shadow-[0_0_15px_rgba(78,222,163,0.1)] px-4 py-3 transition-all duration-150" href="#">
+<span class="material-symbols-outlined">dashboard_customize</span>
+<span class="font-medium text-sm tracking-tight">Command Center</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">strategy</span>
+<span class="font-medium text-sm tracking-tight">Planning</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">input</span>
+<span class="font-medium text-sm tracking-tight">Intake</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">security</span>
+<span class="font-medium text-sm tracking-tight">Oracle Gates</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-medium text-sm tracking-tight">Execution</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">local_shipping</span>
+<span class="font-medium text-sm tracking-tight">Delivery</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">precision_manufacturing</span>
+<span class="font-medium text-sm tracking-tight">Factory</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+<span class="font-medium text-sm tracking-tight">Knowledge</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-3 hover:bg-[#191c22] transition-all duration-150" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-medium text-sm tracking-tight">System Ops</span>
+</a>
+</nav>
+<div class="px-4 mt-auto space-y-4">
+<button class="w-full bg-[#adc6ff] text-[#002e6a] font-bold py-2 rounded-sm text-xs tracking-widest uppercase hover:shadow-[0_0_12px_rgba(173,198,255,0.4)] transition-all">
+                NEW MISSION
+            </button>
+<div class="pt-4 border-t border-[#191c22] space-y-1">
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-2 text-xs" href="#">
+<span class="material-symbols-outlined text-lg">help</span>
+<span>Docs</span>
+</a>
+<a class="flex items-center gap-3 text-slate-400 hover:text-slate-100 px-4 py-2 text-xs" href="#">
+<span class="material-symbols-outlined text-lg">contact_support</span>
+<span>Support</span>
+</a>
+</div>
+<div class="flex items-center gap-3 px-4 py-4">
+<div class="w-8 h-8 rounded bg-surface-container-high border border-outline-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-sm">person</span>
+</div>
+<div class="overflow-hidden">
+<p class="text-xs font-bold text-on-surface truncate uppercase tracking-tighter">System Operator</p>
+<p class="text-[10px] text-slate-500 font-mono">OP-7742</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 relative min-h-screen">
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 left-64 h-16 bg-[#10131a]/80 backdrop-blur-xl flex items-center justify-between px-6 z-40">
+<div class="absolute bottom-0 left-0 w-full h-[2px] bg-gradient-to-b from-[#191c22] to-transparent"></div>
+<div class="flex items-center gap-4">
+<div class="px-3 py-1 bg-surface-container-low rounded-sm ghost-border flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-primary">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-[10px] font-mono w-48 text-on-surface placeholder:text-slate-600" placeholder="QUERY PROTOCOL..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-slate-500 hover:text-[#adc6ff] cursor-pointer text-xl" title="health_and_safety">health_and_safety</span>
+<span class="material-symbols-outlined text-slate-500 hover:text-[#adc6ff] cursor-pointer text-xl" title="monitor_heart">monitor_heart</span>
+<span class="material-symbols-outlined text-slate-500 hover:text-[#adc6ff] cursor-pointer text-xl" title="payments">payments</span>
+</div>
+<button class="bg-error-container text-on-error-container font-black text-[10px] px-4 py-2 rounded-sm tracking-tighter hover:bg-error transition-colors">
+                    EMERGENCY STOP
+                </button>
+</div>
+</header>
+<div class="pt-24 px-8 pb-12">
+<!-- Hero Metrics: System Pulse -->
+<section class="mb-10">
+<div class="flex items-baseline gap-3 mb-6">
+<h2 class="font-black text-3xl tracking-tighter text-on-surface">System Pulse</h2>
+<div class="h-1 flex-1 bg-surface-container-low relative">
+<div class="absolute inset-0 bg-gradient-to-r from-primary/20 to-transparent"></div>
+</div>
+<span class="font-mono text-[10px] text-secondary">LIVE_TELEMETRY</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Global Success Rate -->
+<div class="bg-surface-container-low p-6 ghost-border relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-secondary">verified</span>
+</div>
+<p class="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-4">Global Success Rate</p>
+<div class="flex items-baseline gap-2">
+<span class="text-5xl font-black text-secondary tracking-tighter">99.2</span>
+<span class="text-xl font-mono text-secondary/60">%</span>
+</div>
+<div class="mt-4 h-1 bg-surface-container-lowest overflow-hidden">
+<div class="h-full bg-secondary w-[99.2%]"></div>
+</div>
+</div>
+<!-- Active Workflows -->
+<div class="bg-surface-container-low p-6 ghost-border relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-primary">dynamic_feed</span>
+</div>
+<p class="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-4">Active Workflows</p>
+<div class="flex items-baseline gap-2">
+<span class="text-5xl font-black text-primary tracking-tighter">42</span>
+<span class="text-sm font-mono text-primary/60">DEPLOYED</span>
+</div>
+<div class="mt-4 flex gap-1">
+<div class="h-1 flex-1 bg-primary"></div>
+<div class="h-1 flex-1 bg-primary"></div>
+<div class="h-1 flex-1 bg-primary"></div>
+<div class="h-1 flex-1 bg-primary/20"></div>
+<div class="h-1 flex-1 bg-primary/20"></div>
+</div>
+</div>
+<!-- Daily Budget Burn -->
+<div class="bg-surface-container-low p-6 ghost-border relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-tertiary">monetization_on</span>
+</div>
+<p class="text-[10px] font-bold text-slate-500 tracking-widest uppercase mb-4">Daily Budget Burn</p>
+<div class="flex items-baseline gap-2">
+<span class="text-4xl font-black text-on-surface tracking-tighter">$4.12</span>
+<span class="text-sm font-mono text-slate-500">/ $5.00</span>
+</div>
+<div class="mt-4 h-1 bg-surface-container-lowest overflow-hidden">
+<div class="h-full bg-tertiary w-[82.4%]"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Main Workspace -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Central Blockers -->
+<section class="lg:col-span-8">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-tertiary">warning</span>
+<h3 class="font-bold text-sm tracking-widest uppercase">Today's Blockers</h3>
+</div>
+<span class="font-mono text-[10px] text-tertiary px-2 py-0.5 bg-tertiary/10 rounded-sm">3 CRITICAL</span>
+</div>
+<div class="space-y-4">
+<!-- Gate 1 -->
+<div class="bg-surface-container-low p-5 ghost-border hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex gap-4">
+<div class="mt-1 w-2 h-2 rounded-full bg-tertiary animate-pulse"></div>
+<div>
+<p class="text-xs font-mono text-tertiary mb-1">ORACLE_GATE_ALPHA_09</p>
+<h4 class="font-bold text-on-surface mb-2">High-Risk Transaction Detected</h4>
+<p class="text-sm text-on-surface-variant max-w-lg leading-relaxed">
+                                            Threshold variance &gt; 12.4% in primary execution cluster. System waiting for manual override or reconciliation protocol.
+                                        </p>
+</div>
+</div>
+<button class="text-[10px] font-bold tracking-widest border border-tertiary/30 text-tertiary px-4 py-2 hover:bg-tertiary hover:text-on-tertiary transition-all">
+                                    RESOLVE
+                                </button>
+</div>
+</div>
+<!-- Gate 2 -->
+<div class="bg-surface-container-low p-5 ghost-border hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex gap-4">
+<div class="mt-1 w-2 h-2 rounded-full bg-tertiary animate-pulse"></div>
+<div>
+<p class="text-xs font-mono text-tertiary mb-1">ORACLE_GATE_SIGMA_02</p>
+<h4 class="font-bold text-on-surface mb-2">Anomalous Identity Pattern</h4>
+<p class="text-sm text-on-surface-variant max-w-lg leading-relaxed">
+                                            Signature mismatch during handshake. Security protocol locked further processing to prevent potential infiltration.
+                                        </p>
+</div>
+</div>
+<button class="text-[10px] font-bold tracking-widest border border-tertiary/30 text-tertiary px-4 py-2 hover:bg-tertiary hover:text-on-tertiary transition-all">
+                                    RESOLVE
+                                </button>
+</div>
+</div>
+<!-- Failed Verification -->
+<div class="bg-surface-container-low p-5 ghost-border border-l-2 border-error hover:bg-surface-container-high transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex gap-4">
+<div class="mt-1 w-2 h-2 rounded-full bg-error"></div>
+<div>
+<p class="text-xs font-mono text-error mb-1">VERIFICATION_FAILURE_77</p>
+<h4 class="font-bold text-on-surface mb-2">Protocol Integrity Check Failed</h4>
+<p class="text-sm text-on-surface-variant max-w-lg leading-relaxed">
+                                            Package delivery confirmation timed out. Checksum mismatch in local factory output logs.
+                                        </p>
+</div>
+</div>
+<button class="text-[10px] font-bold tracking-widest border border-error/30 text-error px-4 py-2 hover:bg-error hover:text-on-error transition-all">
+                                    INVESTIGATE
+                                </button>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Signal Stream -->
+<section class="lg:col-span-4">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">rss_feed</span>
+<h3 class="font-bold text-sm tracking-widest uppercase">Live Signal Stream</h3>
+</div>
+</div>
+<div class="bg-surface-container-lowest ghost-border h-[500px] overflow-y-auto p-4 space-y-4 custom-scrollbar">
+<!-- Feed Item 1 -->
+<div class="reasoning-accent bg-surface-container-low p-3">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[9px] font-mono text-secondary bg-secondary/10 px-1.5 py-0.5">INTAKE_DISCOVERY</span>
+<span class="text-[9px] font-mono text-slate-500">12:44:01</span>
+</div>
+<p class="text-xs font-mono text-on-surface leading-tight">
+<span class="text-error font-bold">&gt; ERROR SIGNAL:</span> Gateway timeout detected in Node-12. Rerouting via backup.
+                            </p>
+</div>
+<!-- Feed Item 2 -->
+<div class="bg-surface-container p-3 ghost-border">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[9px] font-mono text-primary bg-primary/10 px-1.5 py-0.5">USER_FEEDBACK</span>
+<span class="text-[9px] font-mono text-slate-500">12:42:15</span>
+</div>
+<p class="text-xs text-on-surface-variant italic">
+                                "Forum post detected: System latency observed in North Region deployment. Users reporting 2s delay."
+                            </p>
+</div>
+<!-- Feed Item 3 -->
+<div class="reasoning-accent bg-surface-container-low p-3">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[9px] font-mono text-secondary bg-secondary/10 px-1.5 py-0.5">INTAKE_DISCOVERY</span>
+<span class="text-[9px] font-mono text-slate-500">12:40:55</span>
+</div>
+<p class="text-xs font-mono text-on-surface leading-tight">
+<span class="text-secondary font-bold">&gt; NEW_DATA:</span> Oracle Sigma processed 1,200 nodes successfully.
+                            </p>
+</div>
+<!-- Feed Item 4 -->
+<div class="bg-surface-container p-3 ghost-border">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[9px] font-mono text-primary bg-primary/10 px-1.5 py-0.5">SYSTEM_MESSAGE</span>
+<span class="text-[9px] font-mono text-slate-500">12:38:22</span>
+</div>
+<p class="text-xs text-on-surface-variant">
+                                Cache cleared for Intake modules. Performance optimization complete.
+                            </p>
+</div>
+<!-- Feed Item 5 -->
+<div class="reasoning-accent bg-surface-container-low p-3">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[9px] font-mono text-secondary bg-secondary/10 px-1.5 py-0.5">INTAKE_DISCOVERY</span>
+<span class="text-[9px] font-mono text-slate-500">12:35:10</span>
+</div>
+<p class="text-xs font-mono text-on-surface leading-tight">
+<span class="text-tertiary font-bold">&gt; ADVISORY:</span> Unusually high throughput in Knowledge indexing. Monitoring.
+                            </p>
+</div>
+<!-- Fade Out -->
+<div class="h-20 bg-gradient-to-t from-surface-container-lowest to-transparent pointer-events-none sticky bottom-0"></div>
+</div>
+</section>
+</div>
+<!-- Dashboard Analytics Bottom Section -->
+<section class="mt-12">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="bg-surface-container-low p-4 ghost-border flex items-center gap-4">
+<div class="w-10 h-10 bg-secondary/10 rounded-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">memory</span>
+</div>
+<div>
+<p class="text-[9px] font-bold text-slate-500 tracking-widest uppercase">Memory Load</p>
+<p class="font-mono text-lg font-bold text-on-surface">34.2%</p>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 ghost-border flex items-center gap-4">
+<div class="w-10 h-10 bg-primary/10 rounded-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">lan</span>
+</div>
+<div>
+<p class="text-[9px] font-bold text-slate-500 tracking-widest uppercase">Node Count</p>
+<p class="font-mono text-lg font-bold text-on-surface">1,208</p>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 ghost-border flex items-center gap-4">
+<div class="w-10 h-10 bg-tertiary/10 rounded-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary">speed</span>
+</div>
+<div>
+<p class="text-[9px] font-bold text-slate-500 tracking-widest uppercase">Throughput</p>
+<p class="font-mono text-lg font-bold text-on-surface">8.4 GB/s</p>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 ghost-border flex items-center gap-4">
+<div class="w-10 h-10 bg-secondary/10 rounded-sm flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary">database</span>
+</div>
+<div>
+<p class="text-[9px] font-bold text-slate-500 tracking-widest uppercase">Storage Health</p>
+<p class="font-mono text-lg font-bold text-on-surface">Optimal</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Floating Action Button -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary text-on-primary rounded-sm shadow-[0_0_20px_rgba(173,198,255,0.3)] flex items-center justify-center group hover:scale-110 transition-all z-50">
+<span class="material-symbols-outlined text-2xl group-hover:rotate-90 transition-transform">add</span>
+</button>
+</body></html>

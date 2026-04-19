@@ -3,39 +3,42 @@
 @tailwind utilities;
 
 :root {
-  --ops-bg: #f5f7fb;
-  --ops-sidebar-bg: #f9fbff;
-  --ops-workspace-bg: #ffffff;
-  --ops-panel-subtle: #ffffff;
-  --ops-panel-strong: #ffffff;
+  --ops-bg: #10131a;
+  --ops-sidebar-bg: rgba(12, 15, 22, 0.96);
+  --ops-header-bg: rgba(16, 19, 26, 0.82);
+  --ops-workspace-bg: #10131a;
+  --ops-panel: #191c22;
+  --ops-panel-subtle: rgba(255, 255, 255, 0.035);
+  --ops-panel-strong: #272a31;
 
-  --ops-text-title: #0f172a;
-  --ops-text-body: #233247;
-  --ops-text-muted: #64748b;
-  --ops-text-caption: #94a3b8;
+  --ops-text-title: #f4f7fb;
+  --ops-text-body: #cdd6e3;
+  --ops-text-muted: #8995a7;
+  --ops-text-caption: #6f7b8f;
   --ops-text-on-dark: #e8eef8;
 
-  --ops-stroke-soft: rgba(148, 163, 184, 0.18);
-  --ops-stroke-strong: rgba(148, 163, 184, 0.34);
-  --ops-focus-ring: rgba(59, 130, 246, 0.22);
-  --ops-accent-soft: rgba(59, 130, 246, 0.12);
-  --ops-accent-strong: #2563eb;
+  --ops-stroke-soft: rgba(255, 255, 255, 0.08);
+  --ops-stroke-strong: rgba(255, 255, 255, 0.16);
+  --ops-glass-border: rgba(255, 255, 255, 0.1);
+  --ops-focus-ring: rgba(34, 211, 238, 0.22);
+  --ops-accent-soft: rgba(34, 211, 238, 0.14);
+  --ops-accent-strong: #67e8f9;
 
-  --ops-state-ready-bg: rgba(16, 185, 129, 0.12);
-  --ops-state-ready-border: rgba(16, 185, 129, 0.2);
-  --ops-state-ready-text: #047857;
-  --ops-state-running-bg: rgba(59, 130, 246, 0.12);
-  --ops-state-running-border: rgba(59, 130, 246, 0.2);
-  --ops-state-running-text: #1d4ed8;
-  --ops-state-blocked-bg: rgba(248, 113, 113, 0.12);
-  --ops-state-blocked-border: rgba(239, 68, 68, 0.22);
-  --ops-state-blocked-text: #b91c1c;
-  --ops-state-validating-bg: rgba(245, 158, 11, 0.12);
-  --ops-state-validating-border: rgba(245, 158, 11, 0.22);
-  --ops-state-validating-text: #b45309;
-  --ops-state-delivered-bg: rgba(99, 102, 241, 0.12);
-  --ops-state-delivered-border: rgba(99, 102, 241, 0.22);
-  --ops-state-delivered-text: #4338ca;
+  --ops-state-ready-bg: rgba(16, 185, 129, 0.14);
+  --ops-state-ready-border: rgba(16, 185, 129, 0.28);
+  --ops-state-ready-text: #a7f3d0;
+  --ops-state-running-bg: rgba(34, 211, 238, 0.12);
+  --ops-state-running-border: rgba(34, 211, 238, 0.24);
+  --ops-state-running-text: #a5f3fc;
+  --ops-state-blocked-bg: rgba(244, 63, 94, 0.14);
+  --ops-state-blocked-border: rgba(244, 63, 94, 0.28);
+  --ops-state-blocked-text: #fecdd3;
+  --ops-state-validating-bg: rgba(245, 158, 11, 0.14);
+  --ops-state-validating-border: rgba(245, 158, 11, 0.28);
+  --ops-state-validating-text: #fde68a;
+  --ops-state-delivered-bg: rgba(129, 140, 248, 0.14);
+  --ops-state-delivered-border: rgba(129, 140, 248, 0.28);
+  --ops-state-delivered-text: #c7d2fe;
 
   --ops-inspector-width: 360px;
   --ops-section-gap: 18px;
@@ -51,10 +54,11 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 24%),
-    linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 28%),
+    radial-gradient(circle at 70% 0%, rgba(245, 158, 11, 0.08), transparent 22%),
+    linear-gradient(180deg, #10131a 0%, #0c0f16 100%);
   color: var(--ops-text-body);
-  font-family: "Inter", "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: "Inter", "Fira Sans", "IBM Plex Sans", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -77,8 +81,9 @@ textarea {
 input,
 select,
 textarea {
-  background: white;
+  background: rgba(255, 255, 255, 0.055);
   color: var(--ops-text-body);
+  border-color: var(--ops-stroke-strong);
 }
 
 input:focus,
@@ -98,13 +103,75 @@ a:focus-visible {
 
 @layer components {
   .ops-shell {
-    background: white;
+    background: var(--ops-panel);
     border: 1px solid var(--ops-stroke-soft);
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 24px 90px rgba(0, 0, 0, 0.26);
   }
 
   .ops-section-frame {
-    background: white;
+    background: var(--ops-panel);
     box-shadow: none;
+  }
+
+  .machine-label {
+    font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  .cockpit-panel {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--ops-radius-panel);
+    border: 1px solid var(--ops-glass-border);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
+      var(--ops-panel);
+    padding: 1.25rem;
+    box-shadow: 0 24px 90px rgba(0, 0, 0, 0.22);
+  }
+
+  .cockpit-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px),
+      linear-gradient(180deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.3), transparent 55%);
+  }
+
+  .cockpit-panel > * {
+    position: relative;
+  }
+
+  .reasoning-card {
+    border-left: 3px solid rgba(34, 211, 238, 0.75);
+    border-radius: 18px;
+    border-top: 1px solid var(--ops-glass-border);
+    border-right: 1px solid var(--ops-glass-border);
+    border-bottom: 1px solid var(--ops-glass-border);
+    background:
+      linear-gradient(90deg, rgba(34, 211, 238, 0.08), transparent 34%),
+      rgba(255, 255, 255, 0.035);
+    padding: 1rem;
+  }
+
+  .reasoning-card-warning {
+    border-left-color: rgba(251, 191, 36, 0.9);
+    background:
+      linear-gradient(90deg, rgba(251, 191, 36, 0.1), transparent 34%),
+      rgba(255, 255, 255, 0.035);
+  }
+
+  .reasoning-card-danger {
+    border-left-color: rgba(251, 113, 133, 0.9);
+    background:
+      linear-gradient(90deg, rgba(251, 113, 133, 0.1), transparent 34%),
+      rgba(255, 255, 255, 0.035);
   }
 }

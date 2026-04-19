@@ -15,6 +15,8 @@ target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 
 当前后端已经具备 Declarative Workflow Factory 的核心骨架，但前端还没有把这套系统表达成一个清晰的 Operator Control Plane。
 
+The current visual implementation source is `docs/front/growing原型.fig` plus the exported Stitch prototype under `docs/front/stitch_declarative_agent_factory/`. The implementation contract is tracked in [Figma Driven Human-Agent Control Plane Frontend](frontend-control-plane-figma-implementation.md).
+
 现在页面的问题不是“缺少更多表格”，而是缺少一张用户一眼能看懂的地图：
 
 ```text

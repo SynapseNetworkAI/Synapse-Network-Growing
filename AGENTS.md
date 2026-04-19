@@ -38,6 +38,13 @@ Before substantial analysis or edits, read in this order:
 
 If the task touches workflow, planning lifecycle, scheduler, release, notification, runtime, auth, finance, settlement, or production safety, also read the relevant design doc linked from `ARCHITECTURE.md`.
 
+If the task touches Ops Console frontend, also read:
+
+1. `docs/design-docs/frontend-control-plane-figma-implementation.md`
+2. `docs/design-docs/workflow-factory-frontend-control-plane.md`
+3. `docs/ops-console-page-map-and-e2e-validation.md`
+4. `docs/front/stitch_declarative_agent_factory/obsidian_protocol/DESIGN.md`
+
 ## Operating Protocol
 
 This repository is the Company Ops control plane. New work should align to the current chain:
@@ -60,6 +67,7 @@ Rules:
 4. Drop Goal stops future investment and safe-halts unfinished work; it never reverts delivered releases.
 5. Production deploy, funds, settlement, contract, auth, external paid spend, and self-modifying deployment require human gate.
 6. Legacy `/api/tasks` and `/api/approvals` public routes are retired. Remaining fixed-step execution internals are deletion candidates, not valid extension points.
+7. Frontend must remain a Human-Agent Control Plane. Do not reintroduce flat CRUD navigation, detached candidate queues, or raw JSON as the primary operator surface.
 
 ## Capability Profiles
 
