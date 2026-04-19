@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from server.database import RequirementRow, WorkflowRunRow
+from server.database import OperatingManifestRow, ReleaseRecordRow, RequirementCandidateRow, RequirementRow, WorkflowRunRow
 from server.services.workflows import declarative
 from server.services.requirements.service import submit_requirement
 
@@ -85,6 +85,114 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     gated_response = synced_client.get("/api/workflows/runs?pending_human_gate=true")
     assert gated_response.status_code == 200
     assert any(item["id"] == payload["id"] for item in gated_response.json())
+
+
+def test_workflow_operations_summary_archive_and_completed_tab(synced_client, db_session):
+    requirement = _create_requirement(db_session)
+    create_response = synced_client.post(
+        "/api/workflows/runs",
+        json={
+            "requirement_id": int(requirement.id),
+            "workflow_key": "gateway_reliability_repair",
+            "initial_blackboard": {"trigger": {"gateway_drift_detected": True}},
+            "run_immediately": True,
+        },
+    )
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["artifact_count"] >= 1
+    assert payload["atom_count"] >= 1
+
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        workflow_run_id=int(payload["id"]),
+        status="release_ready",
+        pr_url="https://github.com/example/repo/pull/1",
+    )
+    db_session.add(release)
+    db_session.commit()
+
+    summary_response = synced_client.get("/api/workflows/runs/summary")
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["completed"] >= 1
+    assert summary["completed_today"] >= 1
+    assert "pending_candidate_count" in summary
+
+    completed_response = synced_client.get("/api/workflows/runs?tab=completed&page=1&page_size=20")
+    assert completed_response.status_code == 200
+    completed = completed_response.json()
+    item = next(row for row in completed["items"] if row["id"] == payload["id"])
+    assert item["pr_url"] == "https://github.com/example/repo/pull/1"
+    assert item["artifact_count"] >= 1
+    assert item["duration_ms"] is not None
+
+    archive_response = synced_client.post(
+        f"/api/workflows/runs/{payload['id']}/archive",
+        json={"archived_by": "tester", "reason": "done"},
+    )
+    assert archive_response.status_code == 200
+    assert archive_response.json()["archived_at"] is not None
+
+    default_response = synced_client.get("/api/workflows/runs?tab=completed&page=1&page_size=20")
+    assert all(row["id"] != payload["id"] for row in default_response.json()["items"])
+
+    archived_response = synced_client.get("/api/workflows/runs?tab=archived&page=1&page_size=20")
+    assert any(row["id"] == payload["id"] for row in archived_response.json()["items"])
+
+
+def test_workflow_empty_state_summary_exposes_pending_candidates(synced_client, db_session):
+    manifest = OperatingManifestRow(
+        manifest_key="active",
+        active_slot="global",
+        version_name="Test",
+        cycle_label="test",
+        status="active",
+        payload_json='{"goals": []}',
+    )
+    db_session.add(manifest)
+    db_session.commit()
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="community_support",
+        candidate_fingerprint="forum::bug::1",
+        title="Forum bug candidate",
+        workflow_key="gateway_reliability_repair",
+        status="pending",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    response = synced_client.get("/api/workflows/runs/summary")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pending_candidate_count"] >= 1
+    assert any(item["title"] == "Forum bug candidate" for item in payload["recent_candidates"])
+
+
+def test_workflow_followup_endpoint_creates_linked_requirement(synced_client, db_session):
+    requirement = _create_requirement(db_session)
+    create_response = synced_client.post(
+        "/api/workflows/runs",
+        json={
+            "requirement_id": int(requirement.id),
+            "workflow_key": "gateway_reliability_repair",
+            "initial_blackboard": {"trigger": {"gateway_drift_detected": True}},
+            "run_immediately": True,
+        },
+    )
+    payload = create_response.json()
+
+    followup_response = synced_client.post(
+        f"/api/workflows/runs/{payload['id']}/create-followup",
+        json={"title": "Follow-up from workflow", "operator": "tester"},
+    )
+
+    assert followup_response.status_code == 201
+    followup_id = followup_response.json()["requirement_id"]
+    followup = db_session.query(RequirementRow).filter(RequirementRow.id == followup_id).one()
+    assert followup.title == "Follow-up from workflow"
+    assert followup.linked_requirement_id == requirement.id
 
 
 def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_session):

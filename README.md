@@ -44,6 +44,7 @@ Coding agents and humans should start here:
 7. [Workflow Factory Frontend Control Plane](docs/design-docs/workflow-factory-frontend-control-plane.md) - operator UI for workflow observability.
 8. [Current Feature Inventory](docs/design-docs/current-feature-inventory.md) - implemented capability baseline.
 9. [Ops Console Usage](docs/ops-console-usage.md) - local UI/API usage notes.
+10. [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md) - page-by-page function map, tests, and GoalB dogfood validation.
 
 Historical evidence and legacy docs are intentionally moved under `docs/archive/`.
 
@@ -57,6 +58,8 @@ Historical evidence and legacy docs are intentionally moved under `docs/archive/
 6. `/errors`: error fingerprints and bug materialization state.
 7. `/projects`: project registry and delivery policy configuration.
 8. `/releases`: PR, delivery, deploy, and rollback governance.
+
+The current product-level validation target is **GoalB**: the system must show that an Operating Manifest goal can become a `RequirementCandidate`, then a formal `Requirement`, then a completed declarative `WorkflowRun` with evidence. See [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md).
 
 ## Required Runtime
 

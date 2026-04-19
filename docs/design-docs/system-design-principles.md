@@ -106,6 +106,14 @@
 4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、drawer 或 details 展开，不得成为默认主操作面板。
 5. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
 
+## 6.10 Ops Console 页面必须可测试、可截图、可追溯
+
+1. 每个主页面必须有文档说明页面职责、输入、输出、下一步动作和证据位置。
+2. 页面测试不得只断言 render 成功；必须覆盖主按钮、Tab、Drawer、详情跳转或空状态解释。
+3. 产品级 E2E 必须保留 dogfood 证据，包括截图、复现步骤、浏览器 console/network 结果和 DB lineage summary。
+4. 证明新架构可跑通时，必须沿 `Operating Manifest -> RequirementCandidate -> Requirement -> WorkflowRun -> Evidence` 验证数据穿透。
+5. 测试和 dogfood 默认禁止真实 Lark、生产发布、资金、auth、合约和外部付费副作用。
+
 ## 7. Requirement / Execution / Release 必须分面治理
 
 ### 6.1 Requirement

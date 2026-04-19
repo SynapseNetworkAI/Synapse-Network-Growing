@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail } from '../api'
+import { useToast } from '../components/workbench'
 import {
   artifactDisplayTitle,
   buildCorrectnessItems,
@@ -179,6 +180,58 @@ function MiniFact({ label, value }: Readonly<{ label: string; value: string }>) 
       <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
       <div className="mt-2 truncate text-sm font-semibold text-[color:var(--ops-text-title)]">{value}</div>
     </div>
+  )
+}
+
+function CompletionArchivePanel({
+  detail,
+  onArchive,
+  onCreateFollowup,
+}: Readonly<{
+  detail: DeclarativeWorkflowRunDetail
+  onArchive: () => void
+  onCreateFollowup: () => void
+}>) {
+  const completed = ['succeeded', 'completed', 'done'].includes(detail.status)
+  const prUrl = detail.pr_url || String(((detail.blackboard.pr || {}) as Record<string, unknown>).url || '')
+  return (
+    <Panel title="Outcome Summary" testId="workflow-outcome-summary">
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <div>
+          <p className="text-base leading-7 text-[color:var(--ops-text-title)]">
+            {completed
+              ? '这次 workflow 已进入完成档案。后续不删除运行证据，只通过归档从默认管理视图隐藏。'
+              : detail.status === 'failed'
+                ? '这次 workflow 未完成。优先检查失败 atom、verification evidence 和下一步修复建议。'
+                : detail.status === 'awaiting_operator'
+                  ? '这次 workflow 正在等待人工门禁。请在 Gates & Delivery 里处理决策。'
+                  : '这次 workflow 仍在运行或暂停中。请查看 Step Timeline 和当前 atom 输出。'}
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <MiniFact label="Atoms" value={String(detail.atom_count ?? detail.atom_invocations.length)} />
+            <MiniFact label="Artifacts" value={String(detail.artifact_count ?? detail.artifacts.length)} />
+            <MiniFact label="Human Gates" value={String(detail.human_gates.length)} />
+            <MiniFact label="Goal" value={String(detail.goal_key || '-')} />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 p-4">
+          <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Next Actions</div>
+          <div className="mt-3 grid gap-2">
+            {prUrl ? (
+              <a className="rounded-xl bg-blue-600 px-4 py-2.5 text-center text-sm font-semibold text-white" href={prUrl} target="_blank" rel="noreferrer">
+                Open PR
+              </a>
+            ) : null}
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={onCreateFollowup}>
+              Create Follow-up Requirement
+            </button>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm disabled:opacity-50" disabled={Boolean(detail.archived_at)} onClick={onArchive}>
+              {detail.archived_at ? 'Archived' : 'Archive Run'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Panel>
   )
 }
 
@@ -562,6 +615,7 @@ export default function WorkflowRunDetailPage() {
   const { id } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const toast = useToast()
   const workflowRunId = Number(id)
   const [detail, setDetail] = useState<DeclarativeWorkflowRunDetail | null>(null)
   const [definition, setDefinition] = useState<DeclarativeWorkflowDefinition | null>(null)
@@ -605,6 +659,31 @@ export default function WorkflowRunDetailPage() {
       setError(err instanceof Error ? err.message : '门禁决策失败')
     } finally {
       setBusyGateId(null)
+    }
+  }
+
+  async function archiveRun() {
+    if (!detail) return
+    try {
+      await api.archiveWorkflowRun(detail.id, { archived_by: 'operator', reason: 'Archived from workflow detail' })
+      await load()
+      toast.success('Workflow run 已归档')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '归档失败')
+    }
+  }
+
+  async function createFollowup() {
+    if (!detail) return
+    try {
+      const payload = await api.createWorkflowFollowup(detail.id, {
+        title: `Follow-up: ${detail.requirement_title || detail.workflow_key}`,
+        operator: 'operator',
+      })
+      toast.success(`已创建 follow-up requirement #${payload.requirement_id}`)
+      navigate(`/requirements/${payload.requirement_id}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '创建 follow-up 失败')
     }
   }
 
@@ -659,6 +738,7 @@ export default function WorkflowRunDetailPage() {
       {activeTab === 'overview' ? (
         <div className="space-y-5" data-testid="workflow-overview-tab">
           <RunBriefPanel detail={detail} nextAction={nextAction} />
+          <CompletionArchivePanel detail={detail} onArchive={() => archiveRun().catch(() => {})} onCreateFollowup={() => createFollowup().catch(() => {})} />
           <CorrectnessPanel detail={detail} />
           <CompactStepRail steps={steps} selectedStepKey={selectedStep?.stateKey || ''} onSelect={selectStep} />
         </div>

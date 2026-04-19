@@ -142,6 +142,17 @@ function workflowLabel(requirement: AgentRequirement) {
   return `${summary.workflow_key} · ${summary.current_state} · ${summary.status}${gate}`
 }
 
+function workflowStatusCopy(requirement: AgentRequirement) {
+  const summary = requirement.active_workflow_run_summary
+  if (!summary && requirement.assets_status === 'ready') return { title: '可启动 Workflow', action: '创建工作流' }
+  if (!summary && requirement.assets_status === 'failed') return { title: 'Workflow Assets 失败', action: '重新生成' }
+  if (!summary) return { title: 'Workflow 未生成', action: '等待 assets' }
+  if (summary.pending_human_gate_count || summary.status === 'awaiting_operator') return { title: '等待人工门禁', action: '处理 Human Gate' }
+  if (summary.status === 'failed') return { title: 'Workflow 失败', action: '查看失败原因' }
+  if (['succeeded', 'completed', 'done'].includes(summary.status)) return { title: 'Workflow 已完成', action: '查看完成证据' }
+  return { title: 'Workflow 执行中', action: '查看 Workflow' }
+}
+
 function phaseLabel(requirement: AgentRequirement) {
   if (requirement.attention_reason === 'retry_available') return '可创建新 attempt 重试'
   if (requirement.attention_reason === 'repair_delivery') return '交付门禁自动修复中'
@@ -612,7 +623,18 @@ export default function RequirementPool() {
                     <StateBadge tone={statusTone(item.state || item.status)}>{STATUS_LABEL[item.state || item.status] || item.state || item.status}</StateBadge>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">{item.priority}</td>
-                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{workflowLabel(item)} · delivery {item.current_delivery_id ?? item.latest_release_status ?? '-'}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    {(() => {
+                      const copy = workflowStatusCopy(item)
+                      return (
+                        <div>
+                          <div className="font-medium text-[color:var(--ops-text-body)]">{copy.title}</div>
+                          <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{workflowLabel(item)}</div>
+                          <div className="mt-1 text-xs text-[color:var(--ops-text-muted)]">{copy.action}</div>
+                        </div>
+                      )
+                    })()}
+                  </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap justify-end gap-2">
@@ -647,7 +669,8 @@ export default function RequirementPool() {
                       </button>
                       {item.active_workflow_run_id ? (
                         <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => navigate(`/workflows/${item.active_workflow_run_id}`)}>
-                          工作流
+                          <span>工作流</span>
+                          <span className="ml-1">· {workflowStatusCopy(item).action}</span>
                         </button>
                       ) : null}
                       {item.assets_status === 'failed' ? (

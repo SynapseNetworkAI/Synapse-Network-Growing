@@ -549,11 +549,49 @@ export interface DeclarativeWorkflowRunSummary {
   status: string
   resolution: string | null
   risk_level: string
+  goal_key?: string | null
+  operating_manifest_id?: number | null
   pending_human_gate_count: number
+  last_human_gate_decision?: string | null
   last_atom?: string | null
+  artifact_count?: number
+  atom_count?: number
+  duration_ms?: number | null
+  pr_url?: string | null
+  release_status?: string | null
   updated_at: string | null
   started_at: string | null
   completed_at: string | null
+  archived_at?: string | null
+  archived_by?: string | null
+  archive_reason?: string | null
+}
+
+export interface DeclarativeWorkflowRunPage {
+  items: DeclarativeWorkflowRunSummary[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface WorkflowRunsSummary {
+  running: number
+  needs_human: number
+  failed: number
+  completed: number
+  completed_today: number
+  pending_release: number
+  average_duration_ms: number
+  archived: number
+  pending_candidate_count: number
+  recent_candidates: Array<{
+    id: number
+    title: string
+    status: string
+    goal_key: string
+    workflow_key: string
+  }>
 }
 
 export interface DeclarativeWorkflowDefinitionState {
@@ -1743,8 +1781,13 @@ export const api = {
 
   getWorkflowDefinitions: () => request<DeclarativeWorkflowDefinition[]>('/workflows/definitions'),
   getWorkflowDefinition: (workflowKey: string) => request<DeclarativeWorkflowDefinition>(`/workflows/definitions/${encodeURIComponent(workflowKey)}`),
+  getWorkflowRunsSummary: () => request<WorkflowRunsSummary>('/workflows/runs/summary'),
   getWorkflowRuns: (filters?: {
     limit?: number
+    page?: number
+    page_size?: number
+    tab?: string
+    include_archived?: boolean
     status?: string
     workflow_key?: string
     current_state?: string
@@ -1754,6 +1797,10 @@ export const api = {
   }) => {
     const params = new URLSearchParams()
     params.set('limit', String(filters?.limit ?? 100))
+    if (filters?.page != null) params.set('page', String(filters.page))
+    if (filters?.page_size != null) params.set('page_size', String(filters.page_size))
+    if (filters?.tab) params.set('tab', filters.tab)
+    if (filters?.include_archived != null) params.set('include_archived', String(filters.include_archived))
     if (filters?.status) params.set('status', filters.status)
     if (filters?.workflow_key) params.set('workflow_key', filters.workflow_key)
     if (filters?.current_state) params.set('current_state', filters.current_state)
@@ -1762,8 +1809,37 @@ export const api = {
     if (filters?.requirement_id != null) params.set('requirement_id', String(filters.requirement_id))
     return request<DeclarativeWorkflowRunSummary[]>(`/workflows/runs?${params.toString()}`)
   },
+  getWorkflowRunsPage: (filters?: {
+    page?: number
+    page_size?: number
+    tab?: string
+    include_archived?: boolean
+    status?: string
+    workflow_key?: string
+    current_state?: string
+    risk_level?: string
+    pending_human_gate?: boolean
+    requirement_id?: number
+  }) => {
+    const params = new URLSearchParams()
+    params.set('page', String(filters?.page ?? 1))
+    params.set('page_size', String(filters?.page_size ?? 50))
+    if (filters?.tab) params.set('tab', filters.tab)
+    if (filters?.include_archived != null) params.set('include_archived', String(filters.include_archived))
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.workflow_key) params.set('workflow_key', filters.workflow_key)
+    if (filters?.current_state) params.set('current_state', filters.current_state)
+    if (filters?.risk_level) params.set('risk_level', filters.risk_level)
+    if (filters?.pending_human_gate != null) params.set('pending_human_gate', String(filters.pending_human_gate))
+    if (filters?.requirement_id != null) params.set('requirement_id', String(filters.requirement_id))
+    return request<DeclarativeWorkflowRunPage>(`/workflows/runs?${params.toString()}`)
+  },
   getWorkflowRun: (id: number) => request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}`),
   getWorkflowRunEvents: (id: number) => request<DeclarativeWorkflowEvent[]>(`/workflows/runs/${id}/events`),
+  archiveWorkflowRun: (id: number, data?: { archived_by?: string; reason?: string }) =>
+    request<DeclarativeWorkflowRunSummary>(`/workflows/runs/${id}/archive`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  createWorkflowFollowup: (id: number, data?: { title?: string; description_markdown?: string; operator?: string }) =>
+    request<{ requirement_id: number; workflow_run_id: number }>(`/workflows/runs/${id}/create-followup`, { method: 'POST', body: JSON.stringify(data || {}) }),
   decideWorkflowHumanGate: (
     workflowRunId: number,
     gateId: number,

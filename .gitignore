@@ -227,6 +227,7 @@ tmp/Synapse-Network-workdir/
 
 # agent-browser runtime state
 .agent-browser/
+dogfood-output/
 
 # Agent task runtime artifacts (session logs, event streams, git diffs)
 copilot-session.stdout.log

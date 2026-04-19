@@ -186,7 +186,7 @@ function CandidateMiniQueue({
   )
 }
 
-function GoalMissionLane({
+function GoalMissionLaneSection({
   lane,
   busy,
   onCandidateAction,
@@ -766,7 +766,7 @@ export default function PlanningPage() {
             ))}
           </div>
           {(mission?.goal_lanes || []).map((lane) => (
-            <GoalMissionLane key={lane.goal_key} lane={lane} busy={busy} onCandidateAction={actOnCandidate} onDropGoal={setDropGoal} />
+            <GoalMissionLaneSection key={lane.goal_key} lane={lane} busy={busy} onCandidateAction={actOnCandidate} onDropGoal={setDropGoal} />
           ))}
           {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-white px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
         </main>

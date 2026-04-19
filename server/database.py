@@ -559,6 +559,9 @@ class WorkflowRunRow(Base):
     planner_artifact_id = Column(Integer)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
+    archived_at = Column(DateTime)
+    archived_by = Column(Text)
+    archive_reason = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1319,6 +1322,9 @@ def _migrate(engine_):
             "risk_level": "TEXT DEFAULT 'normal'",
             "retry_counters_json": "TEXT DEFAULT '{}'",
             "blackboard_json": "TEXT DEFAULT '{}'",
+            "archived_at": "DATETIME",
+            "archived_by": "TEXT",
+            "archive_reason": "TEXT",
         }
         for col, col_type in workflow_run_cols.items():
             if col not in existing:

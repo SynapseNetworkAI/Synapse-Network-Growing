@@ -11,10 +11,13 @@ from server.database import RequirementRow, get_db
 from server.services.workflows.declarative import (
     WorkflowRuntimeError,
     WorkflowSpecError,
+    archive_workflow_run,
+    create_workflow_followup_requirement,
     create_declarative_workflow_run,
     decide_human_gate,
     list_workflow_definitions,
     list_workflow_runs,
+    workflow_runs_summary,
     workflow_definition_detail,
     workflow_run_detail,
 )
@@ -41,6 +44,17 @@ class HumanGateDecisionRequest(BaseModel):
     comment: str = ""
 
 
+class WorkflowRunArchiveRequest(BaseModel):
+    archived_by: str = "operator"
+    reason: str = ""
+
+
+class WorkflowRunFollowupRequest(BaseModel):
+    title: str | None = None
+    description_markdown: str | None = None
+    operator: str = "operator"
+
+
 @router.get("/definitions")
 def list_workflow_definitions_endpoint(db: Session = Depends(get_db)):
     return list_workflow_definitions(db)
@@ -57,6 +71,10 @@ def get_workflow_definition_endpoint(workflow_key: str, db: Session = Depends(ge
 @router.get("/runs")
 def list_workflow_runs_endpoint(
     limit: int = 100,
+    page: int | None = None,
+    page_size: int | None = None,
+    tab: str | None = None,
+    include_archived: bool = False,
     status: str | None = None,
     workflow_key: str | None = None,
     current_state: str | None = None,
@@ -68,13 +86,22 @@ def list_workflow_runs_endpoint(
     return list_workflow_runs(
         db,
         limit=limit,
+        page=page or 1,
+        page_size=page_size,
+        tab=tab,
         status=status,
         workflow_key=workflow_key,
         current_state=current_state,
         risk_level=risk_level,
         pending_human_gate=pending_human_gate,
         requirement_id=requirement_id,
+        include_archived=include_archived,
     )
+
+
+@router.get("/runs/summary")
+def workflow_runs_summary_endpoint(db: Session = Depends(get_db)):
+    return workflow_runs_summary(db)
 
 
 @router.post("/runs", status_code=201)
@@ -96,6 +123,42 @@ def create_workflow_run_endpoint(body: WorkflowRunCreateRequest, db: Session = D
     except (WorkflowRuntimeError, WorkflowSpecError, ValueError) as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/archive")
+def archive_workflow_run_endpoint(
+    workflow_run_id: int,
+    body: WorkflowRunArchiveRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = archive_workflow_run(db, workflow_run_id, archived_by=body.archived_by, reason=body.reason)
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/create-followup", status_code=201)
+def create_workflow_followup_endpoint(
+    workflow_run_id: int,
+    body: WorkflowRunFollowupRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = create_workflow_followup_requirement(
+            db,
+            workflow_run_id,
+            title=body.title,
+            description_markdown=body.description_markdown,
+            operator=body.operator,
+        )
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/runs/{workflow_run_id}")

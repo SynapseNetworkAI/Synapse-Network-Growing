@@ -19,6 +19,8 @@ from server.database import (
     HumanGateRequestRow,
     NotificationDeliveryRow,
     NotificationFingerprintRow,
+    ReleaseRecordRow,
+    RequirementCandidateRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowDefinitionRow,
@@ -360,20 +362,128 @@ def workflow_definition_detail(db: Session, workflow_key: str) -> dict[str, Any]
     }
 
 
+def _terminal_statuses() -> set[str]:
+    return {"succeeded", "completed", "done", "failed", "cancelled"}
+
+
+def _workflow_duration_ms(row: WorkflowRunRow) -> int | None:
+    started = getattr(row, "started_at", None)
+    completed = getattr(row, "completed_at", None)
+    if not started or not completed:
+        return None
+    return max(0, int((completed - started).total_seconds() * 1000))
+
+
+def _latest_release_for_run(db: Session, row: WorkflowRunRow) -> ReleaseRecordRow | None:
+    release = (
+        db.query(ReleaseRecordRow)
+        .filter(ReleaseRecordRow.workflow_run_id == int(row.id))
+        .order_by(ReleaseRecordRow.id.desc())
+        .first()
+    )
+    if release is not None:
+        return release
+    return (
+        db.query(ReleaseRecordRow)
+        .filter(ReleaseRecordRow.requirement_id == int(row.requirement_id))
+        .order_by(ReleaseRecordRow.id.desc())
+        .first()
+    )
+
+
+def _workflow_run_summary_item(
+    db: Session,
+    row: WorkflowRunRow,
+    *,
+    requirement: RequirementRow | None = None,
+) -> dict[str, Any]:
+    """Build the operator-facing workflow run row used by lists and detail."""
+
+    pending_gate_count = (
+        db.query(HumanGateRequestRow)
+        .filter(
+            HumanGateRequestRow.workflow_run_id == int(row.id),
+            HumanGateRequestRow.status == "pending",
+        )
+        .count()
+    )
+    gate = (
+        db.query(HumanGateRequestRow)
+        .filter(HumanGateRequestRow.workflow_run_id == int(row.id))
+        .order_by(HumanGateRequestRow.id.desc())
+        .first()
+    )
+    last_invocation = (
+        db.query(AtomInvocationRow)
+        .filter(AtomInvocationRow.workflow_run_id == int(row.id))
+        .order_by(AtomInvocationRow.id.desc())
+        .first()
+    )
+    artifact_count = db.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == int(row.id)).count()
+    atom_count = db.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == int(row.id)).count()
+    release = _latest_release_for_run(db, row)
+    if requirement is None:
+        requirement = db.query(RequirementRow).filter(RequirementRow.id == int(row.requirement_id)).first()
+    return {
+        "id": int(row.id),
+        "requirement_id": int(row.requirement_id),
+        "requirement_title": str(getattr(requirement, "title", "") or ""),
+        "workflow_key": row.workflow_key,
+        "current_state": row.current_state,
+        "status": row.status,
+        "resolution": row.resolution,
+        "risk_level": row.risk_level,
+        "goal_key": str(getattr(row, "goal_key", "") or getattr(requirement, "goal_key", "") or "") or None,
+        "operating_manifest_id": int(getattr(row, "operating_manifest_id", 0) or getattr(requirement, "operating_manifest_id", 0) or 0) or None,
+        "pending_human_gate_count": int(pending_gate_count or 0),
+        "last_human_gate_decision": str(getattr(gate, "decision", "") or "") or None,
+        "last_atom": str(getattr(last_invocation, "atom_key", "") or "") or None,
+        "artifact_count": int(artifact_count or 0),
+        "atom_count": int(atom_count or 0),
+        "duration_ms": _workflow_duration_ms(row),
+        "pr_url": str(getattr(release, "pr_url", "") or "") or None,
+        "release_status": str(getattr(release, "status", "") or "") or None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+        "archived_at": row.archived_at.isoformat() if getattr(row, "archived_at", None) else None,
+        "archived_by": str(getattr(row, "archived_by", "") or "") or None,
+        "archive_reason": str(getattr(row, "archive_reason", "") or "") or None,
+    }
+
+
 def list_workflow_runs(
     db: Session,
     *,
     limit: int = 100,
+    page: int = 1,
+    page_size: int | None = None,
+    tab: str | None = None,
     status: str | None = None,
     workflow_key: str | None = None,
     current_state: str | None = None,
     risk_level: str | None = None,
     pending_human_gate: bool | None = None,
     requirement_id: int | None = None,
-) -> list[dict[str, Any]]:
+    include_archived: bool = False,
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Return recent declarative workflow runs for the ops UI."""
 
     query = db.query(WorkflowRunRow).filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
+    normalized_tab = str(tab or "").strip().lower()
+    if not include_archived and normalized_tab != "archived":
+        query = query.filter(WorkflowRunRow.archived_at.is_(None))
+    if normalized_tab == "active":
+        query = query.filter(WorkflowRunRow.status.in_(["pending", "running", "paused"]))
+    elif normalized_tab in {"needs_human", "human"}:
+        query = query.filter(WorkflowRunRow.status == "awaiting_operator")
+        pending_human_gate = True if pending_human_gate is None else pending_human_gate
+    elif normalized_tab == "failed":
+        query = query.filter(WorkflowRunRow.status == "failed")
+    elif normalized_tab == "completed":
+        query = query.filter(WorkflowRunRow.status.in_(["succeeded", "completed", "done"]))
+    elif normalized_tab == "archived":
+        query = query.filter(WorkflowRunRow.archived_at.isnot(None))
     if status:
         query = query.filter(WorkflowRunRow.status == status)
     if workflow_key:
@@ -384,7 +494,18 @@ def list_workflow_runs(
         query = query.filter(WorkflowRunRow.risk_level == risk_level)
     if requirement_id:
         query = query.filter(WorkflowRunRow.requirement_id == int(requirement_id))
-    rows = query.order_by(WorkflowRunRow.id.desc()).limit(max(1, min(int(limit or 100), 500))).all()
+    if pending_human_gate is True:
+        query = query.join(HumanGateRequestRow).filter(HumanGateRequestRow.status == "pending")
+    elif pending_human_gate is False:
+        pending_subquery = db.query(HumanGateRequestRow.workflow_run_id).filter(HumanGateRequestRow.status == "pending")
+        query = query.filter(~WorkflowRunRow.id.in_(pending_subquery))
+    total = query.count()
+    if page_size is not None:
+        safe_page_size = max(1, min(int(page_size or 50), 200))
+        safe_page = max(1, int(page or 1))
+        rows = query.order_by(WorkflowRunRow.id.desc()).offset((safe_page - 1) * safe_page_size).limit(safe_page_size).all()
+    else:
+        rows = query.order_by(WorkflowRunRow.id.desc()).limit(max(1, min(int(limit or 100), 500))).all()
     requirement_ids = [int(row.requirement_id) for row in rows]
     requirements = {
         int(item.id): item
@@ -392,39 +513,124 @@ def list_workflow_runs(
     } if requirement_ids else {}
     result: list[dict[str, Any]] = []
     for row in rows:
-        pending_gate_count = (
-            db.query(HumanGateRequestRow)
-            .filter(
-                HumanGateRequestRow.workflow_run_id == int(row.id),
-                HumanGateRequestRow.status == "pending",
-            )
-            .count()
-        )
-        requirement = requirements.get(int(row.requirement_id))
-        last_invocation = (
-            db.query(AtomInvocationRow)
-            .filter(AtomInvocationRow.workflow_run_id == int(row.id))
-            .order_by(AtomInvocationRow.id.desc())
-            .first()
-        )
-        item = {
-                "id": int(row.id),
-                "requirement_id": int(row.requirement_id),
-                "requirement_title": str(getattr(requirement, "title", "") or ""),
-                "workflow_key": row.workflow_key,
-                "current_state": row.current_state,
-                "status": row.status,
-                "resolution": row.resolution,
-                "risk_level": row.risk_level,
-                "pending_human_gate_count": int(pending_gate_count or 0),
-                "last_atom": str(getattr(last_invocation, "atom_key", "") or "") or None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                "started_at": row.started_at.isoformat() if row.started_at else None,
-                "completed_at": row.completed_at.isoformat() if row.completed_at else None,
-        }
-        if pending_human_gate is None or bool(pending_gate_count) is bool(pending_human_gate):
-            result.append(item)
-    return result
+        result.append(_workflow_run_summary_item(db, row, requirement=requirements.get(int(row.requirement_id))))
+    if page_size is None:
+        return result
+    return {
+        "items": result,
+        "total": int(total),
+        "page": max(1, int(page or 1)),
+        "page_size": max(1, min(int(page_size or 50), 200)),
+        "total_pages": max(1, (int(total) + max(1, min(int(page_size or 50), 200)) - 1) // max(1, min(int(page_size or 50), 200))),
+    }
+
+
+def workflow_runs_summary(db: Session) -> dict[str, Any]:
+    """Return high-level workflow operations center stats and empty-state context."""
+
+    base = db.query(WorkflowRunRow).filter(
+        WorkflowRunRow.workflow_key != "legacy_fixed_step",
+        WorkflowRunRow.archived_at.is_(None),
+    )
+    all_rows = base.all()
+    now = utcnow()
+    durations = [_workflow_duration_ms(row) for row in all_rows if _workflow_duration_ms(row) is not None]
+    completed_today = [
+        row for row in all_rows
+        if row.completed_at is not None and row.completed_at.date() == now.date() and row.status in {"succeeded", "completed", "done"}
+    ]
+    pending_candidates = (
+        db.query(RequirementCandidateRow)
+        .filter(RequirementCandidateRow.status.in_(["pending", "approved"]))
+        .order_by(RequirementCandidateRow.id.desc())
+        .limit(5)
+        .all()
+    )
+    return {
+        "running": sum(1 for row in all_rows if row.status in {"pending", "running", "paused"}),
+        "needs_human": sum(1 for row in all_rows if row.status == "awaiting_operator"),
+        "failed": sum(1 for row in all_rows if row.status == "failed"),
+        "completed": sum(1 for row in all_rows if row.status in {"succeeded", "completed", "done"}),
+        "completed_today": len(completed_today),
+        "pending_release": db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(["ready", "release_ready", "blocked"])).count(),
+        "average_duration_ms": int(sum(durations) / len(durations)) if durations else 0,
+        "archived": db.query(WorkflowRunRow).filter(WorkflowRunRow.archived_at.isnot(None)).count(),
+        "pending_candidate_count": db.query(RequirementCandidateRow).filter(RequirementCandidateRow.status.in_(["pending", "approved"])).count(),
+        "recent_candidates": [
+            {
+                "id": int(candidate.id),
+                "title": candidate.title,
+                "status": candidate.status,
+                "goal_key": candidate.goal_key,
+                "workflow_key": candidate.workflow_key,
+            }
+            for candidate in pending_candidates
+        ],
+    }
+
+
+def archive_workflow_run(db: Session, workflow_run_id: int, *, archived_by: str = "operator", reason: str = "") -> dict[str, Any]:
+    """Hide a workflow run from the default operations list without deleting evidence."""
+
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(workflow_run_id)).first()
+    if run is None:
+        raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
+    run.archived_at = run.archived_at or utcnow()
+    run.archived_by = archived_by or "operator"
+    run.archive_reason = reason or "archived from Workflow Operations Center"
+    run.updated_at = utcnow()
+    db.flush()
+    return _workflow_run_summary_item(db, run)
+
+
+def create_workflow_followup_requirement(
+    db: Session,
+    workflow_run_id: int,
+    *,
+    title: str | None = None,
+    description_markdown: str | None = None,
+    operator: str = "operator",
+) -> dict[str, Any]:
+    """Create a follow-up requirement linked to a workflow run."""
+
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(workflow_run_id)).first()
+    if run is None:
+        raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
+    if requirement is None:
+        raise WorkflowRuntimeError(f"requirement not found for workflow run: {workflow_run_id}")
+    followup = RequirementRow(
+        title=title or f"Follow-up: {requirement.title}",
+        description_markdown=description_markdown or (
+            f"Follow-up created from workflow run #{int(run.id)}.\n\n"
+            f"Original requirement #{int(requirement.id)}: {requirement.title}\n\n"
+            "Review the completed workflow evidence and define the next focused action."
+        ),
+        status="planning",
+        phase="planning",
+        workflow_state="planning",
+        priority=str(requirement.priority or "normal"),
+        source="workflow_followup",
+        source_ref=f"workflow_run:{int(run.id)}",
+        operating_manifest_id=getattr(run, "operating_manifest_id", None) or getattr(requirement, "operating_manifest_id", None),
+        goal_key=getattr(run, "goal_key", None) or getattr(requirement, "goal_key", None),
+        linked_requirement_id=int(requirement.id),
+        project_id=getattr(requirement, "project_id", None),
+        project_key=getattr(requirement, "project_key", None),
+        project_display_name=getattr(requirement, "project_display_name", None),
+        target_project_path=getattr(requirement, "target_project_path", None),
+        target_project_path_override=getattr(requirement, "target_project_path_override", None),
+        intake_metadata_json=_json_dump({
+            "created_from": "workflow_followup",
+            "workflow_run_id": int(run.id),
+            "operator": operator,
+        }),
+    )
+    db.add(followup)
+    db.flush()
+    requirement.followup_requirement_id = int(followup.id)
+    db.flush()
+    return {"requirement_id": int(followup.id), "workflow_run_id": int(run.id)}
 
 
 def create_declarative_workflow_run(
@@ -1274,7 +1480,9 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
     fingerprint_by_key = _notification_fingerprints_for_deliveries(db, notification_rows)
     pending_gate_count = sum(1 for gate in gates if str(gate.status or "") == "pending")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
+    summary = _workflow_run_summary_item(db, run, requirement=requirement)
     return {
+        **summary,
         "id": int(run.id),
         "requirement_id": int(run.requirement_id),
         "requirement_title": str(getattr(requirement, "title", "") or ""),

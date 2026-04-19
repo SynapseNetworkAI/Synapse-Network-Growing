@@ -36,6 +36,7 @@ from server.services.planning.lifecycle import (
     reject_candidate,
     run_planner_sweep,
     save_active_manifest,
+    sweep_to_dict,
 )
 
 
@@ -157,7 +158,7 @@ def get_goal_rollup(manifest_id: int, goal_key: str, db: Session = Depends(get_d
 @router.post("/sweeps/run", response_model=PlannerSweepOut)
 def post_run_planner_sweep(body: PlannerSweepRunRequest, db: Session = Depends(get_db)):
     try:
-        return run_planner_sweep(db, dry_run=body.dry_run, triggered_by=body.triggered_by)
+        return sweep_to_dict(run_planner_sweep(db, dry_run=body.dry_run, triggered_by=body.triggered_by))
     except ValueError as exc:
         raise _bad_request(exc) from exc
 

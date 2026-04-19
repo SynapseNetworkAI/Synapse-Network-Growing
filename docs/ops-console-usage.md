@@ -55,6 +55,10 @@ intake -> execute -> validate -> deliver
 
 `docs/design-docs/current-feature-inventory.md`
 
+页面级功能地图、点击测试矩阵和 GoalB 端到端验证见：
+
+`docs/ops-console-page-map-and-e2e-validation.md`
+
 ### 1.1 页面骨架规则
 
 当前正式工作台骨架统一为：
@@ -69,6 +73,17 @@ intake -> execute -> validate -> deliver
    只在确实需要时展示运行态、incident 或 deployment 轨迹。
 
 如果一个页面看起来像“很多大白卡平铺”，说明它偏离了当前正式设计方向。
+
+### 1.2 页面验证规则
+
+每个主页面都必须能回答四个问题：
+
+1. 这个页面帮 operator 做什么决策？
+2. 页面读取什么输入？
+3. 页面产出什么状态变化或证据？
+4. 下一步动作在哪里完成？
+
+页面测试不能只断言“能渲染”。每个页面至少需要覆盖主按钮/Tab/Drawer/详情跳转的点击行为，并用 API 或数据库状态证明点击结果。产品级验收使用 dogfood 证据：截图、可复现步骤、浏览器 console/network 记录和 DB lineage summary。
 
 ## 2. 需求面
 
