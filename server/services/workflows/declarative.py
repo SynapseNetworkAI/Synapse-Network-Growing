@@ -1557,6 +1557,8 @@ def _execute_state_atom(
         raise
     output_key = str(state.get("output_key") or state_key).strip()
     writes = dict(result.writes or {})
+    forced_artifacts = _ensure_verification_command_evidence(context, output_key=output_key, writes=writes)
+    combined_artifacts = [*(str(item) for item in result.artifacts), *forced_artifacts]
     if output_key:
         blackboard[output_key] = writes.get(output_key, writes)
     blackboard.update(writes)
@@ -1566,7 +1568,7 @@ def _execute_state_atom(
         "summary": result.summary,
         "output_key": output_key,
         "writes": writes,
-        "artifacts": list(result.artifacts),
+        "artifacts": combined_artifacts,
         "risk_flags": list(result.risk_flags),
     }
     if result.risk_flags:
@@ -1592,7 +1594,7 @@ def _execute_state_atom(
         )
         artifact_ids.append(int(artifact.id))
         blackboard.setdefault("artifacts", {})[f"{state_key}_raw_output_artifact_id"] = int(artifact.id)
-    for artifact_id in result.artifacts:
+    for artifact_id in combined_artifacts:
         try:
             artifact_ids.append(int(artifact_id))
         except (TypeError, ValueError):
@@ -1606,6 +1608,72 @@ def _execute_state_atom(
     db.flush()
     if state_key == "open_pr" and isinstance(blackboard.get("pr"), Mapping):
         _notify_workflow_pr_delivery(db, workflow_run, requirement, state_key, blackboard)
+
+
+def _ensure_verification_command_evidence(
+    ctx: WorkflowContext,
+    *,
+    output_key: str,
+    writes: dict[str, Any],
+) -> list[str]:
+    """Guarantee verification atoms leave operator-inspectable command evidence."""
+
+    atom_key = str(ctx.state_spec.get("atom") or ctx.state_spec.get("agent") or "")
+    is_verification_state = (
+        output_key == "verification"
+        or ctx.state_key == "verify"
+        or "verification" in atom_key
+        or "verify" in atom_key
+    )
+    if not is_verification_state:
+        return []
+
+    nested = writes.get("verification") if isinstance(writes.get("verification"), Mapping) else None
+    if isinstance(nested, Mapping):
+        verification_payload = dict(nested)
+        target = "nested"
+    else:
+        verification_payload = dict(writes)
+        target = "root"
+
+    status = str(verification_payload.get("status") or "").strip().lower()
+    if status not in {"passed", "failed"}:
+        return []
+    existing = verification_payload.get("command_results") or verification_payload.get("commands")
+    if isinstance(existing, list) and existing:
+        return []
+
+    command = str(
+        verification_payload.get("command")
+        or verification_payload.get("failed_command")
+        or ctx.state_spec.get("verification_command")
+        or ctx.state_spec.get("command")
+        or f"{atom_key or ctx.state_key} evidence contract"
+    )
+    command_result = _record_command_result_artifact(
+        ctx,
+        command=command,
+        purpose="Auto-recorded by workflow runner: verification atoms must persist command evidence.",
+        exit_code=0 if status == "passed" else 1,
+        simulated=True,
+        stdout_excerpt=(
+            f"verification.status={status}; command evidence was auto-recorded by the workflow runner contract."
+            if status == "passed"
+            else ""
+        ),
+        stderr_excerpt=(
+            f"verification.status={status}; command evidence was auto-recorded by the workflow runner contract."
+            if status == "failed"
+            else ""
+        ),
+    )
+    verification_payload["command"] = command
+    verification_payload["command_results"] = [command_result]
+    if target == "nested":
+        writes["verification"] = verification_payload
+    else:
+        writes.update(verification_payload)
+    return [str(command_result["log_artifact_id"])]
 
 
 def _select_next_state(

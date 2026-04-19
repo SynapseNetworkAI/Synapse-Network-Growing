@@ -181,8 +181,13 @@ function WorkflowRunsTable({
                     <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/workflows/${item.id}`)}>
                       查看
                     </button>
-                    <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onCreateFollowup(item)}>
-                      Follow-up
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                      title="创建一个新的后续需求，用来处理当前 workflow 之外的遗留事项。"
+                      onClick={() => onCreateFollowup(item)}
+                    >
+                      后续需求
                     </button>
                     {tab !== 'archived' ? (
                       <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onArchive(item)}>
@@ -311,10 +316,10 @@ export default function WorkflowRunsPage() {
   async function createFollowup(item: DeclarativeWorkflowRunSummary) {
     try {
       const payload = await api.createWorkflowFollowup(item.id, {
-        title: `Follow-up: ${item.requirement_title || item.workflow_key}`,
+        title: `后续需求：${item.requirement_title || item.workflow_key}`,
         operator: 'operator',
       })
-      toast.success(`已创建 follow-up requirement #${payload.requirement_id}`)
+      toast.success(`已创建后续需求 #${payload.requirement_id}`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '创建 follow-up 失败')
     }

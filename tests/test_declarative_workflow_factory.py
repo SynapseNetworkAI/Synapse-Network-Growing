@@ -292,6 +292,14 @@ def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):
     blackboard = workflow_blackboard(run)
     assert blackboard["gate"]["decision"] == "auto_flow"
     assert blackboard["observation"]["restored"] is True
+    assert blackboard["verification"]["status"] == "passed"
+    assert blackboard["verification"]["command_results"][0]["exit_code"] == 0
+    assert blackboard["verification"]["command_results"][0]["simulated"] is True
+    command_artifacts = db_session.query(WorkflowArtifactRow).filter(
+        WorkflowArtifactRow.workflow_run_id == run.id,
+        WorkflowArtifactRow.artifact_type == "workflow_command_result",
+    ).all()
+    assert command_artifacts
     deliveries = db_session.query(NotificationDeliveryRow).all()
     assert {"pr_opened", "workflow_run_succeeded"} <= {row.event_type for row in deliveries}
     assert "approval" not in {row.channel for row in deliveries}

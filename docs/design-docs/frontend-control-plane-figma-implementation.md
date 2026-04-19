@@ -71,6 +71,18 @@ System Ops
 - High-risk gates use amber or rose treatments and must expose evidence.
 - Raw JSON must not be the primary UI; it belongs in Debug drawers/tabs.
 
+## Readability Contract
+
+Dark cockpit pages must be readable before they are visually clever. Any frontend change to Ops Console must follow these rules:
+
+- Do not place dark text on remapped light surfaces. Legacy Tailwind classes such as `text-slate-900`, `text-gray-900`, `text-black`, and `prose` content must resolve to `--ops-text-title` or `--ops-text-body`.
+- Do not use `opacity-50/60/70` as the primary disabled or secondary-text treatment. Disabled controls must still explain their state with `--ops-text-caption` and an explicit label.
+- Markdown and rich text blocks must use dark-mode prose tokens. Requirement descriptions, acceptance criteria, done criteria, expected evidence, and scope constraints must be readable on `--ops-panel`.
+- Warning/status pills must use dark cockpit surfaces plus high-contrast text. Do not depend on pastel `bg-*-50` colors being visible.
+- Buttons that create new business objects must use operator language. For example, use `创建后续需求` with helper text instead of the ambiguous `Create Follow-up Requirement`.
+- `Open PR` must link to a real GitHub PR URL when delivery is real. If delivery is simulated, the page must say so clearly and must not imply an external PR exists.
+- Workflow verification must display command evidence. A completed run without command evidence is not considered fully observable.
+
 ## Page Contracts
 
 ### Command Center

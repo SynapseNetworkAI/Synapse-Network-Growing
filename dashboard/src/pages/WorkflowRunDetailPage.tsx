@@ -205,7 +205,7 @@ function CompletionArchivePanel({
   onCreateFollowup: () => void
 }>) {
   const completed = isTrulyCompleted(detail)
-  const prUrl = detail.pr_url || String(((detail.blackboard.pr || {}) as Record<string, unknown>).url || '')
+  const prUrl = detail.delivery_summary?.pr_url || detail.pr_url || String(((detail.blackboard.pr || {}) as Record<string, unknown>).url || '')
   const archiveLabel = hasPendingGate(detail) ? 'Pause / Hide from active' : 'Archive Run'
   return (
     <Panel title="Outcome Summary" testId="workflow-outcome-summary">
@@ -229,16 +229,24 @@ function CompletionArchivePanel({
         </div>
         <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Next Actions</div>
+          <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">
+            后续需求用于把本次 workflow 未覆盖的新问题、遗留风险或下一步工作重新放回 Requirement 链路；它不会修改当前 run 的完成状态。
+          </p>
           <div className="mt-3 grid gap-2">
             {prUrl ? (
               <a className="rounded-xl bg-blue-600 px-4 py-2.5 text-center text-sm font-semibold text-white" href={prUrl} target="_blank" rel="noreferrer">
                 Open PR
               </a>
             ) : null}
-            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={onCreateFollowup}>
-              Create Follow-up Requirement
+            <button
+              type="button"
+              className="rounded-xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-2.5 text-sm font-medium text-[color:var(--ops-text-body)] hover:bg-[color:var(--ops-panel-strong)]"
+              title="创建一个新的后续需求，用于处理当前 workflow 之外的遗留事项或下一步动作。"
+              onClick={onCreateFollowup}
+            >
+              创建后续需求
             </button>
-            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm disabled:opacity-50" disabled={Boolean(detail.archived_at)} onClick={onArchive}>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-2.5 text-sm text-[color:var(--ops-text-body)] hover:bg-[color:var(--ops-panel-strong)] disabled:bg-[color:var(--ops-panel-subtle)]" disabled={Boolean(detail.archived_at)} onClick={onArchive}>
               {detail.archived_at ? (hasPendingGate(detail) ? 'Hidden while gate pending' : 'Archived') : archiveLabel}
             </button>
           </div>

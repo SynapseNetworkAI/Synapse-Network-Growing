@@ -400,7 +400,7 @@ export function ConfirmDialog({
               type="button"
               className={cx(
                 'rounded-xl px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60',
-                tone === 'destructive' ? 'bg-[color:var(--ops-state-blocked-text)]' : 'bg-[color:var(--ops-accent-strong)]',
+                tone === 'destructive' ? 'bg-rose-600' : 'bg-[color:var(--ops-accent-strong)]',
               )}
               disabled={loading}
               onClick={onConfirm}

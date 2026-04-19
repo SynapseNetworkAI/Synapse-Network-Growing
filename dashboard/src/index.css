@@ -10,11 +10,12 @@
   --ops-panel: #191c22;
   --ops-panel-subtle: rgba(255, 255, 255, 0.035);
   --ops-panel-strong: #272a31;
+  --ops-shell-bg: #2563eb;
 
   --ops-text-title: #f4f7fb;
-  --ops-text-body: #cdd6e3;
-  --ops-text-muted: #8995a7;
-  --ops-text-caption: #6f7b8f;
+  --ops-text-body: #dbe4f0;
+  --ops-text-muted: #aab6c8;
+  --ops-text-caption: #91a0b6;
   --ops-text-on-dark: #e8eef8;
 
   --ops-stroke-soft: rgba(255, 255, 255, 0.08);
@@ -22,7 +23,7 @@
   --ops-glass-border: rgba(255, 255, 255, 0.1);
   --ops-focus-ring: rgba(34, 211, 238, 0.22);
   --ops-accent-soft: rgba(34, 211, 238, 0.14);
-  --ops-accent-strong: #67e8f9;
+  --ops-accent-strong: #3b82f6;
 
   --ops-state-ready-bg: rgba(16, 185, 129, 0.14);
   --ops-state-ready-border: rgba(16, 185, 129, 0.28);
@@ -78,12 +79,25 @@ textarea {
   font: inherit;
 }
 
-input,
-select,
-textarea {
-  background: rgba(255, 255, 255, 0.055);
-  color: var(--ops-text-body);
-  border-color: var(--ops-stroke-strong);
+  input,
+  select,
+  textarea {
+    background: rgba(255, 255, 255, 0.055);
+    color: var(--ops-text-body);
+    border-color: var(--ops-stroke-strong);
+}
+
+button,
+a {
+  color: inherit;
+}
+
+button:disabled,
+a[aria-disabled="true"] {
+  background-color: var(--ops-panel-subtle) !important;
+  border-color: var(--ops-stroke-soft) !important;
+  color: var(--ops-text-caption) !important;
+  cursor: not-allowed;
 }
 
 input:focus,
@@ -260,12 +274,30 @@ a:focus-visible {
   .text-orange-600,
   .text-rose-600,
   .text-red-600 {
-    color: var(--ops-text-muted) !important;
+    color: var(--ops-text-body) !important;
   }
 
   .text-slate-700,
   .text-slate-800,
   .text-slate-900,
+  .text-slate-950,
+  .text-gray-700,
+  .text-gray-800,
+  .text-gray-900,
+  .text-gray-950,
+  .text-zinc-700,
+  .text-zinc-800,
+  .text-zinc-900,
+  .text-zinc-950,
+  .text-neutral-700,
+  .text-neutral-800,
+  .text-neutral-900,
+  .text-neutral-950,
+  .text-stone-700,
+  .text-stone-800,
+  .text-stone-900,
+  .text-stone-950,
+  .text-black,
   .text-blue-700,
   .text-cyan-700,
   .text-emerald-700,
@@ -280,5 +312,18 @@ a:focus-visible {
 
   .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
     border-color: var(--ops-stroke-soft) !important;
+  }
+
+  .prose,
+  .prose :where(h1, h2, h3, h4, strong, th):not(:where([class~="not-prose"] *)) {
+    color: var(--ops-text-title) !important;
+  }
+
+  .prose :where(p, li, td, blockquote):not(:where([class~="not-prose"] *)) {
+    color: var(--ops-text-body) !important;
+  }
+
+  .prose :where(code):not(:where([class~="not-prose"] *)) {
+    color: var(--ops-accent-strong) !important;
   }
 }

@@ -168,7 +168,7 @@ function RequirementLifecycleStepper({ detail }: Readonly<{ detail: AgentRequire
 function Markdown({ value }: Readonly<{ value: string }>) {
   if (!value.trim()) return <div className="text-sm text-slate-400">暂无内容</div>
   return (
-    <div className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2">
+    <div className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-headings:text-[color:var(--ops-text-title)] prose-p:text-[color:var(--ops-text-body)] prose-li:text-[color:var(--ops-text-body)] prose-strong:text-[color:var(--ops-text-title)]">
       <ReactMarkdown>{value}</ReactMarkdown>
     </div>
   )
