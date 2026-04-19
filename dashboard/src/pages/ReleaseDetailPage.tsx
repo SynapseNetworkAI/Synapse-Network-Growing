@@ -239,7 +239,7 @@ export default function ReleaseDetailPage() {
       <ActivityFeed eyebrow="Deployment History" title="部署记录">
         <div className="mt-4 grid gap-4">
           {detail.deployments.map((record) => (
-            <article key={record.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/76 p-5 text-sm text-[color:var(--ops-text-muted)]">
+            <article key={record.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 text-sm text-[color:var(--ops-text-muted)]">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="text-base font-semibold text-[color:var(--ops-text-title)]">{record.environment} · {record.action} · {record.status}</div>

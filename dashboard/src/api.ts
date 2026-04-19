@@ -631,6 +631,59 @@ export interface DeclarativeWorkflowDefinition {
   spec: Record<string, unknown>
 }
 
+type RawWorkflowDefinitionState = {
+  atom?: string | null
+  agent?: string | null
+  terminal?: boolean
+  resolution?: string | null
+  output_key?: string | null
+  risk_level?: string | null
+  transitions?: Array<{
+    if?: string
+    condition?: string
+    goto: string
+    increment?: unknown
+  }>
+}
+
+function normalizeWorkflowDefinition(raw: DeclarativeWorkflowDefinition): DeclarativeWorkflowDefinition {
+  const spec = (raw.spec || {}) as Record<string, unknown>
+  const specStates = spec.states as Record<string, RawWorkflowDefinitionState> | DeclarativeWorkflowDefinitionState[] | undefined
+  const states = Array.isArray(raw.states)
+    ? raw.states
+    : Array.isArray(specStates)
+      ? specStates
+      : Object.entries(specStates || {}).map(([key, state]) => {
+          const terminal = Boolean(state.terminal)
+          const atomKey = state.agent || state.atom || null
+          const atomType = terminal ? 'terminal' : state.agent ? 'agent' : 'deterministic'
+          return {
+            key,
+            atom_key: atomKey,
+            atom_type: atomType,
+            terminal,
+            resolution: state.resolution || null,
+            output_key: state.output_key || null,
+            risk_level: state.risk_level || null,
+            transitions: (state.transitions || []).map((transition) => ({
+              condition: transition.condition || transition.if || 'always',
+              goto: transition.goto,
+              increment: transition.increment,
+            })),
+          }
+        })
+
+  return {
+    ...raw,
+    description: raw.description || String(spec.description || ''),
+    initial_state: raw.initial_state || String(spec.initial_state || ''),
+    states,
+    limits: raw.limits || (spec.limits as Record<string, unknown>) || {},
+    risk_policy: raw.risk_policy || (spec.risk_policy as Record<string, unknown>) || {},
+    blackboard: raw.blackboard || (spec.blackboard as Record<string, unknown>) || {},
+  }
+}
+
 export interface WorkflowReadiness {
   requirement_id: number
   assets_status: string
@@ -1848,8 +1901,10 @@ export const api = {
   cancelRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/cancel`, { method: 'POST' }),
   deleteRequirement: (id: number) => request<AgentRequirementDetail>(`/requirements/${id}/delete`, { method: 'POST' }),
 
-  getWorkflowDefinitions: () => request<DeclarativeWorkflowDefinition[]>('/workflows/definitions'),
-  getWorkflowDefinition: (workflowKey: string) => request<DeclarativeWorkflowDefinition>(`/workflows/definitions/${encodeURIComponent(workflowKey)}`),
+  getWorkflowDefinitions: () => request<DeclarativeWorkflowDefinition[]>('/workflows/definitions')
+    .then((definitions) => definitions.map(normalizeWorkflowDefinition)),
+  getWorkflowDefinition: (workflowKey: string) => request<DeclarativeWorkflowDefinition>(`/workflows/definitions/${encodeURIComponent(workflowKey)}`)
+    .then(normalizeWorkflowDefinition),
   getWorkflowRunsSummary: () => request<WorkflowRunsSummary>('/workflows/runs/summary'),
   getWorkflowRuns: (filters?: {
     limit?: number

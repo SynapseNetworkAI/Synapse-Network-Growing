@@ -41,7 +41,7 @@ function statusClass(status: string) {
   if (['completed', 'done', 'passed', 'succeeded'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (['failed', 'error', 'rejected'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
   if (['pending', 'awaiting_operator', 'awaiting_human'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-700'
-  if (status === 'not_started') return 'border-slate-200 bg-slate-50 text-slate-500'
+  if (status === 'not_started') return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-slate-500'
   return 'border-blue-200 bg-blue-50 text-blue-700'
 }
 
@@ -54,15 +54,15 @@ function hasPendingGate(detail: DeclarativeWorkflowRunDetail) {
 }
 
 function actionClass(tone: 'ready' | 'blocked' | 'running' | 'muted') {
-  if (tone === 'ready') return 'border-emerald-200 bg-emerald-600 text-white'
-  if (tone === 'blocked') return 'border-rose-200 bg-rose-600 text-white'
-  if (tone === 'running') return 'border-blue-200 bg-blue-600 text-white'
-  return 'border-[color:var(--ops-stroke-strong)] bg-white text-[color:var(--ops-text-title)]'
+  if (tone === 'ready') return 'border-emerald-400/40 bg-emerald-500/16 text-emerald-100'
+  if (tone === 'blocked') return 'border-rose-400/45 bg-rose-500/20 text-rose-50'
+  if (tone === 'running') return 'border-cyan-300/40 bg-cyan-300/16 text-cyan-100'
+  return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] text-[color:var(--ops-text-title)]'
 }
 
 function Panel({ title, children, testId, action }: { title: string; children: ReactNode; testId?: string; action?: ReactNode }) {
   return (
-    <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white p-5" data-testid={testId}>
+    <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid={testId}>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{title}</h3>
         {action}
@@ -92,16 +92,16 @@ function WorkflowRunHeader({
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
   const outcomeLabel = detail.outcome_label || (hasPendingGate(detail) ? 'Needs Human' : isTrulyCompleted(detail) ? 'Completed' : detail.status)
   return (
-    <section className="sticky top-0 z-10 rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white/95 px-5 py-5 shadow-sm backdrop-blur" data-testid="workflow-run-header">
+    <section className="sticky top-0 z-10 rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5 shadow-sm backdrop-blur" data-testid="workflow-run-header">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Explainable Workflow Run</div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{detail.workflow_key}</h2>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <span className={['rounded-full border px-3 py-1 font-medium', statusClass(hasPendingGate(detail) ? 'awaiting_operator' : detail.status)].join(' ')}>{outcomeLabel}</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">run #{detail.id}</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">state: {detail.current_state}</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">risk: {detail.risk_level}</span>
+            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">run #{detail.id}</span>
+            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">state: {detail.current_state}</span>
+            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">risk: {detail.risk_level}</span>
             {detail.simulated_delivery ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated PR</span> : null}
             {detail.evidence_complete === false ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Evidence incomplete</span> : null}
             {detail.resolution ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">resolution: {detail.resolution}</span> : null}
@@ -135,7 +135,7 @@ function WorkflowRunHeader({
 
 function WorkflowRunTabs({ activeTab, onChange }: Readonly<{ activeTab: WorkflowTab; onChange: (tab: WorkflowTab) => void }>) {
   return (
-    <div className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-2" data-testid="workflow-run-tabs">
+    <div className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="workflow-run-tabs">
       {WORKFLOW_TABS.map((tab) => (
         <button
           key={tab.key}
@@ -143,8 +143,8 @@ function WorkflowRunTabs({ activeTab, onChange }: Readonly<{ activeTab: Workflow
           className={[
             'rounded-xl px-4 py-2 text-sm font-medium transition',
             activeTab === tab.key
-              ? 'bg-[color:var(--ops-text-title)] text-white'
-              : 'text-[color:var(--ops-text-muted)] hover:bg-slate-50 hover:text-[color:var(--ops-text-title)]',
+              ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]'
+              : 'text-[color:var(--ops-text-muted)] hover:bg-[color:var(--ops-panel-subtle)] hover:text-[color:var(--ops-text-title)]',
           ].join(' ')}
           onClick={() => onChange(tab.key)}
         >
@@ -176,7 +176,7 @@ function RunBriefPanel({ detail, nextAction }: Readonly<{ detail: DeclarativeWor
           <MiniFact label="PR" value={detail.simulated_delivery ? 'simulated' : pr.url ? 'created' : pr.created ? 'created without url' : '-'} />
           <MiniFact label="Observation" value={observation.restored ? 'restored' : observation.not_restored ? 'not restored' : '-'} />
         </div>
-        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 p-4">
+        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Next Action</div>
           <div className="mt-2 text-base font-semibold text-[color:var(--ops-text-title)]">{nextAction.label}</div>
           <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{nextAction.detail}</div>
@@ -188,7 +188,7 @@ function RunBriefPanel({ detail, nextAction }: Readonly<{ detail: DeclarativeWor
 
 function MiniFact({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
-    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-3">
+    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3">
       <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
       <div className="mt-2 truncate text-sm font-semibold text-[color:var(--ops-text-title)]">{value}</div>
     </div>
@@ -227,7 +227,7 @@ function CompletionArchivePanel({
             <MiniFact label="Goal" value={String(detail.goal_key || '-')} />
           </div>
         </div>
-        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50/80 p-4">
+        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Next Actions</div>
           <div className="mt-3 grid gap-2">
             {prUrl ? (
@@ -288,7 +288,7 @@ function AgentOutputPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunD
     <Panel title="Agent Output" testId="workflow-agent-output-panel">
       <div className="space-y-3">
         {outputs.map((output) => (
-          <details key={`${output.state_key}-${output.raw_artifact_id || output.atom_key}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4" open>
+          <details key={`${output.state_key}-${output.raw_artifact_id || output.atom_key}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4" open>
             <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">
               {output.state_key}: {output.agent_name}
             </summary>
@@ -334,14 +334,14 @@ function ChangedFilesPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRun
       </div>
       <div className="mt-4 space-y-2">
         {files.map((file) => (
-          <div key={file} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 px-3 py-2 font-mono text-sm text-[color:var(--ops-text-title)]">
+          <div key={file} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 font-mono text-sm text-[color:var(--ops-text-title)]">
             {file}
           </div>
         ))}
         {!files.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No changed files recorded.</div> : null}
       </div>
       {summary?.diff_summary ? (
-        <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 p-4 text-sm leading-6 text-[color:var(--ops-text-muted)]">
+        <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4 text-sm leading-6 text-[color:var(--ops-text-muted)]">
           {summary.diff_summary}
         </div>
       ) : null}
@@ -355,7 +355,7 @@ function CommandEvidencePanel({ detail }: Readonly<{ detail: DeclarativeWorkflow
     <Panel title="Commands Run" testId="workflow-command-evidence-panel">
       <div className="space-y-3">
         {commands.map((command, index) => (
-          <details key={`${command.command}-${index}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4" open>
+          <details key={`${command.command}-${index}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4" open>
             <summary className="cursor-pointer font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{command.command}</summary>
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <span className={['rounded-full border px-3 py-1', command.exit_code === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'].join(' ')}>
@@ -363,7 +363,7 @@ function CommandEvidencePanel({ detail }: Readonly<{ detail: DeclarativeWorkflow
               </span>
               {command.simulated ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated verification</span> : null}
               {command.timeout ? <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">timeout</span> : null}
-              {command.log_artifact_id ? <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-600">log artifact #{command.log_artifact_id}</span> : null}
+              {command.log_artifact_id ? <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">log artifact #{command.log_artifact_id}</span> : null}
             </div>
             <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{command.purpose || 'No purpose recorded.'}</div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -400,7 +400,7 @@ function CompactStepRail({
               type="button"
               className={[
                 'min-w-[160px] rounded-2xl border px-4 py-3 text-left transition',
-                selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50' : 'border-[color:var(--ops-stroke-soft)] bg-white hover:bg-slate-50',
+                selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50' : 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] hover:bg-[color:var(--ops-panel-subtle)]',
               ].join(' ')}
               onClick={() => onSelect(step.stateKey)}
             >
@@ -434,7 +434,7 @@ function StepExplorer({
           type="button"
           className={[
             'w-full rounded-2xl border p-4 text-left transition',
-            selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50/80' : 'border-[color:var(--ops-stroke-soft)] bg-white hover:bg-slate-50',
+            selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50/80' : 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] hover:bg-[color:var(--ops-panel-subtle)]',
           ].join(' ')}
           onClick={() => onSelect(step.stateKey)}
         >
@@ -468,7 +468,7 @@ function KeyList({ label, values }: Readonly<{ label: string; values: string[] }
       <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{label}</div>
       <div className="mt-1 flex flex-wrap gap-1">
         {values.length ? values.map((value) => (
-          <span key={value} className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{value}</span>
+          <span key={value} className="rounded-full bg-[color:var(--ops-panel-strong)] px-2 py-0.5 font-mono text-[11px] text-[color:var(--ops-text-muted)]">{value}</span>
         )) : <span className="text-[color:var(--ops-text-caption)]">-</span>}
       </div>
     </div>
@@ -503,7 +503,7 @@ function StepInspector({ step }: Readonly<{ step: StepViewModel }>) {
             type="button"
             className={[
               'rounded-lg px-3 py-1.5 text-xs font-medium',
-              tab === item.key ? 'bg-[color:var(--ops-text-title)] text-white' : 'bg-slate-100 text-slate-600',
+              tab === item.key ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]' : 'bg-[color:var(--ops-panel-strong)] text-[color:var(--ops-text-muted)]',
             ].join(' ')}
             onClick={() => setTab(item.key)}
           >
@@ -517,7 +517,7 @@ function StepInspector({ step }: Readonly<{ step: StepViewModel }>) {
             <p className="leading-7">{step.purpose}</p>
             <InspectorSection title="Success Signals" values={step.successSignals} />
             <InspectorSection title="Failure Signals" values={step.failureSignals} />
-            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 p-3 text-xs">
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3 text-xs">
               Status: {step.status} · Duration: {step.invocation?.duration_ms ?? 0}ms
             </div>
           </div>
@@ -558,7 +558,7 @@ function InspectorSection({ title, values }: Readonly<{ title: string; values: s
       <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{title}</div>
       <ul className="mt-2 space-y-1">
         {values.length ? values.map((value) => (
-          <li key={value} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-[color:var(--ops-text-muted)]">{value}</li>
+          <li key={value} className="rounded-xl bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-muted)]">{value}</li>
         )) : <li className="text-sm text-[color:var(--ops-text-caption)]">-</li>}
       </ul>
     </div>
@@ -570,7 +570,7 @@ function EvidenceMap({ steps }: Readonly<{ steps: StepViewModel[] }>) {
     <Panel title="Evidence Map" testId="workflow-evidence-map">
       <div className="space-y-4">
         {steps.map((step) => (
-          <div key={step.stateKey} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+          <div key={step.stateKey} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
@@ -580,7 +580,7 @@ function EvidenceMap({ steps }: Readonly<{ steps: StepViewModel[] }>) {
             </div>
             <div className="mt-3 space-y-2">
               {step.evidenceArtifacts.map((artifact) => (
-                <details key={artifact.id} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-50 px-3 py-2">
+                <details key={artifact.id} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2">
                   <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-title)]">{artifactDisplayTitle(artifact)}</summary>
                   <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{artifact.content_summary || '-'}</div>
                   <div className="mt-3">
@@ -638,7 +638,7 @@ function GateDeliveryPanel({
                     ))}
                   </div>
                 ) : (
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">{gate.decision || gate.status}</span>
+                  <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{gate.decision || gate.status}</span>
                 )}
               </div>
             </div>
@@ -680,10 +680,10 @@ function GateDeliveryPanel({
       <Panel title="Lark Notifications" testId="workflow-lark-notifications">
         <div className="space-y-3">
           {notifications.map((delivery) => (
-            <div key={delivery.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-4">
+            <div key={delivery.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={['rounded-full border px-3 py-1 text-xs', statusClass(delivery.status)].join(' ')}>{delivery.status}</span>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">{delivery.channel}</span>
+                <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{delivery.channel}</span>
                 <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{delivery.event_type}</span>
               </div>
               <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">{String(delivery.payload?.summary || delivery.event_key)}</div>
@@ -830,13 +830,26 @@ export default function WorkflowRunDetailPage() {
   const selectedStep = steps.find((step) => step.stateKey === selectedStepKey) || steps[0]
   const nextAction = detail ? buildNextAction(detail) : null
 
+  const setWorkflowTab = (tab: WorkflowTab) => {
+    setActiveTab(tab)
+    const nextSearch = `?tab=${tab}`
+    if (location.search !== nextSearch) {
+      navigate({ pathname: location.pathname, search: nextSearch }, { replace: false })
+    }
+    if (tab === 'gates') {
+      window.requestAnimationFrame(() => {
+        document.querySelector('[data-testid="workflow-gates-tab"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  }
+
   const selectStep = (stepKey: string) => {
     setSelectedStepKey(stepKey)
-    setActiveTab('steps')
+    setWorkflowTab('steps')
   }
 
   if (loading && !detail) {
-    return <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white p-6 text-sm text-[color:var(--ops-text-muted)]">加载工作流中…</div>
+    return <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-6 text-sm text-[color:var(--ops-text-muted)]">加载工作流中…</div>
   }
 
   if (!detail || !nextAction) {
@@ -854,10 +867,10 @@ export default function WorkflowRunDetailPage() {
         nextAction={nextAction}
         onRefresh={() => load().catch(() => {})}
         onNavigateRequirement={() => navigate(`/requirements/${detail.requirement_id}`)}
-        onSetTab={setActiveTab}
+        onSetTab={setWorkflowTab}
       />
 
-      <WorkflowRunTabs activeTab={activeTab} onChange={setActiveTab} />
+      <WorkflowRunTabs activeTab={activeTab} onChange={setWorkflowTab} />
 
       {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
@@ -892,7 +905,9 @@ export default function WorkflowRunDetailPage() {
       ) : null}
 
       {activeTab === 'gates' ? (
-        <GateDeliveryPanel detail={detail} busyGateId={busyGateId} onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }} />
+        <div data-testid="workflow-gates-tab">
+          <GateDeliveryPanel detail={detail} busyGateId={busyGateId} onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }} />
+        </div>
       ) : null}
 
       {activeTab === 'debug' ? <DebugPanel detail={detail} /> : null}

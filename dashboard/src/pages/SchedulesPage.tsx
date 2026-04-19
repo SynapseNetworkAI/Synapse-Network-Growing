@@ -10,7 +10,7 @@ function tone(value: string) {
   if (['healthy', 'succeeded', 'completed', 'active'].includes(value)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (['due', 'running'].includes(value)) return 'border-blue-200 bg-blue-50 text-blue-700'
   if (['failed', 'error', 'dead_letter'].includes(value)) return 'border-rose-200 bg-rose-50 text-rose-700'
-  return 'border-slate-200 bg-slate-50 text-slate-600'
+  return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]'
 }
 
 function JsonBlock({ value }: Readonly<{ value: unknown }>) {
@@ -34,7 +34,7 @@ function scheduleLabel(workflow: RecurringWorkflow) {
 function HealthCard({ title, data }: Readonly<{ title: string; data: Record<string, unknown> }>) {
   const status = data.running === true || data.enabled === true ? 'running' : 'inactive'
   return (
-    <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white p-5">
+    <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-[10px] uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Health</div>
@@ -44,7 +44,7 @@ function HealthCard({ title, data }: Readonly<{ title: string; data: Record<stri
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[color:var(--ops-text-muted)]">
         {Object.entries(data).slice(0, 8).map(([key, value]) => (
-          <div key={key} className="rounded-2xl bg-slate-50 px-3 py-2">
+          <div key={key} className="rounded-2xl bg-[color:var(--ops-panel-subtle)] px-3 py-2">
             <div className="font-mono text-[10px] text-[color:var(--ops-text-caption)]">{key}</div>
             <div className="mt-1 truncate">{String(value ?? '-')}</div>
           </div>
@@ -126,7 +126,7 @@ export default function SchedulesPage() {
 
   return (
     <div className="space-y-5" data-testid="schedules-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Scheduled Jobs</div>
@@ -143,7 +143,7 @@ export default function SchedulesPage() {
 
       <section className="grid gap-3 md:grid-cols-4">
         {Object.entries(stats).map(([label, value]) => (
-          <div key={label} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white px-4 py-4">
+          <div key={label} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
             <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
             <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{value}</div>
           </div>
@@ -159,14 +159,14 @@ export default function SchedulesPage() {
       ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-        <div className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+        <div className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
           <div className="border-b border-[color:var(--ops-stroke-soft)] px-5 py-4">
             <div className="text-[11px] uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Registry</div>
             <h3 className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">Recurring Workflow Registry</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full border-collapse">
-              <thead className="bg-slate-50/90">
+              <thead className="bg-[color:var(--ops-panel-subtle)]">
                 <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                   <th className="px-5 py-4 font-medium">任务</th>
                   <th className="px-4 py-4 font-medium">Owner</th>
@@ -178,7 +178,7 @@ export default function SchedulesPage() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.workflow_key} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                  <tr key={item.workflow_key} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                     <td className="px-5 py-4">
                       <button type="button" className="text-left" onClick={() => setSelected(item)}>
                         <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.display_name}</div>
@@ -223,7 +223,7 @@ export default function SchedulesPage() {
         </div>
 
         <aside className="space-y-4">
-          <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white p-5">
+          <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
             <div className="text-[11px] uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Run History</div>
             <h3 className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">{selected?.display_name || '选择一个任务'}</h3>
             <div className="mt-4 space-y-3">
@@ -254,7 +254,7 @@ export default function SchedulesPage() {
           </div>
 
           {selected ? (
-            <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white p-5">
+            <div className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
               <div className="text-[11px] uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Result Inspector</div>
               <h3 className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">Last Result</h3>
               <div className="mt-4"><JsonBlock value={selected.last_result} /></div>

@@ -83,7 +83,7 @@ export default function ReleasesPage() {
 
   return (
     <div className="space-y-5" data-testid="releases-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Releases</div>
@@ -103,10 +103,10 @@ export default function ReleasesPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse">
-            <thead className="bg-slate-50/90">
+            <thead className="bg-[color:var(--ops-panel-subtle)]">
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <th className="px-5 py-4 font-medium">Requirement</th>
                 <th className="px-4 py-4 font-medium">验证</th>
@@ -119,7 +119,7 @@ export default function ReleasesPage() {
             </thead>
             <tbody>
               {filtered.map((item) => (
-                <tr key={item.requirement.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                <tr key={item.requirement.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                   <td className="px-5 py-4">
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">
                       #{item.requirement.id} {item.requirement.title}
@@ -187,7 +187,7 @@ export default function ReleasesPage() {
                           </button>
                         )
                       })()}
-                      <button type="button" className="rounded-lg bg-[color:var(--ops-text-title)] px-3 py-2 text-sm text-white" onClick={() => navigate(`/releases/${item.requirement.id}`)}>
+                      <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white" onClick={() => navigate(`/releases/${item.requirement.id}`)}>
                         查看
                       </button>
                     </div>

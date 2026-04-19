@@ -167,7 +167,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="space-y-5" data-testid="projects-page">
-      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white px-5 py-5">
+      <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Projects</div>
@@ -185,10 +185,10 @@ export default function ProjectsPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white">
+      <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse">
-            <thead className="bg-slate-50/90">
+            <thead className="bg-[color:var(--ops-panel-subtle)]">
               <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <th className="px-5 py-4 font-medium">项目</th>
                 <th className="px-4 py-4 font-medium">仓库路径</th>
@@ -200,7 +200,7 @@ export default function ProjectsPage() {
             </thead>
             <tbody>
               {filtered.map((project) => (
-                <tr key={project.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-slate-50/80">
+                <tr key={project.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                   <td className="px-5 py-4">
                     <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{project.display_name}</div>
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{project.project_key}</div>

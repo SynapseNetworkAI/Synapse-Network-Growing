@@ -85,7 +85,7 @@ export default function ErrorDetailPage() {
             {detail.events.length > 0 ? (
               <div className="space-y-4">
                 {detail.events.map((event) => (
-                  <article key={event.id} className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-white/74 p-4">
+                  <article key={event.id} className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <StateBadge tone={toneForSeverity(event.severity)}>{event.severity}</StateBadge>
                       <StateBadge tone="muted">{event.source_kind}</StateBadge>
