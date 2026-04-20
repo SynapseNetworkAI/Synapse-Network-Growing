@@ -102,6 +102,9 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     manifest = save_response.json()
     assert "goals" not in manifest["payload"]
 
+    db_session.query(PlanningGoalRow).filter(PlanningGoalRow.manifest_id == int(manifest["id"])).delete()
+    db_session.commit()
+
     goal_response = synced_client.post("/api/planning/goals", json=_goalb_payload(int(manifest["id"])))
     assert goal_response.status_code == 200
     goal = goal_response.json()

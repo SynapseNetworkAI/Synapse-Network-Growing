@@ -111,6 +111,9 @@ graph TD
 14. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
 15. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
 16. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
+17. Planner Agent must synthesize evidence-bound candidates from one Goal Markdown PRD at a time; it may repair malformed JSON twice, but unsafe commands, unknown workflow keys, or invalid acceptance must fail closed.
+18. Planner Agent `workflow_key` output must be an enum choice from registered workflow definitions, not free text.
+19. Planner Agent `required_commands` must pass the safe command allowlist / denylist before any candidate can materialize.
 
 ## 5. Human Gate And Kill-Switch Constraints
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -10,6 +11,52 @@ from server.database import RequirementRow, WorkflowRunRow
 
 class AcceptanceValidationError(ValueError):
     """Raised when a requirement cannot safely enter execution."""
+
+
+SAFE_REQUIRED_COMMAND_PREFIXES = (
+    "/Users/cliff/workspace/agent/.venv/bin/python -m pytest",
+    "python -m pytest",
+    "pytest",
+    "cd dashboard && npm test",
+    "cd dashboard && npm run build",
+    "npm test",
+    "npm run build",
+    "npm run lint",
+    "rg ",
+    "git diff --check",
+)
+
+UNSAFE_REQUIRED_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(^|[;&|]\s*)rm(\s|$)", re.IGNORECASE), "rm is destructive"),
+    (re.compile(r"(^|[;&|]\s*)rmdir(\s|$)", re.IGNORECASE), "rmdir is destructive"),
+    (re.compile(r"(^|[;&|]\s*)mv(\s|$)", re.IGNORECASE), "mv mutates files"),
+    (re.compile(r"(^|[;&|]\s*)cp\s+-r(\s|$)", re.IGNORECASE), "recursive copy mutates files"),
+    (re.compile(r"\bdrop\b", re.IGNORECASE), "drop is a destructive database verb"),
+    (re.compile(r"\btruncate\b", re.IGNORECASE), "truncate is a destructive database verb"),
+    (re.compile(r"\bdelete\s+from\b", re.IGNORECASE), "delete from is a destructive database verb"),
+    (re.compile(r"(^|\s)(curl|wget|aws|gcloud|kubectl|docker|ssh|scp|chmod|chown)(\s|$)", re.IGNORECASE), "external or privileged command is not allowed"),
+    (re.compile(r"\bgit\s+(push|reset|checkout)\b", re.IGNORECASE), "git mutation command is not allowed"),
+    (re.compile(r"\bnpm\s+publish\b", re.IGNORECASE), "npm publish is not allowed"),
+    (re.compile(r"\b(deploy|rollback)\b", re.IGNORECASE), "deploy/rollback must be human-gated"),
+    (re.compile(r">>?", re.IGNORECASE), "shell redirection may mutate files"),
+    (re.compile(r"\|\s*sh\b", re.IGNORECASE), "pipe-to-shell is not allowed"),
+    (re.compile(r"&&\s*rm\b", re.IGNORECASE), "chained rm is destructive"),
+    (re.compile(r";\s*rm\b", re.IGNORECASE), "chained rm is destructive"),
+)
+
+
+def validate_required_command_safety(command: str) -> str:
+    """Fail closed unless a planner-generated evidence command is explicitly safe."""
+
+    normalized = " ".join(str(command or "").strip().split())
+    if not normalized:
+        raise AcceptanceValidationError("required command is empty.")
+    for pattern, reason in UNSAFE_REQUIRED_COMMAND_PATTERNS:
+        if pattern.search(normalized):
+            raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
+    if not any(normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
+        raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
+    return normalized
 
 
 DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
@@ -168,6 +215,8 @@ def validate_acceptance_contract_for_execution(
             raise AcceptanceValidationError(
                 f"execution_acceptance_steps[{index}] requires required_commands, required_evidence_types, or required_db_lineage."
             )
+        for command in step.get("required_commands") or []:
+            validate_required_command_safety(str(command))
     if str(payload.get("acceptance_kind") or "business") == "system_dogfood":
         normalized_goal = str(goal_key or "").strip().lower()
         if normalized_goal != "goalb":
