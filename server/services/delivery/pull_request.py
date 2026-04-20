@@ -89,24 +89,52 @@ def _pr_body(
     branch_name: str,
     base_branch: str,
     latest_commit_sha: str | None,
+    goal_key: str | None = None,
+    vcs_payload: dict[str, Any] | None = None,
 ) -> str:
+    repositories = [item for item in (vcs_payload or {}).get("repositories") or [] if isinstance(item, dict)]
+    human_commits_detected = bool((vcs_payload or {}).get("human_commits_detected")) or any(
+        bool(item.get("human_commits_detected")) for item in repositories
+    )
+    rebase_status = str((vcs_payload or {}).get("rebase_status") or "").strip()
+    delivery_status = str((vcs_payload or {}).get("status") or "").strip()
+    summary = str(summary_markdown or "").strip()
     lines = [
         f"# Requirement #{requirement_id}",
         "",
         requirement_title.strip() or f"Requirement #{requirement_id}",
         "",
+        "> Agent generated this PR. Human merge required.",
+        "",
+        "## What changed",
+        summary or "Agent prepared a scoped implementation for this requirement. Review the diff and evidence before merging.",
+        "",
+        "## Why it is safe to review",
         f"- Head branch: `{branch_name}`",
         f"- Base branch: `{base_branch}`",
+        f"- Delivery sync: `{delivery_status or 'unknown'}`",
     ]
+    if goal_key:
+        lines.append(f"- Goal key: `{goal_key}`")
     if latest_commit_sha:
         lines.append(f"- Latest commit: `{latest_commit_sha[:12]}`")
     if compare_url:
         lines.append(f"- Compare: {compare_url}")
-    summary = str(summary_markdown or "").strip()
-    if summary:
-        lines.extend(["", "## Review Bundle", summary])
+    if human_commits_detected:
+        lines.append(f"- Human commits detected on branch and rebase status is `{rebase_status or 'unknown'}`.")
+
+    lines.extend(
+        [
+            "",
+            "## Human merge checklist",
+            "- [ ] Review every changed file and confirm the business intent is satisfied.",
+            "- [ ] Confirm required checks and evidence artifacts are green.",
+            "- [ ] Merge only after human review; this workflow never auto-merges.",
+        ]
+    )
+
+    lines.extend(["", "<details>", "<summary>Acceptance steps and promotion checklist</summary>", ""])
     if checklist:
-        lines.extend(["", "## Promotion Checklist"])
         for item in checklist:
             if not isinstance(item, dict):
                 continue
@@ -115,6 +143,29 @@ def _pr_body(
             detail = str(item.get("detail") or "").strip()
             suffix = f" — {detail}" if detail else ""
             lines.append(f"- [{status}] {label}{suffix}")
+    else:
+        lines.append("- No structured checklist was supplied in the PR sync payload.")
+    lines.extend(["", "</details>"])
+
+    lines.extend(["", "<details>", "<summary>Delivery / VCS evidence</summary>", ""])
+    lines.append(f"- Delivery status: `{delivery_status or 'unknown'}`")
+    lines.append(f"- Rebase attempted: `{bool((vcs_payload or {}).get('rebase_attempted'))}`")
+    lines.append(f"- Rebase status: `{rebase_status or 'not_reported'}`")
+    lines.append(f"- Push mode: `{(vcs_payload or {}).get('push_mode') or 'not_reported'}`")
+    lines.append(f"- Human commits detected: `{human_commits_detected}`")
+    for index, repo in enumerate(repositories, start=1):
+        lines.append(
+            f"- Repo {index}: `{repo.get('repo_path') or 'unknown'}` "
+            f"branch `{repo.get('branch_name') or branch_name}` "
+            f"remote `{repo.get('remote_sha') or repo.get('remote_branch_before_sha') or 'not_reported'}`"
+        )
+    lines.extend(["", "</details>"])
+
+    lines.extend(["", "<details>", "<summary>Checks projection bundle</summary>", ""])
+    for key in ("architecture_contracts", "tests", "coverage", "doc_sync", "delivery_vcs"):
+        status = "passed" if key == "delivery_vcs" and delivery_status == "delivered" else "not_reported"
+        lines.append(f"- `{key}`: `{status}`")
+    lines.extend(["", "</details>"])
     return "\n".join(lines)
 
 
@@ -177,6 +228,9 @@ def sync_requirement_review_pr(
         }
 
     title = f"ops(req-{requirement_id}): {requirement_title.strip() or f'requirement-{requirement_id}'}"[:120]
+    human_commits_detected = bool((vcs_payload or {}).get("human_commits_detected")) or any(
+        bool(item.get("human_commits_detected")) for item in repositories if isinstance(item, dict)
+    )
     body = _pr_body(
         requirement_id=requirement_id,
         requirement_title=requirement_title,
@@ -186,11 +240,14 @@ def sync_requirement_review_pr(
         branch_name=branch_name,
         base_branch=base_branch,
         latest_commit_sha=latest_commit_sha,
+        goal_key=str((vcs_payload or {}).get("goal_key") or "").strip() or None,
+        vcs_payload=vcs_payload,
     )
 
     blockers: list[str] = []
     sync_action = "noop"
     pr_payload = _load_existing_pr(repo_slug, branch_name)
+    existing_pr_url = str((pr_payload or {}).get("url") or "").strip() or None
     try:
         if pr_payload is None:
             create = _run_gh(
@@ -252,7 +309,18 @@ def sync_requirement_review_pr(
         "last_pushed_at": last_pushed_at,
         "review_bundle_generated_at": _utcnow_iso(),
         "sync_action": sync_action,
+        "existing_pr_url": existing_pr_url,
+        "body_sections_collapsed": True,
+        "review_bundle_summary": "Reviewer-first PR body generated with folded acceptance, delivery, and checks evidence.",
+        "checks_projection_ready": True,
+        "checks_projection": {
+            "architecture_contracts": "not_reported",
+            "tests": "not_reported",
+            "coverage": "not_reported",
+            "doc_sync": "not_reported",
+            "delivery_vcs": "passed" if str((vcs_payload or {}).get("status") or "") == "delivered" else "blocked",
+        },
+        "human_commits_detected": human_commits_detected,
         "draft": pr_status == "draft",
         "blockers": blockers,
     }
-

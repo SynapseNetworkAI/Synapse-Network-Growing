@@ -52,7 +52,9 @@ def _classify_delivery_failure(message: str) -> dict[str, Any]:
     blocker_type = "unknown_delivery_failure"
     repairable = False
     failed_gate_name = _gate_name_from_message(raw)
-    if "dirty worktree" in lowered or "automatic execution branch preparation" in lowered:
+    if "rebase conflict" in lowered or "blocked_rebase_conflict" in lowered or "rebase failed" in lowered:
+        blocker_type = "delivery_branch_rebase_conflict"
+    elif "dirty worktree" in lowered or "automatic execution branch preparation" in lowered:
         blocker_type = "workspace_blocked"
     elif any(token in lowered for token in ("authentication failed", "permission denied (publickey)", "could not read from remote repository", "access denied", "repository not found")):
         blocker_type = "git_auth_failed"
@@ -155,6 +157,18 @@ def _remote_branch_exists(repo_path: str, remote_name: str, branch_name: str) ->
         branch_name,
         check=False,
     ).returncode == 0
+
+
+def _remote_branch_sha(repo_path: str, remote_name: str, branch_name: str) -> str | None:
+    if remote_name not in _list_remotes(repo_path):
+        return None
+    completed = _run_git(repo_path, "ls-remote", "--heads", remote_name, branch_name, check=False)
+    if completed.returncode != 0:
+        return None
+    line = (completed.stdout or "").strip().splitlines()
+    if not line:
+        return None
+    return line[0].split()[0].strip() or None
 
 
 def _working_tree_dirty(repo_path: str) -> bool:
@@ -317,13 +331,62 @@ def _head_sha(repo_path: str) -> str | None:
 
 def _push_branch(repo_path: str, remote_name: str, branch_name: str) -> str | None:
     _run_git(repo_path, "push", "-u", remote_name, branch_name)
-    completed = _run_git(repo_path, "ls-remote", "--heads", remote_name, branch_name, check=False)
-    if completed.returncode != 0:
-        return None
-    line = (completed.stdout or "").strip().splitlines()
-    if not line:
-        return None
-    return line[0].split()[0]
+    return _remote_branch_sha(repo_path, remote_name, branch_name)
+
+
+def _sync_remote_branch_before_push(repo_path: str, remote_name: str, branch_name: str) -> dict[str, Any]:
+    """Rebase onto an existing remote branch before push so human commits survive."""
+
+    local_before = _head_sha(repo_path)
+    remote_before = _remote_branch_sha(repo_path, remote_name, branch_name)
+    sync: dict[str, Any] = {
+        "remote_branch_exists": bool(remote_before),
+        "remote_branch_before_sha": remote_before,
+        "local_branch_before_sha": local_before,
+        "human_commits_detected": False,
+        "rebase_attempted": False,
+        "rebase_status": "remote_missing" if not remote_before else "not_needed",
+        "rebase_failure_excerpt": None,
+        "sync_action": "remote_missing" if not remote_before else "remote_checked",
+        "push_mode": "normal",
+        "lease_safe": True,
+    }
+    if not remote_before:
+        return sync
+
+    fetch = _run_git(repo_path, "fetch", remote_name, branch_name, check=False)
+    if fetch.returncode != 0:
+        output = "\n".join(part.strip() for part in (fetch.stdout, fetch.stderr) if str(part or "").strip())
+        raise RuntimeError(f"git fetch {remote_name} {branch_name} failed before PR sync: {output or 'unknown git error'}")
+
+    if _is_ancestor(repo_path, remote_before, "HEAD"):
+        return sync
+
+    sync["human_commits_detected"] = True
+    sync["rebase_attempted"] = True
+    rebase = _run_git(repo_path, "rebase", "FETCH_HEAD", check=False)
+    if rebase.returncode != 0:
+        output = "\n".join(part.strip() for part in (rebase.stdout, rebase.stderr) if str(part or "").strip())
+        _run_git(repo_path, "rebase", "--abort", check=False)
+        sync.update(
+            {
+                "rebase_status": "failed",
+                "rebase_failure_excerpt": _trim_excerpt(output or "rebase failed"),
+                "sync_action": "blocked_rebase_conflict",
+                "push_mode": "blocked",
+                "lease_safe": False,
+            }
+        )
+        return sync
+
+    sync.update(
+        {
+            "rebase_status": "succeeded",
+            "sync_action": "rebased_remote_human_commits",
+            "local_branch_after_rebase_sha": _head_sha(repo_path),
+        }
+    )
+    return sync
 
 
 def _utcnow_iso() -> str:
@@ -419,6 +482,14 @@ def execute_requirement_delivery_vcs(
             "commit_sha": None,
             "remote_sha": None,
             "ahead_of_base": 0,
+            "remote_branch_exists": False,
+            "remote_branch_before_sha": None,
+            "local_branch_before_sha": None,
+            "human_commits_detected": False,
+            "rebase_attempted": False,
+            "rebase_status": None,
+            "rebase_failure_excerpt": None,
+            "push_mode": None,
         }
         try:
             if not os.path.isdir(repo_path):
@@ -447,6 +518,13 @@ def execute_requirement_delivery_vcs(
             if push_required:
                 if remote_name not in _list_remotes(repo_path):
                     raise RuntimeError(f"remote `{remote_name}` is not configured")
+                sync_payload = _sync_remote_branch_before_push(repo_path, remote_name, actual_branch_name)
+                repo_result.update(sync_payload)
+                if sync_payload.get("rebase_status") == "failed":
+                    raise RuntimeError(
+                        "delivery branch rebase conflict before push: "
+                        f"{sync_payload.get('rebase_failure_excerpt') or 'remote branch diverged'}"
+                    )
                 remote_sha = _push_branch(repo_path, remote_name, actual_branch_name)
                 repo_result["remote_sha"] = remote_sha
                 repo_result["pushed"] = True
@@ -462,6 +540,10 @@ def execute_requirement_delivery_vcs(
     latest_commit_sha = next((str(item.get("commit_sha") or "").strip() for item in repo_results if str(item.get("commit_sha") or "").strip()), None)
     latest_remote_sha = next((str(item.get("remote_sha") or "").strip() for item in repo_results if str(item.get("remote_sha") or "").strip()), None)
     last_pushed_at = next((str(item.get("last_pushed_at") or "").strip() for item in repo_results if str(item.get("last_pushed_at") or "").strip()), None)
+    human_commits_detected = any(bool(item.get("human_commits_detected")) for item in repo_results)
+    rebase_attempted = any(bool(item.get("rebase_attempted")) for item in repo_results)
+    rebase_status = next((str(item.get("rebase_status") or "").strip() for item in repo_results if str(item.get("rebase_status") or "").strip()), None)
+    push_mode = next((str(item.get("push_mode") or "").strip() for item in repo_results if str(item.get("push_mode") or "").strip()), None)
     first_repo = next((item for item in repo_results if isinstance(item, dict)), {})
     actual_branch_name = (
         str(first_repo.get("actual_branch_name") or "").strip()
@@ -498,6 +580,10 @@ def execute_requirement_delivery_vcs(
         "latest_commit_sha": latest_commit_sha,
         "latest_remote_sha": latest_remote_sha,
         "last_pushed_at": last_pushed_at,
+        "human_commits_detected": human_commits_detected,
+        "rebase_attempted": rebase_attempted,
+        "rebase_status": rebase_status,
+        "push_mode": push_mode,
         **blocker_context,
     }
 

@@ -136,6 +136,8 @@ Examples:
 
 They are boring on purpose. Boring atoms are how we let creative agents operate safely.
 
+PR delivery atoms have one hard boundary: agents may commit, push a requirement branch, and open or update a GitHub Draft PR, but they must not merge it. Before pushing, delivery atoms must smart-sync the remote PR branch, preserve human commits through a clean rebase when possible, and route rebase conflicts to `awaiting_operator` instead of overwriting the branch.
+
 ### Harness / Verification
 
 Harness executes required commands and records authoritative evidence.

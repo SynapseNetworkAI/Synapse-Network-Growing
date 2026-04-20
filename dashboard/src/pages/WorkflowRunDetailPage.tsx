@@ -691,6 +691,19 @@ function GateDeliveryPanel({
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
   const vcs = (pr.vcs || {}) as Record<string, unknown>
   const sync = (pr.sync || {}) as Record<string, unknown>
+  const delivery = detail.delivery_summary
+  const humanCommitsDetected = Boolean(delivery?.human_commits_detected || sync.human_commits_detected || vcs.human_commits_detected)
+  const rebaseStatus = String(delivery?.rebase_status || vcs.rebase_status || '')
+  const blockerType = String(delivery?.delivery_blocker_type || vcs.delivery_blocker_type || '')
+  const deliveryCallout = blockerType === 'delivery_branch_rebase_conflict'
+    ? { label: 'Rebase conflict requires operator', tone: 'blocked' }
+    : humanCommitsDetected && rebaseStatus === 'succeeded'
+      ? { label: 'Human commits detected and rebased', tone: 'ok' }
+      : String(sync.sync_action || delivery?.sync_action || '') === 'updated'
+        ? { label: 'Existing PR updated', tone: 'ok' }
+        : String(sync.sync_action || delivery?.sync_action || '') === 'created'
+          ? { label: 'PR created', tone: 'ok' }
+          : null
   const notifications = detail.notifications || []
   return (
     <div className="space-y-5" data-testid="workflow-gates-delivery">
@@ -731,23 +744,35 @@ function GateDeliveryPanel({
 
       <Panel title="PR Delivery" testId="workflow-pr-delivery">
         <div className="grid gap-3 md:grid-cols-2">
-          <MiniFact label="PR Status" value={String(pr.pr_status || sync.pr_status || pr.status || '-')} />
-          <MiniFact label="Branch" value={String(pr.branch_name || sync.branch_name || vcs.branch_name || '-')} />
+          <MiniFact label="PR Status" value={String(pr.pr_status || sync.pr_status || delivery?.pr_status || pr.status || '-')} />
+          <MiniFact label="Branch" value={String(pr.branch_name || sync.branch_name || delivery?.branch_name || vcs.branch_name || '-')} />
           <MiniFact label="Base" value={String(pr.base_branch || sync.base_branch || vcs.base_branch || '-')} />
-          <MiniFact label="VCS" value={String(vcs.status || '-')} />
+          <MiniFact label="VCS" value={String(vcs.status || delivery?.release_status || '-')} />
+          <MiniFact label="Rebase" value={rebaseStatus || '-'} />
+          <MiniFact label="Human Commits" value={humanCommitsDetected ? 'detected' : 'none'} />
         </div>
+        {deliveryCallout ? (
+          <div className={[
+            'mt-4 rounded-2xl border px-4 py-3 text-sm font-medium',
+            deliveryCallout.tone === 'blocked'
+              ? 'border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] text-[color:var(--ops-state-blocked-text)]'
+              : 'border-emerald-300/35 bg-emerald-400/10 text-emerald-100',
+          ].join(' ')}>
+            {deliveryCallout.label}
+          </div>
+        ) : null}
         {detail.delivery_summary?.simulated || detail.simulated_delivery ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
             Simulated PR. This delivery did not create a real external GitHub PR.
           </div>
         ) : null}
-        {pr.url ? (
-          <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={String(pr.url)} target="_blank" rel="noreferrer">
+        {pr.url || delivery?.pr_url ? (
+          <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={String(pr.url || delivery?.pr_url)} target="_blank" rel="noreferrer">
             Open GitHub PR
           </a>
         ) : null}
-        {pr.compare_url ? (
-          <a className="ml-2 mt-4 inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" href={String(pr.compare_url)} target="_blank" rel="noreferrer">
+        {pr.compare_url || delivery?.compare_url ? (
+          <a className="ml-2 mt-4 inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" href={String(pr.compare_url || delivery?.compare_url)} target="_blank" rel="noreferrer">
             Compare
           </a>
         ) : null}

@@ -94,9 +94,9 @@ const baseDetail = {
   delivery_summary: { pr_created: false, pr_url: null, branch_name: null, compare_url: null, pr_status: null, release_status: null, sync_action: null, simulated: false },
 }
 
-function renderWorkflow() {
+function renderWorkflow(initialPath = '/workflows/42?tab=evidence') {
   render(
-    <MemoryRouter initialEntries={['/workflows/42?tab=evidence']}>
+    <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
         <Route path="/requirements/:id" element={<div>Requirement Detail</div>} />
@@ -148,5 +148,40 @@ describe('WorkflowRunDetailPage Human Override evidence', () => {
     })
     const updatedPanel = await screen.findByTestId('workflow-manual-review-panel')
     expect(within(updatedPanel).getByText(/Confirmed by operator/)).toBeTruthy()
+  })
+
+  it('surfaces smart PR sync status in the delivery panel', async () => {
+    apiMock.getWorkflowRun.mockResolvedValue({
+      ...baseDetail,
+      delivery_summary: {
+        pr_created: true,
+        pr_url: 'https://github.com/openai/synapse-network-growing/pull/26',
+        branch_name: 'ops/req-7-agent-self-repair',
+        compare_url: 'https://github.com/openai/synapse-network-growing/compare/main...ops/req-7-agent-self-repair',
+        pr_status: 'draft',
+        release_status: null,
+        sync_action: 'updated',
+        simulated: false,
+        human_commits_detected: true,
+        rebase_attempted: true,
+        rebase_status: 'succeeded',
+      },
+      blackboard: {
+        ...baseDetail.blackboard,
+        pr: {
+          pr_status: 'draft',
+          branch_name: 'ops/req-7-agent-self-repair',
+          base_branch: 'main',
+          sync: { sync_action: 'updated', human_commits_detected: true },
+          vcs: { status: 'delivered', rebase_status: 'succeeded', human_commits_detected: true },
+        },
+      },
+    })
+
+    renderWorkflow('/workflows/42?tab=gates')
+
+    const panel = await screen.findByTestId('workflow-pr-delivery')
+    expect(within(panel).getByText('Human commits detected and rebased')).toBeTruthy()
+    expect(within(panel).getByText('Open GitHub PR')).toBeTruthy()
   })
 })

@@ -838,6 +838,10 @@ export interface DeclarativeDeliverySummary {
   release_status: string | null
   sync_action: string | null
   simulated: boolean
+  human_commits_detected?: boolean
+  rebase_attempted?: boolean
+  rebase_status?: string | null
+  delivery_blocker_type?: string | null
 }
 
 export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSummary {
