@@ -22,6 +22,7 @@ from server.services.planning.lifecycle import (
 )
 from server.services.planning.planner_agent import PlannerAgentCandidate
 from server.services.requirements.acceptance import AcceptanceValidationError, validate_required_command_safety
+from server.services.requirements.service import generate_requirement_workflow_assets, start_requirement_workflow
 
 
 def _project(db):
@@ -201,6 +202,8 @@ def test_planner_sweep_validation_fails_for_dangerous_required_command(db_sessio
 
 def test_required_command_safety_allows_project_checks_and_blocks_destructive_commands():
     assert validate_required_command_safety("python -m pytest -q") == "python -m pytest -q"
+    assert validate_required_command_safety("python -m ruff check server tests") == "python -m ruff check server tests"
+    assert validate_required_command_safety("npm --prefix dashboard run lint") == "npm --prefix dashboard run lint"
     assert validate_required_command_safety("cd dashboard && npm run build") == "cd dashboard && npm run build"
 
     try:
@@ -237,6 +240,37 @@ def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):
     assert requirement.operating_manifest_id == manifest.id
     assert requirement.goal_key == "gateway_reliability"
     assert requirement.requirement_candidate_id == candidate.id
+
+
+def test_candidate_workflow_key_overrides_requirement_text_heuristic(db_session):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="gateway_reliability",
+        candidate_fingerprint="fp-workflow-key-lineage",
+        title="Gateway contract linting should still use self repair",
+        description_markdown="This mentions gateway and reliability, but the Planner selected agent_self_repair.",
+        project_id=int(project.id),
+        project_key=project.project_key,
+        workflow_key="agent_self_repair",
+        status="pending",
+        metadata_json=_candidate_metadata(),
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    approve_candidate(db_session, int(candidate.id))
+    result = materialize_candidate(db_session, int(candidate.id))
+    requirement_id = int(result["requirement_id"])
+
+    detail = generate_requirement_workflow_assets(db_session, requirement_id)
+    assert detail.workflow_readiness.recommended_workflow_key == "agent_self_repair"
+
+    workflow_detail = start_requirement_workflow(db_session, requirement_id, triggered_by="test")
+    workflow = db_session.get(WorkflowRunRow, int(workflow_detail["id"]))
+    assert workflow is not None
+    assert workflow.workflow_key == "agent_self_repair"
 
 
 def test_candidate_materialize_fail_closed_without_acceptance_steps(db_session):

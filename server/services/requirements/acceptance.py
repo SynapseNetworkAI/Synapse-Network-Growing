@@ -15,10 +15,17 @@ class AcceptanceValidationError(ValueError):
 
 SAFE_REQUIRED_COMMAND_PREFIXES = (
     "/Users/cliff/workspace/agent/.venv/bin/python -m pytest",
+    "/Users/cliff/workspace/agent/.venv/bin/python -m ruff check",
     "python -m pytest",
+    "python -m ruff check",
     "pytest",
+    "ruff check",
     "cd dashboard && npm test",
     "cd dashboard && npm run build",
+    "cd dashboard && npm run lint",
+    "npm --prefix dashboard test",
+    "npm --prefix dashboard run build",
+    "npm --prefix dashboard run lint",
     "npm test",
     "npm run build",
     "npm run lint",
