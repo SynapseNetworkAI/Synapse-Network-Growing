@@ -236,6 +236,16 @@ class CandidateMaterializeResultOut(BaseModel):
     requirement_id: int
 
 
+class CandidateApproveRunResultOut(BaseModel):
+    candidate: RequirementCandidateOut
+    requirement_id: int
+    workflow_run_id: Optional[int] = None
+    workflow_status: str = ""
+    workflow_current_state: str = ""
+    auto_run_status: str = ""
+    next_action: str = ""
+
+
 class PlannerSweepRunRequest(BaseModel):
     dry_run: bool = False
     triggered_by: str = "operator"

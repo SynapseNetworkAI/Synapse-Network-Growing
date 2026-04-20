@@ -36,7 +36,7 @@ The console is not a database object browser. Each page must explain what it is 
 | `/gates` | Human Oracle queue | Pending human gates and failed workflows | High-risk decisions with evidence links | `human_gate_requests`, `workflow_runs` | Review gate in `/workflows/:id` |
 | `/requirements` | Requirement pool and workflow readiness queue | Requirement filters, new requirement form, project selection | Requirement rows with workflow status and actions | `requirements`, active `workflow_runs` | Create, edit, submit, or open workflow |
 | `/requirements/:id` | Requirement detail and workflow readiness | Requirement id, acceptance, workflow assets | Workflow readiness, generated acceptance/plan, active workflow link | `requirements`, workflow readiness projection | Generate/start workflow or inspect active run |
-| `/planning` | Goal-centric Mission Control | Active Operating Manifest, goals, budgets, Planner Sweep | RequirementCandidates grouped under goals | `operating_manifests`, `requirement_candidates` | Run sweep, approve/reject/materialize candidate, drop goal |
+| `/planning` | Goal-centric Mission Control | Active Operating Manifest, goals, budgets, Planner Sweep | RequirementCandidates grouped under goals | `operating_manifests`, `requirement_candidates` | Run sweep, approve-and-run/reject/stage candidate, drop goal |
 | `/workflows` | Workflow Operations Center | Workflow filters, tab selection | Active, human-gated, failed, completed, archived runs and definitions | `workflow_runs`, `atom_invocations`, `workflow_artifacts`, `human_gate_requests` | Inspect run, process gate, archive completed run |
 | `/workflows/:id` | Explainable Step Workbench | Workflow run id | Outcome, step inputs/outputs, evidence, gates, debug payload | Workflow run detail projection | Open PR, review gate, create follow-up, inspect failure |
 | `/schedules` | Scheduled Jobs Control Plane | Registry, health, run-now/dry-run controls | Run history, dispatcher health, scheduler status | `recurring_workflows`, `recurring_workflow_runs`, notification queue health | Dry run, run now, inspect failed background task |
@@ -66,7 +66,7 @@ Every page needs three levels of validation:
 | `/gates` | Pending gate and failed run cards render | Review Gate opens workflow detail | Pending gates match workflow run summaries |
 | `/requirements` | Requirement list and empty state render | New requirement, edit drawer, refresh, workflow link | Created requirement exists and selected project id persists |
 | `/requirements/:id` | Workflow readiness panel renders | Generate assets, start workflow, navigate to `/workflows/:id` | Requirement `active_workflow_run_id` is set |
-| `/planning` | Mission Control, goal lanes, history/debug tabs render | Run Planner Sweep, approve/reject/materialize candidate, raw drawer, history tab | Candidate and requirement inherit `manifest_id` and `goal_key` |
+| `/planning` | Mission Control, goal lanes, history/debug tabs render | Run Planner Sweep, approve-and-run/reject/stage candidate, raw drawer, history tab | Candidate, requirement and workflow inherit `manifest_id` and `goal_key` |
 | `/workflows` | Stats, filters, tabs and definitions render | Active/Needs Human/Failed/Completed/Archived/Definitions tabs | Completed run appears in completed tab and can be archived |
 | `/workflows/:id` | Overview and step rail render | Steps/Evidence/Gates/Debug tabs, human gate decision | Step artifacts, events and atom invocations exist |
 | `/schedules` | Health cards, registry and run history render | Dry Run, Run Now confirmation, select workflow | Run history row is created with dry-run/result payload |
@@ -80,6 +80,33 @@ Every page needs three levels of validation:
 | `/factory/atoms` | Atom catalog renders | Type filters work | Atom list derives from workflow definition states |
 | `/knowledge` | Knowledge entry point renders | Workflow evidence link works | Artifacts remain attached to workflow runs |
 | `/system/notifications` | Dispatcher cards render | Refresh works | Values come from recurring workflow health |
+
+## Requirement Lifecycle Guardrails
+
+Requirement states are intentionally separate from workflow and release states. The current canonical states are:
+
+```text
+draft
+planning
+ready
+executing / running
+awaiting_operator
+delivery_ready / ready_for_merge
+completed / done
+failed / blocked / needs_revision
+cancelled
+deleted
+```
+
+Lifecycle actions:
+
+1. `Close Requirement`
+   Moves a pre-workflow requirement to `cancelled`. Closed requirements are read-only and cannot be submitted, regenerated, started as workflow runs, or routed to human gates.
+2. `Delete Requirement`
+   Soft-deletes a pre-workflow requirement to `deleted`. Deleted requirements are hidden from the default requirement list, visible only through the `deleted` status filter, and cannot enter approval, workflow, human gate, or release paths.
+3. Requirements with workflow history are not deleted from the requirement pool. The operator must resolve, pause, retry, or stop the linked workflow in `/workflows/:id`.
+
+Tests for `/requirements` and `/requirements/:id` must verify that `cancelled` and `deleted` rows expose only the `view` action and that backend workflow-start endpoints reject them.
 
 ## GoalB E2E Scenario
 
@@ -107,9 +134,7 @@ Expected chain:
 ```text
 PUT /api/planning/manifest/active
 -> POST /api/planning/sweeps/run
--> POST /api/planning/candidates/{id}/approve
--> POST /api/planning/candidates/{id}/materialize
--> POST /api/requirements/{id}/workflow/start
+-> POST /api/planning/candidates/{id}/approve-and-run
 -> GET /api/workflows/runs?tab=completed
 ```
 

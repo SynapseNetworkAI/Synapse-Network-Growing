@@ -13,6 +13,7 @@ const apiMock = vi.hoisted(() => ({
   archiveAndStartPlanningCycle: vi.fn(),
   dropPlanningGoal: vi.fn(),
   approveRequirementCandidate: vi.fn(),
+  approveAndRunRequirementCandidate: vi.fn(),
   rejectRequirementCandidate: vi.fn(),
   materializeRequirementCandidate: vi.fn(),
 }))
@@ -139,6 +140,15 @@ describe('PlanningPage Mission Control', () => {
     apiMock.getPlanningMissionControl.mockResolvedValue(mission)
     apiMock.getPlanningManifestHistory.mockResolvedValue({ items: [manifest], total: 1, page: 1, page_size: 10, total_pages: 1 })
     apiMock.approveRequirementCandidate.mockResolvedValue({ ...reliabilityCandidate, status: 'approved' })
+    apiMock.approveAndRunRequirementCandidate.mockResolvedValue({
+      candidate: { ...reliabilityCandidate, status: 'materialized', materialized_requirement_id: 99 },
+      requirement_id: 99,
+      workflow_run_id: 7,
+      workflow_status: 'succeeded',
+      workflow_current_state: 'done',
+      auto_run_status: 'workflow_completed',
+      next_action: 'view_completion_evidence',
+    })
   })
 
   it('defaults to mission control and groups candidates under their goal lane', async () => {
@@ -154,12 +164,24 @@ describe('PlanningPage Mission Control', () => {
     expect(within(lanes[1]).queryByText('Add gateway precision guardrail')).toBeNull()
   })
 
-  it('approves a candidate from inside its goal lane', async () => {
+  it('approves and runs a candidate from inside its goal lane', async () => {
     const user = userEvent.setup()
     render(<PlanningPage />)
 
     const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Approve' }))
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Approve & Run' }))
+
+    await waitFor(() => {
+      expect(apiMock.approveAndRunRequirementCandidate).toHaveBeenCalledWith(10, { operator: 'operator' })
+    })
+  })
+
+  it('still supports approve-only when an operator wants to stage a candidate', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Approve only' }))
 
     await waitFor(() => {
       expect(apiMock.approveRequirementCandidate).toHaveBeenCalledWith(10, { operator: 'operator' })

@@ -59,15 +59,6 @@ const workflowDetail = {
   ],
   artifacts: [
     {
-      id: 11,
-      artifact_type: 'workflow_transition_event',
-      state_key: 'open_pr',
-      atom_key: null,
-      content_summary: 'open_pr -> awaiting_operator',
-      payload: { from_state: 'open_pr', to_state: 'awaiting_operator' },
-      created_at: '2026-04-18T10:00:00Z',
-    },
-    {
       id: 31,
       artifact_type: 'workflow_agent_raw_output',
       state_key: 'diagnose',
@@ -105,9 +96,83 @@ const workflowDetail = {
       atom_type: 'deterministic',
       status: 'completed',
       output_summary: 'GitHub draft PR synced',
-      artifact_ids: [11, 32],
+      artifact_ids: [32],
       duration_ms: 120,
       error_excerpt: null,
+    },
+  ],
+  timeline: [
+    {
+      kind: 'state_transition',
+      id: 2,
+      created_at: '2026-04-18T10:00:00Z',
+      state_key: 'awaiting_operator',
+      from_state: 'open_pr',
+      to_state: 'awaiting_operator',
+      condition: '<default>',
+      status: 'completed',
+      title: 'State transition: open_pr -> awaiting_operator',
+      summary: 'Condition: <default>',
+      artifact_ids: [],
+    },
+    {
+      kind: 'atom_invocation',
+      id: 21,
+      created_at: '2026-04-18T09:58:30Z',
+      state_key: 'diagnose',
+      atom_key: 'ops_self_repair_diagnoser',
+      atom_type: 'agent',
+      status: 'completed',
+      title: 'Atom executed: ops_self_repair_diagnoser',
+      summary: 'TypeError from stale parser boundary',
+      artifact_ids: [31],
+      artifacts: [
+        {
+          id: 31,
+          artifact_type: 'workflow_agent_raw_output',
+          summary: 'diagnose: TypeError from stale parser boundary',
+          payload: { diagnosis: { action: 'patch' } },
+          raw_excerpt: '{"writes":{"diagnosis":{"action":"patch"}}}',
+        },
+      ],
+    },
+    {
+      kind: 'artifact_created',
+      id: 32,
+      created_at: '2026-04-18T10:00:00Z',
+      state_key: 'open_pr',
+      atom_key: 'open_self_repair_pr',
+      status: 'created',
+      title: 'Artifact created: workflow_review_pr_sync #32',
+      summary: 'agent_self_repair: GitHub PR sync synced',
+      artifact_ids: [32],
+      artifact: {
+        id: 32,
+        artifact_type: 'workflow_review_pr_sync',
+        summary: 'agent_self_repair: GitHub PR sync synced',
+        payload: { status: 'synced', pr_url: 'https://github.com/example/repo/pull/7' },
+        raw_excerpt: '',
+      },
+    },
+    {
+      kind: 'human_gate',
+      id: 41,
+      created_at: '2026-04-18T10:00:00Z',
+      state_key: 'awaiting_operator',
+      status: 'pending',
+      title: 'Human gate: human_gate',
+      summary: 'Workflow reached a human-gated terminal state.',
+      artifact_ids: [],
+    },
+    {
+      kind: 'workflow_terminal',
+      id: 7,
+      created_at: '2026-04-18T10:00:00Z',
+      state_key: 'awaiting_operator',
+      status: 'awaiting_operator',
+      title: 'Workflow terminal: awaiting_operator',
+      summary: 'route_to_human',
+      artifact_ids: [],
     },
   ],
   agent_outputs: [
@@ -260,35 +325,26 @@ describe('WorkflowRunDetailPage', () => {
     expect(screen.getByTestId('workflow-command-evidence-panel')).toHaveTextContent('No command evidence recorded')
     expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Review Human Gate')
     expect(screen.getByTestId('workflow-compact-step-rail')).toHaveTextContent('diagnose')
+    expect(screen.getByTestId('workflow-compact-step-rail')).toHaveTextContent('Static progress only')
     expect(screen.queryByText('Generated Work Items')).not.toBeInTheDocument()
     expect(screen.queryByText('Raw Blackboard JSON')).not.toBeInTheDocument()
   })
 
-  it('shows step purpose, inputs, outputs, decision, and evidence in the Steps tab', async () => {
+  it('shows the chronological workflow timeline without a step inspector', async () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByTestId('workflow-run-tabs')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Steps'))
-    fireEvent.click(within(screen.getByTestId('workflow-step-explorer')).getByText('diagnose'))
+    fireEvent.click(screen.getByText('Timeline'))
 
-    const inspector = screen.getByTestId('workflow-step-inspector')
-    expect(inspector).toHaveTextContent('Agent 定位自身故障模块')
-    expect(screen.getByTestId('workflow-step-explorer')).toHaveTextContent('evidence')
-    expect(screen.getByTestId('workflow-step-explorer')).toHaveTextContent('diagnosis')
-    expect(screen.getByTestId('workflow-step-explorer')).toHaveTextContent('diagnosis.action == "patch"')
-
-    fireEvent.click(within(inspector).getByText('Inputs'))
-    expect(inspector).toHaveTextContent('"evidence"')
-
-    fireEvent.click(within(inspector).getByText('Outputs'))
-    expect(inspector).toHaveTextContent('"diagnosis"')
-    expect(inspector).toHaveTextContent('"patch"')
-
-    fireEvent.click(within(inspector).getByText('Evidence'))
-    expect(inspector).toHaveTextContent('Agent Output: diagnose')
-
-    fireEvent.click(within(inspector).getByText('Transition'))
-    expect(inspector).toHaveTextContent('Matched Condition')
+    const timeline = screen.getByTestId('workflow-timeline-panel')
+    expect(timeline).toHaveTextContent('State transition: open_pr -> awaiting_operator')
+    expect(timeline).toHaveTextContent('Atom executed: ops_self_repair_diagnoser')
+    expect(timeline).toHaveTextContent('Artifact created: workflow_review_pr_sync #32')
+    expect(timeline).toHaveTextContent('Human gate: human_gate')
+    expect(timeline).toHaveTextContent('Workflow terminal: awaiting_operator')
+    expect(screen.queryByTestId('workflow-step-inspector')).not.toBeInTheDocument()
+    expect(screen.queryByText('Inputs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Outputs')).not.toBeInTheDocument()
   })
 
   it('groups artifacts into a human-readable evidence map and keeps raw JSON in Debug', async () => {
@@ -300,11 +356,11 @@ describe('WorkflowRunDetailPage', () => {
     expect(screen.getByTestId('workflow-agent-output-panel')).toHaveTextContent('ops_self_repair_diagnoser')
     expect(screen.getByTestId('workflow-changed-files-panel')).toHaveTextContent('server/services/workflows/declarative.py')
     expect(screen.getByTestId('workflow-command-evidence-panel')).toHaveTextContent('No command evidence recorded')
-    expect(screen.getByTestId('workflow-evidence-map')).toHaveTextContent('Agent Output: diagnose')
     expect(screen.getByTestId('workflow-evidence-map')).toHaveTextContent('GitHub PR: draft PR synced')
     expect(screen.queryByText('Raw Blackboard JSON')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Debug'))
+    expect(screen.getByTestId('workflow-debug-panel')).toHaveTextContent('Download Debug Dump')
     expect(screen.getByTestId('workflow-debug-panel')).toHaveTextContent('Raw Blackboard JSON')
     expect(screen.getByTestId('workflow-debug-panel')).toHaveTextContent('Raw Artifacts')
   })

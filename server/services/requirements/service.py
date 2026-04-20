@@ -65,6 +65,8 @@ from server.services.workflows.planner_provider import (
 
 logger = get_logger("ops-dashboard.requirements")
 
+TERMINAL_INACTIVE_REQUIREMENT_STATES = {"cancelled", "deleted"}
+
 
 def _testing_mode() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST"))
@@ -341,10 +343,35 @@ def _active_workflow_run_summary(db: Session, requirement: RequirementRow) -> De
 
 
 def _workflow_state_for_requirement(requirement: RequirementRow) -> str:
+    tokens = _requirement_lifecycle_tokens(requirement)
+    if "deleted" in tokens:
+        return "deleted"
+    if "cancelled" in tokens:
+        return "cancelled"
     active_summary_state = str(getattr(requirement, "workflow_state", "") or "").strip()
     if active_summary_state:
         return active_summary_state
     return str(getattr(requirement, "phase", "") or getattr(requirement, "status", "") or "draft").strip() or "draft"
+
+
+def _requirement_lifecycle_tokens(requirement: RequirementRow) -> set[str]:
+    return {
+        str(getattr(requirement, "status", "") or "").strip(),
+        str(getattr(requirement, "phase", "") or "").strip(),
+        str(getattr(requirement, "workflow_state", "") or "").strip(),
+    } - {""}
+
+
+def _is_inactive_requirement(requirement: RequirementRow) -> bool:
+    return bool(_requirement_lifecycle_tokens(requirement) & TERMINAL_INACTIVE_REQUIREMENT_STATES)
+
+
+def _assert_requirement_can_progress(requirement: RequirementRow, action: str) -> None:
+    tokens = _requirement_lifecycle_tokens(requirement)
+    if "deleted" in tokens:
+        raise ValueError(f"Deleted requirement cannot {action}.")
+    if "cancelled" in tokens:
+        raise ValueError(f"Cancelled requirement cannot {action}.")
 
 
 def _requirement_allowed_actions(
@@ -355,6 +382,8 @@ def _requirement_allowed_actions(
     assets_status = _assets_status(requirement)
     has_active_workflow = int(getattr(requirement, "active_workflow_run_id", 0) or 0) > 0
     actions = ["view"]
+    if _is_inactive_requirement(requirement):
+        return actions
     if has_active_workflow:
         actions.append("view_workflow")
     if not has_active_workflow and state in {"draft", "planning", "ready", "awaiting_operator"}:
@@ -365,6 +394,7 @@ def _requirement_allowed_actions(
         actions.append("regenerate_assets")
     if not has_active_workflow and state in {"draft", "planning", "ready", "needs_revision"}:
         actions.append("delete")
+        actions.append("cancel")
     if latest_release is not None:
         actions.append("view_release")
         if str(latest_release.status or "") == "pr_opened" and str(latest_release.pr_url or "").strip():
@@ -375,6 +405,8 @@ def _requirement_allowed_actions(
 
 
 def _pending_operations(requirement: RequirementRow) -> list[str]:
+    if _is_inactive_requirement(requirement):
+        return []
     if getattr(requirement, "active_workflow_run_id", None):
         return []
     if _assets_status(requirement) == "ready":
@@ -448,7 +480,11 @@ def _workflow_readiness_out(db: Session, requirement: RequirementRow) -> Workflo
     summary = _active_workflow_run_summary(db, requirement)
     active_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None
     recommended_workflow_key = _select_declarative_workflow_key(requirement)
-    if active_run_id or summary is not None:
+    if _is_inactive_requirement(requirement):
+        blocking_reason = "requirement_deleted" if "deleted" in _requirement_lifecycle_tokens(requirement) else "requirement_cancelled"
+        next_action = "none"
+        can_start = False
+    elif active_run_id or summary is not None:
         blocking_reason = None
         next_action = "view_workflow"
         can_start = False
@@ -516,6 +552,8 @@ def list_requirements(db: Session, *, status: str | None = None, search: str | N
     result: list[AgentFirstRequirementOut] = []
     for row in rows:
         item = _requirement_to_out(db, row)
+        if not status and item.status == "deleted":
+            continue
         if status and item.status != status:
             continue
         if search_value:
@@ -642,6 +680,7 @@ def update_requirement(db: Session, requirement_id: int, body: Any) -> AgentFirs
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "be edited")
     project = _project_for_requirement(db, requirement)
     if getattr(body, "title", None) is not None:
         requirement.title = str(body.title).strip()
@@ -715,6 +754,7 @@ def _select_declarative_workflow_key(requirement: RequirementRow) -> str:
 
 
 def _ensure_declarative_workflow_assets(db: Session, requirement: RequirementRow) -> None:
+    _assert_requirement_can_progress(requirement, "generate workflow assets")
     workflow_key = _select_declarative_workflow_key(requirement)
     acceptance = _parse_acceptance_contract(requirement)
     if not str(acceptance.get("markdown") or "").strip():
@@ -759,6 +799,8 @@ def _background_requirement_asset_generation(requirement_id: int) -> None:
         requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
         if requirement is None:
             return
+        if _is_inactive_requirement(requirement):
+            return
         _ensure_declarative_workflow_assets(db, requirement)
         db.commit()
         _auto_submit_ready_requirement(db, requirement_id, trigger="requirement_assets_generated")
@@ -783,6 +825,7 @@ def generate_requirement_workflow_assets(db: Session, requirement_id: int) -> Ag
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "generate workflow assets")
     if int(getattr(requirement, "active_workflow_run_id", 0) or 0) > 0:
         return build_requirement_detail(db, requirement_id)
     _ensure_declarative_workflow_assets(db, requirement)
@@ -794,6 +837,7 @@ def regenerate_requirement_assets(db: Session, requirement_id: int) -> AgentFirs
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "regenerate workflow assets")
     if getattr(requirement, "active_workflow_run_id", None):
         raise ValueError("Workflow has already started; assets can no longer be regenerated.")
     requirement.phase = "planning"
@@ -816,6 +860,7 @@ def regenerate_requirement_plan(db: Session, requirement_id: int) -> AgentFirstR
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "regenerate workflow assets")
     _ensure_declarative_workflow_assets(db, requirement)
     db.commit()
     return build_requirement_detail(db, requirement_id)
@@ -903,6 +948,7 @@ def start_requirement_workflow(
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "start workflow")
     existing_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
     if existing_run_id > 0:
         return workflow_run_detail(db, existing_run_id)
@@ -926,7 +972,7 @@ def _auto_submit_ready_requirement(db: Session, requirement_id: int, *, trigger:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None or getattr(requirement, "active_workflow_run_id", None):
         return None
-    if str(getattr(requirement, "status", "") or "") in {"deleted", "cancelled"}:
+    if _is_inactive_requirement(requirement):
         return None
     if _assets_status(requirement) != "ready":
         return None
@@ -937,8 +983,7 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
-    if str(requirement.status or "") == "deleted":
-        raise ValueError("Deleted requirement cannot be submitted.")
+    _assert_requirement_can_progress(requirement, "be submitted")
     if getattr(requirement, "active_workflow_run_id", None):
         return build_requirement_detail(db, requirement_id)
     if not str(requirement.title or "").strip() or not str(requirement.description_markdown or "").strip():
@@ -960,6 +1005,10 @@ def submit_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
 
 
 def revise_requirement(db: Session, requirement_id: int, body: Any) -> AgentFirstRequirementDetailOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    _assert_requirement_can_progress(requirement, "be revised")
     update_requirement(db, requirement_id, body)
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
@@ -977,6 +1026,10 @@ def cancel_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    if str(getattr(requirement, "status", "") or "") == "deleted":
+        raise ValueError("Deleted requirement cannot be closed.")
+    if getattr(requirement, "active_workflow_run_id", None):
+        raise ValueError("Requirements with workflow history cannot be closed; handle the workflow gate instead.")
     requirement.phase = "cancelled"
     requirement.status = "cancelled"
     requirement.workflow_state = "cancelled"
@@ -989,6 +1042,8 @@ def delete_requirement(db: Session, requirement_id: int) -> AgentFirstRequiremen
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
     if requirement is None:
         raise ValueError("Requirement not found.")
+    if str(getattr(requirement, "status", "") or "") == "cancelled":
+        raise ValueError("Closed requirement cannot be deleted.")
     if getattr(requirement, "active_workflow_run_id", None):
         raise ValueError("Requirements with workflow history cannot be deleted.")
     if str(getattr(requirement, "phase", "") or requirement.status or "draft") not in {"draft", "planning", "ready", "needs_revision", "blocked"}:

@@ -738,6 +738,36 @@ export interface DeclarativeHumanGate {
   created_at: string | null
 }
 
+export interface DeclarativeTimelineArtifactPreview {
+  id: number
+  artifact_type: string
+  summary: string
+  payload: Record<string, unknown>
+  raw_excerpt: string
+}
+
+export interface DeclarativeWorkflowTimelineItem {
+  kind: string
+  id: number
+  created_at: string | null
+  completed_at?: string | null
+  state_key: string
+  atom_key?: string | null
+  atom_type?: string | null
+  status: string
+  title: string
+  summary: string
+  artifact_ids: number[]
+  artifacts?: DeclarativeTimelineArtifactPreview[]
+  artifact?: DeclarativeTimelineArtifactPreview
+  from_state?: string | null
+  to_state?: string | null
+  condition?: string | null
+  payload_ref?: Record<string, unknown>
+  decision?: string | null
+  decided_by?: string | null
+}
+
 export interface DeclarativeAgentOutput {
   state_key: string
   atom_key: string
@@ -795,6 +825,7 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   artifacts: DeclarativeWorkflowArtifact[]
   atom_invocations: DeclarativeAtomInvocation[]
   human_gates: DeclarativeHumanGate[]
+  timeline?: DeclarativeWorkflowTimelineItem[]
   notifications?: NotificationDelivery[]
   outcome_label?: string
   is_truly_completed?: boolean
@@ -1553,6 +1584,16 @@ export interface RequirementCandidatePage {
   total_pages: number
 }
 
+export interface CandidateApproveRunResult {
+  candidate: RequirementCandidate
+  requirement_id: number
+  workflow_run_id: number | null
+  workflow_status: string
+  workflow_current_state: string
+  auto_run_status: string
+  next_action: string
+}
+
 export interface PlannerSweep {
   id: number
   manifest_id: number
@@ -1660,6 +1701,8 @@ export const api = {
   },
   approveRequirementCandidate: (id: number, data?: { operator?: string }) =>
     request<RequirementCandidate>(`/planning/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  approveAndRunRequirementCandidate: (id: number, data?: { operator?: string }) =>
+    request<CandidateApproveRunResult>(`/planning/candidates/${id}/approve-and-run`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rejectRequirementCandidate: (id: number, data: { reason: string; operator?: string; comment?: string | null }) =>
     request<RequirementCandidate>(`/planning/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify(data) }),
   materializeRequirementCandidate: (id: number, data?: { operator?: string }) =>

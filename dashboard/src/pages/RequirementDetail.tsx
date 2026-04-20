@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { AcceptanceContract, AgentRequirementDetail, ExecutionPlan, Project, api } from '../api'
-import { FieldLabel, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
+import { ConfirmDialog, FieldLabel, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '草稿',
@@ -19,7 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
   needs_revision: '需修订',
   delivery_ready: '待发布',
   done: '已完成',
-  cancelled: '已取消',
+  cancelled: '已关闭',
   deleted: '已删除',
 }
 
@@ -81,11 +81,13 @@ const LIFECYCLE_STATE_INDEX: Record<string, number> = {
   ready_for_merge: 5,
   completed: 6,
   done: 6,
+  cancelled: 2,
+  deleted: 2,
 }
 
 function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
   if (state in LIFECYCLE_STATE_INDEX) return LIFECYCLE_STATE_INDEX[state]
-  if (state === 'failed' || state === 'cancelled' || state === 'awaiting_operator') {
+  if (state === 'failed' || state === 'cancelled' || state === 'deleted' || state === 'awaiting_operator') {
     if (detail.latest_release_id || detail.latest_release) return 5
     if (detail.active_workflow_run_id || detail.requirement.active_workflow_run_id) return 4
     return 2
@@ -96,7 +98,8 @@ function lifecycleIndex(detail: AgentRequirementDetail, state: string) {
 function lifecycleDescription(detail: AgentRequirementDetail, state: string) {
   const releaseState = detail.latest_release?.state || detail.latest_release?.status || ''
   if (state === 'failed') return detail.failure_reason ? `自动主链已终止：${detail.failure_reason}` : '自动主链已终止，需要人工介入'
-  if (state === 'cancelled') return '需求已取消，不会继续自动推进'
+  if (state === 'cancelled') return '需求已关闭，不会继续自动推进'
+  if (state === 'deleted') return '需求已删除，不能再提交、启动 workflow 或进入人工门禁'
   if (state === 'awaiting_operator') return detail.attention_reason ? `需要人工处理：${detail.attention_reason}` : '需要人工处理后才能继续'
   if (state === 'planning' || detail.assets_status === 'pending') return '验收标准与状态机计划正在生成'
   if (state === 'ready') return '需求已就绪，可以创建状态机工作流'
@@ -127,13 +130,13 @@ function lifecycleDotTone(stepStatus: 'done' | 'current' | 'upcoming' | 'termina
 function RequirementLifecycleStepper({ detail }: Readonly<{ detail: AgentRequirementDetail }>) {
   const state = detail.requirement.state || detail.state || detail.requirement.status || 'draft'
   const currentIndex = lifecycleIndex(detail, state)
-  const isTerminal = state === 'failed' || state === 'cancelled'
+  const isTerminal = state === 'failed' || state === 'cancelled' || state === 'deleted'
   const description = lifecycleDescription(detail, state)
   const currentStep = LIFECYCLE_STEPS[currentIndex] || LIFECYCLE_STEPS[0]
   return (
     <div data-testid="requirement-lifecycle" className="mb-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <StateBadge tone={isTerminal ? 'blocked' : statusTone(state)}>{isTerminal ? (state === 'failed' ? '需求失败' : '需求已取消') : `当前：${currentStep.label}`}</StateBadge>
+        <StateBadge tone={isTerminal ? 'blocked' : statusTone(state)}>{isTerminal ? (state === 'failed' ? '需求失败' : state === 'deleted' ? '需求已删除' : '需求已关闭') : `当前：${currentStep.label}`}</StateBadge>
         <span data-testid="requirement-lifecycle-current" className="text-sm text-[color:var(--ops-text-muted)]">
           {description}
         </span>
@@ -210,6 +213,9 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   const actions = new Set<string>(['view'])
   const state = requirement.state || requirement.status
   const latestRelease = detail.latest_release
+  if (state === 'cancelled' || state === 'deleted') {
+    return [...actions]
+  }
   if (detail.active_workflow_run_id != null || requirement.active_workflow_run_id != null) actions.add('view_workflow')
   if (detail.latest_release_id != null) actions.add('view_release')
   if (state === 'draft' || state === 'planning' || state === 'ready' || state === 'awaiting_operator') {
@@ -223,6 +229,7 @@ function fallbackRequirementAllowedActions(detail: AgentRequirementDetail): stri
   }
   if (requirement.active_workflow_run_id == null && ['draft', 'planning'].includes(state)) {
     actions.add('delete')
+    actions.add('cancel')
   }
   if (latestRelease?.status === 'branch_prepared') {
     actions.add('open_pr')
@@ -249,6 +256,8 @@ export default function RequirementDetail() {
   const [saving, setSaving] = useState(false)
   const [releaseActionBusy, setReleaseActionBusy] = useState<string | null>(null)
   const [workflowActionBusy, setWorkflowActionBusy] = useState<string | null>(null)
+  const [lifecycleActionBusy, setLifecycleActionBusy] = useState<string | null>(null)
+  const [confirmLifecycleAction, setConfirmLifecycleAction] = useState<'cancel' | 'delete' | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [form, setForm] = useState({
@@ -444,6 +453,24 @@ export default function RequirementDetail() {
                     : autoSubmitPending
                       ? '创建工作流'
                       : '提交'}
+              </button>
+            ) : null}
+            {!isEditing && requirementAllowedActions.includes('cancel') ? (
+              <button
+                className="rounded-2xl border border-[color:var(--ops-state-validating-border)] px-4 py-2 text-sm text-[color:var(--ops-state-validating-text)] disabled:opacity-50"
+                disabled={lifecycleActionBusy === 'cancel'}
+                onClick={() => setConfirmLifecycleAction('cancel')}
+              >
+                {lifecycleActionBusy === 'cancel' ? '关闭中…' : '关闭需求'}
+              </button>
+            ) : null}
+            {!isEditing && requirementAllowedActions.includes('delete') ? (
+              <button
+                className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
+                disabled={lifecycleActionBusy === 'delete'}
+                onClick={() => setConfirmLifecycleAction('delete')}
+              >
+                {lifecycleActionBusy === 'delete' ? '删除中…' : '删除需求'}
               </button>
             ) : null}
             {!isEditing && detail.assets_status === 'failed' && requirementAllowedActions.includes('regenerate_assets') ? (
@@ -879,6 +906,43 @@ export default function RequirementDetail() {
           <Markdown value={planMarkdown(detail.execution_plan)} />
         )}
       </SectionFrame>
+      <ConfirmDialog
+        open={confirmLifecycleAction !== null}
+        title={confirmLifecycleAction === 'cancel' ? '关闭需求' : '删除需求'}
+        description={
+          confirmLifecycleAction === 'cancel'
+            ? `关闭后，需求 #${requirement.id} 会进入 cancelled 状态，不会再提交、启动 workflow 或进入人工门禁。`
+            : `删除后，需求 #${requirement.id} 会进入 deleted 状态；已删除需求不能再进入审批或 workflow。`
+        }
+        confirmLabel={confirmLifecycleAction === 'cancel' ? '确认关闭' : '确认删除'}
+        cancelLabel="取消"
+        tone="destructive"
+        loading={lifecycleActionBusy !== null}
+        onClose={() => {
+          if (lifecycleActionBusy) return
+          setConfirmLifecycleAction(null)
+        }}
+        onConfirm={() => {
+          if (!confirmLifecycleAction) return
+          const action = confirmLifecycleAction
+          setLifecycleActionBusy(action)
+          ;(async () => {
+            try {
+              const next = action === 'cancel'
+                ? await api.cancelRequirement(requirement.id)
+                : await api.deleteRequirement(requirement.id)
+              setDetail(next)
+              toast.success(action === 'cancel' ? '需求已关闭' : '需求已删除')
+              setConfirmLifecycleAction(null)
+            } catch (error) {
+              const message = error instanceof Error ? error.message : (action === 'cancel' ? '关闭失败，请重试' : '删除失败，请重试')
+              toast.error(message)
+            } finally {
+              setLifecycleActionBusy(null)
+            }
+          })().catch(() => {})
+        }}
+      />
     </div>
   )
 }

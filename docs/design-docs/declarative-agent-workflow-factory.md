@@ -321,7 +321,7 @@ Required spec rules:
 3. every loop has a counter guard.
 4. every agent state declares `output_schema`.
 5. every high-risk state routes through `risk_gate` or `awaiting_operator`.
-6. every transition emits an event artifact.
+6. every transition emits a `workflow_state_events` row; normal transitions must not create artifact rows.
 
 ## Blackboard Contract
 
@@ -330,9 +330,9 @@ Blackboard is the per-run shared memory for workflow execution.
 Implemented storage:
 
 1. `workflow_definitions` stores governed workflow specs and built-in workflow discovery records.
-2. `workflow_runs` is the new declarative run truth and stores `workflow_key`, `current_state`, `status`, `resolution`, `retry_counters_json`, and compact `blackboard_json`.
-3. `blackboard_snapshots` stores per-state compact blackboard snapshots for replay and audit.
-4. `workflow_artifacts` stores raw agent output, transition evidence, command logs, large text, screenshots, diffs, and evidence. Its `workflow_run_id` directly references `workflow_runs.id`.
+2. `workflow_runs` is the new declarative run truth and stores `workflow_key`, `current_state`, `status`, `resolution`, `retry_counters_json`, and compact final-KV `blackboard_json`.
+3. `blackboard_snapshots` may store compact snapshots for audit, but UI must not depend on it to reconstruct per-step input/output.
+4. `workflow_artifacts` stores raw agent output, command logs, large text, screenshots, diffs, PR evidence, and other heavy evidence. Its `workflow_run_id` directly references `workflow_runs.id`.
 5. `workflow_state_events` stores every transition event with `from_state`, `to_state`, condition, counters, and payload.
 6. `atom_invocations` stores every deterministic/agent atom call, input summary, output schema, artifact ids, duration, status, and error excerpt.
 7. `human_gate_requests` stores high-risk or terminal operator gates and writes operator decisions back to blackboard.
@@ -340,7 +340,11 @@ Implemented storage:
 
 Legacy execution ORM models and fixed `workflow_steps` are not part of the new execution truth. Old physical tables may remain in a local SQLite file until the operator resets or archives the database, but the application no longer declares them as active models and new declarative workflows must not write through them.
 
-Blackboard is not a hidden prompt dump. It is a typed, auditable run context.
+Blackboard is not a hidden prompt dump or history log. It is final KV memory for the current run. Do not persist `state_outputs`, `transition_history`, raw artifacts, long transcripts, or ordinary transition history in `blackboard_json`.
+
+Workflow detail UI should use a chronological `timeline[]` API projection assembled from state events, atom invocations, artifacts, and human gates. The timeline is not a physical table. It is the operator narrative for debugging and review.
+
+Do not build a Step Inspector that claims to reconstruct historical input/output from the final blackboard. If exact replay is needed later, add a dedicated replay event store rather than stuffing history back into Blackboard.
 
 ## Agent Atom Contract
 
@@ -565,7 +569,7 @@ Add lower-risk operating workflows after engineering workflows are observable an
 ## Test Plan
 
 1. State machine validation: rejects missing terminal states, missing retry budgets, invalid atom references, and high-risk paths without gates.
-2. Blackboard read/write: persists compact keys, stores large evidence as artifacts, and records transition events.
+2. Blackboard read/write: persists final KV keys, stores large evidence as artifacts, and records transition events outside blackboard.
 3. Agent output parsing: accepts valid schema payloads, stores raw output, repairs one parse failure, and fails safely after repeated parse errors.
 4. Risk-evidence gate: routes high-risk actions to humans even with strong evidence; auto-flows only low-risk high-evidence actions.
 5. Session reuse: repair loops preserve the execution agent session for a requirement unless policy explicitly starts a new run.

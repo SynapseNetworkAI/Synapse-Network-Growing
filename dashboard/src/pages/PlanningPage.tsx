@@ -19,6 +19,7 @@ type Goal = {
 }
 
 type ActiveTab = 'mission' | 'history' | 'debug'
+type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
 
 type SteeringDraft = {
   focusWeights: Record<string, number>
@@ -114,16 +115,19 @@ function CandidateActions({
 }: Readonly<{
   candidate: RequirementCandidate
   busy: string | null
-  onAction: (candidate: RequirementCandidate, action: 'approve' | 'reject' | 'materialize') => void
+  onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
 }>) {
   const busyForCandidate = busy?.endsWith(`:${candidate.id}`)
   return (
     <div className="flex flex-wrap gap-2">
       {candidate.status === 'pending' && (
-        <button className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve')}>Approve</button>
+        <button className="rounded-xl border border-blue-300 bg-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_0_18px_rgba(59,130,246,0.25)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Approve & Run</button>
+      )}
+      {candidate.status === 'pending' && (
+        <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve')}>Approve only</button>
       )}
       {candidate.status === 'approved' && (
-        <button className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700" disabled={busyForCandidate} onClick={() => onAction(candidate, 'materialize')}>Materialize Requirement</button>
+        <button className="rounded-xl border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Materialize & Run</button>
       )}
       {['pending', 'approved'].includes(candidate.status) && (
         <button className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700" disabled={busyForCandidate} onClick={() => onAction(candidate, 'reject')}>Reject</button>
@@ -142,7 +146,7 @@ function CandidateMiniQueue({
 }: Readonly<{
   candidates: RequirementCandidate[]
   busy: string | null
-  onAction: (candidate: RequirementCandidate, action: 'approve' | 'reject' | 'materialize') => void
+  onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
 }>) {
   const active = candidates.filter((candidate) => ['pending', 'approved', 'materialized'].includes(candidate.status))
   const quiet = candidates.filter((candidate) => !['pending', 'approved', 'materialized'].includes(candidate.status))
@@ -194,7 +198,7 @@ function GoalMissionLaneSection({
 }: Readonly<{
   lane: GoalMissionLane
   busy: string | null
-  onCandidateAction: (candidate: RequirementCandidate, action: 'approve' | 'reject' | 'materialize') => void
+  onCandidateAction: (candidate: RequirementCandidate, action: CandidateAction) => void
   onDropGoal: (goal: Goal) => void
 }>) {
   const goal = asGoal(lane.goal)
@@ -699,11 +703,12 @@ export default function PlanningPage() {
     }
   }
 
-  async function actOnCandidate(candidate: RequirementCandidate, action: 'approve' | 'reject' | 'materialize') {
+  async function actOnCandidate(candidate: RequirementCandidate, action: CandidateAction) {
     setBusy(`${action}:${candidate.id}`)
     setError(null)
     try {
       if (action === 'approve') await api.approveRequirementCandidate(candidate.id, { operator: 'operator' })
+      if (action === 'approve_run') await api.approveAndRunRequirementCandidate(candidate.id, { operator: 'operator' })
       if (action === 'reject') await api.rejectRequirementCandidate(candidate.id, { operator: 'operator', reason: 'operator_rejected' })
       if (action === 'materialize') await api.materializeRequirementCandidate(candidate.id, { operator: 'operator' })
       await load(historyPage)

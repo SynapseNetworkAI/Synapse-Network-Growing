@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from server.database import get_db
 from server.schemas import (
     CandidateDecisionRequest,
+    CandidateApproveRunResultOut,
     CandidateMaterializeResultOut,
     PlannerSweepOut,
     PlannerSweepRunRequest,
@@ -23,6 +24,7 @@ from server.schemas import (
 )
 from server.services.planning.lifecycle import (
     approve_candidate,
+    approve_and_run_candidate,
     archive_and_start_new_cycle,
     candidate_to_dict,
     drop_goal,
@@ -183,6 +185,18 @@ def post_approve_candidate(
 ):
     try:
         return candidate_to_dict(approve_candidate(db, candidate_id, operator=body.operator))
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post("/candidates/{candidate_id}/approve-and-run", response_model=CandidateApproveRunResultOut)
+def post_approve_and_run_candidate(
+    candidate_id: int,
+    body: CandidateDecisionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return approve_and_run_candidate(db, candidate_id, operator=body.operator)
     except ValueError as exc:
         raise _bad_request(exc) from exc
 

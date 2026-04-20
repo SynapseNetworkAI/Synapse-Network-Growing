@@ -200,9 +200,22 @@ GET  /api/planning/manifest/{id}/goals/{goal_key}/rollup
 POST /api/planning/sweeps/run
 GET  /api/planning/candidates
 POST /api/planning/candidates/{id}/approve
+POST /api/planning/candidates/{id}/approve-and-run
 POST /api/planning/candidates/{id}/reject
 POST /api/planning/candidates/{id}/materialize
 ```
+
+`approve-and-run` is the default operator path for normal candidate handling:
+
+```text
+RequirementCandidate(pending)
+-> approve candidate
+-> materialize Requirement
+-> start Declarative WorkflowRun immediately
+-> stop at workflow Human Gate when risk policy requires it
+```
+
+This is not legacy requirement-level approval. Requirement pre-execution approval remains retired; human decisions happen inside workflow `human_gate_requests`.
 
 ## UI Surface
 
@@ -219,10 +232,12 @@ It contains:
 ### Planning Console UX Contract
 
 1. `/planning` must organize work by `goal_key`; candidates must not appear as a detached global queue in the primary view.
-2. Candidate approval, rejection and materialization must happen inside the relevant goal lane so the operator sees the business context.
+2. Candidate approval, rejection, approve-and-run and materialization must happen inside the relevant goal lane so the operator sees the business context.
 3. Raw Manifest JSON must not be the default editing surface. Use form controls for `focus_weights`, `global_budget` and `global_constraints`.
 4. Raw JSON is allowed only in a Debug tab or drawer for fields not covered by the structured controls.
 5. Manifest History must be paginated and searchable, and must not crowd the Mission Control primary surface.
+6. Pending candidates should expose `Approve & Run` as the primary action and `Approve only` as an explicit staging action.
+7. `Approve & Run` must not bypass workflow risk policy; high-risk candidates must still stop at Human Gate.
 6. The primary view should answer: what goal is this for, what is pending, what is running, what shipped, and what should the operator decide next.
 
 The Drop Goal modal must explicitly say:

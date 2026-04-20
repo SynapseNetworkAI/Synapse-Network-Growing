@@ -109,6 +109,33 @@ intake -> execute -> validate -> deliver
 6. 跳转到 release 面
 7. 高信号错误会自动创建或复用 requirement，并沿同一条主链进入 workflow、human gate 与执行
 
+#### 需求状态
+
+需求池的状态只表达 requirement 生命周期，不再表达旧审批流。
+
+1. `draft`
+   需求刚创建或仍在编辑，尚未形成可执行 workflow 资产。
+2. `planning`
+   系统正在生成验收标准、计划摘要和 workflow blackboard。
+3. `ready`
+   workflow 资产已就绪，可以提交并启动 declarative workflow。
+4. `executing` / `running`
+   已进入 workflow run，后续执行证据在 `/workflows/:id` 查看。
+5. `awaiting_operator`
+   workflow 触发 human gate，需要到 `/workflows/:id?tab=gates` 或 `门禁审批` 处理。
+6. `delivery_ready` / `ready_for_merge`
+   执行完成但仍需 release / PR / deploy 面收口。
+7. `completed` / `done`
+   workflow 和证据已完成，需求只作为历史台账保留。
+8. `failed` / `blocked` / `needs_revision`
+   自动链路无法继续，需要修订输入、重试 workflow 或人工处理。
+9. `cancelled`
+   需求被 operator 关闭；不能再提交、生成 workflow、进入 human gate 或 release。
+10. `deleted`
+    需求被软删除；默认列表隐藏，只能通过 `已删除` 筛选查看，且不能再进入任何审批或执行链路。
+
+关闭和删除都是 requirement lifecycle 动作，不是 workflow rollback。已经进入 workflow 的需求不能在需求池直接删除；必须在 workflow 的 Human Gate / Delivery 面处理后续动作。
+
 #### 后端接口
 
 1. `GET /api/requirements`
@@ -179,7 +206,7 @@ intake -> execute -> validate -> deliver
 1. 展示唯一 active Operating Manifest。
 2. 展示 goals、budgets、global constraints。
 3. 运行 Planner Sweep 生成 Requirement Candidate。
-4. 审批、拒绝或 materialize candidate。
+4. 审批、拒绝或 approve-and-run candidate。
 5. 分页搜索全部 manifest history。
 6. 执行 Drop Goal 的 safe halt，并展示 Halt Summary。
 
@@ -189,9 +216,12 @@ intake -> execute -> validate -> deliver
 2. 小调整使用 `保存 Minor Revision`。
 3. 阶段切换使用 `Archive & Start New Cycle`。
 4. Planner Sweep 先 dry run，再正式 run。
-5. Candidate 先 approve，再 materialize 成正式 requirement。
-6. Reject candidate 时保留原因，后续 Planner Sweep 会把拒绝反馈作为抑制信号。
-7. Drop Goal 必须写清 reason。
+5. 默认使用 `Approve & Run`：系统会 approve candidate、materialize 成正式 requirement，并立即启动 declarative workflow。
+6. 如果只想暂存候选，使用 `Approve only`；后续仍可 `Materialize & Run`。
+7. Reject candidate 时保留原因，后续 Planner Sweep 会把拒绝反馈作为抑制信号。
+8. Drop Goal 必须写清 reason。
+
+`Approve & Run` 不会绕过安全门禁。低风险 workflow 可以自动跑到完成；高风险、生产、资金、认证或发布相关任务仍会停在 `/workflows/:id?tab=gates` 的 Human Gate，由 operator 决策。
 
 #### Drop Goal 语义
 

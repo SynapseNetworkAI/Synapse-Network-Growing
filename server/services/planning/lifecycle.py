@@ -25,7 +25,7 @@ from server.database import (
 )
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
-from server.services.requirements.service import create_requirement
+from server.services.requirements.service import create_requirement, start_requirement_workflow
 
 
 GOAL_ACTIVE = "active"
@@ -763,6 +763,9 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
         project = db.query(ProjectRow).order_by(ProjectRow.id.asc()).first()
     if project is None:
         raise ValueError("candidate cannot be materialized without a project")
+    risk_level = str(row.risk_level or "").strip().lower() or "normal"
+    priority = str(row.priority or "").strip().lower() or "normal"
+    severity = risk_level if risk_level in {"high", "critical"} else priority
     body = RequirementCreate(
         title=str(row.title or "").strip(),
         description_markdown=str(row.description_markdown or "").strip(),
@@ -776,6 +779,9 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
             "requirement_candidate_id": int(row.id),
             "workflow_key": str(row.workflow_key or ""),
             "materialized_by": operator,
+            "risk_level": risk_level,
+            "severity": severity,
+            "candidate_priority": priority,
         },
     )
     result = create_requirement(db, body)
@@ -793,6 +799,9 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
             "requirement_candidate_id": int(row.id),
             "workflow_key": str(row.workflow_key or ""),
             "materialized_by": operator,
+            "risk_level": risk_level,
+            "severity": severity,
+            "candidate_priority": priority,
         }
     )
     requirement.intake_metadata_json = _json_dumps(metadata)
@@ -801,6 +810,75 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
     row.updated_at = utcnow()
     db.commit()
     return {"candidate": candidate_to_dict(row), "requirement_id": int(requirement.id)}
+
+
+def _workflow_next_action(detail: dict[str, Any]) -> str:
+    pending_gate_count = int(detail.get("pending_human_gate_count") or 0)
+    status = str(detail.get("status") or "").strip()
+    current_state = str(detail.get("current_state") or "").strip()
+    if pending_gate_count > 0 or status == "awaiting_operator" or current_state == "awaiting_operator":
+        return "review_human_gate"
+    if status in {"succeeded", "completed", "done"}:
+        return "view_completion_evidence"
+    if status == "failed":
+        return "inspect_failure"
+    return "view_workflow"
+
+
+def _auto_run_status(detail: dict[str, Any]) -> str:
+    next_action = _workflow_next_action(detail)
+    status = str(detail.get("status") or "").strip()
+    if next_action == "review_human_gate":
+        return "workflow_needs_human"
+    if status in {"succeeded", "completed", "done"}:
+        return "workflow_completed"
+    if status == "failed":
+        return "workflow_failed"
+    return "workflow_started"
+
+
+def approve_and_run_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> dict[str, Any]:
+    """Approve a candidate, materialize it, and immediately start its workflow.
+
+    This is intentionally not a resurrection of legacy requirement approval. The
+    only automatic progression after candidate approval is the current
+    declarative workflow runner, where high-risk work still stops at a Human Gate.
+    """
+
+    row = db.get(RequirementCandidateRow, candidate_id)
+    if row is None:
+        raise ValueError("candidate not found")
+    status = str(row.status or "").strip()
+    if status in {"pending", "rejected"}:
+        row = approve_candidate(db, candidate_id, operator=operator)
+        status = str(row.status or "").strip()
+    if status == "approved":
+        materialized = materialize_candidate(db, candidate_id, operator=operator)
+        row = db.get(RequirementCandidateRow, candidate_id)
+        requirement_id = int(materialized["requirement_id"])
+    elif status == "materialized" and row.materialized_requirement_id:
+        requirement_id = int(row.materialized_requirement_id)
+    else:
+        raise ValueError(f"candidate cannot be approved and run from status {row.status}")
+
+    workflow_detail = start_requirement_workflow(
+        db,
+        requirement_id,
+        workflow_key=str(getattr(row, "workflow_key", "") or "").strip() or None,
+        triggered_by="candidate_approve_and_run",
+        run_immediately=True,
+    )
+    db.commit()
+    refreshed = db.get(RequirementCandidateRow, candidate_id)
+    return {
+        "candidate": candidate_to_dict(refreshed or row),
+        "requirement_id": requirement_id,
+        "workflow_run_id": int(workflow_detail.get("id")) if workflow_detail.get("id") is not None else None,
+        "workflow_status": str(workflow_detail.get("status") or ""),
+        "workflow_current_state": str(workflow_detail.get("current_state") or ""),
+        "auto_run_status": _auto_run_status(workflow_detail),
+        "next_action": _workflow_next_action(workflow_detail),
+    }
 
 
 def drop_goal(

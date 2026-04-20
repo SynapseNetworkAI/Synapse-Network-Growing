@@ -131,9 +131,6 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "pr",
                 "risk_flags",
                 "evidence",
-                "artifacts",
-                "state_outputs",
-                "transition_history",
                 "human_gate_decisions",
             ]
         },
@@ -1446,8 +1443,6 @@ def run_workflow_state_machine(
         blackboard.setdefault("persist_keys", [str(item) for item in persist_keys])
     blackboard.setdefault("workflow_key", workflow_key)
     blackboard.setdefault("counters", {})
-    blackboard.setdefault("state_outputs", {})
-    blackboard.setdefault("transition_history", [])
     blackboard.setdefault("risk_flags", [])
     blackboard.setdefault("evidence", [])
     blackboard["limits"] = limits
@@ -1562,15 +1557,6 @@ def _execute_state_atom(
     if output_key:
         blackboard[output_key] = writes.get(output_key, writes)
     blackboard.update(writes)
-    blackboard.setdefault("state_outputs", {})[state_key] = {
-        "atom_key": atom_key,
-        "status": result.status,
-        "summary": result.summary,
-        "output_key": output_key,
-        "writes": writes,
-        "artifacts": combined_artifacts,
-        "risk_flags": list(result.risk_flags),
-    }
     if result.risk_flags:
         existing = list(blackboard.get("risk_flags") or [])
         existing.extend(flag for flag in result.risk_flags if flag not in existing)
@@ -1593,7 +1579,6 @@ def _execute_state_atom(
             },
         )
         artifact_ids.append(int(artifact.id))
-        blackboard.setdefault("artifacts", {})[f"{state_key}_raw_output_artifact_id"] = int(artifact.id)
     for artifact_id in combined_artifacts:
         try:
             artifact_ids.append(int(artifact_id))
@@ -1706,16 +1691,6 @@ def _select_next_state(
             "counters": dict(blackboard.get("counters") or {}),
             "ts": utcnow().isoformat(),
         }
-        artifact = _create_workflow_artifact(
-            db,
-            workflow_run_id=int(workflow_run.id),
-            artifact_type="workflow_transition_event",
-            state_key=state_key,
-            content_summary=f"{state_key} -> {target}",
-            human_readable_body=json.dumps(event, ensure_ascii=False, indent=2, sort_keys=True),
-            machine_readable_payload=event,
-        )
-        event["artifact_id"] = int(artifact.id)
         state_event = WorkflowStateEventRow(
             workflow_run_id=int(workflow_run.id),
             event_type="transition",
@@ -1725,7 +1700,6 @@ def _select_next_state(
             payload_json=_json_dump(event),
         )
         db.add(state_event)
-        blackboard.setdefault("transition_history", []).append(event)
         blackboard["current_state"] = target
         workflow_run.current_state = target
         workflow_run.retry_counters_json = _json_dump(dict(blackboard.get("counters") or {}))
@@ -1897,6 +1871,13 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
         "changed_files_summary": truth["changed_files_summary"],
         "command_results": command_results,
         "delivery_summary": truth["delivery_summary"],
+        "timeline": _workflow_timeline_items(
+            run=run,
+            events=events,
+            invocations=invocations,
+            artifacts=artifacts,
+            gates=gates,
+        ),
         "events": [
             {
                 "id": int(event.id),
@@ -2130,6 +2111,141 @@ def _workflow_terminal_event_type(resolution: str, blackboard: Mapping[str, Any]
     # delivery notifications; avoid paging the alert channel for normal PR-only
     # review stops such as self-repair.
     return "workflow_run_paused"
+
+
+def _workflow_timeline_items(
+    *,
+    run: WorkflowRunRow,
+    events: list[WorkflowStateEventRow],
+    invocations: list[AtomInvocationRow],
+    artifacts: list[WorkflowArtifactRow],
+    gates: list[HumanGateRequestRow],
+) -> list[dict[str, Any]]:
+    """Build a chronological human-readable projection without adding storage."""
+
+    items: list[dict[str, Any]] = []
+
+    def _ts(value: Any) -> str | None:
+        return value.isoformat() if value else None
+
+    def _artifact_preview(artifact: WorkflowArtifactRow) -> dict[str, Any]:
+        payload = _json_load(artifact.machine_readable_payload, {})
+        raw = str(artifact.human_readable_body or "")
+        return {
+            "id": int(artifact.id),
+            "artifact_type": str(artifact.artifact_type or ""),
+            "summary": str(artifact.content_summary or ""),
+            "payload": payload,
+            "raw_excerpt": raw[:1200],
+        }
+
+    artifact_by_id = {int(artifact.id): artifact for artifact in artifacts}
+
+    for event in events:
+        payload = _json_load(event.payload_json, {})
+        from_state = str(event.from_state or "")
+        to_state = str(event.to_state or "")
+        condition = str(event.condition or "")
+        items.append(
+            {
+                "kind": "state_transition",
+                "id": int(event.id),
+                "created_at": _ts(event.created_at),
+                "state_key": to_state or from_state,
+                "from_state": from_state or None,
+                "to_state": to_state or None,
+                "condition": condition or None,
+                "status": "completed",
+                "title": f"State transition: {from_state or 'start'} -> {to_state or 'unknown'}",
+                "summary": f"Condition: {condition or '<default>'}",
+                "artifact_ids": [],
+                "payload_ref": payload,
+            }
+        )
+
+    for invocation in invocations:
+        artifact_ids = [
+            int(item)
+            for item in _json_load(invocation.artifact_ids_json, [])
+            if str(item).isdigit()
+        ]
+        items.append(
+            {
+                "kind": "atom_invocation",
+                "id": int(invocation.id),
+                "created_at": _ts(invocation.started_at),
+                "completed_at": _ts(invocation.completed_at),
+                "state_key": str(invocation.state_key or ""),
+                "atom_key": str(invocation.atom_key or ""),
+                "atom_type": str(invocation.atom_type or ""),
+                "status": str(invocation.status or ""),
+                "title": f"Atom executed: {invocation.atom_key}",
+                "summary": str(invocation.output_summary or invocation.error_excerpt or ""),
+                "artifact_ids": artifact_ids,
+                "artifacts": [
+                    _artifact_preview(artifact_by_id[artifact_id])
+                    for artifact_id in artifact_ids
+                    if artifact_id in artifact_by_id
+                ],
+            }
+        )
+
+    for artifact in artifacts:
+        items.append(
+            {
+                "kind": "artifact_created",
+                "id": int(artifact.id),
+                "created_at": _ts(artifact.created_at),
+                "state_key": str(artifact.state_key or ""),
+                "atom_key": str(artifact.atom_key or ""),
+                "status": "created",
+                "title": f"Artifact created: {artifact.artifact_type} #{int(artifact.id)}",
+                "summary": str(artifact.content_summary or ""),
+                "artifact_ids": [int(artifact.id)],
+                "artifact": _artifact_preview(artifact),
+            }
+        )
+
+    for gate in gates:
+        items.append(
+            {
+                "kind": "human_gate",
+                "id": int(gate.id),
+                "created_at": _ts(gate.created_at),
+                "completed_at": _ts(gate.decided_at),
+                "state_key": str(gate.state_key or ""),
+                "status": str(gate.status or ""),
+                "title": f"Human gate: {gate.gate_type}",
+                "summary": str(gate.reason or gate.decision_comment or ""),
+                "artifact_ids": [],
+                "payload_ref": _json_load(gate.payload_json, {}),
+                "decision": str(gate.decision or "") or None,
+                "decided_by": str(gate.decided_by or "") or None,
+            }
+        )
+
+    if str(run.status or "") in {"succeeded", "completed", "done", "failed", "awaiting_operator"}:
+        items.append(
+            {
+                "kind": "workflow_terminal",
+                "id": int(run.id),
+                "created_at": _ts(run.completed_at or run.updated_at),
+                "state_key": str(run.current_state or ""),
+                "status": str(run.status or ""),
+                "title": f"Workflow terminal: {run.status}",
+                "summary": str(run.resolution or ""),
+                "artifact_ids": [],
+            }
+        )
+
+    def _sort_key(item: dict[str, Any]) -> tuple[str, str, int]:
+        return (
+            str(item.get("created_at") or ""),
+            str(item.get("kind") or ""),
+            int(item.get("id") or 0),
+        )
+
+    return sorted(items, key=_sort_key)
 
 
 def _notify_human_gate_created(
@@ -2437,9 +2553,10 @@ def _persist_blackboard(db: Session, workflow_run: WorkflowRunRow, state_key: st
 
 
 def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
+    forbidden = {"state_outputs", "transition_history", "artifacts"}
     keys = blackboard.get("persist_keys")
     if isinstance(keys, list):
-        return [str(item) for item in keys]
+        return [str(item) for item in keys if str(item) not in forbidden]
     return [
         "workflow_key",
         "current_state",
@@ -2457,9 +2574,6 @@ def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
         "pr",
         "risk_flags",
         "evidence",
-        "state_outputs",
-        "transition_history",
-        "artifacts",
         "human_gate_decisions",
         "limits",
     ]

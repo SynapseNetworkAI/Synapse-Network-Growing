@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import pytest
+
 from server.database import OperatingManifestRow, ReleaseRecordRow, RequirementCandidateRow, RequirementRow, WorkflowRunRow
 from server.services.workflows import declarative
-from server.services.requirements.service import submit_requirement
+from server.services.requirements.service import (
+    cancel_requirement,
+    delete_requirement,
+    list_requirements,
+    regenerate_requirement_assets,
+    requirement_workflow_readiness,
+    start_requirement_workflow,
+    submit_requirement,
+)
 
 
 def _create_requirement(db_session) -> RequirementRow:
@@ -76,9 +86,19 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["blackboard"]["pr"]["created"] is True
     assert payload["blackboard"]["pr"]["url"] != "pending"
     assert payload["blackboard"]["pr"]["sync"]["status"] == "synced"
+    assert "state_outputs" not in payload["blackboard"]
+    assert "transition_history" not in payload["blackboard"]
+    assert "artifacts" not in payload["blackboard"]
     assert payload["events"]
     assert payload["atom_invocations"]
     assert payload["human_gates"]
+    assert payload["timeline"]
+    assert any(item["kind"] == "state_transition" for item in payload["timeline"])
+    assert any(item["kind"] == "atom_invocation" for item in payload["timeline"])
+    assert any(item["kind"] == "artifact_created" for item in payload["timeline"])
+    assert any(item["kind"] == "human_gate" for item in payload["timeline"])
+    assert any(item["kind"] == "workflow_terminal" for item in payload["timeline"])
+    assert all(item["artifact_type"] != "workflow_transition_event" for item in payload["artifacts"])
 
     events_response = synced_client.get(f"/api/workflows/runs/{payload['id']}/events")
     assert events_response.status_code == 200
@@ -294,6 +314,42 @@ def test_human_gate_approve_completes_workflow_and_requirement(synced_client, db
     assert requirement.status == "completed"
     assert requirement.workflow_state == "completed"
     assert requirement.completed_at is not None
+
+
+def test_cancelled_requirement_cannot_enter_workflow_or_human_gate(db_session):
+    requirement = _create_requirement(db_session)
+
+    detail = cancel_requirement(db_session, int(requirement.id))
+
+    assert detail.state == "cancelled"
+    assert detail.allowed_actions == ["view"]
+    readiness = requirement_workflow_readiness(db_session, int(requirement.id))
+    assert readiness.can_start_workflow is False
+    assert readiness.blocking_reason == "requirement_cancelled"
+    with pytest.raises(ValueError, match="Cancelled requirement cannot be submitted"):
+        submit_requirement(db_session, int(requirement.id))
+    with pytest.raises(ValueError, match="Cancelled requirement cannot start workflow"):
+        start_requirement_workflow(db_session, int(requirement.id))
+    with pytest.raises(ValueError, match="Cancelled requirement cannot regenerate workflow assets"):
+        regenerate_requirement_assets(db_session, int(requirement.id))
+
+
+def test_deleted_requirement_cannot_enter_workflow_or_human_gate(db_session):
+    requirement = _create_requirement(db_session)
+
+    detail = delete_requirement(db_session, int(requirement.id))
+
+    assert detail.state == "deleted"
+    assert detail.allowed_actions == ["view"]
+    readiness = requirement_workflow_readiness(db_session, int(requirement.id))
+    assert readiness.can_start_workflow is False
+    assert readiness.blocking_reason == "requirement_deleted"
+    with pytest.raises(ValueError, match="Deleted requirement cannot be submitted"):
+        submit_requirement(db_session, int(requirement.id))
+    with pytest.raises(ValueError, match="Deleted requirement cannot start workflow"):
+        start_requirement_workflow(db_session, int(requirement.id))
+    assert all(item.id != int(requirement.id) for item in list_requirements(db_session))
+    assert any(item.id == int(requirement.id) for item in list_requirements(db_session, status="deleted"))
 
 
 def test_submit_requirement_creates_declarative_workflow_run(db_session):

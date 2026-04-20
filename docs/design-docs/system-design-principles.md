@@ -66,6 +66,7 @@
 6. Agent Atom 输出必须 schema 化；解析失败最多自修一次，原始输出必须落 artifact。
 7. 下游 deterministic atom 只能读取 parsed payload，不能把非结构化模型输出当作可信输入。
 8. 高风险 atom 必须进入 human gate；资金、结算、合约、auth、生产部署和外部付费动作不得自动放行。
+9. Blackboard 只保存 workflow 继续运行需要的最终 KV；禁止把 `state_outputs`、`transition_history`、raw artifact map 或长日志写回 `blackboard_json`。
 
 ## 6.6 No Legacy Workflow Compatibility
 
@@ -75,6 +76,7 @@
 4. `workflow_artifacts.workflow_run_id` 必须直接外键到 declarative run，不得把历史 execution id 塞进 artifact payload 伪关联。
 5. Requirement submit 后只应创建 declarative workflow run；planner 只选择 `workflow_key` 与初始化 blackboard，不再生成固定 `research/plan/implementation/validate/closeout` steps。
 6. Agent 只能写 structured output 与 artifact；state transition、retry budget、terminal state、human gate 由 deterministic runner 决定。
+7. Workflow detail 默认必须展示 chronological timeline；Raw Blackboard / Raw Artifacts 只能通过 Debug details 或 Debug Dump 查看。
 
 ## 6.7 后台任务必须一等可观测
 
@@ -197,6 +199,7 @@ Release 负责：
 1. 没有消费方的 artifact 不生成。
 2. artifact 必须明确服务于 Requirement、Execution、Release 其中一面。
 3. 禁止制造“为了阶段完整性而存在”的仪式性 artifact。
+4. 普通 state transition 只写 `workflow_state_events`，不得额外创建 transition artifact。
 
 ## 10. Release Candidate 只接受 Validate 成功的 Requirement
 

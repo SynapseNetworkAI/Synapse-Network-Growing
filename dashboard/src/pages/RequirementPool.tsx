@@ -78,7 +78,7 @@ const STATUS_LABEL: Record<string, string> = {
   awaiting_operator: '待人工处理',
   completed: '已完成',
   failed: '失败',
-  cancelled: '已取消',
+  cancelled: '已关闭',
   running: '执行中',
   blocked: '阻塞',
   needs_revision: '需修订',
@@ -86,6 +86,14 @@ const STATUS_LABEL: Record<string, string> = {
   done: '已完成',
   deleted: '已删除',
 }
+
+const STATUS_HELP: Array<{ key: string; label: string; description: string }> = [
+  { key: 'draft/planning', label: '草稿/规划中', description: '需求还在生成验收标准和执行计划，可编辑、关闭或删除。' },
+  { key: 'ready', label: '待执行', description: '资产已就绪，可提交并启动 declarative workflow。' },
+  { key: 'running/awaiting_operator', label: '执行中/待人工', description: '已经进入 workflow，后续决策在工作流门禁里处理。' },
+  { key: 'completed/done', label: '已完成', description: '工作流和证据已收口，只保留历史。' },
+  { key: 'cancelled/deleted', label: '已关闭/已删除', description: '不会再提交、启动 workflow 或进入人工门禁。' },
+]
 
 function formatTime(value: string | null) {
   if (!value) return '-'
@@ -114,6 +122,9 @@ function canEditRequirement(requirement: AgentRequirement) {
 function fallbackRequirementAllowedActions(requirement: AgentRequirement): string[] {
   const actions = new Set<string>(['view'])
   const state = requirement.state || requirement.status
+  if (state === 'deleted' || state === 'cancelled') {
+    return [...actions]
+  }
   if (requirement.active_workflow_run_id != null) {
     actions.add('view_workflow')
   }
@@ -131,12 +142,19 @@ function fallbackRequirementAllowedActions(requirement: AgentRequirement): strin
   }
   if (requirement.active_workflow_run_id == null && ['draft', 'planning'].includes(state)) {
     actions.add('delete')
+    actions.add('cancel')
   }
   return [...actions]
 }
 
+function isInactiveRequirement(requirement: AgentRequirement) {
+  const tokens = new Set([requirement.state, requirement.status, requirement.phase].filter(Boolean))
+  return tokens.has('cancelled') || tokens.has('deleted')
+}
+
 function workflowLabel(requirement: AgentRequirement) {
   const summary = requirement.active_workflow_run_summary
+  if (isInactiveRequirement(requirement)) return `${requirement.state || requirement.status} · terminal`
   if (!summary) return `${assetsLabel(requirement)} · ${phaseLabel(requirement)}`
   const gate = summary.pending_human_gate_count ? ` · human gate ${summary.pending_human_gate_count}` : ''
   return `${summary.workflow_key} · ${summary.current_state} · ${summary.status}${gate}`
@@ -144,6 +162,11 @@ function workflowLabel(requirement: AgentRequirement) {
 
 function workflowStatusCopy(requirement: AgentRequirement) {
   const summary = requirement.active_workflow_run_summary
+  if (isInactiveRequirement(requirement)) {
+    return requirement.state === 'deleted' || requirement.status === 'deleted'
+      ? { title: '需求已删除', action: '不会进入 workflow / human gate' }
+      : { title: '需求已关闭', action: '不会进入 workflow / human gate' }
+  }
   if (!summary && requirement.assets_status === 'ready') return { title: '可启动 Workflow', action: '创建工作流' }
   if (!summary && requirement.assets_status === 'failed') return { title: 'Workflow Assets 失败', action: '重新生成' }
   if (!summary) return { title: 'Workflow 未生成', action: '等待 assets' }
@@ -453,9 +476,11 @@ export default function RequirementPool() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [closingId, setClosingId] = useState<number | null>(null)
   const [submittingId, setSubmittingId] = useState<number | null>(null)
   const [releaseActionId, setReleaseActionId] = useState<string | null>(null)
   const [confirmingRequirement, setConfirmingRequirement] = useState<AgentRequirement | null>(null)
+  const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete'>('delete')
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | null>(null)
   const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed')
   const [draft, setDraft] = useState<RequirementDraft>({ ...EMPTY_DRAFT })
@@ -571,6 +596,8 @@ export default function RequirementPool() {
               <option value="needs_revision">需修订</option>
               <option value="delivery_ready">待发布</option>
               <option value="done">已完成</option>
+              <option value="cancelled">已关闭</option>
+              <option value="deleted">已删除</option>
             </select>
             <input
               className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
@@ -585,6 +612,14 @@ export default function RequirementPool() {
               新建需求
             </button>
           </div>
+        </div>
+        <div className="mt-5 grid gap-2 md:grid-cols-5" data-testid="requirement-status-help">
+          {STATUS_HELP.map((item) => (
+            <div key={item.key} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-3">
+              <div className="text-xs font-semibold text-[color:var(--ops-text-title)]">{item.label}</div>
+              <div className="mt-1 text-[11px] leading-5 text-[color:var(--ops-text-muted)]">{item.description}</div>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -644,22 +679,42 @@ export default function RequirementPool() {
                           item.active_workflow_run_id == null &&
                           item.assets_status === 'ready' &&
                           ((item.pending_operations ?? []).includes('auto_submit') || allowedActions.includes('submit'))
+                        const showSubmitAction =
+                          !isInactiveRequirement(item) &&
+                          (allowedActions.includes('submit') || item.assets_status === 'pending')
                         return (
                           <>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
-                        disabled={!allowedActions.includes('edit')}
-                        onClick={() => openEdit(item)}
-                      >
-                        编辑
-                      </button>
+                      {allowedActions.includes('edit') ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
+                          onClick={() => openEdit(item)}
+                        >
+                          编辑
+                        </button>
+                      ) : null}
+                      {allowedActions.includes('cancel') ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-state-validating-border)] px-3 py-2 text-sm text-[color:var(--ops-state-validating-text)] disabled:opacity-50"
+                          disabled={closingId === item.id}
+                          onClick={() => {
+                            setConfirmAction('cancel')
+                            setConfirmingRequirement(item)
+                          }}
+                        >
+                          {closingId === item.id ? '关闭中…' : '关闭'}
+                        </button>
+                      ) : null}
                       {allowedActions.includes('delete') ? (
                         <button
                           type="button"
                           className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
                           disabled={deletingId === item.id}
-                          onClick={() => setConfirmingRequirement(item)}
+                          onClick={() => {
+                            setConfirmAction('delete')
+                            setConfirmingRequirement(item)
+                          }}
                         >
                           {deletingId === item.id ? '删除中…' : '删除'}
                         </button>
@@ -739,47 +794,46 @@ export default function RequirementPool() {
                           {releaseActionId === `open-pr-${item.id}` ? '交付中…' : '打开 PR'}
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        className={
-                          autoSubmitPending
-                            ? 'rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50'
-                            : 'rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50'
-                        }
-                        disabled={
-                          submittingId === item.id ||
-                          !allowedActions.includes('submit')
-                        }
-                        onClick={async () => {
-                          setSubmittingId(item.id)
-                          try {
-                            const detail = await api.submitRequirement(item.id)
-                            toast.success('需求已提交')
-                            const workflowRunId = detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
-                            if (workflowRunId) {
-                              navigate(`/workflows/${workflowRunId}`)
-                              return
-                            }
-                            navigate(`/requirements/${item.id}`)
-                          } catch (error) {
-                            const message = error instanceof Error ? error.message : '提交失败，请重试'
-                            toast.error(message)
-                          } finally {
-                            await load()
-                            setSubmittingId(null)
+                      {showSubmitAction ? (
+                        <button
+                          type="button"
+                          className={
+                            autoSubmitPending
+                              ? 'rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50'
+                              : 'rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50'
                           }
-                        }}
-                      >
-                        {submittingId === item.id
-                          ? '提交中…'
-                          : item.assets_status === 'pending'
-                            ? '生成计划中…'
-                            : item.assets_status === 'failed'
-                              ? '计划生成失败'
-                              : autoSubmitPending
-                                ? '创建工作流'
-                                : '提交'}
-                      </button>
+                          disabled={submittingId === item.id || !allowedActions.includes('submit')}
+                          onClick={async () => {
+                            setSubmittingId(item.id)
+                            try {
+                              const detail = await api.submitRequirement(item.id)
+                              toast.success('需求已提交')
+                              const workflowRunId = detail.active_workflow_run_id ?? detail.requirement.active_workflow_run_id
+                              if (workflowRunId) {
+                                navigate(`/workflows/${workflowRunId}`)
+                                return
+                              }
+                              navigate(`/requirements/${item.id}`)
+                            } catch (error) {
+                              const message = error instanceof Error ? error.message : '提交失败，请重试'
+                              toast.error(message)
+                            } finally {
+                              await load()
+                              setSubmittingId(null)
+                            }
+                          }}
+                        >
+                          {submittingId === item.id
+                            ? '提交中…'
+                            : item.assets_status === 'pending'
+                              ? '生成计划中…'
+                              : item.assets_status === 'failed'
+                                ? '计划生成失败'
+                                : autoSubmitPending
+                                  ? '创建工作流'
+                                  : '提交'}
+                        </button>
+                      ) : null}
                           </>
                         )
                       })()}
@@ -817,35 +871,47 @@ export default function RequirementPool() {
 
       <ConfirmDialog
         open={Boolean(confirmingRequirement)}
-        title="删除需求"
+        title={confirmAction === 'cancel' ? '关闭需求' : '删除需求'}
         description={
           confirmingRequirement
-            ? `删除后，需求 #${confirmingRequirement.id} 会进入 deleted 状态，并从当前主队列视图中移除。`
+            ? confirmAction === 'cancel'
+              ? `关闭后，需求 #${confirmingRequirement.id} 会进入 cancelled 状态，不会再提交、启动 workflow 或进入人工门禁。`
+              : `删除后，需求 #${confirmingRequirement.id} 会进入 deleted 状态，并从当前主队列视图中移除；已删除需求不能再进入审批或 workflow。`
             : undefined
         }
-        confirmLabel="确认删除"
+        confirmLabel={confirmAction === 'cancel' ? '确认关闭' : '确认删除'}
         cancelLabel="取消"
         tone="destructive"
-        loading={Boolean(confirmingRequirement && deletingId === confirmingRequirement.id)}
+        loading={Boolean(confirmingRequirement && (deletingId === confirmingRequirement.id || closingId === confirmingRequirement.id))}
         onClose={() => {
-          if (deletingId) return
+          if (confirmingRequirement && (deletingId === confirmingRequirement.id || closingId === confirmingRequirement.id)) return
           setConfirmingRequirement(null)
         }}
         onConfirm={() => {
           if (!confirmingRequirement) return
           const requirementId = confirmingRequirement.id
-          setDeletingId(requirementId)
+          if (confirmAction === 'cancel') {
+            setClosingId(requirementId)
+          } else {
+            setDeletingId(requirementId)
+          }
           ;(async () => {
             try {
-              await api.deleteRequirement(requirementId)
-              toast.success('需求已删除')
+              if (confirmAction === 'cancel') {
+                await api.cancelRequirement(requirementId)
+                toast.success('需求已关闭')
+              } else {
+                await api.deleteRequirement(requirementId)
+                toast.success('需求已删除')
+              }
               setConfirmingRequirement(null)
               await load()
             } catch (error) {
-              const message = error instanceof Error ? error.message : '删除失败，请重试'
+              const message = error instanceof Error ? error.message : (confirmAction === 'cancel' ? '关闭失败，请重试' : '删除失败，请重试')
               toast.error(message)
             } finally {
               setDeletingId(null)
+              setClosingId(null)
             }
           })().catch(() => {})
         }}

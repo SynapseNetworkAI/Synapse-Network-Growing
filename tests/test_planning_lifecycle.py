@@ -11,6 +11,7 @@ from server.database import (
     WorkflowStateEventRow,
 )
 from server.services.planning.lifecycle import (
+    approve_and_run_candidate,
     approve_candidate,
     drop_goal,
     ensure_active_manifest,
@@ -93,6 +94,105 @@ def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):
     assert requirement.operating_manifest_id == manifest.id
     assert requirement.goal_key == "gateway_reliability"
     assert requirement.requirement_candidate_id == candidate.id
+
+
+def test_candidate_approve_and_run_creates_requirement_and_workflow(db_session):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="gateway_reliability",
+        candidate_fingerprint="fp-approve-run",
+        title="Fix gateway precision automatically",
+        description_markdown="Turn this candidate into a requirement and run the workflow.",
+        project_id=int(project.id),
+        project_key=project.project_key,
+        workflow_key="gateway_reliability_repair",
+        priority="normal",
+        risk_level="normal",
+        status="pending",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    result = approve_and_run_candidate(db_session, int(candidate.id), operator="operator")
+    requirement = db_session.get(RequirementRow, int(result["requirement_id"]))
+    workflow = db_session.get(WorkflowRunRow, int(result["workflow_run_id"]))
+    db_session.refresh(candidate)
+
+    assert result["candidate"]["status"] == "materialized"
+    assert result["auto_run_status"] in {"workflow_started", "workflow_completed", "workflow_needs_human"}
+    assert result["next_action"] in {"view_workflow", "view_completion_evidence", "review_human_gate", "inspect_failure"}
+    assert requirement is not None
+    assert requirement.goal_key == "gateway_reliability"
+    assert requirement.requirement_candidate_id == candidate.id
+    assert workflow is not None
+    assert workflow.requirement_id == requirement.id
+    assert workflow.goal_key == "gateway_reliability"
+    assert workflow.operating_manifest_id == manifest.id
+    assert candidate.materialized_requirement_id == requirement.id
+
+
+def test_candidate_approve_and_run_routes_high_risk_to_human_gate(db_session):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="gateway_reliability",
+        candidate_fingerprint="fp-approve-run-high-risk",
+        title="High risk gateway repair",
+        description_markdown="This candidate should not bypass the workflow human gate.",
+        project_id=int(project.id),
+        project_key=project.project_key,
+        workflow_key="agent_self_repair",
+        priority="high",
+        risk_level="high",
+        status="pending",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    result = approve_and_run_candidate(db_session, int(candidate.id), operator="operator")
+    workflow = db_session.get(WorkflowRunRow, int(result["workflow_run_id"]))
+    gates = (
+        db_session.query(HumanGateRequestRow)
+        .filter(HumanGateRequestRow.workflow_run_id == int(result["workflow_run_id"]))
+        .all()
+    )
+
+    assert workflow is not None
+    assert workflow.risk_level == "high"
+    assert result["auto_run_status"] == "workflow_needs_human"
+    assert result["next_action"] == "review_human_gate"
+    assert any(gate.status == "pending" for gate in gates)
+
+
+def test_candidate_approve_and_run_api(db_session, client):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="gateway_reliability",
+        candidate_fingerprint="fp-approve-run-api",
+        title="API approve and run",
+        description_markdown="Exercise the combined endpoint.",
+        project_id=int(project.id),
+        project_key=project.project_key,
+        workflow_key="gateway_reliability_repair",
+        priority="normal",
+        risk_level="normal",
+        status="pending",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    response = client.post(f"/api/planning/candidates/{int(candidate.id)}/approve-and-run", json={"operator": "operator"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["candidate"]["status"] == "materialized"
+    assert payload["requirement_id"] > 0
+    assert payload["workflow_run_id"] > 0
 
 
 def test_mission_control_api_groups_candidates_by_goal_and_includes_history(client, db_session):

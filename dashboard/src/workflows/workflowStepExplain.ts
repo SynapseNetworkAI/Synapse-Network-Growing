@@ -51,7 +51,7 @@ export type NextAction = {
   tone: 'ready' | 'blocked' | 'running' | 'muted'
   detail: string
   href?: string
-  tab?: 'overview' | 'steps' | 'evidence' | 'gates' | 'debug'
+  tab?: 'overview' | 'timeline' | 'evidence' | 'gates' | 'debug'
 }
 
 const GATEWAY_RELIABILITY_STEPS: Record<string, StepContract> = {
@@ -422,7 +422,7 @@ export function buildNextAction(detail: DeclarativeWorkflowRunDetail): NextActio
     return { label: 'Review Human Gate', tone: 'blocked', detail: 'Workflow is waiting for operator decision.', tab: 'gates' }
   }
   if (failedInvocation) {
-    return { label: 'Inspect Failure', tone: 'blocked', detail: `Atom failed at ${failedInvocation.state_key}.`, tab: 'steps' }
+    return { label: 'Inspect Failure', tone: 'blocked', detail: `Atom failed at ${failedInvocation.state_key}.`, tab: 'timeline' }
   }
   if (verification.status === 'failed' && patchAttempts < maxPatchAttempts) {
     return { label: 'Continue Retry', tone: 'running', detail: 'Verification failed but retry budget remains.', tab: 'gates' }
@@ -431,7 +431,7 @@ export function buildNextAction(detail: DeclarativeWorkflowRunDetail): NextActio
     return { label: 'Route to Human', tone: 'blocked', detail: 'Verification failed and retry budget is exhausted.', tab: 'gates' }
   }
   if (observation.not_restored === true) {
-    return { label: 'Reopen / Retry', tone: 'blocked', detail: 'Observation did not confirm recovery.', tab: 'steps' }
+    return { label: 'Reopen / Retry', tone: 'blocked', detail: 'Observation did not confirm recovery.', tab: 'timeline' }
   }
   if (pr.created === true && pr.url) {
     return { label: 'Open PR', tone: 'ready', detail: 'Draft PR is available for review.', href: String(pr.url), tab: 'gates' }
@@ -439,7 +439,7 @@ export function buildNextAction(detail: DeclarativeWorkflowRunDetail): NextActio
   if (detail.status === 'succeeded' || detail.resolution === 'completed') {
     return { label: 'No action needed', tone: 'muted', detail: 'Workflow has completed without a pending operator action.' }
   }
-  return { label: 'Inspect Current State', tone: 'running', detail: `Current state is ${detail.current_state}.`, tab: 'steps' }
+  return { label: 'Inspect Current State', tone: 'running', detail: `Current state is ${detail.current_state}.`, tab: 'timeline' }
 }
 
 export function hasSimulatedEvidence(detail: DeclarativeWorkflowRunDetail) {

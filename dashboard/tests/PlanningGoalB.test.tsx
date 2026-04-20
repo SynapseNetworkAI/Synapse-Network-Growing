@@ -106,6 +106,7 @@ const mockApi = {
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
   approveRequirementCandidate: vi.fn(),
+  approveAndRunRequirementCandidate: vi.fn(),
   rejectRequirementCandidate: vi.fn(),
   materializeRequirementCandidate: vi.fn(),
   archiveAndStartPlanningCycle: vi.fn(),
@@ -119,6 +120,7 @@ vi.mock('../src/api', () => ({
     saveActivePlanningManifest: (...args: unknown[]) => mockApi.saveActivePlanningManifest(...args),
     runPlannerSweep: (...args: unknown[]) => mockApi.runPlannerSweep(...args),
     approveRequirementCandidate: (...args: unknown[]) => mockApi.approveRequirementCandidate(...args),
+    approveAndRunRequirementCandidate: (...args: unknown[]) => mockApi.approveAndRunRequirementCandidate(...args),
     rejectRequirementCandidate: (...args: unknown[]) => mockApi.rejectRequirementCandidate(...args),
     materializeRequirementCandidate: (...args: unknown[]) => mockApi.materializeRequirementCandidate(...args),
     archiveAndStartPlanningCycle: (...args: unknown[]) => mockApi.archiveAndStartPlanningCycle(...args),
@@ -148,6 +150,15 @@ describe('PlanningPage GoalB mission control', () => {
       duration_ms: 1000,
     })
     mockApi.approveRequirementCandidate.mockResolvedValue({ ...goalbCandidate, status: 'approved', approved_by: 'operator' })
+    mockApi.approveAndRunRequirementCandidate.mockResolvedValue({
+      candidate: { ...goalbCandidate, status: 'materialized', materialized_requirement_id: 88 },
+      requirement_id: 88,
+      workflow_run_id: 12,
+      workflow_status: 'succeeded',
+      workflow_current_state: 'done',
+      auto_run_status: 'workflow_completed',
+      next_action: 'view_completion_evidence',
+    })
     mockApi.rejectRequirementCandidate.mockResolvedValue({ ...goalbCandidate, status: 'rejected', reject_reason: 'operator_rejected' })
     mockApi.materializeRequirementCandidate.mockResolvedValue({
       candidate: { ...goalbCandidate, status: 'materialized', materialized_requirement_id: 88 },
@@ -167,8 +178,8 @@ describe('PlanningPage GoalB mission control', () => {
     fireEvent.click(screen.getByText('Dry Run Planner'))
     await waitFor(() => expect(mockApi.runPlannerSweep).toHaveBeenCalledWith({ dry_run: true, triggered_by: 'operator' }))
 
-    fireEvent.click(within(missionTab).getByText('Approve'))
-    await waitFor(() => expect(mockApi.approveRequirementCandidate).toHaveBeenCalledWith(42, { operator: 'operator' }))
+    fireEvent.click(within(missionTab).getByText('Approve & Run'))
+    await waitFor(() => expect(mockApi.approveAndRunRequirementCandidate).toHaveBeenCalledWith(42, { operator: 'operator' }))
 
     fireEvent.click(screen.getByText('Debug'))
     expect(screen.getByTestId('planning-debug-tab')).toHaveTextContent('Raw Manifest')

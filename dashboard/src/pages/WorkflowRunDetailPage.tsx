@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail } from '../api'
+import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail, DeclarativeWorkflowTimelineItem } from '../api'
 import { useToast } from '../components/workbench'
 import {
   artifactDisplayTitle,
@@ -12,12 +12,11 @@ import {
   StepViewModel,
 } from '../workflows/workflowStepExplain'
 
-type WorkflowTab = 'overview' | 'steps' | 'evidence' | 'gates' | 'debug'
-type InspectorTab = 'overview' | 'inputs' | 'outputs' | 'evidence' | 'transition'
+type WorkflowTab = 'overview' | 'timeline' | 'evidence' | 'gates' | 'debug'
 
 const WORKFLOW_TABS: Array<{ key: WorkflowTab; label: string }> = [
   { key: 'overview', label: 'Overview' },
-  { key: 'steps', label: 'Steps' },
+  { key: 'timeline', label: 'Timeline' },
   { key: 'evidence', label: 'Evidence' },
   { key: 'gates', label: 'Gates & Delivery' },
   { key: 'debug', label: 'Debug' },
@@ -218,7 +217,7 @@ function CompletionArchivePanel({
                 ? '这次 workflow 未完成。优先检查失败 atom、verification evidence 和下一步修复建议。'
                 : hasPendingGate(detail)
                   ? '这次 workflow 正在等待人工门禁。请在 Gates & Delivery 里处理决策。'
-                  : '这次 workflow 仍在运行或暂停中。请查看 Step Timeline 和当前 atom 输出。'}
+                  : '这次 workflow 仍在运行或暂停中。请查看 Timeline 和当前 atom 输出。'}
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <MiniFact label="Atoms" value={String(detail.atom_count ?? detail.atom_invocations.length)} />
@@ -389,187 +388,121 @@ function CommandEvidencePanel({ detail }: Readonly<{ detail: DeclarativeWorkflow
   )
 }
 
+function timelineTone(kind: string) {
+  if (kind === 'human_gate') return 'border-rose-300/45 bg-rose-500/12'
+  if (kind === 'workflow_terminal') return 'border-emerald-300/40 bg-emerald-500/12'
+  if (kind === 'artifact_created') return 'border-amber-300/40 bg-amber-500/12'
+  if (kind === 'atom_invocation') return 'border-cyan-300/40 bg-cyan-500/12'
+  return 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]'
+}
+
+function timelineIcon(kind: string) {
+  if (kind === 'human_gate') return 'gate'
+  if (kind === 'workflow_terminal') return 'done'
+  if (kind === 'artifact_created') return 'artifact'
+  if (kind === 'atom_invocation') return 'atom'
+  return 'state'
+}
+
+function TimelineArtifactPreview({ item }: Readonly<{ item: DeclarativeWorkflowTimelineItem }>) {
+  const previews = [
+    ...(item.artifacts || []),
+    ...(item.artifact ? [item.artifact] : []),
+  ]
+  if (!previews.length) return null
+  return (
+    <div className="mt-3 space-y-2">
+      {previews.map((artifact) => (
+        <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+          <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-title)]">
+            {artifact.artifact_type} #{artifact.id}: {artifact.summary || 'preview'}
+          </summary>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Payload</div>
+              <JsonBlock value={artifact.payload || {}} maxHeight="max-h-[220px]" />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Raw Excerpt</div>
+              <pre className="mt-2 max-h-[220px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{artifact.raw_excerpt || 'No raw excerpt.'}</pre>
+            </div>
+          </div>
+        </details>
+      ))}
+    </div>
+  )
+}
+
+function WorkflowTimelinePanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const timeline = detail.timeline || []
+  return (
+    <Panel title="Vertical Timeline" testId="workflow-timeline-panel">
+      <div className="space-y-4">
+        {timeline.map((item, index) => (
+          <article key={`${item.kind}-${item.id}-${index}`} className={['relative rounded-3xl border p-4', timelineTone(item.kind)].join(' ')}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[color:var(--ops-text-caption)]">
+                    {timelineIcon(item.kind)}
+                  </span>
+                  <h3 className="text-base font-semibold text-[color:var(--ops-text-title)]">{item.title}</h3>
+                </div>
+                <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.summary || 'No summary recorded.'}</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-[color:var(--ops-text-caption)]">
+                  <span>{formatTime(item.created_at)}</span>
+                  {item.state_key ? <span>state: {item.state_key}</span> : null}
+                  {item.atom_key ? <span>atom: {item.atom_key}</span> : null}
+                  {item.condition ? <span>condition: {item.condition}</span> : null}
+                </div>
+              </div>
+              <span className={['rounded-full border px-3 py-1 text-xs', statusClass(item.status || item.kind)].join(' ')}>
+                {item.status || item.kind}
+              </span>
+            </div>
+            <TimelineArtifactPreview item={item} />
+          </article>
+        ))}
+        {!timeline.length ? (
+          <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] p-6 text-sm text-[color:var(--ops-text-muted)]">
+            No timeline items recorded yet.
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  )
+}
+
 function CompactStepRail({
   steps,
-  selectedStepKey,
-  onSelect,
 }: Readonly<{
   steps: StepViewModel[]
-  selectedStepKey: string
-  onSelect: (stepKey: string) => void
 }>) {
   return (
     <Panel title="Compact Step Rail" testId="workflow-compact-step-rail">
       <div className="overflow-x-auto pb-2">
         <div className="flex min-w-max gap-2">
           {steps.map((step, index) => (
-            <button
+            <div
               key={step.stateKey}
-              type="button"
               className={[
-                'min-w-[160px] rounded-2xl border px-4 py-3 text-left transition',
-                selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50' : 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] hover:bg-[color:var(--ops-panel-subtle)]',
+                'min-w-[160px] rounded-2xl border px-4 py-3 text-left',
+                step.status === 'not_started' ? 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] opacity-70' : 'border-cyan-300/30 bg-cyan-300/10',
               ].join(' ')}
-              onClick={() => onSelect(step.stateKey)}
             >
               <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Step {index + 1}</div>
               <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
               <div className="mt-2">
                 <span className={['rounded-full border px-2 py-0.5 text-[11px]', statusClass(step.status)].join(' ')}>{step.status}</span>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
-    </Panel>
-  )
-}
-
-function StepExplorer({
-  steps,
-  selectedStepKey,
-  onSelect,
-}: Readonly<{
-  steps: StepViewModel[]
-  selectedStepKey: string
-  onSelect: (stepKey: string) => void
-}>) {
-  return (
-    <div className="space-y-3" data-testid="workflow-step-explorer">
-      {steps.map((step) => (
-        <button
-          key={step.stateKey}
-          type="button"
-          className={[
-            'w-full rounded-2xl border p-4 text-left transition',
-            selectedStepKey === step.stateKey ? 'border-blue-300 bg-blue-50/80' : 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] hover:bg-[color:var(--ops-panel-subtle)]',
-          ].join(' ')}
-          onClick={() => onSelect(step.stateKey)}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="font-mono text-base font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
-              <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{step.actorLabel} · {step.atomKey || step.atomType}</div>
-            </div>
-            <span className={['rounded-full border px-3 py-1 text-xs', statusClass(step.status)].join(' ')}>{step.status}</span>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{step.purpose}</p>
-          <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
-            <KeyList label="Inputs" values={step.reads} />
-            <KeyList label="Outputs" values={step.writes} />
-          </div>
-          <div className="mt-3">
-            <KeyList label="Correctness Signal" values={step.successSignals} />
-          </div>
-          <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
-            Decision: {step.matchedTransition ? `${step.matchedTransition} -> ${step.nextState || '-'}` : 'not evaluated'} · Evidence {step.evidenceArtifacts.length}
-          </div>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function KeyList({ label, values }: Readonly<{ label: string; values: string[] }>) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{label}</div>
-      <div className="mt-1 flex flex-wrap gap-1">
-        {values.length ? values.map((value) => (
-          <span key={value} className="rounded-full bg-[color:var(--ops-panel-strong)] px-2 py-0.5 font-mono text-[11px] text-[color:var(--ops-text-muted)]">{value}</span>
-        )) : <span className="text-[color:var(--ops-text-caption)]">-</span>}
-      </div>
-    </div>
-  )
-}
-
-function StepInspector({ step }: Readonly<{ step: StepViewModel }>) {
-  const [tab, setTab] = useState<InspectorTab>('overview')
-
-  useEffect(() => {
-    setTab('overview')
-  }, [step.stateKey])
-
-  const tabs: Array<{ key: InspectorTab; label: string }> = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'inputs', label: 'Inputs' },
-    { key: 'outputs', label: 'Outputs' },
-    { key: 'evidence', label: 'Evidence' },
-    { key: 'transition', label: 'Transition' },
-  ]
-
-  return (
-    <Panel title="Step Inspector" testId="workflow-step-inspector">
-      <div>
-        <div className="font-mono text-lg font-semibold text-[color:var(--ops-text-title)]">{step.stateKey}</div>
-        <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{step.actorLabel} · {step.atomKey || step.atomType}</div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {tabs.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={[
-              'rounded-lg px-3 py-1.5 text-xs font-medium',
-              tab === item.key ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]' : 'bg-[color:var(--ops-panel-strong)] text-[color:var(--ops-text-muted)]',
-            ].join(' ')}
-            onClick={() => setTab(item.key)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <div className="mt-4">
-        {tab === 'overview' ? (
-          <div className="space-y-4 text-sm text-[color:var(--ops-text-muted)]">
-            <p className="leading-7">{step.purpose}</p>
-            <InspectorSection title="Success Signals" values={step.successSignals} />
-            <InspectorSection title="Failure Signals" values={step.failureSignals} />
-            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3 text-xs">
-              Status: {step.status} · Duration: {step.invocation?.duration_ms ?? 0}ms
-            </div>
-          </div>
-        ) : null}
-        {tab === 'inputs' ? <JsonBlock value={step.inputs} /> : null}
-        {tab === 'outputs' ? <JsonBlock value={step.outputs} /> : null}
-        {tab === 'evidence' ? (
-          <div className="space-y-3">
-            <InspectorSection title="Expected Evidence" values={step.evidenceHints} />
-            {step.evidenceArtifacts.map((artifact) => (
-              <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-3">
-                <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">{artifactDisplayTitle(artifact)}</summary>
-                <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{artifact.content_summary || '-'}</div>
-                <div className="mt-3">
-                  <JsonBlock value={artifact.payload} maxHeight="max-h-[220px]" />
-                </div>
-              </details>
-            ))}
-            {!step.evidenceArtifacts.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">No evidence artifacts linked to this step.</div> : null}
-          </div>
-        ) : null}
-        {tab === 'transition' ? (
-          <div className="space-y-3">
-            <MiniFact label="Matched Condition" value={step.matchedTransition || '-'} />
-            <MiniFact label="Next State" value={step.nextState || '-'} />
-            <MiniFact label="Output Key" value={step.definitionState?.output_key || '-'} />
-            <JsonBlock value={step.definitionState?.transitions || []} maxHeight="max-h-[220px]" />
-          </div>
-        ) : null}
+      <div className="mt-3 text-xs text-[color:var(--ops-text-muted)]">
+        Static progress only. Use the Timeline for the chronological execution narrative.
       </div>
     </Panel>
-  )
-}
-
-function InspectorSection({ title, values }: Readonly<{ title: string; values: string[] }>) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{title}</div>
-      <ul className="mt-2 space-y-1">
-        {values.length ? values.map((value) => (
-          <li key={value} className="rounded-xl bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-muted)]">{value}</li>
-        )) : <li className="text-sm text-[color:var(--ops-text-caption)]">-</li>}
-      </ul>
-    </div>
   )
 }
 
@@ -718,29 +651,57 @@ function GateDeliveryPanel({
 }
 
 function DebugPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  function downloadDebugDump() {
+    const blob = new Blob([prettyJson(detail)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `workflow-run-${detail.id}-debug-dump.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
-    <div className="grid gap-5 xl:grid-cols-2" data-testid="workflow-debug-panel">
-      <Panel title="Raw Blackboard JSON">
-        <JsonBlock value={detail.blackboard} maxHeight="max-h-[620px]" />
+    <div className="space-y-5" data-testid="workflow-debug-panel">
+      <Panel
+        title="Debug Dump"
+        action={(
+          <button type="button" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white" onClick={downloadDebugDump}>
+            Download Debug Dump
+          </button>
+        )}
+      >
+        <p className="text-sm leading-6 text-[color:var(--ops-text-muted)]">
+          Raw payloads are hidden by default. Download the dump for rare deep debugging, or expand the sections below.
+        </p>
       </Panel>
-      <Panel title="Raw Artifacts">
-        <div className="space-y-3">
-          {detail.artifacts.map((artifact) => (
-            <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-              <summary className="cursor-pointer font-semibold text-[color:var(--ops-text-title)]">{artifact.artifact_type} #{artifact.id}</summary>
-              <div className="mt-3">
-                <JsonBlock value={artifact.payload} maxHeight="max-h-[320px]" />
-              </div>
-            </details>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="Raw Transition Events">
-        <JsonBlock value={detail.events} maxHeight="max-h-[520px]" />
-      </Panel>
-      <Panel title="Raw Atom Invocations">
-        <JsonBlock value={detail.atom_invocations} maxHeight="max-h-[520px]" />
-      </Panel>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <details className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw Blackboard JSON</summary>
+          <div className="mt-4"><JsonBlock value={detail.blackboard} maxHeight="max-h-[620px]" /></div>
+        </details>
+        <details className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw Artifacts</summary>
+          <div className="mt-4 space-y-3">
+            {detail.artifacts.map((artifact) => (
+              <details key={artifact.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
+                <summary className="cursor-pointer font-semibold text-[color:var(--ops-text-title)]">{artifact.artifact_type} #{artifact.id}</summary>
+                <div className="mt-3">
+                  <JsonBlock value={artifact.payload} maxHeight="max-h-[320px]" />
+                </div>
+              </details>
+            ))}
+          </div>
+        </details>
+        <details className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw Transition Events</summary>
+          <div className="mt-4"><JsonBlock value={detail.events} maxHeight="max-h-[520px]" /></div>
+        </details>
+        <details className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw Atom Invocations</summary>
+          <div className="mt-4"><JsonBlock value={detail.atom_invocations} maxHeight="max-h-[520px]" /></div>
+        </details>
+      </div>
     </div>
   )
 }
@@ -757,7 +718,6 @@ export default function WorkflowRunDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [busyGateId, setBusyGateId] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<WorkflowTab>('overview')
-  const [selectedStepKey, setSelectedStepKey] = useState<string>('')
 
   async function load() {
     if (!Number.isFinite(workflowRunId)) return
@@ -766,7 +726,6 @@ export default function WorkflowRunDetailPage() {
     try {
       const nextDetail = await api.getWorkflowRun(workflowRunId)
       setDetail(nextDetail)
-      setSelectedStepKey((current) => current || nextDetail.current_state)
       try {
         setDefinition(await api.getWorkflowDefinition(nextDetail.workflow_key))
       } catch {
@@ -829,13 +788,14 @@ export default function WorkflowRunDetailPage() {
     const tab = new URLSearchParams(location.search).get('tab')
     if (tab === 'delivery') {
       setActiveTab('gates')
+    } else if (tab === 'steps') {
+      setActiveTab('timeline')
     } else if (tab && WORKFLOW_TABS.some((item) => item.key === tab)) {
       setActiveTab(tab as WorkflowTab)
     }
   }, [location.search])
 
   const steps = useMemo(() => detail ? buildStepViewModels(detail, definition) : [], [detail, definition])
-  const selectedStep = steps.find((step) => step.stateKey === selectedStepKey) || steps[0]
   const nextAction = detail ? buildNextAction(detail) : null
 
   const setWorkflowTab = (tab: WorkflowTab) => {
@@ -849,11 +809,6 @@ export default function WorkflowRunDetailPage() {
         document.querySelector('[data-testid="workflow-gates-tab"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
     }
-  }
-
-  const selectStep = (stepKey: string) => {
-    setSelectedStepKey(stepKey)
-    setWorkflowTab('steps')
   }
 
   if (loading && !detail) {
@@ -890,16 +845,13 @@ export default function WorkflowRunDetailPage() {
           <AgentOutputPanel detail={detail} />
           <ChangedFilesPanel detail={detail} />
           <CommandEvidencePanel detail={detail} />
-          <CompactStepRail steps={steps} selectedStepKey={selectedStep?.stateKey || ''} onSelect={selectStep} />
+          <CompactStepRail steps={steps} />
         </div>
       ) : null}
 
-      {activeTab === 'steps' && selectedStep ? (
-        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]" data-testid="workflow-steps-tab">
-          <Panel title="Step Explorer">
-            <StepExplorer steps={steps} selectedStepKey={selectedStep.stateKey} onSelect={setSelectedStepKey} />
-          </Panel>
-          <StepInspector step={selectedStep} />
+      {activeTab === 'timeline' ? (
+        <div data-testid="workflow-timeline-tab">
+          <WorkflowTimelinePanel detail={detail} />
         </div>
       ) : null}
 
