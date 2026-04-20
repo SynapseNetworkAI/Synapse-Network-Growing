@@ -306,6 +306,23 @@ It contains:
 10. Advanced goal settings such as workflow, project, risk, weight and `acceptance_kind` must be collapsed by default.
 11. Goal Markdown editors must warn before closing with unsaved changes.
 12. The primary view should answer: what goal is this for, what is pending, what is running, what shipped, and what should the operator decide next.
+13. Goal lanes must render as compact battlefront cards: title, domain, weight, success metric, clamped intent excerpt, primary actions, and grouped candidates.
+14. Candidate display order is `Action Required -> Materialized -> Planner Intercepts -> Quiet History`.
+15. `validation_failed` candidates must not be rendered as normal candidate cards. They belong in a collapsed Planner Intercepts section with the Fail-Closed reason first.
+16. Full Goal PRD, Candidate `description_markdown`, Planner raw output and metadata dumps must be behind drawers or `<details>` progressive disclosure.
+
+Recommended Goal lane shape:
+
+```text
+Goal title
+Domain: ops | Weight: 50% | Success Metric: Pending
+Intent: <short excerpt> [view full PRD]
+[Edit Intent] [Edit Settings] [Trace Path] [Drop Goal]
+
+Candidates (2 Materialized, 3 Failed)
+Materialized: <candidate title> [Requirement #6] [Workflow Completed]
+Planner Intercepts: collapsed fail-closed drafts
+```
 
 The Drop Goal modal must explicitly say:
 

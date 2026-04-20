@@ -48,9 +48,9 @@ function formatTime(value: string | null | undefined) {
 }
 
 function badgeTone(status: string) {
-  if (['active', 'approved', 'materialized', 'succeeded', 'released'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
-  if (['pending', 'draft', 'running', 'awaiting_operator'].includes(status)) return 'border-blue-200 bg-blue-50 text-blue-700'
-  if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked', 'validation_failed'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
+  if (['active', 'approved', 'materialized', 'succeeded', 'released'].includes(status)) return 'border-emerald-300/30 bg-emerald-300/[0.08] text-emerald-100'
+  if (['pending', 'draft', 'running', 'awaiting_operator'].includes(status)) return 'border-blue-300/30 bg-blue-300/[0.08] text-blue-100'
+  if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked', 'validation_failed'].includes(status)) return 'border-rose-300/30 bg-rose-400/[0.10] text-rose-100'
   return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]'
 }
 
@@ -74,6 +74,44 @@ function candidateAcceptanceStepCount(candidate: RequirementCandidate) {
   if (!contract || typeof contract !== 'object') return 0
   const steps = (contract as { execution_acceptance_steps?: unknown }).execution_acceptance_steps
   return Array.isArray(steps) ? steps.length : 0
+}
+
+function candidateTimestamp(candidate: RequirementCandidate) {
+  return candidate.updated_at || candidate.created_at || candidate.approved_at || candidate.rejected_at || ''
+}
+
+function sortCandidatesNewestFirst(items: RequirementCandidate[]) {
+  return [...items].sort((left, right) => candidateTimestamp(right).localeCompare(candidateTimestamp(left)))
+}
+
+function failClosedReason(candidate: RequirementCandidate) {
+  return String(
+    candidate.metadata?.planner_agent_error
+      || candidate.metadata?.acceptance_validation_error
+      || candidate.suppression_reason
+      || 'validation failed',
+  )
+}
+
+function workflowOutcomeLabel(candidate: RequirementCandidate) {
+  const metadata = candidate.metadata || {}
+  const workflowStatus = String(metadata.workflow_status || metadata.auto_run_status || metadata.workflow_current_state || '')
+  if (workflowStatus.includes('completed') || workflowStatus.includes('succeeded') || workflowStatus.includes('done')) return 'Workflow Completed'
+  if (metadata.auto_started_workflow_run_id || metadata.workflow_run_id || workflowStatus) return 'Workflow Started'
+  return 'Requirement Created'
+}
+
+function candidateSummaryLabel(groups: {
+  actionRequired: RequirementCandidate[]
+  materialized: RequirementCandidate[]
+  validationFailed: RequirementCandidate[]
+}) {
+  const parts = [
+    groups.actionRequired.length ? `${groups.actionRequired.length} Pending` : '',
+    groups.materialized.length ? `${groups.materialized.length} Materialized` : '',
+    groups.validationFailed.length ? `${groups.validationFailed.length} Failed` : '',
+  ].filter(Boolean)
+  return `Candidates${parts.length ? ` (${parts.join(', ')})` : ''}`
 }
 
 function steeringDraftFrom(mission: PlanningMissionControl | null): SteeringDraft {
@@ -186,7 +224,7 @@ function CandidateActions({
   )
 }
 
-function CandidateMiniQueue({
+function GoalCandidateSummary({
   candidates,
   busy,
   onAction,
@@ -195,60 +233,131 @@ function CandidateMiniQueue({
   busy: string | null
   onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
 }>) {
-  const active = candidates.filter((candidate) => ['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))
-  const quiet = candidates.filter((candidate) => !['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))
+  const groups = {
+    actionRequired: sortCandidatesNewestFirst(candidates.filter((candidate) => ['pending', 'approved'].includes(candidate.status))),
+    materialized: sortCandidatesNewestFirst(candidates.filter((candidate) => candidate.status === 'materialized')),
+    validationFailed: sortCandidatesNewestFirst(candidates.filter((candidate) => candidate.status === 'validation_failed')),
+    quiet: sortCandidatesNewestFirst(candidates.filter((candidate) => !['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))),
+  }
+  const visibleMaterialized = groups.materialized.slice(0, 2)
+  const olderMaterialized = groups.materialized.slice(2)
   return (
-    <div className="space-y-3" data-testid="candidate-mini-queue">
+    <div className="space-y-4" data-testid="candidate-mini-queue">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Candidate Ammunition</div>
-          <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Planner proposals for this exact goal.</div>
+          <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Candidates</div>
+          <div className="mt-1 text-sm font-semibold text-[color:var(--ops-text-title)]">{candidateSummaryLabel(groups)}</div>
         </div>
         <span className="rounded-full bg-[color:var(--ops-panel-strong)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{candidates.length} total</span>
       </div>
-      {active.map((candidate) => (
-        <article key={candidate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3" data-testid="goal-candidate-card">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{candidate.title}</div>
-              <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{candidate.workflow_key || 'workflow TBD'} · confidence {Math.round((candidate.confidence || 0) * 100)}%</div>
-              {candidate.metadata?.generated_by ? (
-                <div className="mt-1 font-mono text-[10px] text-[color:var(--ops-text-caption)]">
-                  {String(candidate.metadata.generated_by)}
-                  {candidate.metadata.planner_agent_backend ? ` · ${String(candidate.metadata.planner_agent_backend)}` : ''}
-                  {candidate.metadata.planner_agent_model ? `/${String(candidate.metadata.planner_agent_model)}` : ''}
-                  {candidate.metadata.planner_repair_attempts !== undefined ? ` · repairs ${String(candidate.metadata.planner_repair_attempts)}` : ''}
+
+      {groups.actionRequired.length > 0 ? (
+        <section className="space-y-2" data-testid="candidate-action-required">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Action Required</div>
+          {groups.actionRequired.map((candidate) => (
+            <article key={candidate.id} className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.045] px-4 py-3" data-testid="goal-candidate-card">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-1 text-sm font-semibold text-[color:var(--ops-text-title)]">{candidate.title}</div>
+                  <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{candidate.workflow_key || 'workflow TBD'} · confidence {Math.round((candidate.confidence || 0) * 100)}%</div>
+                </div>
+                <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
+              </div>
+              {candidateAcceptanceStepCount(candidate) > 0 ? (
+                <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100">
+                  Acceptance: {candidateAcceptanceStepCount(candidate)} evidence-bound step(s)
                 </div>
               ) : null}
-            </div>
-            <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
-          </div>
-          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{candidate.description_markdown || candidate.rationale || 'No description yet.'}</p>
-          {candidateAcceptanceStepCount(candidate) > 0 && candidate.status !== 'validation_failed' ? (
-            <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100">
-              Acceptance: {candidateAcceptanceStepCount(candidate)} evidence-bound step(s)
-            </div>
+              {candidate.metadata?.routing_decision ? (
+                <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
+                  Risk Router: {String(candidate.metadata.routing_decision)}
+                  {candidate.metadata.routing_reason ? ` · ${String(candidate.metadata.routing_reason)}` : ''}
+                </div>
+              ) : null}
+              <div className="mt-3"><CandidateActions candidate={candidate} busy={busy} onAction={onAction} /></div>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {groups.materialized.length > 0 ? (
+        <section className="space-y-2" data-testid="candidate-materialized">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Materialized</div>
+          {visibleMaterialized.map((candidate) => (
+            <article key={candidate.id} className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.055] px-4 py-3" data-testid="materialized-candidate-row">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-1 text-sm font-semibold text-[color:var(--ops-text-title)]">Materialized: {candidate.title}</div>
+                  <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{candidate.workflow_key || 'workflow TBD'} · {workflowOutcomeLabel(candidate)}</div>
+                </div>
+                <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {candidate.materialized_requirement_id ? (
+                  <a className="rounded-xl border border-emerald-300/25 px-3 py-2 text-xs font-medium text-emerald-100" href={`/requirements/${candidate.materialized_requirement_id}`}>Requirement #{candidate.materialized_requirement_id}</a>
+                ) : null}
+                <span className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-3 py-2 text-xs text-[color:var(--ops-text-muted)]">{workflowOutcomeLabel(candidate)}</span>
+              </div>
+            </article>
+          ))}
+          {olderMaterialized.length > 0 ? (
+            <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-body)]">Show older materialized ({olderMaterialized.length})</summary>
+              <div className="mt-3 space-y-2">
+                {olderMaterialized.map((candidate) => (
+                  <div key={candidate.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--ops-stroke-soft)] pt-2 text-sm">
+                    <span className="line-clamp-1 text-[color:var(--ops-text-body)]">{candidate.title}</span>
+                    {candidate.materialized_requirement_id ? <a className="text-cyan-100" href={`/requirements/${candidate.materialized_requirement_id}`}>Requirement #{candidate.materialized_requirement_id}</a> : null}
+                  </div>
+                ))}
+              </div>
+            </details>
           ) : null}
-          {candidate.metadata?.routing_decision ? (
-            <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
-              Risk Router: {String(candidate.metadata.routing_decision)}
-              {candidate.metadata.routing_reason ? ` · ${String(candidate.metadata.routing_reason)}` : ''}
-            </div>
-          ) : null}
-          {candidate.status === 'validation_failed' ? (
-            <div className="mt-3 rounded-xl border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
-              Fail Closed: {candidate.metadata?.planner_agent_error ? String(candidate.metadata.planner_agent_error) : candidate.metadata?.acceptance_validation_error ? String(candidate.metadata.acceptance_validation_error) : candidate.suppression_reason || 'acceptance validation failed'}
-            </div>
-          ) : null}
-          <div className="mt-3"><CandidateActions candidate={candidate} busy={busy} onAction={onAction} /></div>
-        </article>
-      ))}
-      {!active.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">No active proposals for this goal. Run Planner Sweep when capacity is available.</div>}
-      {quiet.length > 0 && (
-        <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
-          <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-body)]">Show rejected / suppressed ({quiet.length})</summary>
+        </section>
+      ) : null}
+
+      {groups.validationFailed.length > 0 ? (
+        <details className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.06] px-4 py-3" data-testid="planner-intercepts">
+          <summary className="cursor-pointer text-sm font-medium text-rose-100">
+            展开查看 {groups.validationFailed.length} 条 Planner 拦截记录 (Validation Failed)
+          </summary>
           <div className="mt-3 space-y-2">
-            {quiet.map((candidate) => (
+            {groups.validationFailed.map((candidate) => (
+              <article key={candidate.id} className="rounded-xl border border-rose-300/20 bg-slate-950/35 px-3 py-2" data-testid="validation-failed-candidate-row">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-1 text-sm font-medium text-rose-50">
+                      {formatTime(candidateTimestamp(candidate))} - Fail Closed: {failClosedReason(candidate)}
+                    </div>
+                    <div className="mt-1 line-clamp-1 text-xs text-rose-100/65">{candidate.title}</div>
+                  </div>
+                  <span className={['rounded-full border px-2 py-1 text-[11px]', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
+                </div>
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-rose-100/80">View Agent Raw Output</summary>
+                  <div className="mt-2 rounded-xl border border-rose-300/15 bg-slate-950/50 p-3 text-xs leading-5 text-rose-50/80">
+                    {candidate.description_markdown ? <p className="whitespace-pre-wrap">{candidate.description_markdown}</p> : null}
+                    {candidate.rationale ? <p className="mt-2 whitespace-pre-wrap">Rationale: {candidate.rationale}</p> : null}
+                    <div className="mt-2 font-mono">generated_by: {String(candidate.metadata?.generated_by || 'unknown')}</div>
+                  </div>
+                </details>
+              </article>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
+      {!groups.actionRequired.length && !groups.materialized.length && !groups.validationFailed.length ? (
+        <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">
+          No active proposals for this goal. Run Planner Sweep when capacity is available.
+        </div>
+      ) : null}
+
+      {groups.quiet.length > 0 && (
+        <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-body)]">Quiet History ({groups.quiet.length})</summary>
+          <div className="mt-3 space-y-2">
+            {groups.quiet.map((candidate) => (
               <div key={candidate.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--ops-stroke-soft)] pt-2 text-sm">
                 <span className="text-[color:var(--ops-text-body)]">{candidate.title}</span>
                 <span className={['rounded-full border px-2 py-1 text-[11px]', badgeTone(candidate.status)].join(' ')}>{candidate.status}{candidate.suppression_reason ? ` · ${candidate.suppression_reason}` : ''}</span>
@@ -291,8 +400,14 @@ function GoalMissionLaneSection({
             <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{goal.goal_key || lane.goal_key}</span>
           </div>
           <h3 className="mt-3 text-xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{goal.title || goal.domain || 'operations'}</h3>
-          <div className="mt-1 font-mono text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{goal.domain || 'ops'}</div>
-          <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{goal.intent_excerpt || 'No intent defined.'}</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-[color:var(--ops-text-muted)]">
+            <span>Domain: {goal.domain || 'ops'}</span>
+            <span>|</span>
+            <span>Weight: {goal.weight != null ? `${weightToPercent(goal.weight)}%` : '-'}</span>
+            <span>|</span>
+            <span>Success Metric: {goal.success_metric || 'Pending'}</span>
+          </div>
+          <p className="mt-4 line-clamp-3 text-sm leading-6 text-[color:var(--ops-text-body)]">Intent: {goal.intent_excerpt || 'No intent defined.'}</p>
           <div className="mt-4 rounded-2xl bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
             <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Success Metric</div>
             <div className="mt-1">{goal.success_metric || '-'}</div>
@@ -308,10 +423,18 @@ function GoalMissionLaneSection({
               onMouseEnter={() => onPrefetchIntent(goal)}
               onClick={() => onEditIntent(goal)}
             >
-              Edit Intent & PRD
+              Edit Intent
             </button>
+            <button
+              className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-medium text-cyan-100"
+              onFocus={() => onPrefetchIntent(goal)}
+              onMouseEnter={() => onPrefetchIntent(goal)}
+              onClick={() => onEditIntent(goal)}
+            >
+              查看完整 PRD
+            </button>
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" onClick={() => onEditSettings(goal)}>Edit Settings</button>
             <button className="rounded-xl border border-emerald-300/25 bg-emerald-300/[0.06] px-3 py-2 text-xs font-medium text-emerald-100" onClick={() => onTraceGoal(goal)}>Trace Path</button>
-            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" onClick={() => onEditSettings(goal)}>Edit Goal Settings</button>
             {status !== 'dropped' && (
               <button className="rounded-xl border border-rose-200 bg-[color:var(--ops-panel)] px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
             )}
@@ -319,7 +442,7 @@ function GoalMissionLaneSection({
         </div>
         <div className="space-y-4">
           <GoalRollupStrip lane={lane} />
-          <CandidateMiniQueue candidates={lane.candidates} busy={busy} onAction={onCandidateAction} />
+          <GoalCandidateSummary candidates={lane.candidates} busy={busy} onAction={onCandidateAction} />
         </div>
       </div>
     </section>
@@ -534,12 +657,33 @@ function PlanningSteeringPanel({
             </div>
           </div>
         </div>
-        <div className="space-y-5 border-t border-[color:var(--ops-stroke-soft)] pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-          <FocusWeightSliders draft={draft} onChange={onDraftChange} />
-          <GlobalBudgetEditor draft={draft} onChange={onDraftChange} />
-          <GlobalConstraintsEditor draft={draft} onChange={onDraftChange} />
+        <div className="space-y-4 border-t border-[color:var(--ops-stroke-soft)] pt-5 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Focus</div>
+              <div className="mt-1 font-mono text-sm text-[color:var(--ops-text-title)]">{Object.entries(draft.focusWeights).map(([key, value]) => `${key} ${value}%`).join(' · ') || '-'}</div>
+            </div>
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Budget</div>
+              <div className="mt-1 font-mono text-sm text-[color:var(--ops-text-title)]">
+                ${String(draft.globalBudget.daily_usd_limit ?? '-')} / day · {String(draft.globalBudget.max_concurrent_workers ?? '-')} workers
+              </div>
+            </div>
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Constraints</div>
+              <div className="mt-1 font-mono text-sm text-[color:var(--ops-text-title)]">{draft.constraintsText.split('\n').filter(Boolean).length} active</div>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenRaw}>{'</>'} Edit raw JSON</button>
+            <details className="min-w-[260px] flex-1 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-[color:var(--ops-text-body)]">Steering Details</summary>
+              <div className="mt-5 space-y-5">
+                <FocusWeightSliders draft={draft} onChange={onDraftChange} />
+                <GlobalBudgetEditor draft={draft} onChange={onDraftChange} />
+                <GlobalConstraintsEditor draft={draft} onChange={onDraftChange} />
+                <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenRaw}>{'</>'} Edit raw JSON</button>
+              </div>
+            </details>
             <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!canSave || busy === 'save'} onClick={onSave}>Save Steering Revision</button>
           </div>
           {!canSave && <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="weight-total-warning">Focus weights total must equal 100% before saving.</div>}

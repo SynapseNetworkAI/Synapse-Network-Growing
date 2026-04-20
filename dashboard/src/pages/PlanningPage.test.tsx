@@ -126,6 +126,39 @@ const reliabilityCandidate = {
   rejected_at: null,
 }
 
+const materializedCandidate = {
+  ...reliabilityCandidate,
+  id: 11,
+  candidate_fingerprint: 'fp-11',
+  title: 'Weaponize self-repair lint and architecture contract gates',
+  description_markdown: 'This long materialized markdown should not be visible in the mission lane.',
+  status: 'materialized',
+  materialized_requirement_id: 6,
+  confidence: 0.89,
+  metadata: {
+    generated_by: 'planner_agent_v1',
+    auto_run_status: 'workflow_completed',
+  },
+  updated_at: '2026-04-19T01:00:00Z',
+}
+
+const validationFailedCandidate = {
+  ...reliabilityCandidate,
+  id: 12,
+  candidate_fingerprint: 'fp-12',
+  title: 'Unsafe planner output draft',
+  description_markdown: 'Raw planner output with verbose markdown should stay behind details.',
+  status: 'validation_failed',
+  materialized_requirement_id: null,
+  suppression_reason: 'acceptance_validation_failed',
+  confidence: 0.66,
+  metadata: {
+    generated_by: 'planner_agent_v1',
+    acceptance_validation_error: "required command 'python -m ruff check' is not in the safe command allowlist.",
+  },
+  updated_at: '2026-04-19T02:00:00Z',
+}
+
 const mission = {
   manifest,
   global_steering: {
@@ -141,12 +174,12 @@ const mission = {
         manifest_id: 1,
         goal_key: 'gateway_reliability',
         goal: reliabilityGoal,
-        candidate_status_counts: { pending: 1 },
+        candidate_status_counts: { pending: 1, materialized: 1, validation_failed: 1 },
         requirement_status_counts: {},
         workflow_status_counts: {},
         release_status_counts: {},
       },
-      candidates: [reliabilityCandidate],
+      candidates: [reliabilityCandidate, materializedCandidate, validationFailedCandidate],
     },
     {
       goal_key: 'operator_growth',
@@ -220,7 +253,26 @@ describe('PlanningPage Mission Control', () => {
     expect(lanes).toHaveLength(2)
     expect(within(lanes[0]).getByText('gateway_reliability')).toBeTruthy()
     expect(within(lanes[0]).getByText('Add gateway precision guardrail')).toBeTruthy()
+    expect(within(lanes[0]).getByText('Candidates (1 Pending, 1 Materialized, 1 Failed)')).toBeTruthy()
     expect(within(lanes[1]).queryByText('Add gateway precision guardrail')).toBeNull()
+  })
+
+  it('renders materialized work and fail-closed drafts as progressive disclosure', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    const reliabilityLane = lanes[0]
+
+    expect(within(reliabilityLane).getByTestId('candidate-materialized')).toBeTruthy()
+    expect(within(reliabilityLane).getByText('Materialized: Weaponize self-repair lint and architecture contract gates')).toBeTruthy()
+    expect(within(reliabilityLane).getByRole('link', { name: 'Requirement #6' })).toBeTruthy()
+    expect(within(reliabilityLane).getByTestId('planner-intercepts')).toBeTruthy()
+
+    await user.click(within(reliabilityLane).getByText('展开查看 1 条 Planner 拦截记录 (Validation Failed)'))
+
+    expect(within(reliabilityLane).getByText(/Fail Closed: required command 'python -m ruff check'/)).toBeTruthy()
+    expect(within(reliabilityLane).getByText('View Agent Raw Output')).toBeTruthy()
   })
 
   it('approves and runs a candidate from inside its goal lane', async () => {
@@ -262,6 +314,7 @@ describe('PlanningPage Mission Control', () => {
     render(<PlanningPage />)
 
     await screen.findByTestId('mission-control-tab')
+    await user.click(screen.getByText('Steering Details'))
     await user.click(screen.getByRole('button', { name: '</> Edit raw JSON' }))
 
     const rawDrawer = await screen.findByTestId('raw-manifest-drawer')
@@ -270,7 +323,7 @@ describe('PlanningPage Mission Control', () => {
 
     await user.click(within(rawDrawer).getByRole('button', { name: 'Close' }))
     const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent & PRD' }))
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent' }))
 
     await waitFor(() => {
       expect(apiMock.getPlanningGoal).toHaveBeenCalledWith(101)

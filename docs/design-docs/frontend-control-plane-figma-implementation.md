@@ -82,6 +82,9 @@ Dark cockpit pages must be readable before they are visually clever. Any fronten
 - Buttons that create new business objects must use operator language. For example, use `创建后续需求` with helper text instead of the ambiguous `Create Follow-up Requirement`.
 - `Open PR` must link to a real GitHub PR URL when delivery is real. If delivery is simulated, the page must say so clearly and must not imply an external PR exists.
 - Workflow verification must display command evidence. A completed run without command evidence is not considered fully observable.
+- Dense cockpit cards must enforce readable density with line-clamp, max-height, drawers, or `<details>` for long content.
+- Long-form Markdown is never a card body in dense operator views. Goal PRDs, Candidate descriptions, Planner raw output and metadata dumps must be opt-in.
+- Fail-Closed / validation_failed drafts must be grouped as diagnostic intercepts, not mixed into the main active-work stream.
 
 ## Page Contracts
 

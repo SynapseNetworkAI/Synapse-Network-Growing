@@ -129,6 +129,9 @@
 4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、drawer 或 details 展开，不得成为默认主操作面板。
 5. Raw Manifest JSON 不得作为 Goal PRD/Markdown 主入口；目标长文必须通过 Goal Markdown editor 编辑。
 6. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
+7. Planning 主视图必须按 operator decision priority 排序：需要处理的 candidate 优先，其次已 materialized 的工作，再次是 Fail-Closed 拦截记录，最后才是 rejected / suppressed 历史。
+8. 长 PRD、Candidate Markdown、Planner raw output 和 metadata dump 不得压过当前动作；主视图只展示摘要、状态、原因和跳转入口。
+9. `validation_failed` 是规划层诊断草稿，不是执行阻塞。它应默认折叠，展开后先显示 Fail-Closed 原因，再允许查看 Agent 原始输出。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

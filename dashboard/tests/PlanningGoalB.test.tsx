@@ -172,7 +172,8 @@ describe('PlanningPage GoalB mission control', () => {
     await waitFor(() => expect(mockApi.getPlanningMissionControl).toHaveBeenCalled())
     const missionTab = screen.getByTestId('mission-control-tab')
     expect(missionTab).toHaveTextContent('goalb')
-    expect(missionTab).toHaveTextContent('GoalB candidate generated from the Operating Manifest.')
+    expect(missionTab).toHaveTextContent('Advance goal: 验证 Growing 可以根据目标自动拆分任务')
+    expect(missionTab).not.toHaveTextContent('GoalB candidate generated from the Operating Manifest.')
     expect(missionTab).toHaveTextContent('gateway_reliability_repair')
 
     fireEvent.click(screen.getByText('Dry Run Planner'))
