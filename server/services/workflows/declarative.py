@@ -418,6 +418,7 @@ def _command_results_from_blackboard(blackboard: Mapping[str, Any]) -> list[dict
 def _delivery_summary_from_blackboard(blackboard: Mapping[str, Any], release: ReleaseRecordRow | None) -> dict[str, Any]:
     pr = _blackboard_pr(blackboard)
     sync = pr.get("sync") if isinstance(pr.get("sync"), Mapping) else {}
+    vcs = pr.get("vcs") if isinstance(pr.get("vcs"), Mapping) else {}
     url = str(getattr(release, "pr_url", "") or pr.get("url") or sync.get("pr_url") or "").strip() or None
     return {
         "pr_created": bool(pr.get("created") or url),
@@ -428,6 +429,10 @@ def _delivery_summary_from_blackboard(blackboard: Mapping[str, Any], release: Re
         "release_status": str(getattr(release, "status", "") or "").strip() or None,
         "sync_action": str(pr.get("sync_action") or sync.get("sync_action") or "").strip() or None,
         "simulated": _pr_is_simulated(pr),
+        "human_commits_detected": bool(sync.get("human_commits_detected") or vcs.get("human_commits_detected")),
+        "rebase_attempted": bool(vcs.get("rebase_attempted")),
+        "rebase_status": str(vcs.get("rebase_status") or "").strip() or None,
+        "delivery_blocker_type": str(vcs.get("delivery_blocker_type") or "").strip() or None,
     }
 
 
@@ -1345,9 +1350,10 @@ def _open_requirement_review_pr(
 
     target_project_path = _workflow_target_project_path(ctx)
     branch_name = _workflow_branch_name(ctx, pr_scope=pr_scope)
+    base_branch = _workflow_base_branch(ctx)
     delivery_contract = {
         "branch_name": branch_name,
-        "base_branch": _workflow_base_branch(ctx),
+        "base_branch": base_branch,
         "remote_name": config.DELIVERY_VCS_REMOTE_NAME,
         "commit_required": True,
         "push_required": True,
@@ -1360,6 +1366,7 @@ def _open_requirement_review_pr(
         delivery_contract=delivery_contract,
         fallback_target_path=target_project_path,
     )
+    vcs_payload["goal_key"] = str(getattr(ctx.requirement, "goal_key", "") or "").strip() or None
     artifact_ids: list[str] = []
     vcs_artifact = _create_workflow_artifact(
         ctx.db,
@@ -1400,7 +1407,7 @@ def _open_requirement_review_pr(
         )
 
     branch_name = str(vcs_payload.get("branch_name") or branch_name).strip() or branch_name
-    base_branch = str(vcs_payload.get("base_branch") or "main").strip() or "main"
+    base_branch = str(vcs_payload.get("base_branch") or base_branch or "main").strip() or "main"
     remote_url = _first_repo_value(vcs_payload, "remote_url")
     compare_url = _github_compare_url(remote_url, base_branch, branch_name)
     pr_payload = sync_requirement_review_pr(

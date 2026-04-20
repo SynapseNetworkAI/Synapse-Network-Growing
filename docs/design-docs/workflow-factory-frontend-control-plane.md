@@ -580,6 +580,7 @@ verify
 open_pr
 - workflow_vcs_delivery proves branch commit/push
 - workflow_review_pr_sync proves GitHub PR URL
+- delivery evidence must show smart-sync outcome: whether an existing PR was updated, whether human commits were detected and rebased, or whether a rebase conflict requires operator action
 
 observing
 - observation payload proves recovery signal

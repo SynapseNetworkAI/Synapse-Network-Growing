@@ -43,6 +43,31 @@ type CachedGoalDetail = {
   cacheKey: string
 }
 
+const overlayStack: string[] = []
+
+function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+  useEffect(() => {
+    if (!open) return undefined
+    overlayStack.push(overlayId)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || overlayStack[overlayStack.length - 1] !== overlayId) return
+      event.preventDefault()
+      event.stopPropagation()
+      onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      const index = overlayStack.lastIndexOf(overlayId)
+      if (index >= 0) overlayStack.splice(index, 1)
+    }
+  }, [open, overlayId])
+}
+
 function formatLocalDateTime(date: Date) {
   const pad = (value: number) => String(value).padStart(2, '0')
   const offsetMinutes = -date.getTimezoneOffset()
@@ -803,10 +828,11 @@ function GoalTraceDrawer({
   error: string | null
   onClose: () => void
 }>) {
+  useTopOverlayEscape(open, 'goal-trace-drawer', onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-trace-drawer">
-      <aside className="h-full w-full max-w-4xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+      <aside className="h-full w-full max-w-4xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Single-Goal Trace</div>
@@ -836,6 +862,11 @@ function GoalTraceDrawer({
                 </div>
                 {node.diagnostic?.reason ? (
                   <div className="mt-3 rounded-xl border border-current/15 bg-slate-950/20 px-3 py-2 text-xs">
+                    {node.kind === 'candidate' && node.status === 'blocked' ? (
+                      <div className="mb-2 rounded-lg border border-current/15 bg-slate-950/25 px-2 py-1 font-semibold">
+                        Planner Intercept · not a Human Gate. Fix the Goal PRD or command safety policy, then run Planner Sweep again.
+                      </div>
+                    ) : null}
                     <div>why: {node.diagnostic.reason}</div>
                     <div className="mt-1 opacity-75">source: {node.diagnostic.source || '-'} · {node.diagnostic.timestamp || '-'}</div>
                   </div>
@@ -1105,10 +1136,11 @@ function RawManifestDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
+  useTopOverlayEscape(open, 'raw-manifest-drawer', onClose)
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40" data-testid="raw-manifest-drawer">
-      <aside className="h-full w-full max-w-2xl overflow-auto bg-[color:var(--ops-panel)] p-6 shadow-2xl">
+      <aside className="h-full w-full max-w-2xl overflow-auto bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Debug Drawer</div>
@@ -1140,6 +1172,7 @@ function ArchiveCycleModal({
 }>) {
   const [versionName, setVersionName] = useState('')
   const [cycleLabel, setCycleLabel] = useState('')
+  useTopOverlayEscape(open, 'archive-cycle-modal', onClose)
   useEffect(() => {
     if (open) {
       setVersionName(`Next cycle after ${mission?.manifest.cycle_label || 'current'}`)
@@ -1150,7 +1183,7 @@ function ArchiveCycleModal({
   const activeGoals = (mission?.goal_lanes || []).filter((lane) => lane.goal.status !== 'dropped' && lane.goal.status !== 'achieved')
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-2xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl">
+      <div className="w-full max-w-2xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Archive Cycle</div>
         <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Archive & Start New Cycle</h3>
         <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">Active goals will carry forward. Achieved and dropped goals stay in the archived review.</p>
@@ -1183,10 +1216,11 @@ function DropGoalModal({
   onCancel: () => void
   onConfirm: () => void
 }>) {
+  useTopOverlayEscape(Boolean(goal), 'drop-goal-modal', onCancel)
   if (!goal) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl">
+      <div className="w-full max-w-xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="text-[11px] uppercase tracking-[0.22em] text-rose-600">Danger Zone</div>
         <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Drop Goal: {goal.goal_key}</h3>
         <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800">
@@ -1282,10 +1316,11 @@ function GoalIntentDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
+  useTopOverlayEscape(Boolean(goal), 'goal-intent-drawer', onClose)
   if (!goal) return null
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-intent-drawer">
-      <aside className="h-full w-full max-w-6xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+      <aside className="h-full w-full max-w-6xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Intent Data Plane</div>
@@ -1336,13 +1371,14 @@ function GoalSettingsDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
+  useTopOverlayEscape(open, 'goal-settings-drawer', onClose)
   if (!open) return null
   const isCreate = !goal
   const update = (key: keyof GoalSettingsDraft, value: string) => setDraft({ ...draft, [key]: value })
   const canSave = Boolean(draft.title.trim()) && Boolean((draft.goal_key || slugifyGoalKey(draft.title)).trim())
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-settings-drawer">
-      <aside className="h-full w-full max-w-3xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+      <aside className="h-full w-full max-w-3xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Settings</div>

@@ -48,9 +48,15 @@ def test_sync_requirement_review_pr_creates_draft_pr():
             review_surface_summary="Requirement #17 review-ready bundle.",
             promotion_checklist=[],
             vcs_payload={
+                "status": "delivered",
+                "human_commits_detected": False,
+                "push_mode": "normal",
                 "repositories": [
                     {
                         "remote_url": "git@github.com:openai/synapse-network-growing.git",
+                        "repo_path": "/repo",
+                        "branch_name": "ops/req-17-incident-recovery",
+                        "remote_sha": "abc123def456",
                     }
                 ]
             },
@@ -59,8 +65,16 @@ def test_sync_requirement_review_pr_creates_draft_pr():
     assert payload["status"] == "synced"
     assert payload["pr_status"] == "draft"
     assert payload["pr_number"] == 17
+    assert payload["body_sections_collapsed"] is True
+    assert payload["checks_projection_ready"] is True
     assert payload["pr_url"] == "https://github.com/openai/synapse-network-growing/pull/17"
     assert any(args[:3] == ("pr", "create", "--repo") for args in calls)
+    create_args = next(args for args in calls if args[:3] == ("pr", "create", "--repo"))
+    body = create_args[create_args.index("--body") + 1]
+    assert "Agent generated this PR. Human merge required." in body
+    assert "## What changed" in body
+    assert "<details>" in body
+    assert "Delivery / VCS evidence" in body
 
 
 def test_sync_requirement_review_pr_updates_existing_pr():
@@ -99,9 +113,17 @@ def test_sync_requirement_review_pr_updates_existing_pr():
             review_surface_summary="Requirement #18 review-ready bundle.",
             promotion_checklist=[],
             vcs_payload={
+                "status": "delivered",
+                "human_commits_detected": True,
+                "rebase_attempted": True,
+                "rebase_status": "succeeded",
+                "push_mode": "normal",
                 "repositories": [
                     {
                         "remote_url": "git@github.com:openai/synapse-network-growing.git",
+                        "repo_path": "/repo",
+                        "branch_name": "ops/req-18-followup",
+                        "human_commits_detected": True,
                     }
                 ]
             },
@@ -110,4 +132,10 @@ def test_sync_requirement_review_pr_updates_existing_pr():
     assert payload["status"] == "synced"
     assert payload["pr_status"] == "ready_for_review"
     assert payload["pr_number"] == 18
+    assert payload["existing_pr_url"] == "https://github.com/openai/synapse-network-growing/pull/18"
+    assert payload["human_commits_detected"] is True
     assert any(args[:3] == ("pr", "edit", "18") for args in calls)
+    edit_args = next(args for args in calls if args[:3] == ("pr", "edit", "18"))
+    body = edit_args[edit_args.index("--body") + 1]
+    assert "Human commits detected on branch" in body
+    assert "Agent generated this PR. Human merge required." in body

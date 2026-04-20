@@ -28,6 +28,12 @@ def _init_repo(repo_path: Path, remote_path: Path) -> None:
     _git(repo_path, "commit", "-m", "initial")
     _git(repo_path, "remote", "add", "origin", str(remote_path))
     _git(repo_path, "push", "-u", "origin", "main")
+    _git(remote_path, "symbolic-ref", "HEAD", "refs/heads/main")
+
+
+def _configure_user(repo_path: Path) -> None:
+    _git(repo_path, "config", "user.name", "Test User")
+    _git(repo_path, "config", "user.email", "test@example.com")
 
 
 def test_execute_requirement_delivery_vcs_commits_and_pushes(tmp_path):
@@ -213,6 +219,105 @@ def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_
     assert repo_result["pushed"] is True
     remote_head = _git(repo_path, "ls-remote", "--heads", "origin", "ops/req-19-precommitted").stdout.strip()
     assert head_sha in remote_head
+
+
+def test_execute_requirement_delivery_vcs_rebases_remote_human_commit_before_push(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    human_path = tmp_path / "human"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+
+    branch = "ops/req-20-smart-sync"
+    _git(repo_path, "checkout", "-b", branch)
+    (repo_path / "README.md").write_text("base\nagent v1\n", encoding="utf-8")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-m", "agent v1")
+    _git(repo_path, "push", "-u", "origin", branch)
+
+    _git(tmp_path, "clone", str(remote_path), str(human_path))
+    _configure_user(human_path)
+    _git(human_path, "checkout", branch)
+    (human_path / "HUMAN.md").write_text("human review commit\n", encoding="utf-8")
+    _git(human_path, "add", "HUMAN.md")
+    _git(human_path, "commit", "-m", "human edit on PR branch")
+    _git(human_path, "push", "origin", branch)
+    human_sha = _git(human_path, "rev-parse", "HEAD").stdout.strip()
+
+    (repo_path / "AGENT.md").write_text("agent retry commit\n", encoding="utf-8")
+    result = execute_requirement_delivery_vcs(
+        requirement_id=20,
+        requirement_title="Smart sync branch",
+        delivery_contract={
+            "branch_name": branch,
+            "base_branch": "main",
+            "commit_required": True,
+            "push_required": True,
+            "capability_matrix": {"git_write": True, "git_push": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "delivered"
+    assert result["human_commits_detected"] is True
+    assert result["rebase_attempted"] is True
+    assert result["rebase_status"] == "succeeded"
+    repo_result = result["repositories"][0]
+    assert repo_result["human_commits_detected"] is True
+    assert repo_result["rebase_status"] == "succeeded"
+    assert repo_result["push_mode"] == "normal"
+    assert _git(repo_path, "merge-base", "--is-ancestor", human_sha, "HEAD", check=False).returncode == 0
+    remote_head = _git(repo_path, "ls-remote", "--heads", "origin", branch).stdout.strip()
+    assert result["latest_remote_sha"] in remote_head
+
+
+def test_execute_requirement_delivery_vcs_blocks_on_rebase_conflict(tmp_path):
+    remote_path = tmp_path / "remote.git"
+    repo_path = tmp_path / "repo"
+    human_path = tmp_path / "human"
+    remote_path.mkdir()
+    repo_path.mkdir()
+    _git(remote_path, "init", "--bare")
+    _init_repo(repo_path, remote_path)
+
+    branch = "ops/req-21-conflict"
+    _git(repo_path, "checkout", "-b", branch)
+    (repo_path / "README.md").write_text("base\nagent v1\n", encoding="utf-8")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-m", "agent v1")
+    _git(repo_path, "push", "-u", "origin", branch)
+
+    _git(tmp_path, "clone", str(remote_path), str(human_path))
+    _configure_user(human_path)
+    _git(human_path, "checkout", branch)
+    (human_path / "README.md").write_text("base\nhuman edit\n", encoding="utf-8")
+    _git(human_path, "add", "README.md")
+    _git(human_path, "commit", "-m", "human conflicting edit")
+    _git(human_path, "push", "origin", branch)
+
+    (repo_path / "README.md").write_text("base\nagent retry edit\n", encoding="utf-8")
+    result = execute_requirement_delivery_vcs(
+        requirement_id=21,
+        requirement_title="Rebase conflict",
+        delivery_contract={
+            "branch_name": branch,
+            "base_branch": "main",
+            "commit_required": True,
+            "push_required": True,
+            "capability_matrix": {"git_write": True, "git_push": True},
+            "changed_target_project_paths": [str(repo_path)],
+        },
+    )
+
+    assert result["status"] == "blocked"
+    assert result["delivery_blocker_type"] == "delivery_branch_rebase_conflict"
+    repo_result = result["repositories"][0]
+    assert repo_result["human_commits_detected"] is True
+    assert repo_result["rebase_attempted"] is True
+    assert repo_result["rebase_status"] == "failed"
+    assert repo_result["push_mode"] == "blocked"
 
 
 def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(tmp_path):

@@ -237,24 +237,27 @@ Release 负责：
 3. requirement 面只能展示 release 摘要与跳转入口。
 4. requirement execution approval 只负责执行许可，不替代 release / deployment gate。
 5. 高风险 requirement 的人工 execution approval 必须保留；它控制的是“是否允许 agent 开始高风险动作”，不能被 PR merge 替代。
-6. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
-7. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
-8. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
-9. 错误发现 v1 必须优先于机会发现。
+6. Agent 可以自动创建或更新 Draft PR，但不得自动 merge；人类保留最终 Review/Merge 边界。
+7. Delivery atom 在 push PR 分支前必须 smart-sync 远端分支：保留人类提交，能 clean rebase 则更新同一个 PR，发生 rebase conflict 则进入 `awaiting_operator`，不得静默覆盖。
+8. PR body 默认必须 reviewer-first：顶部只放业务摘要、安全 review 理由和人工 merge checklist，长 evidence / logs / retry history 必须折叠或链接 artifact。
+9. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
+10. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
+11. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
+12. 错误发现 v1 必须优先于机会发现。
    - 本阶段只自动化 defect self-healing，不自动化新增功能发现。
    - 错误信号必须先进入统一 discovery pipeline，再决定是否 materialize requirement。
-10. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
+13. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
    - agent 负责理解与推荐。
    - system rules 只负责稳定硬边界。
    - 人只处理高风险、低置信度或系统无法稳定收口的 case。
-11. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
+14. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
    - `Requirement`、`ExecutionAttempt`、`Delivery`、`ApprovalDecision` 都必须只有一个 canonical `state`
    - 旧 `status / phase / resolution_path / latest_release_status` 只允许作为过渡读字段，不能继续作为写入真相
-12. Declarative workflow 的目标与黑板必须可审计。
+15. Declarative workflow 的目标与黑板必须可审计。
    - 原始 intent / acceptance brief 不允许被 repair 覆盖。
    - repair turn 必须从最新 verification result、command evidence 和 blackboard 派生。
    - 第二次 repair 必须读取上一次失败结果，而不是简单重跑旧 prompt。
-13. 自主修复必须有严格预算。
+16. 自主修复必须有严格预算。
    - 所有 workflow loop 必须有 counter guard。
    - verification failure 默认由同一个 workflow run 自循环修复，自动 self-repair 最多 2 次。
    - self-repair 达到预算仍失败时必须 `route_to_human`；人工继续 retry 也复用同一个 run / session，并单独计入 manual retry。
