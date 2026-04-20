@@ -168,35 +168,63 @@ lock
 
 每张卡显示运行状态、最近 tick、最近错误、队列数量或 registry 统计。
 
-### Recurring Workflow Registry
+### Scheduled Jobs Operations Center
 
-表格字段：
+`/schedules` 不是 crontab 表格外壳，而是虚拟部门的自动化运转大屏。
 
-1. workflow key / display name / description
-2. owner role
-3. schedule
-4. health status
-5. last run / next run
-6. actions
+主视图必须按 operator 决策优先级组织：
+
+1. **Attention Required**：自动置顶 `failed`、`due`、最近运行失败、`skipped_locked` 或其他异常任务，避免关键故障被页面滚动淹没。
+2. **Strategy & Planning**：`goal_planner_sweep`、`weekly_operating_review`。
+3. **Execution & Dispatch**：`dispatcher_loop`、`approval_sweep`、`closeout_and_compact_sweep`。
+4. **Intake & Support**：`morning_intake_sweep`、`forum_feedback_sweep`。
+5. **System Health & Reliability**：`bug_log_sweep`、`requirement_family_cleanup_sweep`。
+6. **New / Uncategorized Initiates**：所有缺少 presentation metadata 的新 workflow，必须显示 `Missing Presentation Metadata`，但仍允许查看历史、Dry Run 和 Run Now。
+
+每个 workflow card 必须展示 I-P-O：
+
+```text
+Input -> Action -> Output
+```
+
+示例：
+
+```text
+Forum Feedback Sweep
+Input: Forum unreplied response tasks
+Action: Classify, extract, draft replies
+Output: Reply drafts | Bug candidates
+```
 
 操作：
 
 1. `Dry Run`
 2. `Run Now`
-3. 查看历史
+3. `View History`
 
-### Run History
+`Dry Run` / `Run Now` 触发后必须对当前卡片做局部运行锁定，显示 `Running...`，防止 operator 连点。Run Inspector 必须立即打开并插入 optimistic running entry；请求完成后用真实 `run_id` 和 run history 替换 optimistic entry。若 operator 已主动关闭抽屉，完成后不得重新抢焦点，只允许 toast / 非阻塞提示。
 
-每个 workflow 展示最近运行记录：
+### Run History / Run Inspector
+
+Last Run 必须是可点击入口。点击后打开 Run Inspector，默认展示人话战报：
 
 1. status
 2. triggered_by
 3. dry_run
 4. started_at / completed_at
 5. duration_ms
-6. params
-7. result
-8. error_excerpt
+6. created / materialized / pushed / archived ids
+7. blocked reason / error excerpt
+
+Raw `params` / `result` 只能放在 Debug details 中，避免页面变成日志垃圾场。
+
+Run Inspector 约束：
+
+1. 历史查询必须显式限制为最近 50 条，避免高频任务历史拖垮浏览器。
+2. `Last Run` 入口应传递明确锚点；刷新后优先保留当前选中 run。如果该 run 已不在最近 50 条中，平滑回退到最新 run 并提示。
+3. 抽屉必须支持局部 `Refresh`，无需关闭重开。
+4. `dry_run=true` 的历史必须视觉降级，显示 `DRY RUN`，并说明它只是安全预演：不会 auto-start requirement，也不会 dispatch acceptance。
+5. 空历史必须显示可行动空状态，引导 operator 先执行 `Dry Run` 创建安全记录。
 
 `bug_log_sweep` 如果遇到另一个 scheduler 或手动 Run Now 正在运行，会写入：
 
