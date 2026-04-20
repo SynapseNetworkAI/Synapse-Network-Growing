@@ -261,6 +261,10 @@ class PlannerSweepOut(BaseModel):
     parsed_output: dict[str, object] = {}
     created_candidate_ids: list[int] = []
     suppressed_items: list[dict[str, object]] = []
+    routing_results: list[dict[str, object]] = []
+    auto_materialized_requirement_ids: list[int] = []
+    auto_started_workflow_run_ids: list[int] = []
+    routing_suppressed_items: list[dict[str, object]] = []
     error_excerpt: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -1713,6 +1717,7 @@ class RecurringWorkflowRunResultOut(BaseModel):
 
 class RecurringWorkflowHealthOut(BaseModel):
     bug_log_scheduler: dict[str, object] = {}
+    goal_planner_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 

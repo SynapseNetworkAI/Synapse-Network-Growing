@@ -20,6 +20,7 @@ from server.schemas import DashboardStats
 from server.routers import agents, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, releases, errors, projects, workflows, planning
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
+from server.services.planning.scheduler import GoalPlannerSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
 
 setup_ops_logging(
@@ -47,11 +48,16 @@ async def lifespan(app: FastAPI):
     init_db()
     log_event(logger, "database_initialized", db_path=config.DB_PATH)
     bug_scheduler = None
+    goal_planner_scheduler = None
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
         bug_scheduler.start()
         app.state.bug_log_scheduler = bug_scheduler
+    if config.GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED:
+        goal_planner_scheduler = GoalPlannerSweepScheduler()
+        goal_planner_scheduler.start()
+        app.state.goal_planner_scheduler = goal_planner_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -61,6 +67,8 @@ async def lifespan(app: FastAPI):
     finally:
         if notification_dispatcher is not None:
             notification_dispatcher.stop()
+        if goal_planner_scheduler is not None:
+            goal_planner_scheduler.stop()
         if bug_scheduler is not None:
             bug_scheduler.stop()
         log_event(logger, "service_stopped")
@@ -142,7 +150,7 @@ def dashboard_stats(db: Session = Depends(get_db)):
     return DashboardStats(
         agent_count=db.query(AgentRow).count(),
         requirement_total=db.query(RequirementRow).count(),
-        requirement_active=db.query(RequirementRow).filter(RequirementRow.status.notin_(["done", "cancelled", "deleted"])).count(),
+        requirement_active=db.query(RequirementRow).filter(RequirementRow.status.notin_(["completed", "succeeded", "done", "cancelled", "deleted"])).count(),
         workflow_total=db.query(WorkflowRunRow).count(),
         workflow_running=db.query(WorkflowRunRow).filter(WorkflowRunRow.status.in_(["running", "paused"])).count(),
         workflow_succeeded=db.query(WorkflowRunRow).filter(WorkflowRunRow.status == "succeeded").count(),

@@ -25,6 +25,7 @@ from server.database import (
 )
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
+from server.services.planning.risk_router import route_candidate
 from server.services.requirements.service import create_requirement, start_requirement_workflow
 
 
@@ -204,6 +205,7 @@ def candidate_to_dict(row: RequirementCandidateRow) -> dict[str, Any]:
 
 
 def sweep_to_dict(row: PlannerSweepRow) -> dict[str, Any]:
+    parsed_output = _json_loads(row.parsed_output_json, {})
     return {
         "id": int(row.id),
         "manifest_id": int(row.manifest_id),
@@ -211,9 +213,13 @@ def sweep_to_dict(row: PlannerSweepRow) -> dict[str, Any]:
         "triggered_by": str(row.triggered_by or "operator"),
         "dry_run": bool(row.dry_run),
         "input_snapshot": _json_loads(row.input_snapshot_json, {}),
-        "parsed_output": _json_loads(row.parsed_output_json, {}),
+        "parsed_output": parsed_output,
         "created_candidate_ids": _json_loads(row.created_candidate_ids_json, []),
         "suppressed_items": _json_loads(row.suppressed_items_json, []),
+        "routing_results": list(parsed_output.get("routing_results") or []),
+        "auto_materialized_requirement_ids": list(parsed_output.get("auto_materialized_requirement_ids") or []),
+        "auto_started_workflow_run_ids": list(parsed_output.get("auto_started_workflow_run_ids") or []),
+        "routing_suppressed_items": list(parsed_output.get("routing_suppressed_items") or []),
         "error_excerpt": str(row.error_excerpt or "") or None,
         "started_at": row.started_at,
         "completed_at": row.completed_at,
@@ -518,9 +524,12 @@ def _default_project(db: Session, goal: dict[str, Any]) -> ProjectRow | None:
     return query.order_by(ProjectRow.id.asc()).first()
 
 
-def _candidate_fingerprint(manifest_id: int, goal_key: str, intent: str, workflow_key: str) -> str:
-    raw = f"{manifest_id}:{goal_key}:{workflow_key}:{intent}".encode("utf-8")
+def _candidate_fingerprint(manifest_id: int, goal_key: str, intent: str, workflow_key: str, sequence: int) -> str:
+    raw = f"{manifest_id}:{goal_key}:{workflow_key}:{intent}:{sequence}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:24]
+
+
+TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "cancelled", "deleted"}
 
 
 def _build_goal_snapshot(db: Session, manifest: OperatingManifestRow) -> list[dict[str, Any]]:
@@ -570,6 +579,10 @@ def run_planner_sweep(
         created_ids: list[int] = []
         suppressed: list[dict[str, Any]] = []
         proposed: list[dict[str, Any]] = []
+        routing_results: list[dict[str, Any]] = []
+        auto_materialized_requirement_ids: list[int] = []
+        auto_started_workflow_run_ids: list[int] = []
+        routing_suppressed_items: list[dict[str, Any]] = []
         for goal in _goal_list(payload):
             goal_key = str(goal.get("goal_key") or "").strip()
             if _goal_status(goal) != GOAL_ACTIVE:
@@ -589,7 +602,7 @@ def run_planner_sweep(
                 .filter(
                     RequirementRow.operating_manifest_id == manifest.id,
                     RequirementRow.goal_key == goal_key,
-                    RequirementRow.status.notin_(["done", "cancelled", "deleted"]),
+                    RequirementRow.status.notin_(sorted(TERMINAL_REQUIREMENT_STATUSES)),
                 )
                 .count()
             )
@@ -601,7 +614,16 @@ def run_planner_sweep(
                 continue
             workflow_key = str(goal.get("workflow_key") or "").strip() or _default_workflow_for_goal(goal)
             intent = str(goal.get("intent") or goal_key)
-            fingerprint = _candidate_fingerprint(int(manifest.id), goal_key, intent, workflow_key)
+            sequence = (
+                db.query(RequirementCandidateRow)
+                .filter(
+                    RequirementCandidateRow.manifest_id == manifest.id,
+                    RequirementCandidateRow.goal_key == goal_key,
+                )
+                .count()
+                + 1
+            )
+            fingerprint = _candidate_fingerprint(int(manifest.id), goal_key, intent, workflow_key, sequence)
             existing = (
                 db.query(RequirementCandidateRow)
                 .filter(
@@ -644,10 +666,80 @@ def run_planner_sweep(
                 db.add(candidate)
                 db.flush()
                 created_ids.append(int(candidate.id))
+                routing = route_candidate(db, candidate)
+                routing_item = {
+                    "candidate_id": int(candidate.id),
+                    "goal_key": goal_key,
+                    "workflow_key": workflow_key,
+                    **routing.to_dict(),
+                }
+                routing_results.append(routing_item)
+                metadata = _json_loads(candidate.metadata_json, {})
+                metadata.update(
+                    {
+                        "routing_decision": routing.decision,
+                        "routing_reason": routing.reason,
+                        "router_policy_version": routing.policy_version,
+                    }
+                )
+                candidate.metadata_json = _json_dumps(metadata)
+                db.flush()
+                if routing.decision == "auto_materialize_and_start":
+                    try:
+                        auto_result = approve_and_run_candidate(db, int(candidate.id), operator="candidate_risk_router")
+                        requirement_id = int(auto_result["requirement_id"])
+                        workflow_run_id = auto_result.get("workflow_run_id")
+                        auto_materialized_requirement_ids.append(requirement_id)
+                        if workflow_run_id is not None:
+                            auto_started_workflow_run_ids.append(int(workflow_run_id))
+                        refreshed = db.get(RequirementCandidateRow, int(candidate.id))
+                        if refreshed is not None:
+                            metadata = _json_loads(refreshed.metadata_json, {})
+                            metadata.update(
+                                {
+                                    "auto_materialized_requirement_id": requirement_id,
+                                    "auto_started_workflow_run_id": int(workflow_run_id) if workflow_run_id is not None else None,
+                                }
+                            )
+                            refreshed.metadata_json = _json_dumps(metadata)
+                            db.flush()
+                    except Exception as exc:
+                        routing_suppressed_items.append(
+                            {
+                                "candidate_id": int(candidate.id),
+                                "goal_key": goal_key,
+                                "reason": "auto_materialize_failed",
+                                "error": str(exc)[:500],
+                            }
+                        )
+                elif routing.decision == "blocked_requires_operator":
+                    candidate.status = "suppressed"
+                    candidate.suppression_reason = routing.reason
+                    routing_suppressed_items.append(routing_item)
+                    db.flush()
+            else:
+                routing_results.append(
+                    {
+                        "candidate_id": 0,
+                        "goal_key": goal_key,
+                        "workflow_key": workflow_key,
+                        "decision": "dry_run_only",
+                        "reason": "dry_run_does_not_route_candidates",
+                        "policy_version": "candidate_risk_router_v1",
+                    }
+                )
         completed = utcnow()
         row.status = "succeeded"
         row.input_snapshot_json = _json_dumps(snapshot)
-        row.parsed_output_json = _json_dumps({"proposed_candidates": proposed})
+        row.parsed_output_json = _json_dumps(
+            {
+                "proposed_candidates": proposed,
+                "routing_results": routing_results,
+                "auto_materialized_requirement_ids": auto_materialized_requirement_ids,
+                "auto_started_workflow_run_ids": auto_started_workflow_run_ids,
+                "routing_suppressed_items": routing_suppressed_items,
+            }
+        )
         row.created_candidate_ids_json = _json_dumps(created_ids)
         row.suppressed_items_json = _json_dumps(suppressed)
         row.completed_at = completed

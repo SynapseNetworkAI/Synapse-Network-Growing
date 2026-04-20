@@ -216,12 +216,14 @@ intake -> execute -> validate -> deliver
 2. 小调整使用 `保存 Minor Revision`。
 3. 阶段切换使用 `Archive & Start New Cycle`。
 4. Planner Sweep 先 dry run，再正式 run。
-5. 默认使用 `Approve & Run`：系统会 approve candidate、materialize 成正式 requirement，并立即启动 declarative workflow。
+5. 默认人工路径使用 `Approve & Run`：系统会 approve candidate、materialize 成正式 requirement，并立即启动 declarative workflow。
 6. 如果只想暂存候选，使用 `Approve only`；后续仍可 `Materialize & Run`。
 7. Reject candidate 时保留原因，后续 Planner Sweep 会把拒绝反馈作为抑制信号。
 8. Drop Goal 必须写清 reason。
 
 `Approve & Run` 不会绕过安全门禁。低风险 workflow 可以自动跑到完成；高风险、生产、资金、认证或发布相关任务仍会停在 `/workflows/:id?tab=gates` 的 Human Gate，由 operator 决策。
+
+Planner Sweep 生成的新候选会先经过 Candidate Risk Router。Router 只根据 workflow allowlist、risk level、project policy 和 atom risk profile 决定是否自动 materialize / start；Manifest 不承载自动执行开关。
 
 #### Drop Goal 语义
 
@@ -598,16 +600,18 @@ OPS_LARK_DELIVERY_DRY_RUN=true
 当前真实自动循环：
 
 1. Bug Log Sweep Scheduler 负责周期性扫描日志并进入 bug intake。
-2. Notification Dispatcher 负责消费通知队列、限流、抑制、重试和 dead letter。
-3. 其他 recurring workflows 当前作为可手动运行的一等任务定义，不由通用 scheduler 自动触发。
+2. Goal Planner Sweep Scheduler 负责每天检查 active Operating Manifest 并生成/路由候选。
+3. Notification Dispatcher 负责消费通知队列、限流、抑制、重试和 dead letter。
+4. 其他 recurring workflows 当前作为可手动运行的一等任务定义，不由通用 scheduler 自动触发。
 
 防重复与防并发：
 
 1. `bug_log_sweep` 使用数据库级 `scheduler:bug_log_sweep` lock。
-2. 后台 scheduler 与手动 Run Now 同时触发时，只有一个能执行扫描。
-3. 未获得 lock 的运行会在 Run History 中显示 `skipped_locked`，这表示保护生效，不是故障。
-4. 重复错误是否进入需求由 `requirement_intake_fingerprints` 决定，不由 Lark notification queue 决定。
-5. Lark 抑制只控制“是否发群消息”；intake gate 才控制“是否创建 requirement”。
+2. `goal_planner_sweep` 通过 active requirement/candidate capacity 和 Risk Router 防止重复开工。
+3. 后台 scheduler 与手动 Run Now 同时触发时，必须通过 run history 和 suppression reason 解释是否创建了新候选。
+4. 未获得 lock 的运行会在 Run History 中显示 `skipped_locked`，这表示保护生效，不是故障。
+5. 重复错误是否进入需求由 `requirement_intake_fingerprints` 决定，不由 Lark notification queue 决定。
+6. Lark 抑制只控制“是否发群消息”；intake gate 才控制“是否创建 requirement”。
 
 关联接口：
 

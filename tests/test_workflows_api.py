@@ -277,6 +277,8 @@ def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_ses
     decided = decision_response.json()
     assert decided["status"] == "failed"
     assert decided["resolution"] == "operator_rejected"
+    assert decided["resume_attempted"] is True
+    assert decided["resume_status"] == "rejected"
     assert decided["human_gates"][0]["decision"] == "reject"
 
 
@@ -303,6 +305,10 @@ def test_human_gate_approve_completes_workflow_and_requirement(synced_client, db
     decided = decision_response.json()
     assert decided["status"] == "succeeded"
     assert decided["resolution"] == "operator_approved"
+    assert decided["resume_attempted"] is True
+    assert decided["resume_status"] == "completed"
+    assert decided["workflow_status_after_resume"] == "succeeded"
+    assert decided["next_state"] == "done"
     assert decided["pending_human_gate_count"] == 0
     assert decided["outcome_label"] == "Completed"
     assert decided["is_truly_completed"] is True
@@ -314,6 +320,12 @@ def test_human_gate_approve_completes_workflow_and_requirement(synced_client, db
     assert requirement.status == "completed"
     assert requirement.workflow_state == "completed"
     assert requirement.completed_at is not None
+
+    summary_response = synced_client.get("/api/workflows/runs/summary")
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["pending_gate_count"] == 0
+    assert all(item["id"] != payload["id"] for item in summary["blocker_items"])
 
 
 def test_cancelled_requirement_cannot_enter_workflow_or_human_gate(db_session):

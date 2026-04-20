@@ -88,40 +88,28 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     assert candidate.goal_key == "goalb"
     assert candidate.workflow_key == "gateway_reliability_repair"
     assert candidate.project_key == "synapse-network-growing"
+    assert candidate.status == "materialized"
+    metadata = json.loads(candidate.metadata_json or "{}")
+    assert metadata["routing_decision"] == "auto_materialize_and_start"
+    assert metadata["auto_materialized_requirement_id"]
+    assert metadata["auto_started_workflow_run_id"]
+    assert sweep["auto_materialized_requirement_ids"] == [metadata["auto_materialized_requirement_id"]]
+    assert sweep["auto_started_workflow_run_ids"] == [metadata["auto_started_workflow_run_id"]]
 
-    approve_response = synced_client.post(
-        f"/api/planning/candidates/{candidate_id}/approve",
-        json={"operator": "test"},
-    )
-    assert approve_response.status_code == 200
-    assert approve_response.json()["status"] == "approved"
-
-    materialize_response = synced_client.post(
-        f"/api/planning/candidates/{candidate_id}/materialize",
-        json={"operator": "test"},
-    )
-    assert materialize_response.status_code == 200
-    requirement_id = int(materialize_response.json()["requirement_id"])
+    requirement_id = int(metadata["auto_materialized_requirement_id"])
 
     requirement = db_session.get(RequirementRow, requirement_id)
     assert requirement is not None
     assert requirement.goal_key == "goalb"
     assert requirement.requirement_candidate_id == candidate_id
     assert requirement.operating_manifest_id == manifest["id"]
-    metadata = json.loads(requirement.intake_metadata_json or "{}")
-    assert metadata["workflow_key"] == "gateway_reliability_repair"
+    requirement_metadata = json.loads(requirement.intake_metadata_json or "{}")
+    assert requirement_metadata["workflow_key"] == "gateway_reliability_repair"
 
-    start_response = synced_client.post(
-        f"/api/requirements/{requirement_id}/workflow/start",
-        json={
-            "workflow_key": "gateway_reliability_repair",
-            "run_immediately": True,
-            "triggered_by": "goalb_test",
-        },
-    )
-    assert start_response.status_code == 201
-    workflow = start_response.json()
-    workflow_run_id = int(workflow["id"])
+    workflow_run_id = int(metadata["auto_started_workflow_run_id"])
+    workflow_row = db_session.get(WorkflowRunRow, workflow_run_id)
+    assert workflow_row is not None
+    workflow = synced_client.get(f"/api/workflows/runs/{workflow_run_id}").json()
     assert workflow["requirement_id"] == requirement_id
     assert workflow["workflow_key"] == "gateway_reliability_repair"
     assert workflow["status"] in {"succeeded", "completed", "done"}
@@ -153,3 +141,12 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     lanes = {lane["goal_key"]: lane for lane in mission_response.json()["goal_lanes"]}
     assert lanes["goalb"]["rollup"]["candidate_status_counts"]["materialized"] == 1
     assert lanes["goalb"]["rollup"]["requirement_status_counts"]["completed"] == 1
+
+    second_sweep_response = synced_client.post(
+        "/api/planning/sweeps/run",
+        json={"dry_run": False, "triggered_by": "goalb_second_pass"},
+    )
+    assert second_sweep_response.status_code == 200
+    second_sweep = second_sweep_response.json()
+    assert second_sweep["created_candidate_ids"], second_sweep
+    assert second_sweep["auto_started_workflow_run_ids"], second_sweep
