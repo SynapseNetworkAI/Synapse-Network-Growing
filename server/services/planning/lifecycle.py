@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from server.database import (
     HumanGateRequestRow,
     OperatingManifestRow,
+    PlanningGoalRow,
     PlannerSweepRow,
     ProjectRow,
     ReleaseRecordRow,
@@ -61,7 +62,7 @@ def _json_dumps(payload: Any) -> str:
 
 
 def _dogfood_acceptance_contract(goal: dict[str, Any]) -> dict[str, Any]:
-    intent = str(goal.get("intent") or goal.get("goal_key") or "Goal dogfood flow").strip()
+    intent = str(goal.get("intent_markdown") or goal.get("intent") or goal.get("title") or goal.get("goal_key") or "Goal dogfood flow").strip()
     return normalize_acceptance_contract(
         {
             "acceptance_kind": "system_dogfood",
@@ -94,21 +95,18 @@ def _dogfood_acceptance_contract(goal: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _acceptance_contract_for_goal(goal: dict[str, Any]) -> dict[str, Any] | None:
-    raw_contract = goal.get("acceptance_contract")
-    if isinstance(raw_contract, dict):
-        return normalize_acceptance_contract(raw_contract)
-    steps = goal.get("execution_acceptance_steps")
-    if isinstance(steps, list) and steps:
-        return normalize_acceptance_contract(
-            {
-                "acceptance_kind": str(goal.get("acceptance_kind") or "business"),
-                "execution_acceptance_steps": steps,
-                "markdown": str(goal.get("acceptance_markdown") or "").strip(),
-            }
-        )
-    if str(goal.get("acceptance_kind") or "").strip() == "system_dogfood":
-        return _dogfood_acceptance_contract(goal)
+def _acceptance_contract_for_goal_row(goal: PlanningGoalRow) -> dict[str, Any] | None:
+    steps = _json_loads(goal.execution_acceptance_steps_json, [])
+    payload: dict[str, Any] = {
+        "acceptance_kind": str(goal.acceptance_kind or "business"),
+        "execution_acceptance_steps": steps if isinstance(steps, list) else [],
+    }
+    if str(goal.acceptance_kind or "").strip() == "system_dogfood":
+        if not payload["execution_acceptance_steps"]:
+            return _dogfood_acceptance_contract(goal_to_dict(goal, include_intent=True))
+        return normalize_acceptance_contract(payload)
+    if payload["execution_acceptance_steps"]:
+        return normalize_acceptance_contract(payload)
     return None
 
 
@@ -135,28 +133,77 @@ def _now_iso() -> str:
 
 def _manifest_payload(row: OperatingManifestRow) -> dict[str, Any]:
     payload = _json_loads(row.payload_json, {})
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    payload = dict(payload)
+    payload.pop("goals", None)
+    return payload
 
 
-def _goal_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    goals = payload.get("goals")
-    if not isinstance(goals, list):
-        return []
-    return [goal for goal in goals if isinstance(goal, dict)]
+def _intent_excerpt(value: str, *, limit: int = 200) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
 
 
-def _goal_by_key(payload: dict[str, Any], goal_key: str) -> dict[str, Any] | None:
-    for goal in _goal_list(payload):
-        if str(goal.get("goal_key") or "") == goal_key:
-            return goal
-    return None
+def goal_to_dict(row: PlanningGoalRow, *, include_intent: bool = False) -> dict[str, Any]:
+    intent = str(row.intent_markdown or "")
+    payload = {
+        "id": int(row.id),
+        "manifest_id": int(row.manifest_id),
+        "goal_key": str(row.goal_key or ""),
+        "title": str(row.title or ""),
+        "intent_excerpt": _intent_excerpt(intent),
+        "success_metric": str(row.success_metric or ""),
+        "domain": str(row.domain or "ops"),
+        "status": str(row.status or GOAL_ACTIVE),
+        "workflow_key": str(row.workflow_key or ""),
+        "project_key": str(row.project_key or "") or None,
+        "priority": str(row.priority or "normal"),
+        "risk_level": str(row.risk_level or "normal"),
+        "weight": float(row.weight or 0.0),
+        "acceptance_kind": str(row.acceptance_kind or "business"),
+        "execution_acceptance_steps": _json_loads(row.execution_acceptance_steps_json, []),
+        "metadata": _json_loads(row.metadata_json, {}),
+        "closed_at": row.closed_at,
+        "review_note": str(row.review_note or "") or None,
+        "drop_decision": _json_loads(row.drop_decision_json, {}),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+    if include_intent:
+        payload["intent_markdown"] = intent
+    return payload
 
 
-def _goal_domain(goal: dict[str, Any]) -> str:
+def _goal_by_key(db: Session, manifest_id: int, goal_key: str) -> PlanningGoalRow | None:
+    return (
+        db.query(PlanningGoalRow)
+        .filter(
+            PlanningGoalRow.manifest_id == manifest_id,
+            PlanningGoalRow.goal_key == goal_key,
+        )
+        .first()
+    )
+
+
+def _goal_rows(db: Session, manifest_id: int, *, status: str | None = None) -> list[PlanningGoalRow]:
+    query = db.query(PlanningGoalRow).filter(PlanningGoalRow.manifest_id == manifest_id)
+    if status:
+        query = query.filter(PlanningGoalRow.status == status)
+    return query.order_by(PlanningGoalRow.id.asc()).all()
+
+
+def _goal_domain(goal: PlanningGoalRow | dict[str, Any]) -> str:
+    if isinstance(goal, PlanningGoalRow):
+        return str(goal.domain or "operations").strip() or "operations"
     return str(goal.get("domain") or "operations").strip() or "operations"
 
 
-def _goal_status(goal: dict[str, Any]) -> str:
+def _goal_status(goal: PlanningGoalRow | dict[str, Any]) -> str:
+    if isinstance(goal, PlanningGoalRow):
+        return str(goal.status or GOAL_ACTIVE).strip() or GOAL_ACTIVE
     return str(goal.get("status") or GOAL_ACTIVE).strip() or GOAL_ACTIVE
 
 
@@ -176,42 +223,14 @@ def _default_manifest_payload() -> dict[str, Any]:
             "Drop Goal never triggers automatic rollback or revert.",
             "Funds, settlement, auth, contract and deploy actions require human gate.",
         ],
-        "goals": [
-            {
-                "goal_key": "gateway_reliability",
-                "domain": "reliability",
-                "status": GOAL_ACTIVE,
-                "intent": "Keep the gateway, workflow runner and agent self-repair loop healthy.",
-                "success_metric": "critical runtime incidents remain at 0 and failed workflows are triaged.",
-                "weight": 0.6,
-            },
-            {
-                "goal_key": "operator_growth",
-                "domain": "growth",
-                "status": GOAL_ACTIVE,
-                "intent": "Continuously discover practical growth and DevRel work for Synapse Network.",
-                "success_metric": "approved candidate throughput increases without operator overload.",
-                "weight": 0.4,
-            },
-        ],
     }
 
 
 def validate_manifest_payload(payload: dict[str, Any]) -> None:
     if not isinstance(payload, dict):
         raise ValueError("manifest payload must be an object")
-    goals = _goal_list(payload)
-    keys: set[str] = set()
-    for goal in goals:
-        goal_key = str(goal.get("goal_key") or "").strip()
-        if not goal_key:
-            raise ValueError("each goal must include goal_key")
-        if goal_key in keys:
-            raise ValueError(f"duplicate goal_key: {goal_key}")
-        keys.add(goal_key)
-        status = _goal_status(goal)
-        if status not in {GOAL_ACTIVE, GOAL_ACHIEVED, GOAL_DROPPED}:
-            raise ValueError(f"unsupported goal status for {goal_key}: {status}")
+    if "goals" in payload:
+        raise ValueError("goals are first-class records; use /api/planning/goals")
     weights = payload.get("focus_weights")
     if isinstance(weights, dict) and weights:
         total = 0.0
@@ -224,9 +243,91 @@ def validate_manifest_payload(payload: dict[str, Any]) -> None:
             raise ValueError("focus_weights must sum to 1.0 or 100")
 
 
-def manifest_to_dict(row: OperatingManifestRow) -> dict[str, Any]:
+def _default_goal_specs() -> list[dict[str, Any]]:
+    return [
+        {
+            "goal_key": "gateway_reliability",
+            "title": "Gateway reliability",
+            "domain": "reliability",
+            "intent_markdown": "Keep the gateway, workflow runner and agent self-repair loop healthy.",
+            "success_metric": "critical runtime incidents remain at 0 and failed workflows are triaged.",
+            "workflow_key": "gateway_reliability_repair",
+            "project_key": "synapse-network-growing",
+            "priority": "normal",
+            "risk_level": "normal",
+            "weight": 0.6,
+        },
+        {
+            "goal_key": "operator_growth",
+            "title": "Operator growth",
+            "domain": "growth",
+            "intent_markdown": "Continuously discover practical growth and DevRel work for Synapse Network.",
+            "success_metric": "approved candidate throughput increases without operator overload.",
+            "workflow_key": "agent_self_repair",
+            "project_key": "synapse-network-growing",
+            "priority": "normal",
+            "risk_level": "normal",
+            "weight": 0.4,
+        },
+    ]
+
+
+def _create_goal_from_spec(db: Session, manifest_id: int, spec: dict[str, Any]) -> PlanningGoalRow:
+    goal_key = str(spec.get("goal_key") or "").strip()
+    if not goal_key:
+        raise ValueError("goal_key is required")
+    status = str(spec.get("status") or GOAL_ACTIVE).strip() or GOAL_ACTIVE
+    if status not in {GOAL_ACTIVE, GOAL_ACHIEVED, GOAL_DROPPED}:
+        raise ValueError(f"unsupported goal status for {goal_key}: {status}")
+    row = PlanningGoalRow(
+        manifest_id=manifest_id,
+        goal_key=goal_key,
+        title=str(spec.get("title") or goal_key).strip() or goal_key,
+        intent_markdown=str(spec.get("intent_markdown") or spec.get("intent") or "").strip(),
+        success_metric=str(spec.get("success_metric") or "").strip(),
+        domain=str(spec.get("domain") or "ops").strip() or "ops",
+        status=status,
+        workflow_key=str(spec.get("workflow_key") or "gateway_reliability_repair").strip() or "gateway_reliability_repair",
+        project_key=str(spec.get("project_key") or "").strip() or None,
+        priority=str(spec.get("priority") or "normal").strip() or "normal",
+        risk_level=str(spec.get("risk_level") or "normal").strip() or "normal",
+        weight=float(spec.get("weight") or 0.0),
+        acceptance_kind=str(spec.get("acceptance_kind") or "business").strip() or "business",
+        execution_acceptance_steps_json=_json_dumps(spec.get("execution_acceptance_steps") or []),
+        metadata_json=_json_dumps(spec.get("metadata") or {}),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _ensure_default_goals(db: Session, manifest: OperatingManifestRow) -> None:
+    count = db.query(PlanningGoalRow).filter(PlanningGoalRow.manifest_id == int(manifest.id)).count()
+    if count > 0:
+        return
+    for spec in _default_goal_specs():
+        _create_goal_from_spec(db, int(manifest.id), spec)
+    db.commit()
+
+
+def _goal_counts(db: Session, manifest_id: int) -> dict[str, int]:
+    rows = _goal_rows(db, manifest_id)
+    return {
+        "goal_count": len(rows),
+        "active_goal_count": sum(1 for goal in rows if _goal_status(goal) == GOAL_ACTIVE),
+        "dropped_goal_count": sum(1 for goal in rows if _goal_status(goal) == GOAL_DROPPED),
+        "achieved_goal_count": sum(1 for goal in rows if _goal_status(goal) == GOAL_ACHIEVED),
+    }
+
+
+def manifest_to_dict(row: OperatingManifestRow, db: Session | None = None) -> dict[str, Any]:
     payload = _manifest_payload(row)
-    goals = _goal_list(payload)
+    counts = _goal_counts(db, int(row.id)) if db is not None and row.id is not None else {
+        "goal_count": 0,
+        "active_goal_count": 0,
+        "dropped_goal_count": 0,
+        "achieved_goal_count": 0,
+    }
     return {
         "id": int(row.id),
         "manifest_key": str(row.manifest_key or ""),
@@ -235,10 +336,7 @@ def manifest_to_dict(row: OperatingManifestRow) -> dict[str, Any]:
         "status": str(row.status or "draft"),
         "revision": int(row.revision or 1),
         "payload": payload,
-        "goal_count": len(goals),
-        "active_goal_count": sum(1 for goal in goals if _goal_status(goal) == GOAL_ACTIVE),
-        "dropped_goal_count": sum(1 for goal in goals if _goal_status(goal) == GOAL_DROPPED),
-        "achieved_goal_count": sum(1 for goal in goals if _goal_status(goal) == GOAL_ACHIEVED),
+        **counts,
         "review_summary": _json_loads(row.review_summary_json, {}),
         "change_log": _json_loads(row.change_log_json, []),
         "created_by": str(row.created_by or "operator"),
@@ -309,6 +407,7 @@ def ensure_active_manifest(db: Session) -> OperatingManifestRow:
         .first()
     )
     if row is not None:
+        _ensure_default_goals(db, row)
         return row
     row = OperatingManifestRow(
         manifest_key=f"manifest-{utcnow().strftime('%Y%m%d%H%M%S')}",
@@ -321,6 +420,9 @@ def ensure_active_manifest(db: Session) -> OperatingManifestRow:
         change_log_json=_json_dumps([{"at": _now_iso(), "event": "default_manifest_created"}]),
     )
     db.add(row)
+    db.flush()
+    for spec in _default_goal_specs():
+        _create_goal_from_spec(db, int(row.id), spec)
     db.commit()
     db.refresh(row)
     return row
@@ -368,13 +470,27 @@ def list_manifest_history(
         query = query.filter(OperatingManifestRow.status == status)
     if search:
         pattern = f"%{search.strip()}%"
+        goal_manifest_ids = [
+            int(row[0])
+            for row in db.query(PlanningGoalRow.manifest_id)
+            .filter(
+                or_(
+                    PlanningGoalRow.goal_key.ilike(pattern),
+                    PlanningGoalRow.title.ilike(pattern),
+                    PlanningGoalRow.intent_markdown.ilike(pattern),
+                    PlanningGoalRow.status.ilike(pattern),
+                )
+            )
+            .distinct()
+            .all()
+        ]
         query = query.filter(
             or_(
                 OperatingManifestRow.manifest_key.ilike(pattern),
                 OperatingManifestRow.version_name.ilike(pattern),
                 OperatingManifestRow.cycle_label.ilike(pattern),
                 OperatingManifestRow.status.ilike(pattern),
-                OperatingManifestRow.payload_json.ilike(pattern),
+                OperatingManifestRow.id.in_(goal_manifest_ids) if goal_manifest_ids else False,
             )
         )
     total = query.count()
@@ -385,7 +501,7 @@ def list_manifest_history(
         .all()
     )
     return {
-        "items": [manifest_to_dict(row) for row in rows],
+        "items": [manifest_to_dict(row, db) for row in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -421,8 +537,7 @@ def goal_rollup(db: Session, manifest_id: int, goal_key: str) -> dict[str, Any]:
     manifest = db.get(OperatingManifestRow, manifest_id)
     if manifest is None:
         raise ValueError("manifest not found")
-    payload = _manifest_payload(manifest)
-    goal = _goal_by_key(payload, goal_key)
+    goal = _goal_by_key(db, manifest_id, goal_key)
     if goal is None:
         raise ValueError("goal not found")
     workflows = db.query(WorkflowRunRow).filter(
@@ -436,7 +551,7 @@ def goal_rollup(db: Session, manifest_id: int, goal_key: str) -> dict[str, Any]:
     return {
         "manifest_id": manifest_id,
         "goal_key": goal_key,
-        "goal": goal,
+        "goal": goal_to_dict(goal, include_intent=False),
         "candidate_status_counts": _candidate_status_counts(db, manifest_id, goal_key),
         "requirement_status_counts": _requirement_status_counts(db, manifest_id, goal_key),
         "workflow_status_counts": _count_by_status(workflows, "status"),
@@ -481,14 +596,14 @@ def mission_control_snapshot(db: Session) -> dict[str, Any]:
         candidates_by_goal.setdefault(str(candidate.goal_key or ""), []).append(candidate_to_dict(candidate))
 
     lanes: list[dict[str, Any]] = []
-    for goal in _goal_list(payload):
-        goal_key = str(goal.get("goal_key") or "").strip()
+    for goal in _goal_rows(db, manifest_id):
+        goal_key = str(goal.goal_key or "").strip()
         if not goal_key:
             continue
         lanes.append(
             {
                 "goal_key": goal_key,
-                "goal": goal,
+                "goal": goal_to_dict(goal, include_intent=False),
                 "rollup": goal_rollup(db, manifest_id, goal_key),
                 "candidates": candidates_by_goal.get(goal_key, []),
             }
@@ -501,7 +616,7 @@ def mission_control_snapshot(db: Session) -> dict[str, Any]:
         .first()
     )
     return {
-        "manifest": manifest_to_dict(manifest),
+        "manifest": manifest_to_dict(manifest, db),
         "global_steering": _global_steering_from_payload(payload),
         "goal_lanes": lanes,
         "candidate_totals": _candidate_totals(db, manifest_id),
@@ -528,6 +643,7 @@ def archive_and_start_new_cycle(
 ) -> OperatingManifestRow:
     active = ensure_active_manifest(db)
     active_payload = _manifest_payload(active)
+    active_goals = _goal_rows(db, int(active.id), status=GOAL_ACTIVE)
     active.review_summary_json = _json_dumps(_manifest_review_summary(db, active))
     active.status = "archived"
     active.active_slot = None
@@ -535,12 +651,6 @@ def archive_and_start_new_cycle(
     db.flush()
 
     next_payload = dict(active_payload)
-    retained_goals = [
-        goal
-        for goal in _goal_list(active_payload)
-        if _goal_status(goal) == GOAL_ACTIVE
-    ]
-    next_payload["goals"] = retained_goals
     if payload_patch:
         next_payload.update(payload_patch)
     validate_manifest_payload(next_payload)
@@ -564,14 +674,24 @@ def archive_and_start_new_cycle(
         ),
     )
     db.add(row)
+    db.flush()
+    for goal in active_goals:
+        _create_goal_from_spec(
+            db,
+            int(row.id),
+            {
+                **goal_to_dict(goal, include_intent=True),
+                "execution_acceptance_steps": _json_loads(goal.execution_acceptance_steps_json, []),
+                "metadata": _json_loads(goal.metadata_json, {}),
+            },
+        )
     db.commit()
     db.refresh(row)
     return row
 
 
 def _manifest_review_summary(db: Session, row: OperatingManifestRow) -> dict[str, Any]:
-    payload = _manifest_payload(row)
-    goal_summaries = [goal_rollup(db, int(row.id), str(goal.get("goal_key"))) for goal in _goal_list(payload)]
+    goal_summaries = [goal_rollup(db, int(row.id), str(goal.goal_key)) for goal in _goal_rows(db, int(row.id))]
     return {
         "manifest_id": int(row.id),
         "cycle_label": str(row.cycle_label or ""),
@@ -581,15 +701,18 @@ def _manifest_review_summary(db: Session, row: OperatingManifestRow) -> dict[str
     }
 
 
-def _default_workflow_for_goal(goal: dict[str, Any]) -> str:
+def _default_workflow_for_goal(goal: PlanningGoalRow | dict[str, Any]) -> str:
     domain = _goal_domain(goal).lower()
     if "reliability" in domain or "ops" in domain:
         return "gateway_reliability_repair"
     return "agent_self_repair"
 
 
-def _default_project(db: Session, goal: dict[str, Any]) -> ProjectRow | None:
-    project_key = str(goal.get("project_key") or "").strip()
+def _default_project(db: Session, goal: PlanningGoalRow | dict[str, Any]) -> ProjectRow | None:
+    if isinstance(goal, PlanningGoalRow):
+        project_key = str(goal.project_key or "").strip()
+    else:
+        project_key = str(goal.get("project_key") or "").strip()
     query = db.query(ProjectRow)
     if project_key:
         row = query.filter(ProjectRow.project_key == project_key).first()
@@ -607,17 +730,18 @@ TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "cancelled", 
 
 
 def _build_goal_snapshot(db: Session, manifest: OperatingManifestRow) -> list[dict[str, Any]]:
-    payload = _manifest_payload(manifest)
     snapshot: list[dict[str, Any]] = []
-    for goal in _goal_list(payload):
-        goal_key = str(goal.get("goal_key") or "")
+    for goal in _goal_rows(db, int(manifest.id)):
+        goal_key = str(goal.goal_key or "")
         snapshot.append(
             {
+                "id": int(goal.id),
                 "goal_key": goal_key,
                 "domain": _goal_domain(goal),
                 "status": _goal_status(goal),
-                "intent": str(goal.get("intent") or ""),
-                "success_metric": str(goal.get("success_metric") or ""),
+                "title": str(goal.title or ""),
+                "intent_excerpt": _intent_excerpt(str(goal.intent_markdown or "")),
+                "success_metric": str(goal.success_metric or ""),
                 "candidate_status_counts": _candidate_status_counts(db, int(manifest.id), goal_key),
                 "requirement_status_counts": _requirement_status_counts(db, int(manifest.id), goal_key),
             }
@@ -645,9 +769,8 @@ def run_planner_sweep(
     db.add(row)
     db.flush()
     try:
-        payload = _manifest_payload(manifest)
         snapshot = {
-            "manifest": manifest_to_dict(manifest),
+            "manifest": manifest_to_dict(manifest, db),
             "goals": _build_goal_snapshot(db, manifest),
         }
         created_ids: list[int] = []
@@ -657,8 +780,8 @@ def run_planner_sweep(
         auto_materialized_requirement_ids: list[int] = []
         auto_started_workflow_run_ids: list[int] = []
         routing_suppressed_items: list[dict[str, Any]] = []
-        for goal in _goal_list(payload):
-            goal_key = str(goal.get("goal_key") or "").strip()
+        for goal in _goal_rows(db, int(manifest.id)):
+            goal_key = str(goal.goal_key or "").strip()
             if _goal_status(goal) != GOAL_ACTIVE:
                 suppressed.append({"goal_key": goal_key, "reason": f"goal_{_goal_status(goal)}"})
                 continue
@@ -686,8 +809,9 @@ def run_planner_sweep(
             if active_requirements > 0:
                 suppressed.append({"goal_key": goal_key, "reason": "active_requirement_exists", "count": active_requirements})
                 continue
-            workflow_key = str(goal.get("workflow_key") or "").strip() or _default_workflow_for_goal(goal)
-            intent = str(goal.get("intent") or goal_key)
+            workflow_key = str(goal.workflow_key or "").strip() or _default_workflow_for_goal(goal)
+            intent = str(goal.intent_markdown or goal.title or goal_key)
+            title = str(goal.title or goal_key).strip() or goal_key
             sequence = (
                 db.query(RequirementCandidateRow)
                 .filter(
@@ -712,7 +836,7 @@ def run_planner_sweep(
                 suppressed.append({"goal_key": goal_key, "reason": "duplicate_candidate", "candidate_id": int(existing.id)})
                 continue
             project = _default_project(db, goal)
-            acceptance_contract = _acceptance_contract_for_goal(goal)
+            acceptance_contract = _acceptance_contract_for_goal_row(goal)
             candidate_metadata = {"generated_by": "deterministic_planner_sweep_v1"}
             if acceptance_contract is not None:
                 candidate_metadata["acceptance_contract"] = acceptance_contract
@@ -720,18 +844,18 @@ def run_planner_sweep(
                 "manifest_id": int(manifest.id),
                 "goal_key": goal_key,
                 "candidate_fingerprint": fingerprint,
-                "title": f"Advance goal: {intent[:72]}",
+                "title": f"Advance goal: {title[:72]}",
                 "description_markdown": (
                     f"## Goal\n{intent}\n\n"
-                    f"## Success Metric\n{str(goal.get('success_metric') or 'Define concrete evidence before execution.')}\n\n"
+                    f"## Success Metric\n{str(goal.success_metric or 'Define concrete evidence before execution.')}\n\n"
                     "## Planner Rationale\nThis candidate was generated from the active Operating Manifest. "
                     "Operator approval is required before it becomes a requirement."
                 ),
                 "project_id": int(project.id) if project is not None else None,
                 "project_key": str(project.project_key or "") if project is not None else None,
                 "workflow_key": workflow_key,
-                "priority": str(goal.get("priority") or "normal"),
-                "risk_level": str(goal.get("risk_level") or "normal"),
+                "priority": str(goal.priority or "normal"),
+                "risk_level": str(goal.risk_level or "normal"),
                 "confidence": 0.72,
                 "rationale": "Active goal has no active requirement and has candidate capacity.",
                 "expected_evidence_json": _json_dumps(["accepted candidate", "created requirement", "workflow evidence"]),
@@ -855,6 +979,77 @@ def run_planner_sweep(
         raise
 
 
+def list_goals(
+    db: Session,
+    *,
+    manifest_id: int | None = None,
+    status: str | None = None,
+    include_intent: bool = False,
+) -> list[dict[str, Any]]:
+    manifest = ensure_active_manifest(db) if manifest_id is None else db.get(OperatingManifestRow, manifest_id)
+    if manifest is None:
+        raise ValueError("manifest not found")
+    return [goal_to_dict(row, include_intent=include_intent) for row in _goal_rows(db, int(manifest.id), status=status)]
+
+
+def get_goal(db: Session, goal_id: int) -> dict[str, Any]:
+    row = db.get(PlanningGoalRow, goal_id)
+    if row is None:
+        raise ValueError("goal not found")
+    return goal_to_dict(row, include_intent=True)
+
+
+def create_goal(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    manifest_id = payload.get("manifest_id")
+    manifest = ensure_active_manifest(db) if manifest_id is None else db.get(OperatingManifestRow, int(manifest_id))
+    if manifest is None:
+        raise ValueError("manifest not found")
+    goal_key = str(payload.get("goal_key") or "").strip()
+    if not goal_key:
+        raise ValueError("goal_key is required")
+    existing = _goal_by_key(db, int(manifest.id), goal_key)
+    if existing is not None:
+        raise ValueError(f"duplicate goal_key: {goal_key}")
+    row = _create_goal_from_spec(db, int(manifest.id), payload)
+    manifest.revision = int(manifest.revision or 1) + 1
+    manifest.updated_at = utcnow()
+    db.commit()
+    db.refresh(row)
+    return goal_to_dict(row, include_intent=True)
+
+
+def update_goal(db: Session, goal_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    row = db.get(PlanningGoalRow, goal_id)
+    if row is None:
+        raise ValueError("goal not found")
+    if "status" in payload and payload["status"] is not None:
+        status = str(payload["status"] or "").strip()
+        if status not in {GOAL_ACTIVE, GOAL_ACHIEVED, GOAL_DROPPED}:
+            raise ValueError(f"unsupported goal status: {status}")
+        row.status = status
+        if status in {GOAL_ACHIEVED, GOAL_DROPPED} and row.closed_at is None:
+            row.closed_at = utcnow()
+    for key in ["title", "intent_markdown", "success_metric", "domain", "workflow_key", "priority", "risk_level", "acceptance_kind", "review_note"]:
+        if key in payload and payload[key] is not None:
+            setattr(row, key, str(payload[key] or "").strip())
+    if "project_key" in payload:
+        row.project_key = str(payload.get("project_key") or "").strip() or None
+    if "weight" in payload and payload["weight"] is not None:
+        row.weight = float(payload["weight"] or 0.0)
+    if "execution_acceptance_steps" in payload and payload["execution_acceptance_steps"] is not None:
+        row.execution_acceptance_steps_json = _json_dumps(payload["execution_acceptance_steps"] or [])
+    if "metadata" in payload and payload["metadata"] is not None:
+        row.metadata_json = _json_dumps(payload["metadata"] or {})
+    row.updated_at = utcnow()
+    manifest = db.get(OperatingManifestRow, int(row.manifest_id))
+    if manifest is not None:
+        manifest.revision = int(manifest.revision or 1) + 1
+        manifest.updated_at = utcnow()
+    db.commit()
+    db.refresh(row)
+    return goal_to_dict(row, include_intent=True)
+
+
 def list_candidates(
     db: Session,
     *,
@@ -898,7 +1093,7 @@ def approve_candidate(db: Session, candidate_id: int, *, operator: str = "operat
     manifest = db.get(OperatingManifestRow, int(row.manifest_id))
     if manifest is None:
         raise ValueError("manifest not found")
-    goal = _goal_by_key(_manifest_payload(manifest), str(row.goal_key or ""))
+    goal = _goal_by_key(db, int(manifest.id), str(row.goal_key or ""))
     if goal is None or _goal_status(goal) == GOAL_DROPPED:
         raise ValueError("cannot approve candidate for dropped or missing goal")
     row.status = "approved"
@@ -943,7 +1138,7 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
     manifest = db.get(OperatingManifestRow, int(row.manifest_id))
     if manifest is None:
         raise ValueError("manifest not found")
-    goal = _goal_by_key(_manifest_payload(manifest), str(row.goal_key or ""))
+    goal = _goal_by_key(db, int(manifest.id), str(row.goal_key or ""))
     if goal is None or _goal_status(goal) == GOAL_DROPPED:
         raise ValueError("cannot materialize candidate for dropped or missing goal")
     project = db.get(ProjectRow, int(row.project_id)) if row.project_id else None
@@ -1098,8 +1293,7 @@ def drop_goal(
     manifest = db.get(OperatingManifestRow, manifest_id)
     if manifest is None:
         raise ValueError("manifest not found")
-    payload = _manifest_payload(manifest)
-    goal = _goal_by_key(payload, goal_key)
+    goal = _goal_by_key(db, manifest_id, goal_key)
     if goal is None:
         raise ValueError("goal not found")
     decision = {
@@ -1109,11 +1303,11 @@ def drop_goal(
         "decided_at": _now_iso(),
         "rollback_policy": "drop_goal_never_rolls_back_releases",
     }
-    goal["status"] = GOAL_DROPPED
-    goal["closed_at"] = _now_iso()
-    goal["review_note"] = reason.strip()
-    goal["drop_decision_json"] = decision
-    manifest.payload_json = _json_dumps(payload)
+    goal.status = GOAL_DROPPED
+    goal.closed_at = utcnow()
+    goal.review_note = reason.strip()
+    goal.drop_decision_json = _json_dumps(decision)
+    goal.updated_at = utcnow()
     manifest.revision = int(manifest.revision or 1) + 1
     manifest.updated_at = utcnow()
 
@@ -1234,7 +1428,7 @@ def drop_goal(
     db.commit()
     db.refresh(manifest)
     return {
-        "manifest": manifest_to_dict(manifest),
+        "manifest": manifest_to_dict(manifest, db),
         "goal_key": goal_key,
         "halt_summary": summary,
         "decision": decision,

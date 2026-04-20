@@ -14,8 +14,10 @@ from server.schemas import (
     PlanningDropGoalRequest,
     PlanningDropGoalResultOut,
     PlanningGoalRollupOut,
+    PlanningGoalCreateRequest,
+    PlanningGoalOut,
     PlanningMissionControlOut,
-    PlanningGoalStatusRequest,
+    PlanningGoalUpdateRequest,
     PlanningManifestHistoryOut,
     PlanningManifestOut,
     PlanningManifestSaveRequest,
@@ -27,10 +29,13 @@ from server.services.planning.lifecycle import (
     approve_and_run_candidate,
     archive_and_start_new_cycle,
     candidate_to_dict,
+    create_goal,
     drop_goal,
     ensure_active_manifest,
+    get_goal,
     goal_rollup,
     list_candidates,
+    list_goals,
     list_manifest_history,
     manifest_to_dict,
     materialize_candidate,
@@ -39,6 +44,7 @@ from server.services.planning.lifecycle import (
     run_planner_sweep,
     save_active_manifest,
     sweep_to_dict,
+    update_goal,
 )
 
 
@@ -56,7 +62,7 @@ def get_mission_control(db: Session = Depends(get_db)):
 
 @router.get("/manifest/active", response_model=PlanningManifestOut)
 def get_active_manifest(db: Session = Depends(get_db)):
-    return manifest_to_dict(ensure_active_manifest(db))
+    return manifest_to_dict(ensure_active_manifest(db), db)
 
 
 @router.put("/manifest/active", response_model=PlanningManifestOut)
@@ -69,7 +75,7 @@ def put_active_manifest(body: PlanningManifestSaveRequest, db: Session = Depends
             cycle_label=body.cycle_label,
             operator=body.operator,
         )
-        return manifest_to_dict(row)
+        return manifest_to_dict(row, db)
     except ValueError as exc:
         raise _bad_request(exc) from exc
 
@@ -83,6 +89,62 @@ def get_manifest_history(
     db: Session = Depends(get_db),
 ):
     return list_manifest_history(db, page=page, page_size=page_size, status=status, search=search)
+
+
+@router.get("/goals", response_model=list[PlanningGoalOut])
+def get_goals(
+    manifest_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        return list_goals(db, manifest_id=manifest_id, status=status, include_intent=False)
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.get("/goals/{goal_id}", response_model=PlanningGoalOut)
+def get_goal_detail(goal_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_goal(db, goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/goals", response_model=PlanningGoalOut)
+def post_goal(body: PlanningGoalCreateRequest, db: Session = Depends(get_db)):
+    try:
+        return create_goal(db, body.model_dump())
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.put("/goals/{goal_id}", response_model=PlanningGoalOut)
+def put_goal(goal_id: int, body: PlanningGoalUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        return update_goal(db, goal_id, body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post("/goals/{goal_id}/drop", response_model=PlanningDropGoalResultOut)
+def post_drop_goal_by_id(
+    goal_id: int,
+    body: PlanningDropGoalRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        goal = get_goal(db, goal_id)
+        return drop_goal(
+            db,
+            manifest_id=int(goal["manifest_id"]),
+            goal_key=str(goal["goal_key"]),
+            reason=body.reason,
+            operator=body.operator,
+            halt_mode=body.halt_mode,
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
 
 
 @router.post("/manifest/{manifest_id}/archive-and-start-cycle", response_model=PlanningManifestOut)
@@ -102,49 +164,7 @@ def post_archive_and_start_cycle(
             operator=body.operator,
             payload_patch=dict(body.payload_patch or {}),
         )
-        return manifest_to_dict(row)
-    except ValueError as exc:
-        raise _bad_request(exc) from exc
-
-
-@router.post("/manifest/{manifest_id}/goals/{goal_key}/drop", response_model=PlanningDropGoalResultOut)
-def post_drop_goal(
-    manifest_id: int,
-    goal_key: str,
-    body: PlanningDropGoalRequest,
-    db: Session = Depends(get_db),
-):
-    try:
-        return drop_goal(
-            db,
-            manifest_id=manifest_id,
-            goal_key=goal_key,
-            reason=body.reason,
-            operator=body.operator,
-            halt_mode=body.halt_mode,
-        )
-    except ValueError as exc:
-        raise _bad_request(exc) from exc
-
-
-@router.post("/manifest/{manifest_id}/goals/{goal_key}/status", response_model=PlanningDropGoalResultOut)
-def post_goal_status(
-    manifest_id: int,
-    goal_key: str,
-    body: PlanningGoalStatusRequest,
-    db: Session = Depends(get_db),
-):
-    if body.status != "dropped":
-        raise HTTPException(status_code=400, detail="v1.2 only supports dropped lifecycle transition through this endpoint")
-    try:
-        return drop_goal(
-            db,
-            manifest_id=manifest_id,
-            goal_key=goal_key,
-            reason=body.reason,
-            operator=body.operator,
-            halt_mode="safe_halt",
-        )
+        return manifest_to_dict(row, db)
     except ValueError as exc:
         raise _bad_request(exc) from exc
 

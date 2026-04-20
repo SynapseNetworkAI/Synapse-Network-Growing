@@ -15,11 +15,12 @@ target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 
 Planning Lifecycle v1.2 gives the OPS system a real upstream control plane:
 
-1. One active `OperatingManifest` defines the company’s current goals, budgets and global constraints.
-2. A stateless Planner Sweep reads the active manifest and creates `RequirementCandidate` records.
-3. The operator approves, rejects or materializes candidates into requirements.
-4. `goal_key` and `operating_manifest_id` flow through candidates, requirements, workflow runs and release records.
-5. `Drop Goal` stops future investment and safely halts unfinished work, but never rolls back already delivered artifacts.
+1. One active `OperatingManifest` defines the company’s current budget, focus weights and global constraints.
+2. First-class `PlanningGoal` records hold business intent, long Markdown PRDs, success metrics and workflow/project binding.
+3. A stateless Planner Sweep reads compact steering and goal-map data, then creates `RequirementCandidate` records.
+4. The operator approves, rejects or materializes candidates into requirements.
+5. `goal_key` and `operating_manifest_id` flow through candidates, requirements, workflow runs and release records.
+6. `Drop Goal` stops future investment and safely halts unfinished work, but never rolls back already delivered artifacts.
 
 This keeps the Planner from becoming a long-lived PM agent. The lifecycle is data-driven: SQL joins, rollups and UI surfaces track progress; agents only evaluate the current snapshot and propose the next useful work.
 
@@ -27,18 +28,38 @@ This keeps the Planner from becoming a long-lived PM agent. The lifecycle is dat
 
 ### OperatingManifest
 
-`operating_manifests` is the company’s active strategic config.
+`operating_manifests` is the company’s active steering config.
 
 Key rules:
 
 1. Exactly one manifest is active through `active_slot="global"`.
 2. Active manifest supports minor revisions for small adjustments.
-3. `Archive & Start New Cycle` creates an immutable historical snapshot and carries only active goals into the next cycle.
-4. Archived history is not capped to the last 12 records; it is paginated and searchable.
+3. The manifest payload is control plane only: `global_budget`, `focus_weights`, `global_constraints` and other short steering fields.
+4. It must not contain `payload.goals`, long Markdown, PRDs or execution acceptance text.
+5. `PUT /api/planning/manifest/active` rejects payloads containing `goals`; operators must use `/api/planning/goals`.
+6. `Archive & Start New Cycle` creates an immutable historical snapshot and carries only active goals into the next cycle by copying `planning_goals` rows.
+7. Archived history is not capped to the last 12 records; it is paginated and searchable.
 
-### Goal
+### PlanningGoal
 
-Goals live inside `OperatingManifest.payload.goals`.
+Goals live in the first-class `planning_goals` table. They are not embedded in manifest JSON.
+
+Core fields:
+
+1. `manifest_id`
+2. `goal_key`
+3. `title`
+4. `intent_markdown`
+5. `success_metric`
+6. `domain`
+7. `status`
+8. `workflow_key`
+9. `project_key`
+10. `priority`
+11. `risk_level`
+12. `weight`
+13. `acceptance_kind`
+14. `execution_acceptance_steps_json`
 
 Minimal lifecycle:
 
@@ -48,6 +69,27 @@ active -> dropped
 ```
 
 `goal_key` must be stable. It is the lineage key that connects candidates, requirements, workflow runs and release records.
+
+Long goal context belongs in `intent_markdown`, not Raw Manifest JSON. `/planning` edits it through the Goal detail API:
+
+```http
+GET /api/planning/goals/{id}
+PUT /api/planning/goals/{id}
+```
+
+`GET /api/planning/mission-control` is intentionally lightweight. It returns goal lanes with a backend-generated `intent_excerpt` truncated to 200 characters and never returns full `intent_markdown`. This keeps the operator dashboard and Planner map fast.
+
+## Progressive Context
+
+Give agents the map first, not the whole manual.
+
+Planner Sweep reads:
+
+1. Active manifest steering payload.
+2. Active goal map: `id`, `goal_key`, `title`, `domain`, `success_metric`, `status`, `weight`, `intent_excerpt`.
+3. Aggregated rollups for candidates, requirements, workflow runs and releases.
+
+When generating a candidate for one goal, the service injects only that single goal's `intent_markdown` and acceptance data. It must not stuff every goal's PRD into the Planner snapshot.
 
 ### RequirementCandidate
 
@@ -97,7 +139,7 @@ Search matches:
 2. `version_name`
 3. `cycle_label`
 4. `status`
-5. manifest payload text, including `goal_key`
+5. planning goal text, including `goal_key`, `title`, `intent_markdown` and status
 
 The `/planning` UI must show all history with pagination. It must not silently truncate to the most recent 12 cycles.
 
@@ -125,7 +167,7 @@ Undo customer-visible actions.
 The API requires a reason:
 
 ```http
-POST /api/planning/manifest/{id}/goals/{goal_key}/drop
+POST /api/planning/goals/{id}/drop
 ```
 
 Payload:
@@ -203,7 +245,11 @@ GET  /api/planning/manifest/active
 PUT  /api/planning/manifest/active
 GET  /api/planning/manifests/history
 POST /api/planning/manifest/{id}/archive-and-start-cycle
-POST /api/planning/manifest/{id}/goals/{goal_key}/drop
+GET  /api/planning/goals
+GET  /api/planning/goals/{id}
+POST /api/planning/goals
+PUT  /api/planning/goals/{id}
+POST /api/planning/goals/{id}/drop
 GET  /api/planning/manifest/{id}/goals/{goal_key}/rollup
 POST /api/planning/sweeps/run
 GET  /api/planning/candidates

@@ -2,6 +2,7 @@ import json
 
 from server.database import (
     AtomInvocationRow,
+    PlanningGoalRow,
     ProjectRow,
     RequirementCandidateRow,
     RequirementRow,
@@ -40,44 +41,47 @@ def _goalb_manifest_payload():
             "No production deploy without human approval.",
             "Dogfood validation must not send real Lark notifications.",
         ],
-        "goals": [
+    }
+
+
+def _goalb_payload(manifest_id: int):
+    return {
+        "manifest_id": manifest_id,
+        "goal_key": "goalb",
+        "title": "GoalB automatic planning dogfood",
+        "domain": "ops",
+        "status": "active",
+        "intent_markdown": "验证 Growing 可以根据目标自动拆分任务，转成正式需求，并由 declarative workflow 自动执行跑通。",
+        "success_metric": "goalb_demo_workflow_completed == true",
+        "workflow_key": "gateway_reliability_repair",
+        "project_key": "synapse-network-growing",
+        "priority": "normal",
+        "risk_level": "normal",
+        "weight": 0.1,
+        "acceptance_kind": "system_dogfood",
+        "execution_acceptance_steps": [
             {
-                "goal_key": "goalb",
-                "domain": "ops",
-                "status": "active",
-                "intent": "验证 Growing 可以根据目标自动拆分任务，转成正式需求，并由 declarative workflow 自动执行跑通。",
-                "success_metric": "goalb_demo_workflow_completed == true",
-                "workflow_key": "gateway_reliability_repair",
-                "project_key": "synapse-network-growing",
-                "priority": "normal",
-                "risk_level": "normal",
-                "weight": 0.1,
-                "acceptance_kind": "system_dogfood",
-                "execution_acceptance_steps": [
-                    {
-                        "step_key": "candidate_materialized",
-                        "title": "GoalB candidate becomes a formal requirement",
-                        "expected_result": "The candidate is materialized into a requirement with goalb lineage.",
-                        "required_db_lineage": [
-                            "requirement_candidates.materialized_requirement_id",
-                            "requirements.requirement_candidate_id",
-                            "requirements.goal_key",
-                        ],
-                    },
-                    {
-                        "step_key": "workflow_evidence_recorded",
-                        "title": "GoalB workflow records evidence",
-                        "expected_result": "The workflow completes with state events, atom invocations, and artifacts.",
-                        "required_db_lineage": [
-                            "workflow_runs.requirement_id",
-                            "workflow_state_events.workflow_run_id",
-                            "atom_invocations.workflow_run_id",
-                            "workflow_artifacts.workflow_run_id",
-                        ],
-                        "required_evidence_types": ["workflow_command_result", "workflow_agent_raw_output"],
-                    },
+                "step_key": "candidate_materialized",
+                "title": "GoalB candidate becomes a formal requirement",
+                "expected_result": "The candidate is materialized into a requirement with goalb lineage.",
+                "required_db_lineage": [
+                    "requirement_candidates.materialized_requirement_id",
+                    "requirements.requirement_candidate_id",
+                    "requirements.goal_key",
                 ],
-            }
+            },
+            {
+                "step_key": "workflow_evidence_recorded",
+                "title": "GoalB workflow records evidence",
+                "expected_result": "The workflow completes with state events, atom invocations, and artifacts.",
+                "required_db_lineage": [
+                    "workflow_runs.requirement_id",
+                    "workflow_state_events.workflow_run_id",
+                    "atom_invocations.workflow_run_id",
+                    "workflow_artifacts.workflow_run_id",
+                ],
+                "required_evidence_types": ["workflow_command_result", "workflow_agent_raw_output"],
+            },
         ],
     }
 
@@ -96,7 +100,22 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     )
     assert save_response.status_code == 200
     manifest = save_response.json()
-    assert any(goal["goal_key"] == "goalb" for goal in manifest["payload"]["goals"])
+    assert "goals" not in manifest["payload"]
+
+    goal_response = synced_client.post("/api/planning/goals", json=_goalb_payload(int(manifest["id"])))
+    assert goal_response.status_code == 200
+    goal = goal_response.json()
+    assert goal["goal_key"] == "goalb"
+    assert "intent_markdown" in goal
+
+    mission_probe = synced_client.get("/api/planning/mission-control").json()
+    goalb_lane = next(lane for lane in mission_probe["goal_lanes"] if lane["goal_key"] == "goalb")
+    assert "intent_excerpt" in goalb_lane["goal"]
+    assert "intent_markdown" not in goalb_lane["goal"]
+
+    goal_row = db_session.get(PlanningGoalRow, int(goal["id"]))
+    assert goal_row is not None
+    assert goal_row.intent_markdown.startswith("验证 Growing")
 
     sweep_response = synced_client.post(
         "/api/planning/sweeps/run",
@@ -105,10 +124,10 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     assert sweep_response.status_code == 200
     sweep = sweep_response.json()
     assert sweep["status"] == "succeeded"
-    assert len(sweep["created_candidate_ids"]) == 1, sweep
-    candidate_id = int(sweep["created_candidate_ids"][0])
-
-    candidate = db_session.get(RequirementCandidateRow, candidate_id)
+    assert sweep["created_candidate_ids"], sweep
+    candidate = db_session.query(RequirementCandidateRow).filter_by(goal_key="goalb").one()
+    candidate_id = int(candidate.id)
+    assert candidate_id in sweep["created_candidate_ids"]
     assert candidate is not None
     assert candidate.goal_key == "goalb"
     assert candidate.workflow_key == "gateway_reliability_repair"

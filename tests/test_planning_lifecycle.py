@@ -3,6 +3,7 @@ import json
 from server.database import (
     HumanGateRequestRow,
     OperatingManifestRow,
+    PlanningGoalRow,
     ProjectRow,
     ReleaseRecordRow,
     RequirementCandidateRow,
@@ -53,7 +54,17 @@ def test_manifest_history_paginates_and_searches_all_archived_manifests(db_sessi
                 version_name=f"Archived Cycle {idx}",
                 cycle_label=f"2026-W{idx:02d}",
                 status="archived",
-                payload_json=json.dumps({"goals": [{"goal_key": f"goal_{idx}", "status": "active"}]}),
+                payload_json=json.dumps({"focus_weights": {"ops": 1}}),
+            )
+        )
+        db_session.flush()
+        db_session.add(
+            PlanningGoalRow(
+                manifest_id=int(db_session.query(OperatingManifestRow).filter_by(manifest_key=f"archive-{idx}").one().id),
+                goal_key=f"goal_{idx}",
+                title=f"Archived goal {idx}",
+                intent_markdown=f"Archived goal {idx}",
+                status="active",
             )
         )
     db_session.commit()
@@ -68,12 +79,26 @@ def test_manifest_history_paginates_and_searches_all_archived_manifests(db_sessi
     assert searched["items"][0]["manifest_key"] == "archive-14"
 
 
+def test_manifest_save_rejects_embedded_goals(client):
+    response = client.put(
+        "/api/planning/manifest/active",
+        json={
+            "version_name": "Invalid legacy payload",
+            "cycle_label": "2026-W17",
+            "payload": {"focus_weights": {"ops": 1}, "goals": [{"goal_key": "legacy"}]},
+            "operator": "test",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "goals are first-class records" in response.json()["detail"]
+
+
 def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_goal(db_session):
     _project(db_session)
     manifest = ensure_active_manifest(db_session)
-    payload = json.loads(manifest.payload_json)
-    payload["goals"][0]["status"] = "dropped"
-    manifest.payload_json = json.dumps(payload)
+    dropped_goal = db_session.query(PlanningGoalRow).filter_by(manifest_id=int(manifest.id), goal_key="gateway_reliability").one()
+    dropped_goal.status = "dropped"
     db_session.commit()
 
     sweep = run_planner_sweep(db_session, dry_run=False)
@@ -252,9 +277,8 @@ def test_candidate_approve_and_run_api(db_session, client):
 def test_mission_control_api_groups_candidates_by_goal_and_includes_history(client, db_session):
     project = _project(db_session)
     manifest = ensure_active_manifest(db_session)
-    payload = json.loads(manifest.payload_json)
-    payload["goals"][1]["status"] = "dropped"
-    manifest.payload_json = json.dumps(payload)
+    dropped_goal = db_session.query(PlanningGoalRow).filter_by(manifest_id=int(manifest.id), goal_key="operator_growth").one()
+    dropped_goal.status = "dropped"
     db_session.add(
         RequirementCandidateRow(
             manifest_id=int(manifest.id),

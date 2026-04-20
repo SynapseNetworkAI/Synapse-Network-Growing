@@ -318,7 +318,7 @@ def test_workflow_empty_state_summary_exposes_pending_candidates(synced_client, 
         version_name="Test",
         cycle_label="test",
         status="active",
-        payload_json='{"goals": []}',
+        payload_json='{"focus_weights": {"ops": 1}}',
     )
     db_session.add(manifest)
     db_session.commit()

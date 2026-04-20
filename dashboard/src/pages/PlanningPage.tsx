@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import {
   api,
   DropGoalResult,
   GoalMissionLane,
+  PlanningGoal,
   PlanningManifest,
   PlanningManifestHistory,
   PlanningMissionControl,
   RequirementCandidate,
 } from '../api'
 
-type Goal = {
-  goal_key?: string
-  domain?: string
-  status?: string
-  intent?: string
-  success_metric?: string
-  weight?: number
-}
+type Goal = PlanningGoal
 
 type ActiveTab = 'mission' | 'history' | 'debug'
 type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
@@ -25,6 +20,20 @@ type SteeringDraft = {
   focusWeights: Record<string, number>
   globalBudget: Record<string, unknown>
   constraintsText: string
+}
+
+type GoalSettingsDraft = {
+  goal_key: string
+  title: string
+  success_metric: string
+  domain: string
+  workflow_key: string
+  project_key: string
+  priority: string
+  risk_level: string
+  weight: string
+  acceptance_kind: string
+  execution_acceptance_steps: string
 }
 
 function formatTime(value: string | null | undefined) {
@@ -37,10 +46,6 @@ function badgeTone(status: string) {
   if (['pending', 'draft', 'running', 'awaiting_operator'].includes(status)) return 'border-blue-200 bg-blue-50 text-blue-700'
   if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked', 'validation_failed'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
   return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]'
-}
-
-function asGoal(value: Record<string, unknown>): Goal {
-  return value as Goal
 }
 
 function numberValue(value: unknown, fallback = 0) {
@@ -66,6 +71,22 @@ function steeringDraftFrom(mission: PlanningMissionControl | null): SteeringDraf
     focusWeights: weights,
     globalBudget: { ...(mission?.global_steering.global_budget || {}) },
     constraintsText: constraintsToText(mission?.global_steering.global_constraints || []),
+  }
+}
+
+function goalSettingsDraftFrom(goal?: PlanningGoal | null): GoalSettingsDraft {
+  return {
+    goal_key: goal?.goal_key || '',
+    title: goal?.title || '',
+    success_metric: goal?.success_metric || '',
+    domain: goal?.domain || 'ops',
+    workflow_key: goal?.workflow_key || 'gateway_reliability_repair',
+    project_key: goal?.project_key || 'synapse-network-growing',
+    priority: goal?.priority || 'normal',
+    risk_level: goal?.risk_level || 'normal',
+    weight: goal?.weight != null ? String(goal.weight) : '0.1',
+    acceptance_kind: goal?.acceptance_kind || 'business',
+    execution_acceptance_steps: JSON.stringify(goal?.execution_acceptance_steps || [], null, 2),
   }
 }
 
@@ -205,14 +226,18 @@ function GoalMissionLaneSection({
   lane,
   busy,
   onCandidateAction,
+  onEditIntent,
+  onEditSettings,
   onDropGoal,
 }: Readonly<{
   lane: GoalMissionLane
   busy: string | null
   onCandidateAction: (candidate: RequirementCandidate, action: CandidateAction) => void
+  onEditIntent: (goal: PlanningGoal) => void
+  onEditSettings: (goal: PlanningGoal) => void
   onDropGoal: (goal: Goal) => void
 }>) {
-  const goal = asGoal(lane.goal)
+  const goal = lane.goal
   const status = goal.status || 'active'
   return (
     <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 shadow-sm" data-testid="goal-mission-lane">
@@ -222,8 +247,9 @@ function GoalMissionLaneSection({
             <span className={['rounded-full border px-3 py-1 text-xs font-medium', badgeTone(status)].join(' ')}>{status}</span>
             <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{goal.goal_key || lane.goal_key}</span>
           </div>
-          <h3 className="mt-3 text-xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{goal.domain || 'operations'}</h3>
-          <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{goal.intent || 'No intent defined.'}</p>
+          <h3 className="mt-3 text-xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{goal.title || goal.domain || 'operations'}</h3>
+          <div className="mt-1 font-mono text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{goal.domain || 'ops'}</div>
+          <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{goal.intent_excerpt || 'No intent defined.'}</p>
           <div className="mt-4 rounded-2xl bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
             <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Success Metric</div>
             <div className="mt-1">{goal.success_metric || '-'}</div>
@@ -232,9 +258,13 @@ function GoalMissionLaneSection({
             <span>Weight: {goal.weight != null ? `${weightToPercent(goal.weight)}%` : '-'}</span>
             {status === 'dropped' ? <span className="text-rose-700">Delivered artifacts retained.</span> : null}
           </div>
-          {status !== 'dropped' && (
-            <button className="mt-4 rounded-xl border border-rose-200 bg-[color:var(--ops-panel)] px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
-          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-medium text-cyan-100" onClick={() => onEditIntent(goal)}>Edit Intent & PRD</button>
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" onClick={() => onEditSettings(goal)}>Edit Goal Settings</button>
+            {status !== 'dropped' && (
+              <button className="rounded-xl border border-rose-200 bg-[color:var(--ops-panel)] px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
+            )}
+          </div>
         </div>
         <div className="space-y-4">
           <GoalRollupStrip lane={lane} />
@@ -336,6 +366,7 @@ function PlanningSteeringPanel({
   onRunSweep,
   onOpenRaw,
   onOpenArchive,
+  onOpenCreateGoal,
 }: Readonly<{
   mission: PlanningMissionControl | null
   draft: SteeringDraft
@@ -346,6 +377,7 @@ function PlanningSteeringPanel({
   onRunSweep: (dryRun: boolean) => void
   onOpenRaw: () => void
   onOpenArchive: () => void
+  onOpenCreateGoal: () => void
 }>) {
   const manifest = mission?.manifest
   const total = weightTotal(draft.focusWeights)
@@ -361,6 +393,7 @@ function PlanningSteeringPanel({
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onRefresh}>刷新</button>
             <button className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700" disabled={busy === 'dry_sweep'} onClick={() => onRunSweep(true)}>Dry Run Planner</button>
             <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white" disabled={busy === 'sweep'} onClick={() => onRunSweep(false)}>Run Planner Sweep</button>
+            <button className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-4 py-2 text-sm font-medium text-cyan-100" onClick={onOpenCreateGoal}>New Goal</button>
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenArchive}>Archive & Start New Cycle</button>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -479,7 +512,7 @@ function RawManifestDrawer({
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Debug Drawer</div>
             <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Raw Manifest JSON</h3>
-            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Use this only for fields not covered by the steering form.</p>
+            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Use this only for steering fields. Goals are first-class records and live under /api/planning/goals.</p>
           </div>
           <button className="rounded-xl border px-3 py-2 text-sm" onClick={onClose}>Close</button>
         </div>
@@ -513,7 +546,7 @@ function ArchiveCycleModal({
     }
   }, [open, mission?.manifest.cycle_label])
   if (!open) return null
-  const activeGoals = (mission?.goal_lanes || []).filter((lane) => asGoal(lane.goal).status !== 'dropped' && asGoal(lane.goal).status !== 'achieved')
+  const activeGoals = (mission?.goal_lanes || []).filter((lane) => lane.goal.status !== 'dropped' && lane.goal.status !== 'achieved')
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
       <div className="w-full max-w-2xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl">
@@ -569,6 +602,161 @@ function DropGoalModal({
   )
 }
 
+function GoalIntentDrawer({
+  goal,
+  draft,
+  busy,
+  error,
+  setDraft,
+  onClose,
+  onSave,
+}: Readonly<{
+  goal: PlanningGoal | null
+  draft: string
+  busy: string | null
+  error: string | null
+  setDraft: (value: string) => void
+  onClose: () => void
+  onSave: () => void
+}>) {
+  if (!goal) return null
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-intent-drawer">
+      <aside className="h-full w-full max-w-6xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Intent Data Plane</div>
+            <h3 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{goal.title || goal.goal_key}</h3>
+            <p className="mt-1 font-mono text-xs text-[color:var(--ops-text-muted)]">{goal.goal_key} · full Markdown is loaded only from the goal detail API.</p>
+          </div>
+          <div className="flex gap-2">
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
+            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy === 'save_intent'} onClick={onSave}>Save Intent</button>
+          </div>
+        </div>
+        {error && <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <label className="block">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Markdown Source</div>
+            <textarea
+              className="mt-3 min-h-[70vh] w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100 outline-none"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Write the full PRD, context, constraints, and acceptance notes in Markdown..."
+              spellCheck={false}
+            />
+          </label>
+          <section>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Live Preview</div>
+            <div className="mt-3 min-h-[70vh] overflow-auto rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 text-sm leading-7 text-[color:var(--ops-text-body)]">
+              {draft.trim() ? (
+                <ReactMarkdown
+                  components={{
+                    h1: ({ children }) => <h1 className="mb-4 text-2xl font-semibold text-[color:var(--ops-text-title)]">{children}</h1>,
+                    h2: ({ children }) => <h2 className="mb-3 mt-5 text-xl font-semibold text-[color:var(--ops-text-title)]">{children}</h2>,
+                    h3: ({ children }) => <h3 className="mb-2 mt-4 text-lg font-semibold text-[color:var(--ops-text-title)]">{children}</h3>,
+                    p: ({ children }) => <p className="mb-3 text-[color:var(--ops-text-body)]">{children}</p>,
+                    li: ({ children }) => <li className="ml-5 list-disc text-[color:var(--ops-text-body)]">{children}</li>,
+                    code: ({ children }) => <code className="rounded bg-slate-950 px-1.5 py-0.5 font-mono text-xs text-cyan-100">{children}</code>,
+                    pre: ({ children }) => <pre className="mb-3 overflow-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-100">{children}</pre>,
+                  }}
+                >
+                  {draft}
+                </ReactMarkdown>
+              ) : (
+                <div className="text-[color:var(--ops-text-muted)]">Markdown preview will appear here.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function GoalSettingsDrawer({
+  open,
+  goal,
+  draft,
+  busy,
+  error,
+  setDraft,
+  onClose,
+  onSave,
+}: Readonly<{
+  open: boolean
+  goal: PlanningGoal | null
+  draft: GoalSettingsDraft
+  busy: string | null
+  error: string | null
+  setDraft: (value: GoalSettingsDraft) => void
+  onClose: () => void
+  onSave: () => void
+}>) {
+  if (!open) return null
+  const isCreate = !goal
+  const update = (key: keyof GoalSettingsDraft, value: string) => setDraft({ ...draft, [key]: value })
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-settings-drawer">
+      <aside className="h-full w-full max-w-3xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Settings</div>
+            <h3 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{isCreate ? 'Create Goal' : draft.title || goal?.goal_key}</h3>
+            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Short execution metadata lives here. Long PRD text belongs in Edit Intent & PRD.</p>
+          </div>
+          <div className="flex gap-2">
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
+            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy === 'save_goal_settings'} onClick={onSave}>{isCreate ? 'Create Goal' : 'Save Settings'}</button>
+          </div>
+        </div>
+        {error && <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Goal key
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)] disabled:opacity-60" disabled={!isCreate} value={draft.goal_key} onChange={(event) => update('goal_key', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Title
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.title} onChange={(event) => update('title', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Domain
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.domain} onChange={(event) => update('domain', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Success metric
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.success_metric} onChange={(event) => update('success_metric', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Workflow key
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.workflow_key} onChange={(event) => update('workflow_key', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Project key
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.project_key} onChange={(event) => update('project_key', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Priority
+            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.priority} onChange={(event) => update('priority', event.target.value)}>
+              {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Risk level
+            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.risk_level} onChange={(event) => update('risk_level', event.target.value)}>
+              {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Weight
+            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" type="number" step="0.01" value={draft.weight} onChange={(event) => update('weight', event.target.value)} />
+          </label>
+          <label className="block text-sm text-[color:var(--ops-text-body)]">Acceptance kind
+            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.acceptance_kind} onChange={(event) => update('acceptance_kind', event.target.value)}>
+              {['business', 'system_dogfood'].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="mt-4 block text-sm text-[color:var(--ops-text-body)]">Execution acceptance steps JSON
+          <textarea className="mt-2 min-h-48 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 px-3 py-2 font-mono text-xs leading-6 text-slate-100" value={draft.execution_acceptance_steps} onChange={(event) => update('execution_acceptance_steps', event.target.value)} spellCheck={false} />
+        </label>
+      </aside>
+    </div>
+  )
+}
+
 export default function PlanningPage() {
   const [mission, setMission] = useState<PlanningMissionControl | null>(null)
   const [history, setHistory] = useState<PlanningManifestHistory | null>(null)
@@ -586,6 +774,13 @@ export default function PlanningPage() {
   const [dropGoal, setDropGoal] = useState<Goal | null>(null)
   const [dropReason, setDropReason] = useState('')
   const [dropResult, setDropResult] = useState<DropGoalResult | null>(null)
+  const [intentGoal, setIntentGoal] = useState<PlanningGoal | null>(null)
+  const [intentDraft, setIntentDraft] = useState('')
+  const [intentError, setIntentError] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsGoal, setSettingsGoal] = useState<PlanningGoal | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState<GoalSettingsDraft>(goalSettingsDraftFrom(null))
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   const candidateTotals = mission?.candidate_totals || {}
   const pendingActions = numberValue(candidateTotals.pending) + numberValue(candidateTotals.approved)
@@ -694,11 +889,11 @@ export default function PlanningPage() {
   }
 
   async function confirmDropGoal() {
-    if (!mission || !dropGoal?.goal_key) return
+    if (!dropGoal?.id) return
     setBusy('drop')
     setError(null)
     try {
-      const result = await api.dropPlanningGoal(mission.manifest.id, dropGoal.goal_key, {
+      const result = await api.dropPlanningGoal(dropGoal.id, {
         reason: dropReason,
         operator: 'operator',
         halt_mode: 'safe_halt',
@@ -709,6 +904,90 @@ export default function PlanningPage() {
       await load(historyPage)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Drop Goal 失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function openIntentEditor(goal: PlanningGoal) {
+    setBusy(`load_intent:${goal.id}`)
+    setIntentError(null)
+    try {
+      const detail = await api.getPlanningGoal(goal.id)
+      setIntentGoal(detail)
+      setIntentDraft(detail.intent_markdown || '')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载 Goal Markdown 失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function saveIntent() {
+    if (!intentGoal) return
+    setBusy('save_intent')
+    setIntentError(null)
+    try {
+      await api.updatePlanningGoal(intentGoal.id, { intent_markdown: intentDraft, operator: 'operator' })
+      setIntentGoal(null)
+      setIntentDraft('')
+      await load(historyPage)
+    } catch (err) {
+      setIntentError(err instanceof Error ? err.message : '保存 Goal Markdown 失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function openSettingsEditor(goal: PlanningGoal) {
+    setSettingsGoal(goal)
+    setSettingsDraft(goalSettingsDraftFrom(goal))
+    setSettingsError(null)
+    setSettingsOpen(true)
+  }
+
+  function openCreateGoal() {
+    setSettingsGoal(null)
+    setSettingsDraft(goalSettingsDraftFrom(null))
+    setSettingsError(null)
+    setSettingsOpen(true)
+  }
+
+  async function saveGoalSettings() {
+    if (!mission) return
+    setBusy('save_goal_settings')
+    setSettingsError(null)
+    try {
+      const steps = JSON.parse(settingsDraft.execution_acceptance_steps || '[]')
+      if (!Array.isArray(steps)) throw new Error('execution_acceptance_steps must be a JSON array')
+      const payload = {
+        manifest_id: mission.manifest.id,
+        goal_key: settingsDraft.goal_key.trim(),
+        title: settingsDraft.title.trim(),
+        success_metric: settingsDraft.success_metric.trim(),
+        domain: settingsDraft.domain.trim(),
+        workflow_key: settingsDraft.workflow_key.trim(),
+        project_key: settingsDraft.project_key.trim() || null,
+        priority: settingsDraft.priority,
+        risk_level: settingsDraft.risk_level,
+        weight: numberValue(settingsDraft.weight, 0),
+        acceptance_kind: settingsDraft.acceptance_kind,
+        execution_acceptance_steps: steps,
+        operator: 'operator',
+      }
+      if (settingsGoal) {
+        await api.updatePlanningGoal(settingsGoal.id, payload)
+      } else {
+        await api.createPlanningGoal({
+          ...payload,
+          intent_markdown: `# ${payload.title || payload.goal_key}\n\nDescribe the full intent, context, constraints, and PRD here.`,
+        })
+      }
+      setSettingsOpen(false)
+      setSettingsGoal(null)
+      await load(historyPage)
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : '保存 Goal 设置失败')
     } finally {
       setBusy(null)
     }
@@ -743,6 +1022,7 @@ export default function PlanningPage() {
         onRunSweep={runSweep}
         onOpenRaw={() => setRawOpen(true)}
         onOpenArchive={() => setArchiveOpen(true)}
+        onOpenCreateGoal={openCreateGoal}
       />
 
       <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="planning-tabs">
@@ -791,7 +1071,15 @@ export default function PlanningPage() {
             </div>
           ) : null}
           {(mission?.goal_lanes || []).map((lane) => (
-            <GoalMissionLaneSection key={lane.goal_key} lane={lane} busy={busy} onCandidateAction={actOnCandidate} onDropGoal={setDropGoal} />
+            <GoalMissionLaneSection
+              key={lane.goal_key}
+              lane={lane}
+              busy={busy}
+              onCandidateAction={actOnCandidate}
+              onEditIntent={openIntentEditor}
+              onEditSettings={openSettingsEditor}
+              onDropGoal={setDropGoal}
+            />
           ))}
           {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
         </main>
@@ -817,6 +1105,8 @@ export default function PlanningPage() {
       <RawManifestDrawer open={rawOpen} manifest={mission?.manifest || null} rawDraft={rawDraft} setRawDraft={setRawDraft} rawError={rawError} onClose={() => setRawOpen(false)} onSave={saveRaw} />
       <ArchiveCycleModal open={archiveOpen} mission={mission} busy={busy} onClose={() => setArchiveOpen(false)} onArchive={archiveCycle} />
       <DropGoalModal goal={dropGoal} reason={dropReason} busy={busy} setReason={setDropReason} onCancel={() => setDropGoal(null)} onConfirm={confirmDropGoal} />
+      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={() => setIntentGoal(null)} onSave={saveIntent} />
+      <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={() => setSettingsOpen(false)} onSave={saveGoalSettings} />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>
   )

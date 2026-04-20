@@ -14,19 +14,21 @@
 
 1. `/planning` 经营规划控制台。
 2. 唯一 active Operating Manifest，通过 `active_slot="global"` 表达当前公司策略。
-3. Manifest payload 支持 goals、focus weights、global budget、constraints。
-4. Minor revision 保存，用于非断代微调。
-5. Manifest History 全量分页与搜索，支持按 cycle label、version name、goal key、status 查询。
-6. Planner Sweep 读取 active manifest 与聚合状态，只生成 `RequirementCandidate`。
-7. Candidate 支持 approve、reject、materialize。
-8. Materialized requirement 继承 `operating_manifest_id`、`goal_key`、`requirement_candidate_id`。
-9. Drop Goal safe halt：
+3. Manifest payload 只支持 focus weights、global budget、constraints 等短 steering 配置；Goal 不再嵌入 payload。
+4. `planning_goals` 是一等 Goal 数据面，支持 title、intent Markdown、success metric、workflow/project binding 与 acceptance steps。
+5. Mission Control 只投射 200 字 `intent_excerpt`，完整 `intent_markdown` 通过 `GET /api/planning/goals/{id}` 按需读取。
+6. Minor revision 保存，用于非断代微调。
+7. Manifest History 全量分页与搜索，支持按 cycle label、version name、goal key、status 查询。
+8. Planner Sweep 读取 active manifest、compact goal map 与聚合状态，只生成 `RequirementCandidate`。
+9. Candidate 支持 approve、reject、materialize。
+10. Materialized requirement 继承 `operating_manifest_id`、`goal_key`、`requirement_candidate_id`。
+11. Drop Goal safe halt：
    - pending / approved candidates 会 suppressed。
    - 未开始 requirements 会 cancelled。
    - running workflows 进入 `awaiting_operator` 并生成 human gate。
    - release-ready but not delivered 记录会 blocked。
    - delivered / released 记录保持不变。
-10. Drop Goal 不触发 rollback、revert、删除、unpublish 或已交付产物变更。
+12. Drop Goal 不触发 rollback、revert、删除、unpublish 或已交付产物变更。
 
 ## 2. Requirement Pool
 

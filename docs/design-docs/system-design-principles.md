@@ -102,17 +102,21 @@
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
 1. 系统只能有一个 active Operating Manifest，用 `active_slot="global"` 表达当前公司策略。
-2. Manifest 可以包含多个 goal，但 `goal_key` 必须稳定，并穿透 `requirement_candidates`、`requirements`、`workflow_runs` 和 `release_records`。
-3. Planner Sweep 是无状态评估器，只能基于 active manifest 与聚合进度生成候选需求，不得扮演长生命周期 PM。
-4. Planner Sweep 不得为 `dropped` goal 生成新 candidate。
-5. Candidate 是自动规划与正式 requirement pool 之间的缓冲区；未经过 operator approval 的 candidate 不得直接污染需求池。
-6. Drop Goal 的语义是停止未来投入并安全阻断未交付链路，不是撤销已经发布的物理世界状态。
-7. Drop Goal 必须 suppress pending candidates、cancel 未开始 requirements、pause / human-gate running workflows、block 未发布 release-ready artifacts。
-8. Drop Goal 绝不能自动 rollback、revert commit、删除数据库变更、撤回外部发布或修改 delivered release。
-9. 已上线功能如需下线，必须创建新的 decommission requirement，并按正常 workflow、verification、human gate、release 流程执行。
-10. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
-11. Operating Manifest 只表达商业目标、预算、权重和全局约束，不承载自动执行策略。
-12. Candidate 是否可自动 materialize / start 必须由 deterministic risk router 根据 workflow allowlist、risk level、project policy 和 atom risk profile 决定。
+2. Operating Manifest 是控制面，只承载预算、权重、全局约束和短 steering 字段；不得重新把 `payload.goals` 或长 Markdown 塞回 Manifest JSON。
+3. Goal 是 `planning_goals` 一等业务实体，`intent_markdown` 是目标长文本真源。
+4. `GET /api/planning/mission-control` 只能返回 goal map 与 200 字 `intent_excerpt`，不得返回全文 `intent_markdown`；全文只能通过 `GET /api/planning/goals/{id}` 按需读取。
+5. `goal_key` 必须稳定，并穿透 `requirement_candidates`、`requirements`、`workflow_runs` 和 `release_records`。
+6. Planner Sweep 是无状态评估器，只能基于 active manifest、compact goal map 与聚合进度生成候选需求，不得扮演长生命周期 PM。
+7. Planner Sweep 为单个 goal 生成 candidate 时，只能注入该 goal 的 full Markdown context，不得把所有 goals 的 PRD 一次性塞进 prompt/snapshot。
+8. Planner Sweep 不得为 `dropped` goal 生成新 candidate。
+9. Candidate 是自动规划与正式 requirement pool 之间的缓冲区；未经过 operator approval 的 candidate 不得直接污染需求池。
+10. Drop Goal 的语义是停止未来投入并安全阻断未交付链路，不是撤销已经发布的物理世界状态。
+11. Drop Goal 必须 suppress pending candidates、cancel 未开始 requirements、pause / human-gate running workflows、block 未发布 release-ready artifacts。
+12. Drop Goal 绝不能自动 rollback、revert commit、删除数据库变更、撤回外部发布或修改 delivered release。
+13. 已上线功能如需下线，必须创建新的 decommission requirement，并按正常 workflow、verification、human gate、release 流程执行。
+14. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
+15. Operating Manifest 只表达商业目标、预算、权重和全局约束，不承载自动执行策略。
+16. Candidate 是否可自动 materialize / start 必须由 deterministic risk router 根据 workflow allowlist、risk level、project policy 和 atom risk profile 决定。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
 
@@ -120,7 +124,8 @@
 2. Planning Console 必须体现 `goal_key` 数据穿透：goal、candidate、requirement、workflow、release 的信息要在 goal lane 中汇聚。
 3. Candidate 不得在 Planning 主视图中作为孤立全局队列展示；审批动作必须发生在所属 goal 上下文里。
 4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、drawer 或 details 展开，不得成为默认主操作面板。
-5. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
+5. Raw Manifest JSON 不得作为 Goal PRD/Markdown 主入口；目标长文必须通过 Goal Markdown editor 编辑。
+6. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

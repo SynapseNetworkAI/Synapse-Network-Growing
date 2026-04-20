@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    UniqueConstraint,
     create_engine,
     event,
     inspect,
@@ -871,6 +872,40 @@ class OperatingManifestRow(Base):
     archived_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class PlanningGoalRow(Base):
+    __tablename__ = "planning_goals"
+    __table_args__ = (
+        UniqueConstraint("manifest_id", "goal_key", name="planning_goals_manifest_goal_key_uniq"),
+        Index("planning_goals_manifest_idx", "manifest_id"),
+        Index("planning_goals_status_idx", "manifest_id", "status"),
+        Index("planning_goals_goal_key_idx", "goal_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    manifest_id = Column(Integer, ForeignKey("operating_manifests.id"), nullable=False)
+    goal_key = Column(Text, nullable=False)
+    title = Column(Text, nullable=False, default="")
+    intent_markdown = Column(Text, nullable=False, default="")
+    success_metric = Column(Text, nullable=False, default="")
+    domain = Column(Text, nullable=False, default="ops")
+    status = Column(Text, nullable=False, default="active")
+    workflow_key = Column(Text, nullable=False, default="gateway_reliability_repair")
+    project_key = Column(Text)
+    priority = Column(Text, nullable=False, default="normal")
+    risk_level = Column(Text, nullable=False, default="normal")
+    weight = Column(Float, nullable=False, default=0.0)
+    acceptance_kind = Column(Text, nullable=False, default="business")
+    execution_acceptance_steps_json = Column(Text, nullable=False, default="[]")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    closed_at = Column(DateTime)
+    review_note = Column(Text)
+    drop_decision_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    manifest = relationship("OperatingManifestRow")
 
 
 class RequirementCandidateRow(Base):

@@ -96,16 +96,21 @@ graph TD
 ## 4. Planning Lifecycle Constraints
 
 1. There must be exactly one active Operating Manifest, represented by `active_slot="global"`.
-2. Goals only use `active | achieved | dropped`.
-3. `goal_key` is stable lineage and must flow through goal-derived candidates, requirements, workflow runs, and release records.
-4. Do not make Planner a long-lived PM agent. Rollups must be computed from database lineage.
-5. Dropped goals must not generate new candidates.
-6. Drop Goal means stop future investment and safe-halt unfinished work.
-7. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
-8. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
-9. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
-10. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
-11. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
+2. `OperatingManifest` is the control plane only: budget, focus weights, global constraints, and other short steering fields.
+3. `PlanningGoal` is the first-class business intent data plane: title, long Markdown PRD, success metric, acceptance steps, project binding, and workflow binding.
+4. Goals only use `active | achieved | dropped`.
+5. `goal_key` is stable lineage and must flow through goal-derived candidates, requirements, workflow runs, and release records.
+6. Do not reintroduce `payload.goals` or long Markdown into Manifest JSON. APIs must reject embedded goals and direct operators to `/api/planning/goals`.
+7. Mission Control returns goal map data and a short `intent_excerpt` only. Full `intent_markdown` may only be loaded through `GET /api/planning/goals/{id}`.
+8. Planner Sweep must read the compact goal map first, then inject only the single goal's full context when generating that goal's candidate.
+9. Do not make Planner a long-lived PM agent. Rollups must be computed from database lineage.
+10. Dropped goals must not generate new candidates.
+11. Drop Goal means stop future investment and safe-halt unfinished work.
+12. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
+13. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
+14. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
+15. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
+16. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
 
 ## 5. Human Gate And Kill-Switch Constraints
 

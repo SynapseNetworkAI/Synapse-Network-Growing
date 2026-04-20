@@ -1591,6 +1591,31 @@ export interface GlobalSteering {
   global_constraints: unknown[]
 }
 
+export interface PlanningGoal {
+  id: number
+  manifest_id: number
+  goal_key: string
+  title: string
+  intent_markdown?: string | null
+  intent_excerpt: string
+  success_metric: string
+  domain: string
+  status: string
+  workflow_key: string
+  project_key?: string | null
+  priority: string
+  risk_level: string
+  weight: number
+  acceptance_kind: string
+  execution_acceptance_steps: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+  closed_at: string | null
+  review_note: string | null
+  drop_decision: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface RequirementCandidate {
   id: number
   manifest_id: number
@@ -1666,7 +1691,7 @@ export interface DropGoalResult {
 
 export interface GoalMissionLane {
   goal_key: string
-  goal: Record<string, unknown>
+  goal: PlanningGoal
   rollup: PlanningGoalRollup
   candidates: RequirementCandidate[]
 }
@@ -1729,10 +1754,15 @@ export const api = {
     if (filters?.search) params.set('search', filters.search)
     return request<PlanningManifestHistory>(`/planning/manifests/history?${params.toString()}`)
   },
+  getPlanningGoal: (id: number) => request<PlanningGoal>(`/planning/goals/${id}`),
+  createPlanningGoal: (data: Partial<PlanningGoal> & { goal_key: string; title: string }) =>
+    request<PlanningGoal>('/planning/goals', { method: 'POST', body: JSON.stringify(data) }),
+  updatePlanningGoal: (id: number, data: Partial<PlanningGoal> & { operator?: string }) =>
+    request<PlanningGoal>(`/planning/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveAndStartPlanningCycle: (manifestId: number, data: { version_name: string; cycle_label: string; operator?: string; payload_patch?: Record<string, unknown> }) =>
     request<PlanningManifest>(`/planning/manifest/${manifestId}/archive-and-start-cycle`, { method: 'POST', body: JSON.stringify(data) }),
-  dropPlanningGoal: (manifestId: number, goalKey: string, data: { reason: string; operator?: string; halt_mode?: string }) =>
-    request<DropGoalResult>(`/planning/manifest/${manifestId}/goals/${encodeURIComponent(goalKey)}/drop`, { method: 'POST', body: JSON.stringify(data) }),
+  dropPlanningGoal: (goalId: number, data: { reason: string; operator?: string; halt_mode?: string }) =>
+    request<DropGoalResult>(`/planning/goals/${goalId}/drop`, { method: 'POST', body: JSON.stringify(data) }),
   getPlanningGoalRollup: (manifestId: number, goalKey: string) =>
     request<PlanningGoalRollup>(`/planning/manifest/${manifestId}/goals/${encodeURIComponent(goalKey)}/rollup`),
   runPlannerSweep: (data?: { dry_run?: boolean; triggered_by?: string }) =>

@@ -262,9 +262,9 @@ Execution 现在除了“能跑”，还要求“可解释、可展示、可审�
 
 核心模型：
 
-1. `OperatingManifest` 是唯一 active 的公司策略快照。
-2. `goals[]` 定义当前目标、权重、成功指标和约束。
-3. `Planner Sweep` 是无状态评估器，只读取 active manifest 与聚合进度，生成 `RequirementCandidate`。
+1. `OperatingManifest` 是唯一 active 的公司 steering 快照，只承载预算、权重和全局约束。
+2. `PlanningGoal` 是一等目标记录，定义目标标题、Markdown 意图、权重、成功指标、workflow/project 绑定和验收步骤。
+3. `Planner Sweep` 是无状态评估器，只读取 active manifest、compact goal map 与聚合进度，生成 `RequirementCandidate`。
 4. `RequirementCandidate` 是自动规划与正式 requirement pool 之间的缓冲区。
 5. `goal_key` 穿透 candidate、requirement、workflow run 和 release record，形成全生命周期 rollup。
 

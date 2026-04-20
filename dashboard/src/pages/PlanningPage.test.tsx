@@ -16,6 +16,9 @@ const apiMock = vi.hoisted(() => ({
   approveAndRunRequirementCandidate: vi.fn(),
   rejectRequirementCandidate: vi.fn(),
   materializeRequirementCandidate: vi.fn(),
+  getPlanningGoal: vi.fn(),
+  createPlanningGoal: vi.fn(),
+  updatePlanningGoal: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -33,24 +36,6 @@ const manifest = {
     focus_weights: { reliability: 0.6, growth: 0.25, support: 0.15 },
     global_budget: { daily_usd_limit: 25, max_concurrent_workers: 2 },
     global_constraints: ['No production deploy without human approval.'],
-    goals: [
-      {
-        goal_key: 'gateway_reliability',
-        domain: 'reliability',
-        status: 'active',
-        intent: 'Keep gateway healthy.',
-        success_metric: '5xx < 1%',
-        weight: 0.6,
-      },
-      {
-        goal_key: 'operator_growth',
-        domain: 'growth',
-        status: 'active',
-        intent: 'Find growth work.',
-        success_metric: 'approved candidate throughput',
-        weight: 0.25,
-      },
-    ],
   },
   goal_count: 2,
   active_goal_count: 2,
@@ -62,6 +47,54 @@ const manifest = {
   created_at: '2026-04-19T00:00:00Z',
   updated_at: '2026-04-19T00:00:00Z',
   archived_at: null,
+}
+
+const reliabilityGoal = {
+  id: 101,
+  manifest_id: 1,
+  goal_key: 'gateway_reliability',
+  title: 'Gateway reliability',
+  intent_excerpt: 'Keep gateway healthy.',
+  success_metric: '5xx < 1%',
+  domain: 'reliability',
+  status: 'active',
+  workflow_key: 'gateway_reliability_repair',
+  project_key: 'synapse',
+  priority: 'normal',
+  risk_level: 'normal',
+  weight: 0.6,
+  acceptance_kind: 'business',
+  execution_acceptance_steps: [],
+  metadata: {},
+  closed_at: null,
+  review_note: null,
+  drop_decision: {},
+  created_at: '2026-04-19T00:00:00Z',
+  updated_at: '2026-04-19T00:00:00Z',
+}
+
+const growthGoal = {
+  id: 102,
+  manifest_id: 1,
+  goal_key: 'operator_growth',
+  title: 'Operator growth',
+  intent_excerpt: 'Find growth work.',
+  success_metric: 'approved candidate throughput',
+  domain: 'growth',
+  status: 'active',
+  workflow_key: 'agent_self_repair',
+  project_key: 'synapse',
+  priority: 'normal',
+  risk_level: 'normal',
+  weight: 0.25,
+  acceptance_kind: 'business',
+  execution_acceptance_steps: [],
+  metadata: {},
+  closed_at: null,
+  review_note: null,
+  drop_decision: {},
+  created_at: '2026-04-19T00:00:00Z',
+  updated_at: '2026-04-19T00:00:00Z',
 }
 
 const reliabilityCandidate = {
@@ -102,11 +135,11 @@ const mission = {
   goal_lanes: [
     {
       goal_key: 'gateway_reliability',
-      goal: manifest.payload.goals[0],
+      goal: reliabilityGoal,
       rollup: {
         manifest_id: 1,
         goal_key: 'gateway_reliability',
-        goal: manifest.payload.goals[0],
+        goal: reliabilityGoal,
         candidate_status_counts: { pending: 1 },
         requirement_status_counts: {},
         workflow_status_counts: {},
@@ -116,11 +149,11 @@ const mission = {
     },
     {
       goal_key: 'operator_growth',
-      goal: manifest.payload.goals[1],
+      goal: growthGoal,
       rollup: {
         manifest_id: 1,
         goal_key: 'operator_growth',
-        goal: manifest.payload.goals[1],
+        goal: growthGoal,
         candidate_status_counts: {},
         requirement_status_counts: {},
         workflow_status_counts: {},
@@ -148,6 +181,20 @@ describe('PlanningPage Mission Control', () => {
       workflow_current_state: 'done',
       auto_run_status: 'workflow_completed',
       next_action: 'view_completion_evidence',
+    })
+    apiMock.getPlanningGoal.mockResolvedValue({
+      ...reliabilityGoal,
+      intent_markdown: '# Reliability PRD\n\nKeep gateway healthy with concrete checks.',
+    })
+    apiMock.updatePlanningGoal.mockResolvedValue({
+      ...reliabilityGoal,
+      intent_markdown: '# Updated PRD',
+    })
+    apiMock.createPlanningGoal.mockResolvedValue({
+      ...growthGoal,
+      id: 103,
+      goal_key: 'new_goal',
+      title: 'New goal',
     })
   })
 
@@ -196,5 +243,37 @@ describe('PlanningPage Mission Control', () => {
 
     expect(screen.getByTestId('weight-total-warning')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Save Steering Revision' })).toBeDisabled()
+  })
+
+  it('keeps raw manifest JSON goal-free and edits full markdown through the goal API', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    await screen.findByTestId('mission-control-tab')
+    await user.click(screen.getByRole('button', { name: '</> Edit raw JSON' }))
+
+    const rawDrawer = await screen.findByTestId('raw-manifest-drawer')
+    expect(within(rawDrawer).queryByText('gateway_reliability')).toBeNull()
+    expect(within(rawDrawer).getByDisplayValue(/focus_weights/)).toBeTruthy()
+
+    await user.click(within(rawDrawer).getByRole('button', { name: 'Close' }))
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent & PRD' }))
+
+    await waitFor(() => {
+      expect(apiMock.getPlanningGoal).toHaveBeenCalledWith(101)
+    })
+    const drawer = await screen.findByTestId('goal-intent-drawer')
+    expect(within(drawer).getByDisplayValue(/Reliability PRD/)).toBeTruthy()
+
+    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), { target: { value: '# Updated PRD\n\n- Check gateway.' } })
+    await user.click(within(drawer).getByRole('button', { name: 'Save Intent' }))
+
+    await waitFor(() => {
+      expect(apiMock.updatePlanningGoal).toHaveBeenCalledWith(101, {
+        intent_markdown: '# Updated PRD\n\n- Check gateway.',
+        operator: 'operator',
+      })
+    })
   })
 })

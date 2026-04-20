@@ -171,9 +171,64 @@ class PlanningDropGoalRequest(BaseModel):
     halt_mode: str = "safe_halt"
 
 
-class PlanningGoalStatusRequest(BaseModel):
-    status: str
-    reason: str = ""
+class PlanningGoalOut(BaseModel):
+    id: int
+    manifest_id: int
+    goal_key: str
+    title: str = ""
+    intent_markdown: Optional[str] = None
+    intent_excerpt: str = ""
+    success_metric: str = ""
+    domain: str = "ops"
+    status: str = "active"
+    workflow_key: str = "gateway_reliability_repair"
+    project_key: Optional[str] = None
+    priority: str = "normal"
+    risk_level: str = "normal"
+    weight: float = 0.0
+    acceptance_kind: str = "business"
+    execution_acceptance_steps: list[dict[str, object]] = []
+    metadata: dict[str, object] = {}
+    closed_at: Optional[datetime] = None
+    review_note: Optional[str] = None
+    drop_decision: dict[str, object] = {}
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class PlanningGoalCreateRequest(BaseModel):
+    manifest_id: Optional[int] = None
+    goal_key: str
+    title: str
+    intent_markdown: str = ""
+    success_metric: str = ""
+    domain: str = "ops"
+    status: str = "active"
+    workflow_key: str = "gateway_reliability_repair"
+    project_key: Optional[str] = None
+    priority: str = "normal"
+    risk_level: str = "normal"
+    weight: float = 0.0
+    acceptance_kind: str = "business"
+    execution_acceptance_steps: list[dict[str, object]] = []
+    metadata: dict[str, object] = {}
+    operator: str = "operator"
+
+
+class PlanningGoalUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    intent_markdown: Optional[str] = None
+    success_metric: Optional[str] = None
+    domain: Optional[str] = None
+    status: Optional[str] = None
+    workflow_key: Optional[str] = None
+    project_key: Optional[str] = None
+    priority: Optional[str] = None
+    risk_level: Optional[str] = None
+    weight: Optional[float] = None
+    acceptance_kind: Optional[str] = None
+    execution_acceptance_steps: Optional[list[dict[str, object]]] = None
+    metadata: Optional[dict[str, object]] = None
     operator: str = "operator"
 
 
