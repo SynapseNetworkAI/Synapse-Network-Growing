@@ -20,6 +20,7 @@ from server.database import (
     ReleaseRecordRow,
     RequirementCandidateRow,
     RequirementRow,
+    WorkflowArtifactRow,
     WorkflowRunRow,
     WorkflowStateEventRow,
     utcnow,
@@ -1041,6 +1042,292 @@ def get_goal(db: Session, goal_id: int) -> dict[str, Any]:
     if row is None:
         raise ValueError("goal not found")
     return goal_to_dict(row, include_intent=True)
+
+
+def _trace_node(
+    kind: str,
+    status: str,
+    title: str,
+    *,
+    summary: str = "",
+    object_id: int | None = None,
+    deep_link: str | None = None,
+    diagnostic: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "status": status,
+        "title": title,
+        "summary": summary,
+        "object_id": object_id,
+        "deep_link": deep_link,
+        "diagnostic": diagnostic,
+        "metadata": metadata or {},
+    }
+
+
+def _goal_sweep_diagnostics(db: Session, goal: PlanningGoalRow) -> list[dict[str, Any]]:
+    rows = (
+        db.query(PlannerSweepRow)
+        .filter(PlannerSweepRow.manifest_id == int(goal.manifest_id))
+        .order_by(PlannerSweepRow.started_at.desc(), PlannerSweepRow.id.desc())
+        .limit(20)
+        .all()
+    )
+    diagnostics: list[dict[str, Any]] = []
+    for sweep in rows:
+        goal_key = str(goal.goal_key or "")
+        suppressed = _json_loads(sweep.suppressed_items_json, [])
+        parsed = _json_loads(sweep.parsed_output_json, {})
+        candidates = []
+        for collection in [
+            suppressed,
+            parsed.get("routing_suppressed_items") if isinstance(parsed, dict) else [],
+            parsed.get("planner_validation_errors") if isinstance(parsed, dict) else [],
+        ]:
+            if isinstance(collection, list):
+                candidates.extend(item for item in collection if isinstance(item, dict))
+        for item in candidates:
+            if str(item.get("goal_key") or "") != goal_key:
+                continue
+            diagnostics.append(
+                {
+                    "reason": str(item.get("reason") or item.get("error") or item.get("message") or "planner_suppressed"),
+                    "source": "planner_sweep",
+                    "timestamp": sweep.completed_at or sweep.started_at,
+                    "sweep_id": int(sweep.id),
+                    "goal_key": goal_key,
+                }
+            )
+            if len(diagnostics) >= 3:
+                return diagnostics
+    return diagnostics
+
+
+def _workflow_evidence_metadata(db: Session, workflow: WorkflowRunRow | None) -> dict[str, Any]:
+    if workflow is None:
+        return {}
+    artifacts = (
+        db.query(WorkflowArtifactRow)
+        .filter(WorkflowArtifactRow.workflow_run_id == int(workflow.id))
+        .order_by(WorkflowArtifactRow.id.desc())
+        .all()
+    )
+    changed_files: list[str] = []
+    command_count = 0
+    pr_url = str(getattr(workflow, "delivery_pr_url", "") or "").strip()
+    for artifact in artifacts:
+        payload = _json_loads(artifact.machine_readable_payload, {})
+        if artifact.artifact_type == "workflow_file_change_summary" and isinstance(payload, dict):
+            changed_files.extend(str(item) for item in payload.get("changed_files") or [] if str(item))
+        if artifact.artifact_type == "workflow_command_result":
+            command_count += 1
+        if artifact.artifact_type == "workflow_review_pr_sync" and isinstance(payload, dict) and not pr_url:
+            pr_url = str(payload.get("pr_url") or "").strip()
+    return {
+        "artifact_count": len(artifacts),
+        "command_evidence_count": command_count,
+        "changed_files": sorted(set(changed_files)),
+        "changed_files_count": len(set(changed_files)),
+        "pr_url": pr_url or None,
+        "delivery_status": str(getattr(workflow, "delivery_status", "") or "") or None,
+        "delivery_is_simulated": bool(getattr(workflow, "delivery_is_simulated", False)),
+    }
+
+
+def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
+    goal = db.get(PlanningGoalRow, goal_id)
+    if goal is None:
+        raise ValueError("goal not found")
+    manifest_id = int(goal.manifest_id)
+    goal_key = str(goal.goal_key or "")
+    diagnostics = _goal_sweep_diagnostics(db, goal)
+    candidates = (
+        db.query(RequirementCandidateRow)
+        .filter(
+            RequirementCandidateRow.manifest_id == manifest_id,
+            RequirementCandidateRow.goal_key == goal_key,
+        )
+        .order_by(RequirementCandidateRow.updated_at.desc(), RequirementCandidateRow.id.desc())
+        .all()
+    )
+    latest_candidate = candidates[0] if candidates else None
+    requirements = (
+        db.query(RequirementRow)
+        .filter(RequirementRow.operating_manifest_id == manifest_id, RequirementRow.goal_key == goal_key)
+        .order_by(RequirementRow.updated_at.desc(), RequirementRow.id.desc())
+        .all()
+    )
+    latest_requirement = requirements[0] if requirements else None
+    latest_workflow = None
+    if latest_requirement is not None and latest_requirement.active_workflow_run_id:
+        latest_workflow = db.get(WorkflowRunRow, int(latest_requirement.active_workflow_run_id))
+    if latest_workflow is None:
+        latest_workflow = (
+            db.query(WorkflowRunRow)
+            .filter(WorkflowRunRow.operating_manifest_id == manifest_id, WorkflowRunRow.goal_key == goal_key)
+            .order_by(WorkflowRunRow.updated_at.desc(), WorkflowRunRow.id.desc())
+            .first()
+        )
+    nodes: list[dict[str, Any]] = [
+        _trace_node(
+            "goal",
+            "ok" if str(goal.intent_markdown or "").strip() else "warning",
+            "Goal PRD saved" if str(goal.intent_markdown or "").strip() else "Goal PRD missing",
+            summary=f"{len(str(goal.intent_markdown or ''))} Markdown characters stored in planning_goals.",
+            object_id=int(goal.id),
+            deep_link=f"/planning?goal={goal_key}",
+            metadata={"intent_present": bool(str(goal.intent_markdown or "").strip())},
+        )
+    ]
+    if latest_candidate is None:
+        diagnostic = diagnostics[0] if diagnostics else {
+            "reason": "no_candidate_for_goal",
+            "source": "planning_trace",
+            "timestamp": goal.updated_at,
+            "goal_key": goal_key,
+        }
+        nodes.append(_trace_node("candidate", "missing", "No candidate for this goal", diagnostic=diagnostic))
+    else:
+        candidate_metadata = _json_loads(latest_candidate.metadata_json, {})
+        status = str(latest_candidate.status or "")
+        blocked = status in {"validation_failed", "rejected", "suppressed"}
+        nodes.append(
+            _trace_node(
+                "candidate",
+                "blocked" if blocked else "ok",
+                f"Candidate #{int(latest_candidate.id)}: {latest_candidate.title}",
+                summary=f"{status} · {latest_candidate.workflow_key}",
+                object_id=int(latest_candidate.id),
+                deep_link=f"/planning?candidate={int(latest_candidate.id)}",
+                diagnostic={
+                    "reason": str(
+                        candidate_metadata.get("acceptance_validation_error")
+                        or candidate_metadata.get("planner_agent_error")
+                        or latest_candidate.suppression_reason
+                        or latest_candidate.reject_reason
+                        or ""
+                    ),
+                    "source": "requirement_candidate",
+                    "timestamp": latest_candidate.updated_at,
+                    "goal_key": goal_key,
+                } if blocked else None,
+                metadata={
+                    "generated_by": candidate_metadata.get("generated_by"),
+                    "routing_decision": candidate_metadata.get("routing_decision"),
+                    "acceptance_step_count": len((candidate_metadata.get("acceptance_contract") or {}).get("execution_acceptance_steps") or []),
+                },
+            )
+        )
+    if latest_requirement is None:
+        nodes.append(
+            _trace_node(
+                "requirement",
+                "missing" if latest_candidate is None else "warning",
+                "No materialized requirement for this goal",
+                summary="Candidate has not produced a Requirement yet.",
+                diagnostic=diagnostics[0] if latest_candidate is None and diagnostics else None,
+            )
+        )
+    else:
+        nodes.append(
+            _trace_node(
+                "requirement",
+                "ok" if str(latest_requirement.status or "") not in {"failed", "cancelled", "deleted"} else "blocked",
+                f"Requirement #{int(latest_requirement.id)}: {latest_requirement.title}",
+                summary=f"{latest_requirement.status} · workflow_state={latest_requirement.workflow_state}",
+                object_id=int(latest_requirement.id),
+                deep_link=f"/requirements/{int(latest_requirement.id)}",
+                metadata={
+                    "candidate_id": int(latest_requirement.requirement_candidate_id) if latest_requirement.requirement_candidate_id else None,
+                    "assets_status": latest_requirement.assets_status,
+                },
+            )
+        )
+    if latest_workflow is None:
+        nodes.append(
+            _trace_node(
+                "workflow",
+                "missing" if latest_requirement is None else "warning",
+                "No workflow run for this goal",
+                summary="Requirement has not started a declarative workflow run.",
+                deep_link=f"/requirements/{int(latest_requirement.id)}" if latest_requirement is not None else None,
+            )
+        )
+        evidence = {}
+    else:
+        evidence = _workflow_evidence_metadata(db, latest_workflow)
+        workflow_status = str(latest_workflow.status or "")
+        nodes.append(
+            _trace_node(
+                "workflow",
+                "ok" if workflow_status in {"succeeded", "completed", "done"} else "warning" if workflow_status != "failed" else "blocked",
+                f"WorkflowRun #{int(latest_workflow.id)}: {latest_workflow.workflow_key}",
+                summary=f"{workflow_status} · state={latest_workflow.current_state}",
+                object_id=int(latest_workflow.id),
+                deep_link=f"/workflows/{int(latest_workflow.id)}?tab=evidence",
+                metadata={
+                    "current_state": latest_workflow.current_state,
+                    "resolution": latest_workflow.resolution,
+                    **evidence,
+                },
+            )
+        )
+        missing = []
+        if not evidence.get("command_evidence_count"):
+            missing.append("missing_command_evidence")
+        if not evidence.get("changed_files_count"):
+            missing.append("missing_changed_files")
+        if not evidence.get("pr_url"):
+            missing.append("missing_pr_url")
+        nodes.append(
+            _trace_node(
+                "evidence",
+                "ok" if not missing else "warning",
+                "Evidence and delivery",
+                summary="All key evidence is linked." if not missing else ", ".join(missing),
+                object_id=int(latest_workflow.id),
+                deep_link=f"/workflows/{int(latest_workflow.id)}?tab=evidence",
+                diagnostic={
+                    "reason": ", ".join(missing),
+                    "source": "workflow_artifacts",
+                    "timestamp": latest_workflow.updated_at,
+                    "goal_key": goal_key,
+                } if missing else None,
+                metadata=evidence,
+            )
+        )
+    return {
+        "goal": {
+            "id": int(goal.id),
+            "goal_key": goal_key,
+            "title": str(goal.title or ""),
+            "intent_present": bool(str(goal.intent_markdown or "").strip()),
+            "intent_length": len(str(goal.intent_markdown or "")),
+            "intent_hash": hashlib.sha256(str(goal.intent_markdown or "").encode("utf-8")).hexdigest(),
+            "intent_excerpt": _intent_excerpt(str(goal.intent_markdown or "")),
+        },
+        "nodes": nodes,
+        "diagnostics": diagnostics,
+        "next_actions": [
+            item
+            for item in [
+                {"label": "Open Planning", "deep_link": "/planning"},
+                {"label": "Open latest workflow", "deep_link": f"/workflows/{int(latest_workflow.id)}?tab=evidence"} if latest_workflow is not None else None,
+            ]
+            if item is not None
+        ],
+        "history": [
+            {
+                "candidate_id": int(candidate.id),
+                "status": str(candidate.status or ""),
+                "requirement_id": int(candidate.materialized_requirement_id) if candidate.materialized_requirement_id else None,
+                "updated_at": candidate.updated_at,
+            }
+            for candidate in candidates[:5]
+        ],
+    }
 
 
 def create_goal(db: Session, payload: dict[str, Any]) -> dict[str, Any]:

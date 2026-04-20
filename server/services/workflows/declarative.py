@@ -6,10 +6,13 @@ import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server import config
@@ -428,6 +431,69 @@ def _delivery_summary_from_blackboard(blackboard: Mapping[str, Any], release: Re
     }
 
 
+def _delivery_columns_summary(row: WorkflowRunRow) -> dict[str, Any]:
+    return {
+        "pr_created": bool(getattr(row, "delivery_pr_url", None)),
+        "pr_url": str(getattr(row, "delivery_pr_url", "") or "").strip() or None,
+        "branch_name": str(getattr(row, "delivery_branch", "") or "").strip() or None,
+        "compare_url": str(getattr(row, "delivery_compare_url", "") or "").strip() or None,
+        "pr_status": None,
+        "release_status": str(getattr(row, "delivery_status", "") or "").strip() or None,
+        "sync_action": None,
+        "simulated": bool(getattr(row, "delivery_is_simulated", False)),
+        "base_branch": str(getattr(row, "delivery_base_branch", "") or "").strip() or None,
+        "synced_at": row.delivery_synced_at.isoformat() if getattr(row, "delivery_synced_at", None) else None,
+    }
+
+
+def _merged_delivery_summary(row: WorkflowRunRow, blackboard: Mapping[str, Any], release: ReleaseRecordRow | None) -> dict[str, Any]:
+    dynamic = _delivery_summary_from_blackboard(blackboard, release)
+    materialized = _delivery_columns_summary(row)
+    merged = {
+        **dynamic,
+        **{key: value for key, value in materialized.items() if value not in (None, "", False)},
+        "simulated": bool(materialized.get("simulated") or dynamic.get("simulated")),
+    }
+    if getattr(release, "pr_url", None):
+        merged["pr_url"] = str(release.pr_url or "").strip() or merged.get("pr_url")
+    if getattr(release, "status", None):
+        merged["release_status"] = str(release.status or "").strip() or merged.get("release_status")
+    return merged
+
+
+def _sync_workflow_delivery_columns(
+    row: WorkflowRunRow,
+    *,
+    pr_url: str | None,
+    compare_url: str | None = None,
+    branch_name: str | None = None,
+    base_branch: str | None = None,
+    status: str | None = None,
+    simulated: bool = False,
+) -> None:
+    row.delivery_pr_url = str(pr_url or "").strip() or None
+    row.delivery_compare_url = str(compare_url or "").strip() or None
+    row.delivery_branch = str(branch_name or "").strip() or None
+    row.delivery_base_branch = str(base_branch or "").strip() or None
+    row.delivery_status = str(status or "").strip() or None
+    row.delivery_is_simulated = bool(simulated)
+    row.delivery_synced_at = utcnow()
+
+
+def _backfill_delivery_columns_if_missing(row: WorkflowRunRow, delivery: Mapping[str, Any]) -> None:
+    if getattr(row, "delivery_pr_url", None) or not delivery.get("pr_url"):
+        return
+    _sync_workflow_delivery_columns(
+        row,
+        pr_url=str(delivery.get("pr_url") or ""),
+        compare_url=str(delivery.get("compare_url") or ""),
+        branch_name=str(delivery.get("branch_name") or ""),
+        base_branch=str(delivery.get("base_branch") or ""),
+        status=str(delivery.get("release_status") or delivery.get("pr_status") or delivery.get("sync_action") or "synced"),
+        simulated=bool(delivery.get("simulated")),
+    )
+
+
 def _changed_files_summary_from_blackboard(blackboard: Mapping[str, Any]) -> dict[str, Any]:
     patch_result = blackboard.get("patch_result") if isinstance(blackboard.get("patch_result"), Mapping) else {}
     changed = [str(item) for item in patch_result.get("changed_files") or []]
@@ -458,7 +524,8 @@ def _workflow_truth_fields(
     command_results = _command_results_from_blackboard(blackboard)
     verification = blackboard.get("verification") if isinstance(blackboard.get("verification"), Mapping) else {}
     verification_passed = str(verification.get("status") or "").strip().lower() == "passed"
-    delivery = _delivery_summary_from_blackboard(blackboard, release)
+    delivery = _merged_delivery_summary(row, blackboard, release)
+    _backfill_delivery_columns_if_missing(row, delivery)
     is_completed = _is_completed_status(row.status)
     needs_human = pending_gate_count > 0
     acceptance = blackboard.get("acceptance") if isinstance(blackboard.get("acceptance"), Mapping) else {}
@@ -622,6 +689,8 @@ def _workflow_run_summary_item(
         "id": int(row.id),
         "requirement_id": int(row.requirement_id),
         "requirement_title": str(getattr(requirement, "title", "") or ""),
+        "requirement_candidate_id": int(getattr(requirement, "requirement_candidate_id", 0) or 0) or None,
+        "requirement_source": str(getattr(requirement, "source", "") or "") or None,
         "workflow_key": row.workflow_key,
         "current_state": row.current_state,
         "status": row.status,
@@ -635,8 +704,16 @@ def _workflow_run_summary_item(
         "artifact_count": int(artifact_count or 0),
         "atom_count": int(atom_count or 0),
         "duration_ms": _workflow_duration_ms(row),
-        "pr_url": str(getattr(release, "pr_url", "") or "") or None,
-        "release_status": str(getattr(release, "status", "") or "") or None,
+        "pr_url": str(truth["delivery_summary"].get("pr_url") or getattr(release, "pr_url", "") or "") or None,
+        "release_status": str(truth["delivery_summary"].get("release_status") or getattr(release, "status", "") or truth["delivery_summary"].get("pr_status") or "") or None,
+        "delivery_pr_url": str(truth["delivery_summary"].get("pr_url") or "") or None,
+        "delivery_compare_url": str(truth["delivery_summary"].get("compare_url") or "") or None,
+        "delivery_branch": str(truth["delivery_summary"].get("branch_name") or "") or None,
+        "delivery_base_branch": str(truth["delivery_summary"].get("base_branch") or "") or None,
+        "delivery_status": str(truth["delivery_summary"].get("release_status") or truth["delivery_summary"].get("pr_status") or truth["delivery_summary"].get("sync_action") or "") or None,
+        "delivery_is_simulated": bool(truth["delivery_summary"].get("simulated")),
+        "changed_files_count": int((truth.get("changed_files_summary") or {}).get("changed_files_count") or 0),
+        "command_evidence_count": len(truth.get("command_results") or []),
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         "started_at": row.started_at.isoformat() if row.started_at else None,
         "completed_at": row.completed_at.isoformat() if row.completed_at else None,
@@ -669,6 +746,7 @@ def list_workflow_runs(
     tab: str | None = None,
     status: str | None = None,
     workflow_key: str | None = None,
+    goal_key: str | None = None,
     current_state: str | None = None,
     risk_level: str | None = None,
     pending_human_gate: bool | None = None,
@@ -697,6 +775,11 @@ def list_workflow_runs(
         query = query.filter(WorkflowRunRow.status == status)
     if workflow_key:
         query = query.filter(WorkflowRunRow.workflow_key == workflow_key)
+    if goal_key:
+        # Historical runs may only carry goal lineage on the linked requirement.
+        query = query.outerjoin(RequirementRow, RequirementRow.id == WorkflowRunRow.requirement_id).filter(
+            or_(WorkflowRunRow.goal_key == goal_key, RequirementRow.goal_key == goal_key)
+        )
     if current_state:
         query = query.filter(WorkflowRunRow.current_state == current_state)
     if risk_level:
@@ -1120,22 +1203,30 @@ def default_atom_registry() -> AtomRegistry:
         trigger = _trigger(ctx)
         counters = dict(ctx.blackboard.get("counters") or {})
         should_fail_once = bool(trigger.get("force_first_verification_failure"))
-        command_result = _record_command_result_artifact(
-            ctx,
-            command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
-            purpose="Verify the self-repair runtime module still compiles.",
-            exit_code=1 if should_fail_once and int(counters.get("patch_attempts") or 0) == 0 else 0,
-            simulated=True,
-        )
         if should_fail_once and int(counters.get("patch_attempts") or 0) == 0:
+            command_result = _record_command_result_artifact(
+                ctx,
+                command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
+                purpose="Force one bounded verification failure for retry-path validation.",
+                exit_code=1,
+                simulated=True,
+                stderr_excerpt="forced verification failure for retry-path validation",
+            )
             return AtomResult(
                 summary="Verification failed before retry",
                 writes={"verification": {"status": "failed", "command_results": [command_result]}},
                 artifacts=(str(command_result["log_artifact_id"]),),
             )
+        command_result = _run_local_command_result_artifact(
+            ctx,
+            command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
+            args=[sys.executable, "-m", "py_compile", "server/services/workflows/declarative.py"],
+            purpose="Verify the self-repair runtime module still compiles.",
+        )
+        status = "passed" if int(command_result.get("exit_code") or 0) == 0 else "failed"
         return AtomResult(
-            summary="Verification passed",
-            writes={"verification": {"status": "passed", "command_results": [command_result]}},
+            summary="Verification passed" if status == "passed" else "Verification failed",
+            writes={"verification": {"status": status, "command_results": [command_result]}},
             artifacts=(str(command_result["log_artifact_id"]),),
         )
 
@@ -1284,6 +1375,14 @@ def _open_requirement_review_pr(
 
     if vcs_payload.get("status") != "delivered":
         blockers = list(vcs_payload.get("blockers") or [])
+        _sync_workflow_delivery_columns(
+            ctx.workflow_run,
+            pr_url=None,
+            branch_name=branch_name,
+            base_branch=base_branch,
+            status="delivery_blocked",
+            simulated=False,
+        )
         return AtomResult(
             summary="PR delivery blocked before GitHub PR sync",
             writes={
@@ -1331,6 +1430,15 @@ def _open_requirement_review_pr(
 
     pr_url = str(pr_payload.get("pr_url") or "").strip()
     created = pr_payload.get("status") == "synced" and bool(pr_url)
+    _sync_workflow_delivery_columns(
+        ctx.workflow_run,
+        pr_url=pr_url or None,
+        compare_url=str(pr_payload.get("compare_url") or compare_url or ""),
+        branch_name=branch_name,
+        base_branch=base_branch,
+        status=str(pr_payload.get("status") or ""),
+        simulated=False,
+    )
     return AtomResult(
         summary="GitHub draft PR synced" if created else "GitHub PR sync blocked",
         writes={
@@ -1388,6 +1496,15 @@ def _simulated_review_pr_result(
         content_summary=f"{pr_scope}: simulated GitHub PR sync",
         human_readable_body=json.dumps(pr_payload, ensure_ascii=False, indent=2, sort_keys=True),
         machine_readable_payload=pr_payload,
+    )
+    _sync_workflow_delivery_columns(
+        ctx.workflow_run,
+        pr_url=pr_payload["pr_url"],
+        compare_url=pr_payload["compare_url"],
+        branch_name=branch_name,
+        base_branch=base_branch,
+        status=str(pr_payload.get("status") or "synced"),
+        simulated=True,
     )
     return AtomResult(
         summary="GitHub draft PR synced (test mode)",
@@ -2695,8 +2812,8 @@ def _record_command_result_artifact(
         "purpose": purpose,
         "exit_code": int(exit_code),
         "duration_ms": int(duration_ms),
-        "stdout_excerpt": stdout_excerpt or ("simulated command passed" if exit_code == 0 else ""),
-        "stderr_excerpt": stderr_excerpt or ("simulated command failed" if exit_code != 0 else ""),
+        "stdout_excerpt": stdout_excerpt or ("simulated command passed" if simulated and exit_code == 0 else ""),
+        "stderr_excerpt": stderr_excerpt or ("simulated command failed" if simulated and exit_code != 0 else ""),
         "timeout": bool(timeout),
         "simulated": bool(simulated),
     }
@@ -2714,6 +2831,59 @@ def _record_command_result_artifact(
     artifact.machine_readable_payload = _json_dump(payload)
     ctx.db.flush()
     return payload
+
+
+def _run_local_command_result_artifact(
+    ctx: WorkflowContext,
+    *,
+    command: str,
+    args: list[str],
+    purpose: str,
+    timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Run a governed local verification command and persist real evidence."""
+
+    cwd = str(getattr(ctx.requirement, "target_project_path", "") or "").strip()
+    if not cwd or not os.path.isdir(cwd):
+        cwd = str(config.PROJECT_ROOT)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = "."
+    started = time.monotonic()
+    stdout_excerpt = ""
+    stderr_excerpt = ""
+    exit_code = 1
+    timed_out = False
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        exit_code = int(completed.returncode)
+        stdout_excerpt = str(completed.stdout or "")[:4000]
+        stderr_excerpt = str(completed.stderr or "")[:4000]
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        exit_code = 124
+        stdout_excerpt = str(exc.stdout or "")[:4000]
+        stderr_excerpt = (str(exc.stderr or "") or f"command timed out after {timeout_seconds}s")[:4000]
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return _record_command_result_artifact(
+        ctx,
+        command=command,
+        purpose=purpose,
+        exit_code=exit_code,
+        simulated=False,
+        cwd=cwd,
+        stdout_excerpt=stdout_excerpt,
+        stderr_excerpt=stderr_excerpt,
+        duration_ms=duration_ms,
+        timeout=timed_out,
+    )
 
 
 def _condition_matches(expression: str, blackboard: Mapping[str, Any]) -> bool:

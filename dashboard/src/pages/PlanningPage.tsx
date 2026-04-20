@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import {
   api,
@@ -8,6 +8,7 @@ import {
   PlanningManifest,
   PlanningManifestHistory,
   PlanningMissionControl,
+  PlanningGoalTrace,
   RequirementCandidate,
 } from '../api'
 
@@ -34,6 +35,11 @@ type GoalSettingsDraft = {
   risk_level: string
   weight: string
   acceptance_kind: string
+}
+
+type CachedGoalDetail = {
+  goal: PlanningGoal
+  cacheKey: string
 }
 
 function formatTime(value: string | null | undefined) {
@@ -260,15 +266,19 @@ function GoalMissionLaneSection({
   busy,
   onCandidateAction,
   onEditIntent,
+  onPrefetchIntent,
   onEditSettings,
   onDropGoal,
+  onTraceGoal,
 }: Readonly<{
   lane: GoalMissionLane
   busy: string | null
   onCandidateAction: (candidate: RequirementCandidate, action: CandidateAction) => void
   onEditIntent: (goal: PlanningGoal) => void
+  onPrefetchIntent: (goal: PlanningGoal) => void
   onEditSettings: (goal: PlanningGoal) => void
   onDropGoal: (goal: Goal) => void
+  onTraceGoal: (goal: PlanningGoal) => void
 }>) {
   const goal = lane.goal
   const status = goal.status || 'active'
@@ -292,7 +302,15 @@ function GoalMissionLaneSection({
             {status === 'dropped' ? <span className="text-rose-700">Delivered artifacts retained.</span> : null}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-medium text-cyan-100" onClick={() => onEditIntent(goal)}>Edit Intent & PRD</button>
+            <button
+              className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-2 text-xs font-medium text-cyan-100"
+              onFocus={() => onPrefetchIntent(goal)}
+              onMouseEnter={() => onPrefetchIntent(goal)}
+              onClick={() => onEditIntent(goal)}
+            >
+              Edit Intent & PRD
+            </button>
+            <button className="rounded-xl border border-emerald-300/25 bg-emerald-300/[0.06] px-3 py-2 text-xs font-medium text-emerald-100" onClick={() => onTraceGoal(goal)}>Trace Path</button>
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" onClick={() => onEditSettings(goal)}>Edit Goal Settings</button>
             {status !== 'dropped' && (
               <button className="rounded-xl border border-rose-200 bg-[color:var(--ops-panel)] px-3 py-2 text-xs font-medium text-rose-700" onClick={() => onDropGoal(goal)}>Drop Goal</button>
@@ -305,6 +323,78 @@ function GoalMissionLaneSection({
         </div>
       </div>
     </section>
+  )
+}
+
+function traceTone(status: string) {
+  if (status === 'ok') return 'border-emerald-300/30 bg-emerald-300/[0.07] text-emerald-100'
+  if (status === 'warning') return 'border-amber-300/30 bg-amber-300/[0.08] text-amber-100'
+  if (status === 'blocked') return 'border-rose-300/30 bg-rose-400/10 text-rose-100'
+  return 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] text-[color:var(--ops-text-body)]'
+}
+
+function GoalTraceDrawer({
+  open,
+  trace,
+  busy,
+  error,
+  onClose,
+}: Readonly<{
+  open: boolean
+  trace: PlanningGoalTrace | null
+  busy: string | null
+  error: string | null
+  onClose: () => void
+}>) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-trace-drawer">
+      <aside className="h-full w-full max-w-4xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Single-Goal Trace</div>
+            <h3 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{String(trace?.goal?.title || 'Goal trace')}</h3>
+            <p className="mt-1 font-mono text-xs text-[color:var(--ops-text-muted)]">
+              {String(trace?.goal?.goal_key || '')} · diagnostics are filtered to this exact goal.
+            </p>
+          </div>
+          <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
+        </div>
+        {error ? <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div> : null}
+        {busy === 'trace_goal' ? (
+          <div className="mt-6 space-y-3">
+            {[1, 2, 3, 4].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]" />)}
+          </div>
+        ) : (
+          <div className="mt-6 space-y-3">
+            {(trace?.nodes || []).map((node, index) => (
+              <article key={`${node.kind}:${node.object_id || index}`} className={['rounded-2xl border p-4', traceTone(node.status)].join(' ')}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-70">{index + 1}. {node.kind} · {node.status}</div>
+                    <h4 className="mt-1 text-base font-semibold">{node.title}</h4>
+                    {node.summary ? <p className="mt-2 text-sm leading-6 opacity-85">{node.summary}</p> : null}
+                  </div>
+                  {node.deep_link ? <a className="rounded-xl border border-current/25 px-3 py-2 text-xs font-medium" href={node.deep_link}>Open</a> : null}
+                </div>
+                {node.diagnostic?.reason ? (
+                  <div className="mt-3 rounded-xl border border-current/15 bg-slate-950/20 px-3 py-2 text-xs">
+                    <div>why: {node.diagnostic.reason}</div>
+                    <div className="mt-1 opacity-75">source: {node.diagnostic.source || '-'} · {node.diagnostic.timestamp || '-'}</div>
+                  </div>
+                ) : null}
+                {Object.keys(node.metadata || {}).length ? (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-xs font-medium opacity-80">metadata</summary>
+                    <JsonBlock value={node.metadata} />
+                  </details>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        )}
+      </aside>
+    </div>
   )
 }
 
@@ -698,6 +788,7 @@ function MarkdownTabs({
 function GoalIntentDrawer({
   goal,
   draft,
+  loading,
   busy,
   error,
   setDraft,
@@ -706,6 +797,7 @@ function GoalIntentDrawer({
 }: Readonly<{
   goal: PlanningGoal | null
   draft: string
+  loading: boolean
   busy: string | null
   error: string | null
   setDraft: (value: string) => void
@@ -724,12 +816,23 @@ function GoalIntentDrawer({
           </div>
           <div className="flex gap-2">
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
-            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy === 'save_intent'} onClick={onSave}>Save Intent</button>
+            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={loading || busy === 'save_intent'} onClick={onSave}>Save Intent</button>
           </div>
         </div>
         {error && <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
         <div className="mt-6">
-          <MarkdownTabs value={draft} onChange={setDraft} minHeightClass="min-h-[70vh]" />
+          {loading ? (
+            <div className="min-h-[70vh] animate-pulse rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]" data-testid="goal-intent-skeleton" />
+          ) : draft.trim() ? (
+            <MarkdownTabs value={draft} onChange={setDraft} minHeightClass="min-h-[70vh]" />
+          ) : (
+            <div>
+              <div className="mb-3 rounded-2xl border border-amber-300/25 bg-amber-300/[0.08] px-4 py-3 text-sm text-amber-100">
+                No PRD saved for this goal yet.
+              </div>
+              <MarkdownTabs value={draft} onChange={setDraft} minHeightClass="min-h-[70vh]" />
+            </div>
+          )}
         </div>
       </aside>
     </div>
@@ -862,6 +965,13 @@ export default function PlanningPage() {
   const [intentGoal, setIntentGoal] = useState<PlanningGoal | null>(null)
   const [intentDraft, setIntentDraft] = useState('')
   const [intentError, setIntentError] = useState<string | null>(null)
+  const [intentLoading, setIntentLoading] = useState(false)
+  const [optimisticExcerpts, setOptimisticExcerpts] = useState<Record<number, string>>({})
+  const goalDetailCache = useRef<Record<number, CachedGoalDetail>>({})
+  const prefetchTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({})
+  const [traceOpen, setTraceOpen] = useState(false)
+  const [goalTrace, setGoalTrace] = useState<PlanningGoalTrace | null>(null)
+  const [traceError, setTraceError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsGoal, setSettingsGoal] = useState<PlanningGoal | null>(null)
   const [settingsDraft, setSettingsDraft] = useState<GoalSettingsDraft>(goalSettingsDraftFrom(null))
@@ -869,6 +979,15 @@ export default function PlanningPage() {
 
   const candidateTotals = mission?.candidate_totals || {}
   const pendingActions = numberValue(candidateTotals.pending) + numberValue(candidateTotals.approved)
+
+  function goalCacheKey(goal: PlanningGoal) {
+    return `${goal.id}:${goal.updated_at || ''}`
+  }
+
+  function localIntentExcerpt(value: string) {
+    const text = value.split(/\s+/).filter(Boolean).join(' ')
+    return text.length > 200 ? `${text.slice(0, 200).trim()}...` : text
+  }
 
   async function load(nextPage = historyPage) {
     setLoading(true)
@@ -891,6 +1010,10 @@ export default function PlanningPage() {
 
   useEffect(() => {
     load(1).catch(() => {})
+  }, [])
+
+  useEffect(() => () => {
+    Object.values(prefetchTimers.current).forEach((timer) => clearTimeout(timer))
   }, [])
 
   function buildPayloadFromSteering() {
@@ -994,17 +1117,35 @@ export default function PlanningPage() {
     }
   }
 
+  async function fetchGoalDetail(goal: PlanningGoal) {
+    const cached = goalDetailCache.current[goal.id]
+    if (cached?.cacheKey === goalCacheKey(goal)) return cached.goal
+    const detail = await api.getPlanningGoal(goal.id)
+    goalDetailCache.current[goal.id] = { goal: detail, cacheKey: goalCacheKey(detail) }
+    return detail
+  }
+
+  function prefetchGoalIntent(goal: PlanningGoal) {
+    if (goalDetailCache.current[goal.id]?.cacheKey === goalCacheKey(goal) || prefetchTimers.current[goal.id]) return
+    prefetchTimers.current[goal.id] = setTimeout(() => {
+      delete prefetchTimers.current[goal.id]
+      fetchGoalDetail(goal).catch(() => {})
+    }, 150)
+  }
+
   async function openIntentEditor(goal: PlanningGoal) {
-    setBusy(`load_intent:${goal.id}`)
+    setIntentGoal(goal)
+    setIntentDraft('')
+    setIntentLoading(true)
     setIntentError(null)
     try {
-      const detail = await api.getPlanningGoal(goal.id)
+      const detail = await fetchGoalDetail(goal)
       setIntentGoal(detail)
       setIntentDraft(detail.intent_markdown || '')
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载 Goal Markdown 失败')
+      setIntentError(err instanceof Error ? err.message : '加载 Goal Markdown 失败')
     } finally {
-      setBusy(null)
+      setIntentLoading(false)
     }
   }
 
@@ -1012,12 +1153,25 @@ export default function PlanningPage() {
     if (!intentGoal) return
     setBusy('save_intent')
     setIntentError(null)
+    const previous = intentGoal
+    const previousDraft = previous.intent_markdown || ''
+    const nextGoal = {
+      ...previous,
+      intent_markdown: intentDraft,
+      intent_excerpt: localIntentExcerpt(intentDraft),
+      updated_at: new Date().toISOString(),
+    }
+    goalDetailCache.current[previous.id] = { goal: nextGoal, cacheKey: goalCacheKey(nextGoal) }
+    setOptimisticExcerpts((current) => ({ ...current, [previous.id]: nextGoal.intent_excerpt }))
+    setIntentGoal(null)
+    setIntentDraft('')
     try {
       await api.updatePlanningGoal(intentGoal.id, { intent_markdown: intentDraft, operator: 'operator' })
-      setIntentGoal(null)
-      setIntentDraft('')
       await load(historyPage)
     } catch (err) {
+      goalDetailCache.current[previous.id] = { goal: previous, cacheKey: goalCacheKey(previous) }
+      setIntentGoal(previous)
+      setIntentDraft(previousDraft)
       setIntentError(err instanceof Error ? err.message : '保存 Goal Markdown 失败')
     } finally {
       setBusy(null)
@@ -1106,6 +1260,20 @@ export default function PlanningPage() {
     }
   }
 
+  async function openGoalTrace(goal: PlanningGoal) {
+    setTraceOpen(true)
+    setGoalTrace(null)
+    setTraceError(null)
+    setBusy('trace_goal')
+    try {
+      setGoalTrace(await api.getPlanningGoalTrace(goal.id))
+    } catch (err) {
+      setTraceError(err instanceof Error ? err.message : '加载 Goal Trace 失败')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-5" data-testid="planning-page">
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -1170,12 +1338,17 @@ export default function PlanningPage() {
           {(mission?.goal_lanes || []).map((lane) => (
             <GoalMissionLaneSection
               key={lane.goal_key}
-              lane={lane}
+              lane={{
+                ...lane,
+                goal: optimisticExcerpts[lane.goal.id] ? { ...lane.goal, intent_excerpt: optimisticExcerpts[lane.goal.id] } : lane.goal,
+              }}
               busy={busy}
               onCandidateAction={actOnCandidate}
               onEditIntent={openIntentEditor}
+              onPrefetchIntent={prefetchGoalIntent}
               onEditSettings={openSettingsEditor}
               onDropGoal={setDropGoal}
+              onTraceGoal={openGoalTrace}
             />
           ))}
           {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
@@ -1202,7 +1375,8 @@ export default function PlanningPage() {
       <RawManifestDrawer open={rawOpen} manifest={mission?.manifest || null} rawDraft={rawDraft} setRawDraft={setRawDraft} rawError={rawError} onClose={() => setRawOpen(false)} onSave={saveRaw} />
       <ArchiveCycleModal open={archiveOpen} mission={mission} busy={busy} onClose={() => setArchiveOpen(false)} onArchive={archiveCycle} />
       <DropGoalModal goal={dropGoal} reason={dropReason} busy={busy} setReason={setDropReason} onCancel={() => setDropGoal(null)} onConfirm={confirmDropGoal} />
-      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
+      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} loading={intentLoading} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
+      <GoalTraceDrawer open={traceOpen} trace={goalTrace} busy={busy} error={traceError} onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }} />
       <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>

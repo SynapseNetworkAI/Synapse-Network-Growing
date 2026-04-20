@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   api,
   DeclarativeWorkflowDefinition,
@@ -71,9 +71,13 @@ function SummaryCard({ label, value, detail }: Readonly<{ label: string; value: 
 
 function EmptyWorkflowState({
   summary,
+  tab,
+  onOpenCompleted,
   onOpenDefinitions,
 }: Readonly<{
   summary: WorkflowRunsSummary | null
+  tab: WorkflowTab
+  onOpenCompleted: () => void
   onOpenDefinitions: () => void
 }>) {
   const navigate = useNavigate()
@@ -81,10 +85,12 @@ function EmptyWorkflowState({
   return (
     <div className="rounded-[var(--ops-radius-panel)] border border-dashed border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-6 py-10">
       <div className="max-w-3xl">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">No Workflow Runs Yet</div>
-        <h3 className="mt-3 text-xl font-semibold text-[color:var(--ops-text-title)]">还没有工作流运行记录</h3>
+        <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">No Matching Workflow Runs</div>
+        <h3 className="mt-3 text-xl font-semibold text-[color:var(--ops-text-title)]">{tab === 'active' ? '当前没有运行中的 workflow' : '当前视图没有匹配的 workflow'}</h3>
         <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">
-          当前工作流列表为空，不代表系统没有发现事情。它表示候选需求还没有 materialize 成正式 Requirement，或者 Requirement 还没有提交并启动 declarative workflow run。
+          {tab === 'active' && (summary?.completed || 0) > 0
+            ? `系统已有 ${summary?.completed || 0} 个 completed workflow run，它们在 Completed tab 中。`
+            : '当前过滤条件下没有 workflow run；这不代表历史为空，请切换 tab 或检查 Planning / Requirements 链路。'}
           {count > 0 ? ` 当前已有 ${count} 个 pending / approved RequirementCandidate 等待进入正式需求。` : ' 当前没有等待处理的候选需求。'}
         </p>
         {summary?.recent_candidates?.length ? (
@@ -101,6 +107,11 @@ function EmptyWorkflowState({
           <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2.5 text-sm font-medium text-white" onClick={() => navigate('/planning')}>
             打开 Planning
           </button>
+          {tab === 'active' && (summary?.completed || 0) > 0 ? (
+            <button type="button" className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-2.5 text-sm text-cyan-100" onClick={onOpenCompleted}>
+              View Completed Runs
+            </button>
+          ) : null}
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => navigate('/requirements')}>
             新建 Requirement
           </button>
@@ -157,22 +168,24 @@ function WorkflowRunsTable({
                   <StateBadge tone={statusTone(item.needs_human ? 'awaiting_operator' : item.status)}>{item.outcome_label || item.status}</StateBadge>
                   <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{workflowOutcome(item)}</div>
                   {item.resolution ? <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{item.resolution}</div> : null}
-                  {item.simulated_delivery ? <div className="mt-1 text-xs text-amber-700">Simulated PR</div> : null}
+                  {item.delivery_is_simulated || item.simulated_delivery ? <div className="mt-1 text-xs text-amber-700">Simulated PR</div> : null}
                   {item.evidence_complete === false ? <div className="mt-1 text-xs text-amber-700">Evidence incomplete</div> : null}
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                   <div>{item.atom_count ?? 0} atoms · {item.artifact_count ?? 0} artifacts</div>
+                  <div className="mt-1">{item.changed_files_count ?? 0} changed · {item.command_evidence_count ?? 0} commands</div>
                   <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-caption)]">{item.last_atom || 'no atom yet'}</div>
                   <div className="mt-1">{item.pending_human_gate_count ? `${item.pending_human_gate_count} gate pending` : item.last_human_gate_decision ? `gate: ${item.last_human_gate_decision}` : 'no pending gate'}</div>
                   <div className="mt-1">duration: {formatDuration(item.duration_ms)}</div>
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-body)]">
                   {workflowNextAction(item)}
-                  {item.pr_url ? (
-                    <a className="mt-1 block text-xs text-[color:var(--ops-accent-strong)]" href={item.pr_url} target="_blank" rel="noreferrer">
+                  {item.delivery_pr_url || item.pr_url ? (
+                    <a className="mt-1 block text-xs text-[color:var(--ops-accent-strong)]" href={item.delivery_pr_url || item.pr_url || '#'} target="_blank" rel="noreferrer">
                       PR / delivery
                     </a>
                   ) : null}
+                  {item.delivery_status ? <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">delivery: {item.delivery_status}</div> : null}
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                   {formatTime(item.completed_at || item.updated_at)}
@@ -253,21 +266,32 @@ function DefinitionsPanel({ definitions }: Readonly<{ definitions: DeclarativeWo
 }
 
 export default function WorkflowRunsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab = (searchParams.get('tab') || 'active') as WorkflowTab
+  const safeInitialTab = TABS.some((item) => item.key === initialTab) ? initialTab : 'active'
   const [items, setItems] = useState<DeclarativeWorkflowRunSummary[]>([])
   const [definitions, setDefinitions] = useState<DeclarativeWorkflowDefinition[]>([])
   const [summary, setSummary] = useState<WorkflowRunsSummary | null>(null)
-  const [tab, setTab] = useState<WorkflowTab>('active')
+  const [tab, setTab] = useState<WorkflowTab>(safeInitialTab)
   const [filters, setFilters] = useState({
-    workflow_key: '',
-    current_state: '',
-    risk_level: '',
-    requirement_id: '',
+    workflow_key: searchParams.get('workflow_key') || '',
+    goal_key: searchParams.get('goal_key') || '',
+    current_state: searchParams.get('current_state') || '',
+    risk_level: searchParams.get('risk_level') || '',
+    requirement_id: searchParams.get('requirement_id')?.replace(/[^0-9]/g, '') || '',
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const toast = useToast()
 
   const activeTab = useMemo(() => TABS.find((item) => item.key === tab) || TABS[0], [tab])
+
+  function selectTab(nextTab: WorkflowTab) {
+    setTab(nextTab)
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', nextTab)
+    setSearchParams(next, { replace: true })
+  }
 
   async function load(nextTab = tab) {
     setLoading(true)
@@ -288,6 +312,7 @@ export default function WorkflowRunsPage() {
           tab: nextTab,
           include_archived: nextTab === 'archived',
           workflow_key: filters.workflow_key || undefined,
+          goal_key: filters.goal_key || undefined,
           current_state: filters.current_state || undefined,
           risk_level: filters.risk_level || undefined,
           requirement_id: filters.requirement_id ? Number(filters.requirement_id) : undefined,
@@ -303,7 +328,7 @@ export default function WorkflowRunsPage() {
 
   useEffect(() => {
     load(tab).catch(() => {})
-  }, [tab, filters.workflow_key, filters.current_state, filters.risk_level])
+  }, [tab, filters.workflow_key, filters.goal_key, filters.current_state, filters.risk_level])
 
   async function archiveRun(item: DeclarativeWorkflowRunSummary) {
     try {
@@ -369,7 +394,7 @@ export default function WorkflowRunsPage() {
                   ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]'
                   : 'border border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-body)] hover:bg-[color:var(--ops-panel-subtle)]',
               ].join(' ')}
-              onClick={() => setTab(item.key)}
+              onClick={() => selectTab(item.key)}
             >
               <span className="block font-semibold">{item.label}</span>
               <span className={tab === item.key ? 'text-cyan-100/70' : 'text-[color:var(--ops-text-caption)]'}>{item.helper}</span>
@@ -380,13 +405,14 @@ export default function WorkflowRunsPage() {
 
       {tab !== 'definitions' ? (
         <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-4" data-testid="workflow-run-filters">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" value={filters.workflow_key} onChange={(event) => setFilters((current) => ({ ...current, workflow_key: event.target.value }))}>
               <option value="">全部 workflow</option>
               {definitions.map((definition) => (
                 <option key={definition.workflow_key} value={definition.workflow_key}>{definition.workflow_key}</option>
               ))}
             </select>
+            <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" placeholder="goal_key" value={filters.goal_key} onChange={(event) => setFilters((current) => ({ ...current, goal_key: event.target.value }))} />
             <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" placeholder="current_state" value={filters.current_state} onChange={(event) => setFilters((current) => ({ ...current, current_state: event.target.value }))} />
             <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" value={filters.risk_level} onChange={(event) => setFilters((current) => ({ ...current, risk_level: event.target.value }))}>
               <option value="">全部风险</option>
@@ -401,7 +427,7 @@ export default function WorkflowRunsPage() {
       ) : null}
 
       {tab === 'definitions' ? <DefinitionsPanel definitions={definitions} /> : null}
-      {hasNoRuns ? <EmptyWorkflowState summary={summary} onOpenDefinitions={() => setTab('definitions')} /> : null}
+      {hasNoRuns ? <EmptyWorkflowState summary={summary} tab={tab} onOpenCompleted={() => selectTab('completed')} onOpenDefinitions={() => selectTab('definitions')} /> : null}
       {!loading && tab !== 'definitions' && items.length > 0 ? (
         <WorkflowRunsTable items={items} tab={tab} onArchive={archiveRun} onCreateFollowup={createFollowup} />
       ) : null}

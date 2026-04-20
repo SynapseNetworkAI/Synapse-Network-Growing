@@ -99,6 +99,16 @@ class DeclarativeWorkflowRunSummaryOut(BaseModel):
     updated_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    requirement_candidate_id: Optional[int] = None
+    requirement_source: Optional[str] = None
+    delivery_pr_url: Optional[str] = None
+    delivery_compare_url: Optional[str] = None
+    delivery_branch: Optional[str] = None
+    delivery_base_branch: Optional[str] = None
+    delivery_status: Optional[str] = None
+    delivery_is_simulated: bool = False
+    changed_files_count: int = 0
+    command_evidence_count: int = 0
     outcome_label: Optional[str] = None
     is_truly_completed: bool = False
     completed_truthfully: bool = False
@@ -247,6 +257,33 @@ class PlanningGoalRollupOut(BaseModel):
     requirement_status_counts: dict[str, int] = {}
     workflow_status_counts: dict[str, int] = {}
     release_status_counts: dict[str, int] = {}
+
+
+class PlanningGoalTraceDiagnosticOut(BaseModel):
+    reason: str = ""
+    source: str = ""
+    timestamp: Optional[datetime] = None
+    sweep_id: Optional[int] = None
+    goal_key: Optional[str] = None
+
+
+class PlanningGoalTraceNodeOut(BaseModel):
+    kind: str
+    status: str = "missing"
+    title: str
+    summary: str = ""
+    object_id: Optional[int] = None
+    deep_link: Optional[str] = None
+    diagnostic: Optional[PlanningGoalTraceDiagnosticOut] = None
+    metadata: dict[str, object] = {}
+
+
+class PlanningGoalTraceOut(BaseModel):
+    goal: dict[str, object] = {}
+    nodes: list[PlanningGoalTraceNodeOut] = []
+    diagnostics: list[PlanningGoalTraceDiagnosticOut] = []
+    next_actions: list[dict[str, object]] = []
+    history: list[dict[str, object]] = []
 
 
 class PlanningGlobalSteeringOut(BaseModel):

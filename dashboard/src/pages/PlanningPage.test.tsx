@@ -17,6 +17,7 @@ const apiMock = vi.hoisted(() => ({
   rejectRequirementCandidate: vi.fn(),
   materializeRequirementCandidate: vi.fn(),
   getPlanningGoal: vi.fn(),
+  getPlanningGoalTrace: vi.fn(),
   createPlanningGoal: vi.fn(),
   updatePlanningGoal: vi.fn(),
 }))
@@ -186,6 +187,16 @@ describe('PlanningPage Mission Control', () => {
       ...reliabilityGoal,
       intent_markdown: '# Reliability PRD\n\nKeep gateway healthy with concrete checks.',
     })
+    apiMock.getPlanningGoalTrace.mockResolvedValue({
+      goal: { id: 101, goal_key: 'gateway_reliability', title: 'Gateway reliability', intent_present: true },
+      nodes: [
+        { kind: 'goal', status: 'ok', title: 'Goal PRD saved', summary: 'PRD exists', object_id: 101, deep_link: '/planning?goal=gateway_reliability', diagnostic: null, metadata: {} },
+        { kind: 'candidate', status: 'ok', title: 'Candidate #10', summary: 'materialized', object_id: 10, deep_link: '/planning?candidate=10', diagnostic: null, metadata: { generated_by: 'planner_agent_v1' } },
+      ],
+      diagnostics: [],
+      next_actions: [],
+      history: [],
+    })
     apiMock.updatePlanningGoal.mockResolvedValue({
       ...reliabilityGoal,
       intent_markdown: '# Updated PRD',
@@ -276,6 +287,21 @@ describe('PlanningPage Mission Control', () => {
         operator: 'operator',
       })
     })
+  })
+
+  it('opens a single-goal trace panel from the goal lane', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Trace Path' }))
+
+    await waitFor(() => {
+      expect(apiMock.getPlanningGoalTrace).toHaveBeenCalledWith(101)
+    })
+    const drawer = await screen.findByTestId('goal-trace-drawer')
+    expect(within(drawer).getByText('Goal PRD saved')).toBeTruthy()
+    expect(within(drawer).getByText('Candidate #10')).toBeTruthy()
   })
 
   it('creates a goal from core intent and markdown without acceptance JSON', async () => {

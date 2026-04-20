@@ -563,6 +563,13 @@ class WorkflowRunRow(Base):
     archived_at = Column(DateTime)
     archived_by = Column(Text)
     archive_reason = Column(Text)
+    delivery_pr_url = Column(Text)
+    delivery_compare_url = Column(Text)
+    delivery_branch = Column(Text)
+    delivery_base_branch = Column(Text)
+    delivery_status = Column(Text)
+    delivery_is_simulated = Column(Boolean, nullable=False, default=False)
+    delivery_synced_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1360,6 +1367,13 @@ def _migrate(engine_):
             "archived_at": "DATETIME",
             "archived_by": "TEXT",
             "archive_reason": "TEXT",
+            "delivery_pr_url": "TEXT",
+            "delivery_compare_url": "TEXT",
+            "delivery_branch": "TEXT",
+            "delivery_base_branch": "TEXT",
+            "delivery_status": "TEXT",
+            "delivery_is_simulated": "BOOLEAN DEFAULT 0",
+            "delivery_synced_at": "DATETIME",
         }
         for col, col_type in workflow_run_cols.items():
             if col not in existing:

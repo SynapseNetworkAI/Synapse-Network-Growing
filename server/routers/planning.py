@@ -16,6 +16,7 @@ from server.schemas import (
     PlanningGoalRollupOut,
     PlanningGoalCreateRequest,
     PlanningGoalOut,
+    PlanningGoalTraceOut,
     PlanningMissionControlOut,
     PlanningGoalUpdateRequest,
     PlanningManifestHistoryOut,
@@ -33,6 +34,7 @@ from server.services.planning.lifecycle import (
     drop_goal,
     ensure_active_manifest,
     get_goal,
+    goal_trace,
     goal_rollup,
     list_candidates,
     list_goals,
@@ -107,6 +109,14 @@ def get_goals(
 def get_goal_detail(goal_id: int, db: Session = Depends(get_db)):
     try:
         return get_goal(db, goal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/goals/{goal_id}/trace", response_model=PlanningGoalTraceOut)
+def get_goal_trace(goal_id: int, db: Session = Depends(get_db)):
+    try:
+        return goal_trace(db, goal_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

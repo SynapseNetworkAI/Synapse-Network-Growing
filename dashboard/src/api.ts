@@ -544,6 +544,8 @@ export interface DeclarativeWorkflowRunSummary {
   id: number
   requirement_id: number
   requirement_title?: string
+  requirement_candidate_id?: number | null
+  requirement_source?: string | null
   workflow_key: string
   current_state: string
   status: string
@@ -559,6 +561,14 @@ export interface DeclarativeWorkflowRunSummary {
   duration_ms?: number | null
   pr_url?: string | null
   release_status?: string | null
+  delivery_pr_url?: string | null
+  delivery_compare_url?: string | null
+  delivery_branch?: string | null
+  delivery_base_branch?: string | null
+  delivery_status?: string | null
+  delivery_is_simulated?: boolean
+  changed_files_count?: number
+  command_evidence_count?: number
   updated_at: string | null
   started_at: string | null
   completed_at: string | null
@@ -1616,6 +1626,33 @@ export interface PlanningGoal {
   updated_at: string | null
 }
 
+export interface PlanningGoalTraceDiagnostic {
+  reason: string
+  source: string
+  timestamp: string | null
+  sweep_id?: number | null
+  goal_key?: string | null
+}
+
+export interface PlanningGoalTraceNode {
+  kind: string
+  status: 'ok' | 'warning' | 'blocked' | 'missing' | string
+  title: string
+  summary: string
+  object_id: number | null
+  deep_link: string | null
+  diagnostic?: PlanningGoalTraceDiagnostic | null
+  metadata: Record<string, unknown>
+}
+
+export interface PlanningGoalTrace {
+  goal: Record<string, unknown>
+  nodes: PlanningGoalTraceNode[]
+  diagnostics: PlanningGoalTraceDiagnostic[]
+  next_actions: Array<Record<string, unknown>>
+  history: Array<Record<string, unknown>>
+}
+
 export interface RequirementCandidate {
   id: number
   manifest_id: number
@@ -1757,6 +1794,7 @@ export const api = {
     return request<PlanningManifestHistory>(`/planning/manifests/history?${params.toString()}`)
   },
   getPlanningGoal: (id: number) => request<PlanningGoal>(`/planning/goals/${id}`),
+  getPlanningGoalTrace: (id: number) => request<PlanningGoalTrace>(`/planning/goals/${id}/trace`),
   createPlanningGoal: (data: Partial<PlanningGoal> & { goal_key: string; title: string }) =>
     request<PlanningGoal>('/planning/goals', { method: 'POST', body: JSON.stringify(data) }),
   updatePlanningGoal: (id: number, data: Partial<PlanningGoal> & { operator?: string }) =>
@@ -2036,6 +2074,7 @@ export const api = {
     include_archived?: boolean
     status?: string
     workflow_key?: string
+    goal_key?: string
     current_state?: string
     risk_level?: string
     pending_human_gate?: boolean
@@ -2049,6 +2088,7 @@ export const api = {
     if (filters?.include_archived != null) params.set('include_archived', String(filters.include_archived))
     if (filters?.status) params.set('status', filters.status)
     if (filters?.workflow_key) params.set('workflow_key', filters.workflow_key)
+    if (filters?.goal_key) params.set('goal_key', filters.goal_key)
     if (filters?.current_state) params.set('current_state', filters.current_state)
     if (filters?.risk_level) params.set('risk_level', filters.risk_level)
     if (filters?.pending_human_gate != null) params.set('pending_human_gate', String(filters.pending_human_gate))
@@ -2062,6 +2102,7 @@ export const api = {
     include_archived?: boolean
     status?: string
     workflow_key?: string
+    goal_key?: string
     current_state?: string
     risk_level?: string
     pending_human_gate?: boolean
@@ -2074,6 +2115,7 @@ export const api = {
     if (filters?.include_archived != null) params.set('include_archived', String(filters.include_archived))
     if (filters?.status) params.set('status', filters.status)
     if (filters?.workflow_key) params.set('workflow_key', filters.workflow_key)
+    if (filters?.goal_key) params.set('goal_key', filters.goal_key)
     if (filters?.current_state) params.set('current_state', filters.current_state)
     if (filters?.risk_level) params.set('risk_level', filters.risk_level)
     if (filters?.pending_human_gate != null) params.set('pending_human_gate', String(filters.pending_human_gate))

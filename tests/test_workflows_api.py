@@ -91,7 +91,7 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["blackboard"]["verification"]["status"] == "passed"
     assert payload["evidence_complete"] is True
     assert payload["command_results"][0]["exit_code"] == 0
-    assert payload["command_results"][0]["simulated"] is True
+    assert payload["command_results"][0]["simulated"] is False
     assert any(output["state_key"] == "diagnose" for output in payload["agent_outputs"])
     assert "server/services/workflows/declarative.py" in payload["changed_files_summary"]["changed_files"]
     assert payload["blackboard"]["pr"]["created"] is True

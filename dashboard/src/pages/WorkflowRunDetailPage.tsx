@@ -664,6 +664,21 @@ function StepVerificationMatrix({ detail }: Readonly<{ detail: DeclarativeWorkfl
   )
 }
 
+function WorkflowAcceptanceSourcePanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const candidateId = detail.requirement_candidate_id
+  return (
+    <Panel title="Acceptance Source">
+      <div className="flex flex-wrap gap-2 text-sm text-[color:var(--ops-text-body)]">
+        <span className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-3 py-1 text-cyan-100">
+          {candidateId ? `Generated from Candidate #${candidateId}` : 'Requirement acceptance contract'}
+        </span>
+        {detail.requirement_source ? <span className="rounded-full border border-[color:var(--ops-stroke-soft)] px-3 py-1">source: {detail.requirement_source}</span> : null}
+        {detail.goal_key ? <span className="rounded-full border border-[color:var(--ops-stroke-soft)] px-3 py-1">goal: {detail.goal_key}</span> : null}
+      </div>
+    </Panel>
+  )
+}
+
 function GateDeliveryPanel({
   detail,
   busyGateId,
@@ -1046,6 +1061,7 @@ export default function WorkflowRunDetailPage() {
 
       {activeTab === 'evidence' ? (
         <div className="space-y-5">
+          <WorkflowAcceptanceSourcePanel detail={detail} />
           {isHumanOverride(detail) ? (
             <ManualReviewPanel
               detail={detail}

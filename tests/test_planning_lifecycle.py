@@ -4,10 +4,12 @@ from server.database import (
     HumanGateRequestRow,
     OperatingManifestRow,
     PlanningGoalRow,
+    PlannerSweepRow,
     ProjectRow,
     ReleaseRecordRow,
     RequirementCandidateRow,
     RequirementRow,
+    WorkflowArtifactRow,
     WorkflowRunRow,
     WorkflowStateEventRow,
 )
@@ -124,6 +126,136 @@ def test_manifest_save_rejects_embedded_goals(client):
 
     assert response.status_code == 400
     assert "goals are first-class records" in response.json()["detail"]
+
+
+def test_goal_trace_filters_planner_suppression_to_current_goal(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    goal_a = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="goal_a",
+        title="Goal A",
+        intent_markdown="Goal A PRD",
+    )
+    goal_b = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="goal_b",
+        title="Goal B",
+        intent_markdown="Goal B PRD",
+    )
+    db_session.add_all([goal_a, goal_b])
+    db_session.flush()
+    db_session.add(
+        PlannerSweepRow(
+            manifest_id=int(manifest.id),
+            status="completed",
+            suppressed_items_json=json.dumps(
+                [
+                    {"goal_key": "goal_a", "reason": "goal_a_noise"},
+                    {"goal_key": "goal_b", "reason": "active_requirement_exists"},
+                ]
+            ),
+            parsed_output_json=json.dumps({}),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/planning/goals/{int(goal_b.id)}/trace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    reasons = [item["reason"] for item in payload["diagnostics"]]
+    assert reasons == ["active_requirement_exists"]
+    assert all(item.get("goal_key") == "goal_b" for item in payload["diagnostics"])
+    assert "goal_a_noise" not in json.dumps(payload)
+
+
+def test_goal_trace_returns_latest_chain_and_evidence(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    goal = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="trace_goal",
+        title="Trace Goal",
+        intent_markdown="Traceable PRD",
+    )
+    db_session.add(goal)
+    db_session.flush()
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="trace_goal",
+        candidate_fingerprint="trace-fp",
+        title="Trace candidate",
+        workflow_key="agent_self_repair",
+        status="materialized",
+        metadata_json=json.dumps(
+            {
+                "generated_by": "planner_agent_v1",
+                "routing_decision": "auto_materialize_and_start",
+                "acceptance_contract": {
+                    "execution_acceptance_steps": [
+                        {"step_key": "evidence", "title": "Evidence exists", "expected_result": "Command evidence is present", "required_evidence_types": ["workflow_command_result"]}
+                    ]
+                },
+            }
+        ),
+    )
+    db_session.add(candidate)
+    db_session.flush()
+    requirement = RequirementRow(
+        title="Trace requirement",
+        description_markdown="Trace requirement",
+        status="completed",
+        source="planner_candidate",
+        operating_manifest_id=int(manifest.id),
+        goal_key="trace_goal",
+        requirement_candidate_id=int(candidate.id),
+        acceptance_contract_json=_candidate_metadata(),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    candidate.materialized_requirement_id = int(requirement.id)
+    workflow = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        operating_manifest_id=int(manifest.id),
+        goal_key="trace_goal",
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        delivery_pr_url="https://github.com/example/repo/pull/1",
+        delivery_status="draft",
+    )
+    db_session.add(workflow)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow.id)
+    db_session.add_all(
+        [
+            WorkflowArtifactRow(
+                workflow_run_id=int(workflow.id),
+                artifact_type="workflow_file_change_summary",
+                state_key="patch",
+                atom_key="coder",
+                machine_readable_payload=json.dumps({"changed_files": ["server/example.py"]}),
+            ),
+            WorkflowArtifactRow(
+                workflow_run_id=int(workflow.id),
+                artifact_type="workflow_command_result",
+                state_key="verify",
+                atom_key="verify",
+                machine_readable_payload=json.dumps({"command": "python -m pytest -q", "exit_code": 0}),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/planning/goals/{int(goal.id)}/trace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["goal"]["intent_present"] is True
+    assert [node["kind"] for node in payload["nodes"]] == ["goal", "candidate", "requirement", "workflow", "evidence"]
+    assert payload["nodes"][-1]["status"] == "ok"
+    assert payload["nodes"][-1]["metadata"]["pr_url"] == "https://github.com/example/repo/pull/1"
+    assert payload["nodes"][-1]["metadata"]["command_evidence_count"] == 1
+    assert payload["nodes"][-1]["metadata"]["changed_files_count"] == 1
 
 
 def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_goal(db_session, monkeypatch):
