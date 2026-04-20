@@ -743,11 +743,17 @@ export default function WorkflowRunDetailPage() {
     setBusyGateId(gate.id)
     setError(null)
     try {
-      setDetail(await api.decideWorkflowHumanGate(detail.id, gate.id, {
+      const nextDetail = await api.decideWorkflowHumanGate(detail.id, gate.id, {
         decision,
         reviewer: 'operator',
         comment: `Operator ${decision} from workflow detail`,
-      }))
+      })
+      setDetail(nextDetail)
+      if (nextDetail.resume_status === 'failed') {
+        toast.error('Gate decision saved, but runner resume failed. Inspect Timeline evidence.')
+      } else if (nextDetail.resume_attempted) {
+        toast.success(`Gate decision saved; runner ${nextDetail.resume_status || 'resumed'}.`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '门禁决策失败')
     } finally {

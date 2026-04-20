@@ -77,6 +77,8 @@
 5. Requirement submit 后只应创建 declarative workflow run；planner 只选择 `workflow_key` 与初始化 blackboard，不再生成固定 `research/plan/implementation/validate/closeout` steps。
 6. Agent 只能写 structured output 与 artifact；state transition、retry budget、terminal state、human gate 由 deterministic runner 决定。
 7. Workflow detail 默认必须展示 chronological timeline；Raw Blackboard / Raw Artifacts 只能通过 Debug details 或 Debug Dump 查看。
+8. 不得为了掩盖数据不一致而在 Summary API 或前端条件分支里写脏补丁；必须修复状态机未流转的根本原因。
+9. Human Gate decision 是状态机输入，不是普通表单状态；decision 写入后 Runner 必须被唤醒并收敛到下一状态、新 gate 或明确 failed terminal。
 
 ## 6.7 后台任务必须一等可观测
 
@@ -99,6 +101,8 @@
 8. Drop Goal 绝不能自动 rollback、revert commit、删除数据库变更、撤回外部发布或修改 delivered release。
 9. 已上线功能如需下线，必须创建新的 decommission requirement，并按正常 workflow、verification、human gate、release 流程执行。
 10. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
+11. Operating Manifest 只表达商业目标、预算、权重和全局约束，不承载自动执行策略。
+12. Candidate 是否可自动 materialize / start 必须由 deterministic risk router 根据 workflow allowlist、risk level、project policy 和 atom risk profile 决定。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
 

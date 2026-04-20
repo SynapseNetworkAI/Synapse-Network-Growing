@@ -955,6 +955,11 @@ def _execute_recurring_workflow(
     auto_dispatch_acceptance: bool,
 ) -> dict[str, Any]:
     if dry_run:
+        if workflow_key == "goal_planner_sweep":
+            from server.services.planning.lifecycle import run_planner_sweep, sweep_to_dict
+
+            sweep = run_planner_sweep(db, dry_run=True, triggered_by="scheduler_dry_run")
+            return sweep_to_dict(sweep)
         if workflow_key == "forum_feedback_sweep":
             return run_forum_feedback_sweep(db, dry_run=True)
         return {
@@ -1074,7 +1079,13 @@ def list_recurring_workflow_runs(db: Session, workflow_key: str, *, limit: int =
     )
 
 
-def recurring_workflow_health(db: Session, *, bug_scheduler_status: dict[str, Any] | None = None, notification_dispatcher_status: dict[str, Any] | None = None) -> dict[str, Any]:
+def recurring_workflow_health(
+    db: Session,
+    *,
+    bug_scheduler_status: dict[str, Any] | None = None,
+    goal_planner_scheduler_status: dict[str, Any] | None = None,
+    notification_dispatcher_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
     queued_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "queued").count()
     dead_letter_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "dead_letter").count()
@@ -1088,6 +1099,10 @@ def recurring_workflow_health(db: Session, *, bug_scheduler_status: dict[str, An
     bug_status = {**bug_status, "lock": scheduler_lock_snapshot(db, "scheduler:bug_log_sweep")}
     return {
         "bug_log_scheduler": bug_status,
+        "goal_planner_scheduler": goal_planner_scheduler_status or {
+            "enabled": bool(getattr(config, "GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
         "notification_dispatcher": {
             **(notification_dispatcher_status or {"enabled": bool(config.NOTIFICATION_DISPATCHER_ENABLED), "running": False}),
             "queued_count": int(queued_count),

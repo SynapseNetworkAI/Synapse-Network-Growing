@@ -196,7 +196,9 @@ def decide_workflow_human_gate_endpoint(
             db.rollback()
             raise HTTPException(status_code=404, detail="human gate does not belong to workflow run")
         db.commit()
-        return workflow_run_detail(db, workflow_run_id)
+        detail = workflow_run_detail(db, workflow_run_id)
+        detail.update(getattr(gate, "_resume_result", {}) or {})
+        return detail
     except HTTPException:
         raise
     except WorkflowRuntimeError as exc:

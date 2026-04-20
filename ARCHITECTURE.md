@@ -46,6 +46,8 @@ Historical plans, validation notes, and retired design drafts live under `docs/a
 6. Execution self-repair must stay in the same workflow run/session and stop after budget exhaustion.
 7. Raw agent output must be persisted as artifact; downstream deterministic atoms may only trust parsed/schema-valid payload.
 8. Legacy `/api/tasks`, `/api/approvals`, fixed-step orchestrator, and old task runner are retired. Do not reintroduce TaskBoard-style execution or fixed `workflow_steps` as product behavior.
+9. Do not mask state inconsistency in projection APIs or frontend conditionals. Fix the state machine transition root cause.
+10. Human Gate decisions are state machine inputs. After a decision, the runner must wake up and converge the workflow to the next state, a new gate, or a clear failed terminal state.
 
 ## 4. Planning Lifecycle Constraints
 
@@ -58,6 +60,8 @@ Historical plans, validation notes, and retired design drafts live under `docs/a
 7. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
 8. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
 9. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
+10. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
+11. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
 
 ## 5. Human Gate And Kill-Switch Constraints
 

@@ -458,7 +458,7 @@ def _workflow_truth_fields(
     verification_passed = str(verification.get("status") or "").strip().lower() == "passed"
     delivery = _delivery_summary_from_blackboard(blackboard, release)
     is_completed = _is_completed_status(row.status)
-    needs_human = pending_gate_count > 0 or str(row.status or "") == "awaiting_operator" or str(row.current_state or "") == "awaiting_operator"
+    needs_human = pending_gate_count > 0
     evidence_complete = (not verification_passed) or bool(command_results)
     warnings: list[str] = []
     if needs_human:
@@ -469,9 +469,10 @@ def _workflow_truth_fields(
         warnings.append("Evidence incomplete: verification passed without recorded command evidence.")
     if bool(delivery.get("simulated")):
         warnings.append("Simulated PR: delivery evidence is not a real external PR.")
+    stale_awaiting_operator = str(row.status or "") == "awaiting_operator" and pending_gate_count == 0
     truly_completed = is_completed and not needs_human
     return {
-        "outcome_label": "Needs Human" if needs_human else ("Completed" if truly_completed else ("Failed" if row.status == "failed" else "Running")),
+        "outcome_label": "Needs Human" if needs_human else ("Completed" if truly_completed else ("Failed" if row.status == "failed" else ("Blocked" if stale_awaiting_operator else "Running"))),
         "is_truly_completed": truly_completed,
         "completed_truthfully": truly_completed,
         "needs_human": needs_human,
@@ -642,12 +643,11 @@ def list_workflow_runs(
 
     query = db.query(WorkflowRunRow).filter(WorkflowRunRow.workflow_key != "legacy_fixed_step")
     normalized_tab = str(tab or "").strip().lower()
-    if not include_archived and normalized_tab not in {"archived", "needs_human", "human"}:
+    if not include_archived and normalized_tab != "archived":
         query = query.filter(WorkflowRunRow.archived_at.is_(None))
     if normalized_tab == "active":
         query = query.filter(WorkflowRunRow.status.in_(["pending", "running", "paused"]))
     elif normalized_tab in {"needs_human", "human"}:
-        query = query.filter(WorkflowRunRow.status == "awaiting_operator")
         pending_human_gate = True if pending_human_gate is None else pending_human_gate
     elif normalized_tab == "failed":
         query = query.filter(WorkflowRunRow.status == "failed")
@@ -712,10 +712,12 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
         .filter(HumanGateRequestRow.status == "pending")
         .all()
     }
-    needs_human_rows = db.query(WorkflowRunRow).filter(
-        WorkflowRunRow.workflow_key != "legacy_fixed_step",
-        WorkflowRunRow.id.in_(pending_gate_run_ids or {-1}),
-    ).all()
+    needs_human_rows = base.filter(WorkflowRunRow.id.in_(pending_gate_run_ids or {-1})).all()
+    failed_rows = [row for row in all_rows if row.status == "failed"]
+    stale_awaiting_rows = [
+        row for row in all_rows
+        if row.status == "awaiting_operator" and int(row.id) not in pending_gate_run_ids
+    ]
     now = utcnow()
     durations = [_workflow_duration_ms(row) for row in all_rows if _workflow_duration_ms(row) is not None]
     completed_today = [
@@ -731,8 +733,12 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
     )
     return {
         "running": sum(1 for row in all_rows if row.status in {"pending", "running", "paused"}),
-        "needs_human": len(needs_human_rows) + sum(1 for row in all_rows if row.status == "awaiting_operator" and int(row.id) not in pending_gate_run_ids),
-        "failed": sum(1 for row in all_rows if row.status == "failed"),
+        "needs_human": len(needs_human_rows),
+        "pending_gate_count": len(needs_human_rows),
+        "failed": len(failed_rows),
+        "failed_count": len(failed_rows),
+        "resume_failure_count": sum(1 for row in failed_rows if str(row.resolution or "") == "resume_failed"),
+        "stale_awaiting_operator_count": len(stale_awaiting_rows),
         "completed": sum(1 for row in all_rows if row.status in {"succeeded", "completed", "done"} and int(row.id) not in pending_gate_run_ids),
         "completed_today": len(completed_today),
         "pending_release": db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(["ready", "release_ready", "blocked"])).count(),
@@ -748,6 +754,10 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
                 "workflow_key": candidate.workflow_key,
             }
             for candidate in pending_candidates
+        ],
+        "blocker_items": [
+            _workflow_run_summary_item(db, row)
+            for row in [*needs_human_rows, *failed_rows]
         ],
     }
 
@@ -1709,6 +1719,146 @@ def _select_next_state(
     raise WorkflowRuntimeError(f"no transition matched for state: {state_key}")
 
 
+def _mark_requirement_for_run_decision(run: WorkflowRunRow, *, status: str) -> None:
+    requirement = run.requirement
+    if requirement is None:
+        return
+    if status == "completed":
+        requirement.workflow_state = "completed"
+        requirement.status = "completed"
+        requirement.phase = "completed"
+        requirement.completed_at = requirement.completed_at or utcnow()
+    elif status == "failed":
+        requirement.workflow_state = "failed"
+        requirement.status = "failed"
+        requirement.phase = "failed"
+    elif status == "awaiting_operator":
+        requirement.workflow_state = "awaiting_operator"
+        requirement.status = "blocked"
+        requirement.phase = "blocked"
+    else:
+        requirement.workflow_state = "executing"
+        requirement.status = "in_progress"
+        requirement.phase = "executing"
+
+
+def _previous_state_before_gate(db: Session, run: WorkflowRunRow, gate: HumanGateRequestRow) -> str:
+    event = (
+        db.query(WorkflowStateEventRow)
+        .filter(
+            WorkflowStateEventRow.workflow_run_id == int(run.id),
+            WorkflowStateEventRow.to_state == str(gate.state_key),
+            WorkflowStateEventRow.from_state.isnot(None),
+        )
+        .order_by(WorkflowStateEventRow.id.desc())
+        .first()
+    )
+    if event is not None and event.from_state:
+        return str(event.from_state)
+    spec = built_in_workflow_specs().get(str(run.workflow_key or ""))
+    if isinstance(spec, Mapping):
+        return str(spec.get("initial_state") or gate.state_key)
+    return str(gate.state_key)
+
+
+def resume_workflow_after_gate_decision(
+    db: Session,
+    *,
+    gate: HumanGateRequestRow,
+    decision: str,
+    blackboard: dict[str, Any],
+) -> dict[str, Any]:
+    """Wake the declarative runner after a human gate decision."""
+
+    run = gate.workflow_run
+    normalized = str(decision or "").strip().lower()
+    state_before = str(run.current_state or gate.state_key or "awaiting_operator")
+    result: dict[str, Any] = {
+        "resume_attempted": normalized in {"approve", "continue_retry", "reject"},
+        "resume_status": "not_attempted",
+        "workflow_status_after_resume": str(run.status or ""),
+        "next_state": str(run.current_state or ""),
+        "created_gate_id": None,
+    }
+    try:
+        if normalized == "approve":
+            run.status = "succeeded"
+            run.resolution = "operator_approved"
+            run.current_state = "done"
+            run.completed_at = run.completed_at or utcnow()
+            blackboard["current_state"] = "done"
+            _mark_requirement_for_run_decision(run, status="completed")
+            result.update({"resume_status": "completed", "workflow_status_after_resume": run.status, "next_state": run.current_state})
+        elif normalized == "reject":
+            run.status = "failed"
+            run.resolution = "operator_rejected"
+            run.completed_at = run.completed_at or utcnow()
+            _mark_requirement_for_run_decision(run, status="failed")
+            result.update({"resume_status": "rejected", "workflow_status_after_resume": run.status, "next_state": run.current_state})
+        elif normalized == "continue_retry":
+            spec = built_in_workflow_specs().get(str(run.workflow_key or ""))
+            if not isinstance(spec, Mapping):
+                raise WorkflowRuntimeError(f"unknown workflow_key: {run.workflow_key}")
+            retry_state = _previous_state_before_gate(db, run, gate)
+            blackboard["current_state"] = retry_state
+            run.current_state = retry_state
+            run.status = "pending"
+            run.resolution = "operator_continue_retry"
+            run.completed_at = None
+            _mark_requirement_for_run_decision(run, status="executing")
+            _persist_blackboard(db, run, retry_state, blackboard)
+            db.flush()
+            before_gate_ids = {
+                int(row.id)
+                for row in db.query(HumanGateRequestRow.id)
+                .filter(HumanGateRequestRow.workflow_run_id == int(run.id))
+                .all()
+            }
+            run_workflow_state_machine(
+                db,
+                workflow_run=run,
+                spec=spec,
+                registry=default_atom_registry(),
+                initial_blackboard=blackboard,
+            )
+            if run.status == "succeeded":
+                _mark_requirement_for_run_decision(run, status="completed")
+            elif run.status == "awaiting_operator":
+                _mark_requirement_for_run_decision(run, status="awaiting_operator")
+            new_gate = (
+                db.query(HumanGateRequestRow)
+                .filter(HumanGateRequestRow.workflow_run_id == int(run.id), HumanGateRequestRow.status == "pending")
+                .order_by(HumanGateRequestRow.id.desc())
+                .first()
+            )
+            created_gate_id = int(new_gate.id) if new_gate is not None and int(new_gate.id) not in before_gate_ids else None
+            result.update(
+                {
+                    "resume_status": "resumed",
+                    "workflow_status_after_resume": str(run.status or ""),
+                    "next_state": str(run.current_state or ""),
+                    "created_gate_id": created_gate_id,
+                }
+            )
+        return result
+    except Exception as exc:
+        run.status = "failed"
+        run.resolution = "resume_failed"
+        run.completed_at = utcnow()
+        blackboard["current_state"] = str(run.current_state or state_before)
+        blackboard["resume_error"] = str(exc)[:1000]
+        _mark_requirement_for_run_decision(run, status="failed")
+        result.update(
+            {
+                "resume_status": "failed",
+                "workflow_status_after_resume": "failed",
+                "next_state": str(run.current_state or state_before),
+                "error": str(exc)[:1000],
+            }
+        )
+        return result
+
+
 def decide_human_gate(
     db: Session,
     *,
@@ -1742,31 +1892,7 @@ def decide_human_gate(
         }
     )
     state_before_decision = str(run.current_state or gate.state_key or "awaiting_operator")
-    if normalized == "continue_retry":
-        run.status = "pending"
-        run.resolution = "operator_continue_retry"
-        run.completed_at = None
-    elif normalized == "approve":
-        run.status = "succeeded"
-        run.resolution = "operator_approved"
-        run.current_state = "done"
-        blackboard["current_state"] = "done"
-        run.completed_at = run.completed_at or utcnow()
-        requirement = run.requirement
-        if requirement is not None:
-            requirement.workflow_state = "completed"
-            requirement.status = "completed"
-            requirement.phase = "completed"
-            requirement.completed_at = requirement.completed_at or utcnow()
-    else:
-        run.status = "failed"
-        run.resolution = "operator_rejected"
-        run.completed_at = run.completed_at or utcnow()
-        requirement = run.requirement
-        if requirement is not None:
-            requirement.workflow_state = "failed"
-            requirement.status = "failed"
-            requirement.phase = "failed"
+    resume_result = resume_workflow_after_gate_decision(db, gate=gate, decision=normalized, blackboard=blackboard)
     decision_event = {
         "gate_id": int(gate.id),
         "decision": normalized,
@@ -1775,6 +1901,7 @@ def decide_human_gate(
         "from_state": state_before_decision,
         "status_after": run.status,
         "resolution_after": run.resolution,
+        **resume_result,
         "ts": gate.decided_at.isoformat(),
     }
     db.add(
@@ -1790,6 +1917,7 @@ def decide_human_gate(
     _persist_blackboard(db, run, str(run.current_state or gate.state_key), blackboard)
     db.flush()
     _notify_human_gate_decided(db, gate, run)
+    gate._resume_result = resume_result  # type: ignore[attr-defined]
     return gate
 
 

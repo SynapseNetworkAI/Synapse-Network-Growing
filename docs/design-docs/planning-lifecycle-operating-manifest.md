@@ -61,6 +61,13 @@ pending | approved | rejected | materialized | suppressed | stale
 
 Planner Sweep creates candidates, not requirements. This prevents agent-generated noise from polluting the requirement pool.
 
+Fresh candidates pass through a deterministic Candidate Risk Router before any automatic promotion:
+
+1. Operating Manifest stays business intent only; it does not contain auto-execution policy.
+2. Low/normal risk candidates on allowlisted workflows may be auto-materialized and auto-started.
+3. High/critical risk, forbidden atoms, production, funds, auth, contract, public posting or project-policy-gated work remains in operator review.
+4. Router decisions are written to candidate metadata and planner sweep output.
+
 ### PlannerSweep
 
 `planner_sweeps` records each top-down planning evaluation.
@@ -71,7 +78,8 @@ Planner Sweep is stateless:
 2. It reads aggregated goal progress.
 3. It proposes candidates for active goals.
 4. It ignores dropped goals.
-5. It exits.
+5. It routes fresh candidates through deterministic risk policy.
+6. It exits.
 
 It does not poll every workflow as a PM, does not interrupt workers directly and does not create release actions.
 

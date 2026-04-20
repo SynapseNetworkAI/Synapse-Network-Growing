@@ -5,6 +5,7 @@ from server.services.scheduling.recurring_workflows import (
     sync_recurring_workflows,
 )
 from server.services.scheduling.locks import acquire_scheduler_lock
+from server.services.planning.scheduler import goal_planner_sweep_due
 
 
 def test_recurring_workflow_dry_run_records_history(db_session):
@@ -85,6 +86,33 @@ def test_recurring_workflow_runs_endpoint(synced_client):
     assert runs
     assert runs[0]["workflow_key"] == "bug_log_sweep"
     assert runs[0]["dry_run"] is True
+
+
+def test_goal_planner_sweep_due_after_daily_slot_without_prior_run():
+    from datetime import datetime, timezone
+
+    assert goal_planner_sweep_due(
+        last_run_at=None,
+        now=datetime(2026, 4, 20, 9, 1, tzinfo=timezone.utc),
+        local_time="09:00",
+    )
+    assert not goal_planner_sweep_due(
+        last_run_at=datetime(2026, 4, 20, 9, 1, tzinfo=timezone.utc),
+        now=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
+        local_time="09:00",
+    )
+
+
+def test_goal_planner_recurring_workflow_runs_real_planner_dry_run(db_session):
+    sync_recurring_workflows(db_session)
+
+    result = run_recurring_workflow(db_session, workflow_key="goal_planner_sweep", dry_run=True)
+
+    assert result["status"] == "completed"
+    assert result["result"]["dry_run"] is True
+    assert "routing_results" in result["result"]
+    rows = list_recurring_workflow_runs(db_session, "goal_planner_sweep")
+    assert rows
 
 
 def test_bug_log_sweep_skips_when_scheduler_lock_is_held(db_session):

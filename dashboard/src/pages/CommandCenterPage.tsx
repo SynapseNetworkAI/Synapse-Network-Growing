@@ -56,7 +56,8 @@ export default function CommandCenterPage() {
     () => (state.planning?.goal_lanes || []).filter((lane) => String(lane.goal.status || 'active') === 'active'),
     [state.planning],
   )
-  const blockers = numberValue(state.workflows?.needs_human) + numberValue(state.workflows?.failed)
+  const blockerItems = state.workflows?.blocker_items || []
+  const blockers = blockerItems.length || numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) + numberValue(state.workflows?.failed_count ?? state.workflows?.failed)
 
   return (
     <div className="space-y-6">
@@ -91,8 +92,8 @@ export default function CommandCenterPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricTile label="Active Requirements" value={state.stats?.requirement_active ?? '-'} detail="正式需求池中仍需推进的事项" tone="info" />
         <MetricTile label="Running Workflows" value={state.stats?.workflow_running ?? state.workflows?.running ?? '-'} detail="状态机正在执行或等待下一步" tone="success" />
-        <MetricTile label="Needs Human" value={state.stats?.human_gate_pending ?? state.workflows?.needs_human ?? '-'} detail="必须由 Human Oracle 决策" tone={blockers ? 'warning' : 'muted'} />
-        <MetricTile label="Failed" value={state.stats?.workflow_failed ?? state.workflows?.failed ?? '-'} detail="失败、超预算或证据不足" tone={numberValue(state.workflows?.failed) ? 'danger' : 'muted'} />
+        <MetricTile label="Needs Human" value={state.workflows?.pending_gate_count ?? state.workflows?.needs_human ?? state.stats?.human_gate_pending ?? '-'} detail="必须由 Human Oracle 决策" tone={numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) ? 'warning' : 'muted'} />
+        <MetricTile label="Failed" value={state.workflows?.failed_count ?? state.workflows?.failed ?? state.stats?.workflow_failed ?? '-'} detail="失败、超预算或证据不足" tone={numberValue(state.workflows?.failed_count ?? state.workflows?.failed) ? 'danger' : 'muted'} />
         <MetricTile label="Completed Today" value={state.workflows?.completed_today ?? '-'} detail="今天真正完成的 workflow run" tone="success" />
       </div>
 
@@ -135,13 +136,14 @@ export default function CommandCenterPage() {
             <AgentReasoningCard
               title={blockers ? `${blockers} blocker(s) require attention` : 'No operator blocker'}
               tone={blockers ? 'warning' : 'info'}
-              summary={blockers ? '存在 awaiting_operator 或 failed workflow。优先进入 Oracle Gates 处理风险、证据或继续重试。' : '没有等待人工处理的 blocker。系统可以继续让 Runner 推进低风险任务。'}
+              summary={blockers ? '存在真实 pending Human Gate 或 failed workflow。优先进入 Oracle Gates / Failed Runs 处理证据、风险或重试。' : '没有等待人工处理的 blocker。若 workflow 曾经停在 awaiting_operator，gate 决策后应由 Runner 收敛状态，而不是由页面猜测。'}
               metadata={<ActionButton href="/gates" tone={blockers ? 'primary' : 'default'}>打开 Oracle Gates</ActionButton>}
             />
             <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-4">
               <div className="machine-label text-[color:var(--ops-text-caption)]">Background Health</div>
               <div className="mt-3 grid gap-2 text-sm text-[color:var(--ops-text-body)]">
                 <div>Bug Scheduler: {formatHealth(state.health?.bug_log_scheduler)}</div>
+                <div>Goal Planner Sweep: {formatHealth(state.health?.goal_planner_scheduler)}</div>
                 <div>Notification Dispatcher: {formatHealth(state.health?.notification_dispatcher)}</div>
                 <div>Recurring Registry: {formatHealth(state.health?.recurring_registry)}</div>
               </div>

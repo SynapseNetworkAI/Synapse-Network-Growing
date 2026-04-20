@@ -33,11 +33,13 @@ def list_recurring_workflows_endpoint(db: Session = Depends(get_db)):
 @router.get("/health", response_model=RecurringWorkflowHealthOut)
 def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(get_db)):
     bug_scheduler = getattr(request.app.state, "bug_log_scheduler", None)
+    goal_planner_scheduler = getattr(request.app.state, "goal_planner_scheduler", None)
     notification_dispatcher = getattr(request.app.state, "notification_dispatcher", None)
     return RecurringWorkflowHealthOut(
         **recurring_workflow_health(
             db,
             bug_scheduler_status=bug_scheduler.status_snapshot() if bug_scheduler is not None else None,
+            goal_planner_scheduler_status=goal_planner_scheduler.status_snapshot() if goal_planner_scheduler is not None else None,
             notification_dispatcher_status=notification_dispatcher.status_snapshot(db) if notification_dispatcher is not None else None,
         )
     )

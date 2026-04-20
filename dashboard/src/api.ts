@@ -585,7 +585,11 @@ export interface DeclarativeWorkflowRunPage {
 export interface WorkflowRunsSummary {
   running: number
   needs_human: number
+  pending_gate_count?: number
   failed: number
+  failed_count?: number
+  resume_failure_count?: number
+  stale_awaiting_operator_count?: number
   completed: number
   completed_today: number
   pending_release: number
@@ -599,6 +603,7 @@ export interface WorkflowRunsSummary {
     goal_key: string
     workflow_key: string
   }>
+  blocker_items?: DeclarativeWorkflowRunSummary[]
 }
 
 export interface DeclarativeWorkflowDefinitionState {
@@ -839,6 +844,11 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   changed_files_summary?: DeclarativeChangedFilesSummary
   command_results?: DeclarativeCommandResult[]
   delivery_summary?: DeclarativeDeliverySummary
+  resume_attempted?: boolean
+  resume_status?: string
+  workflow_status_after_resume?: string
+  next_state?: string
+  created_gate_id?: number | null
 }
 
 export interface AgentRequirement {
@@ -1500,6 +1510,7 @@ export interface RecurringWorkflowRunResult {
 
 export interface RecurringWorkflowHealth {
   bug_log_scheduler: Record<string, unknown>
+  goal_planner_scheduler?: Record<string, unknown>
   notification_dispatcher: Record<string, unknown>
   recurring_registry: Record<string, unknown>
 }
@@ -1604,6 +1615,10 @@ export interface PlannerSweep {
   parsed_output: Record<string, unknown>
   created_candidate_ids: number[]
   suppressed_items: Array<Record<string, unknown>>
+  routing_results?: Array<Record<string, unknown>>
+  auto_materialized_requirement_ids?: number[]
+  auto_started_workflow_run_ids?: number[]
+  routing_suppressed_items?: Array<Record<string, unknown>>
   error_excerpt: string | null
   started_at: string | null
   completed_at: string | null

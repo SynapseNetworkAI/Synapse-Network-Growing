@@ -169,6 +169,12 @@ function CandidateMiniQueue({
             <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
           </div>
           <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{candidate.description_markdown || candidate.rationale || 'No description yet.'}</p>
+          {candidate.metadata?.routing_decision ? (
+            <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
+              Risk Router: {String(candidate.metadata.routing_decision)}
+              {candidate.metadata.routing_reason ? ` · ${String(candidate.metadata.routing_reason)}` : ''}
+            </div>
+          ) : null}
           <div className="mt-3"><CandidateActions candidate={candidate} busy={busy} onAction={onAction} /></div>
         </article>
       ))}
@@ -770,6 +776,15 @@ export default function PlanningPage() {
               </div>
             ))}
           </div>
+          {mission?.last_sweep ? (
+            <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
+              <span className="font-mono text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Last Planner Sweep</span>
+              <span className="ml-3">created {(mission.last_sweep.created_candidate_ids || []).length}</span>
+              <span className="ml-3">auto materialized {(mission.last_sweep.auto_materialized_requirement_ids || []).length}</span>
+              <span className="ml-3">auto started {(mission.last_sweep.auto_started_workflow_run_ids || []).length}</span>
+              <span className="ml-3">suppressed {(mission.last_sweep.suppressed_items || []).length}</span>
+            </div>
+          ) : null}
           {(mission?.goal_lanes || []).map((lane) => (
             <GoalMissionLaneSection key={lane.goal_key} lane={lane} busy={busy} onCandidateAction={actOnCandidate} onDropGoal={setDropGoal} />
           ))}
