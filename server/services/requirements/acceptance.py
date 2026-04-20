@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -33,23 +34,83 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
     "git diff --check",
 )
 
-UNSAFE_REQUIRED_COMMAND_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(^|[;&|]\s*)rm(\s|$)", re.IGNORECASE), "rm is destructive"),
-    (re.compile(r"(^|[;&|]\s*)rmdir(\s|$)", re.IGNORECASE), "rmdir is destructive"),
-    (re.compile(r"(^|[;&|]\s*)mv(\s|$)", re.IGNORECASE), "mv mutates files"),
-    (re.compile(r"(^|[;&|]\s*)cp\s+-r(\s|$)", re.IGNORECASE), "recursive copy mutates files"),
+SHELL_CONTROL_TOKENS = {"&&", "||", ";", "|", "\n"}
+SHELL_REDIRECTION_TOKENS = {">", ">>", "<", "<<", "<>", ">&", "<&"}
+UNSAFE_EXECUTABLES: dict[str, str] = {
+    "aws": "external cloud command is not allowed",
+    "bash": "shell execution is not allowed",
+    "chmod": "permission mutation command is not allowed",
+    "chown": "ownership mutation command is not allowed",
+    "cp": "copy command is not allowed",
+    "curl": "external network command is not allowed",
+    "deploy": "deploy must be human-gated",
+    "docker": "container command is not allowed",
+    "gcloud": "external cloud command is not allowed",
+    "kubectl": "cluster command is not allowed",
+    "mv": "mv mutates files",
+    "rm": "rm is destructive",
+    "rmdir": "rmdir is destructive",
+    "rollback": "rollback must be human-gated",
+    "scp": "remote copy command is not allowed",
+    "sh": "shell execution is not allowed",
+    "ssh": "remote shell command is not allowed",
+    "wget": "external network command is not allowed",
+}
+UNSAFE_ARGUMENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bdrop\b", re.IGNORECASE), "drop is a destructive database verb"),
     (re.compile(r"\btruncate\b", re.IGNORECASE), "truncate is a destructive database verb"),
     (re.compile(r"\bdelete\s+from\b", re.IGNORECASE), "delete from is a destructive database verb"),
-    (re.compile(r"(^|\s)(curl|wget|aws|gcloud|kubectl|docker|ssh|scp|chmod|chown)(\s|$)", re.IGNORECASE), "external or privileged command is not allowed"),
     (re.compile(r"\bgit\s+(push|reset|checkout)\b", re.IGNORECASE), "git mutation command is not allowed"),
     (re.compile(r"\bnpm\s+publish\b", re.IGNORECASE), "npm publish is not allowed"),
-    (re.compile(r"\b(deploy|rollback)\b", re.IGNORECASE), "deploy/rollback must be human-gated"),
-    (re.compile(r">>?", re.IGNORECASE), "shell redirection may mutate files"),
-    (re.compile(r"\|\s*sh\b", re.IGNORECASE), "pipe-to-shell is not allowed"),
-    (re.compile(r"&&\s*rm\b", re.IGNORECASE), "chained rm is destructive"),
-    (re.compile(r";\s*rm\b", re.IGNORECASE), "chained rm is destructive"),
 )
+
+
+def parse_shell_tokens(command: str) -> list[str]:
+    """Tokenize a simple evidence command while preserving shell control punctuation."""
+
+    if "$(" in command or "`" in command:
+        raise AcceptanceValidationError(
+            "Subshells '$()' and backticks are forbidden in evidence commands. Use direct allowlisted commands only."
+        )
+    command_with_explicit_newlines = command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
+    lexer = shlex.shlex(command_with_explicit_newlines, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError as exc:
+        raise AcceptanceValidationError(f"required command cannot be parsed safely: {exc}.") from exc
+    return tokens
+
+
+def _unsafe_executable_reason(token: str) -> str | None:
+    executable = token.rsplit("/", 1)[-1].lower()
+    return UNSAFE_EXECUTABLES.get(executable)
+
+
+def _validate_shell_tokens(tokens: list[str]) -> None:
+    if not tokens:
+        raise AcceptanceValidationError("required command is empty.")
+
+    expect_executable = True
+    previous_control = "start"
+    for token in tokens:
+        if token in SHELL_REDIRECTION_TOKENS or set(token) <= {"<", ">"}:
+            raise AcceptanceValidationError("shell redirection may mutate files.")
+        if token in SHELL_CONTROL_TOKENS:
+            expect_executable = True
+            previous_control = token
+            continue
+        if expect_executable:
+            reason = _unsafe_executable_reason(token)
+            if reason:
+                raise AcceptanceValidationError(
+                    f"required command is unsafe: '{token}' is blocked when used as an executable command after '{previous_control}'. {reason}. "
+                    "If you are searching for this text, pass it as a quoted argument to a safe command like 'rg'."
+                )
+            expect_executable = False
+
+    if expect_executable:
+        raise AcceptanceValidationError("required command ends with a shell control operator.")
 
 
 def validate_required_command_safety(command: str) -> str:
@@ -58,7 +119,9 @@ def validate_required_command_safety(command: str) -> str:
     normalized = " ".join(str(command or "").strip().split())
     if not normalized:
         raise AcceptanceValidationError("required command is empty.")
-    for pattern, reason in UNSAFE_REQUIRED_COMMAND_PATTERNS:
+    tokens = parse_shell_tokens(str(command or ""))
+    _validate_shell_tokens(tokens)
+    for pattern, reason in UNSAFE_ARGUMENT_PATTERNS:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
     if not any(normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):

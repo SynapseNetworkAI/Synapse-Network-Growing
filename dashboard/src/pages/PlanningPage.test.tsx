@@ -502,6 +502,79 @@ describe('PlanningPage Mission Control', () => {
     expect(within(drawer).getByText('Candidate #10')).toBeTruthy()
   })
 
+  it('marks blocked trace candidates as planner intercepts instead of human gates', async () => {
+    const user = userEvent.setup()
+    apiMock.getPlanningGoalTrace.mockResolvedValueOnce({
+      goal: { id: 101, goal_key: 'gateway_reliability', title: 'Gateway reliability', intent_present: true },
+      nodes: [
+        {
+          kind: 'candidate',
+          status: 'blocked',
+          title: 'Candidate #9',
+          summary: 'validation_failed',
+          object_id: 9,
+          deep_link: '/planning?candidate=9',
+          diagnostic: {
+            reason: 'required command is unsafe',
+            source: 'requirement_candidate',
+            timestamp: '2026-04-20T06:36:09Z',
+          },
+          metadata: { generated_by: 'planner_agent_v1' },
+        },
+      ],
+      diagnostics: [],
+      next_actions: [],
+      history: [],
+    })
+    render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getAllByRole('button', { name: 'Trace Path' })[0])
+
+    const drawer = await screen.findByTestId('goal-trace-drawer')
+    expect(within(drawer).getByText(/Planner Intercept · not a Human Gate/)).toBeTruthy()
+  })
+
+  it('closes planning drawers with Escape', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    await screen.findByTestId('mission-control-tab')
+    await user.click(screen.getByText('Steering Details'))
+    await user.click(screen.getByRole('button', { name: '</> Edit raw JSON' }))
+    expect(await screen.findByTestId('raw-manifest-drawer')).toBeTruthy()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('raw-manifest-drawer')).toBeNull()
+    })
+  })
+
+  it('runs dirty intent Escape through the existing close confirmation', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent' }))
+    const drawer = await screen.findByTestId('goal-intent-drawer')
+    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), { target: { value: '# Dirty PRD' } })
+
+    await user.keyboard('{Escape}')
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(screen.getByTestId('goal-intent-drawer')).toBeTruthy()
+
+    confirmSpy.mockReturnValue(true)
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('goal-intent-drawer')).toBeNull()
+    })
+    confirmSpy.mockRestore()
+  })
+
   it('creates a goal from core intent and markdown without acceptance JSON', async () => {
     const user = userEvent.setup()
     render(<PlanningPage />)
