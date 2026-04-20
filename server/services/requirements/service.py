@@ -756,6 +756,16 @@ def requirement_attachment_file_path(db: Session, requirement_id: int, attachmen
 
 
 def _select_declarative_workflow_key(requirement: RequirementRow) -> str:
+    metadata = _json_load(getattr(requirement, "intake_metadata_json", None), {})
+    if isinstance(metadata, dict):
+        explicit = str(metadata.get("workflow_key") or "").strip()
+        if explicit:
+            from server.services.workflows.declarative import built_in_workflow_specs
+
+            if explicit in built_in_workflow_specs():
+                return explicit
+            raise ValueError(f"unknown workflow_key in requirement intake metadata: {explicit}")
+
     text = " ".join(
         [
             str(getattr(requirement, "title", "") or ""),
