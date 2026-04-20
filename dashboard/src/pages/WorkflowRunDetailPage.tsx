@@ -992,7 +992,10 @@ export default function WorkflowRunDetailPage() {
     }
     if (tab === 'gates') {
       window.requestAnimationFrame(() => {
-        document.querySelector('[data-testid="workflow-gates-tab"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        const target = document.querySelector('[data-testid="workflow-gates-tab"]')
+        if (target && typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
       })
     }
   }

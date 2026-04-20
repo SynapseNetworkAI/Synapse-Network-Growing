@@ -26,6 +26,11 @@ from server.database import (
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
 from server.services.planning.risk_router import route_candidate
+from server.services.requirements.acceptance import (
+    AcceptanceValidationError,
+    normalize_acceptance_contract,
+    validate_acceptance_contract_for_execution,
+)
 from server.services.requirements.service import create_requirement, start_requirement_workflow
 
 
@@ -53,6 +58,75 @@ def _json_dumps(payload: Any) -> str:
         return str(value)
 
     return json.dumps(payload, ensure_ascii=False, default=_default)
+
+
+def _dogfood_acceptance_contract(goal: dict[str, Any]) -> dict[str, Any]:
+    intent = str(goal.get("intent") or goal.get("goal_key") or "Goal dogfood flow").strip()
+    return normalize_acceptance_contract(
+        {
+            "acceptance_kind": "system_dogfood",
+            "execution_acceptance_steps": [
+                {
+                    "step_key": "candidate_materialized",
+                    "title": "Planner candidate becomes a formal requirement",
+                    "expected_result": "A RequirementCandidate is materialized into a Requirement with stable goal lineage.",
+                    "required_db_lineage": [
+                        "requirement_candidates.materialized_requirement_id",
+                        "requirements.requirement_candidate_id",
+                        "requirements.goal_key",
+                    ],
+                },
+                {
+                    "step_key": "workflow_evidence_recorded",
+                    "title": "Declarative workflow records execution evidence",
+                    "expected_result": "The workflow run reaches a terminal state with state events, atom invocations, and artifacts.",
+                    "required_db_lineage": [
+                        "workflow_runs.requirement_id",
+                        "workflow_state_events.workflow_run_id",
+                        "atom_invocations.workflow_run_id",
+                        "workflow_artifacts.workflow_run_id",
+                    ],
+                    "required_evidence_types": ["workflow_command_result", "workflow_agent_raw_output"],
+                },
+            ],
+            "markdown": f"## System Dogfood Acceptance\n- Verify the Goal flow for: {intent}",
+        }
+    )
+
+
+def _acceptance_contract_for_goal(goal: dict[str, Any]) -> dict[str, Any] | None:
+    raw_contract = goal.get("acceptance_contract")
+    if isinstance(raw_contract, dict):
+        return normalize_acceptance_contract(raw_contract)
+    steps = goal.get("execution_acceptance_steps")
+    if isinstance(steps, list) and steps:
+        return normalize_acceptance_contract(
+            {
+                "acceptance_kind": str(goal.get("acceptance_kind") or "business"),
+                "execution_acceptance_steps": steps,
+                "markdown": str(goal.get("acceptance_markdown") or "").strip(),
+            }
+        )
+    if str(goal.get("acceptance_kind") or "").strip() == "system_dogfood":
+        return _dogfood_acceptance_contract(goal)
+    return None
+
+
+def _candidate_acceptance_contract(row: RequirementCandidateRow) -> dict[str, Any]:
+    metadata = _json_loads(row.metadata_json, {})
+    contract = metadata.get("acceptance_contract") if isinstance(metadata, dict) else None
+    return normalize_acceptance_contract(contract if isinstance(contract, dict) else {})
+
+
+def _mark_candidate_acceptance_validation_failed(db: Session, row: RequirementCandidateRow, reason: str) -> None:
+    metadata = _json_loads(row.metadata_json, {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    metadata["acceptance_validation_error"] = reason
+    row.metadata_json = _json_dumps(metadata)
+    row.status = "validation_failed"
+    row.suppression_reason = "acceptance_validation_failed"
+    row.updated_at = utcnow()
+    db.flush()
 
 
 def _now_iso() -> str:
@@ -638,6 +712,10 @@ def run_planner_sweep(
                 suppressed.append({"goal_key": goal_key, "reason": "duplicate_candidate", "candidate_id": int(existing.id)})
                 continue
             project = _default_project(db, goal)
+            acceptance_contract = _acceptance_contract_for_goal(goal)
+            candidate_metadata = {"generated_by": "deterministic_planner_sweep_v1"}
+            if acceptance_contract is not None:
+                candidate_metadata["acceptance_contract"] = acceptance_contract
             candidate_payload = {
                 "manifest_id": int(manifest.id),
                 "goal_key": goal_key,
@@ -658,7 +736,7 @@ def run_planner_sweep(
                 "rationale": "Active goal has no active requirement and has candidate capacity.",
                 "expected_evidence_json": _json_dumps(["accepted candidate", "created requirement", "workflow evidence"]),
                 "status": "pending",
-                "metadata_json": _json_dumps({"generated_by": "deterministic_planner_sweep_v1"}),
+                "metadata_json": _json_dumps(candidate_metadata),
             }
             proposed.append(candidate_payload)
             if not dry_run:
@@ -666,6 +744,26 @@ def run_planner_sweep(
                 db.add(candidate)
                 db.flush()
                 created_ids.append(int(candidate.id))
+                try:
+                    validate_acceptance_contract_for_execution(
+                        _candidate_acceptance_contract(candidate),
+                        source="planner_candidate",
+                        goal_key=goal_key,
+                    )
+                except AcceptanceValidationError as exc:
+                    _mark_candidate_acceptance_validation_failed(db, candidate, str(exc))
+                    routing_item = {
+                        "candidate_id": int(candidate.id),
+                        "goal_key": goal_key,
+                        "workflow_key": workflow_key,
+                        "decision": "blocked_requires_operator",
+                        "reason": "acceptance_validation_failed",
+                        "policy_version": "candidate_risk_router_v1",
+                        "error": str(exc),
+                    }
+                    routing_results.append(routing_item)
+                    routing_suppressed_items.append(routing_item)
+                    continue
                 routing = route_candidate(db, candidate)
                 routing_item = {
                     "candidate_id": int(candidate.id),
@@ -855,6 +953,18 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
         project = db.query(ProjectRow).order_by(ProjectRow.id.asc()).first()
     if project is None:
         raise ValueError("candidate cannot be materialized without a project")
+    try:
+        acceptance_contract = validate_acceptance_contract_for_execution(
+            _candidate_acceptance_contract(row),
+            source="planner_candidate",
+            goal_key=str(row.goal_key or ""),
+        )
+    except AcceptanceValidationError as exc:
+        _mark_candidate_acceptance_validation_failed(db, row, str(exc))
+        db.commit()
+        raise ValueError(
+            "Planner candidate failed acceptance validation: Planner Agent did not generate concrete, evidence-bound execution_acceptance_steps."
+        ) from exc
     risk_level = str(row.risk_level or "").strip().lower() or "normal"
     priority = str(row.priority or "").strip().lower() or "normal"
     severity = risk_level if risk_level in {"high", "critical"} else priority
@@ -865,6 +975,7 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
         source="planner_candidate",
         source_ref=f"planner-candidate:{int(row.id)}",
         project_id=int(project.id),
+        acceptance_contract=acceptance_contract,
         intake_metadata={
             "operating_manifest_id": int(row.manifest_id),
             "goal_key": str(row.goal_key or ""),

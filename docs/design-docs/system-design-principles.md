@@ -80,6 +80,15 @@
 8. 不得为了掩盖数据不一致而在 Summary API 或前端条件分支里写脏补丁；必须修复状态机未流转的根本原因。
 9. Human Gate decision 是状态机输入，不是普通表单状态；decision 写入后 Runner 必须被唤醒并收敛到下一状态、新 gate 或明确 failed terminal。
 10. Human Override 只降低人类手动需求的验收录入摩擦；technical terminal 不等于 business done。缺少结构化验收矩阵的 override workflow 必须在 Evidence 页面显示 Manual Review Panel，并由 operator 显式确认业务结果后才算 truthfully completed。
+11. 当前主链视觉流以 `ARCHITECTURE.md#system-architecture-flow` 为准；不要在多个文档复制架构图导致漂移。
+
+## 6.6.1 Fail-Closed Acceptance
+
+1. Planner/Candidate 转正为 Requirement 前必须有合法 `execution_acceptance_steps`，不得由代码生成默认空壳验收。
+2. 每个验收步骤必须声明 `required_commands`、`required_evidence_types` 或 `required_db_lineage` 中至少一种证据绑定。
+3. 验收标准必须验证业务目标是否达成，不得只验证 Candidate、Requirement 或 WorkflowRun 是否被创建。
+4. Agent 生成的 acceptance 缺失、空泛、解析失败或格式不合法时，必须进入 `validation_failed` / `awaiting_operator`，不得自动补 fallback criteria。
+5. Verification Agent 的 `inconclusive` 不能被 fallback 提升为 `passed`；不确定就是不放行。
 
 ## 6.7 后台任务必须一等可观测
 

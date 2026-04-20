@@ -249,7 +249,7 @@ def _normalize_verification_plan(plan: Any, *, fallback: dict[str, Any] | None =
     return normalized
 
 
-def _fallback_verification_plan(payload: dict[str, Any]) -> dict[str, Any]:
+def _deterministic_verification_plan(payload: dict[str, Any]) -> dict[str, Any]:
     raw_output = str(payload.get("raw_task_output") or "").strip()
     changed_files = payload.get("changed_files") or []
     commands = [str(item).strip() for item in payload.get("commands_run") or [] if str(item).strip()]
@@ -310,7 +310,7 @@ def _fallback_verification_plan(payload: dict[str, Any]) -> dict[str, Any]:
     return _normalize_verification_plan(plan, default_cwd=default_cwd)
 
 
-def _provider_verification_plan(payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+def _provider_verification_plan(payload: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
     prompt = json.dumps(_json_ready(payload), ensure_ascii=False, indent=2)
     try:
         response = generate_planner_text(PlannerRequest(
@@ -322,29 +322,29 @@ def _provider_verification_plan(payload: dict[str, Any], fallback: dict[str, Any
             raise ValueError("verification plan result must be an object")
         requirement = payload.get("requirement") or {}
         default_cwd = str(requirement.get("target_project_path") or "").strip() or None
-        return _normalize_verification_plan(result.get("verification_plan"), fallback=fallback, default_cwd=default_cwd)
+        return _normalize_verification_plan(result.get("verification_plan"), fallback=baseline, default_cwd=default_cwd)
     except Exception:
-        return fallback
+        return baseline
 
 
 def generate_verification_plan(payload: dict[str, Any], *, skip_provider: bool = False) -> dict[str, Any]:
-    fallback = _fallback_verification_plan(payload)
+    baseline = _deterministic_verification_plan(payload)
     if skip_provider:
-        return fallback
+        return baseline
     result_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
 
     def _runner() -> None:
-        result_queue.put(_provider_verification_plan(payload, fallback))
+        result_queue.put(_provider_verification_plan(payload, baseline))
 
     worker = threading.Thread(target=_runner, daemon=True)
     worker.start()
     try:
         return result_queue.get(timeout=_VERIFICATION_PROVIDER_WALL_TIMEOUT_SECONDS)
     except queue.Empty:
-        return fallback
+        return baseline
 
 
-def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
+def _deterministic_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
     checks = payload.get("check_results") or []
     raw_output = str(payload.get("raw_task_output") or "").strip()
     changed_files = payload.get("changed_files") or []
@@ -352,7 +352,7 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
     contract_checks = acceptance_contract.get("verification_checks") or []
     verification_plan = _normalize_verification_plan(
         payload.get("verification_plan") or {},
-        fallback=_fallback_verification_plan(payload),
+        fallback=_deterministic_verification_plan(payload),
         default_cwd=str((payload.get("requirement") or {}).get("target_project_path") or "").strip() or None,
     )
     failed_checks = [item for item in checks if str(item.get("status") or "") == "failed"]
@@ -400,7 +400,23 @@ def _fallback_verification_result(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+def _inconclusive_verification_result(payload: dict[str, Any], reason: str) -> dict[str, Any]:
+    baseline = _deterministic_verification_result(payload)
+    return {
+        **baseline,
+        "status": "inconclusive",
+        "summary": reason,
+        "reasoning": reason,
+        "suggested_next_action": "route_to_human",
+        "resolution_recommendation": "route_to_human",
+        "resolution_confidence": 0.5,
+        "resolution_reason": reason,
+        "repair_guidance": "",
+        "failed_checks": [],
+    }
+
+
+def _provider_verification_result(payload: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
     prompt = json.dumps(_json_ready(payload), ensure_ascii=False, indent=2)
     try:
         response = generate_planner_text(PlannerRequest(
@@ -418,7 +434,7 @@ def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, A
         default_cwd = str(requirement.get("target_project_path") or "").strip() or None
         normalized_plan = _normalize_verification_plan(
             plan,
-            fallback=payload.get("verification_plan") or fallback.get("verification_plan") or {},
+            fallback=payload.get("verification_plan") or baseline.get("verification_plan") or {},
             default_cwd=default_cwd,
         )
         normalized = {
@@ -456,59 +472,46 @@ def _provider_verification_result(payload: dict[str, Any], fallback: dict[str, A
         if normalized["resolution_confidence"] is not None:
             normalized["resolution_confidence"] = max(0.0, min(1.0, float(normalized["resolution_confidence"])))
         if not normalized["verification_plan"]["summary"]:
-            normalized["verification_plan"] = dict(fallback["verification_plan"])
+            normalized["verification_plan"] = dict(baseline["verification_plan"])
         normalized["verification_plan"] = _normalize_verification_plan(
             normalized["verification_plan"],
-            fallback=fallback["verification_plan"],
+            fallback=baseline["verification_plan"],
             default_cwd=default_cwd,
         )
         if not normalized["summary"]:
-            normalized["summary"] = fallback["summary"]
+            normalized["summary"] = baseline["summary"]
         if not normalized["reasoning"]:
             normalized["reasoning"] = normalized["summary"]
         if not normalized["resolution_recommendation"]:
-            fallback_recommendation = fallback.get("resolution_recommendation")
+            fallback_recommendation = baseline.get("resolution_recommendation")
             normalized["resolution_recommendation"] = (
                 str(fallback_recommendation).strip() if fallback_recommendation is not None else None
             )
         if normalized["resolution_confidence"] is None:
-            normalized["resolution_confidence"] = float(fallback["resolution_confidence"])
+            normalized["resolution_confidence"] = float(baseline["resolution_confidence"])
         if not normalized["resolution_reason"]:
-            normalized["resolution_reason"] = str(fallback["resolution_reason"])
+            normalized["resolution_reason"] = str(baseline["resolution_reason"])
         if not normalized["repair_guidance"]:
-            normalized["repair_guidance"] = str(fallback.get("repair_guidance") or "")
+            normalized["repair_guidance"] = str(baseline.get("repair_guidance") or "")
         if not normalized["failed_checks"]:
-            normalized["failed_checks"] = list(fallback.get("failed_checks") or [])
-        if normalized["status"] == "inconclusive" and fallback["status"] in {"passed", "failed"}:
-            normalized["verification_plan"] = dict(fallback["verification_plan"])
-            normalized["status"] = str(fallback["status"])
-            normalized["summary"] = str(fallback["summary"])
-            normalized["reasoning"] = str(fallback["reasoning"])
-            normalized["suggested_next_action"] = str(fallback["suggested_next_action"])
-            normalized["resolution_recommendation"] = str(fallback["resolution_recommendation"])
-            normalized["resolution_confidence"] = float(fallback["resolution_confidence"])
-            normalized["resolution_reason"] = str(fallback["resolution_reason"])
-            normalized["checks_run"] = list(fallback["checks_run"])
-            normalized["evidence_used"] = list(fallback["evidence_used"])
-            normalized["repair_guidance"] = str(fallback.get("repair_guidance") or "")
-            normalized["failed_checks"] = list(fallback.get("failed_checks") or [])
+            normalized["failed_checks"] = list(baseline.get("failed_checks") or [])
         return normalized
     except Exception:
-        return fallback
+        return _inconclusive_verification_result(payload, "Verification agent output was invalid; route to human review.")
 
 
 def verify_with_agent(payload: dict[str, Any], *, skip_provider: bool = False) -> dict[str, Any]:
-    fallback = _fallback_verification_result(payload)
+    baseline = _deterministic_verification_result(payload)
     if skip_provider:
-        return fallback
+        return baseline
     result_queue: "queue.Queue[dict[str, Any]]" = queue.Queue(maxsize=1)
 
     def _runner() -> None:
-        result_queue.put(_provider_verification_result(payload, fallback))
+        result_queue.put(_provider_verification_result(payload, baseline))
 
     worker = threading.Thread(target=_runner, daemon=True)
     worker.start()
     try:
         return result_queue.get(timeout=_VERIFICATION_PROVIDER_WALL_TIMEOUT_SECONDS)
     except queue.Empty:
-        return fallback
+        return _inconclusive_verification_result(payload, "Verification agent timed out; route to human review.")

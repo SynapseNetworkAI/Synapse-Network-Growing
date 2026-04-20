@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 from server.database import RequirementRow, WorkflowRunRow
 
 
+class AcceptanceValidationError(ValueError):
+    """Raised when a requirement cannot safely enter execution."""
+
+
 DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
     "acceptance_owner_role": "tester",
     "review_owner_role": "reviewer",
@@ -121,6 +125,53 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
         "expected_evidence_count": len(payload.get("expected_evidence") or []),
         "execution_acceptance_step_count": len(payload.get("execution_acceptance_steps") or []),
     }
+    return payload
+
+
+def validate_acceptance_contract_for_execution(
+    contract: dict[str, Any] | None,
+    *,
+    source: str,
+    goal_key: str | None = None,
+) -> dict[str, Any]:
+    """Fail closed unless execution acceptance is evidence-bound.
+
+    Human Override is a deliberate operator shortcut for manual requirements
+    only; it still requires business confirmation after technical completion.
+    """
+
+    payload = normalize_acceptance_contract(contract or {})
+    normalized_source = str(source or "").strip().lower()
+    if bool(payload.get("acceptance_override")):
+        prompt = str(payload.get("manual_review_prompt") or "").strip()
+        if normalized_source not in {"manual", "operator", "human"}:
+            raise AcceptanceValidationError("Human Override is only allowed for manually created requirements.")
+        if not prompt:
+            raise AcceptanceValidationError("Human Override requires manual_review_prompt.")
+        return payload
+
+    steps = payload.get("execution_acceptance_steps") or []
+    if not isinstance(steps, list) or not steps:
+        raise AcceptanceValidationError("execution_acceptance_steps must be non-empty.")
+    for index, step in enumerate(steps, start=1):
+        if not isinstance(step, dict):
+            raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] must be an object.")
+        title = str(step.get("title") or "").strip()
+        expected_result = str(step.get("expected_result") or "").strip()
+        has_evidence = any(
+            step.get(key)
+            for key in ("required_commands", "required_evidence_types", "required_db_lineage")
+        )
+        if not title or not expected_result:
+            raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] requires title and expected_result.")
+        if not has_evidence:
+            raise AcceptanceValidationError(
+                f"execution_acceptance_steps[{index}] requires required_commands, required_evidence_types, or required_db_lineage."
+            )
+    if str(payload.get("acceptance_kind") or "business") == "system_dogfood":
+        normalized_goal = str(goal_key or "").strip().lower()
+        if normalized_goal != "goalb":
+            raise AcceptanceValidationError("system_dogfood acceptance is only allowed for goalb.")
     return payload
 
 

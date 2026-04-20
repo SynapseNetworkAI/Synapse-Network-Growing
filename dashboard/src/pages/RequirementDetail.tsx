@@ -619,7 +619,7 @@ export default function RequirementDetail() {
               <span>Assets 已就绪，系统会创建 declarative workflow run 并由状态机推进。</span>
             </div>
             <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-              如果后台触发还未完成，可以用右上角“创建工作流”作为 fallback；高风险动作会在 workflow human gate 中处理。
+              如果后台触发还未完成，可以用右上角“创建工作流”重新触发 workflow asset generation / start workflow；高风险动作会在 workflow human gate 中处理。
             </div>
           </div>
         ) : null}

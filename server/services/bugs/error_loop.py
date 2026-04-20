@@ -300,6 +300,51 @@ def _error_acceptance_markdown(service_name: str) -> str:
     )
 
 
+def _error_acceptance_contract(*, service_name: str, project_key: str | None, fingerprint_key: str) -> dict[str, Any]:
+    service = str(service_name or "target service").strip() or "target service"
+    project = str(project_key or "").strip() or "affected project"
+    return {
+        "acceptance_kind": "business",
+        "done_criteria": [
+            f"`{service}` no longer reproduces the reported error fingerprint.",
+            "Changed files, command evidence, and workflow artifacts are available in Ops Console.",
+        ],
+        "scope_constraints": [
+            f"Stay within `{project}` and the reported error scope.",
+            "Do not change credentials, funds, deployment, or auth behavior unless explicitly required.",
+        ],
+        "expected_evidence": [
+            "Workflow command results show the required project checks stayed green.",
+            "Error fingerprint evidence is linked to the workflow run.",
+        ],
+        "execution_acceptance_steps": [
+            {
+                "step_key": "error_fingerprint_linked",
+                "title": "Error fingerprint is linked to the repair workflow",
+                "expected_result": f"Fingerprint `{fingerprint_key}` is attached to the requirement and workflow evidence.",
+                "required_db_lineage": [
+                    "error_fingerprints.linked_requirement_id",
+                    "requirements.source_ref",
+                    "workflow_runs.requirement_id",
+                ],
+            },
+            {
+                "step_key": "project_checks_passed",
+                "title": "Project checks prove the repair stayed healthy",
+                "expected_result": "Verification command evidence is recorded and passing for the affected project.",
+                "required_evidence_types": ["workflow_command_result"],
+                "required_commands": [
+                    "/Users/cliff/workspace/agent/.venv/bin/python -m pytest -q",
+                ],
+            },
+        ],
+        "risk_notes": [
+            "Route production, auth, funds, settlement, or deployment effects to human gate.",
+        ],
+        "delivery_expectation": "Deliver through declarative workflow evidence and PR/release gates.",
+    }
+
+
 def _notify_error_logged(
     db: Session,
     *,
@@ -552,6 +597,11 @@ def intake_error_event(db: Session, body: ErrorIntakeRequest) -> ErrorFingerprin
                     error_page_url=error_page_url,
                 ),
                 acceptance_criteria_markdown=_error_acceptance_markdown(body.service_name.strip()),
+                acceptance_contract=_error_acceptance_contract(
+                    service_name=body.service_name.strip(),
+                    project_key=str(body.project_key or getattr(policy, "project_key", "") or "").strip() or None,
+                    fingerprint_key=fingerprint_key,
+                ),
                 priority=_priority_for_severity(severity),
                 source="bug_intake",
                 source_ref=source_ref,

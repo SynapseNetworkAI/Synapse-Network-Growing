@@ -52,11 +52,13 @@ This repository is the Company Ops control plane. New work should align to the c
 ```text
 Operating Manifest
 -> RequirementCandidate
+-> Fail Closed Validation
+-> Risk Router
 -> Requirement
 -> Declarative Workflow Run
 -> Atom Invocations
 -> Evidence
--> Human Gate / Release
+-> Human Gate / Business Outcome / Release
 ```
 
 Rules:
@@ -64,10 +66,11 @@ Rules:
 1. Do not create a God Agent that controls global workflow.
 2. Agent atoms produce structured output; deterministic runners own state transitions.
 3. Planner Sweep creates candidates, not official requirements, unless operator-approved materialization is explicit.
-4. Drop Goal stops future investment and safe-halts unfinished work; it never reverts delivered releases.
-5. Production deploy, funds, settlement, contract, auth, external paid spend, and self-modifying deployment require human gate.
-6. Legacy `/api/tasks` and `/api/approvals` public routes are retired. Remaining fixed-step execution internals are deletion candidates, not valid extension points.
-7. Frontend must remain a Human-Agent Control Plane. Do not reintroduce flat CRUD navigation, detached candidate queues, or raw JSON as the primary operator surface.
+4. RequirementCandidate materialization must fail closed without evidence-bound `execution_acceptance_steps`.
+5. Drop Goal stops future investment and safe-halts unfinished work; it never reverts delivered releases.
+6. Production deploy, funds, settlement, contract, auth, external paid spend, and self-modifying deployment require human gate.
+7. Legacy `/api/tasks` and `/api/approvals` public routes are retired. Remaining fixed-step execution internals are deletion candidates, not valid extension points.
+8. Frontend must remain a Human-Agent Control Plane. Do not reintroduce flat CRUD navigation, detached candidate queues, or raw JSON as the primary operator surface.
 
 ## Capability Profiles
 

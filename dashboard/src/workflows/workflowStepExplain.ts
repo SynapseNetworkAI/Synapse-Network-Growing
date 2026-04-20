@@ -216,7 +216,7 @@ const CONTRACTS: Record<string, Record<string, StepContract>> = {
   agent_self_repair: AGENT_SELF_REPAIR_STEPS,
 }
 
-function fallbackContract(state: DeclarativeWorkflowDefinitionState | null, stateKey: string): StepContract {
+function unknownStateContract(state: DeclarativeWorkflowDefinitionState | null, stateKey: string): StepContract {
   const atomType = state?.atom_type || 'unknown'
   return {
     stateKey,
@@ -304,7 +304,7 @@ export function buildStepViewModels(
 
   const dictionary = CONTRACTS[detail.workflow_key] || {}
   return states.map((state) => {
-    const contract = dictionary[state.key] || fallbackContract(state, state.key)
+    const contract = dictionary[state.key] || unknownStateContract(state, state.key)
     const invocation = detail.atom_invocations.find((item) => item.state_key === state.key) || null
     const transition = eventForState(detail.events, state.key)
     const atomKey = state.atom_key || invocation?.atom_key || null

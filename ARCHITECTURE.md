@@ -17,6 +17,49 @@ Canonical sources:
 
 Historical plans, validation notes, and retired design drafts live under `docs/archive/`. Archived files are evidence, not active requirements.
 
+## System Architecture Flow
+
+```mermaid
+graph TD
+    subgraph SL ["战略层 (Strategy)"]
+        M[Operating Manifest] --> G[Active Goal]
+    end
+
+    subgraph PL ["规划层 (Planning)"]
+        G -->|Daily Sweep| P(Planner Agent)
+        P -->|Generate| C[Requirement Candidate]
+        C -->|Check| V{Fail Closed Validation}
+        V -->|Missing Steps| VF[Validation Failed / Awaiting Operator]
+        V -->|Pass| R{Risk Router}
+        R -->|High Risk| PR[Pending Human Review]
+        R -->|Low Risk & Allowlist| Mat[Auto Materialize]
+        PR -->|Approve| Mat
+    end
+
+    subgraph EL ["执行层 (Execution Engine)"]
+        Mat --> Req[Requirement Created]
+        Req --> WF[Declarative Workflow Runner]
+        WF --> BB[(Compact Blackboard KV)]
+        WF --> TL[(Event Timeline & Artifacts)]
+    end
+
+    subgraph GA ["门禁与验收 (Gates & Acceptance)"]
+        WF --> HG{Human Gate?}
+        HG -->|Yes: Funds/Prod| Wait[Awaiting Operator]
+        Wait -->|Wake-up Signal| WF
+        HG -->|No| Done[Technical Done]
+        Done --> B_Check{Human Override?}
+        B_Check -->|Yes| Rev[Manual Review Panel]
+        Rev -->|Confirm| F_Done[Business Outcome Confirmed]
+        B_Check -->|No / Structured Verified| F_Done
+    end
+
+    classDef danger fill:#fee2e2,stroke:#ef4444,stroke-width:2px;
+    classDef safe fill:#dcfce3,stroke:#22c55e,stroke-width:2px;
+    class VF,Wait,Rev danger;
+    class F_Done safe;
+```
+
 ## 1. Core Philosophy
 
 1. Agent is the engine. Declarative state machine spec is the rail. Human operator is the high-risk gate.
@@ -87,7 +130,17 @@ High evidence does not bypass high risk.
 4. P0/P1 interruption goes to alert. Human gate goes to approval. PR/release goes to release. Workflow summary goes to workflow notification.
 5. Notification suppression and requirement materialization suppression are separate systems.
 
-## 7. Frontend Constraints
+## 7. Zero Tolerance And Fail-Closed Acceptance
+
+1. No acceptance fallbacks. Do not generate default shell criteria, generic "requested outcome is implemented" statements, or fake evidence to keep a workflow moving.
+2. Planner or Candidate materialization must include valid `execution_acceptance_steps` before creating a Requirement.
+3. Each acceptance step must prove the business outcome through `required_commands`, `required_evidence_types`, or `required_db_lineage`.
+4. Missing, malformed, empty, or vague Agent-generated acceptance must become `validation_failed` or `awaiting_operator`; it must not be silently repaired by code.
+5. Acceptance criteria verify the business result, not that the workflow engine happened to transition through states.
+6. Human Override is only for manually created requirements with a concrete `manual_review_prompt`; it still requires explicit business outcome confirmation.
+7. Verification Agent `inconclusive` must remain non-passing unless a deterministic command/evidence check independently proves the required acceptance.
+
+## 8. Frontend Constraints
 
 1. Frontend is a Human-Agent Control Plane, not a mosaic of equal white cards or a CRUD admin clone.
 2. Dangerous actions must use explicit confirmation UI, not browser-native `alert` or `confirm`.
@@ -97,7 +150,7 @@ High evidence does not bypass high risk.
 6. Workflow detail must expose Agent outputs, command evidence, file changes, blackboard summaries, delivery status, and pending human gates.
 7. Factory pages are read-only until workflow spec versioning, schema validation, sandbox execution, and human approval are production-ready.
 
-## 8. When In Doubt
+## 9. When In Doubt
 
 1. Prefer smaller deterministic control surfaces over stronger autonomous agents.
 2. Prefer candidate buffers over direct side effects.

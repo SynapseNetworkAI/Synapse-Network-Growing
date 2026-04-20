@@ -52,6 +52,31 @@ def _goalb_manifest_payload():
                 "priority": "normal",
                 "risk_level": "normal",
                 "weight": 0.1,
+                "acceptance_kind": "system_dogfood",
+                "execution_acceptance_steps": [
+                    {
+                        "step_key": "candidate_materialized",
+                        "title": "GoalB candidate becomes a formal requirement",
+                        "expected_result": "The candidate is materialized into a requirement with goalb lineage.",
+                        "required_db_lineage": [
+                            "requirement_candidates.materialized_requirement_id",
+                            "requirements.requirement_candidate_id",
+                            "requirements.goal_key",
+                        ],
+                    },
+                    {
+                        "step_key": "workflow_evidence_recorded",
+                        "title": "GoalB workflow records evidence",
+                        "expected_result": "The workflow completes with state events, atom invocations, and artifacts.",
+                        "required_db_lineage": [
+                            "workflow_runs.requirement_id",
+                            "workflow_state_events.workflow_run_id",
+                            "atom_invocations.workflow_run_id",
+                            "workflow_artifacts.workflow_run_id",
+                        ],
+                        "required_evidence_types": ["workflow_command_result", "workflow_agent_raw_output"],
+                    },
+                ],
             }
         ],
     }
@@ -90,6 +115,7 @@ def test_goalb_manifest_to_completed_workflow_product_flow(synced_client, db_ses
     assert candidate.project_key == "synapse-network-growing"
     assert candidate.status == "materialized"
     metadata = json.loads(candidate.metadata_json or "{}")
+    assert metadata["acceptance_contract"]["acceptance_kind"] == "system_dogfood"
     assert metadata["routing_decision"] == "auto_materialize_and_start"
     assert metadata["auto_materialized_requirement_id"]
     assert metadata["auto_started_workflow_run_id"]

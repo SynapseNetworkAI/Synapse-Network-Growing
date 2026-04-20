@@ -15,12 +15,23 @@ from server.services.requirements.service import (
 )
 
 
+VALID_ACCEPTANCE_CONTRACT = (
+    '{"execution_acceptance_steps": ['
+    '{"step_key": "workflow_result", '
+    '"title": "Workflow result is verified", '
+    '"expected_result": "Workflow completes with command evidence.", '
+    '"required_evidence_types": ["workflow_command_result"]}'
+    ']}'
+)
+
+
 def _create_requirement(db_session) -> RequirementRow:
     requirement = RequirementRow(
         title="Repair Ops Dashboard failure",
         description_markdown="Detect, diagnose, patch, verify, and prepare PR for Ops Dashboard failure.",
         target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
         status="ready",
+        acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
     )
     db_session.add(requirement)
     db_session.commit()
@@ -473,7 +484,7 @@ def test_submit_requirement_creates_declarative_workflow_run(db_session):
         phase="ready",
         workflow_state="ready",
         assets_status="ready",
-        acceptance_contract_json='{"summary": "restore reliability"}',
+        acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
         execution_plan_json='{"summary_markdown": "use declarative workflow"}',
     )
     db_session.add(requirement)
@@ -497,7 +508,7 @@ def test_submit_requirement_response_exposes_declarative_workflow_summary(db_ses
         phase="ready",
         workflow_state="ready",
         assets_status="ready",
-        acceptance_contract_json='{"summary": "repair ops"}',
+        acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
         execution_plan_json='{"summary_markdown": "use agent_self_repair workflow"}',
     )
     db_session.add(requirement)
@@ -524,7 +535,7 @@ def test_requirement_workflow_readiness_and_manual_start_endpoint(synced_client,
         source="bug_intake",
         source_ref="error-fingerprint:gateway-timeout",
         assets_status="pending",
-        acceptance_contract_json='{"markdown": "## Done Criteria\\n- Gateway recovers", "done_criteria": ["Gateway recovers"]}',
+        acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
         execution_plan_json="{}",
     )
     db_session.add(requirement)

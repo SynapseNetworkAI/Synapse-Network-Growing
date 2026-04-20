@@ -37,14 +37,14 @@ from server.schemas import (
     ReleaseRecordSlimOut,
     WorkflowReadinessOut,
 )
-from server.services.projects.policy import project_policy_summary_markdown, resolve_project_policies_for_target
+from server.services.projects.policy import project_policy_summary_markdown
 from server.services.projects.project_center import (
     ensure_projects_materialized,
     get_project,
     project_to_dict,
     resolve_project,
 )
-from server.services.requirements.acceptance import normalize_acceptance_contract
+from server.services.requirements.acceptance import normalize_acceptance_contract, validate_acceptance_contract_for_execution
 from server.services.requirements.attachments import (
     persist_requirement_attachments,
     requirement_attachment_context_files,
@@ -120,6 +120,14 @@ def _parse_execution_plan(requirement: RequirementRow) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _validated_acceptance_for_execution(requirement: RequirementRow) -> dict[str, Any]:
+    return validate_acceptance_contract_for_execution(
+        _parse_acceptance_contract(requirement),
+        source=str(getattr(requirement, "source", "") or "manual"),
+        goal_key=str(getattr(requirement, "goal_key", "") or "") or None,
+    )
+
+
 def _acceptance_contract_markdown(contract: dict[str, Any]) -> str:
     lines = ["## Done Criteria"]
     for item in contract.get("done_criteria") or []:
@@ -137,49 +145,6 @@ def _acceptance_contract_markdown(contract: dict[str, Any]) -> str:
     if delivery:
         lines.extend(["", "## Delivery Expectation", delivery])
     return "\n".join(lines).strip()
-
-
-def _fallback_acceptance_contract(
-    *,
-    title: str,
-    description_markdown: str,
-    target_project_path: str | None = None,
-    required_checks: list[str] | None = None,
-) -> dict[str, Any]:
-    done = [
-        f"The requested outcome for `{title.strip() or 'requirement'}` is implemented.",
-        "The change stays within the described scope and avoids unrelated rewrites.",
-    ]
-    expected = ["Changed files, verification output, and workflow artifacts are available in Ops Console."]
-    for command in required_checks or []:
-        expected.append(f"Required project check remains green: `{command}`")
-    contract = normalize_acceptance_contract(
-        {
-            "done_criteria": done,
-            "scope_constraints": [
-                f"Target project path is {target_project_path}." if target_project_path else "Target project is resolved from project policy.",
-                "Do not change credentials, funds, deployment, or auth behavior unless explicitly required.",
-            ],
-            "expected_evidence": expected,
-            "risk_notes": ["Route high-risk production, auth, funds, or deployment effects to human gate."],
-            "delivery_expectation": "Deliver through declarative workflow evidence and PR/release gates.",
-        }
-    )
-    contract["markdown"] = _acceptance_contract_markdown(contract)
-    return contract
-
-
-def _required_checks_for_target(db: Session, target_project_path: str | None) -> list[str]:
-    commands: list[str] = []
-    seen: set[str] = set()
-    for policy in resolve_project_policies_for_target(db, target_project_path, require_active=False):
-        raw = _json_load(getattr(policy, "required_checks_json", None), [])
-        for command in raw if isinstance(raw, list) else []:
-            cleaned = str(command).strip()
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
-                commands.append(cleaned)
-    return commands
 
 
 def _project_for_requirement(db: Session, requirement: RequirementRow) -> ProjectRow | None:
@@ -805,15 +770,8 @@ def _select_declarative_workflow_key(requirement: RequirementRow) -> str:
 def _ensure_declarative_workflow_assets(db: Session, requirement: RequirementRow) -> None:
     _assert_requirement_can_progress(requirement, "generate workflow assets")
     workflow_key = _select_declarative_workflow_key(requirement)
-    acceptance = _parse_acceptance_contract(requirement)
-    if not str(acceptance.get("markdown") or "").strip():
-        acceptance = _fallback_acceptance_contract(
-            title=str(requirement.title or ""),
-            description_markdown=str(requirement.description_markdown or ""),
-            target_project_path=str(getattr(requirement, "target_project_path", "") or "") or None,
-            required_checks=_required_checks_for_target(db, getattr(requirement, "target_project_path", None)),
-        )
-        requirement.acceptance_contract_json = _json_dump(acceptance)
+    acceptance = _validated_acceptance_for_execution(requirement)
+    requirement.acceptance_contract_json = _json_dump(acceptance)
     requirement.execution_plan_json = _json_dump(
         {
             "planning_mode": "declarative_workflow_factory",
@@ -934,6 +892,8 @@ def _create_requirement_declarative_workflow(
 
     selected = str(workflow_key or "").strip() or _select_declarative_workflow_key(requirement)
     workflow_risk = _workflow_risk_context_for_requirement(requirement)
+    acceptance = _validated_acceptance_for_execution(requirement)
+    requirement.acceptance_contract_json = _json_dump(acceptance)
     return create_declarative_workflow_run(
         db,
         requirement=requirement,
@@ -960,7 +920,7 @@ def _create_requirement_declarative_workflow(
                 "source": str(getattr(requirement, "source", "") or ""),
                 "source_ref": str(getattr(requirement, "source_ref", "") or ""),
             },
-            "acceptance": _parse_acceptance_contract(requirement),
+            "acceptance": acceptance,
             "plan": _parse_execution_plan(requirement),
         },
         run_immediately=run_immediately,

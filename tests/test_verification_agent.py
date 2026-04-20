@@ -37,7 +37,7 @@ def test_verify_with_agent_serializes_datetime_payload_before_provider_call():
     assert '"ts": "2026-04-14T10:58:24+00:00"' in observed_prompt["prompt"]
 
 
-def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution_evidence_is_strong():
+def test_verify_with_agent_keeps_provider_inconclusive_non_passing_even_with_execution_evidence():
     def _fake_generate_planner_text(request):
         return PlannerResponse(
             text='{"status":"inconclusive","summary":"not sure","checks_run":[],"evidence_used":[],"reasoning":"missing artifact","suggested_next_action":"revise_requirement"}',
@@ -56,10 +56,9 @@ def test_verify_with_agent_promotes_inconclusive_to_fallback_pass_when_execution
     ):
         result = verify_with_agent(payload, skip_provider=False)
 
-    assert result["status"] == "passed"
-    assert result["suggested_next_action"] == "release_ready"
+    assert result["status"] == "inconclusive"
+    assert result["suggested_next_action"] == "revise_requirement"
     assert result["verification_plan"]["mode"] == "evidence_review"
-    assert "raw_output" in " ".join(result["evidence_used"])
 
 
 def test_verify_with_agent_returns_none_required_plan_when_no_evidence_exists():

@@ -28,6 +28,23 @@ def _project(db):
     return row
 
 
+def _candidate_metadata():
+    return json.dumps(
+        {
+            "acceptance_contract": {
+                "execution_acceptance_steps": [
+                    {
+                        "step_key": "business_result",
+                        "title": "Business result is verified",
+                        "expected_result": "The candidate outcome is proven by workflow evidence.",
+                        "required_evidence_types": ["workflow_command_result"],
+                    }
+                ]
+            }
+        }
+    )
+
+
 def test_manifest_history_paginates_and_searches_all_archived_manifests(db_session):
     for idx in range(15):
         db_session.add(
@@ -82,6 +99,7 @@ def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):
         project_key=project.project_key,
         workflow_key="gateway_reliability_repair",
         status="pending",
+        metadata_json=_candidate_metadata(),
     )
     db_session.add(candidate)
     db_session.commit()
@@ -94,6 +112,39 @@ def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):
     assert requirement.operating_manifest_id == manifest.id
     assert requirement.goal_key == "gateway_reliability"
     assert requirement.requirement_candidate_id == candidate.id
+
+
+def test_candidate_materialize_fail_closed_without_acceptance_steps(db_session):
+    project = _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="gateway_reliability",
+        candidate_fingerprint="fp-materialize-invalid",
+        title="Invalid acceptance",
+        description_markdown="Planner did not provide evidence-bound acceptance.",
+        project_id=int(project.id),
+        project_key=project.project_key,
+        workflow_key="gateway_reliability_repair",
+        status="pending",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    approve_candidate(db_session, int(candidate.id))
+
+    try:
+        materialize_candidate(db_session, int(candidate.id))
+    except ValueError as exc:
+        assert "acceptance validation" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("invalid candidate materialized without acceptance steps")
+
+    db_session.refresh(candidate)
+    assert candidate.status == "validation_failed"
+    assert candidate.suppression_reason == "acceptance_validation_failed"
+    assert candidate.materialized_requirement_id is None
+    assert db_session.query(RequirementRow).filter(RequirementRow.requirement_candidate_id == int(candidate.id)).count() == 0
 
 
 def test_candidate_approve_and_run_creates_requirement_and_workflow(db_session):
@@ -111,6 +162,7 @@ def test_candidate_approve_and_run_creates_requirement_and_workflow(db_session):
         priority="normal",
         risk_level="normal",
         status="pending",
+        metadata_json=_candidate_metadata(),
     )
     db_session.add(candidate)
     db_session.commit()
@@ -148,6 +200,7 @@ def test_candidate_approve_and_run_routes_high_risk_to_human_gate(db_session):
         priority="high",
         risk_level="high",
         status="pending",
+        metadata_json=_candidate_metadata(),
     )
     db_session.add(candidate)
     db_session.commit()
@@ -182,6 +235,7 @@ def test_candidate_approve_and_run_api(db_session, client):
         priority="normal",
         risk_level="normal",
         status="pending",
+        metadata_json=_candidate_metadata(),
     )
     db_session.add(candidate)
     db_session.commit()

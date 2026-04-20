@@ -35,7 +35,7 @@ function formatTime(value: string | null | undefined) {
 function badgeTone(status: string) {
   if (['active', 'approved', 'materialized', 'succeeded', 'released'].includes(status)) return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (['pending', 'draft', 'running', 'awaiting_operator'].includes(status)) return 'border-blue-200 bg-blue-50 text-blue-700'
-  if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
+  if (['dropped', 'cancelled', 'suppressed', 'rejected', 'failed', 'blocked', 'validation_failed'].includes(status)) return 'border-rose-200 bg-rose-50 text-rose-700'
   return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] text-[color:var(--ops-text-muted)]'
 }
 
@@ -148,8 +148,8 @@ function CandidateMiniQueue({
   busy: string | null
   onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
 }>) {
-  const active = candidates.filter((candidate) => ['pending', 'approved', 'materialized'].includes(candidate.status))
-  const quiet = candidates.filter((candidate) => !['pending', 'approved', 'materialized'].includes(candidate.status))
+  const active = candidates.filter((candidate) => ['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))
+  const quiet = candidates.filter((candidate) => !['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))
   return (
     <div className="space-y-3" data-testid="candidate-mini-queue">
       <div className="flex items-center justify-between gap-3">
@@ -173,6 +173,11 @@ function CandidateMiniQueue({
             <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
               Risk Router: {String(candidate.metadata.routing_decision)}
               {candidate.metadata.routing_reason ? ` · ${String(candidate.metadata.routing_reason)}` : ''}
+            </div>
+          ) : null}
+          {candidate.status === 'validation_failed' ? (
+            <div className="mt-3 rounded-xl border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
+              Fail Closed: {candidate.metadata?.acceptance_validation_error ? String(candidate.metadata.acceptance_validation_error) : candidate.suppression_reason || 'acceptance validation failed'}
             </div>
           ) : null}
           <div className="mt-3"><CandidateActions candidate={candidate} busy={busy} onAction={onAction} /></div>

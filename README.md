@@ -47,7 +47,7 @@ Coding agents and humans should start here:
 10. [Ops Console Usage](docs/ops-console-usage.md) - local UI/API usage notes.
 11. [Ops Console Page Map and E2E Validation](docs/ops-console-page-map-and-e2e-validation.md) - page-by-page function map, tests, and GoalB dogfood validation.
 
-Historical evidence and legacy docs are intentionally moved under `docs/archive/`.
+Historical evidence, old plans, and legacy docs are intentionally moved under `docs/archive/`. They are audit evidence, not current architecture sources.
 
 ## Main Surfaces
 
@@ -158,7 +158,7 @@ Routing rules:
 
 1. `docs/design-docs/`: current architecture and formal design docs.
 2. `docs/ops/`: operational governance and deployment runbooks.
-3. `docs/plans/`: current or strategic planning bundles only.
+3. `docs/plans/`: temporary staging only for new plan bundles; implementation truth remains in `ARCHITECTURE.md` and `docs/design-docs/`.
 4. `docs/archive/`: historical evidence, old plans, old design drafts, and retired docs.
 5. `docs/assets/`: architecture diagrams used by current docs.
 
