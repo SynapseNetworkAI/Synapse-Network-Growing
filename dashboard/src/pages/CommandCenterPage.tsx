@@ -92,7 +92,7 @@ export default function CommandCenterPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricTile label="Active Requirements" value={state.stats?.requirement_active ?? '-'} detail="正式需求池中仍需推进的事项" tone="info" />
         <MetricTile label="Running Workflows" value={state.stats?.workflow_running ?? state.workflows?.running ?? '-'} detail="状态机正在执行或等待下一步" tone="success" />
-        <MetricTile label="Needs Human" value={state.workflows?.pending_gate_count ?? state.workflows?.needs_human ?? state.stats?.human_gate_pending ?? '-'} detail="必须由 Human Oracle 决策" tone={numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) ? 'warning' : 'muted'} />
+        <MetricTile label="Needs Human" value={state.workflows?.needs_human ?? state.workflows?.pending_gate_count ?? state.stats?.human_gate_pending ?? '-'} detail="Human Gate 或人工业务确认" tone={numberValue(state.workflows?.needs_human ?? state.workflows?.pending_gate_count) ? 'warning' : 'muted'} />
         <MetricTile label="Failed" value={state.workflows?.failed_count ?? state.workflows?.failed ?? state.stats?.workflow_failed ?? '-'} detail="失败、超预算或证据不足" tone={numberValue(state.workflows?.failed_count ?? state.workflows?.failed) ? 'danger' : 'muted'} />
         <MetricTile label="Completed Today" value={state.workflows?.completed_today ?? '-'} detail="今天真正完成的 workflow run" tone="success" />
       </div>
@@ -136,7 +136,7 @@ export default function CommandCenterPage() {
             <AgentReasoningCard
               title={blockers ? `${blockers} blocker(s) require attention` : 'No operator blocker'}
               tone={blockers ? 'warning' : 'info'}
-              summary={blockers ? '存在真实 pending Human Gate 或 failed workflow。优先进入 Oracle Gates / Failed Runs 处理证据、风险或重试。' : '没有等待人工处理的 blocker。若 workflow 曾经停在 awaiting_operator，gate 决策后应由 Runner 收敛状态，而不是由页面猜测。'}
+              summary={blockers ? '存在真实 pending Human Gate、人工业务确认或 failed workflow。优先处理证据、风险或业务验收。' : '没有等待人工处理的 blocker。若 workflow 曾经停在 awaiting_operator，gate 决策后应由 Runner 收敛状态，而不是由页面猜测。'}
               metadata={<ActionButton href="/gates" tone={blockers ? 'primary' : 'default'}>打开 Oracle Gates</ActionButton>}
             />
             <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-4">

@@ -99,6 +99,17 @@ class DeclarativeWorkflowRunSummaryOut(BaseModel):
     updated_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    outcome_label: Optional[str] = None
+    is_truly_completed: bool = False
+    completed_truthfully: bool = False
+    needs_human: bool = False
+    acceptance_override: bool = False
+    manual_review_prompt: Optional[str] = None
+    business_outcome_status: Optional[str] = None
+    business_outcome_confirmed_by: Optional[str] = None
+    business_outcome_confirmed_at: Optional[str] = None
+    business_outcome_note: Optional[str] = None
+    awaiting_business_confirmation: bool = False
 
 
 class WorkflowReadinessOut(BaseModel):
@@ -974,6 +985,10 @@ class AgentFirstRequirementOut(BaseModel):
     active_workflow_run_id: Optional[int] = None
     active_workflow_run_summary: Optional[DeclarativeWorkflowRunSummaryOut] = None
     latest_release_status: Optional[str] = None
+    business_outcome_status: Optional[str] = None
+    business_outcome_confirmed_by: Optional[str] = None
+    business_outcome_confirmed_at: Optional[str] = None
+    business_outcome_note: Optional[str] = None
 
 
 class AgentFirstRequirementDetailOut(BaseModel):
@@ -1003,6 +1018,10 @@ class AgentFirstRequirementDetailOut(BaseModel):
     attachments: list["RequirementAttachmentOut"] = []
     followup_requirement_id: Optional[int] = None
     resolution_path: Optional[str] = None
+    business_outcome_status: Optional[str] = None
+    business_outcome_confirmed_by: Optional[str] = None
+    business_outcome_confirmed_at: Optional[str] = None
+    business_outcome_note: Optional[str] = None
 
 
 class ValidationCheckResultOut(BaseModel):

@@ -538,6 +538,132 @@ function EvidenceMap({ steps }: Readonly<{ steps: StepViewModel[] }>) {
   )
 }
 
+function workflowAcceptance(detail: DeclarativeWorkflowRunDetail) {
+  const value = detail.blackboard.acceptance
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function acceptanceSteps(detail: DeclarativeWorkflowRunDetail) {
+  const acceptance = workflowAcceptance(detail)
+  return Array.isArray(acceptance.execution_acceptance_steps) ? acceptance.execution_acceptance_steps as Array<Record<string, unknown>> : []
+}
+
+function isHumanOverride(detail: DeclarativeWorkflowRunDetail) {
+  return Boolean(detail.acceptance_override || workflowAcceptance(detail).acceptance_override)
+}
+
+function ManualReviewPanel({
+  detail,
+  busy,
+  onConfirm,
+  onReject,
+  onFollowup,
+}: Readonly<{
+  detail: DeclarativeWorkflowRunDetail
+  busy: boolean
+  onConfirm: () => void
+  onReject: () => void
+  onFollowup: () => void
+}>) {
+  const acceptance = workflowAcceptance(detail)
+  const prompt = detail.manual_review_prompt || String(acceptance.manual_review_prompt || acceptance.markdown || 'Operator requested manual review without a structured step matrix.')
+  const confirmed = detail.business_outcome_status === 'confirmed'
+  const rejected = detail.business_outcome_status === 'rejected'
+  return (
+    <Panel title="Manual Review Panel" testId="workflow-manual-review-panel">
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-amber-300/35 bg-amber-400/10 p-4">
+          <div className="text-xs uppercase tracking-[0.18em] text-amber-100">Human Override</div>
+          <p className="mt-2 text-base leading-7 text-[color:var(--ops-text-title)]">{prompt}</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-[color:var(--ops-text-caption)]">
+            <span>override by: {String(acceptance.override_by || 'operator')}</span>
+            {acceptance.override_reason ? <span>reason: {String(acceptance.override_reason)}</span> : null}
+            {acceptance.override_at ? <span>at: {formatTime(String(acceptance.override_at))}</span> : null}
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <MiniFact label="Changed Files" value={String(detail.changed_files_summary?.changed_files?.length ?? 0)} />
+          <MiniFact label="Commands" value={String(detail.command_results?.length ?? 0)} />
+          <MiniFact label="Artifacts" value={String(detail.artifact_count ?? detail.artifacts.length)} />
+          <MiniFact label="Delivery" value={detail.delivery_summary?.simulated ? 'simulated' : detail.delivery_summary?.pr_url ? 'PR linked' : detail.release_status || '-'} />
+        </div>
+
+        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Business Outcome</div>
+          <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">
+            {confirmed
+              ? `Confirmed by ${detail.business_outcome_confirmed_by || 'operator'} at ${formatTime(detail.business_outcome_confirmed_at || null)}.`
+              : rejected
+                ? 'Rejected by operator. Create a follow-up requirement if the outcome needs another pass.'
+                : 'Technical workflow evidence is available. Operator must confirm the real business outcome before this run is fully Done.'}
+          </div>
+          {detail.business_outcome_note ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">{detail.business_outcome_note}</div> : null}
+        </div>
+
+        {!confirmed ? (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" disabled={busy} onClick={onConfirm}>
+              Confirm Business Outcome
+            </button>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm text-[color:var(--ops-text-body)] disabled:opacity-50" disabled={busy} onClick={onFollowup}>
+              Request Follow-up Fix
+            </button>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2.5 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50" disabled={busy} onClick={onReject}>
+              Reject Outcome
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  )
+}
+
+function StepVerificationMatrix({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const steps = acceptanceSteps(detail)
+  return (
+    <Panel title="Step Verification Matrix" testId="workflow-step-verification-matrix">
+      <div className="space-y-3">
+        {steps.map((step, index) => {
+          const requiredCommands = Array.isArray(step.required_commands) ? step.required_commands.map(String) : []
+          const requiredEvidence = Array.isArray(step.required_evidence_types) ? step.required_evidence_types.map(String) : []
+          const commandSatisfied = !requiredCommands.length || requiredCommands.some((command) => detail.command_results?.some((result) => result.command.includes(command) && result.exit_code === 0))
+          const evidenceSatisfied = !requiredEvidence.length || requiredEvidence.some((kind) => detail.artifacts.some((artifact) => artifact.artifact_type === kind || artifact.content_summary.includes(kind)))
+          const passed = commandSatisfied && evidenceSatisfied && detail.evidence_complete !== false
+          return (
+            <div key={String(step.step_key || index)} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{String(step.title || step.step_key || `Step ${index + 1}`)}</div>
+                  <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{String(step.expected_result || 'No expected result recorded.')}</div>
+                </div>
+                <span className={['rounded-full border px-3 py-1 text-xs', statusClass(passed ? 'passed' : 'pending')].join(' ')}>
+                  {passed ? 'passed' : 'pending evidence'}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Required Commands</div>
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{requiredCommands.length ? requiredCommands.join('; ') : 'none'}</div>
+                </div>
+                <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Required Evidence</div>
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">{requiredEvidence.length ? requiredEvidence.join('; ') : String(step.manual_review_prompt || 'none')}</div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {!steps.length ? (
+          <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-4 text-sm text-[color:var(--ops-state-blocked-text)]">
+            Acceptance Missing / Blocked. This workflow has no Human Override and no structured execution acceptance steps, so the UI will not render a fake verification matrix.
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  )
+}
+
 function GateDeliveryPanel({
   detail,
   busyGateId,
@@ -717,6 +843,7 @@ export default function WorkflowRunDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyGateId, setBusyGateId] = useState<number | null>(null)
+  const [businessOutcomeBusy, setBusinessOutcomeBusy] = useState(false)
   const [activeTab, setActiveTab] = useState<WorkflowTab>('overview')
 
   async function load() {
@@ -783,6 +910,59 @@ export default function WorkflowRunDetailPage() {
       navigate(`/requirements/${payload.requirement_id}`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '创建 follow-up 失败')
+    }
+  }
+
+  async function confirmBusinessOutcome() {
+    if (!detail) return
+    setBusinessOutcomeBusy(true)
+    try {
+      const nextDetail = await api.confirmWorkflowBusinessOutcome(detail.id, {
+        operator: 'operator',
+        note: 'Business outcome confirmed from workflow Evidence tab.',
+      })
+      setDetail(nextDetail)
+      toast.success('Business outcome confirmed')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '业务结果确认失败')
+    } finally {
+      setBusinessOutcomeBusy(false)
+    }
+  }
+
+  async function rejectBusinessOutcome() {
+    if (!detail) return
+    setBusinessOutcomeBusy(true)
+    try {
+      const nextDetail = await api.rejectWorkflowBusinessOutcome(detail.id, {
+        operator: 'operator',
+        note: 'Business outcome rejected from workflow Evidence tab.',
+      })
+      setDetail(nextDetail)
+      toast.success('Business outcome rejected; create a follow-up if needed')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '业务结果拒绝失败')
+    } finally {
+      setBusinessOutcomeBusy(false)
+    }
+  }
+
+  async function requestBusinessFollowup() {
+    if (!detail) return
+    setBusinessOutcomeBusy(true)
+    try {
+      const payload = await api.requestWorkflowBusinessFollowup(detail.id, {
+        title: `Follow-up: ${detail.requirement_title || detail.workflow_key}`,
+        operator: 'operator',
+        note: 'Follow-up requested from manual business review.',
+      })
+      setDetail(payload.workflow)
+      toast.success(`已创建 follow-up requirement #${payload.requirement_id}`)
+      navigate(`/requirements/${payload.requirement_id}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '创建 follow-up 失败')
+    } finally {
+      setBusinessOutcomeBusy(false)
     }
   }
 
@@ -863,10 +1043,21 @@ export default function WorkflowRunDetailPage() {
 
       {activeTab === 'evidence' ? (
         <div className="space-y-5">
+          {isHumanOverride(detail) ? (
+            <ManualReviewPanel
+              detail={detail}
+              busy={businessOutcomeBusy}
+              onConfirm={() => confirmBusinessOutcome().catch(() => {})}
+              onReject={() => rejectBusinessOutcome().catch(() => {})}
+              onFollowup={() => requestBusinessFollowup().catch(() => {})}
+            />
+          ) : (
+            <StepVerificationMatrix detail={detail} />
+          )}
           <AgentOutputPanel detail={detail} />
           <ChangedFilesPanel detail={detail} />
           <CommandEvidencePanel detail={detail} />
-          <EvidenceMap steps={steps} />
+          {!isHumanOverride(detail) && !acceptanceSteps(detail).length ? <EvidenceMap steps={steps} /> : null}
         </div>
       ) : null}
 

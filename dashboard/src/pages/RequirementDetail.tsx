@@ -636,6 +636,8 @@ export default function RequirementDetail() {
                   <span>state: {summary.current_state}</span>
                   <span>risk: {summary.risk_level}</span>
                   {summary.pending_human_gate_count ? <span>human gate: {summary.pending_human_gate_count}</span> : null}
+                  {summary.awaiting_business_confirmation ? <StateBadge tone="validating">技术完成，等待人工业务确认</StateBadge> : null}
+                  {summary.business_outcome_status === 'confirmed' ? <StateBadge tone="delivered">业务已确认</StateBadge> : null}
                 </div>
               )
             })()}

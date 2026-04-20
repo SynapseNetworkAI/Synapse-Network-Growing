@@ -21,6 +21,13 @@ DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
     "delivery_expectation": "",
     "risk_notes": [],
     "expected_evidence": [],
+    "execution_acceptance_steps": [],
+    "acceptance_kind": "business",
+    "manual_review_prompt": "",
+    "acceptance_override": False,
+    "override_by": "",
+    "override_reason": "",
+    "override_at": "",
     "acceptance_index": {},
     "markdown": "",
 }
@@ -47,6 +54,15 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
             value = str(raw.get(key) or "").strip()
             if value:
                 payload[key] = value
+        acceptance_kind = str(raw.get("acceptance_kind") or "").strip()
+        if acceptance_kind in {"business", "system_dogfood"}:
+            payload["acceptance_kind"] = acceptance_kind
+        for key in {"manual_review_prompt", "override_by", "override_reason", "override_at"}:
+            value = str(raw.get(key) or "").strip()
+            if value:
+                payload[key] = value
+        if "acceptance_override" in raw:
+            payload["acceptance_override"] = bool(raw.get("acceptance_override"))
         for key in {"workflow_step_types", "required_evidence_artifact_types"}:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
@@ -71,6 +87,24 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
             )
         if verification_checks:
             payload["verification_checks"] = verification_checks
+        steps: list[dict[str, Any]] = []
+        for item in raw.get("execution_acceptance_steps") or []:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            expected_result = str(item.get("expected_result") or "").strip()
+            if not title or not expected_result:
+                continue
+            step = dict(item)
+            step["step_key"] = str(step.get("step_key") or title).strip()
+            step["title"] = title
+            step["expected_result"] = expected_result
+            for list_key in {"required_commands", "required_evidence_types", "required_db_lineage"}:
+                step[list_key] = [str(value).strip() for value in step.get(list_key) or [] if str(value).strip()]
+            step["manual_review_prompt"] = str(step.get("manual_review_prompt") or "").strip()
+            steps.append(step)
+        if steps:
+            payload["execution_acceptance_steps"] = steps
         delivery_expectation = str(raw.get("delivery_expectation") or "").strip()
         if delivery_expectation:
             payload["delivery_expectation"] = delivery_expectation
@@ -85,6 +119,7 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
         "done_criteria_count": len(payload.get("done_criteria") or []),
         "scope_constraints_count": len(payload.get("scope_constraints") or []),
         "expected_evidence_count": len(payload.get("expected_evidence") or []),
+        "execution_acceptance_step_count": len(payload.get("execution_acceptance_steps") or []),
     }
     return payload
 

@@ -327,6 +327,20 @@ def _active_workflow_run_summary(db: Session, requirement: RequirementRow) -> De
         .filter(HumanGateRequestRow.workflow_run_id == int(run.id), HumanGateRequestRow.status == "pending")
         .count()
     )
+    release = (
+        db.query(ReleaseRecordRow)
+        .filter(ReleaseRecordRow.workflow_run_id == int(run.id))
+        .order_by(ReleaseRecordRow.id.desc())
+        .first()
+    )
+    from server.services.workflows.declarative import _json_load, _workflow_truth_fields
+
+    truth = _workflow_truth_fields(
+        run,
+        blackboard=_json_load(run.blackboard_json, {}),
+        pending_gate_count=int(pending_gate_count or 0),
+        release=release,
+    )
     return DeclarativeWorkflowRunSummaryOut(
         id=int(run.id),
         requirement_id=int(run.requirement_id),
@@ -339,7 +353,32 @@ def _active_workflow_run_summary(db: Session, requirement: RequirementRow) -> De
         updated_at=run.updated_at,
         started_at=run.started_at,
         completed_at=run.completed_at,
+        outcome_label=str(truth.get("outcome_label") or "") or None,
+        is_truly_completed=bool(truth.get("is_truly_completed")),
+        completed_truthfully=bool(truth.get("completed_truthfully")),
+        needs_human=bool(truth.get("needs_human")),
+        acceptance_override=bool(truth.get("acceptance_override")),
+        manual_review_prompt=str(truth.get("manual_review_prompt") or "") or None,
+        business_outcome_status=str(truth.get("business_outcome_status") or "") or None,
+        business_outcome_confirmed_by=str(truth.get("business_outcome_confirmed_by") or "") or None,
+        business_outcome_confirmed_at=str(truth.get("business_outcome_confirmed_at") or "") or None,
+        business_outcome_note=str(truth.get("business_outcome_note") or "") or None,
+        awaiting_business_confirmation=bool(truth.get("awaiting_business_confirmation")),
     )
+
+
+def _business_outcome_for_requirement(db: Session, requirement: RequirementRow) -> dict[str, Any]:
+    workflow_run_id = int(getattr(requirement, "active_workflow_run_id", 0) or 0)
+    if workflow_run_id <= 0:
+        metadata = _json_load(getattr(requirement, "intake_metadata_json", None), {})
+        outcome = metadata.get("business_outcome") if isinstance(metadata, dict) else {}
+        return dict(outcome) if isinstance(outcome, dict) else {}
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run_id).first()
+    if run is None:
+        return {}
+    blackboard = _json_load(getattr(run, "blackboard_json", None), {})
+    outcome = blackboard.get("business_outcome") if isinstance(blackboard, dict) else {}
+    return dict(outcome) if isinstance(outcome, dict) else {}
 
 
 def _workflow_state_for_requirement(requirement: RequirementRow) -> str:
@@ -419,6 +458,7 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
     project = _project_for_requirement(db, requirement)
     project_context = _project_context_out(requirement, project)
     state = _workflow_state_for_requirement(requirement)
+    business_outcome = _business_outcome_for_requirement(db, requirement)
     return AgentFirstRequirementOut(
         id=int(requirement.id),
         title=str(requirement.title or ""),
@@ -458,6 +498,10 @@ def _requirement_to_out(db: Session, requirement: RequirementRow) -> AgentFirstR
         active_workflow_run_id=int(getattr(requirement, "active_workflow_run_id", 0) or 0) or None,
         active_workflow_run_summary=_active_workflow_run_summary(db, requirement),
         latest_release_status=str(latest_release.status or "") if latest_release is not None else None,
+        business_outcome_status=str(business_outcome.get("status") or "").strip() or None,
+        business_outcome_confirmed_by=str(business_outcome.get("confirmed_by") or "").strip() or None,
+        business_outcome_confirmed_at=str(business_outcome.get("confirmed_at") or "").strip() or None,
+        business_outcome_note=str(business_outcome.get("note") or "").strip() or None,
     )
 
 
@@ -519,6 +563,7 @@ def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequ
     latest_release = _latest_release(db, requirement_id)
     project = _project_for_requirement(db, requirement)
     state = _workflow_state_for_requirement(requirement)
+    business_outcome = _business_outcome_for_requirement(db, requirement)
     return AgentFirstRequirementDetailOut(
         requirement=_requirement_to_out(db, requirement),
         state=state,
@@ -542,6 +587,10 @@ def build_requirement_detail(db: Session, requirement_id: int) -> AgentFirstRequ
         attachments=[RequirementAttachmentOut(**serialize_requirement_attachment(item)) for item in _requirement_attachment_rows(db, requirement_id)],
         followup_requirement_id=int(getattr(requirement, "followup_requirement_id", 0) or 0) or None,
         resolution_path=str(getattr(requirement, "resolution_path", "") or "").strip() or None,
+        business_outcome_status=str(business_outcome.get("status") or "").strip() or None,
+        business_outcome_confirmed_by=str(business_outcome.get("confirmed_by") or "").strip() or None,
+        business_outcome_confirmed_at=str(business_outcome.get("confirmed_at") or "").strip() or None,
+        business_outcome_note=str(business_outcome.get("note") or "").strip() or None,
     )
 
 

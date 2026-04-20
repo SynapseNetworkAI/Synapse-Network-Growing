@@ -129,6 +129,8 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "patch_result",
                 "verification",
                 "pr",
+                "acceptance",
+                "business_outcome",
                 "risk_flags",
                 "evidence",
                 "human_gate_decisions",
@@ -459,10 +461,18 @@ def _workflow_truth_fields(
     delivery = _delivery_summary_from_blackboard(blackboard, release)
     is_completed = _is_completed_status(row.status)
     needs_human = pending_gate_count > 0
+    acceptance = blackboard.get("acceptance") if isinstance(blackboard.get("acceptance"), Mapping) else {}
+    business_outcome = blackboard.get("business_outcome") if isinstance(blackboard.get("business_outcome"), Mapping) else {}
+    acceptance_override = bool(acceptance.get("acceptance_override"))
+    business_outcome_status = str(business_outcome.get("status") or "").strip().lower() or None
+    business_outcome_confirmed = business_outcome_status == "confirmed" and bool(business_outcome.get("confirmed_at"))
+    awaiting_business_confirmation = acceptance_override and is_completed and not business_outcome_confirmed
     evidence_complete = (not verification_passed) or bool(command_results)
     warnings: list[str] = []
     if needs_human:
         warnings.append("Pending human gate: this run is not truly completed.")
+    if awaiting_business_confirmation:
+        warnings.append("Human Override: technical workflow is done, but business outcome needs operator confirmation.")
     if getattr(row, "archived_at", None) is not None and pending_gate_count > 0:
         warnings.append("Archived with pending gate: hidden state still requires operator review.")
     if verification_passed and not command_results:
@@ -470,12 +480,24 @@ def _workflow_truth_fields(
     if bool(delivery.get("simulated")):
         warnings.append("Simulated PR: delivery evidence is not a real external PR.")
     stale_awaiting_operator = str(row.status or "") == "awaiting_operator" and pending_gate_count == 0
-    truly_completed = is_completed and not needs_human
+    truly_completed = is_completed and not needs_human and not awaiting_business_confirmation
+    if awaiting_business_confirmation:
+        outcome_label = "Awaiting Business Confirmation"
+    elif needs_human:
+        outcome_label = "Needs Human"
+    elif truly_completed:
+        outcome_label = "Completed"
+    elif row.status == "failed":
+        outcome_label = "Failed"
+    elif stale_awaiting_operator:
+        outcome_label = "Blocked"
+    else:
+        outcome_label = "Running"
     return {
-        "outcome_label": "Needs Human" if needs_human else ("Completed" if truly_completed else ("Failed" if row.status == "failed" else ("Blocked" if stale_awaiting_operator else "Running"))),
+        "outcome_label": outcome_label,
         "is_truly_completed": truly_completed,
         "completed_truthfully": truly_completed,
-        "needs_human": needs_human,
+        "needs_human": needs_human or awaiting_business_confirmation,
         "is_simulated": bool(delivery.get("simulated")) or any(bool(item.get("simulated")) for item in command_results),
         "simulated_delivery": bool(delivery.get("simulated")),
         "evidence_complete": evidence_complete,
@@ -483,6 +505,13 @@ def _workflow_truth_fields(
         "changed_files_summary": _changed_files_summary_from_blackboard(blackboard),
         "command_results": command_results,
         "delivery_summary": delivery,
+        "acceptance_override": acceptance_override,
+        "manual_review_prompt": str(acceptance.get("manual_review_prompt") or acceptance.get("markdown") or "").strip(),
+        "business_outcome_status": business_outcome_status,
+        "business_outcome_confirmed_by": str(business_outcome.get("confirmed_by") or "").strip() or None,
+        "business_outcome_confirmed_at": str(business_outcome.get("confirmed_at") or "").strip() or None,
+        "business_outcome_note": str(business_outcome.get("note") or "").strip() or None,
+        "awaiting_business_confirmation": awaiting_business_confirmation,
     }
 
 
@@ -621,6 +650,13 @@ def _workflow_run_summary_item(
         "is_simulated": truth["is_simulated"],
         "simulated_delivery": truth["simulated_delivery"],
         "evidence_complete": truth["evidence_complete"],
+        "acceptance_override": truth["acceptance_override"],
+        "manual_review_prompt": truth["manual_review_prompt"],
+        "business_outcome_status": truth["business_outcome_status"],
+        "business_outcome_confirmed_by": truth["business_outcome_confirmed_by"],
+        "business_outcome_confirmed_at": truth["business_outcome_confirmed_at"],
+        "business_outcome_note": truth["business_outcome_note"],
+        "awaiting_business_confirmation": truth["awaiting_business_confirmation"],
     }
 
 
@@ -648,7 +684,7 @@ def list_workflow_runs(
     if normalized_tab == "active":
         query = query.filter(WorkflowRunRow.status.in_(["pending", "running", "paused"]))
     elif normalized_tab in {"needs_human", "human"}:
-        pending_human_gate = True if pending_human_gate is None else pending_human_gate
+        pending_human_gate = pending_human_gate
     elif normalized_tab == "failed":
         query = query.filter(WorkflowRunRow.status == "failed")
     elif normalized_tab == "completed":
@@ -687,14 +723,18 @@ def list_workflow_runs(
     result: list[dict[str, Any]] = []
     for row in rows:
         result.append(_workflow_run_summary_item(db, row, requirement=requirements.get(int(row.requirement_id))))
+    if normalized_tab == "completed":
+        result = [item for item in result if bool(item.get("completed_truthfully"))]
+    elif normalized_tab in {"needs_human", "human"}:
+        result = [item for item in result if bool(item.get("needs_human"))]
     if page_size is None:
         return result
     return {
         "items": result,
-        "total": int(total),
+        "total": len(result) if normalized_tab in {"completed", "needs_human", "human"} else int(total),
         "page": max(1, int(page or 1)),
         "page_size": max(1, min(int(page_size or 50), 200)),
-        "total_pages": max(1, (int(total) + max(1, min(int(page_size or 50), 200)) - 1) // max(1, min(int(page_size or 50), 200))),
+        "total_pages": max(1, ((len(result) if normalized_tab in {"completed", "needs_human", "human"} else int(total)) + max(1, min(int(page_size or 50), 200)) - 1) // max(1, min(int(page_size or 50), 200))),
     }
 
 
@@ -712,7 +752,6 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
         .filter(HumanGateRequestRow.status == "pending")
         .all()
     }
-    needs_human_rows = base.filter(WorkflowRunRow.id.in_(pending_gate_run_ids or {-1})).all()
     failed_rows = [row for row in all_rows if row.status == "failed"]
     stale_awaiting_rows = [
         row for row in all_rows
@@ -720,9 +759,13 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
     ]
     now = utcnow()
     durations = [_workflow_duration_ms(row) for row in all_rows if _workflow_duration_ms(row) is not None]
+    summary_items = [_workflow_run_summary_item(db, row) for row in all_rows]
+    needs_human_items = [item for item in summary_items if item.get("needs_human")]
+    failed_ids = {int(row.id) for row in failed_rows}
+    blocker_items = [item for item in summary_items if item.get("needs_human") or int(item.get("id") or 0) in failed_ids]
     completed_today = [
-        row for row in all_rows
-        if row.completed_at is not None and row.completed_at.date() == now.date() and row.status in {"succeeded", "completed", "done"} and int(row.id) not in pending_gate_run_ids
+        item for item in summary_items
+        if item.get("completed_at") and str(item.get("completed_at")).startswith(now.date().isoformat()) and item.get("completed_truthfully")
     ]
     pending_candidates = (
         db.query(RequirementCandidateRow)
@@ -733,13 +776,13 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
     )
     return {
         "running": sum(1 for row in all_rows if row.status in {"pending", "running", "paused"}),
-        "needs_human": len(needs_human_rows),
-        "pending_gate_count": len(needs_human_rows),
+        "needs_human": len(needs_human_items),
+        "pending_gate_count": len(pending_gate_run_ids),
         "failed": len(failed_rows),
         "failed_count": len(failed_rows),
         "resume_failure_count": sum(1 for row in failed_rows if str(row.resolution or "") == "resume_failed"),
         "stale_awaiting_operator_count": len(stale_awaiting_rows),
-        "completed": sum(1 for row in all_rows if row.status in {"succeeded", "completed", "done"} and int(row.id) not in pending_gate_run_ids),
+        "completed": sum(1 for item in summary_items if item.get("completed_truthfully")),
         "completed_today": len(completed_today),
         "pending_release": db.query(ReleaseRecordRow).filter(ReleaseRecordRow.status.in_(["ready", "release_ready", "blocked"])).count(),
         "average_duration_ms": int(sum(durations) / len(durations)) if durations else 0,
@@ -756,8 +799,7 @@ def workflow_runs_summary(db: Session) -> dict[str, Any]:
             for candidate in pending_candidates
         ],
         "blocker_items": [
-            _workflow_run_summary_item(db, row)
-            for row in [*needs_human_rows, *failed_rows]
+            item for item in blocker_items
         ],
     }
 
@@ -826,6 +868,101 @@ def create_workflow_followup_requirement(
     return {"requirement_id": int(followup.id), "workflow_run_id": int(run.id)}
 
 
+def set_workflow_business_outcome(
+    db: Session,
+    workflow_run_id: int,
+    *,
+    status: str,
+    operator: str = "operator",
+    note: str = "",
+) -> dict[str, Any]:
+    """Record operator business acceptance for Human Override workflows.
+
+    This does not mutate release, rollback, deployment, or execution evidence.
+    It only records the business outcome review on the workflow blackboard and
+    emits a state event so the decision is visible in the timeline/debug dump.
+    """
+
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(workflow_run_id)).first()
+    if run is None:
+        raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
+    normalized = str(status or "").strip().lower()
+    if normalized not in {"confirmed", "rejected", "follow_up_requested"}:
+        raise WorkflowRuntimeError(f"unsupported business outcome status: {status}")
+    blackboard = workflow_blackboard(run)
+    acceptance = blackboard.get("acceptance") if isinstance(blackboard.get("acceptance"), Mapping) else {}
+    if not bool(acceptance.get("acceptance_override")):
+        raise WorkflowRuntimeError("business outcome review is only available for Human Override workflows")
+    now = utcnow()
+    business_outcome = {
+        "status": normalized,
+        "confirmed_by": operator if normalized == "confirmed" else None,
+        "confirmed_at": now.isoformat() if normalized == "confirmed" else None,
+        "reviewed_by": operator,
+        "reviewed_at": now.isoformat(),
+        "note": note,
+    }
+    blackboard["business_outcome"] = business_outcome
+    run.blackboard_json = _json_dump(blackboard)
+    run.updated_at = now
+    db.add(
+        WorkflowStateEventRow(
+            workflow_run_id=int(run.id),
+            event_type="business_outcome_review",
+            from_state=str(run.current_state or ""),
+            to_state=str(run.current_state or ""),
+            condition=f"operator.business_outcome.{normalized}",
+            payload_json=_json_dump(business_outcome),
+        )
+    )
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
+    if requirement is not None:
+        metadata = _json_load(getattr(requirement, "intake_metadata_json", None), {})
+        metadata = metadata if isinstance(metadata, dict) else {}
+        metadata["business_outcome"] = business_outcome
+        requirement.intake_metadata_json = _json_dump(metadata)
+        if normalized == "confirmed" and run.status in {"succeeded", "completed", "done"}:
+            requirement.status = "completed"
+            requirement.workflow_state = "completed"
+            requirement.phase = "completed"
+            requirement.completed_at = requirement.completed_at or now
+        elif normalized == "rejected":
+            requirement.attention_reason = "business_outcome_rejected"
+        elif normalized == "follow_up_requested":
+            requirement.attention_reason = "business_follow_up_requested"
+        requirement.updated_at = now
+    db.flush()
+    return workflow_run_detail(db, int(run.id))
+
+
+def request_workflow_business_followup(
+    db: Session,
+    workflow_run_id: int,
+    *,
+    title: str | None = None,
+    description_markdown: str | None = None,
+    operator: str = "operator",
+    note: str = "",
+) -> dict[str, Any]:
+    """Create a follow-up requirement and mark business outcome as follow-up requested."""
+
+    payload = create_workflow_followup_requirement(
+        db,
+        workflow_run_id,
+        title=title,
+        description_markdown=description_markdown,
+        operator=operator,
+    )
+    detail = set_workflow_business_outcome(
+        db,
+        workflow_run_id,
+        status="follow_up_requested",
+        operator=operator,
+        note=note or f"Follow-up requirement #{payload['requirement_id']} requested.",
+    )
+    return {**payload, "workflow": detail}
+
+
 def create_declarative_workflow_run(
     db: Session,
     *,
@@ -880,10 +1017,16 @@ def create_declarative_workflow_run(
             initial_blackboard=blackboard,
         )
         if run.status == "succeeded":
-            requirement.workflow_state = "completed"
-            requirement.status = "completed"
-            requirement.phase = "completed"
-            requirement.completed_at = requirement.completed_at or utcnow()
+            if _run_awaiting_business_confirmation(run):
+                requirement.workflow_state = "awaiting_operator"
+                requirement.status = "awaiting_operator"
+                requirement.phase = "review"
+                requirement.attention_reason = "business_outcome_confirmation_required"
+            else:
+                requirement.workflow_state = "completed"
+                requirement.status = "completed"
+                requirement.phase = "completed"
+                requirement.completed_at = requirement.completed_at or utcnow()
         elif run.status == "awaiting_operator":
             requirement.workflow_state = "awaiting_operator"
             requirement.status = "blocked"
@@ -1724,6 +1867,12 @@ def _mark_requirement_for_run_decision(run: WorkflowRunRow, *, status: str) -> N
     if requirement is None:
         return
     if status == "completed":
+        if _run_awaiting_business_confirmation(run):
+            requirement.workflow_state = "awaiting_operator"
+            requirement.status = "awaiting_operator"
+            requirement.phase = "review"
+            requirement.attention_reason = "business_outcome_confirmation_required"
+            return
         requirement.workflow_state = "completed"
         requirement.status = "completed"
         requirement.phase = "completed"
@@ -1740,6 +1889,16 @@ def _mark_requirement_for_run_decision(run: WorkflowRunRow, *, status: str) -> N
         requirement.workflow_state = "executing"
         requirement.status = "in_progress"
         requirement.phase = "executing"
+
+
+def _run_awaiting_business_confirmation(run: WorkflowRunRow) -> bool:
+    blackboard = _load_blackboard(run)
+    acceptance = blackboard.get("acceptance") if isinstance(blackboard.get("acceptance"), Mapping) else {}
+    business_outcome = blackboard.get("business_outcome") if isinstance(blackboard.get("business_outcome"), Mapping) else {}
+    outcome_confirmed = str(business_outcome.get("status") or "").strip().lower() == "confirmed" and bool(
+        business_outcome.get("confirmed_at")
+    )
+    return bool(acceptance.get("acceptance_override")) and _is_completed_status(run.status) and not outcome_confirmed
 
 
 def _previous_state_before_gate(db: Session, run: WorkflowRunRow, gate: HumanGateRequestRow) -> str:
@@ -1994,6 +2153,13 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
         "is_simulated": truth["is_simulated"],
         "simulated_delivery": truth["simulated_delivery"],
         "evidence_complete": truth["evidence_complete"],
+        "acceptance_override": truth["acceptance_override"],
+        "manual_review_prompt": truth["manual_review_prompt"],
+        "business_outcome_status": truth["business_outcome_status"],
+        "business_outcome_confirmed_by": truth["business_outcome_confirmed_by"],
+        "business_outcome_confirmed_at": truth["business_outcome_confirmed_at"],
+        "business_outcome_note": truth["business_outcome_note"],
+        "awaiting_business_confirmation": truth["awaiting_business_confirmation"],
         "observability_warnings": truth["observability_warnings"],
         "agent_outputs": _agent_outputs_from_rows(artifacts, invocations),
         "changed_files_summary": truth["changed_files_summary"],
@@ -2700,6 +2866,8 @@ def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
         "gate",
         "observation",
         "pr",
+        "acceptance",
+        "business_outcome",
         "risk_flags",
         "evidence",
         "human_gate_decisions",

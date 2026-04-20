@@ -17,6 +17,8 @@ from server.services.workflows.declarative import (
     decide_human_gate,
     list_workflow_definitions,
     list_workflow_runs,
+    request_workflow_business_followup,
+    set_workflow_business_outcome,
     workflow_runs_summary,
     workflow_definition_detail,
     workflow_run_detail,
@@ -53,6 +55,13 @@ class WorkflowRunFollowupRequest(BaseModel):
     title: str | None = None
     description_markdown: str | None = None
     operator: str = "operator"
+
+
+class BusinessOutcomeRequest(BaseModel):
+    operator: str = "operator"
+    note: str = ""
+    title: str | None = None
+    description_markdown: str | None = None
 
 
 @router.get("/definitions")
@@ -159,6 +168,70 @@ def create_workflow_followup_endpoint(
     except WorkflowRuntimeError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/business-outcome/confirm")
+def confirm_workflow_business_outcome_endpoint(
+    workflow_run_id: int,
+    body: BusinessOutcomeRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = set_workflow_business_outcome(
+            db,
+            workflow_run_id,
+            status="confirmed",
+            operator=body.operator,
+            note=body.note,
+        )
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/business-outcome/reject")
+def reject_workflow_business_outcome_endpoint(
+    workflow_run_id: int,
+    body: BusinessOutcomeRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = set_workflow_business_outcome(
+            db,
+            workflow_run_id,
+            status="rejected",
+            operator=body.operator,
+            note=body.note,
+        )
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/business-outcome/follow-up", status_code=201)
+def followup_workflow_business_outcome_endpoint(
+    workflow_run_id: int,
+    body: BusinessOutcomeRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = request_workflow_business_followup(
+            db,
+            workflow_run_id,
+            title=body.title,
+            description_markdown=body.description_markdown,
+            operator=body.operator,
+            note=body.note,
+        )
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/runs/{workflow_run_id}")

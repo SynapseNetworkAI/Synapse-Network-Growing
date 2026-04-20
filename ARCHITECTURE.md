@@ -48,6 +48,7 @@ Historical plans, validation notes, and retired design drafts live under `docs/a
 8. Legacy `/api/tasks`, `/api/approvals`, fixed-step orchestrator, and old task runner are retired. Do not reintroduce TaskBoard-style execution or fixed `workflow_steps` as product behavior.
 9. Do not mask state inconsistency in projection APIs or frontend conditionals. Fix the state machine transition root cause.
 10. Human Gate decisions are state machine inputs. After a decision, the runner must wake up and converge the workflow to the next state, a new gate, or a clear failed terminal state.
+11. Human Override reduces manual requirement form friction; it does not mean business acceptance is complete. A technically succeeded override workflow remains awaiting business confirmation until the operator explicitly confirms the outcome.
 
 ## 4. Planning Lifecycle Constraints
 

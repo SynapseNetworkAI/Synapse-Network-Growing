@@ -572,6 +572,13 @@ export interface DeclarativeWorkflowRunSummary {
   is_simulated?: boolean
   simulated_delivery?: boolean
   evidence_complete?: boolean
+  acceptance_override?: boolean
+  manual_review_prompt?: string
+  business_outcome_status?: string | null
+  business_outcome_confirmed_by?: string | null
+  business_outcome_confirmed_at?: string | null
+  business_outcome_note?: string | null
+  awaiting_business_confirmation?: boolean
 }
 
 export interface DeclarativeWorkflowRunPage {
@@ -900,6 +907,10 @@ export interface AgentRequirement {
   active_workflow_run_id: number | null
   active_workflow_run_summary: DeclarativeWorkflowRunSummary | null
   latest_release_status: string | null
+  business_outcome_status?: string | null
+  business_outcome_confirmed_by?: string | null
+  business_outcome_confirmed_at?: string | null
+  business_outcome_note?: string | null
 }
 
 export interface AcceptanceContractCheck {
@@ -920,9 +931,26 @@ export interface AcceptanceContract {
   scope_constraints?: string[]
   risk_notes?: string[]
   expected_evidence?: string[]
+  execution_acceptance_steps?: AcceptanceExecutionStep[]
+  acceptance_kind?: 'business' | 'system_dogfood' | string
+  manual_review_prompt?: string
+  acceptance_override?: boolean
+  override_by?: string
+  override_reason?: string
+  override_at?: string
   acceptance_index?: Record<string, unknown>
   delivery_expectation?: string
   markdown?: string
+}
+
+export interface AcceptanceExecutionStep {
+  step_key: string
+  title: string
+  expected_result: string
+  required_commands?: string[]
+  required_evidence_types?: string[]
+  required_db_lineage?: string[]
+  manual_review_prompt?: string
 }
 
 export interface ExecutionPlanStep {
@@ -1000,6 +1028,10 @@ export interface AgentRequirementDetail {
   attachments: RequirementAttachment[]
   followup_requirement_id?: number | null
   resolution_path?: string | null
+  business_outcome_status?: string | null
+  business_outcome_confirmed_by?: string | null
+  business_outcome_confirmed_at?: string | null
+  business_outcome_note?: string | null
 }
 
 export interface ValidationCheckResult {
@@ -2022,6 +2054,12 @@ export const api = {
     request<DeclarativeWorkflowRunSummary>(`/workflows/runs/${id}/archive`, { method: 'POST', body: JSON.stringify(data || {}) }),
   createWorkflowFollowup: (id: number, data?: { title?: string; description_markdown?: string; operator?: string }) =>
     request<{ requirement_id: number; workflow_run_id: number }>(`/workflows/runs/${id}/create-followup`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  confirmWorkflowBusinessOutcome: (id: number, data?: { operator?: string; note?: string }) =>
+    request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}/business-outcome/confirm`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  rejectWorkflowBusinessOutcome: (id: number, data?: { operator?: string; note?: string }) =>
+    request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}/business-outcome/reject`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  requestWorkflowBusinessFollowup: (id: number, data?: { title?: string; description_markdown?: string; operator?: string; note?: string }) =>
+    request<{ requirement_id: number; workflow_run_id: number; workflow: DeclarativeWorkflowRunDetail }>(`/workflows/runs/${id}/business-outcome/follow-up`, { method: 'POST', body: JSON.stringify(data || {}) }),
   decideWorkflowHumanGate: (
     workflowRunId: number,
     gateId: number,

@@ -421,6 +421,9 @@ export function buildNextAction(detail: DeclarativeWorkflowRunDetail): NextActio
   if (detail.pending_human_gate_count > 0) {
     return { label: 'Review Human Gate', tone: 'blocked', detail: 'Workflow is waiting for operator decision.', tab: 'gates' }
   }
+  if (detail.awaiting_business_confirmation) {
+    return { label: 'Confirm Business Outcome', tone: 'blocked', detail: 'Technical workflow is done, but Human Override requires operator business confirmation.', tab: 'evidence' }
+  }
   if (failedInvocation) {
     return { label: 'Inspect Failure', tone: 'blocked', detail: `Atom failed at ${failedInvocation.state_key}.`, tab: 'timeline' }
   }

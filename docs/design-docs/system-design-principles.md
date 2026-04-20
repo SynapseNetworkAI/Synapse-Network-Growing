@@ -79,6 +79,7 @@
 7. Workflow detail 默认必须展示 chronological timeline；Raw Blackboard / Raw Artifacts 只能通过 Debug details 或 Debug Dump 查看。
 8. 不得为了掩盖数据不一致而在 Summary API 或前端条件分支里写脏补丁；必须修复状态机未流转的根本原因。
 9. Human Gate decision 是状态机输入，不是普通表单状态；decision 写入后 Runner 必须被唤醒并收敛到下一状态、新 gate 或明确 failed terminal。
+10. Human Override 只降低人类手动需求的验收录入摩擦；technical terminal 不等于 business done。缺少结构化验收矩阵的 override workflow 必须在 Evidence 页面显示 Manual Review Panel，并由 operator 显式确认业务结果后才算 truthfully completed。
 
 ## 6.7 后台任务必须一等可观测
 

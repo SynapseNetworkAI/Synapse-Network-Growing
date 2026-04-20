@@ -174,6 +174,106 @@ def test_workflow_operations_summary_archive_and_completed_tab(synced_client, db
     assert any(row["id"] == payload["id"] for row in archived_response.json()["items"])
 
 
+def test_human_override_requires_business_confirmation_before_completed_tab(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Manual copy tweak",
+        description_markdown="Operator asked for a tiny copy fix and will manually review the result.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="ready",
+        phase="ready",
+        workflow_state="ready",
+        assets_status="ready",
+        acceptance_contract_json=(
+            '{"acceptance_override": true, "manual_review_prompt": "帮我看看网页改对了没", '
+            '"override_by": "operator", "override_reason": "small manual task", '
+            '"markdown": "人工复核网页是否改对"}'
+        ),
+        execution_plan_json='{"summary_markdown": "use declarative workflow"}',
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+
+    start_response = synced_client.post(
+        f"/api/requirements/{int(requirement.id)}/workflow/start",
+        json={"workflow_key": "gateway_reliability_repair", "run_immediately": True, "triggered_by": "operator"},
+    )
+
+    assert start_response.status_code == 201
+    run_payload = start_response.json()
+    assert run_payload["status"] == "succeeded"
+    assert run_payload["acceptance_override"] is True
+    assert run_payload["awaiting_business_confirmation"] is True
+    assert run_payload["is_truly_completed"] is False
+    assert run_payload["outcome_label"] == "Awaiting Business Confirmation"
+    assert run_payload["manual_review_prompt"] == "帮我看看网页改对了没"
+
+    completed_response = synced_client.get("/api/workflows/runs?tab=completed&page=1&page_size=20")
+    assert completed_response.status_code == 200
+    assert all(row["id"] != run_payload["id"] for row in completed_response.json()["items"])
+
+    needs_human_response = synced_client.get("/api/workflows/runs?tab=needs_human&page=1&page_size=20")
+    assert needs_human_response.status_code == 200
+    assert any(row["id"] == run_payload["id"] and row["awaiting_business_confirmation"] for row in needs_human_response.json()["items"])
+
+    confirm_response = synced_client.post(
+        f"/api/workflows/runs/{run_payload['id']}/business-outcome/confirm",
+        json={"operator": "tester", "note": "视觉结果正确"},
+    )
+
+    assert confirm_response.status_code == 200
+    confirmed = confirm_response.json()
+    assert confirmed["business_outcome_status"] == "confirmed"
+    assert confirmed["business_outcome_confirmed_by"] == "tester"
+    assert confirmed["business_outcome_note"] == "视觉结果正确"
+    assert confirmed["awaiting_business_confirmation"] is False
+    assert confirmed["is_truly_completed"] is True
+
+    completed_after_confirm = synced_client.get("/api/workflows/runs?tab=completed&page=1&page_size=20")
+    assert any(row["id"] == run_payload["id"] for row in completed_after_confirm.json()["items"])
+
+
+def test_human_override_reject_and_followup_do_not_mutate_release_or_rollback(synced_client, db_session):
+    requirement = RequirementRow(
+        title="Manual review outcome rejected",
+        description_markdown="Operator will reject the business result and request a follow-up.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="ready",
+        phase="ready",
+        workflow_state="ready",
+        assets_status="ready",
+        acceptance_contract_json='{"acceptance_override": true, "manual_review_prompt": "人工确认结果"}',
+        execution_plan_json='{"summary_markdown": "use declarative workflow"}',
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    start_response = synced_client.post(
+        f"/api/requirements/{int(requirement.id)}/workflow/start",
+        json={"workflow_key": "gateway_reliability_repair", "run_immediately": True, "triggered_by": "operator"},
+    )
+    run_id = int(start_response.json()["id"])
+
+    reject_response = synced_client.post(
+        f"/api/workflows/runs/{run_id}/business-outcome/reject",
+        json={"operator": "tester", "note": "结果不符合预期"},
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["business_outcome_status"] == "rejected"
+    assert db_session.query(ReleaseRecordRow).count() == 0
+
+    followup_response = synced_client.post(
+        f"/api/workflows/runs/{run_id}/business-outcome/follow-up",
+        json={"title": "Follow-up manual fix", "operator": "tester", "note": "需要二次修复"},
+    )
+    assert followup_response.status_code == 201
+    followup_id = followup_response.json()["requirement_id"]
+    followup = db_session.query(RequirementRow).filter(RequirementRow.id == followup_id).one()
+    assert followup.title == "Follow-up manual fix"
+    assert followup.active_workflow_run_id is None
+    assert followup.linked_requirement_id == requirement.id
+
+
 def test_pending_human_gate_run_is_not_completed_truthfully(synced_client, db_session):
     requirement = _create_requirement(db_session)
     create_response = synced_client.post(

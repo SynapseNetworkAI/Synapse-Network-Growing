@@ -156,10 +156,13 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     assert blackboard["verification"]["status"] == "passed"
     assert "self_modification_requires_human" in blackboard["risk_flags"]
 
-    transition_pairs = [
-        (item["from_state"], item["to_state"])
-        for item in blackboard["transition_history"]
-    ]
+    transition_events = (
+        db_session.query(WorkflowStateEventRow)
+        .filter(WorkflowStateEventRow.workflow_run_id == run.id)
+        .order_by(WorkflowStateEventRow.id)
+        .all()
+    )
+    transition_pairs = [(item.from_state, item.to_state) for item in transition_events]
     assert ("verify", "patch") in transition_pairs
     assert transition_pairs[-1] == ("open_pr", "awaiting_operator")
 
@@ -171,14 +174,13 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
         WorkflowArtifactRow.workflow_run_id == run.id,
         WorkflowArtifactRow.artifact_type == "workflow_agent_raw_output",
     ).all()
-    transition_events = db_session.query(WorkflowStateEventRow).filter(WorkflowStateEventRow.workflow_run_id == run.id).all()
     invocations = db_session.query(AtomInvocationRow).filter(AtomInvocationRow.workflow_run_id == run.id).all()
     snapshots = db_session.query(BlackboardSnapshotRow).filter(BlackboardSnapshotRow.workflow_run_id == run.id).all()
     gates = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).all()
     deliveries = db_session.query(NotificationDeliveryRow).all()
     delivery_channels = {row.channel for row in deliveries}
     delivery_events = {row.event_type for row in deliveries}
-    assert len(transition_artifacts) == len(transition_pairs)
+    assert len(transition_artifacts) == 0
     assert len(transition_events) == len(transition_pairs)
     assert len(agent_raw_artifacts) == 3
     assert len(invocations) == 8
