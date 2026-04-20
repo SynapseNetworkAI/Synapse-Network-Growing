@@ -195,6 +195,7 @@ describe('PlanningPage Mission Control', () => {
       id: 103,
       goal_key: 'new_goal',
       title: 'New goal',
+      intent_markdown: '# New goal',
     })
   })
 
@@ -275,5 +276,58 @@ describe('PlanningPage Mission Control', () => {
         operator: 'operator',
       })
     })
+  })
+
+  it('creates a goal from core intent and markdown without acceptance JSON', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    await screen.findByTestId('mission-control-tab')
+    await user.click(screen.getByRole('button', { name: 'New Goal' }))
+
+    const drawer = await screen.findByTestId('goal-settings-drawer')
+    await user.type(within(drawer).getByLabelText('Title'), 'Optimize Payment Gateway')
+    fireEvent.blur(within(drawer).getByLabelText('Title'))
+
+    expect(within(drawer).getByLabelText('Goal key')).toHaveValue('optimize_payment_gateway')
+
+    await user.type(within(drawer).getByLabelText('Success metric'), 'p95 checkout latency < 500ms')
+    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), {
+      target: { value: '# Payment Gateway PRD\n\n- Reduce contention\n\n```bash\nnpm test\n```' },
+    })
+    await user.click(within(drawer).getByRole('button', { name: 'preview' }))
+    expect(within(drawer).getByText('Payment Gateway PRD')).toBeTruthy()
+
+    await user.click(within(drawer).getByText('Advanced Settings'))
+    expect(within(drawer).getByText(/Acceptance steps are generated at Candidate level/)).toBeTruthy()
+
+    await user.click(within(drawer).getByRole('button', { name: 'Create Goal' }))
+
+    await waitFor(() => {
+      expect(apiMock.createPlanningGoal).toHaveBeenCalledWith(expect.objectContaining({
+        goal_key: 'optimize_payment_gateway',
+        title: 'Optimize Payment Gateway',
+        intent_markdown: '# Payment Gateway PRD\n\n- Reduce contention\n\n```bash\nnpm test\n```',
+        success_metric: 'p95 checkout latency < 500ms',
+      }))
+    })
+    expect(apiMock.createPlanningGoal.mock.calls[0][0]).not.toHaveProperty('execution_acceptance_steps')
+    expect(apiMock.saveActivePlanningManifest).not.toHaveBeenCalled()
+  })
+
+  it('warns before closing a dirty goal creation drawer', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    await screen.findByTestId('mission-control-tab')
+    await user.click(screen.getByRole('button', { name: 'New Goal' }))
+    const drawer = await screen.findByTestId('goal-settings-drawer')
+    await user.type(within(drawer).getByLabelText('Title'), 'Do not lose this')
+    await user.click(within(drawer).getByRole('button', { name: 'Close' }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(screen.getByTestId('goal-settings-drawer')).toBeTruthy()
+    confirmSpy.mockRestore()
   })
 })

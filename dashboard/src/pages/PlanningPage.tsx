@@ -25,6 +25,7 @@ type SteeringDraft = {
 type GoalSettingsDraft = {
   goal_key: string
   title: string
+  intent_markdown: string
   success_metric: string
   domain: string
   workflow_key: string
@@ -33,7 +34,6 @@ type GoalSettingsDraft = {
   risk_level: string
   weight: string
   acceptance_kind: string
-  execution_acceptance_steps: string
 }
 
 function formatTime(value: string | null | undefined) {
@@ -78,6 +78,7 @@ function goalSettingsDraftFrom(goal?: PlanningGoal | null): GoalSettingsDraft {
   return {
     goal_key: goal?.goal_key || '',
     title: goal?.title || '',
+    intent_markdown: goal?.intent_markdown || '',
     success_metric: goal?.success_metric || '',
     domain: goal?.domain || 'ops',
     workflow_key: goal?.workflow_key || 'gateway_reliability_repair',
@@ -86,8 +87,19 @@ function goalSettingsDraftFrom(goal?: PlanningGoal | null): GoalSettingsDraft {
     risk_level: goal?.risk_level || 'normal',
     weight: goal?.weight != null ? String(goal.weight) : '0.1',
     acceptance_kind: goal?.acceptance_kind || 'business',
-    execution_acceptance_steps: JSON.stringify(goal?.execution_acceptance_steps || [], null, 2),
   }
+}
+
+function slugifyGoalKey(title: string) {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48)
+  return slug || `goal_${Date.now().toString(36)}`
 }
 
 function weightTotal(weights: Record<string, number>) {
@@ -602,6 +614,66 @@ function DropGoalModal({
   )
 }
 
+function MarkdownTabs({
+  value,
+  onChange,
+  minHeightClass = 'min-h-[56vh]',
+}: Readonly<{
+  value: string
+  onChange: (value: string) => void
+  minHeightClass?: string
+}>) {
+  const [tab, setTab] = useState<'write' | 'preview'>('write')
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Intent & PRD Markdown</div>
+        <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-1">
+          {(['write', 'preview'] as const).map((key) => (
+            <button
+              key={key}
+              className={['rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition', tab === key ? 'bg-cyan-300/[0.14] text-cyan-100' : 'text-[color:var(--ops-text-muted)]'].join(' ')}
+              type="button"
+              onClick={() => setTab(key)}
+            >
+              {key}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tab === 'write' ? (
+        <textarea
+          className={['mt-3 w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100 outline-none', minHeightClass].join(' ')}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Write the full PRD, context, constraints, and acceptance notes in Markdown..."
+          spellCheck={false}
+        />
+      ) : (
+        <div className={['mt-3 overflow-auto rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 text-sm leading-7 text-[color:var(--ops-text-body)]', minHeightClass].join(' ')}>
+          {value.trim() ? (
+            <ReactMarkdown
+              components={{
+                h1: ({ children }) => <h1 className="mb-4 text-2xl font-semibold text-[color:var(--ops-text-title)]">{children}</h1>,
+                h2: ({ children }) => <h2 className="mb-3 mt-5 text-xl font-semibold text-[color:var(--ops-text-title)]">{children}</h2>,
+                h3: ({ children }) => <h3 className="mb-2 mt-4 text-lg font-semibold text-[color:var(--ops-text-title)]">{children}</h3>,
+                p: ({ children }) => <p className="mb-3 text-[color:var(--ops-text-body)]">{children}</p>,
+                li: ({ children }) => <li className="ml-5 list-disc text-[color:var(--ops-text-body)]">{children}</li>,
+                code: ({ children }) => <code className="rounded bg-slate-950 px-1.5 py-0.5 font-mono text-xs text-cyan-100">{children}</code>,
+                pre: ({ children }) => <pre className="mb-3 overflow-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-100">{children}</pre>,
+              }}
+            >
+              {value}
+            </ReactMarkdown>
+          ) : (
+            <div className="text-[color:var(--ops-text-muted)]">Markdown preview will appear here.</div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function GoalIntentDrawer({
   goal,
   draft,
@@ -635,39 +707,8 @@ function GoalIntentDrawer({
           </div>
         </div>
         {error && <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <label className="block">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Markdown Source</div>
-            <textarea
-              className="mt-3 min-h-[70vh] w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 p-4 font-mono text-sm leading-6 text-slate-100 outline-none"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Write the full PRD, context, constraints, and acceptance notes in Markdown..."
-              spellCheck={false}
-            />
-          </label>
-          <section>
-            <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Live Preview</div>
-            <div className="mt-3 min-h-[70vh] overflow-auto rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5 text-sm leading-7 text-[color:var(--ops-text-body)]">
-              {draft.trim() ? (
-                <ReactMarkdown
-                  components={{
-                    h1: ({ children }) => <h1 className="mb-4 text-2xl font-semibold text-[color:var(--ops-text-title)]">{children}</h1>,
-                    h2: ({ children }) => <h2 className="mb-3 mt-5 text-xl font-semibold text-[color:var(--ops-text-title)]">{children}</h2>,
-                    h3: ({ children }) => <h3 className="mb-2 mt-4 text-lg font-semibold text-[color:var(--ops-text-title)]">{children}</h3>,
-                    p: ({ children }) => <p className="mb-3 text-[color:var(--ops-text-body)]">{children}</p>,
-                    li: ({ children }) => <li className="ml-5 list-disc text-[color:var(--ops-text-body)]">{children}</li>,
-                    code: ({ children }) => <code className="rounded bg-slate-950 px-1.5 py-0.5 font-mono text-xs text-cyan-100">{children}</code>,
-                    pre: ({ children }) => <pre className="mb-3 overflow-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-100">{children}</pre>,
-                  }}
-                >
-                  {draft}
-                </ReactMarkdown>
-              ) : (
-                <div className="text-[color:var(--ops-text-muted)]">Markdown preview will appear here.</div>
-              )}
-            </div>
-          </section>
+        <div className="mt-6">
+          <MarkdownTabs value={draft} onChange={setDraft} minHeightClass="min-h-[70vh]" />
         </div>
       </aside>
     </div>
@@ -696,6 +737,7 @@ function GoalSettingsDrawer({
   if (!open) return null
   const isCreate = !goal
   const update = (key: keyof GoalSettingsDraft, value: string) => setDraft({ ...draft, [key]: value })
+  const canSave = Boolean(draft.title.trim()) && Boolean((draft.goal_key || slugifyGoalKey(draft.title)).trim())
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-settings-drawer">
       <aside className="h-full w-full max-w-3xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl">
@@ -703,11 +745,11 @@ function GoalSettingsDrawer({
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Settings</div>
             <h3 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{isCreate ? 'Create Goal' : draft.title || goal?.goal_key}</h3>
-            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Short execution metadata lives here. Long PRD text belongs in Edit Intent & PRD.</p>
+            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{isCreate ? 'Write the goal once: core intent, Markdown PRD, then optional execution defaults.' : 'Short execution metadata lives here. Long PRD text belongs in Edit Intent & PRD.'}</p>
           </div>
           <div className="flex gap-2">
             <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
-            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy === 'save_goal_settings'} onClick={onSave}>{isCreate ? 'Create Goal' : 'Save Settings'}</button>
+            <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy === 'save_goal_settings' || !canSave} onClick={onSave}>{isCreate ? 'Create Goal' : 'Save Settings'}</button>
           </div>
         </div>
         {error && <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div>}
@@ -716,7 +758,14 @@ function GoalSettingsDrawer({
             <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)] disabled:opacity-60" disabled={!isCreate} value={draft.goal_key} onChange={(event) => update('goal_key', event.target.value)} />
           </label>
           <label className="block text-sm text-[color:var(--ops-text-body)]">Title
-            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.title} onChange={(event) => update('title', event.target.value)} />
+            <input
+              className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]"
+              value={draft.title}
+              onBlur={() => {
+                if (isCreate && !draft.goal_key.trim() && draft.title.trim()) update('goal_key', slugifyGoalKey(draft.title))
+              }}
+              onChange={(event) => update('title', event.target.value)}
+            />
           </label>
           <label className="block text-sm text-[color:var(--ops-text-body)]">Domain
             <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.domain} onChange={(event) => update('domain', event.target.value)} />
@@ -724,34 +773,49 @@ function GoalSettingsDrawer({
           <label className="block text-sm text-[color:var(--ops-text-body)]">Success metric
             <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.success_metric} onChange={(event) => update('success_metric', event.target.value)} />
           </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Workflow key
-            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.workflow_key} onChange={(event) => update('workflow_key', event.target.value)} />
-          </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Project key
-            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.project_key} onChange={(event) => update('project_key', event.target.value)} />
-          </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Priority
-            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.priority} onChange={(event) => update('priority', event.target.value)}>
-              {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Risk level
-            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.risk_level} onChange={(event) => update('risk_level', event.target.value)}>
-              {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Weight
-            <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" type="number" step="0.01" value={draft.weight} onChange={(event) => update('weight', event.target.value)} />
-          </label>
-          <label className="block text-sm text-[color:var(--ops-text-body)]">Acceptance kind
-            <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.acceptance_kind} onChange={(event) => update('acceptance_kind', event.target.value)}>
-              {['business', 'system_dogfood'].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
         </div>
-        <label className="mt-4 block text-sm text-[color:var(--ops-text-body)]">Execution acceptance steps JSON
-          <textarea className="mt-2 min-h-48 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 px-3 py-2 font-mono text-xs leading-6 text-slate-100" value={draft.execution_acceptance_steps} onChange={(event) => update('execution_acceptance_steps', event.target.value)} spellCheck={false} />
-        </label>
+        {isCreate && (
+          <div className="mt-5">
+            <MarkdownTabs value={draft.intent_markdown} onChange={(value) => update('intent_markdown', value)} />
+          </div>
+        )}
+        <details className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">Advanced Settings</summary>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Workflow key
+              <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.workflow_key} onChange={(event) => update('workflow_key', event.target.value)} />
+            </label>
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Project key
+              <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.project_key} onChange={(event) => update('project_key', event.target.value)} />
+            </label>
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Priority
+              <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.priority} onChange={(event) => update('priority', event.target.value)}>
+                {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Risk level
+              <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.risk_level} onChange={(event) => update('risk_level', event.target.value)}>
+                {['low', 'normal', 'high', 'critical'].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Weight
+              <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" type="number" step="0.01" value={draft.weight} onChange={(event) => update('weight', event.target.value)} />
+            </label>
+            <label className="block text-sm text-[color:var(--ops-text-body)]">Acceptance kind
+              <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm text-[color:var(--ops-text-title)]" value={draft.acceptance_kind} onChange={(event) => update('acceptance_kind', event.target.value)}>
+                {['business', 'system_dogfood'].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+          </div>
+          {draft.acceptance_kind === 'system_dogfood' ? (
+            <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/[0.08] px-3 py-2 text-xs text-amber-100">
+              system_dogfood is only for GoalB-style system validation. Use business for normal company goals.
+            </div>
+          ) : null}
+          <div className="mt-4 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
+            Acceptance steps are generated at Candidate level by Planner. If the Candidate lacks evidence-bound acceptance, materialize/start will fail closed.
+          </div>
+        </details>
       </aside>
     </div>
   )
@@ -939,6 +1003,14 @@ export default function PlanningPage() {
     }
   }
 
+  function closeIntentEditor() {
+    const original = intentGoal?.intent_markdown || ''
+    if (intentGoal && intentDraft !== original && !window.confirm('有未保存的 PRD，确定要关闭吗？')) return
+    setIntentGoal(null)
+    setIntentDraft('')
+    setIntentError(null)
+  }
+
   function openSettingsEditor(goal: PlanningGoal) {
     setSettingsGoal(goal)
     setSettingsDraft(goalSettingsDraftFrom(goal))
@@ -953,17 +1025,25 @@ export default function PlanningPage() {
     setSettingsOpen(true)
   }
 
+  function closeSettingsEditor() {
+    const original = goalSettingsDraftFrom(settingsGoal)
+    if (settingsOpen && JSON.stringify(settingsDraft) !== JSON.stringify(original) && !window.confirm('有未保存的 Goal 内容，确定要关闭吗？')) return
+    setSettingsOpen(false)
+    setSettingsGoal(null)
+    setSettingsError(null)
+  }
+
   async function saveGoalSettings() {
     if (!mission) return
     setBusy('save_goal_settings')
     setSettingsError(null)
     try {
-      const steps = JSON.parse(settingsDraft.execution_acceptance_steps || '[]')
-      if (!Array.isArray(steps)) throw new Error('execution_acceptance_steps must be a JSON array')
+      const goalKey = settingsDraft.goal_key.trim() || slugifyGoalKey(settingsDraft.title)
       const payload = {
         manifest_id: mission.manifest.id,
-        goal_key: settingsDraft.goal_key.trim(),
+        goal_key: goalKey,
         title: settingsDraft.title.trim(),
+        intent_markdown: settingsDraft.intent_markdown,
         success_metric: settingsDraft.success_metric.trim(),
         domain: settingsDraft.domain.trim(),
         workflow_key: settingsDraft.workflow_key.trim(),
@@ -972,16 +1052,12 @@ export default function PlanningPage() {
         risk_level: settingsDraft.risk_level,
         weight: numberValue(settingsDraft.weight, 0),
         acceptance_kind: settingsDraft.acceptance_kind,
-        execution_acceptance_steps: steps,
         operator: 'operator',
       }
       if (settingsGoal) {
         await api.updatePlanningGoal(settingsGoal.id, payload)
       } else {
-        await api.createPlanningGoal({
-          ...payload,
-          intent_markdown: `# ${payload.title || payload.goal_key}\n\nDescribe the full intent, context, constraints, and PRD here.`,
-        })
+        await api.createPlanningGoal(payload)
       }
       setSettingsOpen(false)
       setSettingsGoal(null)
@@ -1105,8 +1181,8 @@ export default function PlanningPage() {
       <RawManifestDrawer open={rawOpen} manifest={mission?.manifest || null} rawDraft={rawDraft} setRawDraft={setRawDraft} rawError={rawError} onClose={() => setRawOpen(false)} onSave={saveRaw} />
       <ArchiveCycleModal open={archiveOpen} mission={mission} busy={busy} onClose={() => setArchiveOpen(false)} onArchive={archiveCycle} />
       <DropGoalModal goal={dropGoal} reason={dropReason} busy={busy} setReason={setDropReason} onCancel={() => setDropGoal(null)} onConfirm={confirmDropGoal} />
-      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={() => setIntentGoal(null)} onSave={saveIntent} />
-      <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={() => setSettingsOpen(false)} onSave={saveGoalSettings} />
+      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
+      <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>
   )

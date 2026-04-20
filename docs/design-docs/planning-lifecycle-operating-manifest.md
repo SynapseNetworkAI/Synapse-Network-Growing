@@ -292,7 +292,11 @@ It contains:
 5. Manifest History must be paginated and searchable, and must not crowd the Mission Control primary surface.
 6. Pending candidates should expose `Approve & Run` as the primary action and `Approve only` as an explicit staging action.
 7. `Approve & Run` must not bypass workflow risk policy; high-risk candidates must still stop at Human Gate.
-6. The primary view should answer: what goal is this for, what is pending, what is running, what shipped, and what should the operator decide next.
+8. Goal creation is intent-first: operator writes `title`, `goal_key`, `domain`, `success_metric` and full `intent_markdown` in a Write / Preview Markdown editor.
+9. Goal creation must not expose `execution_acceptance_steps` JSON; Planner/Candidate generation owns evidence-bound acceptance, and invalid candidates fail closed.
+10. Advanced goal settings such as workflow, project, risk, weight and `acceptance_kind` must be collapsed by default.
+11. Goal Markdown editors must warn before closing with unsaved changes.
+12. The primary view should answer: what goal is this for, what is pending, what is running, what shipped, and what should the operator decide next.
 
 The Drop Goal modal must explicitly say:
 
