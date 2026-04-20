@@ -74,12 +74,19 @@ describe('SchedulesPage', () => {
 
     await waitFor(() => expect(mockApi.getRecurringWorkflows).toHaveBeenCalled())
     expect(screen.getByTestId('schedules-page')).toHaveTextContent('定时任务')
-    expect(screen.getByTestId('schedule-health-overview')).toHaveTextContent('Notification Dispatcher')
+    expect(screen.getByTestId('schedule-health-overview')).toHaveTextContent('notification dispatcher backlog')
+    expect(screen.getByText(/Attention Required/)).toBeTruthy()
+    expect(screen.getByText(/System Health & Reliability/)).toBeTruthy()
     expect(screen.getAllByText('Bug Log Sweep').length).toBeGreaterThan(0)
-    await waitFor(() => expect(screen.getByTestId('schedule-run-history-item')).toHaveTextContent('succeeded'))
+    expect(screen.getAllByTestId('schedule-ipo-flow').length).toBeGreaterThan(0)
 
-    const registryRow = screen.getAllByText('Bug Log Sweep')[0].closest('tr') as HTMLElement
-    fireEvent.click(within(registryRow).getByText('Dry Run'))
+    const lastRunButtons = screen.getAllByRole('button', { name: /Last Run/i })
+    fireEvent.click(lastRunButtons[0])
+    await waitFor(() => expect(screen.getByTestId('schedule-run-inspector')).toHaveTextContent('succeeded'))
+    expect(screen.getByText('Debug params / result JSON')).toBeTruthy()
+
+    const firstCard = screen.getAllByTestId('scheduled-job-card')[0]
+    fireEvent.click(within(firstCard).getByText('Dry Run'))
     await waitFor(() =>
       expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
         dry_run: true,
@@ -88,7 +95,7 @@ describe('SchedulesPage', () => {
       }),
     )
 
-    fireEvent.click(within(registryRow).getByText('Run Now'))
+    fireEvent.click(within(firstCard).getByText('Run Now'))
     await waitFor(() => expect(window.confirm).toHaveBeenCalled())
     expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
       dry_run: false,

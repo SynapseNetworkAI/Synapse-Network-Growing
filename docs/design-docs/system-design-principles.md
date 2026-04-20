@@ -101,6 +101,15 @@
 4. 高风险 recurring workflow 默认不得 auto-start requirement、delivery、deploy、funds、auth、contract 或外部付费动作。
 5. `Dry Run` 是验证 recurring workflow 配置的默认方式；`Run Now` 必须有明确确认与可追踪结果。
 6. Notification Dispatcher 这类可靠性后台 loop 必须暴露 queue、dead letter、suppression、last tick 和 last error。
+7. `/schedules` 必须按业务领域和 operator 决策优先级展示 recurring workflows，不得退回只有 workflow key、owner、schedule、last/next timestamp 的 crontab 表格。
+8. 定时任务卡片必须展示 `Input -> Action -> Output`，让 operator 知道它监听什么、执行什么、产出什么。
+9. 失败、due、锁冲突或最近运行异常的任务必须置顶到 `Attention Required`，不能被常规业务分组或页面滚动淹没。
+10. 新 recurring workflow 缺少 presentation metadata 时必须进入 `New / Uncategorized Initiates` 兜底分组，并显示 `Missing Presentation Metadata`，但不得阻断查看历史或手动运行。
+11. `Run Now` 后必须有局部运行锁定和状态反馈；完成后应刷新 run history 并提供本次运行的 inspector。
+12. Last Run 必须可下钻为人话战报；raw params/result JSON 只能放在 Debug details。
+13. `Dry Run` / `Run Now` 点击后 Run Inspector 必须立即打开并显示 optimistic running entry；异步完成后如果 operator 已关闭抽屉，不得重新抢焦点。
+14. Recurring workflow 历史默认只展示最近 50 条；刷新时必须处理选中 run 掉出窗口的情况，不能白屏或崩溃。
+15. `dry_run=true` 的历史记录必须视觉降级并标记为 `DRY RUN`，不得和真实执行记录使用同等完成语义。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
