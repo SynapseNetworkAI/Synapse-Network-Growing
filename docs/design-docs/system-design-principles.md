@@ -88,7 +88,10 @@
 2. 每个验收步骤必须声明 `required_commands`、`required_evidence_types` 或 `required_db_lineage` 中至少一种证据绑定。
 3. 验收标准必须验证业务目标是否达成，不得只验证 Candidate、Requirement 或 WorkflowRun 是否被创建。
 4. Agent 生成的 acceptance 缺失、空泛、解析失败或格式不合法时，必须进入 `validation_failed` / `awaiting_operator`，不得自动补 fallback criteria。
-5. Verification Agent 的 `inconclusive` 不能被 fallback 提升为 `passed`；不确定就是不放行。
+5. Planner Agent 输出 JSON 只允许对格式/schema 错误做最多两次 repair；危险命令、未知 workflow、越权风险不得 repair 成放行。
+6. Planner Agent 生成的 `required_commands` 必须通过安全命令 allowlist / denylist；生产、资金、部署、删除、外部网络、权限或破坏性命令必须 Fail Closed。
+7. Planner Agent 只能从已注册 workflow definitions 的 enum 中选择 `workflow_key`，不得自由发明 workflow。
+8. Verification Agent 的 `inconclusive` 不能被 fallback 提升为 `passed`；不确定就是不放行。
 
 ## 6.7 后台任务必须一等可观测
 

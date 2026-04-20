@@ -91,6 +91,14 @@ Planner Sweep reads:
 
 When generating a candidate for one goal, the service injects only that single goal's `intent_markdown` and acceptance data. It must not stuff every goal's PRD into the Planner snapshot.
 
+Planner Agent v1.1 turns that single-goal Markdown PRD into a structured candidate. Its output is not trusted until it passes:
+
+1. strict JSON parsing, with at most two repair turns for formatting/schema mistakes.
+2. workflow key enum validation against the registered workflow definitions.
+3. fail-closed acceptance validation, including safe `required_commands` allowlist / denylist checks.
+
+If any gate fails, the candidate stays in `validation_failed`; it must not become a Requirement or start a Workflow.
+
 ### RequirementCandidate
 
 `requirement_candidates` is the buffer between autonomous planning and the official requirement pool.
@@ -118,10 +126,11 @@ Planner Sweep is stateless:
 
 1. It reads active manifest.
 2. It reads aggregated goal progress.
-3. It proposes candidates for active goals.
+3. It calls Planner Agent once per active goal with capacity.
 4. It ignores dropped goals.
-5. It routes fresh candidates through deterministic risk policy.
-6. It exits.
+5. It validates Planner Agent output before materialization.
+6. It routes fresh valid candidates through deterministic risk policy.
+7. It exits.
 
 It does not poll every workflow as a PM, does not interrupt workers directly and does not create release actions.
 

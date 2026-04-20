@@ -26,6 +26,11 @@ from server.database import (
 )
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
+from server.services.planning.planner_agent import (
+    PlannerAgentError,
+    failed_candidate_from_planner_error,
+    synthesize_candidate_for_goal,
+)
 from server.services.planning.risk_router import route_candidate
 from server.services.requirements.acceptance import (
     AcceptanceValidationError,
@@ -392,6 +397,8 @@ def sweep_to_dict(row: PlannerSweepRow) -> dict[str, Any]:
         "auto_materialized_requirement_ids": list(parsed_output.get("auto_materialized_requirement_ids") or []),
         "auto_started_workflow_run_ids": list(parsed_output.get("auto_started_workflow_run_ids") or []),
         "routing_suppressed_items": list(parsed_output.get("routing_suppressed_items") or []),
+        "validation_failed_candidate_ids": list(parsed_output.get("validation_failed_candidate_ids") or []),
+        "planner_validation_errors": list(parsed_output.get("planner_validation_errors") or []),
         "error_excerpt": str(row.error_excerpt or "") or None,
         "started_at": row.started_at,
         "completed_at": row.completed_at,
@@ -780,6 +787,8 @@ def run_planner_sweep(
         auto_materialized_requirement_ids: list[int] = []
         auto_started_workflow_run_ids: list[int] = []
         routing_suppressed_items: list[dict[str, Any]] = []
+        validation_failed_candidate_ids: list[int] = []
+        planner_validation_errors: list[dict[str, Any]] = []
         for goal in _goal_rows(db, int(manifest.id)):
             goal_key = str(goal.goal_key or "").strip()
             if _goal_status(goal) != GOAL_ACTIVE:
@@ -836,38 +845,70 @@ def run_planner_sweep(
                 suppressed.append({"goal_key": goal_key, "reason": "duplicate_candidate", "candidate_id": int(existing.id)})
                 continue
             project = _default_project(db, goal)
+            project_id = int(project.id) if project is not None else None
+            project_key = str(project.project_key or "") if project is not None else None
             acceptance_contract = _acceptance_contract_for_goal_row(goal)
-            candidate_metadata = {"generated_by": "deterministic_planner_sweep_v1"}
-            if acceptance_contract is not None:
-                candidate_metadata["acceptance_contract"] = acceptance_contract
-            candidate_payload = {
-                "manifest_id": int(manifest.id),
-                "goal_key": goal_key,
-                "candidate_fingerprint": fingerprint,
-                "title": f"Advance goal: {title[:72]}",
-                "description_markdown": (
-                    f"## Goal\n{intent}\n\n"
-                    f"## Success Metric\n{str(goal.success_metric or 'Define concrete evidence before execution.')}\n\n"
-                    "## Planner Rationale\nThis candidate was generated from the active Operating Manifest. "
-                    "Operator approval is required before it becomes a requirement."
-                ),
-                "project_id": int(project.id) if project is not None else None,
-                "project_key": str(project.project_key or "") if project is not None else None,
-                "workflow_key": workflow_key,
-                "priority": str(goal.priority or "normal"),
-                "risk_level": str(goal.risk_level or "normal"),
-                "confidence": 0.72,
-                "rationale": "Active goal has no active requirement and has candidate capacity.",
-                "expected_evidence_json": _json_dumps(["accepted candidate", "created requirement", "workflow evidence"]),
-                "status": "pending",
-                "metadata_json": _json_dumps(candidate_metadata),
-            }
+            try:
+                planner_candidate = synthesize_candidate_for_goal(
+                    manifest_payload=_manifest_payload(manifest),
+                    goal=goal,
+                    project_key=str(project_key or ""),
+                    default_workflow_key=workflow_key,
+                    acceptance_contract=acceptance_contract,
+                )
+                workflow_key = planner_candidate.workflow_key
+                acceptance_steps = list((planner_candidate.acceptance_contract or {}).get("execution_acceptance_steps") or [])
+                candidate_metadata = dict(planner_candidate.metadata or {})
+                candidate_metadata["acceptance_contract"] = planner_candidate.acceptance_contract
+                candidate_payload = {
+                    "manifest_id": int(manifest.id),
+                    "goal_key": goal_key,
+                    "candidate_fingerprint": fingerprint,
+                    "title": planner_candidate.title,
+                    "description_markdown": planner_candidate.description_markdown,
+                    "project_id": project_id,
+                    "project_key": project_key,
+                    "workflow_key": workflow_key,
+                    "priority": planner_candidate.priority,
+                    "risk_level": planner_candidate.risk_level,
+                    "confidence": planner_candidate.confidence,
+                    "rationale": planner_candidate.rationale,
+                    "expected_evidence_json": _json_dumps([str(step.get("title") or step.get("step_key") or "") for step in acceptance_steps if isinstance(step, dict)]),
+                    "status": "pending",
+                    "metadata_json": _json_dumps(candidate_metadata),
+                }
+            except PlannerAgentError as exc:
+                planner_validation_errors.append({"goal_key": goal_key, "error": str(exc)})
+                candidate_payload = failed_candidate_from_planner_error(
+                    error=exc,
+                    goal=goal,
+                    workflow_key=workflow_key,
+                    project_id=project_id,
+                    project_key=project_key,
+                    manifest_id=int(manifest.id),
+                    fingerprint=fingerprint,
+                )
             proposed.append(candidate_payload)
             if not dry_run:
                 candidate = RequirementCandidateRow(**candidate_payload)
                 db.add(candidate)
                 db.flush()
                 created_ids.append(int(candidate.id))
+                if "planner_agent_error" in _json_loads(candidate.metadata_json, {}):
+                    _mark_candidate_acceptance_validation_failed(db, candidate, str(_json_loads(candidate.metadata_json, {}).get("planner_agent_error") or "planner agent failed"))
+                    validation_failed_candidate_ids.append(int(candidate.id))
+                    routing_item = {
+                        "candidate_id": int(candidate.id),
+                        "goal_key": goal_key,
+                        "workflow_key": workflow_key,
+                        "decision": "blocked_requires_operator",
+                        "reason": "planner_agent_validation_failed",
+                        "policy_version": "candidate_risk_router_v1",
+                        "error": str(_json_loads(candidate.metadata_json, {}).get("planner_agent_error") or "planner agent failed"),
+                    }
+                    routing_results.append(routing_item)
+                    routing_suppressed_items.append(routing_item)
+                    continue
                 try:
                     validate_acceptance_contract_for_execution(
                         _candidate_acceptance_contract(candidate),
@@ -876,6 +917,7 @@ def run_planner_sweep(
                     )
                 except AcceptanceValidationError as exc:
                     _mark_candidate_acceptance_validation_failed(db, candidate, str(exc))
+                    validation_failed_candidate_ids.append(int(candidate.id))
                     routing_item = {
                         "candidate_id": int(candidate.id),
                         "goal_key": goal_key,
@@ -960,6 +1002,8 @@ def run_planner_sweep(
                 "auto_materialized_requirement_ids": auto_materialized_requirement_ids,
                 "auto_started_workflow_run_ids": auto_started_workflow_run_ids,
                 "routing_suppressed_items": routing_suppressed_items,
+                "validation_failed_candidate_ids": validation_failed_candidate_ids,
+                "planner_validation_errors": planner_validation_errors,
             }
         )
         row.created_candidate_ids_json = _json_dumps(created_ids)

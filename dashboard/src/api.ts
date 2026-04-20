@@ -1676,6 +1676,8 @@ export interface PlannerSweep {
   auto_materialized_requirement_ids?: number[]
   auto_started_workflow_run_ids?: number[]
   routing_suppressed_items?: Array<Record<string, unknown>>
+  validation_failed_candidate_ids?: number[]
+  planner_validation_errors?: Array<Record<string, unknown>>
   error_excerpt: string | null
   started_at: string | null
   completed_at: string | null

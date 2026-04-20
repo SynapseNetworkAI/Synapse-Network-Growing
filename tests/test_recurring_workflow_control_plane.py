@@ -103,7 +103,32 @@ def test_goal_planner_sweep_due_after_daily_slot_without_prior_run():
     )
 
 
-def test_goal_planner_recurring_workflow_runs_real_planner_dry_run(db_session):
+def test_goal_planner_recurring_workflow_runs_real_planner_dry_run(db_session, monkeypatch):
+    from server.services.planning.planner_agent import PlannerAgentCandidate
+
+    monkeypatch.setattr(
+        "server.services.planning.lifecycle.synthesize_candidate_for_goal",
+        lambda **kwargs: PlannerAgentCandidate(
+            title=f"Advance goal: {kwargs['goal'].title}",
+            description_markdown="## Goal\nDry-run candidate",
+            workflow_key=str(kwargs["goal"].workflow_key or "agent_self_repair"),
+            priority="normal",
+            risk_level="normal",
+            confidence=0.7,
+            rationale="Dry-run planner test.",
+            acceptance_contract=kwargs.get("acceptance_contract") or {
+                "execution_acceptance_steps": [
+                    {
+                        "step_key": "dry_run",
+                        "title": "Dry-run evidence",
+                        "expected_result": "Dry-run candidate has safe evidence.",
+                        "required_commands": ["python -m pytest -q"],
+                    }
+                ]
+            },
+            metadata={"generated_by": "planner_agent_v1", "planner_repair_attempts": 0},
+        ),
+    )
     sync_recurring_workflows(db_session)
 
     result = run_recurring_workflow(db_session, workflow_key="goal_planner_sweep", dry_run=True)

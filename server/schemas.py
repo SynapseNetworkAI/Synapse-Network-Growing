@@ -331,6 +331,8 @@ class PlannerSweepOut(BaseModel):
     auto_materialized_requirement_ids: list[int] = []
     auto_started_workflow_run_ids: list[int] = []
     routing_suppressed_items: list[dict[str, object]] = []
+    validation_failed_candidate_ids: list[int] = []
+    planner_validation_errors: list[dict[str, object]] = []
     error_excerpt: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

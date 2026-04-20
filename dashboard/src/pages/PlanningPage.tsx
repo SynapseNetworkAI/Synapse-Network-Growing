@@ -62,6 +62,14 @@ function constraintsToText(value: unknown[]) {
   return value.map((item) => String(item ?? '').trim()).filter(Boolean).join('\n')
 }
 
+function candidateAcceptanceStepCount(candidate: RequirementCandidate) {
+  const metadata = candidate.metadata || {}
+  const contract = metadata.acceptance_contract
+  if (!contract || typeof contract !== 'object') return 0
+  const steps = (contract as { execution_acceptance_steps?: unknown }).execution_acceptance_steps
+  return Array.isArray(steps) ? steps.length : 0
+}
+
 function steeringDraftFrom(mission: PlanningMissionControl | null): SteeringDraft {
   const weights: Record<string, number> = {}
   Object.entries(mission?.global_steering.focus_weights || {}).forEach(([key, value]) => {
@@ -198,10 +206,23 @@ function CandidateMiniQueue({
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{candidate.title}</div>
               <div className="mt-1 font-mono text-[11px] text-[color:var(--ops-text-caption)]">{candidate.workflow_key || 'workflow TBD'} · confidence {Math.round((candidate.confidence || 0) * 100)}%</div>
+              {candidate.metadata?.generated_by ? (
+                <div className="mt-1 font-mono text-[10px] text-[color:var(--ops-text-caption)]">
+                  {String(candidate.metadata.generated_by)}
+                  {candidate.metadata.planner_agent_backend ? ` · ${String(candidate.metadata.planner_agent_backend)}` : ''}
+                  {candidate.metadata.planner_agent_model ? `/${String(candidate.metadata.planner_agent_model)}` : ''}
+                  {candidate.metadata.planner_repair_attempts !== undefined ? ` · repairs ${String(candidate.metadata.planner_repair_attempts)}` : ''}
+                </div>
+              ) : null}
             </div>
             <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
           </div>
           <p className="mt-2 line-clamp-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{candidate.description_markdown || candidate.rationale || 'No description yet.'}</p>
+          {candidateAcceptanceStepCount(candidate) > 0 && candidate.status !== 'validation_failed' ? (
+            <div className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 text-xs text-emerald-100">
+              Acceptance: {candidateAcceptanceStepCount(candidate)} evidence-bound step(s)
+            </div>
+          ) : null}
           {candidate.metadata?.routing_decision ? (
             <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/[0.06] px-3 py-2 text-xs text-cyan-100">
               Risk Router: {String(candidate.metadata.routing_decision)}
@@ -210,7 +231,7 @@ function CandidateMiniQueue({
           ) : null}
           {candidate.status === 'validation_failed' ? (
             <div className="mt-3 rounded-xl border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
-              Fail Closed: {candidate.metadata?.acceptance_validation_error ? String(candidate.metadata.acceptance_validation_error) : candidate.suppression_reason || 'acceptance validation failed'}
+              Fail Closed: {candidate.metadata?.planner_agent_error ? String(candidate.metadata.planner_agent_error) : candidate.metadata?.acceptance_validation_error ? String(candidate.metadata.acceptance_validation_error) : candidate.suppression_reason || 'acceptance validation failed'}
             </div>
           ) : null}
           <div className="mt-3"><CandidateActions candidate={candidate} busy={busy} onAction={onAction} /></div>
