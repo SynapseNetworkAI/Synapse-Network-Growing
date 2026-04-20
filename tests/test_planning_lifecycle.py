@@ -337,6 +337,20 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
     assert validate_required_command_safety("python -m ruff check server tests") == "python -m ruff check server tests"
     assert validate_required_command_safety("npm --prefix dashboard run lint") == "npm --prefix dashboard run lint"
     assert validate_required_command_safety("cd dashboard && npm run build") == "cd dashboard && npm run build"
+    assert (
+        validate_required_command_safety("diff-cover coverage.xml --compare-branch=main --fail-under=90")
+        == "diff-cover coverage.xml --compare-branch=main --fail-under=90"
+    )
+    assert (
+        validate_required_command_safety("uvx diff-cover coverage.xml --compare-branch=main --fail-under=90")
+        == "uvx diff-cover coverage.xml --compare-branch=main --fail-under=90"
+    )
+    assert (
+        validate_required_command_safety(
+            "uvx --from diff-cover diff-cover coverage.xml --compare-branch=main --fail-under=90"
+        )
+        == "uvx --from diff-cover diff-cover coverage.xml --compare-branch=main --fail-under=90"
+    )
     assert validate_required_command_safety('rg "production deploy" server tests docs') == 'rg "production deploy" server tests docs'
     assert (
         validate_required_command_safety(
@@ -355,7 +369,13 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         ('python -m pytest -q;mv a b', "mv"),
         ('rg "x"|sh', "sh"),
         ("echo $(deploy production)", "Subshells"),
+        ("echo $(uvx diff-cover coverage.xml)", "Subshells"),
         ("echo `deploy production`", "Subshells"),
+        ("uvx", "must name an approved tool"),
+        ("uvx rm-rf-all", "uvx tool 'rm-rf-all'"),
+        ('uvx python -c "print(1)"', "uvx tool 'python'"),
+        ("uvx --from evil-package diff-cover coverage.xml", "uvx package 'evil-package'"),
+        ("uvx diff-cover coverage.xml;deploy production", "deploy"),
         ('rg "unterminated', "cannot be parsed safely"),
     ]
     for command, expected_message in blocked_commands:

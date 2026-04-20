@@ -31,8 +31,11 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
     "npm run build",
     "npm run lint",
     "rg ",
+    "diff-cover ",
     "git diff --check",
 )
+
+SAFE_UVX_TOOLS = {"diff-cover"}
 
 SHELL_CONTROL_TOKENS = {"&&", "||", ";", "|", "\n"}
 SHELL_REDIRECTION_TOKENS = {">", ">>", "<", "<<", "<>", ">&", "<&"}
@@ -113,6 +116,50 @@ def _validate_shell_tokens(tokens: list[str]) -> None:
         raise AcceptanceValidationError("required command ends with a shell control operator.")
 
 
+def _contains_shell_control(tokens: list[str]) -> bool:
+    return any(token in SHELL_CONTROL_TOKENS for token in tokens)
+
+
+def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
+    if not tokens or tokens[0] != "uvx":
+        return False
+    if _contains_shell_control(tokens):
+        raise AcceptanceValidationError("uvx evidence commands may not be chained with shell control operators.")
+    if len(tokens) < 2:
+        raise AcceptanceValidationError("uvx evidence commands must name an approved tool.")
+
+    from_package: str | None = None
+    tool: str | None = None
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--from":
+            if index + 1 >= len(tokens):
+                raise AcceptanceValidationError("uvx --from must name an approved package.")
+            from_package = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("--from="):
+            from_package = token.split("=", 1)[1]
+            index += 1
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        tool = token
+        break
+
+    if not tool:
+        raise AcceptanceValidationError("uvx evidence commands must name an approved tool.")
+    if tool not in SAFE_UVX_TOOLS:
+        raise AcceptanceValidationError(f"uvx tool '{tool}' is not in the safe command allowlist.")
+    if from_package and from_package != tool:
+        raise AcceptanceValidationError(
+            f"uvx package '{from_package}' is not approved for tool '{tool}'. Use 'uvx {tool}' or 'uvx --from {tool} {tool}'."
+        )
+    return normalized.startswith("uvx ")
+
+
 def validate_required_command_safety(command: str) -> str:
     """Fail closed unless a planner-generated evidence command is explicitly safe."""
 
@@ -124,7 +171,8 @@ def validate_required_command_safety(command: str) -> str:
     for pattern, reason in UNSAFE_ARGUMENT_PATTERNS:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
-    if not any(normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
+    is_bound_uvx = _validate_bound_uvx_command(tokens, normalized)
+    if not is_bound_uvx and not any(normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
         raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
     return normalized
 
