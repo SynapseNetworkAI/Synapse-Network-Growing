@@ -16,6 +16,7 @@ type Goal = PlanningGoal
 
 type ActiveTab = 'mission' | 'history' | 'debug'
 type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
+type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
 
 type SteeringDraft = {
   focusWeights: Record<string, number>
@@ -42,9 +43,21 @@ type CachedGoalDetail = {
   cacheKey: string
 }
 
-function formatTime(value: string | null | undefined) {
-  if (!value) return '-'
-  return new Date(value).toLocaleString()
+function formatLocalDateTime(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const offsetMinutes = -date.getTimezoneOffset()
+  const offsetSign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteOffset = Math.abs(offsetMinutes)
+  const offset = `GMT${offsetSign}${pad(Math.floor(absoluteOffset / 60))}:${pad(absoluteOffset % 60)}`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${offset}`
+}
+
+function LocalTime({ value }: Readonly<{ value: string | null | undefined }>) {
+  if (!value) return <span>-</span>
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return <span>-</span>
+  const utcIso = date.toISOString()
+  return <time dateTime={utcIso} title={utcIso}>{formatLocalDateTime(date)}</time>
 }
 
 function badgeTone(status: string) {
@@ -91,6 +104,40 @@ function failClosedReason(candidate: RequirementCandidate) {
       || candidate.suppression_reason
       || 'validation failed',
   )
+}
+
+function interceptSignature(reason: string) {
+  return reason
+    .toLowerCase()
+    .replace(/\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(?:\.\d+)?z/g, '<timestamp>')
+    .replace(/\d{1,2}\/\d{1,2}\/\d{4},?\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]m)?/g, '<timestamp>')
+    .replace(/candidate\s*#?\d+/g, 'candidate')
+    .replace(/requirement\s*#?\d+/g, 'requirement')
+    .replace(/workflow\s*#?\d+/g, 'workflow')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function groupValidationFailedCandidates(candidates: RequirementCandidate[]) {
+  const groups = new Map<string, { signature: string; reason: string; attempts: RequirementCandidate[] }>()
+  candidates.forEach((candidate) => {
+    const reason = failClosedReason(candidate)
+    const signature = interceptSignature(reason)
+    const current = groups.get(signature)
+    if (current) {
+      current.attempts.push(candidate)
+      return
+    }
+    groups.set(signature, { signature, reason, attempts: [candidate] })
+  })
+  return Array.from(groups.values()).map((group) => {
+    const attempts = sortCandidatesNewestFirst(group.attempts)
+    return { ...group, reason: failClosedReason(attempts[0]), latest: attempts[0], attempts }
+  }).sort((left, right) => candidateTimestamp(right.latest).localeCompare(candidateTimestamp(left.latest)))
+}
+
+function interceptNeedsSettings(reason: string) {
+  return /workflow|risk|project|setting|unknown workflow|workflow_key/i.test(reason)
 }
 
 function workflowOutcomeLabel(candidate: RequirementCandidate) {
@@ -225,13 +272,23 @@ function CandidateActions({
 }
 
 function GoalCandidateSummary({
+  goal,
   candidates,
   busy,
   onAction,
+  onEditIntent,
+  onEditSettings,
+  onTraceGoal,
+  onRunSweep,
 }: Readonly<{
+  goal: PlanningGoal
   candidates: RequirementCandidate[]
   busy: string | null
   onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
+  onEditIntent: (goal: PlanningGoal) => void
+  onEditSettings: (goal: PlanningGoal) => void
+  onTraceGoal: (goal: PlanningGoal) => void
+  onRunSweep: () => void
 }>) {
   const groups = {
     actionRequired: sortCandidatesNewestFirst(candidates.filter((candidate) => ['pending', 'approved'].includes(candidate.status))),
@@ -239,6 +296,7 @@ function GoalCandidateSummary({
     validationFailed: sortCandidatesNewestFirst(candidates.filter((candidate) => candidate.status === 'validation_failed')),
     quiet: sortCandidatesNewestFirst(candidates.filter((candidate) => !['pending', 'approved', 'materialized', 'validation_failed'].includes(candidate.status))),
   }
+  const interceptGroups = groupValidationFailedCandidates(groups.validationFailed)
   const visibleMaterialized = groups.materialized.slice(0, 2)
   const olderMaterialized = groups.materialized.slice(2)
   return (
@@ -319,26 +377,52 @@ function GoalCandidateSummary({
       {groups.validationFailed.length > 0 ? (
         <details className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.06] px-4 py-3" data-testid="planner-intercepts">
           <summary className="cursor-pointer text-sm font-medium text-rose-100">
-            展开查看 {groups.validationFailed.length} 条 Planner 拦截记录 (Validation Failed)
+            展开查看 {interceptGroups.length} 类 Planner 拦截记录 ({groups.validationFailed.length} failed attempts)
           </summary>
+          <div className="mt-3 rounded-xl border border-rose-300/20 bg-slate-950/30 px-3 py-2 text-xs leading-5 text-rose-100/80">
+            Planner Intercepts are planning diagnostics, not Human Gates. Fix PRD or policy, then run sweep again.
+          </div>
           <div className="mt-3 space-y-2">
-            {groups.validationFailed.map((candidate) => (
-              <article key={candidate.id} className="rounded-xl border border-rose-300/20 bg-slate-950/35 px-3 py-2" data-testid="validation-failed-candidate-row">
+            {interceptGroups.map((group) => (
+              <article key={group.signature} className="rounded-xl border border-rose-300/20 bg-slate-950/35 px-3 py-2" data-testid="validation-failed-candidate-row">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="line-clamp-1 text-sm font-medium text-rose-50">
-                      {formatTime(candidateTimestamp(candidate))} - Fail Closed: {failClosedReason(candidate)}
+                    <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-rose-50">
+                      <span className="rounded-full border border-rose-300/30 bg-rose-400/[0.12] px-2 py-0.5 text-[11px] text-rose-100">{group.attempts.length}x Failed</span>
+                      <LocalTime value={candidateTimestamp(group.latest)} />
+                      <span className="line-clamp-1">- Fail Closed: {group.reason}</span>
                     </div>
-                    <div className="mt-1 line-clamp-1 text-xs text-rose-100/65">{candidate.title}</div>
+                    <div className="mt-1 line-clamp-1 text-xs text-rose-100/65">{group.latest.title}</div>
                   </div>
-                  <span className={['rounded-full border px-2 py-1 text-[11px]', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
+                  <span className={['rounded-full border px-2 py-1 text-[11px]', badgeTone(group.latest.status)].join(' ')}>{group.latest.status}</span>
                 </div>
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-medium text-rose-100/80">View Agent Raw Output</summary>
-                  <div className="mt-2 rounded-xl border border-rose-300/15 bg-slate-950/50 p-3 text-xs leading-5 text-rose-50/80">
-                    {candidate.description_markdown ? <p className="whitespace-pre-wrap">{candidate.description_markdown}</p> : null}
-                    {candidate.rationale ? <p className="mt-2 whitespace-pre-wrap">Rationale: {candidate.rationale}</p> : null}
-                    <div className="mt-2 font-mono">generated_by: {String(candidate.metadata?.generated_by || 'unknown')}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-1.5 text-xs font-medium text-cyan-100" onClick={() => onEditIntent(goal)}>Edit Goal PRD</button>
+                  {interceptNeedsSettings(group.reason) ? (
+                    <button className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ops-text-body)]" onClick={() => onEditSettings(goal)}>Edit Settings</button>
+                  ) : null}
+                  <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.06] px-3 py-1.5 text-xs font-medium text-emerald-100" onClick={() => onTraceGoal(goal)}>Trace Path</button>
+                  <button className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-1.5 text-xs font-medium text-[color:var(--ops-text-body)]" disabled={busy === 'sweep'} onClick={onRunSweep}>Run Sweep Now</button>
+                </div>
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-medium text-rose-100/80">Show attempts ({group.attempts.length})</summary>
+                  <div className="mt-2 space-y-2">
+                    {group.attempts.map((candidate) => (
+                      <div key={candidate.id} className="rounded-xl border border-rose-300/15 bg-slate-950/50 p-3 text-xs leading-5 text-rose-50/80">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span><LocalTime value={candidateTimestamp(candidate)} /> · {candidate.title}</span>
+                          <span className={['rounded-full border px-2 py-1 text-[11px]', badgeTone(candidate.status)].join(' ')}>{candidate.status}</span>
+                        </div>
+                        <details className="mt-2">
+                          <summary className="cursor-pointer font-medium text-rose-100/80">View Agent Raw Output</summary>
+                          <div className="mt-2 rounded-xl border border-rose-300/15 bg-slate-950/50 p-3">
+                            {candidate.description_markdown ? <p className="whitespace-pre-wrap">{candidate.description_markdown}</p> : null}
+                            {candidate.rationale ? <p className="mt-2 whitespace-pre-wrap">Rationale: {candidate.rationale}</p> : null}
+                            <div className="mt-2 font-mono">generated_by: {String(candidate.metadata?.generated_by || 'unknown')}</div>
+                          </div>
+                        </details>
+                      </div>
+                    ))}
                   </div>
                 </details>
               </article>
@@ -379,6 +463,7 @@ function GoalMissionLaneSection({
   onEditSettings,
   onDropGoal,
   onTraceGoal,
+  onRunSweep,
 }: Readonly<{
   lane: GoalMissionLane
   busy: string | null
@@ -388,6 +473,7 @@ function GoalMissionLaneSection({
   onEditSettings: (goal: PlanningGoal) => void
   onDropGoal: (goal: Goal) => void
   onTraceGoal: (goal: PlanningGoal) => void
+  onRunSweep: () => void
 }>) {
   const goal = lane.goal
   const status = goal.status || 'active'
@@ -442,9 +528,257 @@ function GoalMissionLaneSection({
         </div>
         <div className="space-y-4">
           <GoalRollupStrip lane={lane} />
-          <GoalCandidateSummary candidates={lane.candidates} busy={busy} onAction={onCandidateAction} />
+          <GoalCandidateSummary
+            goal={goal}
+            candidates={lane.candidates}
+            busy={busy}
+            onAction={onCandidateAction}
+            onEditIntent={onEditIntent}
+            onEditSettings={onEditSettings}
+            onTraceGoal={onTraceGoal}
+            onRunSweep={onRunSweep}
+          />
         </div>
       </div>
+    </section>
+  )
+}
+
+function goalSearchText(lane: GoalMissionLane) {
+  const goal = lane.goal
+  return [
+    goal.title,
+    goal.goal_key,
+    goal.domain,
+    goal.success_metric,
+    goal.intent_excerpt,
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function HistoricalGoalRow({
+  lane,
+  onEditIntent,
+  onTraceGoal,
+}: Readonly<{
+  lane: GoalMissionLane
+  onEditIntent: (goal: PlanningGoal) => void
+  onTraceGoal: (goal: PlanningGoal) => void
+}>) {
+  const goal = lane.goal
+  const counts = lane.rollup
+  const candidates = Object.values(counts.candidate_status_counts || {}).reduce((sum, value) => sum + value, 0)
+  const requirements = Object.values(counts.requirement_status_counts || {}).reduce((sum, value) => sum + value, 0)
+  const workflows = Object.values(counts.workflow_status_counts || {}).reduce((sum, value) => sum + value, 0)
+  return (
+    <article className="h-[132px] rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3" data-testid="historical-goal-row">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={['rounded-full border px-2.5 py-1 text-[11px] font-medium', badgeTone(goal.status)].join(' ')}>{goal.status}</span>
+            <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{goal.goal_key}</span>
+          </div>
+          <h4 className="mt-2 line-clamp-1 text-sm font-semibold text-[color:var(--ops-text-title)]">{goal.title || goal.goal_key}</h4>
+          <p className="mt-1 line-clamp-1 text-xs text-[color:var(--ops-text-muted)]">{goal.intent_excerpt || goal.success_metric || 'No intent excerpt.'}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-[11px] text-[color:var(--ops-text-muted)]">
+          <span>{candidates} candidates</span>
+          <span>{requirements} requirements</span>
+          <span>{workflows} workflows</span>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button className="rounded-lg border border-cyan-300/25 bg-cyan-300/[0.06] px-3 py-1.5 text-xs font-medium text-cyan-100" onClick={() => onEditIntent(goal)}>Edit Intent</button>
+        <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/[0.06] px-3 py-1.5 text-xs font-medium text-emerald-100" onClick={() => onTraceGoal(goal)}>Trace Path</button>
+      </div>
+    </article>
+  )
+}
+
+function VirtualizedGoalList({
+  lanes,
+  group,
+  onEditIntent,
+  onTraceGoal,
+}: Readonly<{
+  lanes: GoalMissionLane[]
+  group: 'achieved' | 'dropped'
+  onEditIntent: (goal: PlanningGoal) => void
+  onTraceGoal: (goal: PlanningGoal) => void
+}>) {
+  const [query, setQuery] = useState('')
+  const [scrollTop, setScrollTop] = useState(0)
+  const itemHeight = 144
+  const viewportHeight = 640
+  const filtered = query.trim()
+    ? lanes.filter((lane) => goalSearchText(lane).includes(query.trim().toLowerCase()))
+    : lanes
+  const shouldVirtualize = filtered.length > 20
+  const totalHeight = filtered.length * itemHeight
+  const startIndex = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / itemHeight) - 2) : 0
+  const visibleCount = shouldVirtualize ? Math.ceil(viewportHeight / itemHeight) + 4 : filtered.length
+  const visible = filtered.slice(startIndex, startIndex + visibleCount)
+  const placeholder = group === 'achieved' ? 'Filter achieved goals...' : 'Filter dropped goals...'
+
+  return (
+    <div className="space-y-3">
+      <input
+        className="w-full rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm text-[color:var(--ops-text-title)] outline-none"
+        placeholder={placeholder}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setScrollTop(0)
+        }}
+      />
+      {shouldVirtualize ? (
+        <div
+          className="overflow-auto rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950/20 p-2"
+          style={{ height: viewportHeight }}
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          data-testid={`virtualized-${group}-goals`}
+        >
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            <div style={{ transform: `translateY(${startIndex * itemHeight}px)` }} className="space-y-3">
+              {visible.map((lane) => (
+                <HistoricalGoalRow key={lane.goal.id} lane={lane} onEditIntent={onEditIntent} onTraceGoal={onTraceGoal} />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3" data-testid={`${group}-goals-list`}>
+          {filtered.map((lane) => (
+            <HistoricalGoalRow key={lane.goal.id} lane={lane} onEditIntent={onEditIntent} onTraceGoal={onTraceGoal} />
+          ))}
+        </div>
+      )}
+      {!filtered.length ? (
+        <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">No {group} goals match this filter.</div>
+      ) : null}
+    </div>
+  )
+}
+
+function GoalLaneGroups({
+  lanes,
+  view,
+  setView,
+  busy,
+  onCandidateAction,
+  onEditIntent,
+  onPrefetchIntent,
+  onEditSettings,
+  onDropGoal,
+  onTraceGoal,
+  onRunSweep,
+}: Readonly<{
+  lanes: GoalMissionLane[]
+  view: GoalStatusView
+  setView: (view: GoalStatusView) => void
+  busy: string | null
+  onCandidateAction: (candidate: RequirementCandidate, action: CandidateAction) => void
+  onEditIntent: (goal: PlanningGoal) => void
+  onPrefetchIntent: (goal: PlanningGoal) => void
+  onEditSettings: (goal: PlanningGoal) => void
+  onDropGoal: (goal: Goal) => void
+  onTraceGoal: (goal: PlanningGoal) => void
+  onRunSweep: () => void
+}>) {
+  const [historicalExpanded, setHistoricalExpanded] = useState({ achieved: false, dropped: false })
+  useEffect(() => {
+    if (view === 'achieved') setHistoricalExpanded((current) => ({ ...current, achieved: true }))
+    if (view === 'dropped') setHistoricalExpanded((current) => ({ ...current, dropped: true }))
+  }, [view])
+  const groups = {
+    active: lanes.filter((lane) => lane.goal.status === 'active'),
+    achieved: lanes.filter((lane) => lane.goal.status === 'achieved'),
+    dropped: lanes.filter((lane) => lane.goal.status === 'dropped'),
+  }
+  const showActive = view === 'all' || view === 'active'
+  const showAchieved = view === 'all' || view === 'achieved'
+  const showDropped = view === 'all' || view === 'dropped'
+  const achievedOpen = historicalExpanded.achieved
+  const droppedOpen = historicalExpanded.dropped
+  return (
+    <section className="space-y-4" data-testid="goal-lane-groups">
+      <nav className="sticky top-0 z-10 flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2">
+        {([
+          ['active', `Active (${groups.active.length})`],
+          ['achieved', `Achieved (${groups.achieved.length})`],
+          ['dropped', `Dropped (${groups.dropped.length})`],
+          ['all', `All (${lanes.length})`],
+        ] as Array<[GoalStatusView, string]>).map(([key, label]) => (
+          <button
+            key={key}
+            className={['rounded-xl px-4 py-2 text-sm font-medium transition', view === key ? 'bg-cyan-300/[0.14] text-cyan-100' : 'text-[color:var(--ops-text-muted)] hover:bg-[color:var(--ops-panel-strong)]'].join(' ')}
+            onClick={() => setView(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {showActive ? (
+        <section id="active-goals" className="space-y-4" data-testid="active-goals-section">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-[color:var(--ops-text-title)]">Active Goals</h3>
+            <span className="rounded-full bg-[color:var(--ops-panel-strong)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{groups.active.length} current fronts</span>
+          </div>
+          {groups.active.map((lane) => (
+            <GoalMissionLaneSection
+              key={lane.goal_key}
+              lane={lane}
+              busy={busy}
+              onCandidateAction={onCandidateAction}
+              onEditIntent={onEditIntent}
+              onPrefetchIntent={onPrefetchIntent}
+              onEditSettings={onEditSettings}
+              onDropGoal={onDropGoal}
+              onTraceGoal={onTraceGoal}
+              onRunSweep={onRunSweep}
+            />
+          ))}
+          {!groups.active.length ? <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No active goals in this manifest.</div> : null}
+        </section>
+      ) : null}
+
+      {showAchieved ? (
+        <details className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="achieved-goals-section" open={achievedOpen}>
+          <summary
+            className="cursor-pointer text-base font-semibold text-[color:var(--ops-text-title)]"
+            onClick={(event) => {
+              event.preventDefault()
+              setHistoricalExpanded((current) => ({ ...current, achieved: !current.achieved }))
+            }}
+          >
+            Achieved Goals ({groups.achieved.length})
+          </summary>
+          {achievedOpen ? (
+            <div className="mt-4">
+              <VirtualizedGoalList lanes={groups.achieved} group="achieved" onEditIntent={onEditIntent} onTraceGoal={onTraceGoal} />
+            </div>
+          ) : null}
+        </details>
+      ) : null}
+
+      {showDropped ? (
+        <details className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="dropped-goals-section" open={droppedOpen}>
+          <summary
+            className="cursor-pointer text-base font-semibold text-[color:var(--ops-text-title)]"
+            onClick={(event) => {
+              event.preventDefault()
+              setHistoricalExpanded((current) => ({ ...current, dropped: !current.dropped }))
+            }}
+          >
+            Dropped Goals ({groups.dropped.length})
+          </summary>
+          {droppedOpen ? (
+            <div className="mt-4">
+              <VirtualizedGoalList lanes={groups.dropped} group="dropped" onEditIntent={onEditIntent} onTraceGoal={onTraceGoal} />
+            </div>
+          ) : null}
+        </details>
+      ) : null}
     </section>
   )
 }
@@ -737,7 +1071,7 @@ function ManifestHistoryPanel({
                 </td>
                 <td className="px-4 py-3"><span className={['rounded-full border px-3 py-1 text-xs', badgeTone(item.status)].join(' ')}>{item.status}</span></td>
                 <td className="px-4 py-3 text-[color:var(--ops-text-muted)]">{item.active_goal_count} active · {item.dropped_goal_count} dropped</td>
-                <td className="px-4 py-3 text-[color:var(--ops-text-muted)]">{formatTime(item.updated_at)}</td>
+                <td className="px-4 py-3 text-[color:var(--ops-text-muted)]"><LocalTime value={item.updated_at} /></td>
               </tr>
             ))}
           </tbody>
@@ -1095,6 +1429,7 @@ export default function PlanningPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState('')
   const [activeTab, setActiveTab] = useState<ActiveTab>('mission')
+  const [goalStatusView, setGoalStatusView] = useState<GoalStatusView>('active')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -1473,28 +1808,29 @@ export default function PlanningPage() {
           {mission?.last_sweep ? (
             <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">
               <span className="font-mono text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Last Planner Sweep</span>
+              <span className="ml-3"><LocalTime value={mission.last_sweep.completed_at || mission.last_sweep.started_at} /></span>
               <span className="ml-3">created {(mission.last_sweep.created_candidate_ids || []).length}</span>
               <span className="ml-3">auto materialized {(mission.last_sweep.auto_materialized_requirement_ids || []).length}</span>
               <span className="ml-3">auto started {(mission.last_sweep.auto_started_workflow_run_ids || []).length}</span>
               <span className="ml-3">suppressed {(mission.last_sweep.suppressed_items || []).length}</span>
             </div>
           ) : null}
-          {(mission?.goal_lanes || []).map((lane) => (
-            <GoalMissionLaneSection
-              key={lane.goal_key}
-              lane={{
-                ...lane,
-                goal: optimisticExcerpts[lane.goal.id] ? { ...lane.goal, intent_excerpt: optimisticExcerpts[lane.goal.id] } : lane.goal,
-              }}
-              busy={busy}
-              onCandidateAction={actOnCandidate}
-              onEditIntent={openIntentEditor}
-              onPrefetchIntent={prefetchGoalIntent}
-              onEditSettings={openSettingsEditor}
-              onDropGoal={setDropGoal}
-              onTraceGoal={openGoalTrace}
-            />
-          ))}
+          <GoalLaneGroups
+            lanes={(mission?.goal_lanes || []).map((lane) => ({
+              ...lane,
+              goal: optimisticExcerpts[lane.goal.id] ? { ...lane.goal, intent_excerpt: optimisticExcerpts[lane.goal.id] } : lane.goal,
+            }))}
+            view={goalStatusView}
+            setView={setGoalStatusView}
+            busy={busy}
+            onCandidateAction={actOnCandidate}
+            onEditIntent={openIntentEditor}
+            onPrefetchIntent={prefetchGoalIntent}
+            onEditSettings={openSettingsEditor}
+            onDropGoal={setDropGoal}
+            onTraceGoal={openGoalTrace}
+            onRunSweep={() => runSweep(false)}
+          />
           {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
         </main>
       )}

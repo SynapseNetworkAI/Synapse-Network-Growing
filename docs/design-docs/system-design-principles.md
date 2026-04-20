@@ -132,6 +132,10 @@
 7. Planning 主视图必须按 operator decision priority 排序：需要处理的 candidate 优先，其次已 materialized 的工作，再次是 Fail-Closed 拦截记录，最后才是 rejected / suppressed 历史。
 8. 长 PRD、Candidate Markdown、Planner raw output 和 metadata dump 不得压过当前动作；主视图只展示摘要、状态、原因和跳转入口。
 9. `validation_failed` 是规划层诊断草稿，不是执行阻塞。它应默认折叠，展开后先显示 Fail-Closed 原因，再允许查看 Agent 原始输出。
+10. Planning 主视图必须按 `Active / Achieved / Dropped` 组织目标：Active 目标永远优先展开，Achieved / Dropped 历史目标默认折叠。
+11. 历史目标数量变大时必须使用 local filtering 和 virtualized history，避免把几百个历史 Goal 同时渲染进 DOM 或要求 operator 传统分页翻找。
+12. 重复的 Planner Fail-Closed 错误必须聚合为 deduped planner intercepts，按 reason signature 显示次数和最新时间，不能把重复废稿当作同等重要的主线工作。
+13. Ops Console 时间显示必须使用浏览器 local time，并保留 UTC 原始值用于排查日志；不得硬编码特定地理时区作为唯一显示口径。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

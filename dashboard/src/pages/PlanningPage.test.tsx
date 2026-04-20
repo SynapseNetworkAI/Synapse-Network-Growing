@@ -98,6 +98,30 @@ const growthGoal = {
   updated_at: '2026-04-19T00:00:00Z',
 }
 
+const achievedGoal = {
+  ...growthGoal,
+  id: 103,
+  goal_key: 'completed_lint_contracts',
+  title: 'Completed lint contracts',
+  intent_excerpt: 'Historical contract work already shipped.',
+  success_metric: 'contract checks shipped',
+  domain: 'ops',
+  status: 'achieved',
+  weight: 0.1,
+}
+
+const droppedGoal = {
+  ...growthGoal,
+  id: 104,
+  goal_key: 'retired_gateway_idea',
+  title: 'Retired gateway idea',
+  intent_excerpt: 'Dropped historical gateway work.',
+  success_metric: 'not pursued',
+  domain: 'reliability',
+  status: 'dropped',
+  weight: 0.05,
+}
+
 const reliabilityCandidate = {
   id: 10,
   manifest_id: 1,
@@ -159,6 +183,14 @@ const validationFailedCandidate = {
   updated_at: '2026-04-19T02:00:00Z',
 }
 
+const duplicateValidationFailedCandidate = {
+  ...validationFailedCandidate,
+  id: 13,
+  candidate_fingerprint: 'fp-13',
+  title: 'Unsafe planner output retry',
+  updated_at: '2026-04-19T03:00:00Z',
+}
+
 const mission = {
   manifest,
   global_steering: {
@@ -179,7 +211,7 @@ const mission = {
         workflow_status_counts: {},
         release_status_counts: {},
       },
-      candidates: [reliabilityCandidate, materializedCandidate, validationFailedCandidate],
+      candidates: [reliabilityCandidate, materializedCandidate, validationFailedCandidate, duplicateValidationFailedCandidate],
     },
     {
       goal_key: 'operator_growth',
@@ -189,6 +221,34 @@ const mission = {
         goal_key: 'operator_growth',
         goal: growthGoal,
         candidate_status_counts: {},
+        requirement_status_counts: {},
+        workflow_status_counts: {},
+        release_status_counts: {},
+      },
+      candidates: [],
+    },
+    {
+      goal_key: 'completed_lint_contracts',
+      goal: achievedGoal,
+      rollup: {
+        manifest_id: 1,
+        goal_key: 'completed_lint_contracts',
+        goal: achievedGoal,
+        candidate_status_counts: { materialized: 1 },
+        requirement_status_counts: { completed: 1 },
+        workflow_status_counts: { succeeded: 1 },
+        release_status_counts: { pr_opened: 1 },
+      },
+      candidates: [],
+    },
+    {
+      goal_key: 'retired_gateway_idea',
+      goal: droppedGoal,
+      rollup: {
+        manifest_id: 1,
+        goal_key: 'retired_gateway_idea',
+        goal: droppedGoal,
+        candidate_status_counts: { validation_failed: 1 },
         requirement_status_counts: {},
         workflow_status_counts: {},
         release_status_counts: {},
@@ -253,11 +313,11 @@ describe('PlanningPage Mission Control', () => {
     expect(lanes).toHaveLength(2)
     expect(within(lanes[0]).getByText('gateway_reliability')).toBeTruthy()
     expect(within(lanes[0]).getByText('Add gateway precision guardrail')).toBeTruthy()
-    expect(within(lanes[0]).getByText('Candidates (1 Pending, 1 Materialized, 1 Failed)')).toBeTruthy()
+    expect(within(lanes[0]).getByText('Candidates (1 Pending, 1 Materialized, 2 Failed)')).toBeTruthy()
     expect(within(lanes[1]).queryByText('Add gateway precision guardrail')).toBeNull()
   })
 
-  it('renders materialized work and fail-closed drafts as progressive disclosure', async () => {
+  it('renders materialized work and deduped fail-closed drafts as progressive disclosure', async () => {
     const user = userEvent.setup()
     render(<PlanningPage />)
 
@@ -269,10 +329,95 @@ describe('PlanningPage Mission Control', () => {
     expect(within(reliabilityLane).getByRole('link', { name: 'Requirement #6' })).toBeTruthy()
     expect(within(reliabilityLane).getByTestId('planner-intercepts')).toBeTruthy()
 
-    await user.click(within(reliabilityLane).getByText('展开查看 1 条 Planner 拦截记录 (Validation Failed)'))
+    await user.click(within(reliabilityLane).getByText('展开查看 1 类 Planner 拦截记录 (2 failed attempts)'))
 
+    expect(within(reliabilityLane).getByText('2x Failed')).toBeTruthy()
     expect(within(reliabilityLane).getByText(/Fail Closed: required command 'python -m ruff check'/)).toBeTruthy()
-    expect(within(reliabilityLane).getByText('View Agent Raw Output')).toBeTruthy()
+    expect(within(reliabilityLane).getByRole('button', { name: 'Edit Goal PRD' })).toBeTruthy()
+    expect(within(reliabilityLane).getByRole('button', { name: 'Run Sweep Now' })).toBeTruthy()
+    expect(within(reliabilityLane).getAllByRole('button', { name: 'Trace Path' }).length).toBeGreaterThan(1)
+    const failedRow = within(reliabilityLane).getByTestId('validation-failed-candidate-row')
+    expect(within(failedRow).queryByRole('button', { name: 'Approve & Run' })).toBeNull()
+    expect(within(failedRow).queryByRole('button', { name: 'Materialize & Run' })).toBeNull()
+    await user.click(within(reliabilityLane).getByText('Show attempts (2)'))
+    expect(within(reliabilityLane).getAllByText('View Agent Raw Output')).toHaveLength(2)
+  })
+
+  it('groups active goals above collapsed historical goals with local search', async () => {
+    const user = userEvent.setup()
+    render(<PlanningPage />)
+
+    expect(await screen.findByTestId('active-goals-section')).toBeTruthy()
+    const activeSection = screen.getByTestId('active-goals-section')
+    expect(within(activeSection).getByText('Gateway reliability')).toBeTruthy()
+    expect(within(activeSection).queryByText('Completed lint contracts')).toBeNull()
+
+    expect(screen.getByText('Achieved (1)')).toBeTruthy()
+    expect(screen.getByText('Dropped (1)')).toBeTruthy()
+    expect(screen.queryByPlaceholderText('Filter achieved goals...')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Achieved (1)' }))
+    const achievedSection = screen.getByTestId('achieved-goals-section')
+    await waitFor(() => {
+      expect(within(achievedSection).getByPlaceholderText('Filter achieved goals...')).toBeTruthy()
+    })
+    expect(within(achievedSection).getByText('Completed lint contracts')).toBeTruthy()
+
+    await user.type(within(achievedSection).getByPlaceholderText('Filter achieved goals...'), 'missing')
+    expect(within(achievedSection).queryByText('Completed lint contracts')).toBeNull()
+    expect(within(achievedSection).getByText('No achieved goals match this filter.')).toBeTruthy()
+  })
+
+  it('virtualizes large historical goal groups instead of rendering every row', async () => {
+    const user = userEvent.setup()
+    const achievedLanes = Array.from({ length: 25 }, (_, index) => {
+      const goal = {
+        ...achievedGoal,
+        id: 300 + index,
+        goal_key: `achieved_${index}`,
+        title: `Achieved goal ${index}`,
+      }
+      return {
+        goal_key: goal.goal_key,
+        goal,
+        rollup: {
+          manifest_id: 1,
+          goal_key: goal.goal_key,
+          goal,
+          candidate_status_counts: { materialized: 1 },
+          requirement_status_counts: { completed: 1 },
+          workflow_status_counts: { succeeded: 1 },
+          release_status_counts: {},
+        },
+        candidates: [],
+      }
+    })
+    apiMock.getPlanningMissionControl.mockResolvedValueOnce({
+      ...mission,
+      goal_lanes: [mission.goal_lanes[0], mission.goal_lanes[1], ...achievedLanes],
+    })
+
+    render(<PlanningPage />)
+    await screen.findByTestId('active-goals-section')
+    await user.click(screen.getByRole('button', { name: 'Achieved (25)' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('virtualized-achieved-goals')).toBeTruthy()
+    })
+    expect(screen.getAllByTestId('historical-goal-row').length).toBeLessThan(25)
+  })
+
+  it('renders planner intercept timestamps as local time with UTC source in the time element', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<PlanningPage />)
+
+    const lanes = await screen.findAllByTestId('goal-mission-lane')
+    await user.click(within(lanes[0]).getByText('展开查看 1 类 Planner 拦截记录 (2 failed attempts)'))
+
+    const time = container.querySelector('time[datetime="2026-04-19T03:00:00.000Z"]')
+    expect(time).toBeTruthy()
+    expect(time?.getAttribute('title')).toBe('2026-04-19T03:00:00.000Z')
+    expect(time?.textContent).toMatch(/GMT[+-]\d{2}:\d{2}/)
   })
 
   it('approves and runs a candidate from inside its goal lane', async () => {
@@ -347,7 +492,7 @@ describe('PlanningPage Mission Control', () => {
     render(<PlanningPage />)
 
     const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Trace Path' }))
+    await user.click(within(lanes[0]).getAllByRole('button', { name: 'Trace Path' })[0])
 
     await waitFor(() => {
       expect(apiMock.getPlanningGoalTrace).toHaveBeenCalledWith(101)

@@ -85,6 +85,9 @@ Dark cockpit pages must be readable before they are visually clever. Any fronten
 - Dense cockpit cards must enforce readable density with line-clamp, max-height, drawers, or `<details>` for long content.
 - Long-form Markdown is never a card body in dense operator views. Goal PRDs, Candidate descriptions, Planner raw output and metadata dumps must be opt-in.
 - Fail-Closed / validation_failed drafts must be grouped as diagnostic intercepts, not mixed into the main active-work stream.
+- Mission-control planning pages must use `Active / Achieved / Dropped` grouping. Active work is expanded first; historical groups are collapsed, searchable, and use virtualized history when large.
+- Repeated Fail-Closed records must become deduped planner intercepts with attempt counts and latest local time, not duplicate card spam.
+- Time labels must render in browser local time while preserving the UTC source value in the DOM for audit/debug.
 
 ## Page Contracts
 

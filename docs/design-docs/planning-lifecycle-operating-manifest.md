@@ -310,6 +310,10 @@ It contains:
 14. Candidate display order is `Action Required -> Materialized -> Planner Intercepts -> Quiet History`.
 15. `validation_failed` candidates must not be rendered as normal candidate cards. They belong in a collapsed Planner Intercepts section with the Fail-Closed reason first.
 16. Full Goal PRD, Candidate `description_markdown`, Planner raw output and metadata dumps must be behind drawers or `<details>` progressive disclosure.
+17. Goal lanes must be grouped as `Active / Achieved / Dropped`: Active goals stay expanded at the top, while historical Achieved and Dropped goals stay collapsed by default.
+18. Historical goal groups must support local filtering and virtualized history when the group grows large; do not use table-style pagination for the primary mission control surface.
+19. Planner Intercepts must use deduped planner intercepts by Fail-Closed reason signature. Repeated identical failures should render as one diagnostic group with an attempt count, not as a wall of duplicate drafts.
+20. Planning timestamps must render in browser local time while preserving the original UTC value through the underlying `<time>` element or tooltip.
 
 Recommended Goal lane shape:
 
@@ -322,6 +326,15 @@ Intent: <short excerpt> [view full PRD]
 Candidates (2 Materialized, 3 Failed)
 Materialized: <candidate title> [Requirement #6] [Workflow Completed]
 Planner Intercepts: collapsed fail-closed drafts
+```
+
+Historical goal group shape:
+
+```text
+Active Goals: expanded battlefront cards
+Achieved Goals: collapsed header -> searchable compact rows -> virtualized history when large
+Dropped Goals: collapsed header -> searchable compact rows -> virtualized history when large
+Planner Intercepts: [3x Failed] latest local time - Fail Closed reason -> attempts hidden in details
 ```
 
 The Drop Goal modal must explicitly say:
