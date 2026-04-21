@@ -1219,6 +1219,8 @@ def _objective_status_and_next_action(
     workflow_state = str(getattr(workflow, "current_state", "") or "")
     if candidate_status in {"validation_failed", "rejected", "suppressed"}:
         return "blocked", "inspect_planner_intercept"
+    if workflow is not None and _workflow_blocked_no_changes(workflow):
+        return "blocked", "supersede_and_retry_planner"
     if workflow is not None and (
         workflow_status in {"failed", "awaiting_operator"}
         or workflow_state == "awaiting_operator"

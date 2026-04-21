@@ -2414,11 +2414,13 @@ def supersede_workflow_and_retry_planner(
     run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(workflow_run_id)).first()
     if run is None:
         raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
-    if str(run.status or "") != "awaiting_operator" and str(run.current_state or "") != "awaiting_operator":
-        raise WorkflowRuntimeError("supersede-and-retry is only available for workflows awaiting operator")
     blackboard = workflow_blackboard(run)
     if not _supersede_retry_allowed(run, blackboard):
         raise WorkflowRuntimeError("supersede-and-retry is only available for no-change or bootstrap dead-end workflows")
+    if str(run.status or "") != "awaiting_operator" and str(run.current_state or "") != "awaiting_operator":
+        pr = blackboard.get("pr") if isinstance(blackboard.get("pr"), Mapping) else {}
+        if str(pr.get("status") or "").lower() != "delivery_blocked":
+            raise WorkflowRuntimeError("supersede-and-retry is only available for awaiting-operator or delivery-blocked workflows")
     requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
     if requirement is None:
         raise WorkflowRuntimeError("workflow requirement not found")

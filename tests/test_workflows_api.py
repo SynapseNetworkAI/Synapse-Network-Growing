@@ -192,6 +192,97 @@ def test_supersede_and_retry_planner_injects_context_hint(synced_client, db_sess
     assert json.loads(candidate.metadata_json or "{}")["expected_outcome"] == "verification_only"
 
 
+def test_supersede_and_retry_planner_accepts_historical_done_delivery_blocked(
+    synced_client,
+    db_session,
+    monkeypatch,
+):
+    manifest = ensure_active_manifest(db_session)
+    for goal in db_session.query(PlanningGoalRow).filter(PlanningGoalRow.manifest_id == int(manifest.id)).all():
+        goal.status = "dropped"
+    goal = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="historical_no_change_goal",
+        title="Historical no-change goal",
+        intent_markdown="Bootstrap code may already exist.",
+        workflow_key="agent_self_repair",
+        risk_level="high",
+    )
+    db_session.add(goal)
+    requirement = RequirementRow(
+        title="Historical no-change dead-end",
+        description_markdown="Old runner marked this done after delivery blocked.",
+        status="completed",
+        phase="closed",
+        workflow_state="completed",
+        source="planner_candidate",
+        operating_manifest_id=int(manifest.id),
+        goal_key="historical_no_change_goal",
+        acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    workflow = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        operating_manifest_id=int(manifest.id),
+        goal_key="historical_no_change_goal",
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        delivery_status="delivery_blocked",
+        blackboard_json=json.dumps(
+            {
+                "pr": {
+                    "failed": True,
+                    "status": "delivery_blocked",
+                    "blockers": ["no repository changes detected to commit for delivery"],
+                }
+            }
+        ),
+    )
+    db_session.add(workflow)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow.id)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "server.services.planning.lifecycle.synthesize_candidate_for_goal",
+        lambda **kwargs: PlannerAgentCandidate(
+            title=f"Verify goal: {kwargs['goal'].title}",
+            description_markdown="## Verification\nConfirm existing guardrails.",
+            workflow_key="agent_self_repair",
+            expected_outcome="verification_only",
+            priority="normal",
+            risk_level="high",
+            confidence=0.8,
+            rationale="Supersede hint indicates bootstrap code may already exist.",
+            acceptance_contract={
+                "expected_outcome": "verification_only",
+                "execution_acceptance_steps": [
+                    {
+                        "step_key": "verify",
+                        "title": "Existing guardrails pass",
+                        "expected_result": "Guardrail test command passes.",
+                        "required_commands": ["python -m pytest -q"],
+                    }
+                ],
+            },
+            metadata={"generated_by": "planner_agent_v1", "planner_agent_backend": "test"},
+        ),
+    )
+
+    response = synced_client.post(
+        f"/api/workflows/runs/{int(workflow.id)}/supersede-and-retry-planner",
+        json={"operator": "tester"},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(workflow)
+    db_session.refresh(requirement)
+    assert workflow.status == "closed_superseded"
+    assert requirement.status == "superseded"
+
+
 def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, db_session):
     requirement = _create_requirement(db_session)
 
