@@ -62,7 +62,7 @@ def _create_workflow_run(db_session, *, workflow_key: str = "agent_self_repair")
     return run
 
 
-def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
+def test_agent_self_repair_scenario_loops_once_then_awaits_final_regression(db_session):
     run = _create_workflow_run(db_session)
     spec = build_agent_self_repair_workflow_spec()
     registry = AtomRegistry()
@@ -126,11 +126,10 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     registry.register("ops_self_repair_coder", patch_agent)
     registry.register("run_ops_self_repair_verification", verify_atom)
     registry.register(
-        "open_self_repair_pr",
+        "start_self_repair_final_regression",
         lambda _ctx: AtomResult(
-            summary="draft PR prepared for human approval",
-            writes={"pr": {"created": True, "url": "https://github.com/example/synapse-network-growing/pull/1"}},
-            risk_flags=("self_modification_requires_human",),
+            summary="final regression launched",
+            writes={"ci": {"status": "in_progress", "ci_backend": "local_marker"}},
         ),
     )
 
@@ -142,19 +141,19 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     )
 
     assert result.workflow_key == "agent_self_repair"
-    assert result.final_state == "awaiting_operator"
-    assert result.resolution == "route_to_human"
+    assert result.final_state == "awaiting_ci"
+    assert result.resolution == "waiting_for_final_regression"
     assert calls == {"patch": 2, "verify": 2}
-    assert run.status == "awaiting_operator"
-    assert run.current_state == "awaiting_operator"
-    assert run.resolution == "route_to_human"
+    assert run.status == "awaiting_ci"
+    assert run.current_state == "awaiting_ci"
+    assert run.resolution == "waiting_for_final_regression"
 
     blackboard = workflow_blackboard(run)
-    assert blackboard["current_state"] == "awaiting_operator"
+    assert blackboard["current_state"] == "awaiting_ci"
     assert blackboard["counters"]["patch_attempts"] == 1
     assert blackboard["diagnosis"]["action"] == "patch"
     assert blackboard["verification"]["status"] == "passed"
-    assert "self_modification_requires_human" in blackboard["risk_flags"]
+    assert blackboard["ci"]["status"] == "in_progress"
 
     transition_events = (
         db_session.query(WorkflowStateEventRow)
@@ -164,7 +163,7 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     )
     transition_pairs = [(item.from_state, item.to_state) for item in transition_events]
     assert ("verify", "patch") in transition_pairs
-    assert transition_pairs[-1] == ("open_pr", "awaiting_operator")
+    assert transition_pairs[-1] == ("start_final_regression", "awaiting_ci")
 
     transition_artifacts = db_session.query(WorkflowArtifactRow).filter(
         WorkflowArtifactRow.workflow_run_id == run.id,
@@ -178,18 +177,13 @@ def test_agent_self_repair_scenario_loops_once_then_routes_to_human(db_session):
     snapshots = db_session.query(BlackboardSnapshotRow).filter(BlackboardSnapshotRow.workflow_run_id == run.id).all()
     gates = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).all()
     deliveries = db_session.query(NotificationDeliveryRow).all()
-    delivery_channels = {row.channel for row in deliveries}
-    delivery_events = {row.event_type for row in deliveries}
     assert len(transition_artifacts) == 0
     assert len(transition_events) == len(transition_pairs)
     assert len(agent_raw_artifacts) == 3
     assert len(invocations) == 8
     assert len(snapshots) >= len(transition_pairs)
-    assert len(gates) == 1
-    assert gates[0].status == "pending"
-    assert {"release", "approval"} <= delivery_channels
-    assert "alert" not in delivery_channels
-    assert {"pr_opened", "human_gate_request.created", "workflow_run_paused"} <= delivery_events
+    assert len(gates) == 0
+    assert "alert" not in {row.channel for row in deliveries}
 
 
 def test_workflow_spec_validation_rejects_unbounded_loop():

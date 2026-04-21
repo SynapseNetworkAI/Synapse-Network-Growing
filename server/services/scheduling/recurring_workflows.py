@@ -4,19 +4,23 @@ from __future__ import annotations
 import json
 import os
 import socket
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from server import config
 from server.database import (
+    BlackboardSnapshotRow,
     HumanGateRequestRow,
     NotificationEventRow,
     NotificationFingerprintRow,
     RecurringWorkflowRow,
     RecurringWorkflowRunRow,
     RequirementRow,
+    WorkflowArtifactRow,
     WorkflowRunRow,
     utcnow,
 )
@@ -168,6 +172,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "cleanup_requirement_families", "archive_validation_experiments": True},
         "escalation_rule": {"on_duplicate_growth": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "archived_requirement_ids"},
+    },
+    {
+        "workflow_key": "ci_status_sweep",
+        "display_name": "CI Status Sweep",
+        "description": "Close out marker-file final regression runs without blocking workflow workers.",
+        "trigger_type": "scheduled",
+        "owner_role": "runtime_reliability_engineer",
+        "schedule": {"cadence": "interval", "interval_minutes": 1},
+        "input_query": {"workflow_state": ["awaiting_ci", "processing_ci_result"], "ci_backend": "local_marker"},
+        "output_action": {"kind": "advance_final_regression_results"},
+        "escalation_rule": {"on_failed_ci": "awaiting_operator", "on_timeout": "awaiting_operator"},
+        "validation_signal": {"success_metric": "processed_count"},
     },
 ]
 
@@ -831,6 +847,313 @@ def _requirement_family_cleanup_sweep(db: Session) -> dict[str, Any]:
     )
 
 
+def _workflow_blackboard(row: WorkflowRunRow) -> dict[str, Any]:
+    payload = _json_loads(row.blackboard_json, {})
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _persist_workflow_blackboard(db: Session, row: WorkflowRunRow, blackboard: dict[str, Any]) -> None:
+    row.blackboard_json = _json_dumps(blackboard)
+    row.updated_at = utcnow()
+    db.add(
+        BlackboardSnapshotRow(
+            workflow_run_id=int(row.id),
+            state_key=str(row.current_state or ""),
+            snapshot_json=row.blackboard_json,
+        )
+    )
+
+
+def _read_marker_exit_code(path: str | None) -> int | None:
+    if not path:
+        return None
+    marker = Path(path)
+    if not marker.is_file():
+        return None
+    try:
+        return int(marker.read_text(encoding="utf-8").strip())
+    except Exception:
+        return 125
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return _ensure_utc(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+    except Exception:
+        return None
+
+
+def _bounded_log_tail(path: str | None, *, max_bytes: int = 8192, max_lines: int = 50) -> str:
+    if not path:
+        return ""
+    log_path = Path(path)
+    if not log_path.is_file():
+        return ""
+    try:
+        with log_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes))
+            data = handle.read(max_bytes)
+        text = data.decode("utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-max_lines:])
+    except Exception as exc:
+        return f"[CI LOG TAIL ERROR] {exc.__class__.__name__}: {str(exc)[:300]}"
+
+
+def _ci_runner_marker(exit_code: int | None) -> str:
+    if exit_code == 124:
+        return "timeout"
+    if exit_code == 125:
+        return "error"
+    return "none"
+
+
+def _record_ci_evidence(
+    db: Session,
+    row: WorkflowRunRow,
+    *,
+    exit_code: int | None,
+    log_tail: str,
+    status: str,
+) -> int:
+    ci = _workflow_blackboard(row).get("ci")
+    ci_payload = ci if isinstance(ci, dict) else {}
+    artifact = WorkflowArtifactRow(
+        workflow_run_id=int(row.id),
+        artifact_type="workflow_command_result",
+        state_key="awaiting_ci",
+        atom_key="ci_status_sweep",
+        content_summary=f"Final regression {status}",
+        human_readable_body=log_tail,
+        machine_readable_payload=_json_dumps(
+            {
+                "command": ci_payload.get("ci_command") or [],
+                "cwd": str(config.PROJECT_ROOT),
+                "exit_code": exit_code,
+                "simulated": False,
+                "ci_exit_code": exit_code,
+                "ci_log_tail": log_tail,
+                "ci_log_path": ci_payload.get("ci_log_path"),
+                "ci_runner_marker": _ci_runner_marker(exit_code),
+            }
+        ),
+    )
+    db.add(artifact)
+    db.flush()
+    return int(artifact.id)
+
+
+def _ensure_ci_human_gate(db: Session, row: WorkflowRunRow, *, reason: str) -> None:
+    existing = (
+        db.query(HumanGateRequestRow)
+        .filter(
+            HumanGateRequestRow.workflow_run_id == int(row.id),
+            HumanGateRequestRow.state_key == "awaiting_operator",
+            HumanGateRequestRow.status == "pending",
+        )
+        .first()
+    )
+    if existing is not None:
+        return
+    gate = HumanGateRequestRow(
+        workflow_run_id=int(row.id),
+        state_key="awaiting_operator",
+        gate_type="ci_final_regression_failed",
+        risk_level=str(row.risk_level or "normal"),
+        status="pending",
+        reason=reason,
+        payload_json=_json_dumps(
+            {
+                "workflow_run_id": int(row.id),
+                "workflow_key": str(row.workflow_key or ""),
+                "current_state": "awaiting_operator",
+                "reason": reason,
+            }
+        ),
+    )
+    db.add(gate)
+
+
+def _mark_ci_failed(
+    db: Session,
+    row: WorkflowRunRow,
+    *,
+    exit_code: int | None,
+    log_tail: str,
+    resolution: str,
+    reason: str,
+) -> None:
+    blackboard = _workflow_blackboard(row)
+    ci = dict(blackboard.get("ci") or {})
+    artifact_id = _record_ci_evidence(db, row, exit_code=exit_code, log_tail=log_tail, status="failed")
+    ci.update(
+        {
+            "status": "failed",
+            "ci_exit_code": exit_code,
+            "ci_log_tail": log_tail,
+            "ci_runner_marker": _ci_runner_marker(exit_code),
+            "ci_evidence_artifact_id": artifact_id,
+            "completed_at": utcnow().isoformat(),
+        }
+    )
+    blackboard["ci"] = ci
+    blackboard["final_regression"] = dict(ci)
+    blackboard["current_state"] = "awaiting_operator"
+    row.current_state = "awaiting_operator"
+    row.status = "awaiting_operator"
+    row.resolution = resolution
+    row.completed_at = utcnow()
+    if row.requirement is not None:
+        row.requirement.workflow_state = "awaiting_operator"
+        row.requirement.status = "blocked"
+        row.requirement.phase = "blocked"
+        row.requirement.attention_reason = resolution
+    _ensure_ci_human_gate(db, row, reason=reason)
+    _persist_workflow_blackboard(db, row, blackboard)
+
+
+def _resume_ci_passed_workflow(db: Session, row: WorkflowRunRow, *, artifact_id: int) -> None:
+    from server.services.workflows.declarative import (
+        _mark_requirement_for_run_decision,
+        built_in_workflow_specs,
+        default_atom_registry,
+        run_workflow_state_machine,
+    )
+
+    blackboard = _workflow_blackboard(row)
+    ci = dict(blackboard.get("ci") or {})
+    ci.update(
+        {
+            "status": "passed",
+            "ci_exit_code": 0,
+            "ci_runner_marker": "none",
+            "ci_evidence_artifact_id": artifact_id,
+            "completed_at": utcnow().isoformat(),
+        }
+    )
+    blackboard["ci"] = ci
+    blackboard["final_regression"] = dict(ci)
+    blackboard["current_state"] = "open_pr"
+    row.current_state = "open_pr"
+    row.status = "running"
+    row.resolution = "ci_passed"
+    row.completed_at = None
+    _persist_workflow_blackboard(db, row, blackboard)
+    db.flush()
+    spec = built_in_workflow_specs()[str(row.workflow_key)]
+    run_workflow_state_machine(db, workflow_run=row, spec=spec, registry=default_atom_registry(), initial_blackboard=blackboard)
+    _mark_requirement_for_run_decision(row, status=str(row.status or ""))
+
+
+def _ci_status_sweep(
+    db: Session,
+    *,
+    runtime_cap_seconds: int | None = None,
+    stale_lock_seconds: int | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    cap_seconds = max(1, int(runtime_cap_seconds or config.CI_STATUS_SWEEP_RUNTIME_CAP_SECONDS))
+    stale_seconds = max(cap_seconds + 1, int(stale_lock_seconds or config.CI_STATUS_SWEEP_STALE_LOCK_SECONDS))
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    stale_cutoff = current - timedelta(seconds=stale_seconds)
+    recovered = (
+        db.query(WorkflowRunRow)
+        .filter(
+            WorkflowRunRow.current_state == "processing_ci_result",
+            WorkflowRunRow.updated_at < stale_cutoff,
+        )
+        .update(
+            {
+                WorkflowRunRow.current_state: "awaiting_ci",
+                WorkflowRunRow.status: "awaiting_ci",
+                WorkflowRunRow.updated_at: utcnow(),
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+
+    processed_count = 0
+    cap_reached = False
+    candidate_ids = [
+        int(item.id)
+        for item in db.query(WorkflowRunRow.id)
+        .filter(WorkflowRunRow.current_state == "awaiting_ci")
+        .order_by(WorkflowRunRow.id.asc())
+        .all()
+    ]
+
+    for workflow_run_id in candidate_ids:
+        if time.monotonic() - started >= cap_seconds:
+            cap_reached = True
+            break
+        claimed = (
+            db.query(WorkflowRunRow)
+            .filter(WorkflowRunRow.id == workflow_run_id, WorkflowRunRow.current_state == "awaiting_ci")
+            .update({WorkflowRunRow.current_state: "processing_ci_result", WorkflowRunRow.updated_at: utcnow()}, synchronize_session=False)
+        )
+        db.commit()
+        if int(claimed or 0) != 1:
+            continue
+        row = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run_id).one()
+        blackboard = _workflow_blackboard(row)
+        ci = dict(blackboard.get("ci") or {})
+        exit_code = _read_marker_exit_code(str(ci.get("ci_exit_code_path") or ""))
+        timeout_at = _parse_iso_datetime(ci.get("ci_timeout_at"))
+        current = datetime.now(timezone.utc)
+        if exit_code is None and (timeout_at is None or current < timeout_at):
+            row.current_state = "awaiting_ci"
+            row.status = "awaiting_ci"
+            row.updated_at = utcnow()
+            db.commit()
+            continue
+        processed_count += 1
+        if exit_code is None:
+            exit_code = 124
+            log_tail = _bounded_log_tail(str(ci.get("ci_log_path") or ""))
+            _mark_ci_failed(
+                db,
+                row,
+                exit_code=exit_code,
+                log_tail=log_tail,
+                resolution="ci_timeout_needs_human",
+                reason="Final regression timed out before writing an exit marker.",
+            )
+            db.commit()
+            continue
+        if int(exit_code) == 0:
+            artifact_id = _record_ci_evidence(db, row, exit_code=0, log_tail="", status="passed")
+            _resume_ci_passed_workflow(db, row, artifact_id=artifact_id)
+            db.commit()
+            continue
+        log_tail = _bounded_log_tail(str(ci.get("ci_log_path") or ""))
+        resolution = "ci_runner_failed_needs_human" if int(exit_code) == 125 else "ci_timeout_needs_human" if int(exit_code) == 124 else "ci_failed_needs_human"
+        _mark_ci_failed(
+            db,
+            row,
+            exit_code=int(exit_code),
+            log_tail=log_tail,
+            resolution=resolution,
+            reason=f"Final regression failed with exit code {int(exit_code)}.",
+        )
+        db.commit()
+
+    remaining_count = db.query(WorkflowRunRow).filter(WorkflowRunRow.current_state == "awaiting_ci").count()
+    return {
+        "processed_count": processed_count,
+        "remaining_count": int(remaining_count),
+        "sweep_runtime_cap_seconds": cap_seconds,
+        "sweep_runtime_cap_reached": cap_reached,
+        "stale_processing_locks_recovered": int(recovered or 0),
+        "stale_lock_threshold_seconds": stale_seconds,
+    }
+
+
 def run_recurring_workflow(
     db: Session,
     *,
@@ -962,6 +1285,16 @@ def _execute_recurring_workflow(
             return sweep_to_dict(sweep)
         if workflow_key == "forum_feedback_sweep":
             return run_forum_feedback_sweep(db, dry_run=True)
+        if workflow_key == "ci_status_sweep":
+            awaiting_count = db.query(WorkflowRunRow).filter(WorkflowRunRow.current_state == "awaiting_ci").count()
+            processing_count = db.query(WorkflowRunRow).filter(WorkflowRunRow.current_state == "processing_ci_result").count()
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "awaiting_ci_count": int(awaiting_count),
+                "processing_ci_result_count": int(processing_count),
+                "sweep_runtime_cap_seconds": int(config.CI_STATUS_SWEEP_RUNTIME_CAP_SECONDS),
+            }
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1022,6 +1355,8 @@ def _execute_recurring_workflow(
         return _approval_sweep(db)
     if workflow_key == "requirement_family_cleanup_sweep":
         return _requirement_family_cleanup_sweep(db)
+    if workflow_key == "ci_status_sweep":
+        return _ci_status_sweep(db)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
@@ -1084,6 +1419,7 @@ def recurring_workflow_health(
     *,
     bug_scheduler_status: dict[str, Any] | None = None,
     goal_planner_scheduler_status: dict[str, Any] | None = None,
+    ci_status_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
@@ -1101,6 +1437,10 @@ def recurring_workflow_health(
         "bug_log_scheduler": bug_status,
         "goal_planner_scheduler": goal_planner_scheduler_status or {
             "enabled": bool(getattr(config, "GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "ci_status_scheduler": ci_status_scheduler_status or {
+            "enabled": bool(getattr(config, "CI_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

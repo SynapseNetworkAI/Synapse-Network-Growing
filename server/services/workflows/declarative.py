@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Callable, Mapping
 
 from sqlalchemy import or_
@@ -42,6 +43,22 @@ class WorkflowSpecError(ValueError):
 
 class WorkflowRuntimeError(RuntimeError):
     """Raised when a declarative workflow run cannot safely continue."""
+
+
+def _launch_final_regression_runner(runner_command: list[str], env: dict[str, str]) -> subprocess.Popen:
+    """Launch the detached final-regression runner.
+
+    Kept as a narrow seam so tests can replace only the background launcher
+    without mutating the global subprocess module used by normal commands.
+    """
+    return subprocess.Popen(
+        runner_command,
+        cwd=str(config.PROJECT_ROOT),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -131,6 +148,8 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "diagnosis",
                 "patch_result",
                 "verification",
+                "ci",
+                "final_regression",
                 "pr",
                 "acceptance",
                 "business_outcome",
@@ -177,7 +196,7 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "atom": "run_ops_self_repair_verification",
                 "output_key": "verification",
                 "transitions": [
-                    {"if": 'verification.status == "passed"', "goto": "open_pr"},
+                    {"if": 'verification.status == "passed"', "goto": "start_final_regression"},
                     {
                         "if": 'verification.status == "failed" and counters.patch_attempts < limits.max_patch_attempts',
                         "increment": "patch_attempts",
@@ -185,6 +204,19 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                     },
                     {"if": 'verification.status == "failed"', "goto": "awaiting_operator"},
                 ],
+            },
+            "start_final_regression": {
+                "atom": "start_self_repair_final_regression",
+                "output_key": "ci",
+                "transitions": [
+                    {"if": 'ci.status == "in_progress"', "goto": "awaiting_ci"},
+                    {"if": 'ci.status == "failed"', "goto": "awaiting_operator"},
+                ],
+            },
+            "awaiting_ci": {
+                "pause": True,
+                "status": "awaiting_ci",
+                "resolution": "waiting_for_final_regression",
             },
             "open_pr": {
                 "atom": "open_self_repair_pr",
@@ -1236,6 +1268,69 @@ def default_atom_registry() -> AtomRegistry:
         )
 
     registry.register("run_ops_self_repair_verification", _verify_self_repair)
+
+    def _start_final_regression(ctx: WorkflowContext) -> AtomResult:
+        run_id = int(ctx.workflow_run.id)
+        runtime_dir = config.PROJECT_ROOT / "runtime" / "ci-runs"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        token = f"workflow-{run_id}-{int(time.time() * 1000)}"
+        log_path = runtime_dir / f"{token}.log"
+        exit_code_path = runtime_dir / f"{token}.exit_code"
+        runner_path = config.PROJECT_ROOT / "scripts" / "ci" / "ci_runner.py"
+        command = [sys.executable, "-m", "pytest", "-q"]
+        runner_command = [
+            sys.executable,
+            str(runner_path),
+            "--timeout-seconds",
+            str(config.CI_FINAL_REGRESSION_TIMEOUT_SECONDS),
+            "--log-path",
+            str(log_path),
+            "--exit-code-path",
+            str(exit_code_path),
+            "--",
+            *command,
+        ]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(config.PROJECT_ROOT)
+        try:
+            _launch_final_regression_runner(runner_command, env)
+        except Exception as exc:
+            error = f"{exc.__class__.__name__}: {str(exc)[:500]}"
+            return AtomResult(
+                status="failed",
+                summary="Final regression runner failed to start",
+                writes={
+                    "ci": {
+                        "status": "failed",
+                        "ci_backend": "local_marker",
+                        "error": error,
+                        "ci_runner_command": runner_command,
+                        "ci_command": command,
+                        "ci_log_path": str(log_path),
+                        "ci_exit_code_path": str(exit_code_path),
+                    },
+                    "final_regression": {"status": "failed", "error": error},
+                },
+            )
+        started_at = utcnow()
+        timeout_at = started_at + timedelta(seconds=int(config.CI_FINAL_REGRESSION_TIMEOUT_SECONDS))
+        ci_payload = {
+            "status": "in_progress",
+            "ci_backend": "local_marker",
+            "ci_runner_command": runner_command,
+            "ci_command": command,
+            "ci_log_path": str(log_path),
+            "ci_exit_code_path": str(exit_code_path),
+            "ci_timeout_seconds": int(config.CI_FINAL_REGRESSION_TIMEOUT_SECONDS),
+            "ci_started_at": started_at.isoformat(),
+            "ci_timeout_at": timeout_at.isoformat(),
+        }
+        return AtomResult(
+            summary="Final regression launched asynchronously",
+            writes={"ci": ci_payload, "final_regression": dict(ci_payload)},
+        )
+
+    registry.register("start_self_repair_final_regression", _start_final_regression)
     registry.register(
         "open_self_repair_pr",
         lambda ctx: _open_requirement_review_pr(
@@ -1663,13 +1758,14 @@ def validate_workflow_spec(spec: Mapping[str, Any]) -> None:
         if not isinstance(raw_state, dict):
             raise WorkflowSpecError(f"state must be a mapping: {state_key}")
         is_terminal = raw_state.get("terminal") is True
+        is_pause = raw_state.get("pause") is True
         atom_key = str(raw_state.get("atom") or raw_state.get("agent") or "").strip()
-        if not is_terminal and not atom_key:
+        if not is_terminal and not is_pause and not atom_key:
             raise WorkflowSpecError(f"non-terminal state must define atom or agent: {state_key}")
         if raw_state.get("agent") and not str(raw_state.get("output_schema") or "").strip():
             raise WorkflowSpecError(f"agent state must define output_schema: {state_key}")
         transitions = raw_state.get("transitions") or []
-        if not is_terminal and not transitions:
+        if not is_terminal and not is_pause and not transitions:
             raise WorkflowSpecError(f"non-terminal state must define transitions: {state_key}")
         if not isinstance(transitions, list):
             raise WorkflowSpecError(f"transitions must be a list: {state_key}")
@@ -1751,6 +1847,22 @@ def run_workflow_state_machine(
                 _notify_workflow_terminal(db, workflow_run, current_state, blackboard, resolution)
             else:
                 _notify_workflow_terminal(db, workflow_run, current_state, blackboard, resolution)
+            _persist_blackboard(db, workflow_run, current_state, blackboard)
+            db.flush()
+            return WorkflowRunResult(
+                workflow_key=workflow_key,
+                final_state=current_state,
+                resolution=resolution,
+                transition_count=transition_count,
+                blackboard=dict(blackboard),
+            )
+
+        if state.get("pause") is True:
+            resolution = str(state.get("resolution") or current_state)
+            workflow_run.status = str(state.get("status") or current_state)
+            workflow_run.current_state = current_state
+            workflow_run.resolution = resolution
+            workflow_run.retry_counters_json = _json_dump(dict(blackboard.get("counters") or {}))
             _persist_blackboard(db, workflow_run, current_state, blackboard)
             db.flush()
             return WorkflowRunResult(
@@ -3040,6 +3152,8 @@ def _persist_keys_from_blackboard(blackboard: Mapping[str, Any]) -> list[str]:
         "diagnosis",
         "patch_result",
         "verification",
+        "ci",
+        "final_regression",
         "gate",
         "observation",
         "pr",

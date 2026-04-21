@@ -33,7 +33,7 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 2. **Recurring Workflows Registry**
    - 内置 recurring workflow 定义清单。
-   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`。
+   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`。
    - v1 支持手动 `Dry Run` 与 `Run Now`，但不自动按 schedule 执行全部 registry。
 
 3. **Notification Dispatcher**
@@ -259,6 +259,23 @@ status = skipped_locked
 result.reason = scheduler_lock_held
 result.lock = <scheduler lock snapshot>
 ```
+
+### CI Status Sweep
+
+`ci_status_sweep` 是 Final Regression Gate 的轻量扫雷任务。它不执行测试本身，只收口 marker-file CI：
+
+1. 输入：`workflow_runs.current_state in awaiting_ci | processing_ci_result`。
+2. 动作：恢复超过 5 分钟的 stale `processing_ci_result` 锁，抢占一个 `awaiting_ci` run，读取 `*.exit_code` marker。
+3. 输出：通过则记录 CI evidence 并恢复 workflow 到 `open_pr`；失败、timeout 或 runner error 则记录 bounded log tail 并进入 `awaiting_operator`。
+
+安全约束：
+
+1. In-progress CI 不读取 log，避免高频 sweep 被大文件 I/O 拖死。
+2. Failed / timeout / runner error 只读取最后 50 行或最多 8KB。
+3. 每次 sweep 默认 60 秒 runtime cap；超过 cap 立刻停止，剩余 run 等下一次 tick。
+4. Stale lock recovery 默认 5 分钟，必须大于 sweep runtime cap，避免正常运行被自己的恢复逻辑误踢。
+5. 后台自动 tick 默认关闭，必须显式设置 `OPS_CI_STATUS_SWEEP_SCHEDULER_ENABLED=true` 才会启动；本地开发可以手动 Run Now，避免已有 `awaiting_ci` 历史记录意外发射大量 full regression。
+5. 完整 log 只作为 path 进入 artifact metadata，不铺满默认 UI。
 
 这不是失败，而是防并发保护生效。Operator 可以在历史记录里确认本次没有重复扫描，也没有重复创建 requirement。
 
