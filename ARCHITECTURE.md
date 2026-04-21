@@ -115,6 +115,9 @@ graph TD
 17. Planner Agent must synthesize evidence-bound candidates from one Goal Markdown PRD at a time; it may repair malformed JSON twice, but unsafe commands, unknown workflow keys, or invalid acceptance must fail closed.
 18. Planner Agent `workflow_key` output must be an enum choice from registered workflow definitions, not free text.
 19. Planner Agent `required_commands` must pass the safe command allowlist / denylist before any candidate can materialize.
+20. Planner Agent must declare `expected_outcome=code_delivery|verification_only` at Candidate time. Workflow execution may not invent or downgrade this later.
+21. `code_delivery` requires repository changes before PR handoff; no diff must fail closed. `verification_only` may complete without a PR only when evidence-bound verification is complete.
+22. `Supersede & Retry Planner` must inject a one-sweep `context_hint` explaining the superseded no-change attempt so Planner can re-evaluate repo state and avoid repeating a stale `code_delivery` loop.
 
 ## 5. Human Gate And Kill-Switch Constraints
 

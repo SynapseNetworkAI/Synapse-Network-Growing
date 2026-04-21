@@ -1655,6 +1655,10 @@ export interface PlanningGoalTrace {
   diagnostics: PlanningGoalTraceDiagnostic[]
   next_actions: Array<Record<string, unknown>>
   history: Array<Record<string, unknown>>
+  objective_status?: string
+  missing_evidence?: string[]
+  latest_chain?: Record<string, unknown>
+  next_action?: string
 }
 
 export interface RequirementCandidate {
@@ -1809,7 +1813,7 @@ export const api = {
     request<DropGoalResult>(`/planning/goals/${goalId}/drop`, { method: 'POST', body: JSON.stringify(data) }),
   getPlanningGoalRollup: (manifestId: number, goalKey: string) =>
     request<PlanningGoalRollup>(`/planning/manifest/${manifestId}/goals/${encodeURIComponent(goalKey)}/rollup`),
-  runPlannerSweep: (data?: { dry_run?: boolean; triggered_by?: string }) =>
+  runPlannerSweep: (data?: { dry_run?: boolean; triggered_by?: string; context_hint?: string }) =>
     request<PlannerSweep>('/planning/sweeps/run', { method: 'POST', body: JSON.stringify(data || {}) }),
   getRequirementCandidates: (filters?: { manifest_id?: number; status?: string; goal_key?: string; page?: number; page_size?: number }) => {
     const params = new URLSearchParams()
@@ -2132,6 +2136,11 @@ export const api = {
     request<DeclarativeWorkflowRunSummary>(`/workflows/runs/${id}/archive`, { method: 'POST', body: JSON.stringify(data || {}) }),
   createWorkflowFollowup: (id: number, data?: { title?: string; description_markdown?: string; operator?: string }) =>
     request<{ requirement_id: number; workflow_run_id: number }>(`/workflows/runs/${id}/create-followup`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  supersedeWorkflowAndRetryPlanner: (id: number, data?: { operator?: string; comment?: string }) =>
+    request<{ workflow_run_id: number; requirement_id: number; status: string; context_hint: string; planner_sweep: PlannerSweep }>(
+      `/workflows/runs/${id}/supersede-and-retry-planner`,
+      { method: 'POST', body: JSON.stringify(data || {}) },
+    ),
   confirmWorkflowBusinessOutcome: (id: number, data?: { operator?: string; note?: string }) =>
     request<DeclarativeWorkflowRunDetail>(`/workflows/runs/${id}/business-outcome/confirm`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rejectWorkflowBusinessOutcome: (id: number, data?: { operator?: string; note?: string }) =>

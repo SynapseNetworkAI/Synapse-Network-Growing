@@ -14,6 +14,7 @@ from server.services.workflows.planner_provider import PlannerRequest, generate_
 
 
 MAX_REPAIR_ATTEMPTS = 2
+EXPECTED_OUTCOMES = {"code_delivery", "verification_only"}
 
 
 class PlannerAgentError(ValueError):
@@ -47,6 +48,7 @@ class PlannerAgentCandidate:
     confidence: float
     rationale: str
     acceptance_contract: dict[str, Any]
+    expected_outcome: str = "code_delivery"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,6 +59,7 @@ def synthesize_candidate_for_goal(
     project_key: str,
     default_workflow_key: str,
     acceptance_contract: dict[str, Any] | None = None,
+    context_hint: str | None = None,
 ) -> PlannerAgentCandidate:
     """Return a candidate proposal for one goal.
 
@@ -80,10 +83,20 @@ def synthesize_candidate_for_goal(
             confidence=0.72,
             rationale="Planner Agent reused the goal's governed acceptance contract.",
             acceptance_contract=acceptance_contract,
+            expected_outcome=_normalize_expected_outcome(
+                acceptance_contract.get("expected_outcome") if isinstance(acceptance_contract, dict) else None,
+                allow_default=True,
+                partial_payload={"acceptance_contract": acceptance_contract},
+            ),
             metadata={
                 "generated_by": "planner_agent_v1",
                 "planner_agent_mode": "prevalidated_goal_contract",
                 "planner_repair_attempts": 0,
+                "expected_outcome": _normalize_expected_outcome(
+                    acceptance_contract.get("expected_outcome") if isinstance(acceptance_contract, dict) else None,
+                    allow_default=True,
+                    partial_payload={"acceptance_contract": acceptance_contract},
+                ),
             },
         )
 
@@ -93,6 +106,7 @@ def synthesize_candidate_for_goal(
         project_key=project_key,
         default_workflow_key=default_workflow_key,
         workflow_keys=workflow_keys,
+        context_hint=context_hint,
     )
     system_prompt = _planner_system_prompt(workflow_keys)
     metadata: dict[str, Any] = {
@@ -122,6 +136,7 @@ def synthesize_candidate_for_goal(
             candidate.metadata = {
                 **metadata,
                 **candidate.metadata,
+                "expected_outcome": candidate.expected_outcome,
                 "planner_raw_output_excerpt": raw_output[:1000],
                 "planner_repair_attempts": attempt,
             }
@@ -176,6 +191,8 @@ def failed_candidate_from_planner_error(
         "planner_agent_error": str(error),
         "planner_raw_output_excerpt": str(error.raw_output or "")[:1000],
     }
+    if isinstance(partial, dict) and partial.get("expected_outcome"):
+        metadata["expected_outcome"] = str(partial.get("expected_outcome") or "")
     return {
         "manifest_id": manifest_id,
         "goal_key": str(goal.goal_key or ""),
@@ -219,6 +236,10 @@ Workflow descriptions:
 
 Rules:
 - Do not invent workflow keys.
+- You must declare expected_outcome as either code_delivery or verification_only.
+- expected_outcome=code_delivery means the Requirement must produce repository changes. No diff must fail closed.
+- expected_outcome=verification_only means the repository may already satisfy the goal; no diff is acceptable only if the evidence bundle is complete.
+- If context_hint is provided, treat it as system diagnostic context, not user PRD. Use it to re-evaluate the current repo state, not to bypass evidence.
 - Do not include high-risk commands.
 - Acceptance must validate the business outcome, not just engine state.
 - Every execution_acceptance_steps item needs title, expected_result, and required_commands or required_evidence_types or required_db_lineage.
@@ -233,6 +254,7 @@ def _planner_prompt(
     project_key: str,
     default_workflow_key: str,
     workflow_keys: set[str],
+    context_hint: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -241,6 +263,7 @@ def _planner_prompt(
                 "title": "string",
                 "description_markdown": "string",
                 "workflow_key": sorted(workflow_keys),
+                "expected_outcome": "code_delivery|verification_only",
                 "priority": "low|normal|high|critical",
                 "risk_level": "low|normal|high|critical",
                 "confidence": "number 0..1",
@@ -260,6 +283,12 @@ def _planner_prompt(
                 },
             },
             "manifest_steering": dict(manifest_payload),
+            "context_hint": str(context_hint or "").strip(),
+            "context_hint_rules": [
+                "context_hint is a system diagnostic note, not user PRD.",
+                "If the current repository already satisfies the goal, prefer expected_outcome=verification_only with evidence-bound commands.",
+                "If the repository still lacks required gates or code, choose expected_outcome=code_delivery.",
+            ] if str(context_hint or "").strip() else [],
             "goal": {
                 "id": int(goal.id),
                 "goal_key": str(goal.goal_key or ""),
@@ -315,6 +344,7 @@ def _normalize_candidate(parsed: dict[str, Any], *, goal: PlanningGoalRow, workf
     if not workflow_key:
         raise PlannerAgentRepairableError("Planner Agent candidate requires workflow_key.", partial_payload=parsed)
     workflow_key = _ensure_workflow_key(workflow_key, workflow_keys, partial_payload=parsed)
+    expected_outcome = _normalize_expected_outcome(parsed.get("expected_outcome"), partial_payload=parsed)
     acceptance = parsed.get("acceptance_contract")
     if not isinstance(acceptance, dict):
         acceptance = {}
@@ -334,7 +364,8 @@ def _normalize_candidate(parsed: dict[str, Any], *, goal: PlanningGoalRow, workf
         confidence=confidence_value,
         rationale=str(parsed.get("rationale") or "").strip(),
         acceptance_contract=acceptance,
-        metadata={"planner_agent_mode": "llm_synthesis"},
+        expected_outcome=expected_outcome,
+        metadata={"planner_agent_mode": "llm_synthesis", "expected_outcome": expected_outcome},
     )
 
 
@@ -344,5 +375,22 @@ def _ensure_workflow_key(workflow_key: str, workflow_keys: set[str], *, partial_
         raise PlannerAgentError(
             f"planner selected unknown workflow_key: {normalized}",
             partial_payload=partial_payload or {"workflow_key": normalized},
+        )
+    return normalized
+
+
+def _normalize_expected_outcome(
+    value: Any,
+    *,
+    allow_default: bool = False,
+    partial_payload: dict[str, Any] | None = None,
+) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized and allow_default:
+        return "code_delivery"
+    if normalized not in EXPECTED_OUTCOMES:
+        raise PlannerAgentRepairableError(
+            "Planner Agent candidate requires expected_outcome to be code_delivery or verification_only.",
+            partial_payload=partial_payload or {},
         )
     return normalized

@@ -28,6 +28,7 @@ from server.database import (
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
 from server.services.planning.planner_agent import (
+    EXPECTED_OUTCOMES,
     PlannerAgentError,
     failed_candidate_from_planner_error,
     synthesize_candidate_for_goal,
@@ -119,7 +120,28 @@ def _acceptance_contract_for_goal_row(goal: PlanningGoalRow) -> dict[str, Any] |
 def _candidate_acceptance_contract(row: RequirementCandidateRow) -> dict[str, Any]:
     metadata = _json_loads(row.metadata_json, {})
     contract = metadata.get("acceptance_contract") if isinstance(metadata, dict) else None
-    return normalize_acceptance_contract(contract if isinstance(contract, dict) else {})
+    normalized = normalize_acceptance_contract(contract if isinstance(contract, dict) else {})
+    expected_outcome = _candidate_expected_outcome(row)
+    if expected_outcome:
+        normalized["expected_outcome"] = expected_outcome
+    return normalized
+
+
+def _candidate_expected_outcome(row: RequirementCandidateRow) -> str:
+    metadata = _json_loads(row.metadata_json, {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    value = str(metadata.get("expected_outcome") or "").strip().lower()
+    contract = metadata.get("acceptance_contract")
+    if not value and isinstance(contract, dict):
+        value = str(contract.get("expected_outcome") or "").strip().lower()
+    return value
+
+
+def _valid_expected_outcome(row: RequirementCandidateRow) -> str:
+    value = _candidate_expected_outcome(row)
+    if value not in EXPECTED_OUTCOMES:
+        raise AcceptanceValidationError("expected_outcome must be code_delivery or verification_only.")
+    return value
 
 
 def _mark_candidate_acceptance_validation_failed(db: Session, row: RequirementCandidateRow, reason: str) -> None:
@@ -734,7 +756,7 @@ def _candidate_fingerprint(manifest_id: int, goal_key: str, intent: str, workflo
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
-TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "cancelled", "deleted"}
+TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "cancelled", "deleted", "superseded"}
 
 
 def _build_goal_snapshot(db: Session, manifest: OperatingManifestRow) -> list[dict[str, Any]]:
@@ -763,6 +785,7 @@ def run_planner_sweep(
     dry_run: bool = False,
     triggered_by: str = "operator",
     max_candidates_per_goal: int = 1,
+    context_hint: str | None = None,
 ) -> PlannerSweepRow:
     ensure_projects_materialized(db)
     manifest = ensure_active_manifest(db)
@@ -780,6 +803,7 @@ def run_planner_sweep(
         snapshot = {
             "manifest": manifest_to_dict(manifest, db),
             "goals": _build_goal_snapshot(db, manifest),
+            "context_hint": str(context_hint or "").strip(),
         }
         created_ids: list[int] = []
         suppressed: list[dict[str, Any]] = []
@@ -856,10 +880,12 @@ def run_planner_sweep(
                     project_key=str(project_key or ""),
                     default_workflow_key=workflow_key,
                     acceptance_contract=acceptance_contract,
+                    context_hint=context_hint,
                 )
                 workflow_key = planner_candidate.workflow_key
                 acceptance_steps = list((planner_candidate.acceptance_contract or {}).get("execution_acceptance_steps") or [])
                 candidate_metadata = dict(planner_candidate.metadata or {})
+                candidate_metadata["expected_outcome"] = planner_candidate.expected_outcome
                 candidate_metadata["acceptance_contract"] = planner_candidate.acceptance_contract
                 candidate_payload = {
                     "manifest_id": int(manifest.id),
@@ -911,6 +937,15 @@ def run_planner_sweep(
                     routing_suppressed_items.append(routing_item)
                     continue
                 try:
+                    expected_outcome = _valid_expected_outcome(candidate)
+                    metadata = _json_loads(candidate.metadata_json, {})
+                    contract = metadata.get("acceptance_contract") if isinstance(metadata, dict) else {}
+                    if isinstance(contract, dict):
+                        contract["expected_outcome"] = expected_outcome
+                        metadata["acceptance_contract"] = contract
+                        metadata["expected_outcome"] = expected_outcome
+                        candidate.metadata_json = _json_dumps(metadata)
+                        db.flush()
                     validate_acceptance_contract_for_execution(
                         _candidate_acceptance_contract(candidate),
                         source="planner_candidate",
@@ -1136,6 +1171,69 @@ def _workflow_evidence_metadata(db: Session, workflow: WorkflowRunRow | None) ->
     }
 
 
+def _requirement_expected_outcome(requirement: RequirementRow | None, candidate: RequirementCandidateRow | None = None) -> str:
+    if requirement is not None:
+        acceptance = _json_loads(getattr(requirement, "acceptance_contract_json", None), {})
+        if isinstance(acceptance, dict):
+            value = str(acceptance.get("expected_outcome") or "").strip().lower()
+            if value in EXPECTED_OUTCOMES:
+                return value
+        metadata = _json_loads(getattr(requirement, "intake_metadata_json", None), {})
+        if isinstance(metadata, dict):
+            value = str(metadata.get("expected_outcome") or "").strip().lower()
+            if value in EXPECTED_OUTCOMES:
+                return value
+    if candidate is not None:
+        value = _candidate_expected_outcome(candidate)
+        if value in EXPECTED_OUTCOMES:
+            return value
+    return "code_delivery"
+
+
+def _workflow_blocked_no_changes(workflow: WorkflowRunRow | None) -> bool:
+    if workflow is None:
+        return False
+    blackboard = _json_loads(getattr(workflow, "blackboard_json", None), {})
+    text = json.dumps(blackboard, ensure_ascii=False).lower() if isinstance(blackboard, dict) else ""
+    resolution = str(getattr(workflow, "resolution", "") or "").lower()
+    return (
+        "no repository changes" in text
+        or "no changes detected" in text
+        or "delivery_blocked_no_changes" in text
+        or "no_changes" in resolution
+    )
+
+
+def _objective_status_and_next_action(
+    *,
+    candidate: RequirementCandidateRow | None,
+    requirement: RequirementRow | None,
+    workflow: WorkflowRunRow | None,
+    missing_evidence: list[str],
+) -> tuple[str, str]:
+    if workflow is not None and str(workflow.status or "") == "closed_superseded":
+        return "blocked", "run_planner_sweep"
+    candidate_status = str(getattr(candidate, "status", "") or "")
+    requirement_status = str(getattr(requirement, "status", "") or "")
+    workflow_status = str(getattr(workflow, "status", "") or "")
+    workflow_state = str(getattr(workflow, "current_state", "") or "")
+    if candidate_status in {"validation_failed", "rejected", "suppressed"}:
+        return "blocked", "inspect_planner_intercept"
+    if workflow is not None and (
+        workflow_status in {"failed", "awaiting_operator"}
+        or workflow_state == "awaiting_operator"
+        or requirement_status in {"blocked", "failed"}
+    ):
+        if _workflow_blocked_no_changes(workflow):
+            return "blocked", "supersede_and_retry_planner"
+        return "blocked", "review_human_gate"
+    if workflow_status in {"succeeded", "completed", "done"} and not missing_evidence:
+        return "satisfied", "none"
+    if workflow is None and candidate is None:
+        return "incomplete", "run_planner_sweep"
+    return "incomplete", "collect_missing_evidence"
+
+
 def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
     goal = db.get(PlanningGoalRow, goal_id)
     if goal is None:
@@ -1216,6 +1314,7 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
                 metadata={
                     "generated_by": candidate_metadata.get("generated_by"),
                     "routing_decision": candidate_metadata.get("routing_decision"),
+                    "expected_outcome": candidate_metadata.get("expected_outcome") or _candidate_expected_outcome(latest_candidate),
                     "acceptance_step_count": len((candidate_metadata.get("acceptance_contract") or {}).get("execution_acceptance_steps") or []),
                 },
             )
@@ -1256,8 +1355,10 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
             )
         )
         evidence = {}
+        missing_evidence = ["missing_workflow"] if latest_requirement is not None else []
     else:
         evidence = _workflow_evidence_metadata(db, latest_workflow)
+        expected_outcome = _requirement_expected_outcome(latest_requirement, latest_candidate)
         workflow_status = str(latest_workflow.status or "")
         nodes.append(
             _trace_node(
@@ -1270,6 +1371,7 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
                 metadata={
                     "current_state": latest_workflow.current_state,
                     "resolution": latest_workflow.resolution,
+                    "expected_outcome": expected_outcome,
                     **evidence,
                 },
             )
@@ -1277,10 +1379,11 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
         missing = []
         if not evidence.get("command_evidence_count"):
             missing.append("missing_command_evidence")
-        if not evidence.get("changed_files_count"):
+        if expected_outcome == "code_delivery" and not evidence.get("changed_files_count"):
             missing.append("missing_changed_files")
-        if not evidence.get("pr_url"):
+        if expected_outcome == "code_delivery" and not evidence.get("pr_url"):
             missing.append("missing_pr_url")
+        missing_evidence = missing
         nodes.append(
             _trace_node(
                 "evidence",
@@ -1298,6 +1401,21 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
                 metadata=evidence,
             )
         )
+    expected_outcome = _requirement_expected_outcome(latest_requirement, latest_candidate)
+    objective_status, next_action = _objective_status_and_next_action(
+        candidate=latest_candidate,
+        requirement=latest_requirement,
+        workflow=latest_workflow,
+        missing_evidence=missing_evidence,
+    )
+    latest_chain = {
+        "candidate_id": int(latest_candidate.id) if latest_candidate is not None else None,
+        "requirement_id": int(latest_requirement.id) if latest_requirement is not None else None,
+        "workflow_run_id": int(latest_workflow.id) if latest_workflow is not None else None,
+        "expected_outcome": expected_outcome,
+        "workflow_status": str(getattr(latest_workflow, "status", "") or "") if latest_workflow is not None else None,
+        "workflow_state": str(getattr(latest_workflow, "current_state", "") or "") if latest_workflow is not None else None,
+    }
     return {
         "goal": {
             "id": int(goal.id),
@@ -1327,6 +1445,10 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
             }
             for candidate in candidates[:5]
         ],
+        "objective_status": objective_status,
+        "missing_evidence": missing_evidence,
+        "latest_chain": latest_chain,
+        "next_action": next_action,
     }
 
 
@@ -1480,6 +1602,7 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
     if project is None:
         raise ValueError("candidate cannot be materialized without a project")
     try:
+        expected_outcome = _valid_expected_outcome(row)
         acceptance_contract = validate_acceptance_contract_for_execution(
             _candidate_acceptance_contract(row),
             source="planner_candidate",
@@ -1511,6 +1634,7 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
             "risk_level": risk_level,
             "severity": severity,
             "candidate_priority": priority,
+            "expected_outcome": expected_outcome,
         },
     )
     result = create_requirement(db, body)
@@ -1531,6 +1655,7 @@ def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "op
             "risk_level": risk_level,
             "severity": severity,
             "candidate_priority": priority,
+            "expected_outcome": expected_outcome,
         }
     )
     requirement.intake_metadata_json = _json_dumps(metadata)

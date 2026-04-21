@@ -190,7 +190,14 @@ def get_goal_rollup(manifest_id: int, goal_key: str, db: Session = Depends(get_d
 @router.post("/sweeps/run", response_model=PlannerSweepOut)
 def post_run_planner_sweep(body: PlannerSweepRunRequest, db: Session = Depends(get_db)):
     try:
-        return sweep_to_dict(run_planner_sweep(db, dry_run=body.dry_run, triggered_by=body.triggered_by))
+        return sweep_to_dict(
+            run_planner_sweep(
+                db,
+                dry_run=body.dry_run,
+                triggered_by=body.triggered_by,
+                context_hint=body.context_hint,
+            )
+        )
     except ValueError as exc:
         raise _bad_request(exc) from exc
 

@@ -37,7 +37,9 @@ def _project(db):
 def _candidate_metadata():
     return json.dumps(
         {
+            "expected_outcome": "code_delivery",
             "acceptance_contract": {
+                "expected_outcome": "code_delivery",
                 "execution_acceptance_steps": [
                     {
                         "step_key": "business_result",
@@ -76,6 +78,7 @@ def _planner_agent_candidate_for_goal(goal, *, acceptance_contract=None, workflo
             "planner_agent_backend": "test",
             "planner_agent_model": "fake-planner",
             "planner_repair_attempts": 0,
+            "expected_outcome": "code_delivery",
         },
     )
 
@@ -256,6 +259,101 @@ def test_goal_trace_returns_latest_chain_and_evidence(client, db_session):
     assert payload["nodes"][-1]["metadata"]["pr_url"] == "https://github.com/example/repo/pull/1"
     assert payload["nodes"][-1]["metadata"]["command_evidence_count"] == 1
     assert payload["nodes"][-1]["metadata"]["changed_files_count"] == 1
+    assert payload["objective_status"] == "satisfied"
+    assert payload["missing_evidence"] == []
+
+
+def test_goal_trace_accepts_verification_only_without_pr_or_diff(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    goal = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="verification_goal",
+        title="Verification Goal",
+        intent_markdown="Verify existing guardrails.",
+    )
+    db_session.add(goal)
+    db_session.flush()
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="verification_goal",
+        candidate_fingerprint="verify-fp",
+        title="Verify existing guardrails",
+        workflow_key="agent_self_repair",
+        status="materialized",
+        metadata_json=json.dumps(
+            {
+                "expected_outcome": "verification_only",
+                "acceptance_contract": {
+                    "expected_outcome": "verification_only",
+                    "execution_acceptance_steps": [
+                        {
+                            "step_key": "commands",
+                            "title": "Commands prove guardrails",
+                            "expected_result": "Guardrail commands pass.",
+                            "required_commands": ["python -m pytest -q"],
+                        }
+                    ],
+                },
+            }
+        ),
+    )
+    db_session.add(candidate)
+    db_session.flush()
+    requirement = RequirementRow(
+        title="Verify existing guardrails",
+        description_markdown="No code change required.",
+        status="completed",
+        source="planner_candidate",
+        operating_manifest_id=int(manifest.id),
+        goal_key="verification_goal",
+        requirement_candidate_id=int(candidate.id),
+        acceptance_contract_json=json.dumps(
+            {
+                "expected_outcome": "verification_only",
+                "execution_acceptance_steps": [
+                    {
+                        "step_key": "commands",
+                        "title": "Commands prove guardrails",
+                        "expected_result": "Guardrail commands pass.",
+                        "required_commands": ["python -m pytest -q"],
+                    }
+                ],
+            }
+        ),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    candidate.materialized_requirement_id = int(requirement.id)
+    workflow = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        operating_manifest_id=int(manifest.id),
+        goal_key="verification_goal",
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        delivery_status="no_op_verified",
+    )
+    db_session.add(workflow)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow.id)
+    db_session.add(
+        WorkflowArtifactRow(
+            workflow_run_id=int(workflow.id),
+            artifact_type="workflow_command_result",
+            state_key="verify",
+            atom_key="verify",
+            machine_readable_payload=json.dumps({"command": "python -m pytest -q", "exit_code": 0}),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/planning/goals/{int(goal.id)}/trace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["objective_status"] == "satisfied"
+    assert payload["missing_evidence"] == []
+    assert payload["latest_chain"]["expected_outcome"] == "verification_only"
 
 
 def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_goal(db_session, monkeypatch):
@@ -277,6 +375,35 @@ def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_go
     assert any(item["reason"] == "goal_dropped" for item in suppressed)
     created_rows = db_session.query(RequirementCandidateRow).filter(RequirementCandidateRow.id.in_(created)).all()
     assert {row.goal_key for row in created_rows} == {"operator_growth"}
+
+
+def test_planner_sweep_records_context_hint_and_candidate_expected_outcome(db_session, monkeypatch):
+    seen_hints: list[str] = []
+
+    def fake_planner(**kwargs):
+        seen_hints.append(str(kwargs.get("context_hint") or ""))
+        return _planner_agent_candidate_for_goal(
+            kwargs["goal"],
+            acceptance_contract=kwargs.get("acceptance_contract"),
+        )
+
+    monkeypatch.setattr("server.services.planning.lifecycle.synthesize_candidate_for_goal", fake_planner)
+    _project(db_session)
+    ensure_active_manifest(db_session)
+
+    sweep = run_planner_sweep(
+        db_session,
+        dry_run=False,
+        context_hint="System Note: verify current repo state before code_delivery.",
+    )
+    snapshot = json.loads(sweep.input_snapshot_json or "{}")
+    created = json.loads(sweep.created_candidate_ids_json or "[]")
+    candidate = db_session.get(RequirementCandidateRow, int(created[0]))
+    metadata = json.loads(candidate.metadata_json or "{}")
+
+    assert snapshot["context_hint"] == "System Note: verify current repo state before code_delivery."
+    assert any("verify current repo state" in hint for hint in seen_hints)
+    assert metadata["expected_outcome"] == "code_delivery"
 
 
 def test_planner_sweep_validation_fails_when_agent_omits_acceptance_steps(db_session, monkeypatch):

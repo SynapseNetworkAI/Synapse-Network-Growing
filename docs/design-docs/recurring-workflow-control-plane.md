@@ -132,6 +132,12 @@ is_due
 health_status
 ```
 
+Scheduler time storage rule:
+
+1. Database timestamps, run history, scheduler state and logs stay in UTC.
+2. Operator-facing wall-clock slots such as `goal_planner_sweep` at local `09:00` are calculated with `OPS_OPERATOR_TIMEZONE`, then converted back to UTC before comparison.
+3. Health/status payloads may include local display fields, but those fields are projections only and must not become stored scheduler truth.
+
 `/health` 聚合：
 
 ```text

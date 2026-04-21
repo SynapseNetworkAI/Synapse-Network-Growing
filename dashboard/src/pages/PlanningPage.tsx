@@ -821,12 +821,14 @@ function GoalTraceDrawer({
   busy,
   error,
   onClose,
+  onSupersedeRetry,
 }: Readonly<{
   open: boolean
   trace: PlanningGoalTrace | null
   busy: string | null
   error: string | null
   onClose: () => void
+  onSupersedeRetry: (trace: PlanningGoalTrace) => void
 }>) {
   useTopOverlayEscape(open, 'goal-trace-drawer', onClose)
   if (!open) return null
@@ -844,6 +846,26 @@ function GoalTraceDrawer({
           <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>Close</button>
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div> : null}
+        {trace?.objective_status ? (
+          <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950/25 px-4 py-3 text-sm text-[color:var(--ops-text-body)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Objective</span>
+                <div className="mt-1 font-semibold">{trace.objective_status} · next: {trace.next_action || 'inspect_trace'}</div>
+                {trace.missing_evidence?.length ? <div className="mt-1 text-xs text-[color:var(--ops-text-muted)]">Missing evidence: {trace.missing_evidence.join(', ')}</div> : null}
+              </div>
+              {trace.next_action === 'supersede_and_retry_planner' ? (
+                <button
+                  className="rounded-xl border border-amber-300/35 bg-amber-300/[0.08] px-3 py-2 text-xs font-semibold text-amber-100"
+                  onClick={() => onSupersedeRetry(trace)}
+                  disabled={busy === 'supersede_retry'}
+                >
+                  {busy === 'supersede_retry' ? 'Retrying...' : 'Supersede & Retry Planner'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {busy === 'trace_goal' ? (
           <div className="mt-6 space-y-3">
             {[1, 2, 3, 4].map((item) => <div key={item} className="h-24 animate-pulse rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]" />)}
@@ -1789,6 +1811,29 @@ export default function PlanningPage() {
     }
   }
 
+  async function supersedeAndRetryPlanner(trace: PlanningGoalTrace) {
+    const workflowRunId = Number(trace.latest_chain?.workflow_run_id || 0)
+    const goalId = Number(trace.goal?.id || 0)
+    if (!workflowRunId || !goalId) {
+      setTraceError('Trace does not include a workflow run to supersede.')
+      return
+    }
+    setBusy('supersede_retry')
+    setTraceError(null)
+    try {
+      await api.supersedeWorkflowAndRetryPlanner(workflowRunId, {
+        operator: 'operator',
+        comment: 'Superseded from Goal Trace to retry Planner with repository-state context.',
+      })
+      setGoalTrace(await api.getPlanningGoalTrace(goalId))
+      await load(historyPage)
+    } catch (err) {
+      setTraceError(err instanceof Error ? err.message : 'Supersede & Retry Planner failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="space-y-5" data-testid="planning-page">
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -1892,7 +1937,14 @@ export default function PlanningPage() {
       <ArchiveCycleModal open={archiveOpen} mission={mission} busy={busy} onClose={() => setArchiveOpen(false)} onArchive={archiveCycle} />
       <DropGoalModal goal={dropGoal} reason={dropReason} busy={busy} setReason={setDropReason} onCancel={() => setDropGoal(null)} onConfirm={confirmDropGoal} />
       <GoalIntentDrawer goal={intentGoal} draft={intentDraft} loading={intentLoading} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
-      <GoalTraceDrawer open={traceOpen} trace={goalTrace} busy={busy} error={traceError} onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }} />
+      <GoalTraceDrawer
+        open={traceOpen}
+        trace={goalTrace}
+        busy={busy}
+        error={traceError}
+        onSupersedeRetry={supersedeAndRetryPlanner}
+        onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }}
+      />
       <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>

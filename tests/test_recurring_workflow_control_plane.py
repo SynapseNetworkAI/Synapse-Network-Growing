@@ -100,6 +100,29 @@ def test_goal_planner_sweep_due_after_daily_slot_without_prior_run():
         now=datetime(2026, 4, 20, 9, 1, tzinfo=timezone.utc),
         local_time="09:00",
     )
+
+
+def test_goal_planner_sweep_due_uses_operator_timezone():
+    from datetime import datetime, timezone
+
+    assert not goal_planner_sweep_due(
+        last_run_at=None,
+        now=datetime(2026, 4, 20, 0, 59, tzinfo=timezone.utc),
+        local_time="09:00",
+        timezone_name="Asia/Kuala_Lumpur",
+    )
+    assert goal_planner_sweep_due(
+        last_run_at=None,
+        now=datetime(2026, 4, 20, 1, 1, tzinfo=timezone.utc),
+        local_time="09:00",
+        timezone_name="Asia/Kuala_Lumpur",
+    )
+    assert not goal_planner_sweep_due(
+        last_run_at=datetime(2026, 4, 20, 1, 1, tzinfo=timezone.utc),
+        now=datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc),
+        local_time="09:00",
+        timezone_name="Asia/Kuala_Lumpur",
+    )
     assert not goal_planner_sweep_due(
         last_run_at=datetime(2026, 4, 20, 9, 1, tzinfo=timezone.utc),
         now=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
