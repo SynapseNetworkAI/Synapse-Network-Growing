@@ -144,6 +144,15 @@ Harness executes required commands and records authoritative evidence.
 
 Verification Agent interprets acceptance, plan, diff, self-run evidence, harness evidence, and risk policy. Harness does not do semantic judgment; Verification Agent does not write code.
 
+For `agent_self_repair`, quick deterministic guardrails run inside the workflow worker, but the full final regression gate is asynchronous:
+
+1. after quick gates pass, the workflow enters `awaiting_ci`;
+2. `scripts/ci/ci_runner.py` streams full regression output to `runtime/ci-runs/*.log`;
+3. the runner writes an atomic `*.exit_code` marker when complete;
+4. `ci_status_sweep` reads marker files, records bounded evidence, then resumes the workflow to PR handoff or routes failure to `awaiting_operator`.
+
+The final regression runner must not use in-memory `capture_output=True`; logs can be large and must stream directly to disk. The sweep must have a runtime cap so stale-lock recovery never races with a slow sweep.
+
 ### Risk-Evidence Gate
 
 Risk-Evidence Gate decides whether a result can auto-flow or must stop for a human.

@@ -98,6 +98,13 @@ const presentationMap: Record<string, Presentation> = {
     action: '清理重复实验需求',
     outputs: ['Archived requirements', 'Merge recommendations'],
   },
+  ci_status_sweep: {
+    lane: 'health',
+    label: 'Final Regression 收口',
+    input: 'awaiting_ci workflow runs',
+    action: '读取 marker 文件并推进状态机',
+    outputs: ['CI evidence', 'PR handoff', 'Needs Human reports'],
+  },
 }
 
 function record(value: unknown): Record<string, unknown> {

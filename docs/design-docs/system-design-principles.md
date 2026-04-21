@@ -115,6 +115,10 @@
 18. 出现在 `Attention Required` 的任务不得在原业务泳道重复完整展示；原泳道最多保留极简归属 ghost row。
 19. 定时任务 Configuration v1 只能做只读配置检查和安全运行控制；不得开放任意 execution logic、shell、prompt、cron 编辑或高风险自动化开关。
 20. `Dry Run` 是调试动作，默认归入 inspector / configuration surface，不应压过监控主视图。
+21. 耗时 final regression 不得阻塞 workflow worker；必须 fire-and-suspend 到 `awaiting_ci`，由可观测 recurring sweep 收口。
+22. CI runner 必须流式写日志并原子写 exit marker；不得用内存缓冲完整 stdout/stderr。
+23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
+24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 

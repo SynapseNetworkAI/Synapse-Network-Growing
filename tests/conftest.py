@@ -74,6 +74,13 @@ def _fake_review_pr_sync(db, requirement, workflow_run, step, delivery_contract=
     }, None
 
 
+class _FakePopen:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.returncode = None
+
+
 def _fake_capture_task_file_change_baseline(db, task, requirement=None, step=None):
     raw_output_path = str(getattr(task, "output_path", "") or "").strip()
     if raw_output_path:
@@ -171,6 +178,11 @@ def setup_db():
         "server.main.config.CODEX_CLI_MONITOR_ENABLED", False
     ), patch(
         "server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False
+    ), patch(
+        "server.main.config.CI_STATUS_SWEEP_SCHEDULER_ENABLED", False
+    ), patch(
+        "server.services.workflows.declarative._launch_final_regression_runner",
+        lambda runner_command, env: _FakePopen(runner_command, env=env),
     ), patch(
         "server.config.LARK_DELIVERY_DRY_RUN", True
     ):

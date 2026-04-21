@@ -517,7 +517,7 @@ def test_candidate_approve_and_run_creates_requirement_and_workflow(db_session):
     assert candidate.materialized_requirement_id == requirement.id
 
 
-def test_candidate_approve_and_run_routes_high_risk_to_human_gate(db_session):
+def test_candidate_approve_and_run_high_risk_pauses_at_final_regression_before_pr_gate(db_session):
     project = _project(db_session)
     manifest = ensure_active_manifest(db_session)
     candidate = RequirementCandidateRow(
@@ -547,9 +547,10 @@ def test_candidate_approve_and_run_routes_high_risk_to_human_gate(db_session):
 
     assert workflow is not None
     assert workflow.risk_level == "high"
-    assert result["auto_run_status"] == "workflow_needs_human"
-    assert result["next_action"] == "review_human_gate"
-    assert any(gate.status == "pending" for gate in gates)
+    assert result["auto_run_status"] == "workflow_started"
+    assert result["next_action"] == "view_workflow"
+    assert workflow.current_state == "awaiting_ci"
+    assert not gates
 
 
 def test_candidate_approve_and_run_api(db_session, client):

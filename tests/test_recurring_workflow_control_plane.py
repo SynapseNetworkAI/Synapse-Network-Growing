@@ -1,5 +1,9 @@
-from server.database import RecurringWorkflowRow, RecurringWorkflowRunRow
+import json
+from datetime import datetime, timedelta, timezone
+
+from server.database import HumanGateRequestRow, RecurringWorkflowRow, RecurringWorkflowRunRow, RequirementRow, WorkflowArtifactRow, WorkflowRunRow
 from server.services.scheduling.recurring_workflows import (
+    _ci_status_sweep,
     list_recurring_workflow_runs,
     run_recurring_workflow,
     sync_recurring_workflows,
@@ -157,3 +161,108 @@ def test_bug_log_sweep_skips_when_scheduler_lock_is_held(db_session):
     rows = list_recurring_workflow_runs(db_session, "bug_log_sweep")
     assert len(rows) == 1
     assert rows[0].status == "skipped_locked"
+
+
+def _create_awaiting_ci_run(db_session, tmp_path, *, exit_code: int | None = None, log_body: str = ""):
+    requirement = RequirementRow(
+        title="CI final regression",
+        description_markdown="Run final regression before PR handoff.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="in_progress",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    log_path = tmp_path / f"run-{requirement.id}.log"
+    exit_code_path = tmp_path / f"run-{requirement.id}.exit_code"
+    log_path.write_text(log_body, encoding="utf-8")
+    if exit_code is not None:
+        exit_code_path.write_text(f"{exit_code}\n", encoding="utf-8")
+    blackboard = {
+        "workflow_key": "agent_self_repair",
+        "current_state": "awaiting_ci",
+        "ci": {
+            "status": "in_progress",
+            "ci_backend": "local_marker",
+            "ci_command": ["python", "-m", "pytest", "-q"],
+            "ci_log_path": str(log_path),
+            "ci_exit_code_path": str(exit_code_path),
+            "ci_timeout_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        },
+    }
+    run = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="awaiting_ci",
+        status="awaiting_ci",
+        triggered_by="test",
+        blackboard_json=json.dumps(blackboard),
+    )
+    db_session.add(run)
+    db_session.flush()
+    return run, log_path, exit_code_path
+
+
+def test_ci_status_sweep_failed_ci_records_bounded_tail_and_human_gate(db_session, tmp_path):
+    long_log = "\n".join(f"line {index}" for index in range(2000))
+    run, _log_path, _exit_path = _create_awaiting_ci_run(db_session, tmp_path, exit_code=1, log_body=long_log)
+
+    result = _ci_status_sweep(db_session, runtime_cap_seconds=60)
+
+    assert result["processed_count"] == 1
+    db_session.refresh(run)
+    assert run.current_state == "awaiting_operator"
+    assert run.status == "awaiting_operator"
+    assert run.resolution == "ci_failed_needs_human"
+    artifact = db_session.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == run.id).one()
+    assert "line 1999" in artifact.human_readable_body
+    assert "line 0" not in artifact.human_readable_body
+    assert len(artifact.human_readable_body.encode("utf-8")) <= 8192
+    gate = db_session.query(HumanGateRequestRow).filter(HumanGateRequestRow.workflow_run_id == run.id).one()
+    assert gate.gate_type == "ci_final_regression_failed"
+
+
+def test_ci_status_sweep_in_progress_does_not_read_log(db_session, tmp_path, monkeypatch):
+    run, _log_path, _exit_path = _create_awaiting_ci_run(db_session, tmp_path, exit_code=None, log_body="still running")
+
+    def fail_if_read(*args, **kwargs):
+        raise AssertionError("in-progress CI must not read log tail")
+
+    monkeypatch.setattr("server.services.scheduling.recurring_workflows._bounded_log_tail", fail_if_read)
+    result = _ci_status_sweep(db_session, runtime_cap_seconds=60)
+
+    assert result["processed_count"] == 0
+    db_session.refresh(run)
+    assert run.current_state == "awaiting_ci"
+
+
+def test_ci_status_sweep_recovers_stale_processing_lock(db_session, tmp_path):
+    run, _log_path, _exit_path = _create_awaiting_ci_run(db_session, tmp_path, exit_code=None)
+    run.current_state = "processing_ci_result"
+    run.status = "awaiting_ci"
+    run.updated_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    db_session.commit()
+
+    result = _ci_status_sweep(db_session, runtime_cap_seconds=60, stale_lock_seconds=300)
+
+    assert result["stale_processing_locks_recovered"] == 1
+    db_session.refresh(run)
+    assert run.current_state == "awaiting_ci"
+
+
+def test_ci_status_sweep_runtime_cap_stops_before_next_workflow(db_session, tmp_path, monkeypatch):
+    _create_awaiting_ci_run(db_session, tmp_path, exit_code=None)
+    _create_awaiting_ci_run(db_session, tmp_path, exit_code=None)
+    ticks = iter([0.0, 61.0])
+    monkeypatch.setattr("server.services.scheduling.recurring_workflows.time.monotonic", lambda: next(ticks, 61.0))
+
+    result = _ci_status_sweep(db_session, runtime_cap_seconds=60)
+
+    assert result["sweep_runtime_cap_reached"] is True
+    assert result["processed_count"] == 0
+    assert result["remaining_count"] == 2
+
+
+def test_ci_status_sweep_is_registered(db_session):
+    rows = sync_recurring_workflows(db_session)
+
+    assert any(row.workflow_key == "ci_status_sweep" for row in rows)

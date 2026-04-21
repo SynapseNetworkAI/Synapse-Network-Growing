@@ -92,6 +92,7 @@ graph TD
 9. Do not mask state inconsistency in projection APIs or frontend conditionals. Fix the state machine transition root cause.
 10. Human Gate decisions are state machine inputs. After a decision, the runner must wake up and converge the workflow to the next state, a new gate, or a clear failed terminal state.
 11. Human Override reduces manual requirement form friction; it does not mean business acceptance is complete. A technically succeeded override workflow remains awaiting business confirmation until the operator explicitly confirms the outcome.
+12. Long-running final regression must not block workflow workers. Workflow should pause in `awaiting_ci`; marker-file CI and `ci_status_sweep` own asynchronous completion, evidence, and operator fallback.
 
 ## 4. Planning Lifecycle Constraints
 
@@ -134,9 +135,10 @@ High evidence does not bypass high risk.
 
 1. Every background loop, recurring workflow, scheduler, dispatcher, retry, and queue must be visible in Ops Console.
 2. Every automation run must write run history, status, inputs, result, error excerpt, started/completed timestamps, and duration.
-3. Do not send ordinary state transitions, atom success, artifacts, or blackboard snapshots to Lark.
-4. P0/P1 interruption goes to alert. Human gate goes to approval. PR/release goes to release. Workflow summary goes to workflow notification.
-5. Notification suppression and requirement materialization suppression are separate systems.
+3. CI runners must stream logs to disk and write atomic exit markers; status sweeps must read bounded tails only and enforce a runtime cap.
+4. Do not send ordinary state transitions, atom success, artifacts, or blackboard snapshots to Lark.
+5. P0/P1 interruption goes to alert. Human gate goes to approval. PR/release goes to release. Workflow summary goes to workflow notification.
+6. Notification suppression and requirement materialization suppression are separate systems.
 
 ## 7. Zero Tolerance And Fail-Closed Acceptance
 

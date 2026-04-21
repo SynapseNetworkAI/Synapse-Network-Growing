@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from server.database import OperatingManifestRow, ReleaseRecordRow, RequirementCandidateRow, RequirementRow, WorkflowRunRow
@@ -13,6 +16,7 @@ from server.services.requirements.service import (
     start_requirement_workflow,
     submit_requirement,
 )
+from server.services.scheduling.recurring_workflows import _ci_status_sweep
 
 
 VALID_ACCEPTANCE_CONTRACT = (
@@ -37,6 +41,16 @@ def _create_requirement(db_session) -> RequirementRow:
     db_session.commit()
     db_session.refresh(requirement)
     return requirement
+
+
+def _complete_final_regression(db_session, workflow_run_id: int) -> None:
+    run = db_session.get(WorkflowRunRow, int(workflow_run_id))
+    assert run is not None
+    blackboard = json.loads(run.blackboard_json)
+    ci = blackboard["ci"]
+    Path(ci["ci_log_path"]).write_text("final regression passed\n", encoding="utf-8")
+    Path(ci["ci_exit_code_path"]).write_text("0\n", encoding="utf-8")
+    _ci_status_sweep(db_session, runtime_cap_seconds=60)
 
 
 def test_workflow_definitions_endpoint_lists_builtin_workflows(synced_client):
@@ -80,6 +94,15 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert response.status_code == 201
     payload = response.json()
     assert payload["workflow_key"] == "agent_self_repair"
+    assert payload["status"] == "awaiting_ci"
+    assert payload["current_state"] == "awaiting_ci"
+    assert payload["blackboard"]["ci"]["status"] == "in_progress"
+    assert payload["pending_human_gate_count"] == 0
+
+    _complete_final_regression(db_session, int(payload["id"]))
+    detail_response = synced_client.get(f"/api/workflows/runs/{payload['id']}")
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
     assert payload["status"] == "awaiting_operator"
     assert payload["current_state"] == "awaiting_operator"
     assert payload["outcome_label"] == "Needs Human"
@@ -88,10 +111,10 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["simulated_delivery"] is True
     assert payload["requirement_title"] == "Repair Ops Dashboard failure"
     assert payload["pending_human_gate_count"] == 1
+    assert payload["blackboard"]["ci"]["status"] == "passed"
     assert payload["blackboard"]["verification"]["status"] == "passed"
     assert payload["evidence_complete"] is True
-    assert payload["command_results"][0]["exit_code"] == 0
-    assert payload["command_results"][0]["simulated"] is False
+    assert any(result["exit_code"] == 0 and result["simulated"] is False for result in payload["command_results"])
     assert any(output["state_key"] == "diagnose" for output in payload["agent_outputs"])
     assert "server/services/workflows/declarative.py" in payload["changed_files_summary"]["changed_files"]
     assert payload["blackboard"]["pr"]["created"] is True
@@ -298,6 +321,10 @@ def test_pending_human_gate_run_is_not_completed_truthfully(synced_client, db_se
     )
     assert create_response.status_code == 201
     payload = create_response.json()
+    assert payload["status"] == "awaiting_ci"
+    assert payload["pending_human_gate_count"] == 0
+    _complete_final_regression(db_session, int(payload["id"]))
+    payload = synced_client.get(f"/api/workflows/runs/{payload['id']}").json()
     assert payload["status"] == "awaiting_operator"
     assert payload["pending_human_gate_count"] == 1
     assert payload["is_truly_completed"] is False
@@ -377,6 +404,8 @@ def test_human_gate_decision_endpoint_updates_workflow_run(synced_client, db_ses
         },
     )
     payload = create_response.json()
+    _complete_final_regression(db_session, int(payload["id"]))
+    payload = synced_client.get(f"/api/workflows/runs/{payload['id']}").json()
     gate_id = int(payload["human_gates"][0]["id"])
 
     decision_response = synced_client.post(
@@ -405,6 +434,8 @@ def test_human_gate_approve_completes_workflow_and_requirement(synced_client, db
         },
     )
     payload = create_response.json()
+    _complete_final_regression(db_session, int(payload["id"]))
+    payload = synced_client.get(f"/api/workflows/runs/{payload['id']}").json()
     gate_id = int(payload["human_gates"][0]["id"])
 
     decision_response = synced_client.post(

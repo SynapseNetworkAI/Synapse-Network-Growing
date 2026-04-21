@@ -1831,6 +1831,7 @@ class RecurringWorkflowRunResultOut(BaseModel):
 class RecurringWorkflowHealthOut(BaseModel):
     bug_log_scheduler: dict[str, object] = {}
     goal_planner_scheduler: dict[str, object] = {}
+    ci_status_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 
