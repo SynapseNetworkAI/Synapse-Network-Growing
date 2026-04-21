@@ -110,6 +110,11 @@
 13. `Dry Run` / `Run Now` 点击后 Run Inspector 必须立即打开并显示 optimistic running entry；异步完成后如果 operator 已关闭抽屉，不得重新抢焦点。
 14. Recurring workflow 历史默认只展示最近 50 条；刷新时必须处理选中 run 掉出窗口的情况，不能白屏或崩溃。
 15. `dry_run=true` 的历史记录必须视觉降级并标记为 `DRY RUN`，不得和真实执行记录使用同等完成语义。
+16. 高频运维主视图必须是 compact monitoring surface：静态 description 和完整 I-P-O 必须折叠，不能把三个大按钮和三块大黑框铺满每张任务卡。
+17. 逾期定时任务必须显示 `OVERDUE`、欠账时间和可推断原因；超过 24 小时的 due 必须用危险态。
+18. 出现在 `Attention Required` 的任务不得在原业务泳道重复完整展示；原泳道最多保留极简归属 ghost row。
+19. 定时任务 Configuration v1 只能做只读配置检查和安全运行控制；不得开放任意 execution logic、shell、prompt、cron 编辑或高风险自动化开关。
+20. `Dry Run` 是调试动作，默认归入 inspector / configuration surface，不应压过监控主视图。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 

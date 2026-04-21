@@ -78,15 +78,17 @@ describe('SchedulesPage', () => {
     expect(screen.getByText(/Attention Required/)).toBeTruthy()
     expect(screen.getByText(/System Health & Reliability/)).toBeTruthy()
     expect(screen.getAllByText('Bug Log Sweep').length).toBeGreaterThan(0)
-    expect(screen.getAllByTestId('schedule-ipo-flow').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('schedule-compact-ipo').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Dry Run' })).toBeNull()
 
     const lastRunButtons = screen.getAllByRole('button', { name: /Last Run/i })
     fireEvent.click(lastRunButtons[0])
     await waitFor(() => expect(screen.getByTestId('schedule-run-inspector')).toHaveTextContent('succeeded'))
     expect(screen.getByText('Debug params / result JSON')).toBeTruthy()
 
-    const firstCard = screen.getAllByTestId('scheduled-job-card')[0]
-    fireEvent.click(within(firstCard).getByText('Dry Run'))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuration' }))
+    const inspector = screen.getByTestId('schedule-run-inspector')
+    fireEvent.click(within(inspector).getByRole('button', { name: 'Dry Run' }))
     await waitFor(() =>
       expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
         dry_run: true,
@@ -95,6 +97,7 @@ describe('SchedulesPage', () => {
       }),
     )
 
+    const firstCard = screen.getAllByTestId('scheduled-job-card')[0]
     fireEvent.click(within(firstCard).getByText('Run Now'))
     await waitFor(() => expect(window.confirm).toHaveBeenCalled())
     expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {

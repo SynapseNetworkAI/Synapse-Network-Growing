@@ -23,6 +23,8 @@ type InspectorAnchor = {
   optimisticRun?: InspectorRun | null
 }
 
+type InspectorTab = 'history' | 'configuration'
+
 const laneDefinitions: Array<{ key: LaneKey; title: string; description: string }> = [
   { key: 'attention', title: 'Attention Required', description: '失败、到期、锁冲突或最近运行异常会自动置顶，不被业务分组淹没。' },
   { key: 'strategy', title: 'Strategy & Planning', description: '公司目标、Planner Sweep、周度复盘这些“大脑层”自动化。' },
@@ -113,6 +115,19 @@ function LocalTime({ value }: Readonly<{ value: string | null | undefined }>) {
   return <time dateTime={value || ''} title={value || ''}>{formatTime(value)}</time>
 }
 
+function delayLabel(from: string | null | undefined, now = new Date()) {
+  if (!from) return ''
+  const date = new Date(from)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMs = Math.max(0, now.getTime() - date.getTime())
+  const days = Math.floor(diffMs / 86_400_000)
+  const hours = Math.floor((diffMs % 86_400_000) / 3_600_000)
+  const minutes = Math.floor((diffMs % 3_600_000) / 60_000)
+  if (days) return `${days}d ${hours}h`
+  if (hours) return `${hours}h ${minutes}m`
+  return `${Math.max(1, minutes)}m`
+}
+
 function tone(value: string) {
   if (['healthy', 'succeeded', 'completed', 'active'].includes(value)) return 'ready'
   if (['due', 'running'].includes(value)) return 'running'
@@ -139,11 +154,31 @@ function chooseAnchoredRun(runs: InspectorRun[], anchor?: InspectorAnchor | null
 }
 
 function JsonBlock({ value }: Readonly<{ value: unknown }>) {
+  const text = JSON.stringify(value ?? {}, null, 2)
   return (
-    <pre className="max-h-[360px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
-      {JSON.stringify(value ?? {}, null, 2)}
-    </pre>
+    <div className="rounded-2xl border border-white/10 bg-slate-950">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+        <span className="machine-label text-slate-400">JSON</span>
+        <button
+          type="button"
+          className="rounded-lg border border-white/12 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10"
+          onClick={() => copyJson(value)}
+        >
+          Copy JSON
+        </button>
+      </div>
+      <pre className="max-h-[360px] overflow-auto p-4 text-xs leading-relaxed text-slate-100">
+        {text}
+      </pre>
+    </div>
   )
+}
+
+function copyJson(value: unknown) {
+  const text = JSON.stringify(value ?? {}, null, 2)
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text)
+  }
 }
 
 function scheduleLabel(workflow: RecurringWorkflow) {
@@ -178,6 +213,23 @@ function lastResultStatus(workflow: RecurringWorkflow) {
 function needsAttention(workflow: RecurringWorkflow) {
   const lastStatus = lastResultStatus(workflow)
   return workflow.health_status === 'failed' || workflow.is_due || ['failed', 'error', 'skipped_locked'].includes(lastStatus)
+}
+
+function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
+  const next = workflow.next_run_at ? new Date(workflow.next_run_at) : null
+  const isOverdue = Boolean(workflow.is_due && next && !Number.isNaN(next.getTime()) && next.getTime() < now.getTime())
+  const result = record(workflow.last_result)
+  const lastStatus = String(result.status || '').toLowerCase()
+  const rawReason = result.reason || result.error || (workflow.health_status === 'failed' ? 'Recent run failed' : '')
+  const reason = lastStatus === 'skipped_locked'
+    ? 'Worker locked'
+    : String(rawReason)
+  return {
+    isOverdue,
+    delay: isOverdue ? delayLabel(workflow.next_run_at, now) : '',
+    reason: isOverdue ? reason || 'Scheduler tick missed after next_run_at' : '',
+    severity: isOverdue && next && now.getTime() - next.getTime() > 86_400_000 ? 'blocked' : 'validating',
+  }
 }
 
 function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: Record<string, unknown>) {
@@ -246,10 +298,22 @@ function IpoFlow({ workflow }: Readonly<{ workflow: RecurringWorkflow }>) {
   )
 }
 
+function CompactIpoFlow({ workflow }: Readonly<{ workflow: RecurringWorkflow }>) {
+  const presentation = presentationFor(workflow)
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-[color:var(--ops-text-muted)]" data-testid="schedule-compact-ipo">
+      <span className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.06] px-2.5 py-1"><span className="text-cyan-100">Input</span> {presentation.input}</span>
+      <span className="text-cyan-300/60">→</span>
+      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1"><span className="text-[color:var(--ops-text-body)]">Action</span> {presentation.action}</span>
+      <span className="text-cyan-300/60">→</span>
+      <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-2.5 py-1"><span className="text-emerald-100">Output</span> {presentation.outputs.join(' | ')}</span>
+    </div>
+  )
+}
+
 function ScheduledJobCard({
   workflow,
   inAttention = false,
-  alsoInAttention = false,
   running,
   latestRun,
   onRun,
@@ -257,7 +321,6 @@ function ScheduledJobCard({
 }: Readonly<{
   workflow: RecurringWorkflow
   inAttention?: boolean
-  alsoInAttention?: boolean
   running: boolean
   latestRun: InspectorRun | null
   onRun: (workflow: RecurringWorkflow, dryRun: boolean) => void
@@ -266,10 +329,11 @@ function ScheduledJobCard({
   const presentation = presentationFor(workflow)
   const missingMetadata = !presentationMap[workflow.workflow_key]
   const summary = summarizeRun(latestRun, workflow.last_result)[0]
+  const overdue = overdueInfo(workflow)
   return (
     <article
       className={[
-        'rounded-[28px] border bg-[color:var(--ops-panel)] p-5 transition',
+        'rounded-[24px] border bg-[color:var(--ops-panel)] p-4 transition',
         inAttention ? 'border-rose-300/35 shadow-[0_0_0_1px_rgba(251,113,133,0.08)]' : 'border-[color:var(--ops-stroke-soft)]',
         running ? 'opacity-80 ring-1 ring-cyan-300/30' : '',
       ].join(' ')}
@@ -279,22 +343,50 @@ function ScheduledJobCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StateBadge tone={tone(workflow.health_status)}>{running ? 'running' : workflow.health_status}</StateBadge>
-            {workflow.is_due ? <StateBadge tone="validating">due</StateBadge> : null}
+            {overdue.isOverdue ? <StateBadge tone={overdue.severity === 'blocked' ? 'blocked' : 'validating'}>OVERDUE</StateBadge> : workflow.is_due ? <StateBadge tone="validating">due</StateBadge> : null}
             {missingMetadata ? <StateBadge tone="validating">Missing Presentation Metadata</StateBadge> : null}
-            {alsoInAttention ? <StateBadge tone="blocked">also in Attention</StateBadge> : null}
           </div>
-          <h3 className="mt-3 text-lg font-semibold text-[color:var(--ops-text-title)]">{workflow.display_name}</h3>
+          <button
+            type="button"
+            className="mt-3 block text-left text-lg font-semibold text-[color:var(--ops-text-title)] hover:text-cyan-100"
+            onClick={() => onInspect(workflow, { runId: latestRun?.id, completedAt: workflow.last_run_at })}
+          >
+            {workflow.display_name}
+          </button>
           <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-caption)]">{workflow.workflow_key}</div>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{workflow.description}</p>
         </div>
-        <div className="text-right text-xs text-[color:var(--ops-text-muted)]">
-          <div className="machine-label text-[color:var(--ops-text-caption)]">{presentation.label}</div>
-          <div className="mt-2">Owner: {workflow.owner_role}</div>
-          <div className="mt-1">{scheduleLabel(workflow)}</div>
+        <div className="flex items-start gap-3 text-right text-xs text-[color:var(--ops-text-muted)]">
+          <div>
+            <div className="machine-label text-[color:var(--ops-text-caption)]">{presentation.label}</div>
+            <div className="mt-2">Owner: {workflow.owner_role}</div>
+            <div className="mt-1">{scheduleLabel(workflow)}</div>
+          </div>
+          <button
+            type="button"
+            disabled={running}
+            title="Execute now with safety defaults. Human gates and production/funds/auth constraints still apply."
+            onClick={() => onRun(workflow, false)}
+            className="rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-3 py-2 text-sm font-semibold text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.1)] transition hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-cyan-400/15"
+          >
+            {running ? 'Running...' : 'Run Now'}
+          </button>
         </div>
       </div>
 
-      <div className="mt-4"><IpoFlow workflow={workflow} /></div>
+      <div className="mt-4"><CompactIpoFlow workflow={workflow} /></div>
+
+      {overdue.isOverdue ? (
+        <div className="mt-4 rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] px-3 py-2 text-sm text-rose-100" data-testid="schedule-overdue-alert">
+          <strong>Delayed {overdue.delay}</strong>
+          <span className="ml-2 text-rose-100/80">{overdue.reason}</span>
+        </div>
+      ) : null}
+
+      <details className="mt-4 rounded-2xl border border-white/8 bg-white/[0.025] px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-[color:var(--ops-text-body)]">Show definition</summary>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{workflow.description}</p>
+        <div className="mt-3"><IpoFlow workflow={workflow} /></div>
+      </details>
 
       <div className="mt-4 grid gap-3 border-t border-white/8 pt-4 text-xs text-[color:var(--ops-text-muted)] md:grid-cols-2">
         <button
@@ -316,26 +408,21 @@ function ScheduledJobCard({
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         {running ? <span className="rounded-xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-2.5 text-sm font-semibold text-cyan-100">Running...</span> : null}
         <ActionButton onClick={() => onInspect(workflow, { runId: latestRun?.id })}>View History</ActionButton>
-        <button
-          type="button"
-          disabled={running}
-          title="Safe preview. Records history. Does not auto-start requirement or dispatch acceptance."
-          onClick={() => onRun(workflow, true)}
-          className="rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-white/15 disabled:hover:text-slate-200"
-        >
-          Dry Run
-        </button>
-        <button
-          type="button"
-          disabled={running}
-          title="Execute now with safety defaults. Human gates and production/funds/auth constraints still apply."
-          onClick={() => onRun(workflow, false)}
-          className="rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-2.5 text-sm font-semibold text-cyan-50 shadow-[0_0_24px_rgba(34,211,238,0.12)] transition hover:bg-cyan-400/25 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-cyan-400/15"
-        >
-          Run Now
-        </button>
       </div>
     </article>
+  )
+}
+
+function AttentionGhostRow({ workflow, onInspect }: Readonly<{ workflow: RecurringWorkflow; onInspect: (workflow: RecurringWorkflow, anchor?: InspectorAnchor) => void }>) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center justify-between rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-3 text-left text-sm text-[color:var(--ops-text-muted)] hover:bg-white/[0.05]"
+      onClick={() => onInspect(workflow, { completedAt: workflow.last_run_at })}
+    >
+      <span className="font-semibold text-[color:var(--ops-text-body)]">{workflow.display_name}</span>
+      <span className="text-xs text-rose-100/80">Elevated to Attention</span>
+    </button>
   )
 }
 
@@ -360,20 +447,25 @@ function ScheduleLane({
 }>) {
   if (!workflows.length) return null
   const isAttentionLane = title === 'Attention Required'
+  const visibleWorkflows = isAttentionLane ? workflows : workflows.filter((workflow) => !attentionKeys.has(workflow.workflow_key))
+  const ghostWorkflows = isAttentionLane ? [] : workflows.filter((workflow) => attentionKeys.has(workflow.workflow_key))
+  if (!visibleWorkflows.length && !ghostWorkflows.length) return null
   return (
-    <CockpitPanel eyebrow="Scheduled Lane" title={`${title} (${workflows.length})`} description={description} className={isAttentionLane ? 'border-rose-300/25' : ''}>
+    <CockpitPanel eyebrow="Scheduled Lane" title={`${title} (${visibleWorkflows.length + ghostWorkflows.length})`} description={description} className={isAttentionLane ? 'border-rose-300/25' : ''}>
       <div className="grid gap-4">
-        {workflows.map((workflow) => (
+        {visibleWorkflows.map((workflow) => (
           <ScheduledJobCard
             key={`${title}-${workflow.workflow_key}`}
             workflow={workflow}
             inAttention={isAttentionLane}
-            alsoInAttention={!isAttentionLane && attentionKeys.has(workflow.workflow_key)}
             running={runningKey === workflow.workflow_key}
             latestRun={latestRuns[workflow.workflow_key] || null}
             onRun={onRun}
             onInspect={onInspect}
           />
+        ))}
+        {ghostWorkflows.map((workflow) => (
+          <AttentionGhostRow key={`${title}-${workflow.workflow_key}-ghost`} workflow={workflow} onInspect={onInspect} />
         ))}
       </div>
     </CockpitPanel>
@@ -387,9 +479,12 @@ function RunInspectorDrawer({
   runs,
   loading,
   error,
+  activeTab,
   onClose,
   onSelectRun,
   onRefresh,
+  onSelectTab,
+  onRunWorkflow,
 }: Readonly<{
   open: boolean
   workflow: RecurringWorkflow | null
@@ -397,11 +492,18 @@ function RunInspectorDrawer({
   runs: InspectorRun[]
   loading: boolean
   error: string | null
+  activeTab: InspectorTab
   onClose: () => void
   onSelectRun: (run: InspectorRun) => void
   onRefresh: () => void
+  onSelectTab: (tab: InspectorTab) => void
+  onRunWorkflow: (workflow: RecurringWorkflow, dryRun: boolean) => void
 }>) {
   const summaryLines = summarizeRun(run, workflow?.last_result)
+  const tabClass = (tab: InspectorTab) => [
+    'rounded-xl px-4 py-2 text-sm font-semibold transition',
+    activeTab === tab ? 'bg-cyan-300/15 text-cyan-50' : 'text-[color:var(--ops-text-muted)] hover:bg-white/[0.06] hover:text-[color:var(--ops-text-body)]',
+  ].join(' ')
   return (
     <OverlayDrawer
       open={open}
@@ -422,6 +524,10 @@ function RunInspectorDrawer({
     >
       {workflow ? (
         <div className="space-y-5" data-testid="schedule-run-inspector">
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-1">
+            <button type="button" className={tabClass('history')} onClick={() => onSelectTab('history')}>Run History</button>
+            <button type="button" className={tabClass('configuration')} onClick={() => onSelectTab('configuration')}>Configuration</button>
+          </div>
           {loading ? <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] px-4 py-3 text-sm text-cyan-100">Loading run history...</div> : null}
           {error ? (
             <div className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-100">
@@ -429,6 +535,8 @@ function RunInspectorDrawer({
               <button type="button" className="mt-3 rounded-xl border border-rose-200/30 px-3 py-2 text-xs font-semibold" onClick={onRefresh}>Retry Load History</button>
             </div>
           ) : null}
+          {activeTab === 'history' ? (
+            <>
           <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
             <div className="flex flex-wrap items-center gap-2">
               <StateBadge tone={runTone(run, workflow.health_status)}>{run?.optimistic ? 'running' : run?.status || workflow.health_status}</StateBadge>
@@ -458,6 +566,17 @@ function RunInspectorDrawer({
               </ul>
             </div>
             {run?.error_excerpt ? <div className="mt-4 rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] p-4 text-sm text-rose-100">{run.error_excerpt}</div> : null}
+            {run && !run.optimistic ? (
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-2 text-sm font-semibold text-cyan-50 hover:bg-cyan-300/[0.14]"
+                  onClick={() => onRunWorkflow(workflow, Boolean(run.dry_run))}
+                >
+                  Re-run with this context
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
@@ -497,6 +616,54 @@ function RunInspectorDrawer({
               <JsonBlock value={run?.result || workflow.last_result || {}} />
             </div>
           </details>
+            </>
+          ) : (
+            <div className="space-y-5" data-testid="schedule-configuration-panel">
+              <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StateBadge tone={tone(workflow.health_status)}>{workflow.health_status}</StateBadge>
+                  <StateBadge tone="muted">{scheduleLabel(workflow)}</StateBadge>
+                  <StateBadge tone="muted">{workflow.owner_role}</StateBadge>
+                </div>
+                <p className="mt-4 text-sm leading-6 text-[color:var(--ops-text-muted)]">{workflow.description}</p>
+                <div className="mt-5"><IpoFlow workflow={workflow} /></div>
+              </div>
+
+              <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.06] p-5">
+                <div className="machine-label text-cyan-100">Run Controls</div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <button
+                    type="button"
+                    aria-label="Dry Run"
+                    title="Safe preview. Records history. Does not auto-start requirement or dispatch acceptance."
+                    onClick={() => onRunWorkflow(workflow, true)}
+                    className="rounded-2xl border border-white/12 bg-white/[0.04] p-4 text-left hover:bg-white/[0.08]"
+                  >
+                    <div className="font-semibold text-[color:var(--ops-text-title)]">Dry Run</div>
+                    <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">安全预演：记录历史，不 auto-start requirement，不 dispatch acceptance。</div>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Run Now"
+                    title="Execute now with safety defaults. Human gates and production/funds/auth constraints still apply."
+                    onClick={() => onRunWorkflow(workflow, false)}
+                    className="rounded-2xl border border-cyan-300/35 bg-cyan-300/[0.12] p-4 text-left hover:bg-cyan-300/[0.18]"
+                  >
+                    <div className="font-semibold text-cyan-50">Run Now</div>
+                    <div className="mt-2 text-sm leading-6 text-cyan-100/80">立即执行：仍使用安全默认值，Human Gate 和高风险约束仍生效。</div>
+                  </button>
+                </div>
+              </div>
+
+              <details className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+                <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">Read-only configuration JSON</summary>
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  <JsonBlock value={{ schedule: workflow.schedule, input_query: workflow.input_query, output_action: workflow.output_action }} />
+                  <JsonBlock value={{ escalation_rule: workflow.escalation_rule, validation_signal: workflow.validation_signal, status: workflow.status }} />
+                </div>
+              </details>
+            </div>
+          )}
         </div>
       ) : <div className="text-sm text-[color:var(--ops-text-muted)]">选择一个任务查看运行战报。</div>}
     </OverlayDrawer>
@@ -513,6 +680,7 @@ export default function SchedulesPage() {
   const [optimisticRun, setOptimisticRun] = useState<InspectorRun | null>(null)
   const [inspectorLoading, setInspectorLoading] = useState(false)
   const [inspectorError, setInspectorError] = useState<string | null>(null)
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('history')
   const [loading, setLoading] = useState(true)
   const [runningKey, setRunningKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -580,6 +748,7 @@ export default function SchedulesPage() {
   }
 
   async function openInspector(workflow: RecurringWorkflow, anchor?: InspectorAnchor) {
+    setInspectorTab('history')
     setOptimisticRun(anchor?.optimisticRun || null)
     setInspectorRun(anchor?.optimisticRun || null)
     setInspectorRuns([])
@@ -599,6 +768,7 @@ export default function SchedulesPage() {
     setOptimisticRun(null)
     setInspectorLoading(false)
     setInspectorError(null)
+    setInspectorTab('history')
   }
 
   async function runWorkflow(workflow: RecurringWorkflow, dryRun: boolean) {
@@ -632,6 +802,7 @@ export default function SchedulesPage() {
     setInspectorWorkflow(workflow)
     setInspectorRun(optimistic)
     setOptimisticRun(optimistic)
+    setInspectorTab('history')
     setInspectorRuns([])
     setInspectorError(null)
     setInspectorLoading(false)
@@ -724,9 +895,12 @@ export default function SchedulesPage() {
         runs={displayRuns}
         loading={inspectorLoading}
         error={inspectorError}
+        activeTab={inspectorTab}
         onClose={closeInspector}
         onSelectRun={setInspectorRun}
         onRefresh={refreshInspector}
+        onSelectTab={setInspectorTab}
+        onRunWorkflow={runWorkflow}
       />
     </div>
   )

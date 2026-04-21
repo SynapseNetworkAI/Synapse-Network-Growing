@@ -69,7 +69,7 @@ describe('SchedulesPage', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     apiMock.getRecurringWorkflows.mockResolvedValue([
-      workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due' }),
+      workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z' }),
       workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent' }),
       workflow({ workflow_key: 'bug_log_sweep', display_name: 'Bug Log Sweep', owner_role: 'runtime_reliability_engineer', health_status: 'failed', last_result: { status: 'failed', reason: 'log parser failed' } }),
       workflow({ workflow_key: 'new_unknown_sweep', display_name: 'New Unknown Sweep', owner_role: 'operator', input_query: { source: 'custom' }, output_action: { kind: 'custom_output' }, validation_signal: { success_metric: 'custom_metric' } }),
@@ -97,13 +97,22 @@ describe('SchedulesPage', () => {
     expect(screen.getAllByText('Missing Presentation Metadata').length).toBeGreaterThan(0)
   })
 
-  it('shows input action output for scheduled job cards', async () => {
+  it('shows compact input action output for scheduled job cards', async () => {
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Active goals + Operating Manifest')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Planner Agent 拆解目标').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Requirement Candidates | Fail-Closed Intercepts').length).toBeGreaterThan(0)
-    expect(screen.getAllByTestId('schedule-ipo-flow').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('schedule-compact-ipo').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Show definition').length).toBeGreaterThan(0)
+  })
+
+  it('marks overdue jobs with delayed duration and likely reason', async () => {
+    render(<SchedulesPage />)
+
+    expect(await screen.findByText('OVERDUE')).toBeTruthy()
+    expect(screen.getByTestId('schedule-overdue-alert').textContent).toContain('Delayed')
+    expect(screen.getByTestId('schedule-overdue-alert').textContent).toContain('Scheduler tick missed after next_run_at')
   })
 
   it('opens run inspector from last run and keeps raw JSON collapsed', async () => {
@@ -114,9 +123,12 @@ describe('SchedulesPage', () => {
     await user.click(lastRunButtons[0])
 
     const inspector = await screen.findByTestId('schedule-run-inspector')
+    expect(within(inspector).getByRole('button', { name: 'Run History' })).toBeTruthy()
+    expect(within(inspector).getByRole('button', { name: 'Configuration' })).toBeTruthy()
     expect(apiMock.getRecurringWorkflowRuns).toHaveBeenCalledWith(expect.any(String), 50)
     expect(within(inspector).getAllByText(/materialized_requirement_ids/).length).toBeGreaterThan(0)
     expect(within(inspector).getByText('Debug params / result JSON')).toBeTruthy()
+    expect(within(inspector).getAllByText('Copy JSON').length).toBeGreaterThan(0)
     expect(within(inspector).getByText(/#12/)).toBeTruthy()
   })
 
@@ -127,8 +139,9 @@ describe('SchedulesPage', () => {
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
-    const dryRunButtons = screen.getAllByRole('button', { name: 'Dry Run' })
-    await user.click(dryRunButtons[0])
+    await user.click(screen.getAllByRole('button', { name: 'View History' })[0])
+    await user.click(await screen.findByRole('button', { name: 'Configuration' }))
+    await user.click(screen.getByRole('button', { name: 'Dry Run' }))
 
     const inspector = await screen.findByTestId('schedule-run-inspector')
     expect(within(inspector).getAllByText('Running...').length).toBeGreaterThan(0)
@@ -148,8 +161,10 @@ describe('SchedulesPage', () => {
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
-    const dryRunButtons = screen.getAllByRole('button', { name: 'Dry Run' })
-    await user.click(dryRunButtons[0])
+    expect(screen.queryByRole('button', { name: 'Dry Run' })).toBeNull()
+    await user.click(screen.getAllByRole('button', { name: 'View History' })[0])
+    await user.click(await screen.findByRole('button', { name: 'Configuration' }))
+    await user.click(screen.getByRole('button', { name: 'Dry Run' }))
 
     await waitFor(() => {
       expect(apiMock.runRecurringWorkflow).toHaveBeenCalledWith(expect.any(String), {
@@ -161,6 +176,23 @@ describe('SchedulesPage', () => {
     const inspector = await screen.findByTestId('schedule-run-inspector')
     expect(within(inspector).getAllByText('DRY RUN').length).toBeGreaterThan(0)
     expect(within(inspector).getByText('Sandbox preview only. No auto-start or acceptance dispatch.')).toBeTruthy()
+  })
+
+  it('reruns selected history with safe params instead of raw payload replay', async () => {
+    const user = userEvent.setup()
+    render(<SchedulesPage />)
+
+    const lastRunButtons = await screen.findAllByRole('button', { name: /Last Run/i })
+    await user.click(lastRunButtons[0])
+    await user.click(await screen.findByRole('button', { name: 'Re-run with this context' }))
+
+    await waitFor(() => {
+      expect(apiMock.runRecurringWorkflow).toHaveBeenCalledWith(expect.any(String), {
+        dry_run: true,
+        auto_start: false,
+        auto_dispatch_acceptance: false,
+      })
+    })
   })
 
   it('refreshes run history and falls back when the selected run leaves the latest 50', async () => {

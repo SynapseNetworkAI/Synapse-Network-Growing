@@ -198,13 +198,29 @@ Output: Reply drafts | Bug candidates
 
 操作：
 
-1. `Dry Run`
-2. `Run Now`
-3. `View History`
+1. 主视图只保留紧凑状态、Owner、schedule、Last / Next Run 和一行 compact I-P-O。
+2. `Run Now` 可以作为卡片右上角小型操作，但必须继续使用安全默认值。
+3. `View History` 或点击卡片标题 / Last Run 打开 Run Inspector。
+4. `Dry Run` 属于调试动作，默认放入 Run Inspector 的 Configuration / Run Controls 区，不占据主视图最高层级。
+
+主视图不得把完整 I-P-O 三块大卡、长 description 和三个大按钮平铺在每个任务卡中。完整定义必须通过 `Show definition` 或 Drawer 渐进披露。
+
+逾期展示：
+
+1. `is_due=true` 且 `next_run_at` 已过时必须显示 `OVERDUE`。
+2. Overdue 必须显示欠账时间，例如 `Delayed 2d 4h`。
+3. Overdue 必须显示可推断原因：`Worker locked`、`last_result.reason`、`error_excerpt` 或 `Scheduler tick missed after next_run_at`。
+4. 逾期超过 24 小时必须使用危险态，而不是普通黄色 due。
+
+Attention Required 去重：
+
+1. 出现在 `Attention Required` 的任务是当前唯一主视觉焦点。
+2. 同一任务不得在原业务泳道重复完整卡片。
+3. 如需保留业务归属上下文，只能展示极简 ghost row，例如 `Elevated to Attention`。
 
 `Dry Run` / `Run Now` 触发后必须对当前卡片做局部运行锁定，显示 `Running...`，防止 operator 连点。Run Inspector 必须立即打开并插入 optimistic running entry；请求完成后用真实 `run_id` 和 run history 替换 optimistic entry。若 operator 已主动关闭抽屉，完成后不得重新抢焦点，只允许 toast / 非阻塞提示。
 
-### Run History / Run Inspector
+### Run History / Configuration / Run Inspector
 
 Last Run 必须是可点击入口。点击后打开 Run Inspector，默认展示人话战报：
 
@@ -220,11 +236,21 @@ Raw `params` / `result` 只能放在 Debug details 中，避免页面变成日�
 
 Run Inspector 约束：
 
-1. 历史查询必须显式限制为最近 50 条，避免高频任务历史拖垮浏览器。
-2. `Last Run` 入口应传递明确锚点；刷新后优先保留当前选中 run。如果该 run 已不在最近 50 条中，平滑回退到最新 run 并提示。
-3. 抽屉必须支持局部 `Refresh`，无需关闭重开。
-4. `dry_run=true` 的历史必须视觉降级，显示 `DRY RUN`，并说明它只是安全预演：不会 auto-start requirement，也不会 dispatch acceptance。
-5. 空历史必须显示可行动空状态，引导 operator 先执行 `Dry Run` 创建安全记录。
+1. Drawer 必须包含 `Run History` 与 `Configuration` 两个 tab。
+2. 历史查询必须显式限制为最近 50 条，避免高频任务历史拖垮浏览器。
+3. `Last Run` 入口应传递明确锚点；刷新后优先保留当前选中 run。如果该 run 已不在最近 50 条中，平滑回退到最新 run 并提示。
+4. 抽屉必须支持局部 `Refresh`，无需关闭重开。
+5. `dry_run=true` 的历史必须视觉降级，显示 `DRY RUN`，并说明它只是安全预演：不会 auto-start requirement，也不会 dispatch acceptance。
+6. 空历史必须显示可行动空状态，引导 operator 先执行 `Dry Run` 创建安全记录。
+7. Raw `params/result` JSON 必须默认折叠，并提供 Copy JSON。
+8. `Re-run with this context` 只能复用安全参数：`dry_run`、`auto_start=false`、`auto_dispatch_acceptance=false`；不得重放任意 raw payload 或提升权限。
+
+Configuration tab v1 是只读配置检查和安全运行控制：
+
+1. 展示 schedule、owner、input_query、output_action、escalation_rule、validation_signal。
+2. 展示 `Dry Run` 与 `Run Now` 的语义说明。
+3. 不开放任意 prompt、cron、shell、execution logic 编辑。
+4. 若未来支持编辑，只能通过受控 API 修改 presentation metadata 或 schedule policy，并需要单独设计。
 
 `bug_log_sweep` 如果遇到另一个 scheduler 或手动 Run Now 正在运行，会写入：
 
