@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from server.database import HumanGateRequestRow, RecurringWorkflowRow, RecurringWorkflowRunRow, RequirementRow, WorkflowArtifactRow, WorkflowRunRow
 from server.services.scheduling.recurring_workflows import (
     _ci_status_sweep,
+    _next_run_at,
     list_recurring_workflow_runs,
     run_recurring_workflow,
     sync_recurring_workflows,
@@ -128,6 +129,27 @@ def test_goal_planner_sweep_due_uses_operator_timezone():
         now=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
         local_time="09:00",
     )
+
+
+def test_recurring_daily_next_run_uses_operator_timezone(monkeypatch):
+    monkeypatch.setattr("server.config.OPERATOR_TIMEZONE", "Asia/Kuala_Lumpur")
+    row = RecurringWorkflowRow(
+        workflow_key="goal_planner_sweep",
+        display_name="Goal Planner Sweep",
+        description="Daily planner",
+        status="active",
+        trigger_type="scheduled",
+        owner_role="portfolio_planner",
+        schedule_json='{"cadence":"daily","suggested_local_time":"09:00"}',
+        input_query_json="{}",
+        output_action_json="{}",
+        escalation_rule_json="{}",
+        validation_signal_json="{}",
+    )
+
+    next_run = _next_run_at(row, now=datetime(2026, 4, 21, 10, 30, tzinfo=timezone.utc))
+
+    assert next_run == datetime(2026, 4, 22, 1, 0, tzinfo=timezone.utc)
 
 
 def test_goal_planner_recurring_workflow_runs_real_planner_dry_run(db_session, monkeypatch):
