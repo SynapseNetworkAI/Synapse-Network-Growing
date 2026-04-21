@@ -224,6 +224,7 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "transitions": [
                     {"if": "pr.created", "goto": "awaiting_operator"},
                     {"if": "pr.failed", "goto": "awaiting_operator"},
+                    {"goto": "done"},
                 ],
             },
             "awaiting_operator": {
@@ -1440,6 +1441,10 @@ def _open_requirement_review_pr(
 ) -> AtomResult:
     """Commit, push, and sync a GitHub draft PR for a completed workflow."""
 
+    expected_outcome = _workflow_expected_outcome(ctx)
+    if expected_outcome == "verification_only":
+        return _verification_only_review_result(ctx, pr_scope=pr_scope, risk_flags=risk_flags)
+
     if _workflow_pr_test_mode():
         return _simulated_review_pr_result(ctx, pr_scope=pr_scope, risk_flags=risk_flags)
 
@@ -1560,6 +1565,87 @@ def _open_requirement_review_pr(
             }
         },
         artifacts=tuple(artifact_ids),
+        risk_flags=risk_flags,
+    )
+
+
+def _workflow_expected_outcome(ctx: WorkflowContext) -> str:
+    acceptance = ctx.blackboard.get("acceptance") if isinstance(ctx.blackboard.get("acceptance"), Mapping) else {}
+    value = str(acceptance.get("expected_outcome") or "").strip().lower()
+    if value in {"code_delivery", "verification_only"}:
+        return value
+    try:
+        metadata = json.loads(str(getattr(ctx.requirement, "intake_metadata_json", "") or "{}"))
+    except Exception:
+        metadata = {}
+    if isinstance(metadata, Mapping):
+        value = str(metadata.get("expected_outcome") or "").strip().lower()
+        if value in {"code_delivery", "verification_only"}:
+            return value
+    return "code_delivery"
+
+
+def _verification_only_review_result(
+    ctx: WorkflowContext,
+    *,
+    pr_scope: str,
+    risk_flags: tuple[str, ...],
+) -> AtomResult:
+    verification = ctx.blackboard.get("verification") if isinstance(ctx.blackboard.get("verification"), Mapping) else {}
+    if str(verification.get("status") or "").strip().lower() != "passed":
+        return AtomResult(
+            summary="Verification-only delivery blocked: evidence bundle is incomplete",
+            writes={
+                "pr": {
+                    "created": False,
+                    "failed": True,
+                    "status": "verification_only_missing_evidence",
+                    "url": None,
+                    "blockers": ["verification evidence must pass before verification_only completion"],
+                }
+            },
+            risk_flags=risk_flags,
+        )
+    payload = {
+        "status": "no_op_verified",
+        "expected_outcome": "verification_only",
+        "pr_status": "not_required",
+        "pr_url": None,
+        "reason": "Planner declared verification_only; evidence bundle passed and no repository diff is required.",
+        "checks_projection_ready": True,
+    }
+    artifact = _create_workflow_artifact(
+        ctx.db,
+        workflow_run_id=int(ctx.workflow_run.id),
+        artifact_type="workflow_review_pr_sync",
+        state_key=ctx.state_key,
+        atom_key=str(ctx.state_spec.get("atom") or "open_pr"),
+        content_summary=f"{pr_scope}: verification-only no-op delivery",
+        human_readable_body=json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        machine_readable_payload=payload,
+    )
+    _sync_workflow_delivery_columns(
+        ctx.workflow_run,
+        pr_url=None,
+        compare_url=None,
+        branch_name=None,
+        base_branch=_workflow_base_branch(ctx),
+        status="no_op_verified",
+        simulated=False,
+    )
+    return AtomResult(
+        summary="Verification-only goal satisfied without repository changes",
+        writes={
+            "pr": {
+                "created": False,
+                "failed": False,
+                "status": "no_op_verified",
+                "url": None,
+                "expected_outcome": "verification_only",
+                "sync": payload,
+            }
+        },
+        artifacts=(str(artifact.id),),
         risk_flags=risk_flags,
     )
 
@@ -2314,6 +2400,115 @@ def decide_human_gate(
     _notify_human_gate_decided(db, gate, run)
     gate._resume_result = resume_result  # type: ignore[attr-defined]
     return gate
+
+
+def supersede_workflow_and_retry_planner(
+    db: Session,
+    *,
+    workflow_run_id: int,
+    operator: str = "operator",
+    comment: str = "",
+) -> dict[str, Any]:
+    """Close a no-change dead-end workflow and trigger a hinted Planner retry."""
+
+    run = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == int(workflow_run_id)).first()
+    if run is None:
+        raise WorkflowRuntimeError(f"workflow run not found: {workflow_run_id}")
+    if str(run.status or "") != "awaiting_operator" and str(run.current_state or "") != "awaiting_operator":
+        raise WorkflowRuntimeError("supersede-and-retry is only available for workflows awaiting operator")
+    blackboard = workflow_blackboard(run)
+    if not _supersede_retry_allowed(run, blackboard):
+        raise WorkflowRuntimeError("supersede-and-retry is only available for no-change or bootstrap dead-end workflows")
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == int(run.requirement_id)).first()
+    if requirement is None:
+        raise WorkflowRuntimeError("workflow requirement not found")
+
+    now = utcnow()
+    context_hint = (
+        f"System Note: The previous attempt (Requirement #{int(requirement.id)}, Workflow #{int(run.id)}) "
+        "was superseded because it resulted in no repository changes to commit. A manual bootstrap PR may "
+        "already have changed the repository. For this sweep, evaluate the current repository state and "
+        "consider generating a verification_only candidate to formally verify the goal instead of repeating "
+        "code_delivery."
+    )
+    supersede_payload = {
+        "operator": operator,
+        "comment": comment,
+        "context_hint": context_hint,
+        "reason": "no_change_bootstrap_dead_end",
+        "superseded_at": now.isoformat(),
+    }
+    previous_state = str(run.current_state or "awaiting_operator")
+
+    for gate in (
+        db.query(HumanGateRequestRow)
+        .filter(HumanGateRequestRow.workflow_run_id == int(run.id), HumanGateRequestRow.status == "pending")
+        .all()
+    ):
+        gate.status = "decided"
+        gate.decision = "superseded"
+        gate.decided_by = operator
+        gate.decision_comment = comment or "Superseded to retry Planner with repository-state context."
+        gate.decided_at = now
+
+    blackboard.setdefault("supersede_decisions", []).append(supersede_payload)
+    blackboard["current_state"] = "closed_superseded"
+    run.status = "closed_superseded"
+    run.current_state = "closed_superseded"
+    run.resolution = "superseded_for_planner_retry"
+    run.completed_at = now
+    run.updated_at = now
+    run.blackboard_json = _json_dump(blackboard)
+
+    requirement.status = "superseded"
+    requirement.workflow_state = "closed_superseded"
+    requirement.phase = "closed"
+    requirement.attention_reason = "superseded_for_planner_retry"
+    requirement.completed_at = requirement.completed_at or now
+    requirement.updated_at = now
+
+    db.add(
+        WorkflowStateEventRow(
+            workflow_run_id=int(run.id),
+            event_type="workflow_superseded",
+            from_state=previous_state,
+            to_state="closed_superseded",
+            condition="operator.supersede_and_retry_planner",
+            payload_json=_json_dump(supersede_payload),
+        )
+    )
+    _persist_blackboard(db, run, "closed_superseded", blackboard)
+    db.flush()
+
+    from server.services.planning.lifecycle import run_planner_sweep, sweep_to_dict
+
+    sweep = run_planner_sweep(
+        db,
+        dry_run=False,
+        triggered_by="supersede_and_retry_planner",
+        context_hint=context_hint,
+    )
+    return {
+        "workflow_run_id": int(run.id),
+        "requirement_id": int(requirement.id),
+        "status": "closed_superseded",
+        "context_hint": context_hint,
+        "planner_sweep": sweep_to_dict(sweep),
+    }
+
+
+def _supersede_retry_allowed(run: WorkflowRunRow, blackboard: Mapping[str, Any]) -> bool:
+    text = json.dumps(blackboard, ensure_ascii=False).lower()
+    resolution = str(run.resolution or "").lower()
+    delivery_status = str(getattr(run, "delivery_status", "") or "").lower()
+    return (
+        "no repository changes" in text
+        or "no changes detected" in text
+        or "delivery_blocked_no_changes" in text
+        or "bootstrap" in text
+        or "no_change" in resolution
+        or delivery_status == "delivery_blocked_no_changes"
+    )
 
 
 def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:

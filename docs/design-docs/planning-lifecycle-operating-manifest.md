@@ -99,6 +99,18 @@ Planner Agent v1.1 turns that single-goal Markdown PRD into a structured candida
 
 If any gate fails, the candidate stays in `validation_failed`; it must not become a Requirement or start a Workflow.
 
+Planner Agent must also declare the delivery expectation before execution starts:
+
+```text
+expected_outcome = code_delivery | verification_only
+```
+
+`code_delivery` means the Requirement must produce repository changes before delivery handoff. If the delivery atom sees no diff, the workflow must fail closed instead of claiming success.
+
+`verification_only` is only valid when the Goal can be proven by evidence-bound commands and artifacts against the current repository state. It may complete without a PR, but only if the verification evidence bundle is complete. The workflow runner may not decide this at the end as an escape hatch; it must come from the Planner Candidate.
+
+When an operator uses `Supersede & Retry Planner` on a no-change/bootstrap dead end, the new sweep receives a temporary `context_hint`. This hint explains why the previous Requirement/Workflow was superseded and asks Planner to re-evaluate the current repository state, including whether a `verification_only` candidate is now appropriate. The hint is stored in that sweep's input snapshot and must not permanently mutate Goal PRD Markdown.
+
 ### RequirementCandidate
 
 `requirement_candidates` is the buffer between autonomous planning and the official requirement pool.

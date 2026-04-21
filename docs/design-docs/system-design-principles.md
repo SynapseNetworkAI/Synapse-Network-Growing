@@ -92,6 +92,9 @@
 6. Planner Agent 生成的 `required_commands` 必须通过安全命令 allowlist / denylist；生产、资金、部署、删除、外部网络、权限或破坏性命令必须 Fail Closed。
 7. Planner Agent 只能从已注册 workflow definitions 的 enum 中选择 `workflow_key`，不得自由发明 workflow。
 8. Verification Agent 的 `inconclusive` 不能被 fallback 提升为 `passed`；不确定就是不放行。
+9. Planner Candidate 必须前置声明 `expected_outcome=code_delivery|verification_only`；执行阶段不得为了绕过 no-diff 失败而自行改写。
+10. `code_delivery` 没有 repository diff 必须 Fail Closed；`verification_only` 只有在证据矩阵完整时才允许 no-op success。
+11. Supersede retry 必须携带一次性 `context_hint` 给 Planner，解释前次 no-change/bootstrap dead end，防止 Planner 失忆后无限重复同一个 code-delivery 任务。
 
 ## 6.7 后台任务必须一等可观测
 

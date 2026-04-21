@@ -138,6 +138,13 @@ They are boring on purpose. Boring atoms are how we let creative agents operate 
 
 PR delivery atoms have one hard boundary: agents may commit, push a requirement branch, and open or update a GitHub Draft PR, but they must not merge it. Before pushing, delivery atoms must smart-sync the remote PR branch, preserve human commits through a clean rebase when possible, and route rebase conflicts to `awaiting_operator` instead of overwriting the branch.
 
+Planner candidates declare the delivery expectation before execution:
+
+1. `code_delivery` must produce repository changes before PR handoff. No diff is a fail-closed delivery blocker.
+2. `verification_only` may complete without repository changes or a PR only after deterministic evidence proves the goal against the current repo.
+
+The workflow runner must not downgrade `code_delivery` into `verification_only` at the end. If a no-change/bootstrap dead end is superseded, the operator action injects a one-sweep Planner `context_hint` so the next candidate can deliberately choose verification-only when the repo already satisfies the objective.
+
 ### Harness / Verification
 
 Harness executes required commands and records authoritative evidence.

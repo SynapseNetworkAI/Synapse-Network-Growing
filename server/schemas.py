@@ -284,6 +284,10 @@ class PlanningGoalTraceOut(BaseModel):
     diagnostics: list[PlanningGoalTraceDiagnosticOut] = []
     next_actions: list[dict[str, object]] = []
     history: list[dict[str, object]] = []
+    objective_status: str = "incomplete"
+    missing_evidence: list[str] = []
+    latest_chain: dict[str, object] = {}
+    next_action: str = "inspect_trace"
 
 
 class PlanningGlobalSteeringOut(BaseModel):
@@ -352,6 +356,7 @@ class CandidateApproveRunResultOut(BaseModel):
 class PlannerSweepRunRequest(BaseModel):
     dry_run: bool = False
     triggered_by: str = "operator"
+    context_hint: Optional[str] = None
 
 
 class PlannerSweepOut(BaseModel):

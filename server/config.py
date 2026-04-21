@@ -80,6 +80,7 @@ GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED",
     "true" if ENV == "local" else "false",
 ).lower() in {"1", "true", "yes", "on"}
+OPERATOR_TIMEZONE = os.environ.get("OPS_OPERATOR_TIMEZONE", "Asia/Kuala_Lumpur").strip() or "Asia/Kuala_Lumpur"
 GOAL_PLANNER_SWEEP_LOCAL_TIME = os.environ.get("OPS_GOAL_PLANNER_SWEEP_LOCAL_TIME", "09:00").strip() or "09:00"
 GOAL_PLANNER_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_GOAL_PLANNER_SWEEP_STARTUP_DELAY_SECONDS", "20")))
 GOAL_PLANNER_SWEEP_SCHEDULER_POLL_SECONDS = max(30, int(os.environ.get("OPS_GOAL_PLANNER_SWEEP_SCHEDULER_POLL_SECONDS", "60")))

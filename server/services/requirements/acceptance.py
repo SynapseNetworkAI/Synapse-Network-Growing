@@ -226,6 +226,9 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
         acceptance_kind = str(raw.get("acceptance_kind") or "").strip()
         if acceptance_kind in {"business", "system_dogfood"}:
             payload["acceptance_kind"] = acceptance_kind
+        expected_outcome = str(raw.get("expected_outcome") or "").strip().lower()
+        if expected_outcome in {"code_delivery", "verification_only"}:
+            payload["expected_outcome"] = expected_outcome
         for key in {"manual_review_prompt", "override_by", "override_reason", "override_at"}:
             value = str(raw.get(key) or "").strip()
             if value:

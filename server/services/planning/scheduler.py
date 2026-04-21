@@ -5,6 +5,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -32,10 +33,36 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
         return 9, 0
 
 
-def goal_planner_sweep_due(*, last_run_at: datetime | None, now: datetime | None = None, local_time: str | None = None) -> bool:
+def _operator_zone(timezone_name: str | None = None) -> ZoneInfo:
+    try:
+        return ZoneInfo(str(timezone_name or config.OPERATOR_TIMEZONE or "UTC"))
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def goal_planner_sweep_slot_utc(
+    *,
+    now: datetime | None = None,
+    local_time: str | None = None,
+    timezone_name: str | None = None,
+) -> datetime:
     current = _ensure_utc(now) or datetime.now(timezone.utc)
     hour, minute = _parse_hhmm(local_time or config.GOAL_PLANNER_SWEEP_LOCAL_TIME)
-    today_slot = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    zone = _operator_zone(timezone_name)
+    local_now = current.astimezone(zone)
+    local_slot = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return local_slot.astimezone(timezone.utc)
+
+
+def goal_planner_sweep_due(
+    *,
+    last_run_at: datetime | None,
+    now: datetime | None = None,
+    local_time: str | None = None,
+    timezone_name: str | None = None,
+) -> bool:
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    today_slot = goal_planner_sweep_slot_utc(now=current, local_time=local_time, timezone_name=timezone_name)
     previous = _ensure_utc(last_run_at)
     if previous is None:
         return current >= today_slot
@@ -86,6 +113,9 @@ class GoalPlannerSweepScheduler:
             "enabled": bool(config.GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED),
             "running": bool(self._thread is not None and self._thread.is_alive() and not self._stop_event.is_set()),
             "local_time": config.GOAL_PLANNER_SWEEP_LOCAL_TIME,
+            "operator_timezone": config.OPERATOR_TIMEZONE,
+            "today_slot_utc": goal_planner_sweep_slot_utc().isoformat(),
+            "today_slot_local": goal_planner_sweep_slot_utc().astimezone(_operator_zone()).isoformat(),
             "poll_seconds": int(self._poll_seconds),
             "startup_delay_seconds": int(self._startup_delay_seconds),
             "last_tick_at": self._last_tick_at.isoformat() if self._last_tick_at else None,
@@ -119,4 +149,3 @@ class GoalPlannerSweepScheduler:
                 if db is not None:
                     db.close()
             self._stop_event.wait(self._poll_seconds)
-

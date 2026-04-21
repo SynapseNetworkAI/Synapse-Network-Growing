@@ -19,6 +19,7 @@ from server.services.workflows.declarative import (
     list_workflow_runs,
     request_workflow_business_followup,
     set_workflow_business_outcome,
+    supersede_workflow_and_retry_planner,
     workflow_runs_summary,
     workflow_definition_detail,
     workflow_run_detail,
@@ -62,6 +63,11 @@ class BusinessOutcomeRequest(BaseModel):
     note: str = ""
     title: str | None = None
     description_markdown: str | None = None
+
+
+class WorkflowSupersedeRetryRequest(BaseModel):
+    operator: str = "operator"
+    comment: str = ""
 
 
 @router.get("/definitions")
@@ -170,6 +176,26 @@ def create_workflow_followup_endpoint(
     except WorkflowRuntimeError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/supersede-and-retry-planner")
+def supersede_and_retry_planner_endpoint(
+    workflow_run_id: int,
+    body: WorkflowSupersedeRetryRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = supersede_workflow_and_retry_planner(
+            db,
+            workflow_run_id=workflow_run_id,
+            operator=(body.operator if body is not None else "operator"),
+            comment=(body.comment if body is not None else ""),
+        )
+        db.commit()
+        return payload
+    except WorkflowRuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/runs/{workflow_run_id}/business-outcome/confirm")
