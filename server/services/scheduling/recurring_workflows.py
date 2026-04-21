@@ -7,7 +7,7 @@ import socket
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from server import config
 from server.database import (
@@ -170,6 +170,9 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "validation_signal": {"success_metric": "archived_requirement_ids"},
     },
 ]
+
+AUTO_TICK_WORKFLOWS = {"approval_sweep", "bug_log_sweep", "goal_planner_sweep"}
+GENERIC_AUTO_TICK_WORKFLOWS = {"approval_sweep"}
 
 
 def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, Any]]:
@@ -625,9 +628,50 @@ def _parse_local_time(value: str) -> tuple[int, int]:
         return 9, 0
 
 
+def _auto_tick_enabled(workflow_key: str) -> bool:
+    return str(workflow_key or "").strip() in AUTO_TICK_WORKFLOWS
+
+
+def _scheduler_mode(workflow_key: str) -> str:
+    return "auto" if _auto_tick_enabled(workflow_key) else "manual"
+
+
+def _last_scheduler_tick_at(db: Session | None, workflow_key: str) -> datetime | None:
+    if db is None:
+        return None
+    row = (
+        db.query(RecurringWorkflowRunRow)
+        .filter(
+            RecurringWorkflowRunRow.workflow_key == workflow_key,
+            RecurringWorkflowRunRow.triggered_by == "scheduler",
+        )
+        .order_by(RecurringWorkflowRunRow.started_at.desc(), RecurringWorkflowRunRow.id.desc())
+        .first()
+    )
+    return row.started_at if row is not None else None
+
+
+def _overdue_reason(row: RecurringWorkflowRow, *, next_run_at: datetime | None, now: datetime) -> str | None:
+    if not _auto_tick_enabled(str(row.workflow_key)):
+        return "Manual only / registered but not auto-ticking"
+    if next_run_at is None or next_run_at > now:
+        return None
+    last_result = _json_loads(row.last_result_json, {})
+    status = str(last_result.get("status") or "").lower()
+    if status == "skipped_locked":
+        return str(last_result.get("reason") or "Worker locked")
+    if last_result.get("reason"):
+        return str(last_result.get("reason"))
+    if status == "failed":
+        return "Last scheduler run failed"
+    return "Scheduler tick missed after next_run_at"
+
+
 def _workflow_health_status(row: RecurringWorkflowRow, *, next_run_at: datetime | None, now: datetime | None = None) -> str:
     if str(row.status or "") != "active":
         return "paused"
+    if not _auto_tick_enabled(str(row.workflow_key)):
+        return "manual"
     if str(_json_loads(row.last_result_json, {}).get("status") or "").lower() == "failed":
         return "failed"
     current = _ensure_utc(now) or datetime.now(timezone.utc)
@@ -639,6 +683,8 @@ def _workflow_health_status(row: RecurringWorkflowRow, *, next_run_at: datetime 
 def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     next_run_at = _next_run_at(row, now=now)
+    auto_tick_enabled = _auto_tick_enabled(str(row.workflow_key))
+    db = object_session(row)
     return {
         "id": int(row.id),
         "workflow_key": str(row.workflow_key),
@@ -655,8 +701,12 @@ def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
         "is_builtin": bool(row.is_builtin),
         "last_run_at": row.last_run_at,
         "next_run_at": next_run_at,
-        "is_due": bool(next_run_at is not None and next_run_at <= now),
+        "is_due": bool(auto_tick_enabled and next_run_at is not None and next_run_at <= now),
         "health_status": _workflow_health_status(row, next_run_at=next_run_at, now=now),
+        "scheduler_mode": _scheduler_mode(str(row.workflow_key)),
+        "auto_tick_enabled": auto_tick_enabled,
+        "overdue_reason": _overdue_reason(row, next_run_at=next_run_at, now=now),
+        "last_scheduler_tick_at": _last_scheduler_tick_at(db, str(row.workflow_key)),
         "last_result": _json_loads(row.last_result_json, {}),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -721,6 +771,37 @@ def get_recurring_workflow(db: Session, workflow_key: str) -> RecurringWorkflowR
     if row is None:
         raise ValueError("Recurring workflow not found")
     return row
+
+
+def run_due_recurring_workflows(db: Session, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Run safe generic auto-tick workflows that are past next_run_at."""
+
+    sync_recurring_workflows(db)
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    results: list[dict[str, Any]] = []
+    rows = (
+        db.query(RecurringWorkflowRow)
+        .filter(
+            RecurringWorkflowRow.status == "active",
+            RecurringWorkflowRow.workflow_key.in_(sorted(GENERIC_AUTO_TICK_WORKFLOWS)),
+        )
+        .all()
+    )
+    for row in rows:
+        next_run_at = _next_run_at(row, now=current)
+        if next_run_at is None or next_run_at > current:
+            continue
+        results.append(
+            run_recurring_workflow(
+                db,
+                workflow_key=str(row.workflow_key),
+                triggered_by="scheduler",
+                dry_run=False,
+                auto_start=False,
+                auto_dispatch_acceptance=False,
+            )
+        )
+    return results
 
 
 def _closeout_and_compact_sweep(db: Session, *, acceptance_limit: int, auto_dispatch_acceptance: bool) -> dict[str, Any]:
@@ -1084,6 +1165,7 @@ def recurring_workflow_health(
     *,
     bug_scheduler_status: dict[str, Any] | None = None,
     goal_planner_scheduler_status: dict[str, Any] | None = None,
+    recurring_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
@@ -1101,6 +1183,10 @@ def recurring_workflow_health(
         "bug_log_scheduler": bug_status,
         "goal_planner_scheduler": goal_planner_scheduler_status or {
             "enabled": bool(getattr(config, "GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "recurring_workflow_scheduler": recurring_scheduler_status or {
+            "enabled": bool(getattr(config, "RECURRING_WORKFLOW_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

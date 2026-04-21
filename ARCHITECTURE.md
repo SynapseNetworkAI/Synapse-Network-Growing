@@ -137,6 +137,9 @@ High evidence does not bypass high risk.
 3. Do not send ordinary state transitions, atom success, artifacts, or blackboard snapshots to Lark.
 4. P0/P1 interruption goes to alert. Human gate goes to approval. PR/release goes to release. Workflow summary goes to workflow notification.
 5. Notification suppression and requirement materialization suppression are separate systems.
+6. Recurring workflows must declare their scheduler mode. `auto` workflows must emit scheduler-triggered run history and keep `last_run_at / next_run_at` truthful; `manual` workflows must not be shown as overdue merely because a registry time exists.
+7. Goal completion is objective-based, not workflow-state-based. A Goal is not satisfied until Trace can see the required command evidence, changed files, delivery/PR evidence, and any business confirmation required by its acceptance contract.
+8. `agent_self_repair` verification must use the Growing hard-gate bundle: architecture/import contracts, complexity tripwires, backend tests, dashboard tests/build, docs-sync, diff hygiene, and command evidence artifacts. A single compile check is not sufficient proof.
 
 ## 7. Zero Tolerance And Fail-Closed Acceptance
 

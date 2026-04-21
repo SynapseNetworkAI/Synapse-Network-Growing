@@ -1,6 +1,8 @@
 from server.database import RecurringWorkflowRow, RecurringWorkflowRunRow
 from server.services.scheduling.recurring_workflows import (
     list_recurring_workflow_runs,
+    recurring_workflow_to_dict,
+    run_due_recurring_workflows,
     run_recurring_workflow,
     sync_recurring_workflows,
 )
@@ -72,8 +74,53 @@ def test_recurring_workflows_health_endpoint(synced_client):
     payload = response.json()
     assert "bug_log_scheduler" in payload
     assert "lock" in payload["bug_log_scheduler"]
+    assert "recurring_workflow_scheduler" in payload
     assert "notification_dispatcher" in payload
     assert payload["recurring_registry"]["total_count"] >= 7
+
+
+def test_approval_sweep_auto_tick_records_scheduler_history_and_clears_overdue(db_session):
+    from datetime import datetime, timezone
+
+    sync_recurring_workflows(db_session)
+    row = db_session.query(RecurringWorkflowRow).filter_by(workflow_key="approval_sweep").one()
+    row.last_run_at = datetime(2026, 4, 19, 7, 41, 3, tzinfo=timezone.utc)
+    db_session.commit()
+
+    before = recurring_workflow_to_dict(row)
+    assert before["scheduler_mode"] == "auto"
+    assert before["auto_tick_enabled"] is True
+
+    results = run_due_recurring_workflows(db_session, now=datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc))
+    db_session.refresh(row)
+
+    assert [item["workflow_key"] for item in results] == ["approval_sweep"]
+    assert row.last_run_at is not None
+    scheduler_run = (
+        db_session.query(RecurringWorkflowRunRow)
+        .filter_by(workflow_key="approval_sweep", triggered_by="scheduler")
+        .one()
+    )
+    assert scheduler_run.status == "succeeded"
+    after = recurring_workflow_to_dict(row)
+    assert after["last_scheduler_tick_at"] is not None
+
+
+def test_manual_only_workflows_do_not_surface_overdue(db_session):
+    from datetime import datetime, timezone
+
+    sync_recurring_workflows(db_session)
+    row = db_session.query(RecurringWorkflowRow).filter_by(workflow_key="forum_feedback_sweep").one()
+    row.last_run_at = datetime(2026, 4, 19, 7, 0, tzinfo=timezone.utc)
+    db_session.commit()
+
+    payload = recurring_workflow_to_dict(row)
+
+    assert payload["scheduler_mode"] == "manual"
+    assert payload["auto_tick_enabled"] is False
+    assert payload["is_due"] is False
+    assert payload["health_status"] == "manual"
+    assert payload["overdue_reason"] == "Manual only / registered but not auto-ticking"
 
 
 def test_recurring_workflow_runs_endpoint(synced_client):

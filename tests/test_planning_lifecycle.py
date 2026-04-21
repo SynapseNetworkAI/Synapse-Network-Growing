@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from server.database import (
     HumanGateRequestRow,
     OperatingManifestRow,
@@ -25,6 +27,21 @@ from server.services.planning.lifecycle import (
 from server.services.planning.planner_agent import PlannerAgentCandidate
 from server.services.requirements.acceptance import AcceptanceValidationError, validate_required_command_safety
 from server.services.requirements.service import generate_requirement_workflow_assets, start_requirement_workflow
+
+
+@pytest.fixture(autouse=True)
+def _fast_self_repair_hard_gate_commands(monkeypatch):
+    def fake_command_result(_ctx, *, command, args, purpose, timeout_seconds=30):
+        return {
+            "command": command,
+            "args": args,
+            "purpose": purpose,
+            "exit_code": 0,
+            "log_artifact_id": 999,
+            "timeout_seconds": timeout_seconds,
+        }
+
+    monkeypatch.setattr("server.services.workflows.declarative._run_local_command_result_artifact", fake_command_result)
 
 
 def _project(db):
@@ -240,7 +257,28 @@ def test_goal_trace_returns_latest_chain_and_evidence(client, db_session):
                 artifact_type="workflow_command_result",
                 state_key="verify",
                 atom_key="verify",
-                machine_readable_payload=json.dumps({"command": "python -m pytest -q", "exit_code": 0}),
+                machine_readable_payload=json.dumps({"command": "scripts/ci/agent_guardrails.sh", "purpose": "docs sync architecture contracts", "exit_code": 0}),
+            ),
+            WorkflowArtifactRow(
+                workflow_run_id=int(workflow.id),
+                artifact_type="workflow_command_result",
+                state_key="verify",
+                atom_key="verify",
+                machine_readable_payload=json.dumps({"command": "python -m pytest -q", "purpose": "backend tests", "exit_code": 0}),
+            ),
+            WorkflowArtifactRow(
+                workflow_run_id=int(workflow.id),
+                artifact_type="workflow_command_result",
+                state_key="verify",
+                atom_key="verify",
+                machine_readable_payload=json.dumps({"command": "cd dashboard && npm test -- --run", "purpose": "dashboard tests", "exit_code": 0}),
+            ),
+            WorkflowArtifactRow(
+                workflow_run_id=int(workflow.id),
+                artifact_type="workflow_command_result",
+                state_key="verify",
+                atom_key="verify",
+                machine_readable_payload=json.dumps({"command": "cd dashboard && npm run build", "purpose": "dashboard build", "exit_code": 0}),
             ),
         ]
     )
@@ -253,9 +291,78 @@ def test_goal_trace_returns_latest_chain_and_evidence(client, db_session):
     assert payload["goal"]["intent_present"] is True
     assert [node["kind"] for node in payload["nodes"]] == ["goal", "candidate", "requirement", "workflow", "evidence"]
     assert payload["nodes"][-1]["status"] == "ok"
+    assert payload["objective_status"] == "satisfied"
     assert payload["nodes"][-1]["metadata"]["pr_url"] == "https://github.com/example/repo/pull/1"
-    assert payload["nodes"][-1]["metadata"]["command_evidence_count"] == 1
+    assert payload["nodes"][-1]["metadata"]["command_evidence_count"] == 4
     assert payload["nodes"][-1]["metadata"]["changed_files_count"] == 1
+
+
+def test_goal_trace_marks_done_self_repair_incomplete_without_hard_gate_evidence(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    goal = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="quality_gate_goal",
+        title="Quality Gate Goal",
+        intent_markdown="Weaponize quality gates.",
+    )
+    db_session.add(goal)
+    db_session.flush()
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="quality_gate_goal",
+        candidate_fingerprint="quality-fp",
+        title="Quality candidate",
+        workflow_key="agent_self_repair",
+        status="materialized",
+        materialized_requirement_id=None,
+    )
+    db_session.add(candidate)
+    db_session.flush()
+    requirement = RequirementRow(
+        title="Quality requirement",
+        description_markdown="Quality requirement",
+        status="completed",
+        source="planner_candidate",
+        operating_manifest_id=int(manifest.id),
+        goal_key="quality_gate_goal",
+        requirement_candidate_id=int(candidate.id),
+        acceptance_contract_json=_candidate_metadata(),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    candidate.materialized_requirement_id = int(requirement.id)
+    workflow = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        operating_manifest_id=int(manifest.id),
+        goal_key="quality_gate_goal",
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        delivery_pr_url="https://github.com/example/repo/pull/27",
+        delivery_status="merged",
+    )
+    db_session.add(workflow)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow.id)
+    db_session.add(
+        WorkflowArtifactRow(
+            workflow_run_id=int(workflow.id),
+            artifact_type="workflow_command_result",
+            state_key="verify",
+            atom_key="verify",
+            machine_readable_payload=json.dumps({"command": "PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py", "exit_code": 0}),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/planning/goals/{int(goal.id)}/trace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["objective_status"] == "incomplete"
+    assert "missing_architecture_contracts" in payload["missing_evidence"]
+    assert "missing_dashboard_tests" in payload["missing_evidence"]
+    assert "missing_dashboard_build" in payload["missing_evidence"]
 
 
 def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_goal(db_session, monkeypatch):

@@ -17,10 +17,12 @@ from server.database import (
 from server.services.workflows.declarative import (
     AtomRegistry,
     AtomResult,
+    WorkflowContext,
     WorkflowSpecError,
     build_agent_self_repair_workflow_spec,
     build_gateway_reliability_repair_workflow_spec,
     decide_human_gate,
+    default_atom_registry,
     run_workflow_state_machine,
     validate_workflow_spec,
     workflow_blackboard,
@@ -237,6 +239,50 @@ def test_verification_failure_exhausts_retry_budget_and_alerts(db_session):
     deliveries = db_session.query(NotificationDeliveryRow).all()
     assert "workflow_retry_budget_exhausted" in {row.event_type for row in deliveries}
     assert "alert" in {row.channel for row in deliveries}
+
+
+def test_default_self_repair_verification_runs_hard_gate_bundle(db_session, monkeypatch):
+    run = _create_workflow_run(db_session)
+    requirement = db_session.get(RequirementRow, int(run.requirement_id))
+    assert requirement is not None
+    captured: list[dict[str, object]] = []
+
+    def fake_command_result(ctx, *, command, args, purpose, timeout_seconds=30):
+        captured.append({"command": command, "args": args, "purpose": purpose, "timeout_seconds": timeout_seconds})
+        return {
+            "command": command,
+            "purpose": purpose,
+            "exit_code": 0,
+            "log_artifact_id": len(captured),
+        }
+
+    monkeypatch.setattr("server.services.workflows.declarative._run_local_command_result_artifact", fake_command_result)
+    spec = build_agent_self_repair_workflow_spec()
+    verify_atom = default_atom_registry().get("run_ops_self_repair_verification")
+    result = verify_atom(
+        WorkflowContext(
+            db=db_session,
+            workflow_run=run,
+            requirement=requirement,
+            spec=spec,
+            state_key="verify",
+            state_spec=spec["states"]["verify"],
+            blackboard={"trigger": {}, "counters": {}},
+        )
+    )
+
+    assert isinstance(result, AtomResult)
+    assert result.writes["verification"]["status"] == "passed"
+    assert [item["command"] for item in captured] == [
+        "scripts/ci/agent_guardrails.sh",
+        "PYTHONPATH=. python -m pytest -q tests/test_declarative_workflow_factory.py tests/test_recurring_workflow_control_plane.py tests/test_planning_lifecycle.py",
+        "cd dashboard && npm test -- --run",
+        "cd dashboard && npm run build",
+    ]
+    checks = result.writes["verification"]["checks"]
+    assert checks["architecture_contracts"] == "passed"
+    assert checks["doc_sync"] == "passed"
+    assert checks["coverage"] == "passed"
 
 
 def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):

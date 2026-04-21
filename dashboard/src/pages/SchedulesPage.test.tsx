@@ -38,6 +38,10 @@ function workflow(overrides: Record<string, unknown>) {
     next_run_at: '2026-04-18T01:00:00Z',
     is_due: false,
     health_status: 'healthy',
+    scheduler_mode: 'auto',
+    auto_tick_enabled: true,
+    overdue_reason: null,
+    last_scheduler_tick_at: null,
     ...overrides,
   }
 }
@@ -69,8 +73,8 @@ describe('SchedulesPage', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     apiMock.getRecurringWorkflows.mockResolvedValue([
-      workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z' }),
-      workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent' }),
+      workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z', overdue_reason: 'Scheduler tick missed after next_run_at' }),
+      workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent', scheduler_mode: 'manual', auto_tick_enabled: false, health_status: 'manual', overdue_reason: 'Manual only / registered but not auto-ticking' }),
       workflow({ workflow_key: 'bug_log_sweep', display_name: 'Bug Log Sweep', owner_role: 'runtime_reliability_engineer', health_status: 'failed', last_result: { status: 'failed', reason: 'log parser failed' } }),
       workflow({ workflow_key: 'new_unknown_sweep', display_name: 'New Unknown Sweep', owner_role: 'operator', input_query: { source: 'custom' }, output_action: { kind: 'custom_output' }, validation_signal: { success_metric: 'custom_metric' } }),
     ])
@@ -113,6 +117,16 @@ describe('SchedulesPage', () => {
     expect(await screen.findByText('OVERDUE')).toBeTruthy()
     expect(screen.getByTestId('schedule-overdue-alert').textContent).toContain('Delayed')
     expect(screen.getByTestId('schedule-overdue-alert').textContent).toContain('Scheduler tick missed after next_run_at')
+  })
+
+  it('does not mark manual-only workflows overdue', async () => {
+    render(<SchedulesPage />)
+
+    await screen.findByText('Forum Feedback Sweep')
+    const forumCard = screen.getByText('Forum Feedback Sweep').closest('article')
+    expect(forumCard?.textContent).toContain('manual')
+    expect(forumCard?.textContent).not.toContain('OVERDUE')
+    expect(forumCard?.textContent).not.toContain('Manual only / registered but not auto-ticking')
   })
 
   it('opens run inspector from last run and keeps raw JSON collapsed', async () => {

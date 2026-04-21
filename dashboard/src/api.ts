@@ -1527,6 +1527,10 @@ export interface RecurringWorkflow {
   next_run_at: string | null
   is_due: boolean
   health_status: string
+  scheduler_mode?: string
+  auto_tick_enabled?: boolean
+  overdue_reason?: string | null
+  last_scheduler_tick_at?: string | null
   last_result: Record<string, unknown>
   created_at: string | null
   updated_at: string | null

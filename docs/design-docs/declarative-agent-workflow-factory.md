@@ -560,6 +560,23 @@ Implement the first production-relevant workflow because gateway reliability is 
 
 Add self-repair for Synapse-Network-Growing after the gateway workflow proves the runner, blackboard, and risk gate.
 
+Runtime verification for `agent_self_repair` is a hard-gate bundle, not a compile smoke test:
+
+```text
+patch
+-> verify hard gates
+   - scripts/ci/agent_guardrails.sh
+   - backend workflow/planning/scheduler tests
+   - dashboard npm test
+   - dashboard npm run build
+-> open_pr
+-> awaiting_operator for human review / merge
+```
+
+Every command must be persisted as `workflow_command_result` evidence. A workflow run that reaches `done` but only contains lightweight compile evidence is mechanically complete but objectively incomplete for quality-gate goals. It must appear in Goal Trace as `objective_status=incomplete` until architecture/contracts, complexity, tests/build, docs-sync, changed files, and PR evidence are all present.
+
+Hard-gate failures route back into the bounded patch feedback loop. Retry exhaustion routes to `awaiting_operator`; it must not be converted into a fake success.
+
 ### Phase 6: Meta-Builder Agent
 
 Allow the Meta-Builder Agent to draft workflow YAML from human intent. Generated workflows remain inactive until schema validation, sandbox fixtures, and human approval pass.

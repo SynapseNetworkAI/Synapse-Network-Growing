@@ -217,10 +217,10 @@ function needsAttention(workflow: RecurringWorkflow) {
 
 function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
   const next = workflow.next_run_at ? new Date(workflow.next_run_at) : null
-  const isOverdue = Boolean(workflow.is_due && next && !Number.isNaN(next.getTime()) && next.getTime() < now.getTime())
+  const isOverdue = Boolean(workflow.auto_tick_enabled !== false && workflow.is_due && next && !Number.isNaN(next.getTime()) && next.getTime() < now.getTime())
   const result = record(workflow.last_result)
   const lastStatus = String(result.status || '').toLowerCase()
-  const rawReason = result.reason || result.error || (workflow.health_status === 'failed' ? 'Recent run failed' : '')
+  const rawReason = workflow.overdue_reason || result.reason || result.error || (workflow.health_status === 'failed' ? 'Recent run failed' : '')
   const reason = lastStatus === 'skipped_locked'
     ? 'Worker locked'
     : String(rawReason)

@@ -1116,6 +1116,7 @@ def _workflow_evidence_metadata(db: Session, workflow: WorkflowRunRow | None) ->
     )
     changed_files: list[str] = []
     command_count = 0
+    command_evidence: list[dict[str, Any]] = []
     pr_url = str(getattr(workflow, "delivery_pr_url", "") or "").strip()
     for artifact in artifacts:
         payload = _json_loads(artifact.machine_readable_payload, {})
@@ -1123,17 +1124,65 @@ def _workflow_evidence_metadata(db: Session, workflow: WorkflowRunRow | None) ->
             changed_files.extend(str(item) for item in payload.get("changed_files") or [] if str(item))
         if artifact.artifact_type == "workflow_command_result":
             command_count += 1
+            command_evidence.append(
+                {
+                    "artifact_id": int(artifact.id),
+                    "command": str(payload.get("command") or ""),
+                    "purpose": str(payload.get("purpose") or ""),
+                    "exit_code": int(payload.get("exit_code") or 0),
+                    "status": "passed" if int(payload.get("exit_code") or 0) == 0 else "failed",
+                }
+            )
         if artifact.artifact_type == "workflow_review_pr_sync" and isinstance(payload, dict) and not pr_url:
             pr_url = str(payload.get("pr_url") or "").strip()
     return {
         "artifact_count": len(artifacts),
         "command_evidence_count": command_count,
+        "command_evidence": command_evidence,
         "changed_files": sorted(set(changed_files)),
         "changed_files_count": len(set(changed_files)),
         "pr_url": pr_url or None,
         "delivery_status": str(getattr(workflow, "delivery_status", "") or "") or None,
         "delivery_is_simulated": bool(getattr(workflow, "delivery_is_simulated", False)),
     }
+
+
+def _goal_hard_gate_missing_evidence(workflow: WorkflowRunRow | None, evidence: dict[str, Any]) -> list[str]:
+    """Return objective-level evidence gaps for the latest goal chain.
+
+    Workflow terminal state proves execution mechanics. The goal objective is stricter:
+    for self-repair quality hardening, the trace must see the actual guardrail bundle,
+    backend tests, dashboard tests/build, changed files, and delivery evidence.
+    """
+
+    if workflow is None:
+        return ["missing_workflow"]
+    missing: list[str] = []
+    command_text = "\n".join(
+        f"{item.get('purpose', '')} {item.get('command', '')}".lower()
+        for item in evidence.get("command_evidence") or []
+        if isinstance(item, dict)
+    )
+    workflow_key = str(workflow.workflow_key or "")
+    if workflow_key == "agent_self_repair":
+        required_signals = [
+            ("missing_architecture_contracts", "agent_guardrails.sh"),
+            ("missing_backend_tests", "pytest"),
+            ("missing_dashboard_tests", "npm test"),
+            ("missing_dashboard_build", "npm run build"),
+        ]
+        for missing_key, needle in required_signals:
+            if needle not in command_text:
+                missing.append(missing_key)
+        if "docs" not in command_text and "doc" not in command_text:
+            missing.append("missing_doc_sync_gate")
+    if not evidence.get("command_evidence_count"):
+        missing.append("missing_command_evidence")
+    if not evidence.get("changed_files_count"):
+        missing.append("missing_changed_files")
+    if not evidence.get("pr_url"):
+        missing.append("missing_pr_url")
+    return sorted(set(missing))
 
 
 def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
@@ -1152,7 +1201,6 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
         .order_by(RequirementCandidateRow.updated_at.desc(), RequirementCandidateRow.id.desc())
         .all()
     )
-    latest_candidate = candidates[0] if candidates else None
     requirements = (
         db.query(RequirementRow)
         .filter(RequirementRow.operating_manifest_id == manifest_id, RequirementRow.goal_key == goal_key)
@@ -1160,6 +1208,14 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
         .all()
     )
     latest_requirement = requirements[0] if requirements else None
+    latest_candidate = candidates[0] if candidates else None
+    if latest_requirement is not None and latest_requirement.requirement_candidate_id:
+        chain_candidate = next(
+            (candidate for candidate in candidates if int(candidate.id) == int(latest_requirement.requirement_candidate_id)),
+            None,
+        )
+        if chain_candidate is not None:
+            latest_candidate = chain_candidate
     latest_workflow = None
     if latest_requirement is not None and latest_requirement.active_workflow_run_id:
         latest_workflow = db.get(WorkflowRunRow, int(latest_requirement.active_workflow_run_id))
@@ -1274,13 +1330,7 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
                 },
             )
         )
-        missing = []
-        if not evidence.get("command_evidence_count"):
-            missing.append("missing_command_evidence")
-        if not evidence.get("changed_files_count"):
-            missing.append("missing_changed_files")
-        if not evidence.get("pr_url"):
-            missing.append("missing_pr_url")
+        missing = _goal_hard_gate_missing_evidence(latest_workflow, evidence)
         nodes.append(
             _trace_node(
                 "evidence",
@@ -1298,6 +1348,18 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
                 metadata=evidence,
             )
         )
+    objective_missing = _goal_hard_gate_missing_evidence(latest_workflow, evidence if latest_workflow is not None else {})
+    terminal_statuses = {"succeeded", "completed", "done"}
+    workflow_status = str(latest_workflow.status or "") if latest_workflow is not None else ""
+    blocked_states = {str(node.get("status") or "") for node in nodes}
+    if "blocked" in blocked_states:
+        objective_status = "blocked"
+    elif latest_workflow is not None and workflow_status in terminal_statuses and not objective_missing:
+        objective_status = "satisfied"
+    elif latest_workflow is not None:
+        objective_status = "incomplete"
+    else:
+        objective_status = "blocked" if diagnostics else "incomplete"
     return {
         "goal": {
             "id": int(goal.id),
@@ -1307,6 +1369,18 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
             "intent_length": len(str(goal.intent_markdown or "")),
             "intent_hash": hashlib.sha256(str(goal.intent_markdown or "").encode("utf-8")).hexdigest(),
             "intent_excerpt": _intent_excerpt(str(goal.intent_markdown or "")),
+        },
+        "objective_status": objective_status,
+        "missing_evidence": objective_missing,
+        "latest_chain": {
+            "candidate_id": int(latest_candidate.id) if latest_candidate is not None else None,
+            "requirement_id": int(latest_requirement.id) if latest_requirement is not None else None,
+            "workflow_run_id": int(latest_workflow.id) if latest_workflow is not None else None,
+            "delivery_pr_url": evidence.get("pr_url") if latest_workflow is not None else None,
+        },
+        "scheduler_diagnostics": {
+            "goal_key": goal_key,
+            "planner_suppression": diagnostics[0] if diagnostics else None,
         },
         "nodes": nodes,
         "diagnostics": diagnostics,

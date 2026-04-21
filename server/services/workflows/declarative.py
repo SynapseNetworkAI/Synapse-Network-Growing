@@ -1222,17 +1222,73 @@ def default_atom_registry() -> AtomRegistry:
                 writes={"verification": {"status": "failed", "command_results": [command_result]}},
                 artifacts=(str(command_result["log_artifact_id"]),),
             )
-        command_result = _run_local_command_result_artifact(
-            ctx,
-            command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
-            args=[sys.executable, "-m", "py_compile", "server/services/workflows/declarative.py"],
-            purpose="Verify the self-repair runtime module still compiles.",
-        )
-        status = "passed" if int(command_result.get("exit_code") or 0) == 0 else "failed"
+        checks = [
+            {
+                "key": "architecture_contracts",
+                "command": "scripts/ci/agent_guardrails.sh",
+                "args": ["bash", "scripts/ci/agent_guardrails.sh"],
+                "purpose": "Run Growing agent hard gates: architecture, complexity, docs-sync, test-evidence, and diff hygiene.",
+                "timeout_seconds": 180,
+            },
+            {
+                "key": "backend_tests",
+                "command": "PYTHONPATH=. python -m pytest -q tests/test_declarative_workflow_factory.py tests/test_recurring_workflow_control_plane.py tests/test_planning_lifecycle.py",
+                "args": [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "tests/test_declarative_workflow_factory.py",
+                    "tests/test_recurring_workflow_control_plane.py",
+                    "tests/test_planning_lifecycle.py",
+                ],
+                "purpose": "Verify workflow factory, scheduler control plane, and planning lifecycle tests remain green.",
+                "timeout_seconds": 240,
+            },
+            {
+                "key": "dashboard_tests",
+                "command": "cd dashboard && npm test -- --run",
+                "args": ["npm", "--prefix", "dashboard", "test", "--", "--run"],
+                "purpose": "Verify Ops Console dashboard tests remain green.",
+                "timeout_seconds": 240,
+            },
+            {
+                "key": "dashboard_build",
+                "command": "cd dashboard && npm run build",
+                "args": ["npm", "--prefix", "dashboard", "run", "build"],
+                "purpose": "Verify Ops Console production build remains green.",
+                "timeout_seconds": 240,
+            },
+        ]
+        command_results = [
+            _run_local_command_result_artifact(
+                ctx,
+                command=str(check["command"]),
+                args=list(check["args"]),
+                purpose=str(check["purpose"]),
+                timeout_seconds=int(check["timeout_seconds"]),
+            )
+            for check in checks
+        ]
+        checks_projection = {
+            str(check["key"]): "passed" if int(result.get("exit_code") or 0) == 0 else "failed"
+            for check, result in zip(checks, command_results)
+        }
+        checks_projection["doc_sync"] = checks_projection.get("architecture_contracts", "failed")
+        checks_projection["coverage"] = checks_projection.get("architecture_contracts", "failed")
+        checks_projection["delivery_vcs"] = "pending_pr"
+        status = "passed" if all(int(result.get("exit_code") or 0) == 0 for result in command_results) else "failed"
         return AtomResult(
-            summary="Verification passed" if status == "passed" else "Verification failed",
-            writes={"verification": {"status": status, "command_results": [command_result]}},
-            artifacts=(str(command_result["log_artifact_id"]),),
+            summary="Self-repair hard gates passed" if status == "passed" else "Self-repair hard gates failed",
+            writes={
+                "verification": {
+                    "status": status,
+                    "command_results": command_results,
+                    "checks": checks_projection,
+                    "hard_gate_bundle": "growing_agent_guardrails_v1",
+                }
+            },
+            artifacts=tuple(str(result["log_artifact_id"]) for result in command_results),
         )
 
     registry.register("run_ops_self_repair_verification", _verify_self_repair)

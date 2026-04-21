@@ -130,12 +130,33 @@ GET /api/recurring-workflows/health
 next_run_at
 is_due
 health_status
+scheduler_mode
+auto_tick_enabled
+overdue_reason
+last_scheduler_tick_at
 ```
+
+Scheduler semantics are explicit:
+
+```text
+scheduler_mode=auto
+  The workflow is expected to tick without an operator.
+  Every tick must write recurring_workflow_runs and advance last_run_at / next_run_at.
+  Missed ticks, lock conflicts, or failed runs may appear as OVERDUE / Attention Required.
+
+scheduler_mode=manual
+  The workflow is registered and can be run by the operator.
+  It must not be shown as OVERDUE just because next_run_at is in the past.
+  UI copy should say Manual only / registered but not auto-ticking.
+```
+
+`approval_sweep` is an auto workflow in the current system: it re-evaluates pending approvals hourly with safe defaults and writes scheduler-triggered history. It must not bypass human gates for production, funds, auth, settlement, contract, deploy, or external paid-spend actions.
 
 `/health` 聚合：
 
 ```text
 bug_log_scheduler
+recurring_workflow_scheduler
 notification_dispatcher
 recurring_registry
 ```

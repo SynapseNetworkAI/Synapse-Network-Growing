@@ -115,6 +115,9 @@
 18. 出现在 `Attention Required` 的任务不得在原业务泳道重复完整展示；原泳道最多保留极简归属 ghost row。
 19. 定时任务 Configuration v1 只能做只读配置检查和安全运行控制；不得开放任意 execution logic、shell、prompt、cron 编辑或高风险自动化开关。
 20. `Dry Run` 是调试动作，默认归入 inspector / configuration surface，不应压过监控主视图。
+21. Recurring workflow 必须区分 `scheduler_mode=auto` 与 `scheduler_mode=manual`。只有 auto-ticking 且真实错过 tick 的任务才能显示 `OVERDUE`；manual-only 任务必须显示为 registered/manual，而不是伪造故障。
+22. Goal Trace 和 Mission Control 必须使用同一条 lineage：`manifest_id + goal_key -> candidates -> requirements -> workflows -> evidence -> delivery`。不得因为 workflow `done` 就把 Goal 标成完成。
+23. 自修复 workflow 的完成证据必须包含 hard-gate command artifacts：architecture/contracts、tests、dashboard build、docs sync、diff hygiene。缺少这些证据时，Goal objective 状态必须是 `incomplete`。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 

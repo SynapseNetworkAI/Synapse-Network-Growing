@@ -22,6 +22,7 @@ from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
+from server.services.scheduling.recurring_scheduler import RecurringWorkflowScheduler
 
 setup_ops_logging(
     log_level=config.LOG_LEVEL,
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     log_event(logger, "database_initialized", db_path=config.DB_PATH)
     bug_scheduler = None
     goal_planner_scheduler = None
+    recurring_scheduler = None
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
@@ -58,6 +60,10 @@ async def lifespan(app: FastAPI):
         goal_planner_scheduler = GoalPlannerSweepScheduler()
         goal_planner_scheduler.start()
         app.state.goal_planner_scheduler = goal_planner_scheduler
+    if config.RECURRING_WORKFLOW_SCHEDULER_ENABLED:
+        recurring_scheduler = RecurringWorkflowScheduler()
+        recurring_scheduler.start()
+        app.state.recurring_workflow_scheduler = recurring_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -69,6 +75,8 @@ async def lifespan(app: FastAPI):
             notification_dispatcher.stop()
         if goal_planner_scheduler is not None:
             goal_planner_scheduler.stop()
+        if recurring_scheduler is not None:
+            recurring_scheduler.stop()
         if bug_scheduler is not None:
             bug_scheduler.stop()
         log_event(logger, "service_stopped")

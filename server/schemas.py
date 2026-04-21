@@ -280,6 +280,10 @@ class PlanningGoalTraceNodeOut(BaseModel):
 
 class PlanningGoalTraceOut(BaseModel):
     goal: dict[str, object] = {}
+    objective_status: str = "incomplete"
+    missing_evidence: list[str] = []
+    latest_chain: dict[str, object] = {}
+    scheduler_diagnostics: dict[str, object] = {}
     nodes: list[PlanningGoalTraceNodeOut] = []
     diagnostics: list[PlanningGoalTraceDiagnosticOut] = []
     next_actions: list[dict[str, object]] = []
@@ -1792,6 +1796,10 @@ class RecurringWorkflowOut(BaseModel):
     next_run_at: Optional[datetime] = None
     is_due: bool = False
     health_status: str = "unknown"
+    scheduler_mode: str = "manual"
+    auto_tick_enabled: bool = False
+    overdue_reason: Optional[str] = None
+    last_scheduler_tick_at: Optional[datetime] = None
     last_result: dict[str, object] = {}
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -1831,6 +1839,7 @@ class RecurringWorkflowRunResultOut(BaseModel):
 class RecurringWorkflowHealthOut(BaseModel):
     bug_log_scheduler: dict[str, object] = {}
     goal_planner_scheduler: dict[str, object] = {}
+    recurring_workflow_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 
