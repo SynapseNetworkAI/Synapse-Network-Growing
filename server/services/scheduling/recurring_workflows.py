@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -62,6 +63,13 @@ def _ensure_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _operator_zone() -> ZoneInfo:
+    try:
+        return ZoneInfo(config.OPERATOR_TIMEZONE)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
@@ -616,19 +624,21 @@ def _next_run_at(row: RecurringWorkflowRow, *, now: datetime | None = None) -> d
         return (last_run or current) + timedelta(hours=hours)
     if cadence == "daily":
         hour, minute = _parse_local_time(str(schedule.get("suggested_local_time") or "09:00"))
-        candidate = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if candidate <= current:
+        local_current = current.astimezone(_operator_zone())
+        candidate = local_current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= local_current:
             candidate = candidate + timedelta(days=1)
-        return candidate
+        return candidate.astimezone(timezone.utc)
     if cadence == "weekly":
         hour, minute = _parse_local_time(str(schedule.get("suggested_local_time") or "10:00"))
         day_token = str(schedule.get("day") or "MON").strip().upper()
         day_index = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}.get(day_token, 0)
-        days_ahead = (day_index - current.weekday()) % 7
-        candidate = (current + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if candidate <= current:
+        local_current = current.astimezone(_operator_zone())
+        days_ahead = (day_index - local_current.weekday()) % 7
+        candidate = (local_current + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= local_current:
             candidate = candidate + timedelta(days=7)
-        return candidate
+        return candidate.astimezone(timezone.utc)
     return None
 
 

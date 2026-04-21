@@ -356,6 +356,81 @@ def test_goal_trace_accepts_verification_only_without_pr_or_diff(client, db_sess
     assert payload["latest_chain"]["expected_outcome"] == "verification_only"
 
 
+def test_goal_trace_routes_no_change_delivery_block_to_supersede_retry(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    goal = PlanningGoalRow(
+        manifest_id=int(manifest.id),
+        goal_key="no_change_goal",
+        title="No Change Goal",
+        intent_markdown="Code delivery was attempted but produced no diff.",
+    )
+    db_session.add(goal)
+    db_session.flush()
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="no_change_goal",
+        candidate_fingerprint="no-change-fp",
+        title="Attempt code delivery",
+        workflow_key="agent_self_repair",
+        status="materialized",
+        metadata_json=_candidate_metadata(),
+    )
+    db_session.add(candidate)
+    db_session.flush()
+    requirement = RequirementRow(
+        title="Attempt code delivery",
+        description_markdown="A bootstrap PR may already have applied the patch.",
+        status="completed",
+        source="planner_candidate",
+        operating_manifest_id=int(manifest.id),
+        goal_key="no_change_goal",
+        requirement_candidate_id=int(candidate.id),
+        acceptance_contract_json=_candidate_metadata(),
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    candidate.materialized_requirement_id = int(requirement.id)
+    workflow = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        operating_manifest_id=int(manifest.id),
+        goal_key="no_change_goal",
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        delivery_status="delivery_blocked",
+        blackboard_json=json.dumps(
+            {
+                "pr": {
+                    "failed": True,
+                    "status": "delivery_blocked",
+                    "blockers": ["no repository changes detected to commit for delivery"],
+                }
+            }
+        ),
+    )
+    db_session.add(workflow)
+    db_session.flush()
+    requirement.active_workflow_run_id = int(workflow.id)
+    db_session.add(
+        WorkflowArtifactRow(
+            workflow_run_id=int(workflow.id),
+            artifact_type="workflow_command_result",
+            state_key="verify",
+            atom_key="verify",
+            machine_readable_payload=json.dumps({"command": "python -m pytest -q", "exit_code": 0}),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/planning/goals/{int(goal.id)}/trace")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["objective_status"] == "blocked"
+    assert payload["next_action"] == "supersede_and_retry_planner"
+    assert "missing_pr_url" in payload["missing_evidence"]
+
+
 def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_goal(db_session, monkeypatch):
     monkeypatch.setattr(
         "server.services.planning.lifecycle.synthesize_candidate_for_goal",
