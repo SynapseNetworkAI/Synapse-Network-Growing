@@ -90,13 +90,15 @@
 4. Agent 生成的 acceptance 缺失、空泛、解析失败或格式不合法时，必须进入 `validation_failed` / `awaiting_operator`，不得自动补 fallback criteria。
 5. Planner Agent 输出 JSON 只允许对格式/schema 错误做最多两次 repair；危险命令、未知 workflow、越权风险不得 repair 成放行。
 6. Planner Agent 生成的 `required_commands` 必须通过安全命令 allowlist / denylist；生产、资金、部署、删除、外部网络、权限或破坏性命令必须 Fail Closed。
+   本地 dashboard E2E 只能通过受控项目脚本放行，例如 `cd dashboard && npm run test:e2e` 或 `npm --prefix dashboard run test:e2e`；不得放开任意 `playwright`、`npx`、外部网络或 shell 执行。
+   Planner-generated pytest acceptance commands 必须指向明确测试文件或 selector；`pytest tests -q`、`pytest -q`、`python -m pytest -q` 这类 live workflow 内全量递归命令不得作为 acceptance command，完整回归应走 Final Regression CI runner。Git evidence 只允许读操作，例如 `git diff --check` 和 `git diff --stat`，不得放开 `git push/reset/checkout`。
 7. Planner Agent 只能从已注册 workflow definitions 的 enum 中选择 `workflow_key`，不得自由发明 workflow。
 8. Verification Agent 的 `inconclusive` 不能被 fallback 提升为 `passed`；不确定就是不放行。
 9. Planner Candidate 必须前置声明 `expected_outcome=code_delivery|verification_only`；执行阶段不得为了绕过 no-diff 失败而自行改写。
 10. `code_delivery` 没有 repository diff 必须 Fail Closed；`verification_only` 只有在证据矩阵完整时才允许 no-op success。
 11. Supersede retry 必须携带一次性 `context_hint` 给 Planner，解释前次 no-change/bootstrap dead end，防止 Planner 失忆后无限重复同一个 code-delivery 任务。
 12. Acceptance Matrix Is Executable Contract：Planner 生成的 `execution_acceptance_steps.required_commands` 必须在 workflow verify 阶段执行，`verification.status=passed` 必须依赖 `acceptance_matrix.status=passed`。
-13. `required_evidence_types` 是封闭词汇表：`workflow_command_result`、`project_change_summary`、`git_diff_summary`、`frontend_validation_result`、`coverage_report`、`docs_sync_review`、`workflow_agent_raw_output`；未知类型必须在 Candidate validation 阶段 Fail Closed。
+13. `required_evidence_types` 是封闭词汇表：`workflow_command_result`、`project_change_summary`、`git_diff_summary`、`frontend_validation_result`、`coverage_report`、`docs_sync_review`、`workflow_agent_raw_output`；未知类型必须在 Candidate validation 阶段 Fail Closed。Planner 不得声明无法由本 step 命令或系统产物支持的 evidence，例如 `coverage_report` 必须绑定 `diff-cover`、`coverage.xml` 或 `pytest --cov` 命令，`frontend_validation_result` 必须绑定 dashboard/npm 验证命令。
 14. Evidence v1 至少必须属于同一个 `workflow_run_id`；不得跨 workflow run 复用旧 artifact 来满足新的 acceptance matrix。v2 可升级为校验 artifact 时间戳晚于当前 verify phase。
 15. Planner 生成的 acceptance commands 必须使用确定性硬超时执行；`current_command_started_at`、heartbeat 或日志活跃度只能用于诊断展示，不能替代 exit code / artifact evidence。
 16. acceptance matrix 失败必须写入 `failure_summary`，并作为下一轮 patch context；Agent 不得在不知道 timeout、non-zero exit、missing evidence 或未知 evidence type 的情况下盲目重试。

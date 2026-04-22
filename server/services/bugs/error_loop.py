@@ -335,7 +335,7 @@ def _error_acceptance_contract(*, service_name: str, project_key: str | None, fi
                 "expected_result": "Verification command evidence is recorded and passing for the affected project.",
                 "required_evidence_types": ["workflow_command_result"],
                 "required_commands": [
-                    "/Users/cliff/workspace/agent/.venv/bin/python -m pytest -q",
+                    "scripts/ci/agent_guardrails.sh",
                 ],
             },
         ],

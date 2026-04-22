@@ -275,6 +275,38 @@ def test_ci_status_sweep_failed_ci_records_bounded_tail_and_human_gate(db_sessio
     assert gate.gate_type == "ci_final_regression_failed"
 
 
+def test_ci_status_sweep_uses_latest_blackboard_after_bulk_claim(db_session, tmp_path):
+    run, _old_log_path, _old_exit_path = _create_awaiting_ci_run(
+        db_session,
+        tmp_path,
+        exit_code=1,
+        log_body="old failed marker",
+    )
+    old_blackboard = json.loads(str(run.blackboard_json))
+    new_log_path = tmp_path / "retry.log"
+    new_exit_path = tmp_path / "retry.exit_code"
+    new_log_path.write_text("new failed marker", encoding="utf-8")
+    new_exit_path.write_text("1\n", encoding="utf-8")
+    new_blackboard = dict(old_blackboard)
+    new_blackboard["ci"] = {
+        **dict(old_blackboard["ci"]),
+        "ci_log_path": str(new_log_path),
+        "ci_exit_code_path": str(new_exit_path),
+    }
+    db_session.query(WorkflowRunRow).filter(WorkflowRunRow.id == run.id).update(
+        {WorkflowRunRow.blackboard_json: json.dumps(new_blackboard)},
+        synchronize_session=False,
+    )
+    db_session.commit()
+
+    result = _ci_status_sweep(db_session, runtime_cap_seconds=60)
+
+    assert result["processed_count"] == 1
+    artifact = db_session.query(WorkflowArtifactRow).filter(WorkflowArtifactRow.workflow_run_id == run.id).one()
+    assert "new failed marker" in artifact.human_readable_body
+    assert "old failed marker" not in artifact.human_readable_body
+
+
 def test_ci_status_sweep_in_progress_does_not_read_log(db_session, tmp_path, monkeypatch):
     run, _log_path, _exit_path = _create_awaiting_ci_run(db_session, tmp_path, exit_code=None, log_body="still running")
 

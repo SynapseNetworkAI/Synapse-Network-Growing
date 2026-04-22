@@ -757,7 +757,7 @@ def _candidate_fingerprint(manifest_id: int, goal_key: str, intent: str, workflo
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
-TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "cancelled", "deleted", "superseded"}
+TERMINAL_REQUIREMENT_STATUSES = {"completed", "succeeded", "done", "failed", "cancelled", "deleted", "superseded"}
 
 
 def _build_goal_snapshot(db: Session, manifest: OperatingManifestRow) -> list[dict[str, Any]]:

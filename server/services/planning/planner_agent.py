@@ -245,7 +245,9 @@ Rules:
 - Every execution_acceptance_steps item needs title, expected_result, and required_commands or required_evidence_types.
 - required_db_lineage is informational in v1 and cannot make a step pass. If you need DB proof, create a safe test command with assertions.
 - required_evidence_types must be one of: workflow_command_result, project_change_summary, git_diff_summary, frontend_validation_result, coverage_report, docs_sync_review, workflow_agent_raw_output.
-- Prefer safe command evidence such as pytest, npm test, npm run build, rg checks, and git diff --check.
+- Do not declare evidence that your commands cannot produce: coverage_report needs diff-cover/coverage.xml/pytest --cov; frontend_validation_result needs npm/dashboard validation; docs_sync_review needs docs/agent_guardrails evidence.
+- Prefer safe command evidence such as pytest, npm test, npm run build, dashboard test:e2e, rg checks, git diff --check, and git diff --stat.
+- Pytest acceptance commands must target explicit test files or selectors, for example `python -m pytest tests/test_planning_lifecycle.py -q`. Do not use broad live commands such as `pytest tests -q`, `pytest -q`, or `python -m pytest -q`; full-suite regression belongs to the final CI runner.
 """
 
 

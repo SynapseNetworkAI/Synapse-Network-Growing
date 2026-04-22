@@ -457,6 +457,37 @@ def test_planner_sweep_ignores_dropped_goals_and_creates_candidate_for_active_go
     assert {row.goal_key for row in created_rows} == {"operator_growth"}
 
 
+def test_planner_sweep_does_not_treat_failed_requirement_as_active_capacity(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "server.services.planning.lifecycle.synthesize_candidate_for_goal",
+        lambda **kwargs: _planner_agent_candidate_for_goal(kwargs["goal"], acceptance_contract=kwargs.get("acceptance_contract")),
+    )
+    _project(db_session)
+    manifest = ensure_active_manifest(db_session)
+    dropped_goal = db_session.query(PlanningGoalRow).filter_by(manifest_id=int(manifest.id), goal_key="gateway_reliability").one()
+    dropped_goal.status = "dropped"
+    db_session.add(
+        RequirementRow(
+            operating_manifest_id=int(manifest.id),
+            goal_key="operator_growth",
+            title="Previously failed operator work",
+            description_markdown="This failed chain must not block a new Planner attempt.",
+            status="failed",
+            workflow_state="failed",
+        )
+    )
+    db_session.commit()
+
+    sweep = run_planner_sweep(db_session, dry_run=False)
+    created = json.loads(sweep.created_candidate_ids_json)
+    suppressed = json.loads(sweep.suppressed_items_json)
+
+    assert created
+    assert not any(item["goal_key"] == "operator_growth" and item["reason"] == "active_requirement_exists" for item in suppressed)
+    created_rows = db_session.query(RequirementCandidateRow).filter(RequirementCandidateRow.id.in_(created)).all()
+    assert {row.goal_key for row in created_rows} == {"operator_growth"}
+
+
 def test_planner_sweep_records_context_hint_and_candidate_expected_outcome(db_session, monkeypatch):
     seen_hints: list[str] = []
 
@@ -540,10 +571,15 @@ def test_planner_sweep_validation_fails_for_dangerous_required_command(db_sessio
 
 
 def test_required_command_safety_allows_project_checks_and_blocks_destructive_commands():
-    assert validate_required_command_safety("python -m pytest -q") == "python -m pytest -q"
+    assert (
+        validate_required_command_safety("python -m pytest tests/test_planning_lifecycle.py -q")
+        == "python -m pytest tests/test_planning_lifecycle.py -q"
+    )
     assert validate_required_command_safety("python -m ruff check server tests") == "python -m ruff check server tests"
     assert validate_required_command_safety("npm --prefix dashboard run lint") == "npm --prefix dashboard run lint"
     assert validate_required_command_safety("cd dashboard && npm run build") == "cd dashboard && npm run build"
+    assert validate_required_command_safety("cd dashboard && npm run test:e2e") == "cd dashboard && npm run test:e2e"
+    assert validate_required_command_safety("npm --prefix dashboard run test:e2e") == "npm --prefix dashboard run test:e2e"
     assert (
         validate_required_command_safety("diff-cover coverage.xml --compare-branch=main --fail-under=90")
         == "diff-cover coverage.xml --compare-branch=main --fail-under=90"
@@ -565,7 +601,10 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         )
         == 'rg -n "max_patch_attempts|patch_attempts|awaiting_operator|open_self_repair_pr|human gate|production deploy" server tests docs'
     )
-    assert validate_required_command_safety("PYTHONPATH=. python -m pytest -q") == "PYTHONPATH=. python -m pytest -q"
+    assert (
+        validate_required_command_safety("PYTHONPATH=. python -m pytest tests/test_workflows_api.py -q")
+        == "PYTHONPATH=. python -m pytest tests/test_workflows_api.py -q"
+    )
     assert (
         validate_required_command_safety("COVERAGE_FILE=.coverage diff-cover coverage.xml --compare-branch=main --fail-under=90")
         == "COVERAGE_FILE=.coverage diff-cover coverage.xml --compare-branch=main --fail-under=90"
@@ -580,6 +619,9 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         ('rg "x";cp -r a b', "cp"),
         ('python -m pytest -q;mv a b', "mv"),
         ('rg "x"|sh', "sh"),
+        ("pytest -q", "must target explicit test files"),
+        ("pytest tests -q", "must target explicit test files"),
+        ("python -m pytest -q", "must target explicit test files"),
         ("echo $(deploy production)", "Subshells"),
         ("echo $(uvx diff-cover coverage.xml)", "Subshells"),
         ("echo `deploy production`", "Subshells"),
@@ -606,8 +648,10 @@ def test_acceptance_command_timeout_classifier_uses_core_tool_not_fragile_prefix
         "COVERAGE_FILE=.coverage diff-cover coverage.xml --compare-branch=main --fail-under=90": ("diff-cover", 180),
         "uvx --from diff-cover diff-cover coverage.xml": ("diff-cover", 180),
         "npm --prefix dashboard run build": ("npm", 600),
+        "cd dashboard && npm run test:e2e": ("npm", 600),
         'rg -n "production deploy" server tests docs': ("rg", 60),
         "git diff --check": ("git_diff_check", 60),
+        "git diff --stat": ("git_diff_stat", 60),
         "scripts/ci/agent_guardrails.sh": ("agent_guardrails", 300),
     }
     for command, (tool, timeout_seconds) in cases.items():
@@ -649,6 +693,49 @@ def test_acceptance_validation_rejects_unknown_evidence_types_and_db_lineage_onl
         assert "required_db_lineage is informational in v1" in str(exc)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("required_db_lineage-only step was accepted")
+
+
+def test_acceptance_validation_rejects_impossible_evidence_without_supporting_commands():
+    unsupported_coverage_contract = {
+        "expected_outcome": "code_delivery",
+        "execution_acceptance_steps": [
+            {
+                "step_key": "coverage",
+                "title": "Coverage exists",
+                "expected_result": "Coverage evidence is produced by an executable check.",
+                "required_commands": ["npm --prefix dashboard run build"],
+                "required_evidence_types": ["coverage_report"],
+            }
+        ],
+    }
+    try:
+        validate_acceptance_contract_for_execution(unsupported_coverage_contract, source="planner", goal_key="ops")
+    except AcceptanceValidationError as exc:
+        assert "coverage_report requires a diff-cover" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("unsupported coverage evidence was accepted")
+
+    supported_contract = {
+        "expected_outcome": "code_delivery",
+        "execution_acceptance_steps": [
+            {
+                "step_key": "coverage",
+                "title": "Coverage exists",
+                "expected_result": "Diff coverage evidence is produced.",
+                "required_commands": ["diff-cover coverage.xml --compare-branch=main --fail-under=90"],
+                "required_evidence_types": ["coverage_report", "workflow_command_result"],
+            },
+            {
+                "step_key": "frontend",
+                "title": "Frontend validates",
+                "expected_result": "Dashboard validation evidence is produced.",
+                "required_commands": ["npm --prefix dashboard run test:e2e"],
+                "required_evidence_types": ["frontend_validation_result"],
+            },
+        ],
+    }
+    validated = validate_acceptance_contract_for_execution(supported_contract, source="planner", goal_key="ops")
+    assert len(validated["execution_acceptance_steps"]) == 2
 
 
 def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):

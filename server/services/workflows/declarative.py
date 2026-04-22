@@ -2387,15 +2387,13 @@ def decide_human_gate(
     gate.decided_at = utcnow()
     run = gate.workflow_run
     blackboard = workflow_blackboard(run)
-    blackboard.setdefault("human_gate_decisions", []).append(
-        {
-            "gate_id": int(gate.id),
-            "decision": normalized,
-            "reviewer": reviewer,
-            "comment": comment,
-            "decided_at": gate.decided_at.isoformat(),
-        }
-    )
+    decision_record = {
+        "gate_id": int(gate.id),
+        "decision": normalized,
+        "reviewer": reviewer,
+        "comment": comment,
+        "decided_at": gate.decided_at.isoformat(),
+    }
     state_before_decision = str(run.current_state or gate.state_key or "awaiting_operator")
     resume_result = resume_workflow_after_gate_decision(db, gate=gate, decision=normalized, blackboard=blackboard)
     decision_event = {
@@ -2419,7 +2417,13 @@ def decide_human_gate(
             payload_json=_json_dump(decision_event),
         )
     )
-    _persist_blackboard(db, run, str(run.current_state or gate.state_key), blackboard)
+    db.flush()
+    db.refresh(run)
+    latest_blackboard = workflow_blackboard(run)
+    decisions = list(latest_blackboard.get("human_gate_decisions") or [])
+    decisions.append(decision_record)
+    latest_blackboard["human_gate_decisions"] = decisions
+    _persist_blackboard(db, run, str(run.current_state or gate.state_key), latest_blackboard)
     db.flush()
     _notify_human_gate_decided(db, gate, run)
     gate._resume_result = resume_result  # type: ignore[attr-defined]
@@ -3461,12 +3465,31 @@ def _command_result_passed_for(command_results: list[dict[str, Any]], command: s
     return any(str(item.get("command") or "") == normalized and int(item.get("exit_code", 1)) == 0 for item in command_results)
 
 
+def _passed_command_contains(command_results: list[dict[str, Any]], *needles: str) -> bool:
+    lowered_needles = tuple(str(needle or "").lower() for needle in needles if str(needle or ""))
+    for item in command_results:
+        if int(item.get("exit_code", 1)) != 0:
+            continue
+        command = str(item.get("command") or "").lower()
+        if any(needle in command for needle in lowered_needles):
+            return True
+    return False
+
+
 def _required_evidence_satisfied(evidence_type: str, artifact_types: set[str], command_results: list[dict[str, Any]]) -> bool:
     normalized = str(evidence_type or "").strip()
     if normalized == "workflow_command_result":
         return any(int(item.get("exit_code", 1)) == 0 for item in command_results) or normalized in artifact_types
     if normalized == "project_change_summary":
         return "workflow_file_change_summary" in artifact_types or normalized in artifact_types
+    if normalized == "git_diff_summary":
+        return "workflow_file_change_summary" in artifact_types or _passed_command_contains(command_results, "git diff --check", "git diff --stat")
+    if normalized == "frontend_validation_result":
+        return normalized in artifact_types or _passed_command_contains(command_results, "npm ", "npm --prefix dashboard", "cd dashboard && npm")
+    if normalized == "coverage_report":
+        return normalized in artifact_types or _passed_command_contains(command_results, "diff-cover", "coverage.xml", "--cov")
+    if normalized == "docs_sync_review":
+        return normalized in artifact_types or _passed_command_contains(command_results, "agent_guardrails.sh", "docs", "doc_sync", "docs-sync", "docs drift")
     return normalized in artifact_types
 
 
