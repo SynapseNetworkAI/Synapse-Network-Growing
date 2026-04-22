@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OPS_PYTHON="${OPS_PYTHON:-/Users/cliff/workspace/agent/.venv/bin/python}"
+OPS_PYTHON="${OPS_PYTHON:-$("$ROOT_DIR/scripts/ci/detect_python.sh")}"
 
 cd "$ROOT_DIR"
 
@@ -18,6 +18,7 @@ echo "[guardrails] python compile"
   server/services/scheduling/recurring_workflows.py \
   server/services/workflows/ci_scheduler.py \
   scripts/ci/ci_runner.py
+"$OPS_PYTHON" -m compileall -q server scripts
 
 echo "[guardrails] architecture import boundaries"
 "$OPS_PYTHON" - <<'PY'

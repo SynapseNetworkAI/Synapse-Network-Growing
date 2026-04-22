@@ -104,6 +104,14 @@
 16. acceptance matrix 失败必须写入 `failure_summary`，并作为下一轮 patch context；Agent 不得在不知道 timeout、non-zero exit、missing evidence 或未知 evidence type 的情况下盲目重试。
 17. 默认 smoke tests 不能替代 Planner contract：`scripts/ci/agent_guardrails.sh`、`py_compile` 和 full pytest 只是系统底线，Requirement-specific acceptance steps 未通过时整体仍然 failed。
 
+## 6.6.2 Push / PR Quality Gates
+
+1. 本地 `pre-push` 和 GitHub PR CI 必须复用同一个 `scripts/ci/pr_checks.sh`，不得维护两套不同门禁。
+2. Push / PR 门禁必须至少覆盖：repo guardrails、backend full pytest、Python diff coverage、dashboard Vitest、dashboard build、`git diff --check`。
+3. Python runtime 必须通过脚本动态探测；不得把单台机器的虚拟环境路径写死成唯一可用路径。
+4. diff coverage 必须基于可解析的 merge-base；本地 `origin/main` 过旧时应先尝试 fetch，不能用陈旧 diff 误判覆盖率。
+5. `--no-verify` 只能绕过本地 hook，不能被视为合格交付；远端 GitHub CI 仍是最终兜底。
+
 ## 6.7 后台任务必须一等可观测
 
 1. 任何会定期运行、后台轮询、延迟重试或自动推进系统状态的机制，都必须在 Ops Console 中可见。

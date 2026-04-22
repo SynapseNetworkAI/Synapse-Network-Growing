@@ -72,6 +72,7 @@
 10. 首批 workflow 包含 `agent_self_repair` 与 `gateway_reliability_repair`。
 11. `agent_self_repair` verify 阶段会执行 Planner-generated acceptance commands，并用硬超时、command artifacts 与 `acceptance_matrix` blackboard 状态暴露运行进度和失败原因。
 12. Acceptance matrix evidence 当前按同一 `workflow_run_id` 归属校验；timestamp-level evidence scoping 是 v2，不属于当前实现。
+13. Push / PR 质量门禁通过 `.githooks/pre-push` 与 GitHub PR CI 复用 `scripts/ci/pr_checks.sh`，覆盖 repo guardrails、backend pytest、Python diff coverage、dashboard tests/build 与 whitespace。
 
 ## 4. Human Gate And Release
 
