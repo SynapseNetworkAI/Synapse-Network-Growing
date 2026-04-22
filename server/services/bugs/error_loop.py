@@ -305,6 +305,7 @@ def _error_acceptance_contract(*, service_name: str, project_key: str | None, fi
     project = str(project_key or "").strip() or "affected project"
     return {
         "acceptance_kind": "business",
+        "expected_outcome": "code_delivery",
         "done_criteria": [
             f"`{service}` no longer reproduces the reported error fingerprint.",
             "Changed files, command evidence, and workflow artifacts are available in Ops Console.",
@@ -317,25 +318,40 @@ def _error_acceptance_contract(*, service_name: str, project_key: str | None, fi
             "Workflow command results show the required project checks stayed green.",
             "Error fingerprint evidence is linked to the workflow run.",
         ],
+        "informational_lineage": [
+            "error_fingerprints.linked_requirement_id",
+            "requirements.source_ref",
+            "workflow_runs.requirement_id",
+        ],
         "execution_acceptance_steps": [
             {
-                "step_key": "error_fingerprint_linked",
-                "title": "Error fingerprint is linked to the repair workflow",
-                "expected_result": f"Fingerprint `{fingerprint_key}` is attached to the requirement and workflow evidence.",
-                "required_evidence_types": ["project_change_summary"],
-                "required_db_lineage": [
-                    "error_fingerprints.linked_requirement_id",
-                    "requirements.source_ref",
-                    "workflow_runs.requirement_id",
+                "step_key": "code_change_evidence_recorded",
+                "title": "Code delivery evidence is recorded",
+                "expected_result": (
+                    f"The repair for fingerprint `{fingerprint_key}` records project change and git diff evidence."
+                ),
+                "required_evidence_types": ["project_change_summary", "git_diff_summary"],
+                "required_commands": [
+                    "git diff --check",
+                    "git diff --stat",
                 ],
             },
             {
-                "step_key": "project_checks_passed",
-                "title": "Project checks prove the repair stayed healthy",
-                "expected_result": "Verification command evidence is recorded and passing for the affected project.",
+                "step_key": "project_guardrails_passed",
+                "title": "Project guardrails prove the repair stayed healthy",
+                "expected_result": "The deterministic guardrail bundle is recorded and passing for the affected project.",
                 "required_evidence_types": ["workflow_command_result"],
                 "required_commands": [
                     "scripts/ci/agent_guardrails.sh",
+                ],
+            },
+            {
+                "step_key": "regression_tests_passed",
+                "title": "Regression tests prove the error loop still works",
+                "expected_result": "Focused bug intake and workflow API regression tests pass after the repair.",
+                "required_evidence_types": ["workflow_command_result"],
+                "required_commands": [
+                    "python -m pytest tests/test_error_loop_api.py tests/test_workflows_api.py -q",
                 ],
             },
         ],

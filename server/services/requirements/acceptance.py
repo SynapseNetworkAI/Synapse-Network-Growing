@@ -261,7 +261,9 @@ def _required_evidence_support_error(evidence_type: str, commands: list[str], ex
             return None
         return "docs_sync_review requires a docs sync, docs drift, rg docs, or agent_guardrails command."
     if normalized == "project_change_summary":
-        return None
+        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
+            return None
+        return "project_change_summary requires code_delivery or git diff --check evidence."
     if normalized == "git_diff_summary":
         if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
             return None
@@ -355,6 +357,7 @@ DEFAULT_ACCEPTANCE_CONTRACT: dict[str, Any] = {
     "delivery_expectation": "",
     "risk_notes": [],
     "expected_evidence": [],
+    "informational_lineage": [],
     "execution_acceptance_steps": [],
     "acceptance_kind": "business",
     "manual_review_prompt": "",
@@ -404,7 +407,7 @@ def normalize_acceptance_contract(raw: dict[str, Any] | None) -> dict[str, Any]:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
                 payload[key] = values
-        for key in {"done_criteria", "scope_constraints", "risk_notes", "expected_evidence"}:
+        for key in {"done_criteria", "scope_constraints", "risk_notes", "expected_evidence", "informational_lineage"}:
             values = [str(item).strip() for item in raw.get(key) or [] if str(item).strip()]
             if values:
                 payload[key] = values

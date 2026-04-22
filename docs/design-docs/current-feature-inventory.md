@@ -43,7 +43,8 @@
 7. Submit / workflow start 后创建 declarative workflow run。
 8. Requirement detail 展示 acceptance、workflow readiness、active workflow summary 与跳转入口。
 9. Error / bug materialization 可进入 requirement pool，但会经过 intake fingerprint gate 去重和抑制。
-10. Requirement 不再有 pre-execution approval；人工决策统一进入 workflow human gate。
+10. `bug_intake` 默认 acceptance contract 声明 `expected_outcome=code_delivery`；错误指纹 linkage / `required_db_lineage` 只作为诊断线索，代码变更证据必须由 `project_change_summary`、`git_diff_summary`、guardrails 和 regression command evidence 支撑。
+11. Requirement 不再有 pre-execution approval；人工决策统一进入 workflow human gate。
 
 ## 3. Declarative Workflow Factory
 

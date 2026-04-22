@@ -694,6 +694,24 @@ def test_acceptance_validation_rejects_unknown_evidence_types_and_db_lineage_onl
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("required_db_lineage-only step was accepted")
 
+    db_lineage_with_change_summary_contract = {
+        "execution_acceptance_steps": [
+            {
+                "step_key": "db_change",
+                "title": "DB row proves a project changed",
+                "expected_result": "The DB state alone must not masquerade as repository change evidence.",
+                "required_evidence_types": ["project_change_summary"],
+                "required_db_lineage": ["error_fingerprints.linked_requirement_id"],
+            }
+        ]
+    }
+    try:
+        validate_acceptance_contract_for_execution(db_lineage_with_change_summary_contract, source="bug_intake", goal_key="ops")
+    except AcceptanceValidationError as exc:
+        assert "project_change_summary requires code_delivery or git diff" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("project_change_summary backed only by DB lineage was accepted")
+
 
 def test_acceptance_validation_rejects_impossible_evidence_without_supporting_commands():
     unsupported_coverage_contract = {
@@ -719,6 +737,13 @@ def test_acceptance_validation_rejects_impossible_evidence_without_supporting_co
         "expected_outcome": "code_delivery",
         "execution_acceptance_steps": [
             {
+                "step_key": "change",
+                "title": "Repository change evidence exists",
+                "expected_result": "Code delivery records project change and git diff evidence.",
+                "required_commands": ["git diff --check", "git diff --stat"],
+                "required_evidence_types": ["project_change_summary", "git_diff_summary"],
+            },
+            {
                 "step_key": "coverage",
                 "title": "Coverage exists",
                 "expected_result": "Diff coverage evidence is produced.",
@@ -735,7 +760,7 @@ def test_acceptance_validation_rejects_impossible_evidence_without_supporting_co
         ],
     }
     validated = validate_acceptance_contract_for_execution(supported_contract, source="planner", goal_key="ops")
-    assert len(validated["execution_acceptance_steps"]) == 2
+    assert len(validated["execution_acceptance_steps"]) == 3
 
 
 def test_candidate_materialize_carries_goal_lineage_to_requirement(db_session):

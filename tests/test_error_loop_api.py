@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import pytest
@@ -11,6 +12,8 @@ from server.database import (
     RequirementIntakeFingerprintRow,
     RequirementRow,
 )
+from server.services.bugs.error_loop import _error_acceptance_contract
+from server.services.requirements.acceptance import validate_acceptance_contract_for_execution
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +63,54 @@ def test_error_intake_creates_requirement_and_declarative_workflow(synced_client
     deliveries = db_session.query(NotificationDeliveryRow).all()
     event_types = {row.event_type for row in deliveries}
     assert {"requirement_created", "workflow_run_succeeded", "error_logged"} & event_types
+
+
+def test_bug_intake_acceptance_contract_uses_semantic_evidence_layers():
+    contract = _error_acceptance_contract(
+        service_name="Synapse Gateway",
+        project_key="synapse-network-growing",
+        fingerprint_key="runtime_log_error:dcb38fa06a0d0690",
+    )
+
+    validated = validate_acceptance_contract_for_execution(contract, source="bug_intake")
+
+    assert validated["expected_outcome"] == "code_delivery"
+    assert "informational_lineage" in validated
+    step_by_key = {step["step_key"]: step for step in validated["execution_acceptance_steps"]}
+    assert "error_fingerprint_linked" not in step_by_key
+    assert step_by_key["code_change_evidence_recorded"]["required_evidence_types"] == [
+        "project_change_summary",
+        "git_diff_summary",
+    ]
+    assert step_by_key["code_change_evidence_recorded"]["required_commands"] == [
+        "git diff --check",
+        "git diff --stat",
+    ]
+    assert step_by_key["project_guardrails_passed"]["required_commands"] == ["scripts/ci/agent_guardrails.sh"]
+    assert step_by_key["regression_tests_passed"]["required_commands"] == [
+        "python -m pytest tests/test_error_loop_api.py tests/test_workflows_api.py -q"
+    ]
+
+
+def test_error_intake_requirement_contract_does_not_use_project_change_summary_for_lineage(
+    synced_client,
+    db_session,
+):
+    response = synced_client.post("/api/errors/intake", json=_intake_payload())
+
+    assert response.status_code == 201
+    requirement = db_session.query(RequirementRow).filter(RequirementRow.id == response.json()["requirement"]["id"]).one()
+    contract = json.loads(requirement.acceptance_contract_json or "{}")
+    step_by_key = {step["step_key"]: step for step in contract["execution_acceptance_steps"]}
+
+    assert contract["expected_outcome"] == "code_delivery"
+    assert "error_fingerprint_linked" not in step_by_key
+    assert "informational_lineage" in contract
+    assert all(
+        "project_change_summary" not in step.get("required_evidence_types", [])
+        for key, step in step_by_key.items()
+        if key != "code_change_evidence_recorded"
+    )
 
 
 def test_error_intake_emits_structured_error_loop_logs(synced_client, caplog):
