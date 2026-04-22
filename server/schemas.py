@@ -1215,6 +1215,11 @@ class ReleaseRecordSlimOut(BaseModel):
     compare_url: Optional[str] = None
     pr_url: Optional[str] = None
     pr_number: Optional[int] = None
+    pr_status: Optional[str] = None
+    merged_at: Optional[str] = None
+    merge_commit_sha: Optional[str] = None
+    last_pr_status_synced_at: Optional[str] = None
+    pr_sync_failure_summary: Optional[str] = None
     notes: Optional[str] = None
     blocker_kind: Optional[str] = None
     delivery_blocker_type: Optional[str] = None
@@ -1837,6 +1842,7 @@ class RecurringWorkflowHealthOut(BaseModel):
     bug_log_scheduler: dict[str, object] = {}
     goal_planner_scheduler: dict[str, object] = {}
     ci_status_scheduler: dict[str, object] = {}
+    release_pr_status_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 

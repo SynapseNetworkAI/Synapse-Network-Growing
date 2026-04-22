@@ -189,6 +189,75 @@ def _load_existing_pr(repo_slug: str, branch_name: str) -> dict[str, Any] | None
     return payload if isinstance(payload, dict) else None
 
 
+def query_review_pr_status(*, pr_ref: str, repo_slug: str | None = None) -> dict[str, Any]:
+    """Read one GitHub PR status through the existing gh/token path.
+
+    The return value is deliberately classified so callers can distinguish a
+    business-terminal missing PR from transient network/API failures.
+    """
+
+    args = [
+        "pr",
+        "view",
+        str(pr_ref or "").strip(),
+        "--json",
+        "number,url,isDraft,state,headRefName,baseRefName,title,mergedAt,closedAt,mergeCommit",
+    ]
+    if str(repo_slug or "").strip():
+        args.extend(["--repo", str(repo_slug).strip()])
+    completed = _run_gh(*args, check=False)
+    stderr = (completed.stderr or completed.stdout or "").strip()
+    lowered = stderr.lower()
+    if completed.returncode != 0:
+        if (
+            "not found" in lowered
+            or "no pull requests found" in lowered
+            or "http 404" in lowered
+            or "could not resolve to a pullrequest" in lowered
+        ):
+            return {
+                "result": "not_found",
+                "error_excerpt": stderr[:1000],
+                "pr_ref": pr_ref,
+                "repo_slug": repo_slug,
+            }
+        if any(marker in lowered for marker in ("authentication", "not logged in", "permission", "http 401", "http 403")):
+            return {
+                "result": "auth_error",
+                "error_excerpt": stderr[:1000],
+                "pr_ref": pr_ref,
+                "repo_slug": repo_slug,
+            }
+        return {
+            "result": "transient_error",
+            "error_excerpt": stderr[:1000],
+            "pr_ref": pr_ref,
+            "repo_slug": repo_slug,
+        }
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return {
+            "result": "transient_error",
+            "error_excerpt": f"Failed to parse gh pr view JSON: {exc}",
+            "pr_ref": pr_ref,
+            "repo_slug": repo_slug,
+        }
+    if not isinstance(payload, dict) or not payload:
+        return {
+            "result": "transient_error",
+            "error_excerpt": "gh pr view returned an empty payload",
+            "pr_ref": pr_ref,
+            "repo_slug": repo_slug,
+        }
+    return {
+        "result": "ok",
+        "payload": payload,
+        "pr_ref": pr_ref,
+        "repo_slug": repo_slug,
+    }
+
+
 def sync_requirement_review_pr(
     *,
     requirement_id: int,

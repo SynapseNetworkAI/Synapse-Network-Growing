@@ -33,7 +33,7 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 2. **Recurring Workflows Registry**
    - 内置 recurring workflow 定义清单。
-   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`。
+   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`、`release_pr_status_sweep`。
    - v1 支持手动 `Dry Run` 与 `Run Now`，但不自动按 schedule 执行全部 registry。
 
 3. **Notification Dispatcher**
@@ -49,6 +49,11 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
    - 面向 company review、weekly review、portfolio cleanup 的任务定义。
    - v1 先进入 registry 与手动运行，不自动启动周期执行，避免突然扩大系统行为面。
 
+6. **Release PR Status Sweep Scheduler**
+   - 只读同步 GitHub PR 外部状态。
+   - 默认每 30 分钟运行一次，把 merged / closed / missing PR 收敛回 Release 面。
+   - 不执行 merge、close、deploy、rollback 或删分支。
+
 ## V1 Product Boundary
 
 v1 明确不做这些事：
@@ -58,6 +63,7 @@ v1 明确不做这些事：
 3. 不让 operator 在 UI 写任意 shell command。
 4. 不允许高风险 workflow 因为 schedule 到期而自动启动 requirement 或 delivery。
 5. 不把完整 raw JSON 堆到默认视图；raw result 只在 inspector 展开。
+6. 不允许 release PR status sync 执行 merge、close、deploy、rollback 或删分支；它只能只读吸收 GitHub PR 外部事实。
 
 v1 必须做这些事：
 
@@ -68,6 +74,7 @@ v1 必须做这些事：
 5. 保存每次运行历史。
 6. 聚合 Bug Scheduler 与 Notification Dispatcher 健康状态。
 7. 让 operator 能看见 queue 堆积、dead letter、suppression 状态。
+8. 让 operator 能手动触发 `release_pr_status_sweep`，把已合并、已关闭或不存在的 GitHub PR 同步回本地 release 面。
 
 ## Data Model
 
@@ -408,6 +415,21 @@ OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS=5
 
 它保留请求内 enqueue 后立即 dispatch 的兼容行为，但不再依赖新的 HTTP 请求来推进 retry / dead letter。
 
+## Release PR Status Sweep
+
+`release_pr_status_sweep` 是 Release 面的只读外部事实吸收任务，用于把 GitHub 上已经发生的 PR 状态同步回本地 `release_records`。
+
+规则：
+
+1. 默认每 30 分钟检查仍处于 `pr_opened` / `pr_open` / `ready_for_merge` 且有 PR URL 或 PR number 的 release records。
+2. 每轮最多处理 50 条，避免历史积压一次打爆 GitHub API。
+3. 每条 PR 查询之间必须限速等待；v1 使用 1 秒间隔，宁可后台 sweep 慢一点，也不得触发 GitHub secondary rate limit。
+4. GitHub `MERGED` 映射为本地 `release.status=merged`、`delivery_state=merged`，并记录 `merged_at`、`merge_commit_sha`、`last_pr_status_synced_at`。
+5. GitHub `CLOSED` 且未 merged 映射为 `release.status=pr_closed`、`delivery_state=abandoned`、`next_action=review_closed_pr`。
+6. GitHub `404 / Not Found` 是业务终态，不是普通网络失败；必须映射为 `pr_closed / abandoned`，`next_action=review_missing_pr`，并记录 `PR removed from GitHub or no longer accessible`，避免永久僵尸轮询。
+7. Timeout、5xx、auth 或未知 CLI 失败不得覆盖本地 release 状态，只能写本次 recurring run 的失败摘要，等待下次 sweep 或 operator 处理。
+8. 合并 PR 不自动部署；deploy / rollback 仍必须进入 Release surface 与 Human Gate。
+
 ## Implementation Notes
 
 v1 只把 **已有内置任务** 管理起来。后续如果要开放自定义 schedule，需要先实现：
@@ -448,6 +470,6 @@ v1 只把 **已有内置任务** 管理起来。后续如果要开放自定义 s
 
 1. v1 只读管理内置任务，不支持新增/编辑自定义定时任务。
 2. v1 不实现通用 schedule 自动运行所有 registry。
-3. 当前真实自动定时运行的任务仍是 Bug Log Sweep Scheduler。
+3. 当前真实自动定时运行的任务包括 Bug Log Sweep Scheduler、Goal Planner Sweep Scheduler，以及只读的 Release PR Status Sweep Scheduler；CI Status Sweep 默认需要显式开启。
 4. Notification Dispatcher 是告警可靠性的一部分，因此必须后台 loop。
 5. 所有高风险 recurring workflow 的手动运行默认不 auto-start requirement。

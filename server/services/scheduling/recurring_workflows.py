@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server import config
@@ -20,6 +21,7 @@ from server.database import (
     NotificationFingerprintRow,
     RecurringWorkflowRow,
     RecurringWorkflowRunRow,
+    ReleaseRecordRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowRunRow,
@@ -38,6 +40,7 @@ from server.services.requirements.sources import intake_requirement_sources
 from server.services.runtime.alerting import build_ops_url, deliver_policy_notification
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 from server.services.forum_feedback import run_forum_feedback_sweep
+from server.services.releases.service import sync_release_pr_statuses
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -192,6 +195,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "input_query": {"workflow_state": ["awaiting_ci", "processing_ci_result"], "ci_backend": "local_marker"},
         "output_action": {"kind": "advance_final_regression_results"},
         "escalation_rule": {"on_failed_ci": "awaiting_operator", "on_timeout": "awaiting_operator"},
+        "validation_signal": {"success_metric": "processed_count"},
+    },
+    {
+        "workflow_key": "release_pr_status_sweep",
+        "display_name": "Release PR Status Sweep",
+        "description": "Read GitHub PR state for open release records and update merged, closed, or missing PRs.",
+        "trigger_type": "scheduled",
+        "owner_role": "release_operator",
+        "schedule": {"cadence": "interval", "interval_minutes": 30},
+        "input_query": {"release_status": ["pr_opened", "pr_open", "ready_for_merge"], "has_pr": True},
+        "output_action": {"kind": "sync_release_pr_status", "read_only_github": True},
+        "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "processed_count"},
     },
 ]
@@ -1389,6 +1404,28 @@ def _execute_recurring_workflow(
                 "processing_ci_result_count": int(processing_count),
                 "sweep_runtime_cap_seconds": int(config.CI_STATUS_SWEEP_RUNTIME_CAP_SECONDS),
             }
+        if workflow_key == "release_pr_status_sweep":
+            pending_count = (
+                db.query(ReleaseRecordRow)
+                .filter(
+                    or_(
+                        ReleaseRecordRow.pr_url.isnot(None),
+                        ReleaseRecordRow.pr_number.isnot(None),
+                    ),
+                    or_(
+                        ReleaseRecordRow.status.in_(("pr_opened", "ready_for_merge")),
+                        ReleaseRecordRow.delivery_state.in_(("pr_open", "ready_for_merge")),
+                    ),
+                )
+                .count()
+            )
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "candidate_release_count": int(pending_count),
+                "max_records": 50,
+                "read_only_github": True,
+            }
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1451,6 +1488,8 @@ def _execute_recurring_workflow(
         return _requirement_family_cleanup_sweep(db)
     if workflow_key == "ci_status_sweep":
         return _ci_status_sweep(db)
+    if workflow_key == "release_pr_status_sweep":
+        return sync_release_pr_statuses(db, max_records=50, per_record_sleep_seconds=1.0)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
@@ -1514,6 +1553,7 @@ def recurring_workflow_health(
     bug_scheduler_status: dict[str, Any] | None = None,
     goal_planner_scheduler_status: dict[str, Any] | None = None,
     ci_status_scheduler_status: dict[str, Any] | None = None,
+    release_pr_status_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
@@ -1535,6 +1575,10 @@ def recurring_workflow_health(
         },
         "ci_status_scheduler": ci_status_scheduler_status or {
             "enabled": bool(getattr(config, "CI_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "release_pr_status_scheduler": release_pr_status_scheduler_status or {
+            "enabled": bool(getattr(config, "RELEASE_PR_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

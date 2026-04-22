@@ -243,6 +243,9 @@ def _latest_release(db: Session, requirement_id: int) -> ReleaseRecordRow | None
 def release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | None:
     if release is None:
         return None
+    metadata = _json_load(getattr(release, "metadata_json", None), {})
+    if not isinstance(metadata, dict):
+        metadata = {}
     return ReleaseRecordSlimOut(
         id=int(release.id),
         requirement_id=int(release.requirement_id),
@@ -262,6 +265,11 @@ def release_to_out(release: ReleaseRecordRow | None) -> ReleaseRecordSlimOut | N
         compare_url=str(release.compare_url or "").strip() or None,
         pr_url=str(release.pr_url or "").strip() or None,
         pr_number=int(release.pr_number) if release.pr_number is not None else None,
+        pr_status=str(metadata.get("pr_status") or metadata.get("github_pr_state") or "").strip() or None,
+        merged_at=str(metadata.get("merged_at") or "").strip() or None,
+        merge_commit_sha=str(metadata.get("merge_commit_sha") or "").strip() or None,
+        last_pr_status_synced_at=str(metadata.get("last_pr_status_synced_at") or "").strip() or None,
+        pr_sync_failure_summary=str(metadata.get("pr_sync_failure_summary") or metadata.get("failure_summary") or "").strip() or None,
         notes=str(release.notes or "").strip() or None,
         blocker_kind=str(getattr(release, "blocker_kind", "") or "").strip() or None,
         delivery_blocker_type=str(getattr(release, "delivery_blocker_type", "") or "").strip() or None,

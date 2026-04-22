@@ -6,6 +6,7 @@ from server.database import (
     NotificationEventRow,
     RecurringWorkflowRow,
     RecurringWorkflowRunRow,
+    ReleaseRecordRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowRunRow,
@@ -20,6 +21,7 @@ from server.services.scheduling.recurring_workflows import (
 )
 from server.services.scheduling.locks import acquire_scheduler_lock
 from server.services.planning.scheduler import goal_planner_sweep_due
+from server.services.releases.service import sync_release_pr_statuses
 
 
 def test_recurring_workflow_dry_run_records_history(db_session):
@@ -86,6 +88,7 @@ def test_recurring_workflows_health_endpoint(synced_client):
     payload = response.json()
     assert "bug_log_scheduler" in payload
     assert "lock" in payload["bug_log_scheduler"]
+    assert "release_pr_status_scheduler" in payload
     assert "notification_dispatcher" in payload
     assert payload["recurring_registry"]["total_count"] >= 7
 
@@ -100,6 +103,152 @@ def test_recurring_workflow_runs_endpoint(synced_client):
     assert runs
     assert runs[0]["workflow_key"] == "bug_log_sweep"
     assert runs[0]["dry_run"] is True
+
+
+def _create_release_for_pr_sync(db_session, *, status="pr_opened", delivery_state="pr_open", pr_number=31, pr_url=None):
+    requirement = RequirementRow(
+        title=f"Release sync test {pr_number}",
+        description_markdown="Release sync test",
+        status="done",
+        priority="normal",
+        source="test",
+        intake_metadata_json="{}",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    release = ReleaseRecordRow(
+        requirement_id=int(requirement.id),
+        status=status,
+        delivery_state=delivery_state,
+        pr_url=pr_url or f"https://github.com/cliff-personal/Synapse-Network-Growing/pull/{pr_number}",
+        pr_number=pr_number,
+        metadata_json='{"pr_sync_failure_summary":"old failure"}',
+    )
+    db_session.add(release)
+    db_session.commit()
+    db_session.refresh(release)
+    return release
+
+
+def test_release_pr_status_sweep_maps_merged_pr(db_session):
+    release = _create_release_for_pr_sync(db_session)
+
+    result = sync_release_pr_statuses(
+        db_session,
+        query_status=lambda **_: {
+            "result": "ok",
+            "payload": {
+                "state": "MERGED",
+                "isDraft": False,
+                "mergedAt": "2026-04-21T11:19:24Z",
+                "closedAt": "2026-04-21T11:19:24Z",
+                "mergeCommit": {"oid": "abc123"},
+            },
+        },
+        sleep=lambda _: None,
+    )
+
+    db_session.refresh(release)
+    metadata = json.loads(release.metadata_json)
+    assert result["merged_ids"] == [release.id]
+    assert release.status == "merged"
+    assert release.delivery_state == "merged"
+    assert release.commit_sha == "abc123"
+    assert metadata["pr_status"] == "merged"
+    assert metadata["merge_commit_sha"] == "abc123"
+    assert "pr_sync_failure_summary" not in metadata
+
+
+def test_release_pr_status_sweep_maps_closed_and_missing_prs(db_session):
+    closed_release = _create_release_for_pr_sync(db_session, pr_number=32)
+    missing_release = _create_release_for_pr_sync(db_session, pr_number=33)
+
+    def query_status(*, pr_ref, **_):
+        if str(pr_ref).endswith("/32"):
+            return {"result": "ok", "payload": {"state": "CLOSED", "isDraft": False, "closedAt": "2026-04-21T12:00:00Z"}}
+        return {"result": "not_found", "error_excerpt": "HTTP 404: Not Found"}
+
+    result = sync_release_pr_statuses(db_session, query_status=query_status, sleep=lambda _: None)
+
+    db_session.refresh(closed_release)
+    db_session.refresh(missing_release)
+    missing_metadata = json.loads(missing_release.metadata_json)
+    assert result["closed_ids"] == [closed_release.id]
+    assert result["missing_ids"] == [missing_release.id]
+    assert closed_release.status == "pr_closed"
+    assert closed_release.delivery_state == "abandoned"
+    assert closed_release.next_action == "review_closed_pr"
+    assert missing_release.status == "pr_closed"
+    assert missing_release.delivery_state == "abandoned"
+    assert missing_release.next_action == "review_missing_pr"
+    assert missing_metadata["pr_sync_failure_summary"] == "PR removed from GitHub or no longer accessible"
+
+
+def test_release_pr_status_sweep_keeps_state_on_transient_error_and_limits_calls(db_session):
+    first = _create_release_for_pr_sync(db_session, pr_number=34)
+    second = _create_release_for_pr_sync(db_session, pr_number=35)
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def query_status(*, pr_ref, **_):
+        calls.append(str(pr_ref))
+        return {"result": "transient_error", "error_excerpt": "GitHub timeout"}
+
+    result = sync_release_pr_statuses(
+        db_session,
+        max_records=1,
+        query_status=query_status,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    db_session.refresh(first)
+    db_session.refresh(second)
+    assert len(calls) == 1
+    assert sleeps == []
+    assert result["scanned_count"] == 1
+    assert result["processed_count"] == 0
+    assert result["failed_ids"] == [first.id]
+    assert first.status == "pr_opened"
+    assert second.status == "pr_opened"
+
+
+def test_release_pr_status_sweep_rate_limits_between_queries(db_session):
+    _create_release_for_pr_sync(db_session, pr_number=36)
+    _create_release_for_pr_sync(db_session, pr_number=37)
+    sleeps: list[float] = []
+
+    result = sync_release_pr_statuses(
+        db_session,
+        query_status=lambda **_: {"result": "ok", "payload": {"state": "OPEN", "isDraft": False}},
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    assert result["processed_count"] == 2
+    assert sleeps == [1.0]
+
+
+def test_release_pr_status_recurring_workflow_records_history(db_session, monkeypatch):
+    sync_recurring_workflows(db_session)
+
+    monkeypatch.setattr(
+        "server.services.scheduling.recurring_workflows.sync_release_pr_statuses",
+        lambda db, **kwargs: {
+            "status": "completed",
+            "processed_count": 1,
+            "merged_ids": [1],
+            "closed_ids": [],
+            "missing_ids": [],
+            "failed_ids": [],
+        },
+    )
+
+    result = run_recurring_workflow(db_session, workflow_key="release_pr_status_sweep", dry_run=False)
+
+    assert result["status"] == "completed"
+    assert result["result"]["processed_count"] == 1
+    history = list_recurring_workflow_runs(db_session, "release_pr_status_sweep")
+    assert history
+    assert history[0].status == "succeeded"
 
 
 def test_goal_planner_sweep_due_after_daily_slot_without_prior_run():

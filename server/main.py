@@ -21,6 +21,7 @@ from server.routers import agents, skills, copilot_auth, requirements, project_p
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
+from server.services.releases.pr_status_scheduler import ReleasePrStatusSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
 from server.services.workflows.ci_scheduler import CiStatusSweepScheduler
 
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
     bug_scheduler = None
     goal_planner_scheduler = None
     ci_status_scheduler = None
+    release_pr_status_scheduler = None
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
@@ -64,6 +66,10 @@ async def lifespan(app: FastAPI):
         ci_status_scheduler = CiStatusSweepScheduler()
         ci_status_scheduler.start()
         app.state.ci_status_scheduler = ci_status_scheduler
+    if config.RELEASE_PR_STATUS_SWEEP_SCHEDULER_ENABLED:
+        release_pr_status_scheduler = ReleasePrStatusSweepScheduler()
+        release_pr_status_scheduler.start()
+        app.state.release_pr_status_scheduler = release_pr_status_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -73,6 +79,8 @@ async def lifespan(app: FastAPI):
     finally:
         if notification_dispatcher is not None:
             notification_dispatcher.stop()
+        if release_pr_status_scheduler is not None:
+            release_pr_status_scheduler.stop()
         if ci_status_scheduler is not None:
             ci_status_scheduler.stop()
         if goal_planner_scheduler is not None:

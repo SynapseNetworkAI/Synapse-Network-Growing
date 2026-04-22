@@ -1150,6 +1150,11 @@ export interface ReleaseRecord {
   compare_url: string | null
   pr_url: string | null
   pr_number: number | null
+  pr_status: string | null
+  merged_at: string | null
+  merge_commit_sha: string | null
+  last_pr_status_synced_at: string | null
+  pr_sync_failure_summary: string | null
   notes: string | null
   blocker_kind: string | null
   delivery_blocker_type: string | null
@@ -2191,6 +2196,11 @@ export const api = {
     request<ReleaseDetail>(`/releases/${requirementId}/deploy/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rollbackRelease: (requirementId: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/rollback`, { method: 'POST', body: JSON.stringify(data) }),
+  syncReleasePrStatuses: () =>
+    request<RecurringWorkflowRunResult>('/recurring-workflows/release_pr_status_sweep/run', {
+      method: 'POST',
+      body: JSON.stringify({ dry_run: false, triggered_by: 'operator' }),
+    }),
 
   getErrors: () => request<ErrorFingerprint[]>('/errors'),
   getErrorDetail: (fingerprintKey: string) => request<ErrorFingerprintDetail>(`/errors/${encodeURIComponent(fingerprintKey)}`),

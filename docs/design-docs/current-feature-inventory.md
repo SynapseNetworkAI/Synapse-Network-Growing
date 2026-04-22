@@ -91,6 +91,7 @@
 4. Workflow passed 后进入 delivery / release 面。
 5. PR / release 只信任 workflow evidence、verification verdict 和 human gate decision。
 6. Drop Goal 不会自动 rollback；下线已发布功能必须创建 decommission requirement。
+7. `release_pr_status_sweep` 会只读同步 GitHub PR 状态：merged PR 更新为 `merged`，closed / missing PR 收敛为 `pr_closed / abandoned`，但不会自动 deploy 或 rollback。
 
 ## 5. Error Discovery And Intake Gate
 
@@ -116,15 +117,16 @@
 3. Run Now / Dry Run。
 4. Run history。
 5. Bug Log Sweep Scheduler 状态快照。
-6. Notification Dispatcher 后台 loop。
-7. Notification queue / fingerprint / delivery 记录。
-8. Lark channel routing：
+6. Release PR Status Sweep，用于吸收 GitHub PR merged / closed / missing 外部事实。
+7. Notification Dispatcher 后台 loop。
+8. Notification queue / fingerprint / delivery 记录。
+9. Lark channel routing：
    - alert
    - approval
    - workflow notification
    - release
-9. Cooldown、suppression、rollup、retry、dead letter。
-10. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
+10. Cooldown、suppression、rollup、retry、dead letter。
+11. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
 
 ## 7. Project And Policy
 

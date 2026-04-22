@@ -11,14 +11,18 @@ const STATUS_LABEL: Record<string, string> = {
   repairing: '交付修复中',
   blocked: '阻塞',
   pr_open: 'PR 已打开',
+  pr_opened: 'PR 已打开',
+  pr_closed: 'PR 已关闭',
+  ready_for_merge: '等待合并',
   merged: '已合并',
-  abandoned: '已放弃',
+  abandoned: '已废弃',
 }
 
 function releaseTone(state: string | null | undefined) {
-  if (state === 'pr_open' || state === 'merged') return 'delivered'
+  if (state === 'merged') return 'delivered'
+  if (state === 'pr_open' || state === 'pr_opened' || state === 'ready_for_merge') return 'ready'
   if (state === 'repairing' || state === 'pushing' || state === 'opening_pr' || state === 'preparing_branch') return 'running'
-  if (state === 'blocked') return 'blocked'
+  if (state === 'blocked' || state === 'pr_closed' || state === 'abandoned') return 'blocked'
   if (state === 'pending') return 'ready'
   return 'muted'
 }
@@ -65,7 +69,7 @@ export default function ReleaseDetailPage() {
   }
 
   const release = detail.release
-  const releaseState = release?.state || release?.status || 'pending'
+  const releaseState = release?.status || release?.state || 'pending'
   const workflowRunId = detail.requirement.active_workflow_run_id ?? detail.requirement.active_workflow_run_summary?.id ?? null
   const workspaceBlocker = release?.workspace_blocker || null
   const isWorkspaceBlocked =
@@ -210,6 +214,11 @@ export default function ReleaseDetailPage() {
               <div>repairable: {release.repairable ? 'yes' : 'no'}</div>
               <div>repair attempts: {release.repair_attempt_count}</div>
               <div>next action: {release.next_action || '-'}</div>
+              <div>GitHub PR state: {release.pr_status || '-'}</div>
+              <div>PR synced: {formatTime(release.last_pr_status_synced_at)}</div>
+              <div>merged at: {formatTime(release.merged_at)}</div>
+              <div>merge commit: {release.merge_commit_sha || '-'}</div>
+              {release.pr_sync_failure_summary ? <div>PR sync: {release.pr_sync_failure_summary}</div> : null}
               {release.delivery_failure_excerpt ? <div>failure: {release.delivery_failure_excerpt}</div> : null}
               {release.compare_url ? <a className="block text-blue-600 hover:underline" href={release.compare_url} target="_blank" rel="noreferrer">Compare</a> : null}
               {release.pr_url ? <a className="block text-blue-600 hover:underline" href={release.pr_url} target="_blank" rel="noreferrer">Pull Request</a> : null}

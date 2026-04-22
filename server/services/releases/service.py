@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import or_
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 from server.database import DeploymentRecordRow, ProjectRow, ReleaseRecordRow, RequirementRow, WorkflowRunRow, utcnow
 from server.schemas import ReleaseCandidateOut, ReleaseDetailOut, ValidationCheckResultOut, ValidationRecordSlimOut
 from server.services.delivery.deployment_governance import list_requirement_deployment_records, trigger_requirement_deployment
-from server.services.delivery.pull_request import sync_requirement_review_pr
+from server.services.delivery.pull_request import query_review_pr_status, sync_requirement_review_pr
 from server.services.delivery.vcs import execute_requirement_delivery_vcs
 from server.services.projects.project_center import project_to_dict
 from server.services.requirements.service import _requirement_to_out, _target_projects_for_requirement, release_to_out
@@ -29,6 +30,11 @@ def _json_load(raw: str | None, fallback: Any) -> Any:
 
 def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _metadata(release: ReleaseRecordRow | None) -> dict[str, Any]:
+    payload = _json_load(getattr(release, "metadata_json", None), {}) if release is not None else {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _slug(value: str, *, limit: int = 48) -> str:
@@ -124,6 +130,188 @@ def _compare_url(remote_url: str | None, base_branch: str, branch_name: str) -> 
     if match:
         return f"https://github.com/{match.group('path')}/compare/{base_branch}...{branch_name}"
     return None
+
+
+def _github_repo_slug_from_url(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    match = re.match(r"https?://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)(?:/.*)?$", text)
+    if not match:
+        return None
+    repo = match.group("repo")
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return f"{match.group('owner')}/{repo}"
+
+
+def _release_pr_ref_and_repo(release: ReleaseRecordRow) -> tuple[str | None, str | None]:
+    pr_url = str(getattr(release, "pr_url", "") or "").strip()
+    if pr_url:
+        return pr_url, _github_repo_slug_from_url(pr_url)
+    pr_number = getattr(release, "pr_number", None)
+    repo_slug = _github_repo_slug_from_url(getattr(release, "compare_url", None))
+    if pr_number is not None and repo_slug:
+        return str(int(pr_number)), repo_slug
+    return None, repo_slug
+
+
+def _merge_release_metadata(release: ReleaseRecordRow, updates: dict[str, Any]) -> None:
+    metadata = _metadata(release)
+    for key, value in updates.items():
+        if value is None:
+            metadata.pop(key, None)
+        else:
+            metadata[key] = value
+    release.metadata_json = _json_dump(metadata)
+
+
+def _sync_release_from_pr_payload(release: ReleaseRecordRow, payload: dict[str, Any], *, synced_at: str) -> str:
+    state = str(payload.get("state") or "").strip().upper()
+    merged_at = str(payload.get("mergedAt") or "").strip() or None
+    closed_at = str(payload.get("closedAt") or "").strip() or None
+    merge_commit = payload.get("mergeCommit") if isinstance(payload.get("mergeCommit"), dict) else {}
+    merge_commit_sha = str(merge_commit.get("oid") or "").strip() or None
+    pr_status = "merged" if state == "MERGED" or merged_at else "closed" if state == "CLOSED" else "draft" if bool(payload.get("isDraft")) else "open"
+    updates = {
+        "pr_status": pr_status,
+        "github_pr_state": state,
+        "is_draft": bool(payload.get("isDraft")),
+        "merged_at": merged_at,
+        "closed_at": closed_at,
+        "merge_commit_sha": merge_commit_sha,
+        "last_pr_status_synced_at": synced_at,
+        "pr_sync_failure_summary": None,
+    }
+    if state == "MERGED" or merged_at:
+        release.status = "merged"
+        release.delivery_state = "merged"
+        release.commit_sha = merge_commit_sha or str(getattr(release, "commit_sha", "") or "").strip() or None
+        release.delivered_at = release.delivered_at or utcnow()
+        release.next_action = None
+    elif state == "CLOSED":
+        release.status = "pr_closed"
+        release.delivery_state = "abandoned"
+        release.next_action = "review_closed_pr"
+    else:
+        release.status = "pr_opened"
+        release.delivery_state = "pr_open"
+    release.updated_at = utcnow()
+    _merge_release_metadata(release, updates)
+    return pr_status
+
+
+def _mark_release_pr_missing(release: ReleaseRecordRow, *, error_excerpt: str | None, synced_at: str) -> None:
+    failure_summary = "PR removed from GitHub or no longer accessible"
+    release.status = "pr_closed"
+    release.delivery_state = "abandoned"
+    release.next_action = "review_missing_pr"
+    release.updated_at = utcnow()
+    _merge_release_metadata(
+        release,
+        {
+            "pr_status": "not_found",
+            "github_pr_state": "NOT_FOUND",
+            "failure_summary": failure_summary,
+            "pr_sync_failure_summary": failure_summary,
+            "pr_sync_error_excerpt": str(error_excerpt or "").strip()[:1000] or None,
+            "last_pr_status_synced_at": synced_at,
+        },
+    )
+
+
+def sync_release_pr_statuses(
+    db: Session,
+    *,
+    max_records: int = 50,
+    per_record_sleep_seconds: float = 1.0,
+    query_status: Callable[..., dict[str, Any]] = query_review_pr_status,
+    sleep: Callable[[float], None] | None = None,
+) -> dict[str, Any]:
+    """Synchronize local release records with GitHub PR state.
+
+    This is read-only against GitHub. It never merges, closes, deploys, or
+    deletes branches.
+    """
+
+    limit = max(1, min(int(max_records or 50), 100))
+    rows = (
+        db.query(ReleaseRecordRow)
+        .filter(
+            or_(
+                ReleaseRecordRow.pr_url.isnot(None),
+                ReleaseRecordRow.pr_number.isnot(None),
+            ),
+            or_(
+                ReleaseRecordRow.status.in_(("pr_opened", "ready_for_merge")),
+                ReleaseRecordRow.delivery_state.in_(("pr_open", "ready_for_merge")),
+            ),
+        )
+        .order_by(ReleaseRecordRow.updated_at.asc(), ReleaseRecordRow.id.asc())
+        .limit(limit)
+        .all()
+    )
+    sleeper = sleep
+    if sleeper is None:
+        import time
+
+        sleeper = time.sleep
+    merged_ids: list[int] = []
+    closed_ids: list[int] = []
+    missing_ids: list[int] = []
+    open_ids: list[int] = []
+    failed_items: list[dict[str, Any]] = []
+    synced_at = utcnow().isoformat()
+    processed = 0
+    for index, release in enumerate(rows):
+        release_id = int(release.id)
+        pr_ref, repo_slug = _release_pr_ref_and_repo(release)
+        if not pr_ref:
+            failed_items.append(
+                {
+                    "release_id": release_id,
+                    "result": "transient_error",
+                    "error": "release has no pr_url and no resolvable GitHub repo for pr_number",
+                }
+            )
+        else:
+            result = query_status(pr_ref=pr_ref, repo_slug=repo_slug)
+            kind = str(result.get("result") or "")
+            if kind == "ok":
+                pr_status = _sync_release_from_pr_payload(release, dict(result.get("payload") or {}), synced_at=synced_at)
+                if pr_status == "merged":
+                    merged_ids.append(release_id)
+                elif pr_status == "closed":
+                    closed_ids.append(release_id)
+                else:
+                    open_ids.append(release_id)
+                processed += 1
+            elif kind == "not_found":
+                _mark_release_pr_missing(release, error_excerpt=str(result.get("error_excerpt") or ""), synced_at=synced_at)
+                missing_ids.append(release_id)
+                processed += 1
+            else:
+                failed_items.append(
+                    {
+                        "release_id": release_id,
+                        "result": kind or "transient_error",
+                        "error": str(result.get("error_excerpt") or "GitHub PR status query failed")[:1000],
+                    }
+                )
+        if index < len(rows) - 1 and per_record_sleep_seconds > 0:
+            sleeper(float(per_record_sleep_seconds))
+    db.commit()
+    return {
+        "status": "completed",
+        "processed_count": int(processed),
+        "scanned_count": len(rows),
+        "max_records": limit,
+        "merged_ids": merged_ids,
+        "closed_ids": closed_ids,
+        "missing_ids": missing_ids,
+        "open_ids": open_ids,
+        "failed_ids": [int(item["release_id"]) for item in failed_items],
+        "failed_items": failed_items,
+        "rate_limit_sleep_seconds": float(per_record_sleep_seconds),
+    }
 
 
 def _release_record(db: Session, requirement: RequirementRow, run: WorkflowRunRow | None) -> ReleaseRecordRow:

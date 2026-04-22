@@ -130,6 +130,7 @@
 22. CI runner 必须流式写日志并原子写 exit marker；不得用内存缓冲完整 stdout/stderr。
 23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
 24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
+25. `release_pr_status_sweep` 只能只读同步 GitHub PR 外部状态；`MERGED` 可更新本地 release 为 merged，`CLOSED` 或 `404 / Not Found` 必须收敛为 abandoned/review 状态，不能永久保留 `pr_opened` 僵尸记录。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
@@ -274,6 +275,7 @@ Release 负责：
 7. Delivery atom 在 push PR 分支前必须 smart-sync 远端分支：保留人类提交，能 clean rebase 则更新同一个 PR，发生 rebase conflict 则进入 `awaiting_operator`，不得静默覆盖。
 8. PR body 默认必须 reviewer-first：顶部只放业务摘要、安全 review 理由和人工 merge checklist，长 evidence / logs / retry history 必须折叠或链接 artifact。
 9. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
+10. GitHub PR merge 是外部事实吸收，不是部署动作；已合并 PR 只允许更新 Release 面状态，不得自动触发 deploy、rollback、删分支或生产变更。
 10. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
 11. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
 12. 错误发现 v1 必须优先于机会发现。
