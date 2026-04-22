@@ -238,6 +238,20 @@ const workflowDetail = {
       created_at: '2026-04-18T10:00:00Z',
     },
   ],
+  operator_decision_summary: {
+    headline: 'Agent 正在处理：Repair Ops Dashboard failure',
+    status_label: '已暂停等待指示',
+    status_tone: 'blocked',
+    what_happened: '工作流停在人工门禁，等待你确认下一步。',
+    root_cause_kind: 'human_gate_reason',
+    root_cause: 'Workflow reached a human-gated terminal state.',
+    error_excerpt: 'Workflow reached a human-gated terminal state.',
+    recommended_next_action: '根据根因选择继续修复、驳回当前结果，或确认你已人工处理。',
+    can_continue_retry: true,
+    can_reject: true,
+    can_supersede_retry: false,
+    can_terminate: false,
+  },
 }
 
 const decidedWorkflowDetail = {
@@ -313,9 +327,9 @@ describe('WorkflowRunDetailPage', () => {
     await waitFor(() => expect(mockApi.getWorkflowRun).toHaveBeenCalledWith(7))
     await waitFor(() => expect(mockApi.getWorkflowDefinition).toHaveBeenCalledWith('agent_self_repair'))
 
-    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('agent_self_repair')
-    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Needs Human')
-    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Simulated PR')
+    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Agent 正在处理：Repair Ops Dashboard failure')
+    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('已暂停等待指示')
+    expect(screen.getByTestId('workflow-run-header')).toHaveTextContent('Open PR')
     expect(screen.getByTestId('workflow-overview-tab')).toHaveTextContent('Run #7 执行')
     expect(screen.getByTestId('workflow-correctness-panel')).toHaveTextContent('Verification passed')
     expect(screen.getByTestId('workflow-observability-warnings')).toHaveTextContent('Pending human gate')
@@ -370,8 +384,9 @@ describe('WorkflowRunDetailPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('workflow-run-tabs')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Gates & Delivery'))
-    expect(screen.getByTestId('workflow-lark-notifications')).toHaveTextContent('human_gate_request.created')
-    fireEvent.click(within(screen.getByTestId('workflow-gates-delivery')).getByText('reject'))
+    expect(screen.getByTestId('workflow-operator-decision-summary')).toHaveTextContent('工作流停在人工门禁，等待你确认下一步。')
+    expect(screen.queryByTestId('workflow-lark-notifications')).not.toBeInTheDocument()
+    fireEvent.click(within(screen.getByTestId('workflow-gates-delivery')).getByText('驳回当前结果'))
 
     await waitFor(() => {
       expect(mockApi.decideWorkflowHumanGate).toHaveBeenCalledWith(7, 41, {

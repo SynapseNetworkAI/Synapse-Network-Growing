@@ -172,6 +172,8 @@ High evidence does not bypass high risk.
 7. Factory pages are read-only until workflow spec versioning, schema validation, sandbox execution, and human approval are production-ready.
 8. Planning primary views must use progressive disclosure for Goal PRDs, Candidate Markdown, Planner raw output, and debug payloads. Dense goal lanes may show excerpts and reasons only.
 9. Fail-Closed candidates are diagnostic drafts, not active work. They must be collapsed under Planner Intercepts by default and surface the blocking reason before any raw Agent text.
+10. Workflow Human Gate views must be decision-first. Default UI shows what happened, root cause, recommended next action, and debounced decision buttons; raw state, resolution, Lark payload, notification fingerprints, and blackboard JSON belong in technical details or Debug only.
+11. Human Gate decision success is not final convergence. Without WebSocket, the workflow detail UI must short-poll after a decision and surface renewed `awaiting_operator` states explicitly. Delivery summary must be gated by trusted delivery/release status before showing PR or branch fields.
 
 ## 9. When In Doubt
 

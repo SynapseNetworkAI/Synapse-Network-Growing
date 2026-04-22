@@ -165,6 +165,10 @@
 11. 历史目标数量变大时必须使用 local filtering 和 virtualized history，避免把几百个历史 Goal 同时渲染进 DOM 或要求 operator 传统分页翻找。
 12. 重复的 Planner Fail-Closed 错误必须聚合为 deduped planner intercepts，按 reason signature 显示次数和最新时间，不能把重复废稿当作同等重要的主线工作。
 13. Ops Console 时间显示必须使用浏览器 local time，并保留 UTC 原始值用于排查日志；不得硬编码特定地理时区作为唯一显示口径。
+14. Workflow Human Gate 默认视图必须是高管决策看板：展示发生了什么、根因摘要、推荐动作和决策按钮；`state`、`resolution`、fingerprint、Lark payload、blackboard JSON 只能出现在 Technical details 或 Debug。
+15. Human Gate 决策按钮必须有本地防抖和 loading/disabled 状态；`approve` 在失败场景中必须使用中性语义，例如 `确认并放行`，不得被渲染成“全绿通过”。
+16. Human Gate 决策可能异步唤醒 Runner；没有 WebSocket 时，前端必须在决策后短轮询 workflow detail，确认是否推进、完成或重新阻断，不能只凭 POST 成功显示“已解决”。
+17. Workflow Delivery Summary 必须先验证 `delivery_status` / `release_status` 是可信交付状态，再渲染 PR、branch 或 compare 字段；孤立的历史 branch / PR URL 不得让主视图展示脏交付。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

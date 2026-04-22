@@ -332,6 +332,11 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     assert payload["blackboard"]["pr"]["created"] is True
     assert payload["blackboard"]["pr"]["url"] != "pending"
     assert payload["blackboard"]["pr"]["sync"]["status"] == "synced"
+    operator_summary = payload["operator_decision_summary"]
+    assert operator_summary["status_label"] == "已暂停等待指示"
+    assert operator_summary["status_tone"] == "blocked"
+    assert operator_summary["what_happened"] == "验收矩阵未通过，系统不能证明任务已完成。"
+    assert "route_to_human" not in operator_summary["what_happened"]
     assert "state_outputs" not in payload["blackboard"]
     assert "transition_history" not in payload["blackboard"]
     assert "artifacts" not in payload["blackboard"]
@@ -362,6 +367,38 @@ def test_create_workflow_run_endpoint_executes_agent_self_repair(synced_client, 
     gated_response = synced_client.get("/api/workflows/runs?pending_human_gate=true")
     assert gated_response.status_code == 200
     assert any(item["id"] == payload["id"] for item in gated_response.json())
+
+
+def test_workflow_detail_operator_summary_prefers_acceptance_failure(synced_client, db_session):
+    requirement = _create_requirement(db_session)
+    create_response = synced_client.post(
+        "/api/workflows/runs",
+        json={
+            "requirement_id": int(requirement.id),
+            "workflow_key": "agent_self_repair",
+            "initial_blackboard": {"trigger": {"ops_failure_detected": True}},
+            "run_immediately": True,
+        },
+    )
+    payload = create_response.json()
+    _complete_final_regression(db_session, int(payload["id"]))
+    run = db_session.get(WorkflowRunRow, int(payload["id"]))
+    assert run is not None
+    blackboard = json.loads(run.blackboard_json)
+    blackboard["acceptance_matrix"] = {
+        "status": "failed",
+        "failure_summary": "npm --prefix dashboard run test:e2e timed out after 600s",
+    }
+    run.blackboard_json = json.dumps(blackboard)
+    db_session.commit()
+
+    response = synced_client.get(f"/api/workflows/runs/{payload['id']}")
+
+    assert response.status_code == 200
+    summary = response.json()["operator_decision_summary"]
+    assert summary["root_cause_kind"] == "acceptance_matrix_failed"
+    assert summary["root_cause"] == "npm --prefix dashboard run test:e2e timed out after 600s"
+    assert summary["what_happened"] == "验收矩阵未通过，系统不能证明任务已完成。"
 
 
 def test_workflow_operations_summary_archive_and_completed_tab(synced_client, db_session):

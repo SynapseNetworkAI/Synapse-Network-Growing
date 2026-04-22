@@ -125,6 +125,16 @@ The run detail page must answer:
 - Is delivery real or simulated?
 - Is a human gate pending?
 
+The Gates & Delivery tab must be decision-first, not debug-first:
+
+- Default view shows the operator decision summary: what happened, root cause, recommended next action, and safe decision buttons.
+- Backend must project human-readable `operator_decision_summary`; frontend must not expose raw `state`, `resolution`, fingerprint, blackboard, or Lark payload as the primary decision copy.
+- Decision buttons must debounce immediately after click and remain disabled until the gate decision API returns and the workflow detail refreshes.
+- Because gate decisions can wake an asynchronous runner, the UI must short-poll the workflow detail after a decision before implying the run has settled; if it returns to `awaiting_operator`, show a visible warning rather than a silent no-op.
+- `approve` in a failed/blocked context must read as `确认并放行` or `确认已人工处理`, not as a green success action.
+- PR Delivery only appears when a trusted `delivery_status` / `release_status` proves a real PR, delivery blocker, simulated delivery, rebase issue, or human commit signal exists; stale branch or PR fields alone must not render a delivery summary.
+- Lark notification payloads and fingerprints belong in Debug details only.
+
 ### Factory
 
 Factory pages are read-only in v1:

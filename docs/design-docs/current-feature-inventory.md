@@ -77,6 +77,8 @@
 当前已具备：
 
 1. Human gate request 创建、展示与决策。
+   - Workflow detail 的 `Gates & Delivery` 默认展示 `operator_decision_summary`：发生了什么、根因摘要、推荐动作和去抖决策按钮。
+   - Raw state / resolution / fingerprint / Lark payload 只在 Technical details 或 Debug 展开。
 2. High-risk action 必须 human gate：
    - production deploy
    - funds / settlement / ledger / vault / USDC transfer

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, DeclarativeHumanGate, DeclarativeWorkflowDefinition, DeclarativeWorkflowRunDetail, DeclarativeWorkflowTimelineItem } from '../api'
@@ -75,6 +75,145 @@ function actionClass(tone: 'ready' | 'blocked' | 'running' | 'muted') {
   return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] text-[color:var(--ops-text-title)]'
 }
 
+type GateBusyState = { id: number; decision: string } | null
+type OperatorSummary = NonNullable<DeclarativeWorkflowRunDetail['operator_decision_summary']>
+type DecisionFeedback = { tone: 'info' | 'success' | 'warning' | 'error'; message: string } | null
+type DeliveryView = {
+  visible: boolean
+  status: string
+  prStatus: string
+  branch: string
+  baseBranch: string
+  vcsStatus: string
+  rebaseStatus: string
+  humanCommitsDetected: boolean
+  blockerType: string
+  simulated: boolean
+  prUrl: string
+  compareUrl: string
+  changedFilesCount: number
+  commandEvidenceCount: number
+  syncAction: string
+}
+
+const TRUSTED_DELIVERY_STATES = new Set([
+  'delivery_blocked',
+  'delivery_blocked_no_changes',
+  'pr_opened',
+  'pr_created',
+  'pr_updated',
+  'delivered',
+  'completed',
+  'created',
+  'updated',
+  'draft',
+  'open',
+])
+
+function compactString(value: unknown) {
+  return String(value || '').trim()
+}
+
+function statusToneClass(tone: OperatorSummary['status_tone']) {
+  if (tone === 'ok') return 'border-emerald-300/35 bg-emerald-400/10 text-emerald-100'
+  if (tone === 'blocked') return 'border-rose-300/45 bg-rose-500/16 text-rose-50'
+  if (tone === 'running') return 'border-cyan-300/40 bg-cyan-300/12 text-cyan-100'
+  return 'border-amber-300/40 bg-amber-400/12 text-amber-100'
+}
+
+function workflowDecisionSummary(detail: DeclarativeWorkflowRunDetail): OperatorSummary {
+  if (detail.operator_decision_summary) return detail.operator_decision_summary
+  const blocked = hasPendingGate(detail)
+  return {
+    headline: `Agent 正在处理：${detail.requirement_title || detail.workflow_key}`,
+    status_label: blocked ? '已暂停等待指示' : isTrulyCompleted(detail) ? '已完成' : '运行中',
+    status_tone: blocked ? 'blocked' : isTrulyCompleted(detail) ? 'ok' : 'running',
+    what_happened: blocked ? '工作流停在人工门禁，等待你确认下一步。' : `工作流当前状态为 ${detail.status}。`,
+    root_cause_kind: null,
+    root_cause: null,
+    error_excerpt: null,
+    recommended_next_action: blocked ? '根据证据选择继续修复、驳回当前结果，或确认你已人工处理。' : '继续观察证据和交付状态。',
+    can_continue_retry: blocked,
+    can_reject: blocked,
+    can_supersede_retry: false,
+    can_terminate: false,
+  }
+}
+
+function workflowDeliveryView(detail: DeclarativeWorkflowRunDetail): DeliveryView {
+  const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
+  const delivery = detail.delivery_summary
+  const sync = (pr.sync || {}) as Record<string, unknown>
+  const vcs = (pr.vcs || {}) as Record<string, unknown>
+  const prUrl = compactString(delivery?.pr_url || detail.delivery_pr_url || detail.pr_url || pr.url || sync.pr_url)
+  const compareUrl = compactString(delivery?.compare_url || detail.delivery_compare_url || pr.compare_url || sync.compare_url)
+  const branch = compactString(delivery?.branch_name || detail.delivery_branch || pr.branch_name || sync.branch_name || sync.head_branch || vcs.branch_name)
+  const baseBranch = compactString(detail.delivery_base_branch || (delivery as Record<string, unknown> | undefined)?.base_branch || pr.base_branch || sync.base_branch || vcs.base_branch)
+  const prStatus = compactString(delivery?.pr_status || pr.pr_status || sync.pr_status || pr.status)
+  const syncAction = compactString(delivery?.sync_action || pr.sync_action || sync.sync_action)
+  const statusCandidates = [
+    detail.delivery_status,
+    delivery?.release_status,
+    detail.release_status,
+    prStatus,
+    syncAction ? `pr_${syncAction}` : '',
+    syncAction,
+  ]
+    .map((item) => compactString(item).toLowerCase())
+    .filter(Boolean)
+  const blockerType = compactString(delivery?.delivery_blocker_type || vcs.delivery_blocker_type)
+  const humanCommitsDetected = Boolean(delivery?.human_commits_detected || sync.human_commits_detected || vcs.human_commits_detected)
+  const rebaseStatus = compactString(delivery?.rebase_status || vcs.rebase_status)
+  const simulated = Boolean(delivery?.simulated || detail.delivery_is_simulated || detail.simulated_delivery)
+  const hasTrustedStatus = statusCandidates.some((status) => TRUSTED_DELIVERY_STATES.has(status))
+  const hasExplicitBlocker = Boolean(blockerType || statusCandidates.includes('awaiting_operator') && (detail.pending_human_gate_count > 0 || detail.needs_human))
+  const hasRealPr = Boolean(prUrl && (statusCandidates.includes('pr_opened') || statusCandidates.includes('pr_created') || statusCandidates.includes('pr_updated') || TRUSTED_DELIVERY_STATES.has(prStatus.toLowerCase()) || syncAction))
+  const visible = hasTrustedStatus || hasExplicitBlocker || hasRealPr
+  const status = compactString(statusCandidates.find((item) => TRUSTED_DELIVERY_STATES.has(item)) || detail.delivery_status || delivery?.release_status || detail.release_status || blockerType)
+  return {
+    visible,
+    status,
+    prStatus,
+    branch,
+    baseBranch,
+    vcsStatus: compactString(vcs.status || delivery?.release_status || detail.delivery_status),
+    rebaseStatus,
+    humanCommitsDetected,
+    blockerType,
+    simulated,
+    prUrl,
+    compareUrl,
+    changedFilesCount: Number(detail.changed_files_count || 0),
+    commandEvidenceCount: Number(detail.command_evidence_count || 0),
+    syncAction,
+  }
+}
+
+function hasDeliverySignal(detail: DeclarativeWorkflowRunDetail) {
+  const deliveryView = workflowDeliveryView(detail)
+  return Boolean(
+    deliveryView.visible
+    || ((detail.blackboard.pr as Record<string, unknown> | undefined)?.blockers as unknown[] | undefined)?.length,
+  )
+}
+
+function gateDecisionLabel(decision: string, summary: OperatorSummary, detail: DeclarativeWorkflowRunDetail) {
+  if (decision === 'continue_retry') return '继续让 Agent 修复'
+  if (decision === 'reject') return '驳回当前结果'
+  if (decision === 'approve') {
+    if (detail.delivery_summary?.pr_url || detail.pr_url) return '确认已人工处理'
+    return summary.status_tone === 'blocked' || summary.root_cause ? '确认并放行' : '确认通过'
+  }
+  return decision
+}
+
+function gateDecisionClass(decision: string, summary: OperatorSummary) {
+  if (decision === 'continue_retry') return 'border-cyan-300/45 bg-cyan-300/16 text-cyan-100'
+  if (decision === 'reject') return 'border-rose-300/45 bg-rose-500/10 text-rose-100'
+  if (decision === 'approve' && summary.status_tone === 'ok') return 'border-emerald-300/40 bg-emerald-400/10 text-emerald-100'
+  return 'border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] text-[color:var(--ops-text-body)]'
+}
+
 function Panel({ title, children, testId, action }: { title: string; children: ReactNode; testId?: string; action?: ReactNode }) {
   return (
     <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid={testId}>
@@ -145,26 +284,28 @@ function WorkflowRunHeader({
   onSetTab: (tab: WorkflowTab) => void
 }>) {
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
-  const outcomeLabel = detail.outcome_label || (hasPendingGate(detail) ? 'Needs Human' : isTrulyCompleted(detail) ? 'Completed' : detail.status)
+  const summary = workflowDecisionSummary(detail)
   return (
     <section className="sticky top-0 z-10 rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5 shadow-sm backdrop-blur" data-testid="workflow-run-header">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Explainable Workflow Run</div>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{detail.workflow_key}</h2>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className={['rounded-full border px-3 py-1 font-medium', statusClass(hasPendingGate(detail) ? 'awaiting_operator' : detail.status)].join(' ')}>{outcomeLabel}</span>
-            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">run #{detail.id}</span>
-            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">state: {detail.current_state}</span>
-            <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">risk: {detail.risk_level}</span>
-            {detail.simulated_delivery ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated PR</span> : null}
-            {detail.evidence_complete === false ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Evidence incomplete</span> : null}
-            {detail.resolution ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">resolution: {detail.resolution}</span> : null}
-            {pr.url ? <a className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700" href={String(pr.url)} target="_blank" rel="noreferrer">PR</a> : null}
+        <div className="max-w-4xl">
+          <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Operator Decision Workbench</div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{summary.headline}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className={['rounded-full border px-3 py-1 text-sm font-semibold', statusToneClass(summary.status_tone)].join(' ')}>{summary.status_label}</span>
+            <span className="text-sm text-[color:var(--ops-text-muted)]">需求 #{detail.requirement_id} · {formatTime(detail.updated_at)}</span>
+            {pr.url ? <a className="rounded-full border border-cyan-300/35 bg-cyan-300/10 px-3 py-1 text-sm text-cyan-100" href={String(pr.url)} target="_blank" rel="noreferrer">Open PR</a> : null}
           </div>
-          <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
-            requirement #{detail.requirement_id} · updated {formatTime(detail.updated_at)}
-          </div>
+          <details className="mt-3 text-xs text-[color:var(--ops-text-caption)]">
+            <summary className="cursor-pointer">Technical details</summary>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span>run #{detail.id}</span>
+              <span>workflow {detail.workflow_key}</span>
+              <span>Current state {detail.current_state}</span>
+              <span>Resolution {detail.resolution || '-'}</span>
+              <span>risk {detail.risk_level}</span>
+            </div>
+          </details>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           {nextAction.href ? (
@@ -739,75 +880,161 @@ function WorkflowAcceptanceSourcePanel({ detail }: Readonly<{ detail: Declarativ
 
 function GateDeliveryPanel({
   detail,
-  busyGateId,
+  busyGate,
+  decisionFeedback,
   onDecide,
+  onSupersede,
 }: Readonly<{
   detail: DeclarativeWorkflowRunDetail
-  busyGateId: number | null
+  busyGate: GateBusyState
+  decisionFeedback: DecisionFeedback
   onDecide: (gate: DeclarativeHumanGate, decision: string) => void
+  onSupersede: () => void
 }>) {
+  const summary = workflowDecisionSummary(detail)
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
-  const vcs = (pr.vcs || {}) as Record<string, unknown>
-  const sync = (pr.sync || {}) as Record<string, unknown>
   const delivery = detail.delivery_summary
-  const humanCommitsDetected = Boolean(delivery?.human_commits_detected || sync.human_commits_detected || vcs.human_commits_detected)
-  const rebaseStatus = String(delivery?.rebase_status || vcs.rebase_status || '')
-  const blockerType = String(delivery?.delivery_blocker_type || vcs.delivery_blocker_type || '')
-  const deliveryCallout = blockerType === 'delivery_branch_rebase_conflict'
+  const deliveryView = workflowDeliveryView(detail)
+  const deliveryCallout = deliveryView.blockerType === 'delivery_branch_rebase_conflict'
     ? { label: 'Rebase conflict requires operator', tone: 'blocked' }
-    : humanCommitsDetected && rebaseStatus === 'succeeded'
+    : deliveryView.humanCommitsDetected && deliveryView.rebaseStatus === 'succeeded'
       ? { label: 'Human commits detected and rebased', tone: 'ok' }
-      : String(sync.sync_action || delivery?.sync_action || '') === 'updated'
+      : deliveryView.syncAction === 'updated'
         ? { label: 'Existing PR updated', tone: 'ok' }
-        : String(sync.sync_action || delivery?.sync_action || '') === 'created'
+        : deliveryView.syncAction === 'created'
           ? { label: 'PR created', tone: 'ok' }
+          : deliveryView.status === 'delivery_blocked'
+            ? { label: 'Delivery blocked before PR handoff', tone: 'blocked' }
           : null
-  const notifications = detail.notifications || []
+  const pendingGates = detail.human_gates.filter((gate) => gate.status === 'pending')
+  const decidedGates = detail.human_gates.filter((gate) => gate.status !== 'pending')
+  const showDelivery = hasDeliverySignal(detail)
   return (
     <div className="space-y-5" data-testid="workflow-gates-delivery">
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <Panel title="Human Gates">
-        <div className="space-y-3">
-          {detail.human_gates.map((gate) => (
-            <div key={gate.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-[color:var(--ops-text-title)]">{gate.gate_type} · {gate.state_key}</div>
-                  <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{gate.reason}</div>
-                  <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">risk {gate.risk_level} · {gate.status} · {formatTime(gate.created_at)}</div>
-                </div>
-                {gate.status === 'pending' ? (
-                  <div className="flex flex-wrap gap-2">
-                    {['approve', 'reject', 'continue_retry'].map((decision) => (
-                      <button
-                        key={decision}
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
-                        disabled={busyGateId === gate.id}
-                        onClick={() => onDecide(gate, decision)}
-                      >
-                        {decision}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{gate.decision || gate.status}</span>
-                )}
-              </div>
+      <Panel title="Decision Summary" testId="workflow-operator-decision-summary">
+        <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-4">
+            <div className={['rounded-[var(--ops-radius-panel)] border p-5', statusToneClass(summary.status_tone)].join(' ')}>
+              <div className="text-xs uppercase tracking-[0.2em] opacity-80">Current Decision</div>
+              <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{summary.status_label}</div>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-[color:var(--ops-text-body)]">{summary.what_happened}</p>
             </div>
-          ))}
-          {detail.human_gates.length === 0 ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无人工门禁。</div> : null}
+            <div className="rounded-[var(--ops-radius-panel)] bg-[color:var(--ops-panel-subtle)] p-5">
+              <div className="text-xs uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Root Cause</div>
+              <p className="mt-2 text-base leading-7 text-[color:var(--ops-text-title)]">{summary.root_cause || summary.what_happened}</p>
+              {summary.error_excerpt ? (
+                <pre className="mt-4 max-h-[180px] overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100">{summary.error_excerpt}</pre>
+              ) : null}
+            </div>
+          </div>
+          <div className="rounded-[var(--ops-radius-panel)] bg-[color:var(--ops-panel-subtle)] p-5">
+            <div className="text-xs uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">Recommended Next Action</div>
+            <p className="mt-3 text-base leading-7 text-[color:var(--ops-text-title)]">{summary.recommended_next_action}</p>
+            <p className="mt-4 text-xs leading-5 text-[color:var(--ops-text-muted)]">
+              确认并放行不等于合并 PR，也不会绕过生产、资金、auth、deploy、settlement 等高风险门禁。
+            </p>
+            <details className="mt-4 text-xs text-[color:var(--ops-text-caption)]">
+              <summary className="cursor-pointer">Technical details</summary>
+              <div className="mt-2 space-y-1 font-mono">
+                <div>run #{detail.id}</div>
+                <div>workflow {detail.workflow_key}</div>
+                <div>Current state {detail.current_state}</div>
+                <div>Resolution {detail.resolution || '-'}</div>
+                <div>root cause {summary.root_cause_kind || '-'}</div>
+              </div>
+            </details>
+          </div>
         </div>
       </Panel>
 
-      <Panel title="PR Delivery" testId="workflow-pr-delivery">
+      <Panel title="Your Decision" testId="workflow-human-action-panel">
+        <div className="space-y-3">
+          {decisionFeedback ? (
+            <div
+              data-testid="workflow-gate-decision-feedback"
+              className={[
+                'rounded-[var(--ops-radius-panel)] border px-4 py-3 text-sm font-medium',
+                decisionFeedback.tone === 'error'
+                  ? 'border-rose-300/45 bg-rose-500/16 text-rose-50'
+                  : decisionFeedback.tone === 'warning'
+                    ? 'border-amber-300/45 bg-amber-400/12 text-amber-100'
+                    : decisionFeedback.tone === 'success'
+                      ? 'border-emerald-300/35 bg-emerald-400/10 text-emerald-100'
+                      : 'border-cyan-300/40 bg-cyan-300/12 text-cyan-100',
+              ].join(' ')}
+            >
+              {decisionFeedback.message}
+            </div>
+          ) : null}
+          {pendingGates.map((gate) => {
+            const gateBusy = busyGate?.id === gate.id
+            const decisions = ['continue_retry', 'approve', 'reject']
+            return (
+              <div key={gate.id} className="rounded-[var(--ops-radius-panel)] bg-[color:var(--ops-panel-subtle)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">需要你的判断</div>
+                    <div className="mt-1 text-sm leading-6 text-[color:var(--ops-text-muted)]">{summary.what_happened}</div>
+                    <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">created {formatTime(gate.created_at)} · risk {gate.risk_level}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {decisions.map((decision) => (
+                      <button
+                        key={decision}
+                        type="button"
+                        className={['rounded-xl border px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-55', gateDecisionClass(decision, summary)].join(' ')}
+                        disabled={gateBusy}
+                        onClick={() => onDecide(gate, decision)}
+                      >
+                        {gateBusy && busyGate?.decision === decision ? '处理中...' : gateDecisionLabel(decision, summary, detail)}
+                      </button>
+                    ))}
+                    {summary.can_supersede_retry ? (
+                      <button
+                        type="button"
+                        className="rounded-xl border border-amber-300/45 bg-amber-400/10 px-4 py-2.5 text-sm font-semibold text-amber-100 disabled:cursor-not-allowed disabled:opacity-55"
+                        disabled={gateBusy}
+                        onClick={onSupersede}
+                      >
+                        {gateBusy && busyGate?.decision === 'supersede' ? '处理中...' : '废弃并重新规划'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          {!pendingGates.length ? (
+            <div className="rounded-[var(--ops-radius-panel)] bg-[color:var(--ops-panel-subtle)] p-5 text-sm text-[color:var(--ops-text-muted)]">
+              当前没有需要你处理的门禁。
+            </div>
+          ) : null}
+          {decidedGates.length ? (
+            <details className="rounded-[var(--ops-radius-panel)] bg-[color:var(--ops-panel-subtle)] p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">已处理门禁 ({decidedGates.length})</summary>
+              <div className="mt-3 space-y-2">
+                {decidedGates.map((gate) => (
+                  <div key={gate.id} className="text-sm text-[color:var(--ops-text-muted)]">
+                    {gate.decision || gate.status} · {formatTime(gate.created_at)}
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </Panel>
+
+      {showDelivery ? <Panel title="Delivery Summary" testId="workflow-pr-delivery">
         <div className="grid gap-3 md:grid-cols-2">
-          <MiniFact label="PR Status" value={String(pr.pr_status || sync.pr_status || delivery?.pr_status || pr.status || '-')} />
-          <MiniFact label="Branch" value={String(pr.branch_name || sync.branch_name || delivery?.branch_name || vcs.branch_name || '-')} />
-          <MiniFact label="Base" value={String(pr.base_branch || sync.base_branch || vcs.base_branch || '-')} />
-          <MiniFact label="VCS" value={String(vcs.status || delivery?.release_status || '-')} />
-          <MiniFact label="Rebase" value={rebaseStatus || '-'} />
-          <MiniFact label="Human Commits" value={humanCommitsDetected ? 'detected' : 'none'} />
+          <MiniFact label="Delivery Status" value={deliveryView.status || '-'} />
+          <MiniFact label="PR Status" value={deliveryView.prStatus || '-'} />
+          <MiniFact label="Branch" value={deliveryView.branch || '-'} />
+          <MiniFact label="Base" value={deliveryView.baseBranch || '-'} />
+          <MiniFact label="Changed Files" value={String(deliveryView.changedFilesCount)} />
+          <MiniFact label="Command Evidence" value={String(deliveryView.commandEvidenceCount)} />
+          <MiniFact label="VCS" value={deliveryView.vcsStatus || '-'} />
+          <MiniFact label="Rebase" value={deliveryView.rebaseStatus || '-'} />
+          <MiniFact label="Human Commits" value={deliveryView.humanCommitsDetected ? 'detected' : 'none'} />
         </div>
         {deliveryCallout ? (
           <div className={[
@@ -824,13 +1051,13 @@ function GateDeliveryPanel({
             Simulated PR. This delivery did not create a real external GitHub PR.
           </div>
         ) : null}
-        {pr.url || delivery?.pr_url ? (
-          <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={String(pr.url || delivery?.pr_url)} target="_blank" rel="noreferrer">
+        {deliveryView.prUrl ? (
+          <a className="mt-4 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" href={deliveryView.prUrl} target="_blank" rel="noreferrer">
             Open GitHub PR
           </a>
         ) : null}
-        {pr.compare_url || delivery?.compare_url ? (
-          <a className="ml-2 mt-4 inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" href={String(pr.compare_url || delivery?.compare_url)} target="_blank" rel="noreferrer">
+        {deliveryView.compareUrl ? (
+          <a className="ml-2 mt-4 inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" href={deliveryView.compareUrl} target="_blank" rel="noreferrer">
             Compare
           </a>
         ) : null}
@@ -839,42 +1066,13 @@ function GateDeliveryPanel({
             {pr.blockers.map((blocker) => String(blocker)).join('; ')}
           </div>
         ) : null}
-      </Panel>
-      </div>
-
-      <Panel title="Lark Notifications" testId="workflow-lark-notifications">
-        <div className="space-y-3">
-          {notifications.map((delivery) => (
-            <div key={delivery.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={['rounded-full border px-3 py-1 text-xs', statusClass(delivery.status)].join(' ')}>{delivery.status}</span>
-                <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{delivery.channel}</span>
-                <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{delivery.event_type}</span>
-              </div>
-              <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">{String(delivery.payload?.summary || delivery.event_key)}</div>
-              <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-                {formatTime(delivery.delivered_at || delivery.created_at)} · {delivery.response_excerpt || 'no response excerpt'}
-              </div>
-              {delivery.fingerprint_key ? (
-                <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  <div className="font-mono break-all">fingerprint: {delivery.fingerprint_key}</div>
-                  <div className="mt-1">
-                    occurrence {Number(delivery.fingerprint?.occurrence_count || 0)}
-                    {' · '}suppressed {Number(delivery.fingerprint?.suppressed_count || 0)}
-                    {delivery.fingerprint?.cooldown_until ? ` · cooldown until ${formatTime(delivery.fingerprint.cooldown_until)}` : ''}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ))}
-          {!notifications.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 Lark 通知投递记录。</div> : null}
-        </div>
-      </Panel>
+      </Panel> : null}
     </div>
   )
 }
 
 function DebugPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const notifications = detail.notifications || []
   function downloadDebugDump() {
     const blob = new Blob([prettyJson(detail)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -925,6 +1123,35 @@ function DebugPanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail 
           <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw Atom Invocations</summary>
           <div className="mt-4"><JsonBlock value={detail.atom_invocations} maxHeight="max-h-[520px]" /></div>
         </details>
+        <details className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid="workflow-lark-notifications-debug">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Lark Notifications</summary>
+          <div className="mt-4 space-y-3">
+            {notifications.map((delivery) => (
+              <div key={delivery.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={['rounded-full border px-3 py-1 text-xs', statusClass(delivery.status)].join(' ')}>{delivery.status}</span>
+                  <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{delivery.channel}</span>
+                  <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">{delivery.event_type}</span>
+                </div>
+                <div className="mt-3 text-sm font-medium text-[color:var(--ops-text-title)]">{String(delivery.payload?.summary || delivery.event_key)}</div>
+                <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                  {formatTime(delivery.delivered_at || delivery.created_at)} · {delivery.response_excerpt || 'no response excerpt'}
+                </div>
+                {delivery.fingerprint_key ? (
+                  <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+                    <div className="font-mono break-all">fingerprint: {delivery.fingerprint_key}</div>
+                    <div className="mt-1">
+                      occurrence {Number(delivery.fingerprint?.occurrence_count || 0)}
+                      {' · '}suppressed {Number(delivery.fingerprint?.suppressed_count || 0)}
+                      {delivery.fingerprint?.cooldown_until ? ` · cooldown until ${formatTime(delivery.fingerprint.cooldown_until)}` : ''}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {!notifications.length ? <div className="text-sm text-[color:var(--ops-text-muted)]">暂无 Lark 通知投递记录。</div> : null}
+          </div>
+        </details>
       </div>
     </div>
   )
@@ -940,9 +1167,22 @@ export default function WorkflowRunDetailPage() {
   const [definition, setDefinition] = useState<DeclarativeWorkflowDefinition | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busyGateId, setBusyGateId] = useState<number | null>(null)
+  const [busyGate, setBusyGate] = useState<GateBusyState>(null)
+  const [decisionFeedback, setDecisionFeedback] = useState<DecisionFeedback>(null)
+  const inFlightGateDecisions = useRef(new Set<number>())
+  const decisionPollTimers = useRef<number[]>([])
+  const activeWorkflowRunId = useRef(workflowRunId)
   const [businessOutcomeBusy, setBusinessOutcomeBusy] = useState(false)
   const [activeTab, setActiveTab] = useState<WorkflowTab>('overview')
+
+  useEffect(() => {
+    activeWorkflowRunId.current = workflowRunId
+    return () => {
+      decisionPollTimers.current.forEach((timer) => window.clearTimeout(timer))
+      decisionPollTimers.current = []
+      inFlightGateDecisions.current.clear()
+    }
+  }, [workflowRunId])
 
   async function load() {
     if (!Number.isFinite(workflowRunId)) return
@@ -963,10 +1203,77 @@ export default function WorkflowRunDetailPage() {
     }
   }
 
+  function clearDecisionPollTimers() {
+    decisionPollTimers.current.forEach((timer) => window.clearTimeout(timer))
+    decisionPollTimers.current = []
+  }
+
+  function detailNeedsOperator(nextDetail: DeclarativeWorkflowRunDetail) {
+    const state = String(nextDetail.current_state || '').toLowerCase()
+    const status = String(nextDetail.status || '').toLowerCase()
+    return state === 'awaiting_operator' || status === 'awaiting_operator' || nextDetail.pending_human_gate_count > 0 || Boolean(nextDetail.needs_human)
+  }
+
+  function detailTerminallySucceeded(nextDetail: DeclarativeWorkflowRunDetail) {
+    const state = String(nextDetail.current_state || '').toLowerCase()
+    const status = String(nextDetail.status || '').toLowerCase()
+    return Boolean(nextDetail.is_truly_completed) || ['done', 'completed', 'succeeded'].includes(state) || ['done', 'completed', 'succeeded'].includes(status)
+  }
+
+  function detailTerminallyFailed(nextDetail: DeclarativeWorkflowRunDetail) {
+    const state = String(nextDetail.current_state || '').toLowerCase()
+    const status = String(nextDetail.status || '').toLowerCase()
+    return ['failed', 'error'].includes(state) || ['failed', 'error'].includes(status)
+  }
+
+  function startDecisionStatusPolling(runId: number) {
+    clearDecisionPollTimers()
+    const pollDelays = [1000, 3000, 5000]
+    pollDelays.forEach((delay, index) => {
+      const timer = window.setTimeout(async () => {
+        if (activeWorkflowRunId.current !== runId) return
+        try {
+          const nextDetail = await api.getWorkflowRun(runId)
+          if (activeWorkflowRunId.current !== runId) return
+          setDetail(nextDetail)
+          if (detailNeedsOperator(nextDetail)) {
+            setDecisionFeedback({
+              tone: 'warning',
+              message: 'Agent 已继续尝试，但工作流仍停在人工门禁，请查看新的根因摘要。',
+            })
+            clearDecisionPollTimers()
+            return
+          }
+          if (detailTerminallySucceeded(nextDetail)) {
+            setDecisionFeedback({ tone: 'success', message: '决策已记录，Runner 已推进到完成状态。' })
+            clearDecisionPollTimers()
+            return
+          }
+          if (detailTerminallyFailed(nextDetail)) {
+            setDecisionFeedback({ tone: 'warning', message: '决策已记录，但 Runner 推进后进入失败状态，请查看根因摘要。' })
+            clearDecisionPollTimers()
+            return
+          }
+          setDecisionFeedback({ tone: 'info', message: '决策已记录，Agent 正在继续尝试。' })
+          if (index === pollDelays.length - 1) {
+            setDecisionFeedback({ tone: 'info', message: '决策已记录，等待 Runner 推进或再次阻断。' })
+          }
+        } catch {
+          if (activeWorkflowRunId.current !== runId) return
+          setDecisionFeedback({ tone: 'warning', message: '决策已记录，但状态刷新失败，请手动刷新确认。' })
+        }
+      }, delay)
+      decisionPollTimers.current.push(timer)
+    })
+  }
+
   async function decideGate(gate: DeclarativeHumanGate, decision: string) {
     if (!detail) return
-    setBusyGateId(gate.id)
+    if (inFlightGateDecisions.current.has(gate.id)) return
+    inFlightGateDecisions.current.add(gate.id)
+    setBusyGate({ id: gate.id, decision })
     setError(null)
+    setDecisionFeedback({ tone: 'info', message: `正在提交“${gateDecisionLabel(decision, workflowDecisionSummary(detail), detail)}”…` })
     try {
       const nextDetail = await api.decideWorkflowHumanGate(detail.id, gate.id, {
         decision,
@@ -974,15 +1281,45 @@ export default function WorkflowRunDetailPage() {
         comment: `Operator ${decision} from workflow detail`,
       })
       setDetail(nextDetail)
+      setDecisionFeedback({ tone: 'info', message: '决策已记录，等待 Runner 推进或再次阻断。' })
       if (nextDetail.resume_status === 'failed') {
         toast.error('Gate decision saved, but runner resume failed. Inspect Timeline evidence.')
+        setDecisionFeedback({ tone: 'warning', message: '决策已记录，但 Runner resume 失败，请查看 Timeline evidence。' })
       } else if (nextDetail.resume_attempted) {
         toast.success(`Gate decision saved; runner ${nextDetail.resume_status || 'resumed'}.`)
       }
+      startDecisionStatusPolling(detail.id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '门禁决策失败')
+      const message = err instanceof Error ? err.message : '门禁决策失败'
+      setError(message)
+      setDecisionFeedback({ tone: 'error', message })
     } finally {
-      setBusyGateId(null)
+      inFlightGateDecisions.current.delete(gate.id)
+      setBusyGate(null)
+    }
+  }
+
+  async function supersedeAndRetryPlanner() {
+    if (!detail) return
+    const pendingGate = detail.human_gates.find((gate) => gate.status === 'pending')
+    if (pendingGate && inFlightGateDecisions.current.has(pendingGate.id)) return
+    if (pendingGate) {
+      inFlightGateDecisions.current.add(pendingGate.id)
+      setBusyGate({ id: pendingGate.id, decision: 'supersede' })
+    }
+    setError(null)
+    try {
+      await api.supersedeWorkflowAndRetryPlanner(detail.id, {
+        operator: 'operator',
+        comment: 'Supersede and retry from workflow decision workbench.',
+      })
+      toast.success('已废弃当前阻塞链路并触发 Planner 重试')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '废弃并重新规划失败')
+    } finally {
+      if (pendingGate) inFlightGateDecisions.current.delete(pendingGate.id)
+      setBusyGate(null)
     }
   }
 
@@ -1166,7 +1503,13 @@ export default function WorkflowRunDetailPage() {
 
       {activeTab === 'gates' ? (
         <div data-testid="workflow-gates-tab">
-          <GateDeliveryPanel detail={detail} busyGateId={busyGateId} onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }} />
+          <GateDeliveryPanel
+            detail={detail}
+            busyGate={busyGate}
+            decisionFeedback={decisionFeedback}
+            onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }}
+            onSupersede={() => { supersedeAndRetryPlanner().catch(() => {}) }}
+          />
         </div>
       ) : null}
 

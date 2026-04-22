@@ -874,6 +874,20 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   workflow_status_after_resume?: string
   next_state?: string
   created_gate_id?: number | null
+  operator_decision_summary?: {
+    headline: string
+    status_label: string
+    status_tone: 'ok' | 'warning' | 'blocked' | 'running'
+    what_happened: string
+    root_cause_kind?: string | null
+    root_cause?: string | null
+    error_excerpt?: string | null
+    recommended_next_action: string
+    can_continue_retry: boolean
+    can_reject: boolean
+    can_supersede_retry: boolean
+    can_terminate: boolean
+  }
 }
 
 export interface AgentRequirement {

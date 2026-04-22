@@ -2626,6 +2626,14 @@ def workflow_run_detail(db: Session, workflow_run_id: int) -> dict[str, Any]:
         "changed_files_summary": truth["changed_files_summary"],
         "command_results": command_results,
         "delivery_summary": truth["delivery_summary"],
+        "operator_decision_summary": _operator_decision_summary(
+            db,
+            run,
+            requirement,
+            blackboard,
+            gates,
+            pending_gate_count=int(pending_gate_count),
+        ),
         "timeline": _workflow_timeline_items(
             run=run,
             events=events,
@@ -2836,6 +2844,136 @@ def _workflow_root_cause_fields(
     if resolution:
         return {"root_cause_kind": "workflow_resolution", "root_cause": resolution, "error_excerpt": resolution}
     return {}
+
+
+def _workflow_blocker_text(workflow_run: WorkflowRunRow, blackboard: Mapping[str, Any], gate: HumanGateRequestRow | None) -> str:
+    parts = [
+        str(getattr(workflow_run, "resolution", "") or ""),
+        str(getattr(workflow_run, "current_state", "") or ""),
+        str(getattr(workflow_run, "status", "") or ""),
+        str(getattr(gate, "reason", "") or ""),
+        json.dumps(blackboard.get("acceptance_matrix") or {}, ensure_ascii=False),
+        json.dumps(blackboard.get("verification") or {}, ensure_ascii=False),
+        json.dumps(blackboard.get("pr") or {}, ensure_ascii=False),
+        json.dumps(blackboard.get("ci") or {}, ensure_ascii=False),
+    ]
+    return " ".join(parts).lower()
+
+
+def _humanize_workflow_blocker(
+    workflow_run: WorkflowRunRow,
+    blackboard: Mapping[str, Any],
+    root_cause: Mapping[str, Any],
+    gate: HumanGateRequestRow | None,
+) -> tuple[str, str, str]:
+    """Translate runner/debug fields into operator-facing decision copy."""
+
+    text = _workflow_blocker_text(workflow_run, blackboard, gate)
+    kind = str(root_cause.get("root_cause_kind") or "")
+    if "delivery_branch_rebase_conflict" in text:
+        return (
+            "PR 分支与远端发生冲突，需要人工处理 rebase。",
+            "处理分支冲突后再继续交付；不要让 Agent 覆盖人工提交。",
+            "已暂停等待指示",
+        )
+    if kind == "pr_creation_failed" or "pr_creation_failed" in text:
+        return (
+            "代码已尝试交付，但创建或同步 PR 失败。",
+            "先查看 PR / VCS 错误摘要；如果是临时问题，可以让 Agent 继续重试。",
+            "已暂停等待指示",
+        )
+    if "ci_failed" in text or "final_regression" in text and "failed" in text:
+        return (
+            "最终回归测试失败，系统已停止自动推进。",
+            "查看失败摘要；确认是否继续让 Agent 修复，或人工处理后再放行。",
+            "已暂停等待指示",
+        )
+    if kind == "acceptance_matrix_failed" or "acceptance_matrix" in text and "failed" in text:
+        return (
+            "验收矩阵未通过，系统不能证明任务已完成。",
+            "优先让 Agent 基于失败摘要继续修复；不要把未通过验收当作完成。",
+            "已暂停等待指示",
+        )
+    if kind == "verification_failed" or "verification" in text and "failed" in text:
+        return (
+            "验证阶段失败，系统不能独立确认代码结果。",
+            "查看验证失败摘要；选择继续修复、驳回或人工处理后放行。",
+            "已暂停等待指示",
+        )
+    if kind == "command_failed":
+        return (
+            "执行证据命令失败，工作流已停下等待判断。",
+            "查看命令错误摘要；通常应让 Agent 继续修复，除非你已人工处理。",
+            "已暂停等待指示",
+        )
+    if "retry_budget" in text or "budget_exhausted" in text or "retry budget exhausted" in text:
+        return (
+            "Agent 已耗尽自动重试次数，未能独立解决问题。",
+            "查看根因后决定继续修复、重新规划或终止当前结果。",
+            "已暂停等待指示",
+        )
+    if str(getattr(workflow_run, "current_state", "") or "") == "awaiting_operator":
+        return (
+            "工作流停在人工门禁，等待你确认下一步。",
+            "根据根因选择继续修复、驳回当前结果，或确认你已人工处理。",
+            "已暂停等待指示",
+        )
+    if str(getattr(workflow_run, "status", "") or "") in {"succeeded", "completed", "done"}:
+        return (
+            "工作流已完成技术流程，等待最终结果确认或归档。",
+            "检查证据和交付状态；如有人工验收要求，请确认业务结果。",
+            "已完成",
+        )
+    return (
+        "工作流暂停，等待人工判断。",
+        "查看根因摘要和证据后选择下一步。",
+        "等待判断",
+    )
+
+
+def _operator_decision_summary(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    requirement: RequirementRow | None,
+    blackboard: Mapping[str, Any],
+    gates: list[HumanGateRequestRow],
+    *,
+    pending_gate_count: int,
+) -> dict[str, Any]:
+    pending_gate = next((gate for gate in gates if str(gate.status or "") == "pending"), None)
+    root_cause = _workflow_root_cause_fields(db, workflow_run, blackboard, gate=pending_gate)
+    what_happened, recommended_next_action, status_label = _humanize_workflow_blocker(
+        workflow_run,
+        blackboard,
+        root_cause,
+        pending_gate,
+    )
+    status = str(getattr(workflow_run, "status", "") or "")
+    tone = "warning"
+    if pending_gate_count or str(getattr(workflow_run, "current_state", "") or "") == "awaiting_operator":
+        tone = "blocked"
+    elif status in {"succeeded", "completed", "done"}:
+        tone = "ok"
+    elif status in {"running", "pending"}:
+        tone = "running"
+    if root_cause.get("root_cause_kind") in {"acceptance_matrix_failed", "verification_failed", "pr_creation_failed", "command_failed"}:
+        tone = "blocked"
+
+    title = str(getattr(requirement, "title", "") or getattr(workflow_run, "workflow_key", "") or "Workflow")
+    return {
+        "headline": f"Agent 正在处理：{title}",
+        "status_label": status_label,
+        "status_tone": tone,
+        "what_happened": what_happened,
+        "root_cause_kind": root_cause.get("root_cause_kind"),
+        "root_cause": root_cause.get("root_cause"),
+        "error_excerpt": root_cause.get("error_excerpt"),
+        "recommended_next_action": recommended_next_action,
+        "can_continue_retry": bool(pending_gate),
+        "can_reject": bool(pending_gate),
+        "can_supersede_retry": bool(_supersede_retry_allowed(workflow_run, blackboard)) if pending_gate else False,
+        "can_terminate": False,
+    }
 
 
 def _notify_workflow_run_started(
