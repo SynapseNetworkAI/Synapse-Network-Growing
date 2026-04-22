@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -9,6 +10,7 @@ from server.database import (
     BlackboardSnapshotRow,
     HumanGateRequestRow,
     NotificationDeliveryRow,
+    NotificationEventRow,
     RequirementRow,
     WorkflowArtifactRow,
     WorkflowRunRow,
@@ -18,12 +20,15 @@ from server.services.workflows.declarative import (
     AtomRegistry,
     AtomResult,
     WorkflowSpecError,
+    WorkflowContext,
     build_agent_self_repair_workflow_spec,
     build_gateway_reliability_repair_workflow_spec,
     decide_human_gate,
+    default_atom_registry,
     run_workflow_state_machine,
     validate_workflow_spec,
     workflow_blackboard,
+    _run_acceptance_command_result_artifact,
 )
 
 
@@ -186,6 +191,106 @@ def test_agent_self_repair_scenario_loops_once_then_awaits_final_regression(db_s
     assert "alert" not in {row.channel for row in deliveries}
 
 
+def test_acceptance_command_runner_hard_times_out_and_records_kill_metadata(db_session):
+    run = _create_workflow_run(db_session)
+    ctx = WorkflowContext(
+        db=db_session,
+        workflow_run=run,
+        requirement=run.requirement,
+        spec=build_agent_self_repair_workflow_spec(),
+        state_key="verify",
+        state_spec={"atom": "run_ops_self_repair_verification"},
+        blackboard=workflow_blackboard(run),
+    )
+
+    result = _run_acceptance_command_result_artifact(
+        ctx,
+        command=f'{sys.executable} -c "import time; time.sleep(5)"',
+        purpose="Exercise hard timeout behavior.",
+        step_key="timeout_step",
+        timeout_seconds=1,
+        kill_grace_seconds=1,
+    )
+
+    assert result["exit_code"] == 124
+    assert result["timeout"] is True
+    assert result["timeout_seconds"] == 1
+    assert result["kill_grace_seconds"] == 1
+    assert "command timed out after 1s" in result["stderr_excerpt"]
+    assert result["step_key"] == "timeout_step"
+
+
+def test_self_repair_verification_runs_acceptance_matrix_commands(db_session, monkeypatch):
+    run = _create_workflow_run(db_session)
+    run.requirement.acceptance_contract_json = json.dumps(
+        {
+            "execution_acceptance_steps": [
+                {
+                    "step_key": "architecture_doc_search",
+                    "title": "Architecture docs are searchable",
+                    "expected_result": "The architecture doc contains the workflow constitution.",
+                    "required_commands": ['rg -n "Workflow Constraints" ARCHITECTURE.md'],
+                    "required_evidence_types": ["workflow_command_result"],
+                }
+            ]
+        }
+    )
+    db_session.flush()
+    monkeypatch.setattr(
+        "server.services.workflows.declarative._launch_final_regression_runner",
+        lambda _runner_command, _env: None,
+    )
+
+    result = run_workflow_state_machine(
+        db_session,
+        workflow_run=run,
+        spec=build_agent_self_repair_workflow_spec(),
+        registry=default_atom_registry(),
+    )
+
+    assert result.final_state == "awaiting_ci"
+    blackboard = workflow_blackboard(run)
+    assert blackboard["verification"]["status"] == "passed"
+    assert blackboard["verification"]["acceptance_matrix_status"] == "passed"
+    assert blackboard["acceptance_matrix"]["status"] == "passed"
+    assert blackboard["acceptance_matrix"]["current_command"] is None
+    assert blackboard["acceptance_matrix"]["steps"][0]["status"] == "passed"
+    commands = blackboard["verification"]["command_results"]
+    assert any(command["command"] == 'rg -n "Workflow Constraints" ARCHITECTURE.md' and command["exit_code"] == 0 for command in commands)
+
+
+def test_self_repair_verification_cannot_pass_when_acceptance_matrix_command_fails(db_session):
+    run = _create_workflow_run(db_session)
+    run.requirement.acceptance_contract_json = json.dumps(
+        {
+            "execution_acceptance_steps": [
+                {
+                    "step_key": "missing_marker",
+                    "title": "Missing marker must fail",
+                    "expected_result": "A nonexistent marker is present.",
+                    "required_commands": ['rg -n "definitely-not-present-acceptance-marker" ARCHITECTURE.md'],
+                    "required_evidence_types": ["workflow_command_result"],
+                }
+            ]
+        }
+    )
+    db_session.flush()
+
+    result = run_workflow_state_machine(
+        db_session,
+        workflow_run=run,
+        spec=build_agent_self_repair_workflow_spec(),
+        registry=default_atom_registry(),
+    )
+
+    assert result.final_state == "awaiting_operator"
+    blackboard = workflow_blackboard(run)
+    assert blackboard["verification"]["status"] == "failed"
+    assert blackboard["acceptance_matrix"]["status"] == "failed"
+    assert "missing_marker" in blackboard["acceptance_matrix"]["failure_summary"]
+    assert "acceptance command failed" in blackboard["acceptance_matrix"]["failure_summary"]
+
+
 def test_workflow_spec_validation_rejects_unbounded_loop():
     spec = build_agent_self_repair_workflow_spec()
     spec["states"]["verify"]["transitions"] = [
@@ -297,7 +402,14 @@ def test_gateway_reliability_repair_observes_recovery_and_completes(db_session):
     ).all()
     assert command_artifacts
     deliveries = db_session.query(NotificationDeliveryRow).all()
-    assert {"pr_opened", "workflow_run_succeeded"} <= {row.event_type for row in deliveries}
+    assert "pr_opened" in {row.event_type for row in deliveries}
+    succeeded_event = (
+        db_session.query(NotificationEventRow)
+        .filter(NotificationEventRow.event_type == "workflow_run_succeeded")
+        .one()
+    )
+    assert succeeded_event.channel == "digest"
+    assert succeeded_event.status == "digest"
     assert "approval" not in {row.channel for row in deliveries}
 
 

@@ -35,6 +35,7 @@ from server.services.signals.incidents import list_open_incidents
 from server.services.signals.optimization_signals import list_optimization_signals
 from server.services.requirements.family import cleanup_requirement_families
 from server.services.requirements.sources import intake_requirement_sources
+from server.services.runtime.alerting import build_ops_url, deliver_policy_notification
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 from server.services.forum_feedback import run_forum_feedback_sweep
 
@@ -1059,6 +1060,83 @@ def _resume_ci_passed_workflow(db: Session, row: WorkflowRunRow, *, artifact_id:
     _mark_requirement_for_run_decision(row, status=str(row.status or ""))
 
 
+def _workflow_stale_threshold_seconds(row: WorkflowRunRow) -> int:
+    if str(row.workflow_key or "") == "agent_self_repair":
+        return int(config.WORKFLOW_RUNNER_STALE_AGENT_SELF_REPAIR_SECONDS)
+    return int(config.WORKFLOW_RUNNER_STALE_DEFAULT_SECONDS)
+
+
+def _runner_stale_sweep(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+    current = _ensure_utc(now) or datetime.now(timezone.utc)
+    scanned_count = 0
+    stale_ids: list[int] = []
+    notified_count = 0
+    rows = db.query(WorkflowRunRow).filter(WorkflowRunRow.status == "running").order_by(WorkflowRunRow.id.asc()).all()
+    for row in rows:
+        scanned_count += 1
+        updated = _ensure_utc(row.updated_at or row.created_at) or current
+        threshold_seconds = _workflow_stale_threshold_seconds(row)
+        stale_seconds = max(0, int((current - updated).total_seconds()))
+        if stale_seconds <= threshold_seconds:
+            continue
+        stale_ids.append(int(row.id))
+        requirement = getattr(row, "requirement", None)
+        service_name = (
+            str(getattr(requirement, "project_display_name", "") or "").strip()
+            or str(getattr(requirement, "project_key", "") or "").strip()
+            or "Synapse Ops"
+        )
+        delivery = deliver_policy_notification(
+            db,
+            event_type="runner_stale",
+            object_type="workflow_run",
+            object_key=str(int(row.id)),
+            service_name=service_name,
+            severity="high",
+            risk_level=str(row.risk_level or "high"),
+            status="stale",
+            workflow_key=str(row.workflow_key or ""),
+            current_state=str(row.current_state or ""),
+            summary=(
+                f"Workflow #{int(row.id)} has been running without updates for {stale_seconds}s "
+                f"(threshold {threshold_seconds}s)."
+            ),
+            next_action="Open the workflow evidence and decide whether to recover, retry, or route to human operator.",
+            actor_or_source="ci_status_sweep",
+            occurred_at=current,
+            object_refs={
+                "requirement_id": int(row.requirement_id) if row.requirement_id is not None else None,
+                "workflow_run_id": int(row.id),
+                "workflow_key": row.workflow_key,
+                "current_state": row.current_state,
+                "root_cause_kind": "runner_stale",
+                "last_updated_at": updated.isoformat(),
+                "stale_seconds": stale_seconds,
+                "stale_threshold_seconds": threshold_seconds,
+            },
+            links={
+                "工作流": build_ops_url(f"/workflows/{int(row.id)}") or "",
+                "证据": build_ops_url(f"/workflows/{int(row.id)}?tab=evidence") or "",
+                "门禁": build_ops_url(f"/workflows/{int(row.id)}?tab=gates") or "",
+                "需求": build_ops_url(f"/requirements/{int(row.requirement_id)}") or "" if row.requirement_id is not None else "",
+            },
+            extra_fields={
+                "title": f"P1｜Workflow #{int(row.id)} stale: no runner progress",
+                "root_cause_kind": "runner_stale",
+                "root_cause": f"No workflow runner progress since {updated.isoformat()} UTC.",
+                "error_excerpt": f"Last state `{row.current_state}` has not updated for {stale_seconds}s.",
+            },
+        )
+        if delivery is not None:
+            notified_count += 1
+    db.flush()
+    return {
+        "scanned_running_workflow_count": scanned_count,
+        "stale_workflow_run_ids": stale_ids,
+        "runner_stale_notified_count": notified_count,
+    }
+
+
 def _ci_status_sweep(
     db: Session,
     *,
@@ -1070,6 +1148,7 @@ def _ci_status_sweep(
     cap_seconds = max(1, int(runtime_cap_seconds or config.CI_STATUS_SWEEP_RUNTIME_CAP_SECONDS))
     stale_seconds = max(cap_seconds + 1, int(stale_lock_seconds or config.CI_STATUS_SWEEP_STALE_LOCK_SECONDS))
     current = _ensure_utc(now) or datetime.now(timezone.utc)
+    stale_runner = _runner_stale_sweep(db, now=current)
     stale_cutoff = current - timedelta(seconds=stale_seconds)
     recovered = (
         db.query(WorkflowRunRow)
@@ -1161,6 +1240,7 @@ def _ci_status_sweep(
         "sweep_runtime_cap_reached": cap_reached,
         "stale_processing_locks_recovered": int(recovered or 0),
         "stale_lock_threshold_seconds": stale_seconds,
+        "runner_stale": stale_runner,
     }
 
 

@@ -184,4 +184,44 @@ describe('WorkflowRunDetailPage Human Override evidence', () => {
     expect(within(panel).getByText('Human commits detected and rebased')).toBeTruthy()
     expect(within(panel).getByText('Open GitHub PR')).toBeTruthy()
   })
+
+  it('shows acceptance matrix liveness and timeout evidence', async () => {
+    apiMock.getWorkflowRun.mockResolvedValue({
+      ...baseDetail,
+      blackboard: {
+        ...baseDetail.blackboard,
+        acceptance_matrix: {
+          status: 'running',
+          current_step_key: 'frontend_validation',
+          current_command: 'npm --prefix dashboard run build',
+          current_command_started_at: new Date().toISOString(),
+          verify_phase_started_at: '2026-04-20T00:00:00Z',
+        },
+      },
+      command_results: [
+        {
+          command: 'npm --prefix dashboard run build',
+          exit_code: 124,
+          duration_ms: 600000,
+          stdout_excerpt: '',
+          stderr_excerpt: 'command timed out after 600s',
+          timeout: true,
+          timeout_seconds: 600,
+          killed: true,
+          step_key: 'frontend_validation',
+          simulated: false,
+        },
+      ],
+    })
+
+    renderWorkflow()
+
+    const runtimePanel = await screen.findByTestId('workflow-acceptance-matrix-runtime')
+    expect(within(runtimePanel).getByText(/Running acceptance command for/)).toBeTruthy()
+    expect(within(runtimePanel).getByText('frontend_validation')).toBeTruthy()
+    expect(within(runtimePanel).queryByText(/passing workflow evidence/)).toBeNull()
+    const commandPanel = await screen.findByTestId('workflow-command-evidence-panel')
+    expect(within(commandPanel).getByText('Timed out after 600s')).toBeTruthy()
+    expect(within(commandPanel).getByText('process group killed')).toBeTruthy()
+  })
 })

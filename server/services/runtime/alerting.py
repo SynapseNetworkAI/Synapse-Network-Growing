@@ -45,6 +45,9 @@ _CHANNEL_LABELS = {
     "release": "发布交付",
 }
 
+_EXCERPT_MAX_LINES = 5
+_EXCERPT_MAX_CHARS = 1000
+
 
 def _isoformat(value: datetime | None) -> str:
     if value is None:
@@ -56,6 +59,25 @@ def _isoformat(value: datetime | None) -> str:
 
 def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def bounded_lark_excerpt(value: object, *, max_lines: int = _EXCERPT_MAX_LINES, max_chars: int = _EXCERPT_MAX_CHARS) -> str:
+    """Return a webhook-safe diagnostic excerpt with both line and char caps."""
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lines = text.splitlines()[-max(1, int(max_lines)) :]
+    excerpt = "\n".join(lines).strip()
+    truncated = len(excerpt) > max_chars
+    if truncated:
+        excerpt = excerpt[: max(0, int(max_chars))].rstrip()
+    if truncated or len(text.splitlines()) > len(lines):
+        suffix = "... [Truncated]"
+        if len(excerpt) + len(suffix) > max_chars:
+            excerpt = excerpt[: max(0, int(max_chars) - len(suffix))].rstrip()
+        excerpt = f"{excerpt}{suffix}"
+    return excerpt
 
 
 def build_ops_url(path: str | None) -> str | None:
@@ -97,6 +119,7 @@ def _lark_context_block(payload: dict[str, object]) -> str:
     for key in (
         "priority",
         "risk_level",
+        "root_cause_kind",
         "workflow_key",
         "current_state",
         "requirement_id",
@@ -113,6 +136,15 @@ def _lark_context_block(payload: dict[str, object]) -> str:
         if value not in (None, "", []):
             rows.append(f"- {key}: `{value}`")
     return "\n".join(rows) if rows else "-"
+
+
+def _lark_root_cause_block(payload: dict[str, object]) -> str:
+    root_cause = bounded_lark_excerpt(payload.get("root_cause") or payload.get("error_excerpt"))
+    if not root_cause:
+        return ""
+    root_cause_kind = str(payload.get("root_cause_kind") or "").strip()
+    heading = f"**根本原因 / Root Cause**{f' · `{root_cause_kind}`' if root_cause_kind else ''}"
+    return f"{heading}\n> {root_cause}"
 
 
 def _channel_keyword(channel: str) -> str:
@@ -154,12 +186,41 @@ def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, ob
     next_action = str(payload.get("next_action") or "").strip() or "No action required."
     keyword = _channel_keyword(channel)
     channel_label = _CHANNEL_LABELS.get(channel, channel)
-    title = f"{keyword}｜{channel_label}｜{service}"
+    title = str(payload.get("title") or "").strip() or f"{keyword}｜{channel_label}｜{service}"
     links = {
         str(label): str(url)
         for label, url in dict(payload.get("links") or {}).items()
         if str(label).strip() and str(url).strip()
     }
+    root_cause_block = _lark_root_cause_block(payload)
+    elements: list[dict[str, object]] = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": _lark_overview_block(
+                    keyword=keyword,
+                    channel_label=channel_label,
+                    service=service,
+                    event_type=event_type,
+                    status_or_severity=status_or_severity,
+                    actor_or_source=actor_or_source,
+                    occurred_at=occurred_at,
+                ),
+            },
+        },
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**发生了什么**\n> {summary}"}},
+    ]
+    if root_cause_block:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": root_cause_block}})
+    elements.extend(
+        [
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**下一步动作**\n> {next_action}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**关联入口**\n{_lark_link_block(links)}"}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**关键上下文**\n{_lark_context_block(payload)}"}},
+        ]
+    )
 
     return {
         "msg_type": "interactive",
@@ -169,28 +230,7 @@ def build_lark_card(payload: dict[str, object], *, channel: str) -> dict[str, ob
                 "template": _CHANNEL_TEMPLATES.get(channel, "blue"),
                 "title": {"tag": "plain_text", "content": title[:120]},
             },
-            "elements": [
-                {
-                    "tag": "div",
-                    "text": {
-                        "tag": "lark_md",
-                        "content": _lark_overview_block(
-                            keyword=keyword,
-                            channel_label=channel_label,
-                            service=service,
-                            event_type=event_type,
-                            status_or_severity=status_or_severity,
-                            actor_or_source=actor_or_source,
-                            occurred_at=occurred_at,
-                        ),
-                    },
-                },
-                {"tag": "hr"},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**发生了什么**\n> {summary}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**下一步动作**\n> {next_action}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**关联入口**\n{_lark_link_block(links)}"}},
-                {"tag": "div", "text": {"tag": "lark_md", "content": f"**关键上下文**\n{_lark_context_block(payload)}"}},
-            ],
+            "elements": elements,
         },
     }
 
@@ -330,6 +370,7 @@ def deliver_policy_notification(
     occurred_at: datetime | None = None,
     object_refs: dict[str, object] | None = None,
     links: dict[str, str] | None = None,
+    extra_fields: dict[str, object] | None = None,
     event_key: str | None = None,
 ) -> NotificationDeliveryRow | None:
     """Resolve policy, enqueue, and dispatch through the notification queue."""
@@ -354,6 +395,7 @@ def deliver_policy_notification(
         occurred_at=occurred_at,
         object_refs=object_refs,
         links=links,
+        extra_fields=extra_fields,
         event_key=event_key,
         dispatch_immediately=True,
     )

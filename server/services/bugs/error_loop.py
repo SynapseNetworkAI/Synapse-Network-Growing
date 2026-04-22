@@ -322,6 +322,7 @@ def _error_acceptance_contract(*, service_name: str, project_key: str | None, fi
                 "step_key": "error_fingerprint_linked",
                 "title": "Error fingerprint is linked to the repair workflow",
                 "expected_result": f"Fingerprint `{fingerprint_key}` is attached to the requirement and workflow evidence.",
+                "required_evidence_types": ["project_change_summary"],
                 "required_db_lineage": [
                     "error_fingerprints.linked_requirement_id",
                     "requirements.source_ref",

@@ -242,7 +242,9 @@ Rules:
 - If context_hint is provided, treat it as system diagnostic context, not user PRD. Use it to re-evaluate the current repo state, not to bypass evidence.
 - Do not include high-risk commands.
 - Acceptance must validate the business outcome, not just engine state.
-- Every execution_acceptance_steps item needs title, expected_result, and required_commands or required_evidence_types or required_db_lineage.
+- Every execution_acceptance_steps item needs title, expected_result, and required_commands or required_evidence_types.
+- required_db_lineage is informational in v1 and cannot make a step pass. If you need DB proof, create a safe test command with assertions.
+- required_evidence_types must be one of: workflow_command_result, project_change_summary, git_diff_summary, frontend_validation_result, coverage_report, docs_sync_review, workflow_agent_raw_output.
 - Prefer safe command evidence such as pytest, npm test, npm run build, rg checks, and git diff --check.
 """
 
@@ -276,8 +278,8 @@ def _planner_prompt(
                             "title": "string",
                             "expected_result": "string",
                             "required_commands": ["safe command strings"],
-                            "required_evidence_types": ["workflow_command_result or other evidence types"],
-                            "required_db_lineage": ["optional db lineage strings"],
+                            "required_evidence_types": ["workflow_command_result|project_change_summary|git_diff_summary|frontend_validation_result|coverage_report|docs_sync_review|workflow_agent_raw_output"],
+                            "required_db_lineage": ["optional informational db lineage strings; not pass/fail in v1"],
                         }
                     ],
                 },

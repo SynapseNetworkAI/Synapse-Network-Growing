@@ -1,9 +1,18 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from server.database import HumanGateRequestRow, RecurringWorkflowRow, RecurringWorkflowRunRow, RequirementRow, WorkflowArtifactRow, WorkflowRunRow
+from server.database import (
+    HumanGateRequestRow,
+    NotificationEventRow,
+    RecurringWorkflowRow,
+    RecurringWorkflowRunRow,
+    RequirementRow,
+    WorkflowArtifactRow,
+    WorkflowRunRow,
+)
 from server.services.scheduling.recurring_workflows import (
     _ci_status_sweep,
+    _runner_stale_sweep,
     _next_run_at,
     list_recurring_workflow_runs,
     run_recurring_workflow,
@@ -311,3 +320,71 @@ def test_ci_status_sweep_is_registered(db_session):
     rows = sync_recurring_workflows(db_session)
 
     assert any(row.workflow_key == "ci_status_sweep" for row in rows)
+
+
+def test_runner_stale_sweep_alerts_only_stale_running_workflows(db_session, monkeypatch):
+    monkeypatch.setattr("server.config.WORKFLOW_RUNNER_STALE_AGENT_SELF_REPAIR_SECONDS", 900)
+    monkeypatch.setattr("server.config.OPS_BASE_URL", "http://localhost:9700")
+    now = datetime(2026, 4, 22, 1, 0, tzinfo=timezone.utc)
+    stale_requirement = RequirementRow(
+        title="Stale self repair",
+        description_markdown="Runner has not progressed.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="in_progress",
+        project_key="synapse-network-growing",
+    )
+    fresh_requirement = RequirementRow(
+        title="Fresh self repair",
+        description_markdown="Runner recently progressed.",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        status="in_progress",
+        project_key="synapse-network-growing",
+    )
+    db_session.add_all([stale_requirement, fresh_requirement])
+    db_session.flush()
+    stale_run = WorkflowRunRow(
+        requirement_id=int(stale_requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="verify",
+        status="running",
+        triggered_by="test",
+        updated_at=now - timedelta(minutes=20),
+    )
+    fresh_run = WorkflowRunRow(
+        requirement_id=int(fresh_requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="verify",
+        status="running",
+        triggered_by="test",
+        updated_at=now - timedelta(minutes=5),
+    )
+    done_run = WorkflowRunRow(
+        requirement_id=int(fresh_requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="done",
+        status="succeeded",
+        triggered_by="test",
+        updated_at=now - timedelta(hours=2),
+    )
+    db_session.add_all([stale_run, fresh_run, done_run])
+    db_session.commit()
+
+    result = _runner_stale_sweep(db_session, now=now)
+    second_result = _runner_stale_sweep(db_session, now=now + timedelta(minutes=1))
+
+    assert result["stale_workflow_run_ids"] == [int(stale_run.id)]
+    assert second_result["stale_workflow_run_ids"] == [int(stale_run.id)]
+    events = (
+        db_session.query(NotificationEventRow)
+        .filter(NotificationEventRow.event_type == "runner_stale")
+        .order_by(NotificationEventRow.id.asc())
+        .all()
+    )
+    assert [event.status for event in events] == ["delivered", "suppressed"]
+    event = events[0]
+    assert event.channel == "alert"
+    payload = json.loads(event.payload_json)
+    assert payload["object_refs"]["workflow_run_id"] == int(stale_run.id)
+    assert payload["object_refs"]["current_state"] == "verify"
+    assert payload["object_refs"]["root_cause_kind"] == "runner_stale"
+    assert payload["links"]["工作流"].endswith(f"/workflows/{int(stale_run.id)}")

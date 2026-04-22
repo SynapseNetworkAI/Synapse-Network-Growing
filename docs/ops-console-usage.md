@@ -540,6 +540,10 @@ Workflow 页面展示 declarative workflow run 的 state timeline、blackboard �
 
 Lark 只承担高信号提醒与入口跳转，完整黑板、atom invocation、transition、artifact 和 gate 真相仍以 `/workflows/:id` 为准。普通 state transition、atom success、artifact created、blackboard snapshot 不发送 Lark，只在 Workflow Detail 中展示。
 
+当前 Lark 发送策略是 webhook-only：系统不接入 Lark OpenAPI，不维护 message id，不做真实 thread reply 或卡片更新。每张阻断类卡片必须直接带上 root cause、下一步动作和 Ops Console deep links。`error_excerpt` 必须同时限制最近 5 行和最多 1000 字符，避免超长日志让 webhook payload 失效。
+
+生命周期事件默认降噪：`requirement_created`、`workflow_run_started`、普通 `workflow_run_succeeded` 进入 digest-only 通知历史，不即时刷群。静音后的安全网是 `runner_stale`：独立 sweep 会扫描长时间未更新的 running workflow，并向 alert channel 发送卡死告警。
+
 通知发送采用统一队列：
 
 1. 业务模块只写入 `notification_events`。

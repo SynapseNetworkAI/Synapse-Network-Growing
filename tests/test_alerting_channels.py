@@ -51,6 +51,25 @@ def test_deliver_policy_notification_suppresses_low_signal_atom_success(db_sessi
     assert db_session.query(NotificationDeliveryRow).count() == 0
 
 
+def test_deliver_policy_notification_persists_digest_lifecycle_without_lark_delivery(db_session):
+    row = deliver_policy_notification(
+        db_session,
+        event_type="workflow_run_started",
+        object_type="workflow_run",
+        object_key="7",
+        service_name="Synapse Ops",
+        summary="Workflow started.",
+        severity="normal",
+        risk_level="normal",
+    )
+
+    assert row is None
+    assert db_session.query(NotificationDeliveryRow).count() == 0
+    event = db_session.query(NotificationEventRow).filter(NotificationEventRow.event_type == "workflow_run_started").one()
+    assert event.channel == "digest"
+    assert event.status == "digest"
+
+
 def test_lark_delivery_dry_run_records_without_webhook_call(db_session, monkeypatch):
     monkeypatch.setattr("server.config.LARK_ALERT_WEBHOOK_URL", "https://open.larksuite.com/open-apis/bot/v2/hook/test")
     monkeypatch.setattr("server.config.LARK_DELIVERY_DRY_RUN", True)
@@ -239,3 +258,35 @@ def test_lark_card_uses_channel_keyword_and_readable_markdown(monkeypatch):
     assert "**发生了什么**" in rendered
     assert "**下一步动作**" in rendered
     assert "gate_id: `41`" in rendered
+
+
+def test_lark_card_renders_bounded_root_cause_excerpt(monkeypatch):
+    monkeypatch.setattr("server.config.LARK_ALERT_KEYWORD", "告警")
+    long_line = "x" * 1500
+    card = build_lark_card(
+        {
+            "service": "Synapse Ops",
+            "event_type": "pr_creation_failed",
+            "occurred_at": "2026-04-18 14:00:00 UTC",
+            "status_or_severity": "p1 · failed",
+            "actor_or_source": "delivery_atom",
+            "summary": "Workflow could not create PR.",
+            "next_action": "Open delivery panel.",
+            "root_cause_kind": "pr_creation_failed",
+            "error_excerpt": "\n".join(["old"] * 10 + [long_line]),
+            "object_refs": {"workflow_run_id": 7, "root_cause_kind": "pr_creation_failed"},
+            "links": {"工作流": "http://localhost:9700/workflows/7"},
+        },
+        channel="alert",
+    )
+
+    markdown_blocks = [
+        element.get("text", {}).get("content", "")
+        for element in card["card"]["elements"]
+        if element.get("tag") == "div"
+    ]
+    rendered = "\n".join(markdown_blocks)
+    assert "**根本原因 / Root Cause**" in rendered
+    assert "pr_creation_failed" in rendered
+    assert "[Truncated]" in rendered
+    assert len(rendered) < 2500

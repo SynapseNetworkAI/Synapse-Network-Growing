@@ -64,6 +64,7 @@ def _goalb_payload(manifest_id: int):
                 "step_key": "candidate_materialized",
                 "title": "GoalB candidate becomes a formal requirement",
                 "expected_result": "The candidate is materialized into a requirement with goalb lineage.",
+                "required_evidence_types": ["project_change_summary"],
                 "required_db_lineage": [
                     "requirement_candidates.materialized_requirement_id",
                     "requirements.requirement_candidate_id",

@@ -78,6 +78,7 @@ def _dogfood_acceptance_contract(goal: dict[str, Any]) -> dict[str, Any]:
                     "step_key": "candidate_materialized",
                     "title": "Planner candidate becomes a formal requirement",
                     "expected_result": "A RequirementCandidate is materialized into a Requirement with stable goal lineage.",
+                    "required_evidence_types": ["project_change_summary"],
                     "required_db_lineage": [
                         "requirement_candidates.materialized_requirement_id",
                         "requirements.requirement_candidate_id",

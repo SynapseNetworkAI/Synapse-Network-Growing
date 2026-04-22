@@ -142,16 +142,21 @@ High evidence does not bypass high risk.
 4. Do not send ordinary state transitions, atom success, artifacts, or blackboard snapshots to Lark.
 5. P0/P1 interruption goes to alert. Human gate goes to approval. PR/release goes to release. Workflow summary goes to workflow notification.
 6. Notification suppression and requirement materialization suppression are separate systems.
+7. Lark is webhook-only in v1: no Lark OpenAPI thread replies or card updates. Cards must carry bounded root-cause excerpts and deep links back to Ops Console.
+8. Digest-only lifecycle events stay in notification history but do not page Lark. `runner_stale` must independently alert when a running workflow stops updating.
 
 ## 7. Zero Tolerance And Fail-Closed Acceptance
 
 1. No acceptance fallbacks. Do not generate default shell criteria, generic "requested outcome is implemented" statements, or fake evidence to keep a workflow moving.
 2. Planner or Candidate materialization must include valid `execution_acceptance_steps` before creating a Requirement.
-3. Each acceptance step must prove the business outcome through `required_commands`, `required_evidence_types`, or `required_db_lineage`.
+3. Each acceptance step must prove the business outcome through `required_commands` or closed-vocabulary `required_evidence_types`; `required_db_lineage` is informational only in v1 and must not drive dynamic DB queries.
 4. Missing, malformed, empty, or vague Agent-generated acceptance must become `validation_failed` or `awaiting_operator`; it must not be silently repaired by code.
 5. Acceptance criteria verify the business result, not that the workflow engine happened to transition through states.
 6. Human Override is only for manually created requirements with a concrete `manual_review_prompt`; it still requires explicit business outcome confirmation.
 7. Verification Agent `inconclusive` must remain non-passing unless a deterministic command/evidence check independently proves the required acceptance.
+8. Acceptance Matrix Is Executable Contract: Planner-generated `execution_acceptance_steps.required_commands` must run in workflow verify, and `verification.status=passed` must depend on `acceptance_matrix.status=passed`.
+9. Timeout mandatory, liveness diagnostic only: Planner-generated acceptance commands must run with deterministic hard timeouts. Liveness and heartbeat fields are diagnostic only; they never replace exit-code evidence or timeout failure.
+10. Default smoke tests cannot replace the Planner contract. Guardrails, `py_compile`, and full pytest are system baselines; they do not satisfy requirement-specific acceptance steps unless those steps have matching evidence in the same `workflow_run_id`.
 
 ## 8. Frontend Constraints
 

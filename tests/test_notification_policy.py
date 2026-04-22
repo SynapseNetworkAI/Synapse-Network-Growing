@@ -47,6 +47,45 @@ def test_notification_policy_routes_release_events_to_release():
     assert policy.should_send_now is True
 
 
+def test_notification_policy_routes_blocking_delivery_failures_to_alert():
+    policy = resolve_notification_policy(
+        event_type="pr_creation_failed",
+        object_type="workflow_run",
+        object_key="7",
+        severity="normal",
+        risk_level="normal",
+    )
+
+    assert policy.channel == "alert"
+    assert policy.should_send_now is True
+
+
+def test_notification_policy_keeps_lifecycle_events_digest_only():
+    policy = resolve_notification_policy(
+        event_type="workflow_run_started",
+        object_type="workflow_run",
+        object_key="7",
+        severity="normal",
+        risk_level="normal",
+    )
+
+    assert policy.channel == "digest"
+    assert policy.should_send_now is False
+
+
+def test_notification_policy_keeps_normal_gate_decisions_digest_only():
+    policy = resolve_notification_policy(
+        event_type="human_gate_request.decided",
+        object_type="human_gate",
+        object_key="42",
+        status="approved",
+        risk_level="normal",
+    )
+
+    assert policy.channel == "digest"
+    assert policy.should_send_now is False
+
+
 def test_notification_policy_suppresses_atom_success_noise():
     policy = resolve_notification_policy(
         event_type="atom_invocation_succeeded",

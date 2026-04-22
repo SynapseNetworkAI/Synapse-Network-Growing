@@ -824,6 +824,10 @@ export interface DeclarativeCommandResult {
   stderr_excerpt?: string
   log_artifact_id?: number | null
   timeout?: boolean
+  timeout_seconds?: number
+  kill_grace_seconds?: number
+  killed?: boolean
+  step_key?: string | null
   simulated?: boolean
   state_key?: string | null
   atom_key?: string | null

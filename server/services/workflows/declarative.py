@@ -6,8 +6,10 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -34,7 +36,13 @@ from server.database import (
 )
 from server.services.delivery.pull_request import sync_requirement_review_pr
 from server.services.delivery.vcs import execute_requirement_delivery_vcs
-from server.services.runtime.alerting import build_ops_url, deliver_policy_notification, notification_service_label
+from server.services.requirements.acceptance import (
+    AcceptanceValidationError,
+    acceptance_contract_for_requirement,
+    classify_acceptance_command_timeout,
+    validate_required_command_safety,
+)
+from server.services.runtime.alerting import bounded_lark_excerpt, build_ops_url, deliver_policy_notification, notification_service_label
 
 
 class WorkflowSpecError(ValueError):
@@ -152,6 +160,7 @@ def build_agent_self_repair_workflow_spec() -> dict[str, Any]:
                 "final_regression",
                 "pr",
                 "acceptance",
+                "acceptance_matrix",
                 "business_outcome",
                 "risk_flags",
                 "evidence",
@@ -1241,6 +1250,7 @@ def default_atom_registry() -> AtomRegistry:
         trigger = _trigger(ctx)
         counters = dict(ctx.blackboard.get("counters") or {})
         should_fail_once = bool(trigger.get("force_first_verification_failure"))
+        acceptance_steps = _acceptance_steps_for_requirement(ctx.requirement)
         if should_fail_once and int(counters.get("patch_attempts") or 0) == 0:
             command_result = _record_command_result_artifact(
                 ctx,
@@ -1261,11 +1271,25 @@ def default_atom_registry() -> AtomRegistry:
             args=[sys.executable, "-m", "py_compile", "server/services/workflows/declarative.py"],
             purpose="Verify the self-repair runtime module still compiles.",
         )
-        status = "passed" if int(command_result.get("exit_code") or 0) == 0 else "failed"
+        command_results = [command_result]
+        matrix: dict[str, Any] | None = None
+        if acceptance_steps:
+            matrix = _run_acceptance_matrix(ctx, steps=acceptance_steps, command_results=command_results)
+        status = "passed" if int(command_result.get("exit_code") or 0) == 0 and (not matrix or matrix.get("status") == "passed") else "failed"
+        failure_summary = ""
+        if int(command_result.get("exit_code") or 0) != 0:
+            failure_summary = "self-repair runtime module did not compile"
+        elif matrix and matrix.get("status") != "passed":
+            failure_summary = str(matrix.get("failure_summary") or "acceptance matrix failed")
+        verification_payload: dict[str, Any] = {"status": status, "command_results": command_results}
+        if matrix:
+            verification_payload["acceptance_matrix_status"] = matrix.get("status")
+        if failure_summary:
+            verification_payload["failure_summary"] = failure_summary
         return AtomResult(
             summary="Verification passed" if status == "passed" else "Verification failed",
-            writes={"verification": {"status": status, "command_results": [command_result]}},
-            artifacts=(str(command_result["log_artifact_id"]),),
+            writes={"verification": verification_payload},
+            artifacts=tuple(str(item["log_artifact_id"]) for item in command_results if item.get("log_artifact_id")),
         )
 
     registry.register("run_ops_self_repair_verification", _verify_self_repair)
@@ -2747,6 +2771,69 @@ def _workflow_service_label(requirement: RequirementRow | None) -> str:
     )
 
 
+def _latest_failed_command_excerpt(db: Session, workflow_run_id: int) -> tuple[str, str] | None:
+    artifacts = (
+        db.query(WorkflowArtifactRow)
+        .filter(WorkflowArtifactRow.workflow_run_id == int(workflow_run_id))
+        .order_by(WorkflowArtifactRow.id.desc())
+        .limit(20)
+        .all()
+    )
+    for artifact in artifacts:
+        if str(artifact.artifact_type or "") != "workflow_command_result":
+            continue
+        payload = _json_load(artifact.machine_readable_payload, {})
+        exit_code = payload.get("exit_code")
+        if exit_code in {None, 0, "0"} and not bool(payload.get("timeout")):
+            continue
+        command = str(payload.get("command") or "workflow command")
+        excerpt = bounded_lark_excerpt(
+            payload.get("stderr_excerpt")
+            or payload.get("stdout_excerpt")
+            or artifact.human_readable_body
+            or artifact.content_summary
+        )
+        if excerpt:
+            return ("command_failed", f"{command}\n{excerpt}")
+    return None
+
+
+def _workflow_root_cause_fields(
+    db: Session,
+    workflow_run: WorkflowRunRow,
+    blackboard: Mapping[str, Any],
+    *,
+    gate: HumanGateRequestRow | None = None,
+) -> dict[str, object]:
+    acceptance = blackboard.get("acceptance_matrix") if isinstance(blackboard.get("acceptance_matrix"), Mapping) else {}
+    verification = blackboard.get("verification") if isinstance(blackboard.get("verification"), Mapping) else {}
+    pr = blackboard.get("pr") if isinstance(blackboard.get("pr"), Mapping) else {}
+    candidates = (
+        ("acceptance_matrix_failed", acceptance.get("failure_summary")),
+        ("verification_failed", verification.get("failure_summary") or verification.get("error_excerpt")),
+        ("pr_creation_failed", pr.get("failure_summary") or pr.get("error_excerpt") or pr.get("error")),
+    )
+    for kind, value in candidates:
+        excerpt = bounded_lark_excerpt(value)
+        if excerpt:
+            return {"root_cause_kind": kind, "root_cause": excerpt, "error_excerpt": excerpt}
+
+    failed_command = _latest_failed_command_excerpt(db, int(workflow_run.id))
+    if failed_command is not None:
+        kind, excerpt = failed_command
+        return {"root_cause_kind": kind, "root_cause": excerpt, "error_excerpt": excerpt}
+
+    if gate is not None:
+        excerpt = bounded_lark_excerpt(gate.reason or gate.decision_comment)
+        if excerpt:
+            return {"root_cause_kind": "human_gate_reason", "root_cause": excerpt, "error_excerpt": excerpt}
+
+    resolution = bounded_lark_excerpt(getattr(workflow_run, "resolution", None))
+    if resolution:
+        return {"root_cause_kind": "workflow_resolution", "root_cause": resolution, "error_excerpt": resolution}
+    return {}
+
+
 def _notify_workflow_run_started(
     db: Session,
     workflow_run: WorkflowRunRow,
@@ -2794,6 +2881,8 @@ def _notify_workflow_terminal(
         return
     risk_level = "high" if blackboard.get("risk_flags") else str(workflow_run.risk_level or "normal")
     is_failure = event_type in {"workflow_retry_budget_exhausted", "workflow_run_failed"}
+    root_cause = _workflow_root_cause_fields(db, workflow_run, blackboard)
+    root_cause_kind = str(root_cause.get("root_cause_kind") or "")
     deliver_policy_notification(
         db,
         event_type=event_type,
@@ -2818,10 +2907,21 @@ def _notify_workflow_terminal(
             "workflow_run_id": int(workflow_run.id),
             "workflow_key": workflow_run.workflow_key,
             "current_state": state_key,
+            "root_cause_kind": root_cause_kind,
         },
         links={
             "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+            "证据": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=evidence") or "",
+            "门禁": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=gates") or "",
             "需求": build_ops_url(f"/requirements/{int(workflow_run.requirement_id)}") or "",
+        },
+        extra_fields={
+            **root_cause,
+            "title": (
+                f"P1｜Workflow #{int(workflow_run.id)} blocked: {root_cause_kind or event_type}"
+                if is_failure
+                else f"Workflow #{int(workflow_run.id)} summary"
+            ),
         },
     )
 
@@ -2981,6 +3081,9 @@ def _notify_human_gate_created(
     workflow_run: WorkflowRunRow,
 ) -> None:
     requirement = workflow_run.requirement
+    blackboard = _load_blackboard(workflow_run)
+    root_cause = _workflow_root_cause_fields(db, workflow_run, blackboard, gate=gate)
+    root_cause_kind = str(root_cause.get("root_cause_kind") or "")
     deliver_policy_notification(
         db,
         event_type="human_gate_request.created",
@@ -3003,11 +3106,17 @@ def _notify_human_gate_created(
             "gate_id": int(gate.id),
             "workflow_key": workflow_run.workflow_key,
             "current_state": gate.state_key,
+            "root_cause_kind": root_cause_kind,
         },
         links={
             "审批": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=gates") or "",
             "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}") or "",
+            "证据": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=evidence") or "",
             "需求": build_ops_url(f"/requirements/{int(workflow_run.requirement_id)}") or "",
+        },
+        extra_fields={
+            **root_cause,
+            "title": f"P1｜Workflow #{int(workflow_run.id)} needs operator: {root_cause_kind or gate.gate_type}",
         },
     )
 
@@ -3061,6 +3170,8 @@ def _notify_workflow_pr_delivery(
     severity = "normal" if created else "high"
     risk_level = "high" if blackboard.get("risk_flags") else str(workflow_run.risk_level or "normal")
     pr_ref = str(pr.get("number") or pr.get("url") or pr.get("branch_name") or state_key or "unknown")
+    root_cause = {} if created else _workflow_root_cause_fields(db, workflow_run, blackboard)
+    root_cause_kind = str(root_cause.get("root_cause_kind") or event_type)
     deliver_policy_notification(
         db,
         event_type=event_type,
@@ -3092,12 +3203,22 @@ def _notify_workflow_pr_delivery(
             "current_state": state_key,
             "branch": pr.get("branch_name"),
             "pr_number": pr.get("number"),
+            "root_cause_kind": root_cause_kind if not created else "",
         },
         links={
             "工作流": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=delivery") or "",
+            "证据": build_ops_url(f"/workflows/{int(workflow_run.id)}?tab=evidence") or "",
             "需求": build_ops_url(f"/requirements/{int(requirement.id)}") or "",
             "PR": str(pr.get("url") or "").strip(),
             "Compare": str(pr.get("compare_url") or "").strip(),
+        },
+        extra_fields={
+            **root_cause,
+            "title": (
+                f"PR｜Workflow #{int(workflow_run.id)} draft ready"
+                if created
+                else f"P1｜Workflow #{int(workflow_run.id)} blocked: PR creation failed"
+            ),
         },
     )
 
@@ -3114,6 +3235,10 @@ def _record_command_result_artifact(
     stderr_excerpt: str = "",
     duration_ms: int = 0,
     timeout: bool = False,
+    timeout_seconds: int | None = None,
+    kill_grace_seconds: int | None = None,
+    killed: bool | None = None,
+    step_key: str | None = None,
 ) -> dict[str, Any]:
     """Persist command evidence for verification atoms.
 
@@ -3133,6 +3258,14 @@ def _record_command_result_artifact(
         "timeout": bool(timeout),
         "simulated": bool(simulated),
     }
+    if timeout_seconds is not None:
+        payload["timeout_seconds"] = int(timeout_seconds)
+    if kill_grace_seconds is not None:
+        payload["kill_grace_seconds"] = int(kill_grace_seconds)
+    if killed is not None:
+        payload["killed"] = bool(killed)
+    if step_key:
+        payload["step_key"] = str(step_key)
     artifact = _create_workflow_artifact(
         ctx.db,
         workflow_run_id=int(ctx.workflow_run.id),
@@ -3200,6 +3333,258 @@ def _run_local_command_result_artifact(
         duration_ms=duration_ms,
         timeout=timed_out,
     )
+
+
+def _read_temp_excerpt(handle: Any, *, limit: int = 4000) -> str:
+    handle.seek(0)
+    data = handle.read(limit)
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return str(data or "")
+
+
+def _terminate_process_group(process: subprocess.Popen[Any], *, grace_seconds: int) -> bool:
+    """Terminate a command tree with TERM, then KILL after a short grace period."""
+
+    killed = False
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return killed
+    except Exception:
+        try:
+            process.terminate()
+        except Exception:
+            pass
+    try:
+        process.wait(timeout=grace_seconds)
+        return killed
+    except subprocess.TimeoutExpired:
+        killed = True
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+        try:
+            process.wait(timeout=1)
+        except Exception:
+            pass
+    return killed
+
+
+def _run_acceptance_command_result_artifact(
+    ctx: WorkflowContext,
+    *,
+    command: str,
+    purpose: str,
+    step_key: str,
+    timeout_seconds: int,
+    kill_grace_seconds: int = 10,
+) -> dict[str, Any]:
+    """Run an evidence-bound acceptance command with a hard process-group timeout."""
+
+    cwd = str(getattr(ctx.requirement, "target_project_path", "") or "").strip()
+    if not cwd or not os.path.isdir(cwd):
+        cwd = str(config.PROJECT_ROOT)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = "."
+    started = time.monotonic()
+    exit_code = 1
+    timed_out = False
+    killed = False
+    stdout_excerpt = ""
+    stderr_excerpt = ""
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            shell=True,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+        try:
+            exit_code = int(process.wait(timeout=max(1, int(timeout_seconds))))
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            exit_code = 124
+            killed = _terminate_process_group(process, grace_seconds=max(1, int(kill_grace_seconds)))
+            stderr_file.write(f"\ncommand timed out after {int(timeout_seconds)}s\n".encode("utf-8"))
+        stdout_excerpt = _read_temp_excerpt(stdout_file)
+        stderr_excerpt = _read_temp_excerpt(stderr_file)
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return _record_command_result_artifact(
+        ctx,
+        command=command,
+        purpose=purpose,
+        exit_code=exit_code,
+        simulated=False,
+        cwd=cwd,
+        stdout_excerpt=stdout_excerpt,
+        stderr_excerpt=stderr_excerpt,
+        duration_ms=duration_ms,
+        timeout=timed_out,
+        timeout_seconds=int(timeout_seconds),
+        kill_grace_seconds=int(kill_grace_seconds),
+        killed=killed,
+        step_key=step_key,
+    )
+
+
+def _workflow_artifact_types(ctx: WorkflowContext) -> set[str]:
+    rows = (
+        ctx.db.query(WorkflowArtifactRow)
+        .filter(WorkflowArtifactRow.workflow_run_id == int(ctx.workflow_run.id))
+        .all()
+    )
+    return {str(row.artifact_type or "") for row in rows if str(row.artifact_type or "")}
+
+
+def _step_key(step: Mapping[str, Any], index: int) -> str:
+    return str(step.get("step_key") or step.get("title") or f"step_{index}").strip()
+
+
+def _acceptance_steps_for_requirement(requirement: RequirementRow) -> list[dict[str, Any]]:
+    contract = acceptance_contract_for_requirement(requirement)
+    steps = contract.get("execution_acceptance_steps") or []
+    return [dict(item) for item in steps if isinstance(item, Mapping)]
+
+
+def _command_result_passed_for(command_results: list[dict[str, Any]], command: str) -> bool:
+    normalized = " ".join(str(command or "").strip().split())
+    return any(str(item.get("command") or "") == normalized and int(item.get("exit_code", 1)) == 0 for item in command_results)
+
+
+def _required_evidence_satisfied(evidence_type: str, artifact_types: set[str], command_results: list[dict[str, Any]]) -> bool:
+    normalized = str(evidence_type or "").strip()
+    if normalized == "workflow_command_result":
+        return any(int(item.get("exit_code", 1)) == 0 for item in command_results) or normalized in artifact_types
+    if normalized == "project_change_summary":
+        return "workflow_file_change_summary" in artifact_types or normalized in artifact_types
+    return normalized in artifact_types
+
+
+def _run_acceptance_matrix(
+    ctx: WorkflowContext,
+    *,
+    steps: list[dict[str, Any]],
+    command_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Execute Planner acceptance commands and summarize matrix evidence.
+
+    v1 scopes evidence to the current workflow_run_id. A future version may
+    require artifact.created_at >= verify_phase_started_at to prevent older
+    evidence from satisfying a newer verify phase.
+    """
+
+    verify_started_at = utcnow().isoformat()
+    matrix: dict[str, Any] = {
+        "status": "running",
+        "verify_phase_started_at": verify_started_at,
+        "evidence_scope": "workflow_run",
+        "future_scope_note": "v2 may require artifact.created_at >= verify_phase_started_at",
+        "steps": [],
+        "command_results": [],
+    }
+    ctx.blackboard["acceptance_matrix"] = matrix
+    _persist_blackboard(ctx.db, ctx.workflow_run, ctx.state_key, ctx.blackboard)
+    failures: list[str] = []
+
+    for index, step in enumerate(steps, start=1):
+        step_key = _step_key(step, index)
+        required_commands = [str(item).strip() for item in step.get("required_commands") or [] if str(item).strip()]
+        required_evidence = [str(item).strip() for item in step.get("required_evidence_types") or [] if str(item).strip()]
+        step_payload: dict[str, Any] = {
+            "step_key": step_key,
+            "title": str(step.get("title") or step_key),
+            "status": "running",
+            "required_commands": required_commands,
+            "required_evidence_types": required_evidence,
+            "command_result_artifact_ids": [],
+            "failures": [],
+        }
+
+        for command in required_commands:
+            try:
+                normalized_command = validate_required_command_safety(command)
+                timeout_info = classify_acceptance_command_timeout(normalized_command)
+            except AcceptanceValidationError as exc:
+                reason = f"{step_key}: {exc}"
+                failures.append(reason)
+                step_payload["failures"].append(reason)
+                continue
+
+            now = utcnow().isoformat()
+            matrix.update(
+                {
+                    "status": "running",
+                    "current_step_key": step_key,
+                    "current_command": normalized_command,
+                    "current_command_started_at": now,
+                    "last_progress_at": now,
+                }
+            )
+            ctx.blackboard["acceptance_matrix"] = matrix
+            _persist_blackboard(ctx.db, ctx.workflow_run, ctx.state_key, ctx.blackboard)
+
+            result = _run_acceptance_command_result_artifact(
+                ctx,
+                command=normalized_command,
+                purpose=f"Planner acceptance step `{step_key}`: {step.get('expected_result') or step.get('title') or 'verify outcome'}",
+                step_key=step_key,
+                timeout_seconds=int(timeout_info["timeout_seconds"]),
+            )
+            command_results.append(result)
+            matrix["command_results"].append(result)
+            if result.get("log_artifact_id"):
+                step_payload["command_result_artifact_ids"].append(int(result["log_artifact_id"]))
+            if int(result.get("exit_code", 1)) != 0:
+                if result.get("timeout"):
+                    reason = f"{step_key}: acceptance command timed out after {result.get('timeout_seconds')}s: {normalized_command}"
+                else:
+                    reason = f"{step_key}: acceptance command failed with exit {result.get('exit_code')}: {normalized_command}"
+                failures.append(reason)
+                step_payload["failures"].append(reason)
+
+        for command in required_commands:
+            if not _command_result_passed_for(command_results, command):
+                reason = f"{step_key}: missing passing command evidence for `{command}`"
+                if reason not in failures:
+                    failures.append(reason)
+                    step_payload["failures"].append(reason)
+
+        artifact_types = _workflow_artifact_types(ctx)
+        for evidence_type in required_evidence:
+            if not _required_evidence_satisfied(evidence_type, artifact_types, command_results):
+                reason = f"{step_key}: missing required evidence `{evidence_type}`"
+                failures.append(reason)
+                step_payload["failures"].append(reason)
+
+        step_payload["status"] = "failed" if step_payload["failures"] else "passed"
+        matrix["steps"].append(step_payload)
+
+    finished_at = utcnow().isoformat()
+    matrix.update(
+        {
+            "status": "failed" if failures else "passed",
+            "current_step_key": None,
+            "current_command": None,
+            "current_command_started_at": None,
+            "last_progress_at": finished_at,
+            "completed_at": finished_at if not failures else None,
+            "failed_at": finished_at if failures else None,
+            "failure_summary": "; ".join(failures[:5]) if failures else "",
+        }
+    )
+    ctx.blackboard["acceptance_matrix"] = matrix
+    _persist_blackboard(ctx.db, ctx.workflow_run, ctx.state_key, ctx.blackboard)
+    return matrix
 
 
 def _condition_matches(expression: str, blackboard: Mapping[str, Any]) -> bool:

@@ -30,9 +30,22 @@ _NO_SEND_EVENTS = {
     "workflow_transition_recorded",
 }
 
+_DIGEST_ONLY_EVENTS = {
+    "requirement_created",
+    "workflow_run_started",
+    "workflow_run_succeeded",
+}
+
+_ABNORMAL_GATE_DECISIONS = {
+    "blocked",
+    "continue_retry_failed",
+    "failed",
+    "reject",
+    "rejected",
+}
+
 _APPROVAL_EVENTS = {
     "human_gate_request.created",
-    "human_gate_request.decided",
     "risk_evidence_gate.human_required",
     "approval_manual_required",
     "approval_required",
@@ -55,7 +68,9 @@ _RELEASE_EVENTS = {
 }
 
 _ALERT_EVENTS = {
+    "ci_failed",
     "gateway_slo_drift",
+    "pr_creation_failed",
     "runner_crashed",
     "runner_stale",
     "workflow_retry_budget_exhausted",
@@ -156,6 +171,26 @@ def resolve_notification_policy(
             dedupe_key=f"none:{event}:{obj_type}:{obj_key}",
             next_action="No Lark notification required; inspect the workflow detail if needed.",
             reason="low-signal runtime detail",
+        )
+
+    if event in _DIGEST_ONLY_EVENTS:
+        return NotificationPolicy(
+            channel="digest",
+            priority=priority,
+            should_send_now=False,
+            dedupe_key=f"digest:{event}:{obj_type}:{obj_key}",
+            next_action="No immediate action; keep this lifecycle event in Ops Console history.",
+            reason="digest-only lifecycle event",
+        )
+
+    if event == "human_gate_request.decided" and normalized_status not in _ABNORMAL_GATE_DECISIONS:
+        return NotificationPolicy(
+            channel="digest",
+            priority=priority,
+            should_send_now=False,
+            dedupe_key=f"digest:{event}:{obj_type}:{obj_key}",
+            next_action="No immediate action; gate decision is available in Ops Console history.",
+            reason="digest-only normal gate decision",
         )
 
     high_risk_failure = risk_rank >= 2 and any(token in event or token in normalized_status for token in ("failed", "blocked", "stale", "exhausted"))

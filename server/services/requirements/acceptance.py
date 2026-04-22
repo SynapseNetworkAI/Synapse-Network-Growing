@@ -33,9 +33,31 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
     "rg ",
     "diff-cover ",
     "git diff --check",
+    "scripts/ci/agent_guardrails.sh",
 )
 
 SAFE_UVX_TOOLS = {"diff-cover"}
+SAFE_ENV_ASSIGNMENT_NAMES = {"PYTHONPATH", "COVERAGE_FILE", "COVERAGE_DIR", "NODE_ENV", "CI"}
+ALLOWED_REQUIRED_EVIDENCE_TYPES = {
+    "workflow_command_result",
+    "project_change_summary",
+    "git_diff_summary",
+    "frontend_validation_result",
+    "coverage_report",
+    "docs_sync_review",
+    "workflow_agent_raw_output",
+}
+ACCEPTANCE_COMMAND_TIMEOUT_HARD_CAP_SECONDS = 900
+ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS = {
+    "rg": 60,
+    "git_diff_check": 60,
+    "diff-cover": 180,
+    "pytest": 600,
+    "ruff_check": 180,
+    "npm": 600,
+    "agent_guardrails": 300,
+    "default": 300,
+}
 
 SHELL_CONTROL_TOKENS = {"&&", "||", ";", "|", "\n"}
 SHELL_REDIRECTION_TOKENS = {">", ">>", "<", "<<", "<>", ">&", "<&"}
@@ -120,6 +142,18 @@ def _contains_shell_control(tokens: list[str]) -> bool:
     return any(token in SHELL_CONTROL_TOKENS for token in tokens)
 
 
+def _is_safe_env_assignment(token: str) -> bool:
+    name, separator, _value = str(token or "").partition("=")
+    return bool(separator) and name in SAFE_ENV_ASSIGNMENT_NAMES and re.match(r"^[A-Z_][A-Z0-9_]*$", name) is not None
+
+
+def _strip_safe_env_assignment_tokens(tokens: list[str]) -> list[str]:
+    index = 0
+    while index < len(tokens) and _is_safe_env_assignment(tokens[index]):
+        index += 1
+    return tokens[index:]
+
+
 def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
     if not tokens or tokens[0] != "uvx":
         return False
@@ -160,6 +194,55 @@ def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
     return normalized.startswith("uvx ")
 
 
+def _timeout_payload(tool: str) -> dict[str, int | str]:
+    timeout = int(ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS.get(tool, ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS["default"]))
+    return {
+        "tool": tool,
+        "timeout_seconds": min(timeout, ACCEPTANCE_COMMAND_TIMEOUT_HARD_CAP_SECONDS),
+    }
+
+
+def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
+    """Classify a safe evidence command by executable tool, not fragile string prefix."""
+
+    tokens = _strip_safe_env_assignment_tokens(parse_shell_tokens(command))
+    if not tokens:
+        return _timeout_payload("default")
+    first = tokens[0]
+    first_basename = first.rsplit("/", 1)[-1]
+
+    if first_basename == "rg":
+        return _timeout_payload("rg")
+    if first_basename == "git" and tokens[1:3] == ["diff", "--check"]:
+        return _timeout_payload("git_diff_check")
+    if first_basename == "diff-cover":
+        return _timeout_payload("diff-cover")
+    if first_basename == "uvx":
+        stripped = _strip_safe_env_assignment_tokens(tokens)
+        if any(token == "diff-cover" for token in stripped[1:]):
+            return _timeout_payload("diff-cover")
+        return _timeout_payload("default")
+    if first_basename == "pytest":
+        return _timeout_payload("pytest")
+    if first_basename == "python" and tokens[1:3] == ["-m", "pytest"]:
+        return _timeout_payload("pytest")
+    if first_basename == "ruff" and len(tokens) > 1 and tokens[1] == "check":
+        return _timeout_payload("ruff_check")
+    if first_basename == "python" and tokens[1:4] == ["-m", "ruff", "check"]:
+        return _timeout_payload("ruff_check")
+    if first_basename == "npm":
+        return _timeout_payload("npm")
+    if first_basename == "cd":
+        for index, token in enumerate(tokens):
+            if token in SHELL_CONTROL_TOKENS and index + 1 < len(tokens):
+                next_basename = tokens[index + 1].rsplit("/", 1)[-1]
+                if next_basename == "npm":
+                    return _timeout_payload("npm")
+    if first.endswith("scripts/ci/agent_guardrails.sh") or first_basename == "agent_guardrails.sh":
+        return _timeout_payload("agent_guardrails")
+    return _timeout_payload("default")
+
+
 def validate_required_command_safety(command: str) -> str:
     """Fail closed unless a planner-generated evidence command is explicitly safe."""
 
@@ -168,11 +251,13 @@ def validate_required_command_safety(command: str) -> str:
         raise AcceptanceValidationError("required command is empty.")
     tokens = parse_shell_tokens(str(command or ""))
     _validate_shell_tokens(tokens)
+    executable_tokens = _strip_safe_env_assignment_tokens(tokens)
+    executable_normalized = " ".join(executable_tokens)
     for pattern, reason in UNSAFE_ARGUMENT_PATTERNS:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
-    is_bound_uvx = _validate_bound_uvx_command(tokens, normalized)
-    if not is_bound_uvx and not any(normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
+    is_bound_uvx = _validate_bound_uvx_command(executable_tokens, executable_normalized)
+    if not is_bound_uvx and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
         raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
     return normalized
 
@@ -326,16 +411,19 @@ def validate_acceptance_contract_for_execution(
             raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] must be an object.")
         title = str(step.get("title") or "").strip()
         expected_result = str(step.get("expected_result") or "").strip()
-        has_evidence = any(
-            step.get(key)
-            for key in ("required_commands", "required_evidence_types", "required_db_lineage")
-        )
+        has_evidence = any(step.get(key) for key in ("required_commands", "required_evidence_types"))
         if not title or not expected_result:
             raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] requires title and expected_result.")
         if not has_evidence:
             raise AcceptanceValidationError(
-                f"execution_acceptance_steps[{index}] requires required_commands, required_evidence_types, or required_db_lineage."
+                f"execution_acceptance_steps[{index}] requires required_commands or required_evidence_types. required_db_lineage is informational in v1."
             )
+        for evidence_type in step.get("required_evidence_types") or []:
+            if str(evidence_type) not in ALLOWED_REQUIRED_EVIDENCE_TYPES:
+                allowed = ", ".join(sorted(ALLOWED_REQUIRED_EVIDENCE_TYPES))
+                raise AcceptanceValidationError(
+                    f"execution_acceptance_steps[{index}] has unknown required_evidence_type '{evidence_type}'. Allowed evidence types: {allowed}."
+                )
         for command in step.get("required_commands") or []:
             validate_required_command_safety(str(command))
     if str(payload.get("acceptance_kind") or "business") == "system_dogfood":

@@ -27,6 +27,22 @@ function formatTime(value: string | null) {
   return new Date(value).toLocaleString()
 }
 
+function useNowTick(enabled: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!enabled) return undefined
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [enabled])
+  return now
+}
+
+function elapsedSecondsSince(value: unknown, now: number) {
+  const startedAt = typeof value === 'string' ? Date.parse(value) : Number.NaN
+  if (!Number.isFinite(startedAt)) return 0
+  return Math.max(0, Math.floor((now - startedAt) / 1000))
+}
+
 function prettyJson(value: unknown) {
   if (value == null) return '{}'
   try {
@@ -73,6 +89,46 @@ function Panel({ title, children, testId, action }: { title: string; children: R
 
 function JsonBlock({ value, maxHeight = 'max-h-[260px]' }: Readonly<{ value: unknown; maxHeight?: string }>) {
   return <pre className={`${maxHeight} overflow-auto rounded-2xl bg-slate-950 p-4 text-xs leading-6 text-slate-100`}>{prettyJson(value)}</pre>
+}
+
+function AcceptanceMatrixRuntimePanel({ detail }: Readonly<{ detail: DeclarativeWorkflowRunDetail }>) {
+  const matrix = (detail.blackboard.acceptance_matrix || {}) as Record<string, unknown>
+  const status = String(matrix.status || '')
+  const currentStartedAt = matrix.current_command_started_at
+  const isRunning = status === 'running' && typeof currentStartedAt === 'string'
+  const now = useNowTick(isRunning)
+  const elapsed = elapsedSecondsSince(currentStartedAt, now)
+  const failureSummary = String(matrix.failure_summary || '')
+  if (!status) return null
+
+  return (
+    <Panel title="Acceptance Matrix Runtime" testId="workflow-acceptance-matrix-runtime">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={['rounded-full border px-3 py-1 text-xs', statusClass(status === 'running' ? 'pending' : status)].join(' ')}>
+            {status}
+          </span>
+          {matrix.verify_phase_started_at ? <span className="text-xs text-[color:var(--ops-text-caption)]">verify started {formatTime(String(matrix.verify_phase_started_at))}</span> : null}
+        </div>
+        {isRunning ? (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+            <div className="font-semibold">Running acceptance command for {elapsed}s</div>
+            <div className="mt-2 text-xs uppercase tracking-[0.16em]">Step</div>
+            <div className="mt-1 font-mono text-xs">{String(matrix.current_step_key || '-')}</div>
+            <div className="mt-2 text-xs uppercase tracking-[0.16em]">Command</div>
+            <div className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs">{String(matrix.current_command || '-')}</div>
+          </div>
+        ) : null}
+        {status === 'failed' && failureSummary ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            {failureSummary.includes('timed out') ? 'Timed out: ' : 'Fail Closed: '}
+            {failureSummary}
+          </div>
+        ) : null}
+        {status === 'passed' ? <div className="text-sm text-[color:var(--ops-text-muted)]">Planner acceptance matrix has passing workflow evidence for this run.</div> : null}
+      </div>
+    </Panel>
+  )
 }
 
 function WorkflowRunHeader({
@@ -369,7 +425,9 @@ function CommandEvidencePanel({ detail }: Readonly<{ detail: DeclarativeWorkflow
                 exit {command.exit_code}
               </span>
               {command.simulated ? <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">Simulated verification</span> : null}
-              {command.timeout ? <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">timeout</span> : null}
+              {command.timeout ? <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">Timed out after {command.timeout_seconds ?? '?'}s</span> : null}
+              {command.killed ? <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700">process group killed</span> : null}
+              {command.step_key ? <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">step {command.step_key}</span> : null}
               {command.log_artifact_id ? <span className="rounded-full border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-subtle)] px-3 py-1 text-[color:var(--ops-text-muted)]">log artifact #{command.log_artifact_id}</span> : null}
             </div>
             <div className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{command.purpose || 'No purpose recorded.'}</div>
@@ -1087,6 +1145,7 @@ export default function WorkflowRunDetailPage() {
       {activeTab === 'evidence' ? (
         <div className="space-y-5">
           <WorkflowAcceptanceSourcePanel detail={detail} />
+          <AcceptanceMatrixRuntimePanel detail={detail} />
           {isHumanOverride(detail) ? (
             <ManualReviewPanel
               detail={detail}

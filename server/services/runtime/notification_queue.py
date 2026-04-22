@@ -89,6 +89,7 @@ def enqueue_notification_event(
     occurred_at: datetime | None = None,
     object_refs: dict[str, object] | None = None,
     links: dict[str, str] | None = None,
+    extra_fields: dict[str, object] | None = None,
     event_key: str | None = None,
     dispatch_immediately: bool = True,
 ) -> NotificationEventRow | None:
@@ -110,7 +111,7 @@ def enqueue_notification_event(
         workflow_key=workflow_key,
         current_state=current_state,
     )
-    if not policy.should_send_now or policy.channel in {"none", "digest"}:
+    if policy.channel == "none":
         return None
 
     refs = dict(object_refs or {})
@@ -139,6 +140,8 @@ def enqueue_notification_event(
         "policy_reason": policy.reason,
         "source_event_key": event_key or "",
     }
+    if extra_fields:
+        payload.update(dict(extra_fields))
     row = NotificationEventRow(
         channel=policy.channel,
         event_type=event_type,
@@ -149,11 +152,14 @@ def enqueue_notification_event(
         object_key=object_key,
         fingerprint_key=policy.dedupe_key,
         payload_json=_json_dump(payload),
-        status="queued",
-        next_attempt_at=_utcnow(),
+        status="digest" if policy.channel == "digest" or not policy.should_send_now else "queued",
+        next_attempt_at=None if policy.channel == "digest" or not policy.should_send_now else _utcnow(),
     )
     db.add(row)
     db.flush()
+
+    if policy.channel == "digest" or not policy.should_send_now:
+        return row
 
     if dispatch_immediately and config.NOTIFICATION_DISPATCHER_ENABLED:
         dispatch_notification_queue(db, event_id=int(row.id), limit=1)

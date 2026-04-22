@@ -53,6 +53,10 @@ rg -n "awaiting_ci|ci_status_sweep|runtime cap|流式写日志" \
   docs/design-docs/declarative-agent-workflow-factory.md \
   docs/design-docs/recurring-workflow-control-plane.md \
   docs/design-docs/system-design-principles.md >/dev/null
+rg -n "Acceptance Matrix Is Executable Contract|liveness diagnostic only|required_db_lineage.*informational|workflow_run_id" \
+  ARCHITECTURE.md \
+  docs/design-docs/system-design-principles.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
 
 echo "[guardrails] whitespace"
 git diff --check
