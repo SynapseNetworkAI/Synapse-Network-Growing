@@ -24,15 +24,19 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
     "cd dashboard && npm test",
     "cd dashboard && npm run build",
     "cd dashboard && npm run lint",
+    "cd dashboard && npm run test:e2e",
     "npm --prefix dashboard test",
     "npm --prefix dashboard run build",
     "npm --prefix dashboard run lint",
+    "npm --prefix dashboard run test:e2e",
     "npm test",
     "npm run build",
     "npm run lint",
+    "npm run test:e2e",
     "rg ",
     "diff-cover ",
     "git diff --check",
+    "git diff --stat",
     "scripts/ci/agent_guardrails.sh",
 )
 
@@ -51,6 +55,7 @@ ACCEPTANCE_COMMAND_TIMEOUT_HARD_CAP_SECONDS = 900
 ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS = {
     "rg": 60,
     "git_diff_check": 60,
+    "git_diff_stat": 60,
     "diff-cover": 180,
     "pytest": 600,
     "ruff_check": 180,
@@ -194,6 +199,78 @@ def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
     return normalized.startswith("uvx ")
 
 
+def _pytest_args(executable_tokens: list[str]) -> list[str] | None:
+    if not executable_tokens:
+        return None
+    first_basename = executable_tokens[0].rsplit("/", 1)[-1]
+    if first_basename == "pytest":
+        return executable_tokens[1:]
+    if first_basename == "python" and executable_tokens[1:3] == ["-m", "pytest"]:
+        return executable_tokens[3:]
+    return None
+
+
+def _validate_pytest_scope(executable_tokens: list[str], normalized: str) -> None:
+    """Acceptance pytest commands must be targeted; full-suite regression belongs to the CI runner."""
+
+    args = _pytest_args(executable_tokens)
+    if args is None:
+        return
+    non_option_args = [token for token in args if not token.startswith("-")]
+    has_targeted_selector = any(
+        token.startswith("tests/test_")
+        or token.startswith("server/tests/")
+        or token.endswith("_test.py")
+        or token.endswith(".py")
+        or "::" in token
+        for token in non_option_args
+    )
+    if not has_targeted_selector:
+        raise AcceptanceValidationError(
+            f"required command '{normalized}' is unsafe: acceptance pytest commands must target explicit test files or selectors. "
+            "Use the final regression CI runner for full-suite pytest."
+        )
+
+
+def _command_mentions_any(command: str, needles: tuple[str, ...]) -> bool:
+    lowered = str(command or "").lower()
+    return any(needle in lowered for needle in needles)
+
+
+def _required_evidence_support_error(evidence_type: str, commands: list[str], expected_outcome: str) -> str | None:
+    """Reject Planner evidence asks that cannot be produced by the declared commands.
+
+    This is intentionally small and conservative. It does not try to infer every
+    possible artifact path; it only blocks common impossible matrices before they
+    reach the workflow runner.
+    """
+
+    normalized = str(evidence_type or "").strip()
+    if normalized == "workflow_command_result":
+        return None
+    if normalized == "frontend_validation_result":
+        if any(_command_mentions_any(command, ("npm ", "npm --prefix dashboard", "cd dashboard && npm")) for command in commands):
+            return None
+        return "frontend_validation_result requires an npm/dashboard validation command."
+    if normalized == "coverage_report":
+        if any(_command_mentions_any(command, ("diff-cover", "coverage.xml", "--cov")) for command in commands):
+            return None
+        return "coverage_report requires a diff-cover, coverage.xml, or pytest --cov command."
+    if normalized == "docs_sync_review":
+        if any(_command_mentions_any(command, ("agent_guardrails.sh", "docs", "doc_sync", "docs-sync", "docs drift")) for command in commands):
+            return None
+        return "docs_sync_review requires a docs sync, docs drift, rg docs, or agent_guardrails command."
+    if normalized == "project_change_summary":
+        return None
+    if normalized == "git_diff_summary":
+        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
+            return None
+        return f"{normalized} requires code_delivery or git diff --check evidence."
+    if normalized == "workflow_agent_raw_output":
+        return None
+    return None
+
+
 def _timeout_payload(tool: str) -> dict[str, int | str]:
     timeout = int(ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS.get(tool, ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS["default"]))
     return {
@@ -215,6 +292,8 @@ def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
         return _timeout_payload("rg")
     if first_basename == "git" and tokens[1:3] == ["diff", "--check"]:
         return _timeout_payload("git_diff_check")
+    if first_basename == "git" and tokens[1:3] == ["diff", "--stat"]:
+        return _timeout_payload("git_diff_stat")
     if first_basename == "diff-cover":
         return _timeout_payload("diff-cover")
     if first_basename == "uvx":
@@ -257,6 +336,7 @@ def validate_required_command_safety(command: str) -> str:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
     is_bound_uvx = _validate_bound_uvx_command(executable_tokens, executable_normalized)
+    _validate_pytest_scope(executable_tokens, normalized)
     if not is_bound_uvx and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
         raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
     return normalized
@@ -404,6 +484,7 @@ def validate_acceptance_contract_for_execution(
         return payload
 
     steps = payload.get("execution_acceptance_steps") or []
+    expected_outcome = str(payload.get("expected_outcome") or "").strip().lower()
     if not isinstance(steps, list) or not steps:
         raise AcceptanceValidationError("execution_acceptance_steps must be non-empty.")
     for index, step in enumerate(steps, start=1):
@@ -418,14 +499,16 @@ def validate_acceptance_contract_for_execution(
             raise AcceptanceValidationError(
                 f"execution_acceptance_steps[{index}] requires required_commands or required_evidence_types. required_db_lineage is informational in v1."
             )
+        commands = [validate_required_command_safety(str(command)) for command in step.get("required_commands") or []]
         for evidence_type in step.get("required_evidence_types") or []:
             if str(evidence_type) not in ALLOWED_REQUIRED_EVIDENCE_TYPES:
                 allowed = ", ".join(sorted(ALLOWED_REQUIRED_EVIDENCE_TYPES))
                 raise AcceptanceValidationError(
                     f"execution_acceptance_steps[{index}] has unknown required_evidence_type '{evidence_type}'. Allowed evidence types: {allowed}."
                 )
-        for command in step.get("required_commands") or []:
-            validate_required_command_safety(str(command))
+            support_error = _required_evidence_support_error(str(evidence_type), commands, expected_outcome)
+            if support_error:
+                raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] evidence '{evidence_type}' is unsupported: {support_error}")
     if str(payload.get("acceptance_kind") or "business") == "system_dogfood":
         normalized_goal = str(goal_key or "").strip().lower()
         if normalized_goal != "goalb":

@@ -1189,6 +1189,10 @@ def _ci_status_sweep(
         db.commit()
         if int(claimed or 0) != 1:
             continue
+        # Bulk updates do not refresh ORM instances already present in the
+        # session. Expire before reading blackboard_json so CI retries use the
+        # latest marker paths, not stale failed markers from the previous run.
+        db.expire_all()
         row = db.query(WorkflowRunRow).filter(WorkflowRunRow.id == workflow_run_id).one()
         blackboard = _workflow_blackboard(row)
         ci = dict(blackboard.get("ci") or {})

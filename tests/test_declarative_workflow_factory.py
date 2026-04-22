@@ -5,6 +5,7 @@ import sys
 
 import pytest
 
+import server.services.workflows.declarative as declarative_module
 from server.database import (
     AtomInvocationRow,
     BlackboardSnapshotRow,
@@ -433,3 +434,39 @@ def test_human_gate_decision_writes_back_to_blackboard(db_session):
     assert run.status == "failed"
     assert workflow_blackboard(run)["human_gate_decisions"][0]["comment"] == "unsafe"
     assert "human_gate_request.decided" in {row.event_type for row in db_session.query(NotificationDeliveryRow).all()}
+
+
+def test_human_gate_continue_retry_preserves_resume_blackboard_updates(db_session, monkeypatch):
+    run = _create_workflow_run(db_session)
+    run.current_state = "awaiting_operator"
+    run.status = "awaiting_operator"
+    run.blackboard_json = json.dumps({"current_state": "awaiting_operator", "ci": {"ci_exit_code_path": "old-marker"}})
+    gate = HumanGateRequestRow(
+        workflow_run_id=int(run.id),
+        state_key="awaiting_operator",
+        gate_type="ci_final_regression_failed",
+        risk_level="normal",
+        status="pending",
+        reason="Final regression failed.",
+    )
+    db_session.add(gate)
+    db_session.flush()
+
+    def fake_resume(db, *, gate, decision, blackboard):
+        latest = workflow_blackboard(gate.workflow_run)
+        latest["ci"] = {"ci_exit_code_path": "new-marker"}
+        latest["current_state"] = "awaiting_ci"
+        gate.workflow_run.blackboard_json = json.dumps(latest)
+        gate.workflow_run.current_state = "awaiting_ci"
+        gate.workflow_run.status = "awaiting_ci"
+        gate.workflow_run.resolution = "waiting_for_final_regression"
+        db.flush()
+        return {"resume_status": "resumed", "next_state": "awaiting_ci"}
+
+    monkeypatch.setattr(declarative_module, "resume_workflow_after_gate_decision", fake_resume)
+
+    decide_human_gate(db_session, gate_id=int(gate.id), decision="continue_retry", reviewer="tester", comment="retry")
+
+    blackboard = workflow_blackboard(run)
+    assert blackboard["ci"]["ci_exit_code_path"] == "new-marker"
+    assert blackboard["human_gate_decisions"][0]["comment"] == "retry"
