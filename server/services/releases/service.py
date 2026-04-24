@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from server.database import DeploymentRecordRow, ProjectRow, ReleaseRecordRow, RequirementRow, WorkflowRunRow, utcnow
 from server.schemas import ReleaseCandidateOut, ReleaseDetailOut, ValidationCheckResultOut, ValidationRecordSlimOut
-from server.services.delivery.deployment_governance import list_requirement_deployment_records, trigger_requirement_deployment
+from server.services.delivery.deployment_governance import list_requirement_deployment_records, mark_requirement_no_deploy, trigger_requirement_deployment
 from server.services.delivery.pull_request import query_review_pr_status, sync_requirement_review_pr
 from server.services.delivery.vcs import execute_requirement_delivery_vcs
 from server.services.projects.project_center import project_to_dict
@@ -519,18 +519,60 @@ def deploy_release(
     environment: str,
     actor: str,
     note: str | None = None,
+    source_ref_type: str = "branch",
+    source_ref: str | None = None,
+    deploy_scope: str = "auto",
 ) -> ReleaseDetailOut:
     release = _latest_release(db, requirement_id)
-    if release is None or not str(release.commit_sha or "").strip():
-        raise ValueError("Release must have a committed branch before deployment.")
+    if release is None:
+        raise ValueError("Release must be prepared before deployment.")
+    resolved_source_ref = (source_ref or "").strip() or str(release.actual_branch_name or release.branch_name or release.commit_sha or "").strip()
+    if not resolved_source_ref:
+        raise ValueError("Release must have a branch, tag, or commit before deployment.")
+    if environment == "production" and not str(release.commit_sha or "").strip():
+        raise ValueError("Production deployment requires a resolved committed SHA.")
     trigger_requirement_deployment(
         db,
         requirement_id,
         environment=environment,
         actor=actor,
         note=note,
-        commit_sha=str(release.commit_sha),
+        commit_sha=str(release.commit_sha or "").strip() or None,
+        source_ref_type=source_ref_type,
+        source_ref=resolved_source_ref,
+        deploy_scope=deploy_scope,
     )
+    return build_release_detail(db, requirement_id)
+
+
+def mark_release_no_deploy(
+    db: Session,
+    requirement_id: int,
+    *,
+    actor: str,
+    note: str | None = None,
+    source_ref_type: str = "branch",
+    source_ref: str | None = None,
+    deploy_scope: str = "auto",
+) -> ReleaseDetailOut:
+    release = _latest_release(db, requirement_id)
+    if release is None:
+        raise ValueError("Release must be prepared before marking no-deploy.")
+    effective_source_ref = (source_ref or "").strip() or str(release.actual_branch_name or release.branch_name or release.commit_sha or "").strip()
+    mark_requirement_no_deploy(
+        db,
+        requirement_id,
+        actor=actor,
+        note=note,
+        source_ref_type=source_ref_type,
+        source_ref=effective_source_ref,
+        commit_sha=str(release.commit_sha or "").strip() or None,
+        reason=f"manual no-deploy; requested scope={deploy_scope}",
+    )
+    release.status = "no_deploy"
+    release.delivery_state = "no_deploy"
+    release.notes = note
+    db.commit()
     return build_release_detail(db, requirement_id)
 
 

@@ -68,6 +68,61 @@ def test_request_copilot_device_code_endpoint(client):
     assert resp.json()["device_code"] == "device-code"
 
 
+def test_copilot_auth_status_reports_missing_login(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+
+    with patch("server.services.runtime.copilot_auth.config.COPILOT_GITHUB_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.GH_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.GITHUB_TOKEN", ""):
+        status = service.get_status()
+
+    assert status.authenticated is False
+    assert "Copilot login not found" in status.message
+
+
+def test_copilot_auth_status_reports_invalid_stored_token(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+
+    with patch("server.services.runtime.copilot_auth.config.COPILOT_GITHUB_TOKEN", "gho_bad"), patch.object(service, "fetch_copilot_login", side_effect=RuntimeError("token expired")):
+        status = service.get_status()
+
+    assert status.authenticated is False
+    assert status.source == "env"
+    assert status.message == "token expired"
+
+
+def test_request_device_code_service_success(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "device_code": "device-code",
+        "user_code": "123-456",
+        "verification_uri": "https://github.com/login/device",
+        "expires_in": 900,
+        "interval": 5,
+    }
+
+    with patch("httpx.post", return_value=response):
+        result = service.request_device_code(client_id="client-id")
+
+    assert result.client_id == "client-id"
+    assert result.device_code == "device-code"
+
+
+def test_request_device_code_service_failure(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+    response = MagicMock()
+    response.status_code = 500
+    response.text = "boom"
+
+    with patch("httpx.post", return_value=response):
+        try:
+            service.request_device_code(client_id="client-id")
+        except RuntimeError as exc:
+            assert "Failed to request device code" in str(exc)
+        else:
+            raise AssertionError("device code failure was not raised")
+
+
 def test_copilot_auth_service_prefers_copilot_github_token_from_env(tmp_path):
     config_dir = tmp_path / "github-copilot"
     config_dir.mkdir()
@@ -111,6 +166,77 @@ def test_poll_copilot_device_code_complete_persists_login(tmp_path):
     assert result.login == "octocat"
     stored = json.loads((config_dir / "apps.json").read_text(encoding="utf-8"))
     assert stored["github.com:cli-client"]["oauth_token"] == "gho_new"
+
+
+def test_poll_copilot_device_code_pending_slow_down_and_error(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+    response = MagicMock()
+    response.status_code = 200
+
+    response.json.return_value = {"error": "authorization_pending", "interval": 7}
+    with patch("httpx.post", return_value=response):
+        pending = service.poll_access_token_once(device_code="device-code", client_id="client-id")
+    assert pending.status == "pending"
+    assert pending.interval == 7
+
+    response.json.return_value = {"error": "slow_down", "interval": 10}
+    with patch("httpx.post", return_value=response):
+        slow_down = service.poll_access_token_once(device_code="device-code", client_id="client-id")
+    assert slow_down.status == "slow_down"
+    assert slow_down.interval == 10
+
+    response.json.return_value = {"error": "bad_verification_code", "error_description": "wrong code"}
+    with patch("httpx.post", return_value=response):
+        error = service.poll_access_token_once(device_code="device-code", client_id="client-id")
+    assert error.status == "error"
+    assert error.message == "wrong code"
+
+
+def test_poll_copilot_device_code_http_failure(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+    response = MagicMock()
+    response.status_code = 503
+    response.text = "unavailable"
+
+    with patch("httpx.post", return_value=response):
+        try:
+            service.poll_access_token_once(device_code="device-code", client_id="client-id")
+        except RuntimeError as exc:
+            assert "Failed to authorize Copilot login" in str(exc)
+        else:
+            raise AssertionError("poll failure was not raised")
+
+
+def test_fetch_copilot_login_success_and_failure(tmp_path):
+    service = CopilotAuthService(config_dir=tmp_path / "github-copilot")
+    success = MagicMock()
+    success.status_code = 200
+    success.json.return_value = {"login": "octocat"}
+    with patch("httpx.get", return_value=success):
+        assert service.fetch_copilot_login("gho_test") == "octocat"
+
+    failure = MagicMock()
+    failure.status_code = 401
+    failure.text = "bad token"
+    with patch("httpx.get", return_value=failure):
+        try:
+            service.fetch_copilot_login("gho_bad")
+        except RuntimeError as exc:
+            assert "Copilot authentication failed" in str(exc)
+        else:
+            raise AssertionError("fetch failure was not raised")
+
+
+def test_copilot_auth_ignores_malformed_config_files(tmp_path):
+    config_dir = tmp_path / "github-copilot"
+    config_dir.mkdir()
+    (config_dir / "apps.json").write_text("{bad json", encoding="utf-8")
+    (config_dir / "oauth.json").write_text("{bad json", encoding="utf-8")
+
+    with patch("server.services.runtime.copilot_auth.config.COPILOT_GITHUB_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.GH_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.COPILOT_OAUTH_TOKEN", ""), patch("server.services.runtime.copilot_auth.config.GITHUB_TOKEN", ""):
+        auth = CopilotAuthService(config_dir=config_dir).resolve_stored_auth()
+
+    assert auth is None
 
 
 def test_copilot_auth_status_endpoint_returns_resolved_status(client):

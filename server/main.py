@@ -17,7 +17,7 @@ from server.database import (
 )
 from server.logging_utils import bind_context, clear_context, get_logger, log_event, setup_ops_logging
 from server.schemas import DashboardStats
-from server.routers import agents, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, releases, errors, projects, workflows, planning
+from server.routers import agents, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, bugs, releases, errors, projects, workflows, planning, deployments
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
@@ -105,6 +105,7 @@ app.include_router(skills.router)
 app.include_router(copilot_auth.router)
 app.include_router(requirements.router)
 app.include_router(releases.router)
+app.include_router(deployments.router)
 app.include_router(errors.router)
 app.include_router(projects.router)
 app.include_router(project_policies.router)

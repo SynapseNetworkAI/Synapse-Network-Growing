@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 
 
-REPO_ROOT = Path("/Users/cliff/workspace/agent/Synapse-Network-Growing")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_ROOT = REPO_ROOT / "server" / "services"
 
 PACKAGE_DIRS = [

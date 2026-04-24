@@ -16,6 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
   ready_for_merge: '等待合并',
   merged: '已合并',
   abandoned: '已废弃',
+  no_deploy: '无需部署',
 }
 
 function releaseTone(state: string | null | undefined) {

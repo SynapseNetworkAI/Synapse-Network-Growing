@@ -258,6 +258,9 @@ def trigger_requirement_deployment(
     note: str | None = None,
     commit_sha: str | None = None,
     rollback_target_sha: str | None = None,
+    source_ref_type: str = "branch",
+    source_ref: str | None = None,
+    deploy_scope: str = "auto",
     trigger_source: str = "ops_console",
 ) -> DeploymentRecordOut:
     requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
@@ -275,7 +278,20 @@ def trigger_requirement_deployment(
         raise ValueError("environment must be staging or production")
 
     action = "rollback" if rollback_target_sha else ("promote" if env_name == "production" else "deploy")
-    effective_commit_sha = _resolve_commit_sha(db, requirement, rollback_target_sha or commit_sha)
+    source_ref_type = (source_ref_type or "branch").strip().lower() or "branch"
+    deploy_scope = (deploy_scope or "auto").strip() or "auto"
+    delivery_payload = _requirement_delivery_payload(db, requirement_id)
+    branch_name = str(delivery_payload.get("head_branch") or delivery_payload.get("branch_name") or "").strip() or None
+    effective_source_ref = (source_ref or "").strip() or branch_name
+    if source_ref_type not in {"branch", "tag", "commit"}:
+        raise ValueError("source_ref_type must be branch, tag, or commit")
+    if deploy_scope not in {"auto", "gateway", "gateway-admin", "user-front", "admin-front", "all"}:
+        raise ValueError("deploy_scope must be auto, gateway, gateway-admin, user-front, admin-front, or all")
+    if env_name == "production" and source_ref_type == "branch" and effective_source_ref not in {"main", "master"}:
+        raise ValueError("Production deploy cannot target a feature branch; promote a verified main/tag/staging manifest instead.")
+    effective_commit_sha = ""
+    if rollback_target_sha or commit_sha or env_name == "production" or source_ref_type == "commit":
+        effective_commit_sha = _resolve_commit_sha(db, requirement, rollback_target_sha or commit_sha or effective_source_ref)
     if env_name == "production" and not rollback_target_sha:
         staging_success = _latest_success_row(db, policy_data["project_key"], "staging", commit_sha=effective_commit_sha)
         if staging_success is None:
@@ -286,9 +302,6 @@ def trigger_requirement_deployment(
         if env_name == "production"
         else str(policy_data.get("staging_workflow_file") or "deploy-staging.yml")
     )
-    delivery_payload = _requirement_delivery_payload(db, requirement_id)
-    branch_name = str(delivery_payload.get("head_branch") or delivery_payload.get("branch_name") or "").strip() or None
-
     record = DeploymentRecordRow(
         requirement_id=requirement_id,
         project_policy_id=int(policy.id),
@@ -296,8 +309,8 @@ def trigger_requirement_deployment(
         environment=env_name,
         action=action,
         status="requested",
-        commit_sha=effective_commit_sha,
-        branch_name=branch_name,
+        commit_sha=effective_commit_sha or None,
+        branch_name=effective_source_ref or branch_name,
         workflow_file=workflow_file,
         actor=(actor or "operator").strip() or "operator",
         trigger_source=(trigger_source or "ops_console").strip() or "ops_console",
@@ -308,6 +321,9 @@ def trigger_requirement_deployment(
                 "deploy_repo_full_name": repo_full_name,
                 "deploy_strategy": str(policy_data.get("deploy_strategy") or "github_actions_ssh"),
                 "host_label": _environment_host_label(policy, env_name),
+                "sourceRefType": source_ref_type,
+                "sourceRef": effective_source_ref,
+                "deployScope": deploy_scope,
             }
         ),
         started_at=utcnow(),
@@ -319,6 +335,9 @@ def trigger_requirement_deployment(
     inputs = {
         "requirement_id": str(requirement_id),
         "commit_sha": effective_commit_sha,
+        "source_ref_type": source_ref_type,
+        "source_ref": effective_source_ref or effective_commit_sha,
+        "deploy_scope": deploy_scope,
         "actor": record.actor or "operator",
         "trigger_source": record.trigger_source or "ops_console",
         "record_id": str(record.id),
@@ -351,6 +370,60 @@ def trigger_requirement_deployment(
     return DeploymentRecordOut(**_deployment_record_to_dict(record))
 
 
+def mark_requirement_no_deploy(
+    db: Session,
+    requirement_id: int,
+    *,
+    actor: str = "operator",
+    note: str | None = None,
+    source_ref_type: str = "branch",
+    source_ref: str | None = None,
+    commit_sha: str | None = None,
+    reason: str = "operator marked release as no-deploy",
+) -> DeploymentRecordOut:
+    requirement = db.query(RequirementRow).filter(RequirementRow.id == requirement_id).first()
+    if requirement is None:
+        raise ValueError("Requirement not found.")
+    policy = _require_policy_for_requirement(db, requirement)
+    policy_data = project_policy_to_dict(policy)
+    delivery_payload = _requirement_delivery_payload(db, requirement_id)
+    branch_name = str(delivery_payload.get("head_branch") or delivery_payload.get("branch_name") or "").strip() or None
+    effective_source_ref = (source_ref or "").strip() or branch_name or (commit_sha or "").strip() or None
+    effective_commit_sha = (commit_sha or "").strip() or None
+    record = DeploymentRecordRow(
+        requirement_id=requirement_id,
+        project_policy_id=int(policy.id),
+        project_key=str(policy_data["project_key"]),
+        environment="staging",
+        action="no_deploy",
+        status="no_deploy",
+        commit_sha=effective_commit_sha,
+        branch_name=effective_source_ref,
+        workflow_file=None,
+        actor=(actor or "operator").strip() or "operator",
+        trigger_source="ops_console",
+        health_status="not_applicable",
+        notes=(note or reason).strip() or reason,
+        metadata_json=_json_dump(
+            {
+                "deploy_repo_full_name": str(policy_data.get("deploy_repo_full_name") or "").strip() or None,
+                "deploy_strategy": str(policy_data.get("deploy_strategy") or "github_actions_gcp_cloudrun"),
+                "sourceRefType": (source_ref_type or "branch").strip() or "branch",
+                "sourceRef": effective_source_ref,
+                "resolvedCommitSha": effective_commit_sha,
+                "deployScope": [],
+                "noDeployReason": reason,
+            }
+        ),
+        started_at=utcnow(),
+        finished_at=utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return DeploymentRecordOut(**_deployment_record_to_dict(record))
+
+
 def report_deployment_result(
     db: Session,
     record_id: int,
@@ -362,6 +435,7 @@ def report_deployment_result(
     branch_name: str | None = None,
     commit_sha: str | None = None,
     notes: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> DeploymentRecordOut:
     row = db.query(DeploymentRecordRow).filter(DeploymentRecordRow.id == record_id).first()
     if row is None:
@@ -379,7 +453,11 @@ def report_deployment_result(
         row.commit_sha = commit_sha.strip() or row.commit_sha
     if notes is not None:
         row.notes = notes.strip() or None
-    row.finished_at = utcnow() if row.status in {"succeeded", "failed", "rolled_back", "blocked"} else row.finished_at
+    if metadata:
+        current = _json_load(getattr(row, "metadata_json", None), {})
+        current.update(metadata)
+        row.metadata_json = _json_dump(current)
+    row.finished_at = utcnow() if row.status in {"succeeded", "failed", "rolled_back", "blocked", "no_deploy"} else row.finished_at
     db.commit()
     db.refresh(row)
     return DeploymentRecordOut(**_deployment_record_to_dict(row))

@@ -19,7 +19,7 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
     assert synapse_policy["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
     assert synapse_policy["deploy_trigger_enabled"] is True
-    assert synapse_policy["staging_host_label"] == "staging-vm"
+    assert synapse_policy["staging_host_label"] == "cloud-run-staging"
     assert synapse_policy["production_workflow_file"] == "deploy-production.yml"
     assert all(not key.startswith("sng-validation") for key in project_keys)
 
@@ -258,7 +258,7 @@ def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(
     assert delete_resp.status_code == 400
     assert "active requirements" in delete_resp.json()["detail"]
 
-def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path):
+def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path, monkeypatch):
     repo = tmp_path / "sandbox-app"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -267,6 +267,9 @@ def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_cl
     docs_dir.mkdir()
     entrypoint = docs_dir / "README.md"
     entrypoint.write_text("# Docs\n", encoding="utf-8")
+    memory_root = tmp_path / "Agents-Memory"
+    memory_root.mkdir()
+    monkeypatch.setattr("server.config.AGENTS_MEMORY_ROOT", str(memory_root))
 
     resp = synced_client.post(
         "/api/project-onboarding",

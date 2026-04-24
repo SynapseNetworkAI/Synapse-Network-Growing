@@ -1254,6 +1254,9 @@ class ReleaseDetailOut(BaseModel):
 class ReleaseActionRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None
+    source_ref_type: str = "branch"
+    source_ref: Optional[str] = None
+    deploy_scope: str = "auto"
 
 
 class ReleaseRollbackRequest(BaseModel):
@@ -1549,6 +1552,7 @@ class DeploymentReportRequest(BaseModel):
     branch_name: Optional[str] = None
     commit_sha: Optional[str] = None
     notes: Optional[str] = None
+    metadata: dict[str, object] = {}
 
 
 class ProjectScorecardOut(BaseModel):

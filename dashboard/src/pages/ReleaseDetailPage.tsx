@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ReleaseDetail, api } from '../api'
+import { DeployScope, ReleaseDetail, api } from '../api'
 import { ActivityFeed, FieldLabel, InspectorRail, LoadingPane, SectionFrame, StateBadge } from '../components/workbench'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -16,6 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
   ready_for_merge: '等待合并',
   merged: '已合并',
   abandoned: '已废弃',
+  no_deploy: '无需部署',
 }
 
 function releaseTone(state: string | null | undefined) {
@@ -40,6 +41,7 @@ export default function ReleaseDetailPage() {
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [deployScope, setDeployScope] = useState<DeployScope>('auto')
 
   const load = async () => {
     setLoading(true)
@@ -77,6 +79,7 @@ export default function ReleaseDetailPage() {
     release?.blocker_kind === 'workspace_blocked'
   const plannedBranchName = release?.planned_branch_name || workspaceBlocker?.target_branch || release?.branch_name || null
   const actualBranchName = release?.actual_branch_name || release?.branch_name || null
+  const deploymentSourceRef = actualBranchName || release?.commit_sha || ''
 
   return (
     <div className="space-y-[var(--ops-section-gap)]" data-testid="release-detail-page">
@@ -153,6 +156,17 @@ export default function ReleaseDetailPage() {
           />
 
           <div className="mt-4 flex flex-wrap gap-2">
+            <label className="flex items-center gap-2 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm">
+              <span className="text-[color:var(--ops-text-caption)]">Scope</span>
+              <select className="bg-transparent text-[color:var(--ops-text-title)] outline-none" value={deployScope} onChange={(event) => setDeployScope(event.target.value as DeployScope)}>
+                <option value="auto">auto</option>
+                <option value="gateway">gateway</option>
+                <option value="gateway-admin">gateway-admin</option>
+                <option value="user-front">user-front</option>
+                <option value="admin-front">admin-front</option>
+                <option value="all">all</option>
+              </select>
+            </label>
             <button
               className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-60"
               disabled={busyAction === 'prepare' || detail.validation?.status !== 'passed'}
@@ -169,17 +183,54 @@ export default function ReleaseDetailPage() {
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-ready-border)] px-4 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-60"
-              disabled={busyAction === 'deploy-staging' || !release?.commit_sha}
-              onClick={() => runAction('deploy-staging', () => api.deployReleaseToStaging(id, { actor: 'operator', note: note || null }))}
+              disabled={busyAction === 'deploy-staging' || !deploymentSourceRef}
+              onClick={() =>
+                runAction('deploy-staging', () =>
+                  api.deployReleaseToStaging(id, {
+                    actor: 'operator',
+                    note: note || null,
+                    source_ref_type: actualBranchName ? 'branch' : 'commit',
+                    source_ref: deploymentSourceRef,
+                    deploy_scope: deployScope,
+                  }),
+                )
+              }
             >
-              部署到 Staging
+              部署分支到 Staging
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-60"
               disabled={busyAction === 'deploy-production' || !release?.commit_sha}
-              onClick={() => runAction('deploy-production', () => api.deployReleaseToProduction(id, { actor: 'operator', note: note || null }))}
+              onClick={() =>
+                runAction('deploy-production', () =>
+                  api.deployReleaseToProduction(id, {
+                    actor: 'operator',
+                    note: note || null,
+                    source_ref_type: 'commit',
+                    source_ref: release?.commit_sha || null,
+                    deploy_scope: deployScope,
+                  }),
+                )
+              }
             >
               部署到 Production
+            </button>
+            <button
+              className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-60"
+              disabled={busyAction === 'no-deploy' || !deploymentSourceRef}
+              onClick={() =>
+                runAction('no-deploy', () =>
+                  api.markReleaseNoDeploy(id, {
+                    actor: 'operator',
+                    note: note || 'Manual no-deploy from release console',
+                    source_ref_type: actualBranchName ? 'branch' : 'commit',
+                    source_ref: deploymentSourceRef,
+                    deploy_scope: deployScope,
+                  }),
+                )
+              }
+            >
+              标记 No Deploy
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-60"
@@ -208,6 +259,7 @@ export default function ReleaseDetailPage() {
               <div>dirty files: {workspaceBlocker?.dirty_file_count ?? '-'}</div>
               <div>workspace mode: {release.workspace_mode || workspaceBlocker?.workspace_mode || 'shared_checkout'}</div>
               <div>sha: {release.commit_sha || '-'}</div>
+              <div>deploy source: {actualBranchName ? `branch:${actualBranchName}` : release.commit_sha ? `commit:${release.commit_sha}` : '-'}</div>
               <div>prepared: {formatTime(release.prepared_at)}</div>
               <div>delivered: {formatTime(release.delivered_at)}</div>
               <div>updated: {formatTime(release.updated_at)}</div>
@@ -253,6 +305,9 @@ export default function ReleaseDetailPage() {
                 <div>
                   <div className="text-base font-semibold text-[color:var(--ops-text-title)]">{record.environment} · {record.action} · {record.status}</div>
                   <div className="mt-2">sha: {record.commit_sha || '-'} · health: {record.health_status || '-'}</div>
+                  <div className="mt-1">source: {String(record.metadata?.sourceRefType || '-')}:{String(record.metadata?.sourceRef || record.branch_name || '-')}</div>
+                  <div className="mt-1">scope: {Array.isArray(record.metadata?.deployScope) ? record.metadata.deployScope.join(', ') : String(record.metadata?.deployScope || '-')}</div>
+                  {record.metadata?.evidenceUri ? <div className="mt-1">evidence: {String(record.metadata.evidenceUri)}</div> : null}
                 </div>
                 <div className="text-right text-xs text-[color:var(--ops-text-caption)]">
                   <div>started {formatTime(record.started_at)}</div>
