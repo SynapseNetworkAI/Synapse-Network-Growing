@@ -51,6 +51,7 @@ def report_deployment_status_endpoint(
             branch_name=body.branch_name,
             commit_sha=body.commit_sha,
             notes=body.notes,
+            metadata=body.metadata,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -1186,6 +1186,16 @@ export interface ReleaseDetail {
   deployments: DeploymentRecord[]
 }
 
+export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
+
+export interface ReleaseActionPayload {
+  actor?: string
+  note?: string | null
+  source_ref_type?: 'branch' | 'tag' | 'commit'
+  source_ref?: string | null
+  deploy_scope?: DeployScope
+}
+
 export interface NotificationDelivery {
   id: number
   channel: string
@@ -2190,10 +2200,12 @@ export const api = {
     request<ReleaseDetail>(`/releases/${requirementId}/prepare`, { method: 'POST', body: JSON.stringify(data || {}) }),
   openReleasePr: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/open-pr`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  deployReleaseToStaging: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+  deployReleaseToStaging: (requirementId: number, data?: ReleaseActionPayload) =>
     request<ReleaseDetail>(`/releases/${requirementId}/deploy/staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  deployReleaseToProduction: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
+  deployReleaseToProduction: (requirementId: number, data?: ReleaseActionPayload) =>
     request<ReleaseDetail>(`/releases/${requirementId}/deploy/production`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  markReleaseNoDeploy: (requirementId: number, data?: ReleaseActionPayload) =>
+    request<ReleaseDetail>(`/releases/${requirementId}/no-deploy`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rollbackRelease: (requirementId: number, data: { actor?: string; note?: string | null; rollback_target_sha: string }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/rollback`, { method: 'POST', body: JSON.stringify(data) }),
   syncReleasePrStatuses: () =>
