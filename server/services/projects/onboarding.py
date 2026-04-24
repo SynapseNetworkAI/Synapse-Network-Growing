@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server.database import ProjectOnboardingRow, ProjectPolicyRow
 from server.services.projects.policy import (
     create_project_policy,
@@ -83,7 +84,7 @@ def _assess_manifest(
     existing_docs = [str(path) for path in docs_files if path.exists()]
     missing_docs = [str(path) for path in docs_files if not path.exists()]
     has_agents_or_llms = (repo_root / "AGENTS.md").exists() or (repo_root / "llms.txt").exists()
-    memory_root = Path("/Users/cliff/workspace/agent/Agents-Memory")
+    memory_root = Path(config.AGENTS_MEMORY_ROOT)
     items = [
         _readiness_item(
             "repo_exists",

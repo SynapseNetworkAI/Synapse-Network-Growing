@@ -258,7 +258,7 @@ def test_project_policy_delete_is_blocked_when_active_requirements_reference_it(
     assert delete_resp.status_code == 400
     assert "active requirements" in delete_resp.json()["detail"]
 
-def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path):
+def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_client, tmp_path, monkeypatch):
     repo = tmp_path / "sandbox-app"
     repo.mkdir()
     (repo / ".git").mkdir()
@@ -267,6 +267,9 @@ def test_project_onboarding_creates_policy_and_returns_ready_checklist(synced_cl
     docs_dir.mkdir()
     entrypoint = docs_dir / "README.md"
     entrypoint.write_text("# Docs\n", encoding="utf-8")
+    memory_root = tmp_path / "Agents-Memory"
+    memory_root.mkdir()
+    monkeypatch.setattr("server.config.AGENTS_MEMORY_ROOT", str(memory_root))
 
     resp = synced_client.post(
         "/api/project-onboarding",

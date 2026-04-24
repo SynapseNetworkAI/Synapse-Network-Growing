@@ -33,6 +33,7 @@ ENV = os.environ.get("OPS_ENV", "local")  # local | prod
 # ── Paths ─────────────────────────────────────────────────────
 PROJECT_ROOT = _PROJECT_ROOT
 ROLES_DIR = os.environ.get("ROLES_DIR", str(PROJECT_ROOT / "roles"))
+AGENTS_MEMORY_ROOT = os.environ.get("OPS_AGENTS_MEMORY_ROOT", "/Users/cliff/workspace/agent/Agents-Memory")
 
 # ── Server ────────────────────────────────────────────────────
 HOST = os.environ.get("OPS_HOST", "127.0.0.1" if ENV == "local" else "0.0.0.0")
