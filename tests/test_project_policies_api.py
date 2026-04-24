@@ -19,7 +19,7 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
     assert synapse_policy["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
     assert synapse_policy["deploy_trigger_enabled"] is True
-    assert synapse_policy["staging_host_label"] == "staging-vm"
+    assert synapse_policy["staging_host_label"] == "cloud-run-staging"
     assert synapse_policy["production_workflow_file"] == "deploy-production.yml"
     assert all(not key.startswith("sng-validation") for key in project_keys)
 
