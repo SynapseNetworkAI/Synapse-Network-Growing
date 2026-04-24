@@ -519,6 +519,35 @@ class DeploymentRecordRow(Base):
     project_policy = relationship("ProjectPolicyRow")
 
 
+class ReleaseTaskRow(Base):
+    __tablename__ = "release_tasks"
+    __table_args__ = (
+        Index("release_tasks_requirement_idx", "requirement_id"),
+        Index("release_tasks_deployment_record_idx", "deployment_record_id"),
+        Index("release_tasks_project_env_idx", "project_key", "environment"),
+        Index("release_tasks_status_idx", "status"),
+        Index("release_tasks_source_idx", "source_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_type = Column(Text, nullable=False, default="manual")
+    requirement_id = Column(Integer, ForeignKey("requirements.id"))
+    deployment_record_id = Column(Integer, ForeignKey("deployment_records.id"))
+    project_key = Column(Text, nullable=False)
+    project_display_name = Column(Text)
+    branch_name = Column(Text, nullable=False)
+    environment = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="requested")
+    actor = Column(Text)
+    operator = Column(Text)
+    note = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    requirement = relationship("RequirementRow")
+    deployment_record = relationship("DeploymentRecordRow")
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -1352,6 +1381,10 @@ def _migrate(engine_):
     if "deployment_records" not in tables:
         logger.info("Migrating: creating 'deployment_records' table")
         DeploymentRecordRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "release_tasks" not in tables:
+        logger.info("Migrating: creating 'release_tasks' table")
+        ReleaseTaskRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

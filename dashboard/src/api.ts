@@ -1186,6 +1186,23 @@ export interface ReleaseDetail {
   deployments: DeploymentRecord[]
 }
 
+export interface ReleaseTask {
+  id: number
+  source_type: 'manual' | 'requirement_flow' | string
+  requirement_id: number | null
+  deployment_record_id: number | null
+  project_key: string
+  project_display_name: string | null
+  branch_name: string
+  environment: 'staging' | 'production' | string
+  status: 'requested' | 'completed' | 'failed' | 'cancelled' | string
+  actor: string | null
+  operator: string | null
+  note: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
 
 export interface ReleaseActionPayload {
@@ -2195,6 +2212,25 @@ export const api = {
     }),
 
   getReleaseCandidates: () => request<ReleaseCandidate[]>('/releases/candidates'),
+  getReleaseTasks: (filters?: { project_key?: string; environment?: string; status?: string; source_type?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.project_key) params.set('project_key', filters.project_key)
+    if (filters?.environment) params.set('environment', filters.environment)
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.source_type) params.set('source_type', filters.source_type)
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<ReleaseTask[]>(`/releases/tasks${q}`)
+  },
+  createReleaseTask: (data: {
+    project_key: string
+    project_display_name?: string | null
+    branch_name: string
+    environment: 'staging' | 'production'
+    actor?: string
+    note?: string | null
+  }) => request<ReleaseTask>('/releases/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  updateReleaseTask: (id: number, data: { status: 'completed' | 'failed' | 'cancelled'; operator?: string; note?: string | null }) =>
+    request<ReleaseTask>(`/releases/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getReleaseDetail: (requirementId: number) => request<ReleaseDetail>(`/releases/${requirementId}`),
   prepareRelease: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/prepare`, { method: 'POST', body: JSON.stringify(data || {}) }),

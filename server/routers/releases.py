@@ -5,7 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db
-from server.schemas import ReleaseActionRequest, ReleaseCandidateOut, ReleaseDetailOut, ReleaseRollbackRequest
+from server.schemas import (
+    ReleaseActionRequest,
+    ReleaseCandidateOut,
+    ReleaseDetailOut,
+    ReleaseRollbackRequest,
+    ReleaseTaskCreateRequest,
+    ReleaseTaskOut,
+    ReleaseTaskPatchRequest,
+)
 from server.services.releases.service import (
     build_release_detail,
     deploy_release,
@@ -15,6 +23,7 @@ from server.services.releases.service import (
     prepare_release,
     rollback_release,
 )
+from server.services.releases.tasks import create_release_task, list_release_tasks, update_release_task
 
 
 router = APIRouter(prefix="/api/releases", tags=["releases"])
@@ -23,6 +32,41 @@ router = APIRouter(prefix="/api/releases", tags=["releases"])
 @router.get("/candidates", response_model=list[ReleaseCandidateOut])
 def list_release_candidates_endpoint(db: Session = Depends(get_db)):
     return list_release_candidates(db)
+
+
+@router.get("/tasks", response_model=list[ReleaseTaskOut])
+def list_release_tasks_endpoint(
+    project_key: str | None = None,
+    environment: str | None = None,
+    status: str | None = None,
+    source_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return list_release_tasks(
+        db,
+        project_key=project_key,
+        environment=environment,
+        status=status,
+        source_type=source_type,
+    )
+
+
+@router.post("/tasks", response_model=ReleaseTaskOut)
+def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = Depends(get_db)):
+    try:
+        return create_release_task(db, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/tasks/{task_id}", response_model=ReleaseTaskOut)
+def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db: Session = Depends(get_db)):
+    try:
+        return update_release_task(db, task_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get("/{requirement_id}", response_model=ReleaseDetailOut)

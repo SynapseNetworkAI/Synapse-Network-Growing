@@ -93,6 +93,7 @@
 5. PR / release 只信任 workflow evidence、verification verdict 和 human gate decision。
 6. Drop Goal 不会自动 rollback；下线已发布功能必须创建 decommission requirement。
 7. `release_pr_status_sweep` 会只读同步 GitHub PR 状态：merged PR 更新为 `merged`，closed / missing PR 收敛为 `pr_closed / abandoned`，但不会自动 deploy 或 rollback。
+8. `/releases` 的 `发布管理` 分面使用独立 Release Task 记录手动和需求流转发布意图；Release Task 不等于 Deployment Record，v1 只支持人工标记完成、失败或取消，不自动部署。
 
 ## 5. Error Discovery And Intake Gate
 

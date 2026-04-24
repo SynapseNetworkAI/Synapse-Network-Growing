@@ -8,6 +8,10 @@ import ReleasesPage from './ReleasesPage'
 
 const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
+  getReleaseTasks: vi.fn(),
+  createReleaseTask: vi.fn(),
+  updateReleaseTask: vi.fn(),
+  getProjectPolicies: vi.fn(),
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
   syncReleasePrStatuses: vi.fn(),
@@ -74,6 +78,26 @@ function candidate(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function releaseTask(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 42,
+    source_type: 'manual',
+    requirement_id: null,
+    deployment_record_id: null,
+    project_key: 'synapse-network-growing',
+    project_display_name: 'Synapse-Network-Growing',
+    branch_name: 'codex/manual-release',
+    environment: 'staging',
+    status: 'requested',
+    actor: 'alice',
+    operator: null,
+    note: 'Manual staging release',
+    created_at: '2026-04-22T01:00:00Z',
+    updated_at: '2026-04-22T01:00:00Z',
+    ...overrides,
+  }
+}
+
 describe('ReleasesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -107,6 +131,55 @@ describe('ReleasesPage', () => {
       run_id: 33,
       result: { processed_count: 2, merged_ids: [6], closed_ids: [], missing_ids: [7] },
     })
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask(),
+      releaseTask({
+        id: 43,
+        source_type: 'requirement_flow',
+        requirement_id: 12,
+        branch_name: 'ops/req-12-release',
+        environment: 'production',
+        status: 'completed',
+        actor: 'planner',
+        operator: 'ops-lead',
+        note: 'Production release manually completed',
+      }),
+    ])
+    apiMock.getProjectPolicies.mockResolvedValue([
+      {
+        id: 1,
+        project_id: null,
+        project_key: 'synapse-network-growing',
+        display_name: 'Synapse-Network-Growing',
+        root_path: '/repo',
+        status: 'active',
+        allowed_write_globs: [],
+        forbidden_globs: [],
+        required_checks: [],
+        release_mode: 'manual',
+        requires_manual_approval: true,
+        autonomy_mode: 'recommend',
+        allow_rebalance: true,
+        allow_preemption: false,
+        capability_matrix: { shell_access: true, git_read: true, git_write: true, git_push: true, network_access: true, publish: false },
+        interrupt_policy: { operator_confirmation_actions: [], auto_pause_on_events: [], auto_abort_on_events: [] },
+        scheduler_weight: 1,
+        max_parallel_requirements: 1,
+        portfolio_budget_points: 100,
+        deploy_repo_full_name: null,
+        deploy_strategy: 'disabled',
+        deploy_trigger_enabled: false,
+        staging_host_label: null,
+        production_host_label: null,
+        staging_workflow_file: 'deploy-staging.yml',
+        production_workflow_file: 'deploy-production.yml',
+        notes: null,
+        created_at: null,
+        updated_at: null,
+      },
+    ])
+    apiMock.createReleaseTask.mockResolvedValue(releaseTask({ id: 44, branch_name: 'codex/new-release' }))
+    apiMock.updateReleaseTask.mockResolvedValue(releaseTask({ status: 'completed', operator: 'operator' }))
   })
 
   it('shows merged and closed PR sync states', async () => {
@@ -128,6 +201,61 @@ describe('ReleasesPage', () => {
     await waitFor(() => {
       expect(apiMock.syncReleasePrStatuses).toHaveBeenCalledTimes(1)
       expect(apiMock.getReleaseCandidates).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('shows release management tasks and hides actions for terminal tasks', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+
+    expect(screen.getByText('codex/manual-release')).toBeTruthy()
+    expect(screen.getByText('ops/req-12-release')).toBeTruthy()
+    expect(screen.getByText('人工创建')).toBeTruthy()
+    expect(screen.getByText('需求流转')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '标记为已完成' })).toBeTruthy()
+    expect(screen.getAllByText('已归档')).toHaveLength(1)
+  })
+
+  it('creates a manual release task from the release management drawer', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '新建发布任务' }))
+    await user.type(screen.getByPlaceholderText('codex/branch-based-staging-deploy'), 'codex/new-release')
+    await user.click(screen.getByRole('button', { name: '创建发布任务' }))
+
+    await waitFor(() => {
+      expect(apiMock.createReleaseTask).toHaveBeenCalledWith({
+        project_key: 'synapse-network-growing',
+        project_display_name: 'Synapse-Network-Growing',
+        branch_name: 'codex/new-release',
+        environment: 'staging',
+        actor: 'operator',
+        note: null,
+      })
+    })
+  })
+
+  it('shows production safety copy and marks requested task failed', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '新建发布任务' }))
+    await user.selectOptions(screen.getByLabelText('发布环境'), 'production')
+    expect(screen.getByText(/不会自动部署生产/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '关闭' }))
+
+    await user.click(screen.getByRole('button', { name: '标记为失败' }))
+    await waitFor(() => {
+      expect(apiMock.updateReleaseTask).toHaveBeenCalledWith(42, {
+        status: 'failed',
+        operator: 'operator',
+        note: 'Manual staging release',
+      })
     })
   })
 })

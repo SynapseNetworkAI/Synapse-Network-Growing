@@ -1259,6 +1259,40 @@ class ReleaseActionRequest(BaseModel):
     deploy_scope: str = "auto"
 
 
+class ReleaseTaskOut(BaseModel):
+    id: int
+    source_type: str = "manual"
+    requirement_id: Optional[int] = None
+    deployment_record_id: Optional[int] = None
+    project_key: str
+    project_display_name: Optional[str] = None
+    branch_name: str
+    environment: str
+    status: str = "requested"
+    actor: Optional[str] = None
+    operator: Optional[str] = None
+    note: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ReleaseTaskCreateRequest(BaseModel):
+    project_key: str = ""
+    project_display_name: Optional[str] = None
+    branch_name: str = ""
+    environment: str = ""
+    actor: str = "operator"
+    note: Optional[str] = None
+    source_type: str = "manual"
+    requirement_id: Optional[int] = None
+
+
+class ReleaseTaskPatchRequest(BaseModel):
+    status: str
+    operator: str = "operator"
+    note: Optional[str] = None
+
+
 class ReleaseRollbackRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None

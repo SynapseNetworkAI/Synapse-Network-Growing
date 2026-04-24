@@ -109,6 +109,7 @@ graph TD
 11. Drop Goal means stop future investment and safe-halt unfinished work.
 12. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
 13. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
+14. Release Task records release intent and human closure only; Deployment Record records physical deploy execution. Do not merge deployment logs into the release task list or let release tasks trigger deploy/rollback without a Human Gate.
 14. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
 15. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
 16. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
