@@ -19,6 +19,7 @@ from server.schemas import (
     DeploymentRecordOut,
     DeploymentRequirementCandidateOut,
     EnvironmentStatusOut,
+    OnlineReleaseRecordOut,
 )
 from server.services.projects.policy import (
     list_project_policies,
@@ -117,6 +118,150 @@ def list_requirement_deployment_records(db: Session, requirement_id: int) -> lis
         .all()
     )
     return [DeploymentRecordOut(**_deployment_record_to_dict(row)) for row in rows]
+
+
+def _first_non_empty(*values: object) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _metadata_service_key(metadata: dict[str, Any]) -> str | None:
+    direct = _first_non_empty(metadata.get("service_key"), metadata.get("serviceKey"))
+    if direct:
+        return direct
+    for key in ("deployScope", "deploy_scope", "services"):
+        value = metadata.get(key)
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned and cleaned not in {"auto", "all"}:
+                return cleaned
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
+            cleaned = value[0].strip()
+            if cleaned and cleaned not in {"auto", "all"}:
+                return cleaned
+    return None
+
+
+def _metadata_release_task_id(metadata: dict[str, Any]) -> int | None:
+    for key in ("release_task_id", "releaseTaskId"):
+        value = metadata.get(key)
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, str) and value.strip().isdigit():
+            return int(value.strip())
+    return None
+
+
+def _online_metadata_summary(metadata: dict[str, Any]) -> dict[str, object]:
+    summary: dict[str, object] = {}
+    for key in (
+        "release_task_id",
+        "releaseTaskId",
+        "githubRunId",
+        "githubRunUrl",
+        "sourceRef",
+        "resolvedCommitSha",
+        "deployScope",
+        "deploy_scope",
+        "imageTag",
+        "imageDigest",
+        "image",
+        "manifest",
+        "manifestPath",
+        "evidence",
+        "evidenceUri",
+        "revision",
+        "cloudRunRevision",
+        "smoke",
+        "health",
+    ):
+        if key in metadata:
+            summary[key] = metadata[key]
+    return summary
+
+
+def _online_release_record_to_out(
+    row: DeploymentRecordRow,
+    *,
+    project_display_name: str | None = None,
+    release_task_id: int | None = None,
+) -> OnlineReleaseRecordOut:
+    metadata = _json_load(getattr(row, "metadata_json", None), {})
+    resolved_release_task_id = release_task_id or _metadata_release_task_id(metadata)
+    return OnlineReleaseRecordOut(
+        id=int(row.id),
+        project_key=str(row.project_key or ""),
+        project_display_name=project_display_name,
+        service_key=_metadata_service_key(metadata),
+        environment=str(row.environment or ""),
+        action=str(row.action or "deploy"),
+        status=str(row.status or "succeeded"),
+        branch_name=str(row.branch_name or "").strip() or None,
+        commit_sha=str(row.commit_sha or "").strip() or None,
+        actor=str(row.actor or "").strip() or None,
+        trigger_source=str(row.trigger_source or "ops_console"),
+        workflow_file=str(row.workflow_file or "").strip() or None,
+        external_run_id=str(row.external_run_id or "").strip() or None,
+        external_url=str(row.external_url or "").strip() or None,
+        rollback_target_sha=str(row.rollback_target_sha or "").strip() or None,
+        health_status=str(row.health_status or "").strip() or None,
+        notes=str(row.notes or "").strip() or None,
+        release_task_id=resolved_release_task_id,
+        metadata_summary=_online_metadata_summary(metadata),
+        metadata=metadata,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def list_online_release_records(
+    db: Session,
+    *,
+    project_key: str | None = None,
+    environment: str | None = None,
+    service_key: str | None = None,
+    limit: int = 50,
+) -> list[OnlineReleaseRecordOut]:
+    bounded_limit = max(1, min(int(limit or 50), 100))
+    query = db.query(DeploymentRecordRow).filter(DeploymentRecordRow.status == "succeeded")
+    if project_key:
+        query = query.filter(DeploymentRecordRow.project_key == project_key)
+    if environment:
+        query = query.filter(DeploymentRecordRow.environment == environment)
+    rows = query.order_by(DeploymentRecordRow.finished_at.desc(), DeploymentRecordRow.id.desc()).limit(bounded_limit * 3).all()
+    project_names = {
+        str(policy.project_key): str(policy.display_name or policy.project_key)
+        for policy in db.query(ProjectPolicyRow).all()
+    }
+    task_rows = (
+        db.query(ReleaseTaskRow)
+        .filter(ReleaseTaskRow.deployment_record_id.in_([int(row.id) for row in rows]))
+        .all()
+        if rows
+        else []
+    )
+    task_by_deployment_id = {
+        int(task.deployment_record_id): int(task.id)
+        for task in task_rows
+        if task.deployment_record_id is not None
+    }
+    records: list[OnlineReleaseRecordOut] = []
+    for row in rows:
+        record = _online_release_record_to_out(
+            row,
+            project_display_name=project_names.get(str(row.project_key or "")),
+            release_task_id=task_by_deployment_id.get(int(row.id)),
+        )
+        if service_key and record.service_key != service_key:
+            continue
+        records.append(record)
+        if len(records) >= bounded_limit:
+            break
+    return records
 
 
 def _list_project_deployment_records(

@@ -1226,6 +1226,33 @@ export interface ReleaseTask {
   updated_at: string | null
 }
 
+export interface OnlineReleaseRecord {
+  id: number
+  project_key: string
+  project_display_name: string | null
+  service_key: string | null
+  environment: string
+  action: string
+  status: string
+  branch_name: string | null
+  commit_sha: string | null
+  actor: string | null
+  trigger_source: string
+  workflow_file: string | null
+  external_run_id: string | null
+  external_url: string | null
+  rollback_target_sha: string | null
+  health_status: string | null
+  notes: string | null
+  release_task_id: number | null
+  metadata_summary: Record<string, unknown>
+  metadata: Record<string, unknown>
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface ReleaseBranchOption {
   name: string
   commit_sha: string | null
@@ -2251,6 +2278,15 @@ export const api = {
     if (filters?.source_type) params.set('source_type', filters.source_type)
     const q = params.toString() ? `?${params.toString()}` : ''
     return request<ReleaseTask[]>(`/releases/tasks${q}`)
+  },
+  getOnlineReleaseRecords: (filters?: { project_key?: string; environment?: string; service_key?: string; limit?: number }) => {
+    const params = new URLSearchParams()
+    if (filters?.project_key) params.set('project_key', filters.project_key)
+    if (filters?.environment) params.set('environment', filters.environment)
+    if (filters?.service_key) params.set('service_key', filters.service_key)
+    if (filters?.limit) params.set('limit', String(filters.limit))
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<OnlineReleaseRecord[]>(`/releases/online-records${q}`)
   },
   getReleaseTaskBranchOptions: (filters: { project_key: string; service_key?: string | null }) => {
     const params = new URLSearchParams({ project_key: filters.project_key })

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
+import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
 import { EmptyPane, FieldLabel, OverlayDrawer, StateBadge, useToast } from '../components/workbench'
 
-type ReleaseTab = 'candidates' | 'tasks'
+type ReleaseTab = 'candidates' | 'tasks' | 'online'
 
 const STATUS_LABEL: Record<string, string> = {
   pending: '待交付',
@@ -23,6 +23,10 @@ const STATUS_LABEL: Record<string, string> = {
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
+  succeeded: '上线成功',
+  deploy: 'deploy',
+  promote: 'promote',
+  rollback: 'rollback',
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -39,12 +43,27 @@ const DEFAULT_RELEASE_TARGETS = [
 ]
 
 function releaseTone(state: string | null | undefined) {
-  if (state === 'merged' || state === 'completed') return 'delivered'
+  if (state === 'merged' || state === 'completed' || state === 'succeeded' || state === 'passed') return 'delivered'
   if (state === 'pr_open' || state === 'pr_opened' || state === 'ready_for_merge' || state === 'requested') return 'ready'
   if (state === 'repairing' || state === 'pushing' || state === 'opening_pr' || state === 'preparing_branch') return 'running'
   if (state === 'blocked' || state === 'pr_closed' || state === 'abandoned' || state === 'failed') return 'blocked'
   if (state === 'pending') return 'ready'
   return 'muted'
+}
+
+function shortSha(value: string | null | undefined) {
+  if (!value) return '-'
+  return value.length > 10 ? value.slice(0, 10) : value
+}
+
+function compactJson(value: unknown) {
+  if (value == null) return '-'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
 }
 
 function formatTime(value: string | null) {
@@ -92,15 +111,18 @@ export default function ReleasesPage() {
   const [activeTab, setActiveTab] = useState<ReleaseTab>('candidates')
   const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
   const [tasks, setTasks] = useState<ReleaseTask[]>([])
+  const [onlineRecords, setOnlineRecords] = useState<OnlineReleaseRecord[]>([])
   const [policies, setPolicies] = useState<ProjectPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('')
   const [taskEnvironmentFilter, setTaskEnvironmentFilter] = useState('')
+  const [onlineEnvironmentFilter, setOnlineEnvironmentFilter] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [syncBusy, setSyncBusy] = useState(false)
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
   const [taskDetail, setTaskDetail] = useState<ReleaseTask | null>(null)
+  const [onlineDetail, setOnlineDetail] = useState<OnlineReleaseRecord | null>(null)
   const [taskDraft, setTaskDraft] = useState(defaultTaskDraft([]))
   const [taskBusy, setTaskBusy] = useState(false)
   const [branchOptions, setBranchOptions] = useState<ReleaseBranchOption[]>([])
@@ -111,13 +133,15 @@ export default function ReleasesPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const [nextCandidates, nextTasks, nextPolicies] = await Promise.all([
+      const [nextCandidates, nextTasks, nextOnlineRecords, nextPolicies] = await Promise.all([
         api.getReleaseCandidates(),
         api.getReleaseTasks(),
+        api.getOnlineReleaseRecords({ limit: 100 }),
         api.getProjectPolicies(),
       ])
       setCandidates(nextCandidates)
       setTasks(nextTasks)
+      setOnlineRecords(nextOnlineRecords)
       setPolicies(nextPolicies)
       if (!taskDraft.project_key) {
         setTaskDraft(defaultTaskDraft(nextPolicies))
@@ -169,6 +193,26 @@ export default function ReleasesPage() {
       ].join('\n').toLowerCase().includes(needle)
     })
   }, [tasks, search, taskStatusFilter, taskEnvironmentFilter])
+
+  const filteredOnlineRecords = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return onlineRecords.filter((record) => {
+      if (onlineEnvironmentFilter && record.environment !== onlineEnvironmentFilter) return false
+      if (!needle) return true
+      return [
+        record.project_key,
+        record.project_display_name || '',
+        record.service_key || '',
+        record.branch_name || '',
+        record.commit_sha || '',
+        record.environment,
+        record.action,
+        record.actor || '',
+        record.health_status || '',
+        record.notes || '',
+      ].join('\n').toLowerCase().includes(needle)
+    })
+  }, [onlineRecords, onlineEnvironmentFilter, search])
 
   const selectedTarget = taskTargets.find((target) => target.project_key === taskDraft.project_key && target.service_key === taskDraft.service_key) || taskTargets[0]
 
@@ -298,12 +342,12 @@ export default function ReleasesPage() {
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Releases</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">发布列表</h2>
-            <p className="mt-2 text-sm text-[color:var(--ops-text-muted)]">需求交付看 PR 链路；发布管理记录人工分支发布任务。</p>
+            <p className="mt-2 text-sm text-[color:var(--ops-text-muted)]">需求交付看 PR；发布管理记录任务；上线记录只显示真实成功部署。</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
-              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : '搜索 requirement / project'}
+              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -337,7 +381,7 @@ export default function ReleasesPage() {
               >
                 {syncBusy ? '同步中…' : '同步 PR 状态'}
               </button>
-            ) : (
+            ) : activeTab === 'tasks' ? (
               <button
                 type="button"
                 className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
@@ -348,7 +392,7 @@ export default function ReleasesPage() {
               >
                 新建发布任务
               </button>
-            )}
+            ) : null}
           </div>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
@@ -366,6 +410,13 @@ export default function ReleasesPage() {
           >
             发布管理
           </button>
+          <button
+            type="button"
+            className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'online' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
+            onClick={() => setActiveTab('online')}
+          >
+            上线记录
+          </button>
           {activeTab === 'tasks' ? (
             <>
               <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={taskEnvironmentFilter} onChange={(event) => setTaskEnvironmentFilter(event.target.value)}>
@@ -379,6 +430,12 @@ export default function ReleasesPage() {
                 ))}
               </select>
             </>
+          ) : activeTab === 'online' ? (
+            <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={onlineEnvironmentFilter} onChange={(event) => setOnlineEnvironmentFilter(event.target.value)}>
+              <option value="">全部环境</option>
+              <option value="staging">staging</option>
+              <option value="production">production</option>
+            </select>
           ) : null}
         </div>
       </section>
@@ -393,7 +450,7 @@ export default function ReleasesPage() {
           navigate={navigate}
           toast={toast}
         />
-      ) : (
+      ) : activeTab === 'tasks' ? (
         <ReleaseTasksTable
           tasks={filteredTasks}
           loading={loading}
@@ -406,6 +463,12 @@ export default function ReleasesPage() {
             setTaskDrawerOpen(false)
             setTaskDetail(task)
           }}
+        />
+      ) : (
+        <OnlineRecordsTable
+          records={filteredOnlineRecords}
+          loading={loading}
+          onOpenDetails={setOnlineDetail}
         />
       )}
 
@@ -507,6 +570,7 @@ export default function ReleasesPage() {
         </div>
       </OverlayDrawer>
       <ReleaseTaskDetailDrawer task={taskDetail} onClose={() => setTaskDetail(null)} onRefresh={() => load().catch(() => {})} />
+      <OnlineRecordDetailDrawer record={onlineDetail} onClose={() => setOnlineDetail(null)} />
     </div>
   )
 }
@@ -827,6 +891,88 @@ function ReleaseTasksTable({
   )
 }
 
+function OnlineRecordsTable({
+  records,
+  loading,
+  onOpenDetails,
+}: Readonly<{
+  records: OnlineReleaseRecord[]
+  loading: boolean
+  onOpenDetails: (record: OnlineReleaseRecord) => void
+}>) {
+  return (
+    <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
+      <div className="border-b border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4">
+        <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Online Records</div>
+        <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+          这里只展示成功上线的 DeploymentRecord。待执行、失败、取消的 Release Task 不会进入上线账本。
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse">
+          <thead className="bg-[color:var(--ops-panel-subtle)]">
+            <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+              <th className="px-5 py-4 font-medium">项目 / 服务</th>
+              <th className="px-4 py-4 font-medium">环境</th>
+              <th className="px-4 py-4 font-medium">分支 / Commit</th>
+              <th className="px-4 py-4 font-medium">操作 / 健康</th>
+              <th className="px-4 py-4 font-medium">GitHub Actions</th>
+              <th className="px-4 py-4 font-medium">上线时间</th>
+              <th className="px-5 py-4 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((record) => (
+              <tr key={record.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
+                <td className="px-5 py-4">
+                  <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{record.project_display_name || record.project_key}</div>
+                  <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Service: {record.service_key || '-'}</div>
+                  {record.release_task_id ? <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Release Task #{record.release_task_id}</div> : null}
+                </td>
+                <td className="px-4 py-4">
+                  <StateBadge tone={record.environment === 'production' ? 'blocked' : 'ready'}>{record.environment}</StateBadge>
+                </td>
+                <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                  <div className="font-mono text-xs">{record.branch_name || '-'}</div>
+                  <div className="mt-1 font-mono text-xs">{shortSha(record.commit_sha)}</div>
+                </td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-wrap gap-2">
+                    <StateBadge tone="delivered">{STATUS_LABEL[record.action] || record.action}</StateBadge>
+                    <StateBadge tone={record.health_status === 'passed' || record.health_status === 'healthy' ? 'delivered' : 'muted'}>
+                      Health: {record.health_status || '-'}
+                    </StateBadge>
+                  </div>
+                </td>
+                <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                  {record.external_url ? (
+                    <a className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" href={record.external_url} target="_blank" rel="noreferrer">
+                      Run {record.external_run_id || record.id}
+                    </a>
+                  ) : (
+                    '-'
+                  )}
+                </td>
+                <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(record.finished_at || record.updated_at || record.created_at)}</td>
+                <td className="px-5 py-4 text-right">
+                  <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenDetails(record)}>
+                    详情
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!loading && records.length === 0 && (
+        <div className="p-6">
+          <EmptyPane>暂无成功上线记录。成功的 staging / production DeploymentRecord 会出现在这里。</EmptyPane>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ReleaseTaskDetailDrawer({
   task,
   onClose,
@@ -925,6 +1071,97 @@ function ReleaseTaskDetailDrawer({
             </div>
           )}
         </section>
+      </div>
+    </OverlayDrawer>
+  )
+}
+
+function OnlineRecordDetailDrawer({
+  record,
+  onClose,
+}: Readonly<{
+  record: OnlineReleaseRecord | null
+  onClose: () => void
+}>) {
+  if (!record) return null
+  const metadataEntries = Object.entries(record.metadata_summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== '')
+  return (
+    <OverlayDrawer
+      open={Boolean(record)}
+      eyebrow="Online Record"
+      title={`上线记录 #${record.id}`}
+      description="成功部署账本：用于确认 GitHub Actions、Cloud Run revision、镜像 / manifest 和健康检查结果。"
+      onClose={onClose}
+    >
+      <div className="space-y-5">
+        <section className="rounded-2xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] p-4 text-sm text-[color:var(--ops-state-ready-text)]">
+          这是只读上线记录，只来自成功的 DeploymentRecord。它不是 Release Task，也不会触发新的 deploy 或 rollback。
+        </section>
+
+        <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">
+                {record.project_display_name || record.project_key} · {record.service_key || 'service'}
+              </div>
+              <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-muted)]">{record.branch_name || '-'}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StateBadge tone={record.environment === 'production' ? 'blocked' : 'ready'}>{record.environment}</StateBadge>
+              <StateBadge tone="delivered">{STATUS_LABEL[record.action] || record.action}</StateBadge>
+              <StateBadge tone="delivered">上线成功</StateBadge>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2">
+            <div>Commit：<span className="font-mono">{record.commit_sha || '-'}</span></div>
+            <div>健康检查：{record.health_status || '-'}</div>
+            <div>Operator：{record.actor || '-'}</div>
+            <div>Trigger：{record.trigger_source || '-'}</div>
+            <div>Started：{formatTime(record.started_at)}</div>
+            <div>Finished：{formatTime(record.finished_at)}</div>
+          </div>
+          {record.external_url ? (
+            <a className="mt-4 inline-flex rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={record.external_url} target="_blank" rel="noreferrer">
+              打开 GitHub Actions 日志
+            </a>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Deployment Evidence</h3>
+          <div className="mt-3 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2">
+            <div>Workflow：{record.workflow_file || '-'}</div>
+            <div>Run ID：{record.external_run_id || '-'}</div>
+            <div>Release Task：{record.release_task_id ? `#${record.release_task_id}` : '-'}</div>
+            <div>Rollback target：{record.rollback_target_sha || '-'}</div>
+          </div>
+          {metadataEntries.length > 0 ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {metadataEntries.map(([key, value]) => (
+                <div key={key} className="rounded-xl bg-[color:var(--ops-panel)] p-3">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{key}</div>
+                  <div className="mt-2 break-words text-xs text-[color:var(--ops-text-muted)]">{compactJson(value)}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">没有额外 deployment metadata summary。</div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-4 text-sm text-[color:var(--ops-state-blocked-text)]">
+          <div className="font-semibold">回滚说明</div>
+          <p className="mt-2">
+            Runtime rollback 应选择这里的历史成功上线记录作为 rollback target，并进入 Human Gate。代码级回滚则新建 revert 分支、提交 PR、checks 通过并合并到 main 后，再按正常发布流程上线。
+          </p>
+        </section>
+
+        <details className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Raw deployment metadata</summary>
+          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">
+            {JSON.stringify(record.metadata || {}, null, 2)}
+          </pre>
+        </details>
       </div>
     </OverlayDrawer>
   )

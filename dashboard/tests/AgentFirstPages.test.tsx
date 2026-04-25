@@ -17,6 +17,7 @@ const mockApi = {
   regenerateRequirementAssets: vi.fn(),
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
+  getOnlineReleaseRecords: vi.fn(),
   getProjectPolicies: vi.fn(),
   getErrors: vi.fn(),
 }
@@ -32,6 +33,7 @@ vi.mock('../src/api', () => ({
     regenerateRequirementAssets: (...args: unknown[]) => mockApi.regenerateRequirementAssets(...args),
     getReleaseCandidates: (...args: unknown[]) => mockApi.getReleaseCandidates(...args),
     getReleaseTasks: (...args: unknown[]) => mockApi.getReleaseTasks(...args),
+    getOnlineReleaseRecords: (...args: unknown[]) => mockApi.getOnlineReleaseRecords(...args),
     getProjectPolicies: (...args: unknown[]) => mockApi.getProjectPolicies(...args),
     getErrors: (...args: unknown[]) => mockApi.getErrors(...args),
   },
@@ -89,6 +91,7 @@ describe('agent-first pages smoke', () => {
       },
     ])
     mockApi.getReleaseTasks.mockResolvedValue([])
+    mockApi.getOnlineReleaseRecords.mockResolvedValue([])
     mockApi.getProjectPolicies.mockResolvedValue([])
     mockApi.getReleaseCandidates.mockResolvedValue([
       {

@@ -95,6 +95,9 @@
 7. `release_pr_status_sweep` 会只读同步 GitHub PR 状态：merged PR 更新为 `merged`，closed / missing PR 收敛为 `pr_closed / abandoned`，但不会自动 deploy 或 rollback。
 8. `/releases` 的 `发布管理` 分面使用独立 Release Task 记录手动和需求流转发布意图；Release Task 不等于 Deployment Record。任务创建不会自动部署，分支选择从目标 GitHub 仓库 branch list 读取；没有 open/merged PR 时只能提交 PR，PR checks 通过后才允许 Operator 点击 `发布到 staging` 触发白名单发布 runner，production 仍必须 Human Gate。
 9. Release Task detail drawer 展示 PR gate、DeploymentRecord、GitHub Actions run link、health check、failure summary 和 deployment metadata；staging runner 使用 GCP Workload Identity Federation，不使用长生命周期 GCP service account JSON key。
+10. `/releases` 的 `上线记录` 分面只读展示成功的 `DeploymentRecord(status=succeeded)`，不混入 pending / failed / cancelled Release Task。上线记录用于确认 GitHub Actions、Cloud Run revision / image / manifest、health check 和 rollback target。
+11. Staging 发布不要求先合并 `main`，但必须存在 PR 且 PR checks 通过，并由 Operator 点击 `发布到 staging`。Production 默认只允许从 `main` / tag / verified staging manifest 推进，并必须 Human Gate。
+12. Rollback 不由 Drop Goal、普通 Release Task PATCH 或 staging 快捷按钮触发。Runtime rollback 以历史成功上线记录的 commit / image / manifest 为 target 并进入 Human Gate；代码级 revert 必须走新分支、PR、checks、merge 和正常发布链路。
 
 ## 5. Error Discovery And Intake Gate
 

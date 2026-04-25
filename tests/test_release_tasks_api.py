@@ -253,6 +253,110 @@ def test_release_tasks_do_not_merge_deployment_records(synced_client, db_session
     assert "codex/deployment-only" not in branches
 
 
+def test_online_release_records_only_include_successful_deployments(synced_client, db_session):
+    succeeded = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="succeeded",
+        branch_name="codex/staging-ok",
+        commit_sha="abc123",
+        external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/123",
+        health_status="passed",
+        metadata_json=json.dumps({"service_key": "gateway", "revision": {"gateway": "gateway-0001"}}),
+    )
+    failed = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="failed",
+        branch_name="codex/staging-failed",
+        metadata_json=json.dumps({"service_key": "gateway"}),
+    )
+    requested = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        branch_name="codex/staging-requested",
+        metadata_json=json.dumps({"service_key": "gateway"}),
+    )
+    db_session.add_all([succeeded, failed, requested])
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="codex/staging-ok",
+        environment="staging",
+        status="completed",
+        deployment_record_id=int(succeeded.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    response = synced_client.get("/api/releases/online-records")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["branch_name"] for item in payload] == ["codex/staging-ok"]
+    assert payload[0]["status"] == "succeeded"
+    assert payload[0]["release_task_id"] == int(task.id)
+    assert payload[0]["service_key"] == "gateway"
+    assert payload[0]["metadata_summary"]["revision"] == {"gateway": "gateway-0001"}
+
+
+def test_online_release_records_support_environment_project_and_service_filters(synced_client, db_session):
+    db_session.add_all(
+        [
+            DeploymentRecordRow(
+                project_key="synapse-network",
+                environment="staging",
+                action="deploy",
+                status="succeeded",
+                branch_name="codex/gateway",
+                metadata_json=json.dumps({"deployScope": ["gateway"]}),
+            ),
+            DeploymentRecordRow(
+                project_key="synapse-network",
+                environment="production",
+                action="promote",
+                status="succeeded",
+                branch_name="main",
+                metadata_json=json.dumps({"deployScope": ["gateway"]}),
+            ),
+            DeploymentRecordRow(
+                project_key="synapse-network",
+                environment="staging",
+                action="deploy",
+                status="succeeded",
+                branch_name="codex/admin-front",
+                metadata_json=json.dumps({"deployScope": ["admin-front"]}),
+            ),
+            DeploymentRecordRow(
+                project_key="synapse-network-provider",
+                environment="staging",
+                action="deploy",
+                status="succeeded",
+                branch_name="codex/provider",
+                metadata_json=json.dumps({"deployScope": ["provider"]}),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = synced_client.get(
+        "/api/releases/online-records",
+        params={"project_key": "synapse-network", "environment": "staging", "service_key": "gateway"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["branch_name"] for item in payload] == ["codex/gateway"]
+    assert payload[0]["environment"] == "staging"
+    assert payload[0]["service_key"] == "gateway"
+
+
 def test_release_task_filters_and_validation_errors(synced_client, db_session):
     synced_client.post(
         "/api/releases/tasks",

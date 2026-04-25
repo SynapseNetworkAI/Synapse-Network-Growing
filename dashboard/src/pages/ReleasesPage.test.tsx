@@ -9,6 +9,7 @@ import ReleasesPage from './ReleasesPage'
 const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
+  getOnlineReleaseRecords: vi.fn(),
   createReleaseTask: vi.fn(),
   getReleaseTaskBranchOptions: vi.fn(),
   updateReleaseTask: vi.fn(),
@@ -124,6 +125,44 @@ function releaseTask(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function onlineRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 88,
+    project_key: 'synapse-network',
+    project_display_name: 'Synapse-Network',
+    service_key: 'gateway',
+    environment: 'staging',
+    action: 'deploy',
+    status: 'succeeded',
+    branch_name: 'codex/staging-release',
+    commit_sha: 'abc123456789',
+    actor: 'operator',
+    trigger_source: 'release_task',
+    workflow_file: 'deploy-staging.yml',
+    external_run_id: '24919553458',
+    external_url: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+    rollback_target_sha: null,
+    health_status: 'passed',
+    notes: 'staging deploy succeeded',
+    release_task_id: 42,
+    metadata_summary: {
+      revision: { gateway: 'synapse-gateway-0008' },
+      manifest: 'gs://staging-evidence/release.json',
+      imageTag: 'gateway:abc123456789',
+    },
+    metadata: {
+      revision: { gateway: 'synapse-gateway-0008' },
+      manifest: 'gs://staging-evidence/release.json',
+      imageTag: 'gateway:abc123456789',
+    },
+    started_at: '2026-04-25T01:40:00Z',
+    finished_at: '2026-04-25T01:44:00Z',
+    created_at: '2026-04-25T01:40:00Z',
+    updated_at: '2026-04-25T01:44:00Z',
+    ...overrides,
+  }
+}
+
 describe('ReleasesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -170,6 +209,9 @@ describe('ReleasesPage', () => {
         operator: 'ops-lead',
         note: 'Production release manually completed',
       }),
+    ])
+    apiMock.getOnlineReleaseRecords.mockResolvedValue([
+      onlineRecord(),
     ])
     apiMock.getProjectPolicies.mockResolvedValue([
       {
@@ -353,6 +395,38 @@ describe('ReleasesPage', () => {
       'href',
       'https://github.com/cliff-personal/Synapse-Network/actions/runs/123456',
     )
+  })
+
+  it('shows successful deployment records in the online records tab', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '上线记录' }))
+
+    expect(screen.getByText('Online Records')).toBeTruthy()
+    expect(screen.getByText('这里只展示成功上线的 DeploymentRecord。待执行、失败、取消的 Release Task 不会进入上线账本。')).toBeTruthy()
+    expect(screen.getByText('codex/staging-release')).toBeTruthy()
+    expect(screen.getByText('abc1234567')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Run 24919553458' })).toHaveAttribute(
+      'href',
+      'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+    )
+  })
+
+  it('opens online record details with evidence and rollback guidance', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '上线记录' }))
+    await user.click(screen.getByRole('button', { name: '详情' }))
+
+    expect(screen.getByText('上线记录 #88')).toBeTruthy()
+    expect(screen.getByText('Deployment Evidence')).toBeTruthy()
+    expect(screen.getByText('Workflow：deploy-staging.yml')).toBeTruthy()
+    expect(screen.getByText('Release Task：#42')).toBeTruthy()
+    expect(screen.getByText('回滚说明')).toBeTruthy()
+    expect(screen.getByText(/Runtime rollback 应选择这里的历史成功上线记录/)).toBeTruthy()
+    expect(screen.getAllByText(/gs:\/\/staging-evidence\/release.json/).length).toBeGreaterThan(0)
   })
 
   it('does not show PR or staging actions when the branch is missing', async () => {

@@ -15,7 +15,9 @@ from server.schemas import (
     ReleaseTaskDeployRequest,
     ReleaseTaskOut,
     ReleaseTaskPatchRequest,
+    OnlineReleaseRecordOut,
 )
+from server.services.delivery.deployment_governance import list_online_release_records
 from server.services.releases.service import (
     build_release_detail,
     deploy_release,
@@ -70,6 +72,23 @@ def list_release_branch_options_endpoint(
         return list_release_task_branch_options(db, project_key=project_key, service_key=service_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/online-records", response_model=list[OnlineReleaseRecordOut])
+def list_online_release_records_endpoint(
+    project_key: str | None = None,
+    environment: str | None = None,
+    service_key: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    return list_online_release_records(
+        db,
+        project_key=project_key,
+        environment=environment,
+        service_key=service_key,
+        limit=limit,
+    )
 
 
 @router.post("/tasks", response_model=ReleaseTaskOut)

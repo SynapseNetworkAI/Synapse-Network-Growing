@@ -3,7 +3,7 @@ id: synapse-gce-deployment-governance
 title: "Synapse Deployment Governance"
 status: draft
 created_at: 2026-04-13
-updated_at: 2026-04-13
+updated_at: 2026-04-25
 author: engineering-ops
 ---
 
@@ -82,3 +82,45 @@ Growing 当前会展示：
 7. `Rollback`
 8. `Deploy Scope`
 9. `Release Manifest / Evidence URI`
+10. `/releases` 的 `上线记录`，只展示成功的 DeploymentRecord
+
+## 6. 当前上线步骤
+
+Staging 发布链路保持“任务意图”和“真实上线”分离：
+
+1. 在 `/releases` 创建 Release Task。
+2. 选择目标项目 / 服务和 GitHub 远端分支。
+3. 如果分支没有 PR，点击 `提交 PR`。
+4. 等待 PR Checks 通过。Checks pending / failed 时不得发布 staging。
+5. Checks 通过后，由 Operator 点击 `发布到 staging`。
+6. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
+7. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
+
+Staging 不要求先合并到 `main`。它允许从已提交 PR 且 checks 通过的 release branch 发布，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。
+
+## 7. 上线记录
+
+`上线记录` 是只读账本，只来自 `deployment_records.status=succeeded`。
+
+上线记录必须能回答：
+
+1. 哪个 project / service 上线了。
+2. 发布到哪个 environment。
+3. 使用哪个 branch 和 commit SHA。
+4. 触发了哪个 GitHub Actions run。
+5. Cloud Run revision、image tag / digest、manifest / evidence URI 是什么。
+6. health check 是否通过。
+7. 该记录是否来自某个 Release Task。
+
+上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注伪造成真实上线结果。
+
+## 8. 回滚说明
+
+回滚分两类：
+
+1. Runtime rollback：选择 `上线记录` 中的历史成功 DeploymentRecord，把其中的 commit / image / manifest 作为 rollback target，创建 rollback deployment request，并进入 Human Gate。v1 不提供直接 rollback 快捷按钮。
+2. Code revert：当需要撤回代码变更时，新建 revert 分支，提交 PR，等待 PR checks 通过并合并到 `main`，再按正常发布流程上线。
+
+不要默认“新建一个回滚分支再发布”来处理运行时回滚。运行时回滚优先复用历史成功上线记录的不可变产物；代码级回滚才走新分支 / PR / merge / release。
+
+Drop Goal、普通 Release Task PATCH、staging deploy API 都不得触发 production rollback。Production deploy / rollback 始终必须通过 Human Gate。

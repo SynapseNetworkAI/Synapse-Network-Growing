@@ -1561,6 +1561,35 @@ class DeploymentRecordOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OnlineReleaseRecordOut(BaseModel):
+    id: int
+    project_key: str
+    project_display_name: Optional[str] = None
+    service_key: Optional[str] = None
+    environment: str
+    action: str
+    status: str = "succeeded"
+    branch_name: Optional[str] = None
+    commit_sha: Optional[str] = None
+    actor: Optional[str] = None
+    trigger_source: str = "ops_console"
+    workflow_file: Optional[str] = None
+    external_run_id: Optional[str] = None
+    external_url: Optional[str] = None
+    rollback_target_sha: Optional[str] = None
+    health_status: Optional[str] = None
+    notes: Optional[str] = None
+    release_task_id: Optional[int] = None
+    metadata_summary: dict[str, object] = {}
+    metadata: dict[str, object] = {}
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class EnvironmentStatusOut(BaseModel):
     environment: str
     project_key: str
