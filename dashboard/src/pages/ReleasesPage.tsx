@@ -366,34 +366,36 @@ export default function ReleasesPage() {
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
               刷新
             </button>
-            {activeTab === 'candidates' ? (
-              <button
-                type="button"
-                className="rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2.5 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
-                disabled={syncBusy}
-                onClick={async () => {
-                  if (syncBusy) return
-                  setSyncBusy(true)
-                  try {
-                    const response = await api.syncReleasePrStatuses()
-                    const result = response.result || {}
-                    const processed = Number(result.processed_count || 0)
-                    const merged = Array.isArray(result.merged_ids) ? result.merged_ids.length : 0
-                    const closed = Array.isArray(result.closed_ids) ? result.closed_ids.length : 0
-                    const missing = Array.isArray(result.missing_ids) ? result.missing_ids.length : 0
-                    toast.success(`PR 状态同步完成：处理 ${processed} 条，合并 ${merged} 条，关闭 ${closed + missing} 条`)
-                    await load()
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : '同步 PR 状态失败，请稍后重试'
-                    toast.error(message)
-                  } finally {
-                    setSyncBusy(false)
-                  }
-                }}
-              >
-                {syncBusy ? '同步中…' : '同步 PR 状态'}
-              </button>
-            ) : activeTab === 'tasks' ? (
+            <button
+              type="button"
+              className="rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2.5 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
+              disabled={syncBusy}
+              onClick={async () => {
+                if (syncBusy) return
+                setSyncBusy(true)
+                try {
+                  const [prResponse, deploymentResponse] = await Promise.all([
+                    api.syncReleasePrStatuses(),
+                    api.syncReleaseTaskDeploymentStatuses(),
+                  ])
+                  const prResult = prResponse.result || {}
+                  const prProcessed = Number(prResult.processed_count || 0)
+                  const deployments = Number(deploymentResponse.processed_count || 0)
+                  const succeeded = Array.isArray(deploymentResponse.succeeded_ids) ? deploymentResponse.succeeded_ids.length : 0
+                  const failed = Array.isArray(deploymentResponse.failed_ids) ? deploymentResponse.failed_ids.length : 0
+                  toast.success(`状态同步完成：PR ${prProcessed} 条，发布 ${deployments} 条，成功 ${succeeded}，失败 ${failed}`)
+                  await load()
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : '同步状态失败，请稍后重试'
+                  toast.error(message)
+                } finally {
+                  setSyncBusy(false)
+                }
+              }}
+            >
+              {syncBusy ? '同步中…' : '同步状态'}
+            </button>
+            {activeTab === 'tasks' ? (
               <button
                 type="button"
                 className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
@@ -939,7 +941,7 @@ function OnlineRecordsTable({
       <div className="border-b border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4">
         <div className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Online Records</div>
         <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
-          这里只展示成功上线的 DeploymentRecord。待执行、失败、取消的 Release Task 不会进入上线账本。
+          这里只展示成功上线账本。真实部署成功或人工标记已完成时生成的成功 DeploymentRecord 会进入这里；待执行、失败、取消不会进入。
         </div>
       </div>
       <div className="overflow-x-auto">

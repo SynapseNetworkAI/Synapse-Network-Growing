@@ -287,9 +287,10 @@ Release 负责：
 11. Release Task 是业务发布意图与人工闭环记录；Deployment Record 是物理部署流水。`/releases` 可以统一展示手动与需求流转发布任务，但不得通过临时合并 `deployment_records` 来伪造发布任务列表。
 12. Release Task 创建动作不得自动 deploy。Release Task 的分支必须从目标 GitHub 仓库分支列表选择，不能依赖手写自由文本。Staging 只能在该分支存在 open 或 merged PR 且 PR checks 通过后，由 Operator 点击 `发布到 staging` 触发白名单发布 runner，并通过 `deployment_record_id` 留痕；staging runner 必须使用 GCP Workload Identity Federation，不允许 GitHub 保存 GCP JSON key。production deploy / rollback 必须走 Human Gate，不能复用 staging API 或普通 PATCH 绕过。
 13. Release Task 详情必须提供部署排障入口：PR gate、DeploymentRecord、GitHub Actions run URL、health check、failure summary 和 metadata 可下钻查看；主列表只显示状态摘要和下一步动作，不平铺长日志或 raw payload。
-14. Online Record 是成功上线账本，只能来自 `DeploymentRecord(status=succeeded)`，不得从 Release Task、失败 DeploymentRecord 或人工备注伪造。上线记录需要保留 GitHub Actions、commit、branch、service、environment、health、revision / image / manifest metadata 和 release task anchor。
-15. Staging 与 production 发布条件必须不同：staging 可以从 PR checks 通过的 release branch 手动发布；production 默认必须基于 `main` / tag / verified staging manifest，并经 Human Gate。已合并 PR 不自动 deploy，成功 staging 也不自动 promote production。
-16. Rollback 必须使用 Release / Deployment 面的结构化证据。Runtime rollback 选择历史成功 Online Record 的 commit / image / manifest 作为 target，并进入 Human Gate；Code revert 使用新 revert branch -> PR -> checks -> merge -> normal release。Drop Goal、普通 PATCH、staging deploy API 不得触发 rollback。
+14. Online Record 是成功上线账本，只能来自 `DeploymentRecord(status=succeeded)`，不得直接从 Release Task、失败 DeploymentRecord 或普通备注投影。Operator 手动把 Release Task 标记为已完成时，后端必须先创建或绑定一条 `manual_completion` 成功 DeploymentRecord，再进入上线记录。上线记录需要保留 GitHub Actions、commit、branch、service、environment、health、revision / image / manifest metadata 和 release task anchor。
+15. 本地发起或没有 webhook callback 的 staging 部署必须支持 pull-based reconciliation：Ops Console 可只读拉取 GitHub Actions run 状态，把 success / failure 同步回 DeploymentRecord 和 Release Task。同步动作不得触发 deploy、merge、rollback 或生产发布。
+16. Staging 与 production 发布条件必须不同：staging 可以从 PR checks 通过的 release branch 手动发布；production 默认必须基于 `main` / tag / verified staging manifest，并经 Human Gate。已合并 PR 不自动 deploy，成功 staging 也不自动 promote production。
+17. Rollback 必须使用 Release / Deployment 面的结构化证据。Runtime rollback 选择历史成功 Online Record 的 commit / image / manifest 作为 target，并进入 Human Gate；Code revert 使用新 revert branch -> PR -> checks -> merge -> normal release。Drop Goal、普通 PATCH、staging deploy API 不得触发 rollback。
 17. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
 18. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
 19. 错误发现 v1 必须优先于机会发现。

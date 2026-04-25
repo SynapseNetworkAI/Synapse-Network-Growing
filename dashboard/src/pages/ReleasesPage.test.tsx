@@ -15,6 +15,7 @@ const apiMock = vi.hoisted(() => ({
   updateReleaseTask: vi.fn(),
   createReleaseTaskPr: vi.fn(),
   deployReleaseTaskToStaging: vi.fn(),
+  syncReleaseTaskDeploymentStatuses: vi.fn(),
   getProjectPolicies: vi.fn(),
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
@@ -196,6 +197,14 @@ describe('ReleasesPage', () => {
       run_id: 33,
       result: { processed_count: 2, merged_ids: [6], closed_ids: [], missing_ids: [7] },
     })
+    apiMock.syncReleaseTaskDeploymentStatuses.mockResolvedValue({
+      processed_count: 1,
+      succeeded_ids: [88],
+      failed_ids: [],
+      running_ids: [],
+      pending_ids: [],
+      error_ids: [],
+    })
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask(),
       releaseTask({
@@ -278,15 +287,16 @@ describe('ReleasesPage', () => {
     expect(screen.getByText(/PR removed from GitHub/)).toBeTruthy()
   })
 
-  it('runs PR status sync from the releases page', async () => {
+  it('runs release status sync from the releases page', async () => {
     const user = userEvent.setup()
     render(<ReleasesPage />, { wrapper: MemoryRouter })
 
-    const button = await screen.findByRole('button', { name: '同步 PR 状态' })
+    const button = await screen.findByRole('button', { name: '同步状态' })
     await user.click(button)
 
     await waitFor(() => {
       expect(apiMock.syncReleasePrStatuses).toHaveBeenCalledTimes(1)
+      expect(apiMock.syncReleaseTaskDeploymentStatuses).toHaveBeenCalledTimes(1)
       expect(apiMock.getReleaseCandidates).toHaveBeenCalledTimes(2)
     })
   })
@@ -440,7 +450,7 @@ describe('ReleasesPage', () => {
     await user.click(await screen.findByRole('button', { name: '上线记录' }))
 
     expect(screen.getByText('Online Records')).toBeTruthy()
-    expect(screen.getByText('这里只展示成功上线的 DeploymentRecord。待执行、失败、取消的 Release Task 不会进入上线账本。')).toBeTruthy()
+    expect(screen.getByText(/这里只展示成功上线账本/)).toBeTruthy()
     expect(screen.getByText('codex/staging-release')).toBeTruthy()
     expect(screen.getByText('abc1234567')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Run 24919553458' })).toHaveAttribute(

@@ -93,14 +93,16 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 3. 如果分支没有 PR，点击 `提交 PR`。
 4. 等待 PR Checks 通过。Checks pending / failed 时不得发布 staging。
 5. Checks 通过后，由 Operator 点击 `发布到 staging`。
-6. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
-7. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
+6. 如果 GitHub Actions 没有 callback 到 Ops Console，点击 `/releases` 的 `同步状态`，由系统只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task。
+7. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
+8. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
 
 Staging 不要求先合并到 `main`。它允许从已提交 PR 且 checks 通过的 release branch 发布，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。
 
 ## 7. 上线记录
 
 `上线记录` 是只读账本，只来自 `deployment_records.status=succeeded`。
+如果 Operator 手动把 Release Task 标记为已完成，后端必须先创建或绑定一条 `manual_completion` 成功 DeploymentRecord，再让它进入上线记录；UI 不得直接把 Release Task 当作上线事实。
 
 上线记录必须能回答：
 
@@ -112,7 +114,7 @@ Staging 不要求先合并到 `main`。它允许从已提交 PR 且 checks 通�
 6. health check 是否通过。
 7. 该记录是否来自某个 Release Task。
 
-上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注伪造成真实上线结果。
+上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注直接伪造成真实上线结果。没有 webhook callback 的部署应通过 `同步状态` 拉取 GitHub Actions run 结果后再更新账本。
 
 ## 8. 回滚说明
 

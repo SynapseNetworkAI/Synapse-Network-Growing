@@ -33,6 +33,7 @@ from server.services.releases.tasks import (
     deploy_release_task_to_staging,
     list_release_task_branch_options,
     list_release_tasks,
+    sync_release_task_deployment_statuses,
     update_release_task,
 )
 
@@ -89,6 +90,11 @@ def list_online_release_records_endpoint(
         service_key=service_key,
         limit=limit,
     )
+
+
+@router.post("/tasks/sync-deployment-statuses")
+def sync_release_task_deployment_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
+    return sync_release_task_deployment_statuses(db, max_records=max_records)
 
 
 @router.post("/tasks", response_model=ReleaseTaskOut)

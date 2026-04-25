@@ -1,5 +1,6 @@
 import json
 import subprocess
+from datetime import datetime, timezone
 
 from server.database import DeploymentRecordRow, ReleaseTaskRow, RequirementRow
 from server.schemas import ProjectPolicyCreate, ReleaseTaskPrGateOut
@@ -58,6 +59,15 @@ def test_manual_release_task_create_list_and_complete(synced_client, db_session)
     assert updated["status"] == "completed"
     assert updated["operator"] == "ops-lead"
     assert updated["note"] == "deployed manually"
+    assert updated["deployment_record_id"] is not None
+    assert updated["deployment_status"] == "succeeded"
+    assert updated["deployment_health_status"] == "passed"
+
+    online = synced_client.get("/api/releases/online-records").json()
+    assert [item["release_task_id"] for item in online] == [payload["id"]]
+    assert online[0]["branch_name"] == "codex/release-task-demo"
+    assert online[0]["trigger_source"] == "release_task_manual_completion"
+    assert online[0]["health_status"] == "passed"
 
 
 def test_manual_release_task_terminal_status_updates_linked_deployment(monkeypatch, synced_client, db_session):
@@ -355,6 +365,88 @@ def test_online_release_records_support_environment_project_and_service_filters(
     assert [item["branch_name"] for item in payload] == ["codex/gateway"]
     assert payload[0]["environment"] == "staging"
     assert payload[0]["service_key"] == "gateway"
+
+
+def test_release_task_deployment_status_sync_pulls_github_actions_success(monkeypatch, synced_client, db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        branch_name="codex/staging-sync",
+        workflow_file="deploy-staging.yml",
+        actor="operator",
+        trigger_source="release_task",
+        metadata_json=json.dumps(
+            {
+                "release_task_id": 77,
+                "service_key": "gateway",
+                "deploy_repo_full_name": "cliff-personal/Synapse-Network",
+            }
+        ),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        id=77,
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="codex/staging-sync",
+        environment="staging",
+        status="requested",
+        actor="operator",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    def fake_gh_json(args, *, timeout=30):
+        if args[:2] == ["run", "list"]:
+            return (
+                "ok",
+                [
+                    {
+                        "databaseId": 249,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "createdAt": "2030-04-25T01:00:00Z",
+                        "url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/249",
+                        "headSha": "abc123",
+                    }
+                ],
+                "",
+            )
+        if args[:2] == ["run", "view"]:
+            return (
+                "ok",
+                {
+                    "databaseId": 249,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/249",
+                    "headSha": "abc123",
+                },
+                "",
+            )
+        return "transient_error", None, "unexpected gh call"
+
+    monkeypatch.setattr(release_tasks_service, "_run_gh_json", fake_gh_json)
+    monkeypatch.setattr(release_tasks_service, "_run_gh_text", lambda *args, **kwargs: ("transient_error", None, "logs unavailable"))
+
+    response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["processed_count"] == 1
+    assert result["succeeded_ids"] == [int(record.id)]
+    task_payload = synced_client.get("/api/releases/tasks", params={"status": "completed"}).json()[0]
+    assert task_payload["id"] == 77
+    assert task_payload["deployment_status"] == "succeeded"
+    assert task_payload["deployment_external_run_id"] == "249"
+    online = synced_client.get("/api/releases/online-records").json()
+    assert [item["release_task_id"] for item in online] == [77]
+    assert online[0]["external_url"].endswith("/actions/runs/249")
 
 
 def test_release_task_filters_and_validation_errors(synced_client, db_session):
@@ -784,6 +876,159 @@ def test_run_gh_json_classifies_errors(monkeypatch):
     assert release_tasks_service._run_gh_json(["api", "auth"])[0] == "auth_error"
     assert release_tasks_service._run_gh_json(["api", "other"])[0] == "transient_error"
     assert release_tasks_service._run_gh_json(["api", "bad-json"])[0] == "transient_error"
+
+
+def test_run_gh_text_classifies_errors(monkeypatch):
+    def ok_run(command, capture_output, text, timeout, check, env):
+        return subprocess.CompletedProcess(command, 0, stdout="plain log", stderr="")
+
+    monkeypatch.setattr(release_tasks_service.subprocess, "run", ok_run)
+    assert release_tasks_service._run_gh_text(["run", "view"])[1] == "plain log"
+
+    def failed_run(command, capture_output, text, timeout, check, env):
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="boom")
+
+    monkeypatch.setattr(release_tasks_service.subprocess, "run", failed_run)
+    assert release_tasks_service._run_gh_text(["run", "view"])[0] == "transient_error"
+
+    monkeypatch.setattr(release_tasks_service.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("gh")))
+    assert "GitHub CLI" in release_tasks_service._run_gh_text(["run"])[2]
+
+    monkeypatch.setattr(
+        release_tasks_service.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired(cmd=["gh"], timeout=1)),
+    )
+    assert release_tasks_service._run_gh_text(["run"])[2] == "GitHub CLI request timed out."
+
+
+def test_github_actions_sync_helpers_cover_edges(monkeypatch, db_session):
+    assert release_tasks_service._github_actions_run_id_from_url("https://github.com/o/r/actions/runs/123") == "123"
+    assert release_tasks_service._github_actions_run_id_from_url("https://github.com/o/r/actions/workflows/x.yml") is None
+    assert release_tasks_service._parse_github_timestamp("") is None
+    assert release_tasks_service._parse_github_timestamp("bad") is None
+    assert release_tasks_service._as_utc(None) is None
+    assert release_tasks_service._as_utc(datetime(2026, 4, 25, 1, 0, 0, tzinfo=timezone.utc)).tzinfo is not None
+
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        branch_name="codex/match",
+        workflow_file="deploy-staging.yml",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"service_key": "gateway", "deploy_repo_full_name": "example/repo"}),
+        started_at=datetime(2026, 4, 25, 1, 0, 0),
+    )
+    db_session.add(record)
+    db_session.flush()
+
+    monkeypatch.setattr(release_tasks_service, "_run_gh_json", lambda *args, **kwargs: ("transient_error", None, "no list"))
+    assert release_tasks_service._find_recent_actions_run_id("example/repo", record, {}) is None
+
+    def list_with_noise(args, *, timeout=30):
+        return (
+            "ok",
+            [
+                "bad",
+                {"createdAt": "2026-04-25T00:00:00Z", "databaseId": 1},
+                {"createdAt": "bad", "databaseId": None},
+                {"createdAt": "2026-04-25T01:01:00Z", "databaseId": 2},
+            ],
+            "",
+        )
+
+    monkeypatch.setattr(release_tasks_service, "_run_gh_json", list_with_noise)
+    monkeypatch.setattr(release_tasks_service, "_run_gh_text", lambda *args, **kwargs: ("ok", "SOURCE codex/match gateway", ""))
+    assert release_tasks_service._find_recent_actions_run_id("example/repo", record, {"service_key": "gateway"}) == "2"
+
+    monkeypatch.setattr(release_tasks_service, "_run_gh_json", lambda *args, **kwargs: ("auth_error", None, "no auth"))
+    assert release_tasks_service._github_actions_run_view("example/repo", "2") == (None, "no auth")
+
+
+def test_apply_github_run_to_deployment_handles_running_failed_and_pending(db_session):
+    running = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+    )
+    failed = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+    )
+    pending = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+    )
+    db_session.add_all([running, failed, pending])
+    db_session.flush()
+    db_session.add(
+        ReleaseTaskRow(
+            source_type="manual",
+            project_key="synapse-network",
+            branch_name="codex/failed",
+            environment="staging",
+            status="requested",
+            deployment_record_id=int(failed.id),
+        )
+    )
+    db_session.commit()
+
+    assert release_tasks_service._apply_github_run_to_deployment(db_session, running, run_payload={"status": "in_progress"}, run_id="1") == "running"
+    assert running.status == "running"
+    assert release_tasks_service._apply_github_run_to_deployment(db_session, failed, run_payload={"status": "completed", "conclusion": "failure"}, run_id="2") == "failed"
+    assert failed.status == "failed"
+    assert release_tasks_service._apply_github_run_to_deployment(db_session, pending, run_payload={"status": "completed", "conclusion": ""}, run_id="3") == "pending"
+    assert pending.status == "requested"
+
+
+def test_release_task_deployment_status_sync_handles_missing_run_and_view_errors(monkeypatch, db_session):
+    missing_repo = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+        metadata_json="{}",
+    )
+    missing_run = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    view_error = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        external_url="https://github.com/example/repo/actions/runs/55",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add_all([missing_repo, missing_run, view_error])
+    db_session.commit()
+
+    monkeypatch.setattr(release_tasks_service, "_find_recent_actions_run_id", lambda *args, **kwargs: None)
+    monkeypatch.setattr(release_tasks_service, "_github_actions_run_view", lambda *args, **kwargs: (None, "boom"))
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert result["processed_count"] == 3
+    assert int(missing_repo.id) in result["error_ids"]
+    assert int(missing_run.id) in result["pending_ids"]
+    assert int(view_error.id) in result["error_ids"]
 
 
 def test_release_task_pr_gate_projects_branch_pr_and_checks(monkeypatch, synced_client, db_session):

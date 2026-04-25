@@ -1275,6 +1275,15 @@ export interface OnlineReleaseRecord {
   updated_at: string | null
 }
 
+export interface ReleaseDeploymentSyncResult {
+  processed_count: number
+  succeeded_ids: number[]
+  failed_ids: number[]
+  running_ids: number[]
+  pending_ids: number[]
+  error_ids: number[]
+}
+
 export interface ReleaseBranchOption {
   name: string
   commit_sha: string | null
@@ -2330,6 +2339,8 @@ export const api = {
     request<ReleaseTask>(`/releases/tasks/${id}/create-pr`, { method: 'POST', body: JSON.stringify(data || {}) }),
   deployReleaseTaskToStaging: (id: number, data?: { actor?: string; note?: string | null }) =>
     request<ReleaseTask>(`/releases/tasks/${id}/deploy-staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  syncReleaseTaskDeploymentStatuses: () =>
+    request<ReleaseDeploymentSyncResult>('/releases/tasks/sync-deployment-statuses', { method: 'POST' }),
   getReleaseDetail: (requirementId: number) => request<ReleaseDetail>(`/releases/${requirementId}`),
   prepareRelease: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/prepare`, { method: 'POST', body: JSON.stringify(data || {}) }),
