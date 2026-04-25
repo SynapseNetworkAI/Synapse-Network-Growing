@@ -155,6 +155,8 @@ function onlineRecord(overrides: Record<string, unknown> = {}) {
       revision: { gateway: 'synapse-gateway-0008' },
       manifest: 'gs://staging-evidence/release.json',
       imageTag: 'gateway:abc123456789',
+      deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+      sourceRef: 'codex/staging-release',
     },
     started_at: '2026-04-25T01:40:00Z',
     finished_at: '2026-04-25T01:44:00Z',
@@ -461,6 +463,7 @@ describe('ReleasesPage', () => {
 
   it('opens online record details with evidence and rollback guidance', async () => {
     const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ opener: null }) as Window)
     render(<ReleasesPage />, { wrapper: MemoryRouter })
 
     await user.click(await screen.findByRole('button', { name: '上线记录' }))
@@ -473,6 +476,48 @@ describe('ReleasesPage', () => {
     expect(screen.getByText('回滚说明')).toBeTruthy()
     expect(screen.getByText(/Runtime rollback 应选择这里的历史成功上线记录/)).toBeTruthy()
     expect(screen.getAllByText(/gs:\/\/staging-evidence\/release.json/).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    await user.click(screen.getAllByRole('button', { name: '打开 PR' }).at(-1)!)
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://github.com/cliff-personal/Synapse-Network/pulls?q=is%3Apr+head%3Acodex%2Fstaging-release',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    openSpy.mockRestore()
+  })
+
+  it('falls back to metadata GitHub Actions URL for online record details', async () => {
+    apiMock.getOnlineReleaseRecords.mockResolvedValue([
+      onlineRecord({
+        external_run_id: null,
+        external_url: null,
+        metadata_summary: { githubRunUrl: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/555' },
+        metadata: {
+          githubRunUrl: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/555',
+          deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+          sourceRef: 'codex/staging-release',
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({ opener: null }) as Window)
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '上线记录' }))
+    await user.click(screen.getByRole('button', { name: '详情' }))
+    await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
+
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://github.com/cliff-personal/Synapse-Network/actions/runs/555',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    openSpy.mockRestore()
   })
 
   it('does not show PR or staging actions when the branch is missing', async () => {

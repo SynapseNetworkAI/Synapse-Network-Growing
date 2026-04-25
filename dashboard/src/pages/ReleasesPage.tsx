@@ -66,6 +66,41 @@ function compactJson(value: unknown) {
   }
 }
 
+function metadataString(source: Record<string, unknown> | null | undefined, ...keys: string[]) {
+  for (const key of keys) {
+    const value = source?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function onlineRecordActionsUrl(record: OnlineReleaseRecord) {
+  return (
+    record.external_url ||
+    metadataString(record.metadata_summary, 'githubRunUrl', 'github_run_url', 'externalUrl') ||
+    metadataString(record.metadata, 'githubRunUrl', 'github_run_url', 'externalUrl', 'external_url') ||
+    null
+  )
+}
+
+function onlineRecordPrUrl(record: OnlineReleaseRecord) {
+  const explicit =
+    metadataString(record.metadata_summary, 'prUrl', 'pr_url', 'githubPrUrl', 'githubPullRequestUrl') ||
+    metadataString(record.metadata, 'prUrl', 'pr_url', 'githubPrUrl', 'githubPullRequestUrl')
+  if (explicit) return explicit
+  const repo = metadataString(record.metadata, 'deploy_repo_full_name', 'deployRepoFullName', 'repo_full_name')
+  const branch = metadataString(record.metadata, 'sourceRef', 'source_ref', 'branch_name') || record.branch_name
+  if (!repo || !branch) return null
+  const query = new URLSearchParams({ q: `is:pr head:${branch}` })
+  return `https://github.com/${repo}/pulls?${query.toString()}`
+}
+
+function openExternalUrl(url: string | null | undefined) {
+  if (!url) return
+  const opened = window.open(url, '_blank', 'noopener,noreferrer')
+  if (opened) opened.opener = null
+}
+
 function formatTime(value: string | null) {
   if (!value) return '-'
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
@@ -958,7 +993,10 @@ function OnlineRecordsTable({
             </tr>
           </thead>
           <tbody>
-            {records.map((record) => (
+            {records.map((record) => {
+              const actionsUrl = onlineRecordActionsUrl(record)
+              const prUrl = onlineRecordPrUrl(record)
+              return (
               <tr key={record.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                 <td className="px-5 py-4">
                   <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{record.project_display_name || record.project_key}</div>
@@ -981,8 +1019,8 @@ function OnlineRecordsTable({
                   </div>
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                  {record.external_url ? (
-                    <a className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" href={record.external_url} target="_blank" rel="noreferrer">
+                  {actionsUrl ? (
+                    <a className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" href={actionsUrl} target="_blank" rel="noreferrer">
                       Run {record.external_run_id || record.id}
                     </a>
                   ) : (
@@ -991,12 +1029,20 @@ function OnlineRecordsTable({
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(record.finished_at || record.updated_at || record.created_at)}</td>
                 <td className="px-5 py-4 text-right">
-                  <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenDetails(record)}>
-                    详情
-                  </button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {prUrl ? (
+                      <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(prUrl)}>
+                        打开 PR
+                      </button>
+                    ) : null}
+                    <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenDetails(record)}>
+                      详情
+                    </button>
+                  </div>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -1121,6 +1167,8 @@ function OnlineRecordDetailDrawer({
 }>) {
   if (!record) return null
   const metadataEntries = Object.entries(record.metadata_summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== '')
+  const actionsUrl = onlineRecordActionsUrl(record)
+  const prUrl = onlineRecordPrUrl(record)
   return (
     <OverlayDrawer
       open={Boolean(record)}
@@ -1156,11 +1204,22 @@ function OnlineRecordDetailDrawer({
             <div>Started：{formatTime(record.started_at)}</div>
             <div>Finished：{formatTime(record.finished_at)}</div>
           </div>
-          {record.external_url ? (
-            <a className="mt-4 inline-flex rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={record.external_url} target="_blank" rel="noreferrer">
-              打开 GitHub Actions 日志
-            </a>
-          ) : null}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {actionsUrl ? (
+              <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(actionsUrl)}>
+                打开 GitHub Actions 日志
+              </button>
+            ) : (
+              <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm text-[color:var(--ops-text-caption)] opacity-70" disabled>
+                无 Actions 链接
+              </button>
+            )}
+            {prUrl ? (
+              <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(prUrl)}>
+                打开 PR
+              </button>
+            ) : null}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
