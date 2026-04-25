@@ -26,6 +26,7 @@ VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 VALID_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front"}
+DIRECT_STAGING_BRANCHES = {"main"}
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 SYNAPSE_NETWORK_REPO = "cliff-personal/Synapse-Network"
 STAGING_WORKFLOW_FILE = "deploy-staging.yml"
@@ -111,6 +112,7 @@ def _release_task_pr_gate_with_row_actions(row: ReleaseTaskRow, gate: ReleaseTas
         and environment == "staging"
         and not has_deployment
         and gate.branch_exists
+        and _clean(row.branch_name) not in DIRECT_STAGING_BRANCHES
         and not gate.pr_exists
     )
     gate.can_deploy_staging = bool(
@@ -118,9 +120,14 @@ def _release_task_pr_gate_with_row_actions(row: ReleaseTaskRow, gate: ReleaseTas
         and environment == "staging"
         and not has_deployment
         and gate.branch_exists
-        and gate.pr_exists
-        and is_open_pr_state
-        and gate.checks_status == "success"
+        and (
+            _clean(row.branch_name) in DIRECT_STAGING_BRANCHES
+            or (
+                gate.pr_exists
+                and is_open_pr_state
+                and gate.checks_status == "success"
+            )
+        )
     )
     return gate
 
@@ -354,6 +361,12 @@ def _release_task_pr_gate_for(row: ReleaseTaskRow, repo_full_name: str) -> Relea
     if not branch_exists:
         gate.blocked_reason = branch_error or "分支不存在，请重新选择有效远端分支"
         return gate
+    if branch_name in DIRECT_STAGING_BRANCHES:
+        gate.pr_state = "main"
+        gate.checks_status = "success"
+        gate.checks_summary = "main 分支可直接发布 staging，不需要 PR gate。"
+        gate.blocked_reason = None
+        return _release_task_pr_gate_with_row_actions(row, gate)
     pr_payload, pr_error = _github_pr_for_branch(repo_full_name, branch_name)
     if not pr_payload:
         gate.blocked_reason = pr_error or "未提交 PR"

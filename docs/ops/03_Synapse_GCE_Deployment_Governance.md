@@ -90,14 +90,15 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 
 1. 在 `/releases` 创建 Release Task。
 2. 选择目标项目 / 服务和 GitHub 远端分支。
-3. 如果分支没有 PR，点击 `提交 PR`。
-4. 等待 PR Checks 通过。Checks pending / failed 时不得发布 staging。
-5. Checks 通过后，由 Operator 点击 `发布到 staging`。
-6. 如果 GitHub Actions 没有 callback 到 Ops Console，点击 `/releases` 的 `同步状态`，由系统只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task。
-7. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
-8. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
+3. 如果选择 `main` 分支，可以直接由 Operator 点击 `发布到 staging`；`main` 已经是主干事实，不需要再提交 PR 或等待 PR Checks。
+4. 如果选择非 `main` 分支且没有 PR，点击 `提交 PR`。
+5. 等待 PR Checks 通过。非 `main` 分支 Checks pending / failed 时不得发布 staging。
+6. Checks 通过后，由 Operator 点击 `发布到 staging`。
+7. 如果 GitHub Actions 没有 callback 到 Ops Console，点击 `/releases` 的 `同步状态`，由系统只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task。
+8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
+9. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
 
-Staging 不要求先合并到 `main`。它允许从已提交 PR 且 checks 通过的 release branch 发布，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。
+Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。
 
 ## 7. 上线记录
 

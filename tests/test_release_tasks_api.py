@@ -753,6 +753,27 @@ def test_release_task_pr_gate_accepts_merged_pr_with_green_checks(monkeypatch):
     assert gate.can_deploy_staging is True
 
 
+def test_release_task_pr_gate_allows_main_direct_staging_without_pr(monkeypatch):
+    monkeypatch.setattr(release_tasks_service.config, "E2E_MODE", False)
+
+    def branch_only(command, capture_output, text, timeout, check, env):
+        assert command[1] == "api"
+        return subprocess.CompletedProcess(command, 0, stdout='{"name":"main"}', stderr="")
+
+    monkeypatch.setattr(release_tasks_service.subprocess, "run", branch_only)
+    row = ReleaseTaskRow(branch_name="main", environment="staging", status="requested")
+
+    gate = release_tasks_service._release_task_pr_gate_for(row, "example/repo")
+
+    assert gate.branch_exists is True
+    assert gate.pr_exists is False
+    assert gate.pr_state == "main"
+    assert gate.checks_status == "success"
+    assert gate.checks_summary == "main 分支可直接发布 staging，不需要 PR gate。"
+    assert gate.can_create_pr is False
+    assert gate.can_deploy_staging is True
+
+
 def test_release_task_pr_gate_helper_blocks_missing_branch_and_missing_pr(monkeypatch):
     monkeypatch.setattr(release_tasks_service.config, "E2E_MODE", False)
 

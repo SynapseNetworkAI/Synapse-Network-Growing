@@ -1270,6 +1270,9 @@ function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
   if (!gate.branch_exists) {
     label = '分支不存在'
     tone = 'blocked'
+  } else if (task.pr_gate?.can_deploy_staging && !gate.pr_exists && task.branch_name === 'main') {
+    label = 'main 可直接发布 staging'
+    tone = 'delivered'
   } else if (!gate.pr_exists) {
     label = '未提交 PR'
     tone = 'running'

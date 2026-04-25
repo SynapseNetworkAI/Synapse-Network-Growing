@@ -377,6 +377,41 @@ describe('ReleasesPage', () => {
     })
   })
 
+  it('allows main branch staging deploy without PR gate', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        branch_name: 'main',
+        pr_gate: {
+          branch_exists: true,
+          pr_exists: false,
+          pr_url: null,
+          pr_number: null,
+          pr_state: 'main',
+          checks_status: 'success',
+          checks_summary: 'main 分支可直接发布 staging，不需要 PR gate。',
+          can_create_pr: false,
+          can_deploy_staging: true,
+          blocked_reason: null,
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+
+    expect(screen.queryByRole('button', { name: '提交 PR' })).toBeNull()
+    expect(screen.getByText(/PR Gate: main 可直接发布 staging/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '发布到 staging' }))
+
+    await waitFor(() => {
+      expect(apiMock.deployReleaseTaskToStaging).toHaveBeenCalledWith(42, {
+        actor: 'operator',
+        note: 'Manual staging release',
+      })
+    })
+  })
+
   it('explains why green draft PRs cannot deploy staging yet', async () => {
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask({
