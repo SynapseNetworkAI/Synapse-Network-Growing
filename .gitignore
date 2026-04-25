@@ -214,15 +214,19 @@ node_modules/
 dashboard/dist/
 dashboard/test-results/
 dashboard/playwright-report/
+.playwright/
 
 # SQLite
 *.db
 *.db-shm
+*.db-wal
 *.db.bak-*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Local workdirs
 tmp/Synapse-Network-workdir/
-*.db-wal
 .DS_Store
 
 # agent-browser runtime state
