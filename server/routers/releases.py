@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 from server.database import get_db
 from server.schemas import (
     ReleaseActionRequest,
+    ReleaseBranchOptionOut,
     ReleaseCandidateOut,
     ReleaseDetailOut,
     ReleaseRollbackRequest,
     ReleaseTaskCreateRequest,
+    ReleaseTaskDeployRequest,
     ReleaseTaskOut,
     ReleaseTaskPatchRequest,
 )
@@ -23,7 +25,14 @@ from server.services.releases.service import (
     prepare_release,
     rollback_release,
 )
-from server.services.releases.tasks import create_release_task, list_release_tasks, update_release_task
+from server.services.releases.tasks import (
+    create_release_task,
+    create_release_task_pr,
+    deploy_release_task_to_staging,
+    list_release_task_branch_options,
+    list_release_tasks,
+    update_release_task,
+)
 
 
 router = APIRouter(prefix="/api/releases", tags=["releases"])
@@ -51,6 +60,18 @@ def list_release_tasks_endpoint(
     )
 
 
+@router.get("/branch-options", response_model=list[ReleaseBranchOptionOut])
+def list_release_branch_options_endpoint(
+    project_key: str,
+    service_key: str | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        return list_release_task_branch_options(db, project_key=project_key, service_key=service_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/tasks", response_model=ReleaseTaskOut)
 def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = Depends(get_db)):
     try:
@@ -63,6 +84,26 @@ def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = D
 def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db: Session = Depends(get_db)):
     try:
         return update_release_task(db, task_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/tasks/{task_id}/create-pr", response_model=ReleaseTaskOut)
+def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
+    try:
+        return create_release_task_pr(db, task_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/tasks/{task_id}/deploy-staging", response_model=ReleaseTaskOut)
+def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
+    try:
+        return deploy_release_task_to_staging(db, task_id, body)
     except ValueError as exc:
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400

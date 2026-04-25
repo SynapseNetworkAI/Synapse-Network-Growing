@@ -3,6 +3,7 @@ from __future__ import annotations
 """Deployment governance helpers for staging/prod release records and triggers."""
 
 import json
+import subprocess
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,7 +11,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseRecordRow, RequirementRow, utcnow
+from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseRecordRow, ReleaseTaskRow, RequirementRow, utcnow
 from server.schemas import (
     DeliveryStateOut,
     DeploymentOverviewOut,
@@ -43,10 +44,25 @@ def _json_dump(value: dict[str, Any] | None) -> str:
 
 
 def _github_token() -> str:
+    explicit_token = config.GH_TOKEN.strip() or config.GITHUB_TOKEN.strip()
+    if explicit_token:
+        return explicit_token
+    try:
+        completed = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        completed = None
+    if completed is not None and completed.returncode == 0:
+        token = completed.stdout.strip()
+        if token:
+            return token
     return (
-        config.GH_TOKEN.strip()
-        or config.GITHUB_TOKEN.strip()
-        or config.COPILOT_GITHUB_TOKEN.strip()
+        config.COPILOT_GITHUB_TOKEN.strip()
         or config.COPILOT_OAUTH_TOKEN.strip()
     )
 
@@ -69,7 +85,7 @@ def _workflow_page_url(repo_full_name: str, workflow_file: str) -> str:
 def _deployment_record_to_dict(row: DeploymentRecordRow) -> dict[str, Any]:
     return {
         "id": int(row.id),
-        "requirement_id": int(row.requirement_id),
+        "requirement_id": int(row.requirement_id) if row.requirement_id is not None else None,
         "project_policy_id": int(row.project_policy_id) if row.project_policy_id is not None else None,
         "project_key": str(row.project_key or ""),
         "environment": str(row.environment or ""),
@@ -458,6 +474,13 @@ def report_deployment_result(
         current.update(metadata)
         row.metadata_json = _json_dump(current)
     row.finished_at = utcnow() if row.status in {"succeeded", "failed", "rolled_back", "blocked", "no_deploy"} else row.finished_at
+    release_task = db.query(ReleaseTaskRow).filter(ReleaseTaskRow.deployment_record_id == int(row.id)).first()
+    if release_task is not None and row.status in {"succeeded", "failed", "blocked", "no_deploy"}:
+        release_task.status = "completed" if row.status in {"succeeded", "no_deploy"} else "failed"
+        release_task.operator = release_task.operator or "staging_deploy_runner"
+        if row.notes:
+            release_task.note = row.notes
+        release_task.updated_at = utcnow()
     db.commit()
     db.refresh(row)
     return DeploymentRecordOut(**_deployment_record_to_dict(row))

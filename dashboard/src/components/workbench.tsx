@@ -248,18 +248,17 @@ export function OverlayDrawer({
       />
       <aside
         className={cx(
-          'absolute right-0 top-0 flex h-full w-full max-w-[720px] translate-x-full flex-col border-l border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-xl transition-transform duration-200',
-          open ? 'pointer-events-auto translate-x-0' : '',
+          'absolute right-0 top-0 flex h-full w-full max-w-[720px] flex-col border-l border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-xl',
+          open ? 'pointer-events-auto' : 'pointer-events-none',
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-6 py-5">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {eyebrow ? <div className="text-[11px] uppercase tracking-[0.24em] text-[color:var(--ops-text-caption)]">{eyebrow}</div> : null}
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{title}</h2>
             {description ? <div className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{description}</div> : null}
           </div>
-          <div className="flex items-center gap-2">
-            {actions}
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]"
@@ -269,6 +268,11 @@ export function OverlayDrawer({
             </button>
           </div>
         </div>
+        {actions ? (
+          <div className="flex shrink-0 justify-start gap-2 border-b border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] px-6 py-4">
+            {actions}
+          </div>
+        ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">{children}</div>
       </aside>
     </div>

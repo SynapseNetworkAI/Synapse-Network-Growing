@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Agent ─────────────────────────────────────────────────────
@@ -1259,6 +1259,19 @@ class ReleaseActionRequest(BaseModel):
     deploy_scope: str = "auto"
 
 
+class ReleaseTaskPrGateOut(BaseModel):
+    branch_exists: bool = False
+    pr_exists: bool = False
+    pr_url: Optional[str] = None
+    pr_number: Optional[int] = None
+    pr_state: Optional[str] = None
+    checks_status: str = "unknown"
+    checks_summary: Optional[str] = None
+    can_create_pr: bool = False
+    can_deploy_staging: bool = False
+    blocked_reason: Optional[str] = None
+
+
 class ReleaseTaskOut(BaseModel):
     id: int
     source_type: str = "manual"
@@ -1266,19 +1279,40 @@ class ReleaseTaskOut(BaseModel):
     deployment_record_id: Optional[int] = None
     project_key: str
     project_display_name: Optional[str] = None
+    service_key: Optional[str] = None
     branch_name: str
     environment: str
     status: str = "requested"
     actor: Optional[str] = None
     operator: Optional[str] = None
     note: Optional[str] = None
+    deployment_status: Optional[str] = None
+    deployment_external_run_id: Optional[str] = None
+    deployment_external_url: Optional[str] = None
+    deployment_failure_summary: Optional[str] = None
+    deployment_health_status: Optional[str] = None
+    deployment_workflow_file: Optional[str] = None
+    deployment_commit_sha: Optional[str] = None
+    deployment_started_at: Optional[datetime] = None
+    deployment_finished_at: Optional[datetime] = None
+    deployment_metadata: dict[str, object] = {}
+    pr_gate: ReleaseTaskPrGateOut = Field(default_factory=ReleaseTaskPrGateOut)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class ReleaseBranchOptionOut(BaseModel):
+    name: str
+    commit_sha: Optional[str] = None
+    protected: bool = False
+    is_default: bool = False
+    source: str = "github"
 
 
 class ReleaseTaskCreateRequest(BaseModel):
     project_key: str = ""
     project_display_name: Optional[str] = None
+    service_key: Optional[str] = None
     branch_name: str = ""
     environment: str = ""
     actor: str = "operator"
@@ -1290,6 +1324,11 @@ class ReleaseTaskCreateRequest(BaseModel):
 class ReleaseTaskPatchRequest(BaseModel):
     status: str
     operator: str = "operator"
+    note: Optional[str] = None
+
+
+class ReleaseTaskDeployRequest(BaseModel):
+    actor: str = "operator"
     note: Optional[str] = None
 
 
@@ -1497,7 +1536,7 @@ class DeliveryStateOut(BaseModel):
 
 class DeploymentRecordOut(BaseModel):
     id: int
-    requirement_id: int
+    requirement_id: Optional[int] = None
     project_policy_id: Optional[int] = None
     project_key: str
     environment: str

@@ -88,6 +88,44 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_) -> None:  # pragma: no cover
+    """SQLite cannot drop a NOT NULL constraint in place."""
+    if not _IS_SQLITE:
+        return
+    columns = [column.name for column in DeploymentRecordRow.__table__.columns]
+    column_sql = ", ".join(columns)
+    with engine_.connect() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.commit()
+        conn.execute(text("ALTER TABLE deployment_records RENAME TO deployment_records_old"))
+        conn.commit()
+        DeploymentRecordRow.__table__.create(bind=conn, checkfirst=True)
+        conn.execute(text(f"INSERT INTO deployment_records ({column_sql}) SELECT {column_sql} FROM deployment_records_old"))
+        conn.execute(text("DROP TABLE deployment_records_old"))
+        conn.commit()
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+        conn.commit()
+
+
+def _rebuild_sqlite_release_tasks_with_current_fks(engine_) -> None:  # pragma: no cover
+    """Repair release_tasks FKs after SQLite table rebuilds rename referenced tables."""
+    if not _IS_SQLITE:
+        return
+    columns = [column.name for column in ReleaseTaskRow.__table__.columns]
+    column_sql = ", ".join(columns)
+    with engine_.connect() as conn:
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        conn.commit()
+        conn.execute(text("ALTER TABLE release_tasks RENAME TO release_tasks_old"))
+        conn.commit()
+        ReleaseTaskRow.__table__.create(bind=conn, checkfirst=True)
+        conn.execute(text(f"INSERT INTO release_tasks ({column_sql}) SELECT {column_sql} FROM release_tasks_old"))
+        conn.execute(text("DROP TABLE release_tasks_old"))
+        conn.commit()
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+        conn.commit()
+
+
 # ── ORM Models ────────────────────────────────────────────────
 
 class AgentRow(Base):
@@ -493,7 +531,7 @@ class DeploymentRecordRow(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=False)
+    requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=True)
     project_policy_id = Column(Integer, ForeignKey("project_policies.id"))
     project_key = Column(Text, nullable=False)
     environment = Column(Text, nullable=False)
@@ -535,6 +573,7 @@ class ReleaseTaskRow(Base):
     deployment_record_id = Column(Integer, ForeignKey("deployment_records.id"))
     project_key = Column(Text, nullable=False)
     project_display_name = Column(Text)
+    service_key = Column(Text)
     branch_name = Column(Text, nullable=False)
     environment = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="requested")
@@ -1381,10 +1420,38 @@ def _migrate(engine_):
     if "deployment_records" not in tables:
         logger.info("Migrating: creating 'deployment_records' table")
         DeploymentRecordRow.__table__.create(bind=engine_, checkfirst=True)
+    else:  # pragma: no cover - startup migration for already-created local DBs
+        deployment_columns = {c["name"]: c for c in insp.get_columns("deployment_records")}
+        requirement_col = deployment_columns.get("requirement_id")
+        if requirement_col is not None and requirement_col.get("nullable") is False:
+            logger.info("Migrating: making deployment_records.requirement_id nullable")
+            if _IS_SQLITE:
+                _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_)
+                insp = inspect(engine_)
+            else:
+                with engine_.connect() as conn:
+                    conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
+                    conn.commit()
 
     if "release_tasks" not in tables:
         logger.info("Migrating: creating 'release_tasks' table")
         ReleaseTaskRow.__table__.create(bind=engine_, checkfirst=True)
+    else:  # pragma: no cover - startup migration for already-created local DBs
+        existing = {c["name"] for c in insp.get_columns("release_tasks")}
+        release_task_cols = {
+            "service_key": "TEXT",
+        }
+        for col, col_type in release_task_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to release_tasks table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE release_tasks ADD COLUMN {col} {col_type}"))
+                    conn.commit()
+        release_task_fks = insp.get_foreign_keys("release_tasks")
+        if any(fk.get("referred_table") == "deployment_records_old" for fk in release_task_fks):
+            logger.info("Migrating: repairing release_tasks deployment_record foreign key")
+            _rebuild_sqlite_release_tasks_with_current_fks(engine_)
+            insp = inspect(engine_)
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

@@ -10,7 +10,10 @@ const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
   createReleaseTask: vi.fn(),
+  getReleaseTaskBranchOptions: vi.fn(),
   updateReleaseTask: vi.fn(),
+  createReleaseTaskPr: vi.fn(),
+  deployReleaseTaskToStaging: vi.fn(),
   getProjectPolicies: vi.fn(),
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
@@ -86,12 +89,35 @@ function releaseTask(overrides: Record<string, unknown> = {}) {
     deployment_record_id: null,
     project_key: 'synapse-network-growing',
     project_display_name: 'Synapse-Network-Growing',
+    service_key: 'gateway',
     branch_name: 'codex/manual-release',
     environment: 'staging',
     status: 'requested',
     actor: 'alice',
     operator: null,
     note: 'Manual staging release',
+    deployment_status: null,
+    deployment_external_run_id: null,
+    deployment_external_url: null,
+    deployment_failure_summary: null,
+    deployment_health_status: null,
+    deployment_workflow_file: null,
+    deployment_commit_sha: null,
+    deployment_started_at: null,
+    deployment_finished_at: null,
+    deployment_metadata: {},
+    pr_gate: {
+      branch_exists: true,
+      pr_exists: false,
+      pr_url: null,
+      pr_number: null,
+      pr_state: null,
+      checks_status: 'unknown',
+      checks_summary: null,
+      can_create_pr: true,
+      can_deploy_staging: false,
+      blocked_reason: '未提交 PR',
+    },
     created_at: '2026-04-22T01:00:00Z',
     updated_at: '2026-04-22T01:00:00Z',
     ...overrides,
@@ -179,7 +205,26 @@ describe('ReleasesPage', () => {
       },
     ])
     apiMock.createReleaseTask.mockResolvedValue(releaseTask({ id: 44, branch_name: 'codex/new-release' }))
+    apiMock.getReleaseTaskBranchOptions.mockResolvedValue([
+      { name: 'main', commit_sha: 'abc123', protected: true, is_default: true, source: 'github' },
+      { name: 'codex/new-release', commit_sha: 'def456', protected: false, is_default: false, source: 'github' },
+    ])
     apiMock.updateReleaseTask.mockResolvedValue(releaseTask({ status: 'completed', operator: 'operator' }))
+    apiMock.createReleaseTaskPr.mockResolvedValue(releaseTask({
+      pr_gate: {
+        branch_exists: true,
+        pr_exists: true,
+        pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/77',
+        pr_number: 77,
+        pr_state: 'open',
+        checks_status: 'pending',
+        checks_summary: 'PR checks 运行中',
+        can_create_pr: false,
+        can_deploy_staging: false,
+        blocked_reason: 'PR checks 运行中',
+      },
+    }))
+    apiMock.deployReleaseTaskToStaging.mockResolvedValue(releaseTask({ deployment_record_id: 9, deployment_status: 'requested', operator: 'operator' }))
   })
 
   it('shows merged and closed PR sync states', async () => {
@@ -211,11 +256,130 @@ describe('ReleasesPage', () => {
     await user.click(await screen.findByRole('button', { name: '发布管理' }))
 
     expect(screen.getByText('codex/manual-release')).toBeTruthy()
+    expect(screen.getAllByText('Service: gateway').length).toBeGreaterThan(0)
     expect(screen.getByText('ops/req-12-release')).toBeTruthy()
     expect(screen.getByText('人工创建')).toBeTruthy()
     expect(screen.getByText('需求流转')).toBeTruthy()
     expect(screen.getByRole('button', { name: '标记为已完成' })).toBeTruthy()
-    expect(screen.getAllByText('已归档')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '提交 PR' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '发布到 staging' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: '详情' }).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('creates a PR for staging tasks before deploy is available', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '提交 PR' }))
+
+    await waitFor(() => {
+      expect(apiMock.createReleaseTaskPr).toHaveBeenCalledWith(42, {
+        actor: 'operator',
+        note: 'Manual staging release',
+      })
+      expect(apiMock.deployReleaseTaskToStaging).not.toHaveBeenCalled()
+    })
+  })
+
+  it('only enables staging deploy after PR checks pass', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        pr_gate: {
+          branch_exists: true,
+          pr_exists: true,
+          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/91',
+          pr_number: 91,
+          pr_state: 'open',
+          checks_status: 'success',
+          checks_summary: '4 checks passed',
+          can_create_pr: false,
+          can_deploy_staging: true,
+          blocked_reason: null,
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    expect(screen.getByText(/PR Gate: Checks 通过/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '发布到 staging' }))
+
+    await waitFor(() => {
+      expect(apiMock.deployReleaseTaskToStaging).toHaveBeenCalledWith(42, {
+        actor: 'operator',
+        note: 'Manual staging release',
+      })
+    })
+  })
+
+  it('opens release task details with deployment record and GitHub Actions link', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        deployment_record_id: 88,
+        deployment_status: 'requested',
+        deployment_external_run_id: '123456',
+        deployment_external_url: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/123456',
+        deployment_health_status: 'pending',
+        deployment_workflow_file: 'deploy-staging.yml',
+        deployment_commit_sha: 'abc123',
+        deployment_started_at: '2026-04-22T01:02:00Z',
+        deployment_metadata: { deployScope: 'gateway' },
+        pr_gate: {
+          branch_exists: true,
+          pr_exists: true,
+          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/99',
+          pr_number: 99,
+          pr_state: 'open',
+          checks_status: 'success',
+          checks_summary: '3 checks passed',
+          can_create_pr: false,
+          can_deploy_staging: false,
+          blocked_reason: null,
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '详情' }))
+
+    expect(screen.getByText('Deployment Record')).toBeTruthy()
+    expect(screen.getByText('Record ID：88')).toBeTruthy()
+    expect(screen.getByText('Workflow：deploy-staging.yml')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '打开 GitHub Actions 日志' })).toHaveAttribute(
+      'href',
+      'https://github.com/cliff-personal/Synapse-Network/actions/runs/123456',
+    )
+  })
+
+  it('does not show PR or staging actions when the branch is missing', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        pr_gate: {
+          branch_exists: false,
+          pr_exists: false,
+          pr_url: null,
+          pr_number: null,
+          pr_state: null,
+          checks_status: 'unknown',
+          checks_summary: null,
+          can_create_pr: false,
+          can_deploy_staging: false,
+          blocked_reason: '分支不存在，请重新选择有效远端分支',
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+
+    expect(screen.getByText(/PR Gate: 分支不存在/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '提交 PR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '发布到 staging' })).toBeNull()
   })
 
   it('creates a manual release task from the release management drawer', async () => {
@@ -224,13 +388,21 @@ describe('ReleasesPage', () => {
 
     await user.click(await screen.findByRole('button', { name: '发布管理' }))
     await user.click(screen.getByRole('button', { name: '新建发布任务' }))
-    await user.type(screen.getByPlaceholderText('codex/branch-based-staging-deploy'), 'codex/new-release')
+    await user.selectOptions(screen.getByLabelText('项目 / 服务'), 'synapse-network::gateway')
+    await waitFor(() => {
+      expect(apiMock.getReleaseTaskBranchOptions).toHaveBeenCalledWith({
+        project_key: 'synapse-network',
+        service_key: 'gateway',
+      })
+    })
+    await user.selectOptions(screen.getByLabelText('分支'), 'codex/new-release')
     await user.click(screen.getByRole('button', { name: '创建发布任务' }))
 
     await waitFor(() => {
       expect(apiMock.createReleaseTask).toHaveBeenCalledWith({
-        project_key: 'synapse-network-growing',
-        project_display_name: 'Synapse-Network-Growing',
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        service_key: 'gateway',
         branch_name: 'codex/new-release',
         environment: 'staging',
         actor: 'operator',
@@ -254,6 +426,45 @@ describe('ReleasesPage', () => {
       expect(apiMock.updateReleaseTask).toHaveBeenCalledWith(42, {
         status: 'failed',
         operator: 'operator',
+        note: 'Manual staging release',
+      })
+    })
+  })
+
+  it('opens the task drawer without project policies and triggers staging deploy separately', async () => {
+    apiMock.getProjectPolicies.mockResolvedValue([])
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        pr_gate: {
+          branch_exists: true,
+          pr_exists: true,
+          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/90',
+          pr_number: 90,
+          pr_state: 'open',
+          checks_status: 'success',
+          checks_summary: '3 checks passed',
+          can_create_pr: false,
+          can_deploy_staging: true,
+          blocked_reason: null,
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '新建发布任务' }))
+
+    expect(screen.getByText(/创建任务不会自动上线/)).toBeTruthy()
+    expect(await screen.findByText(/分支从发布仓库的 GitHub branch list 读取/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '创建发布任务' })).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '关闭' }))
+    await user.click(screen.getByRole('button', { name: '发布到 staging' }))
+
+    await waitFor(() => {
+      expect(apiMock.deployReleaseTaskToStaging).toHaveBeenCalledWith(42, {
+        actor: 'operator',
         note: 'Manual staging release',
       })
     })

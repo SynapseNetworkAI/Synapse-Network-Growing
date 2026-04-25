@@ -53,3 +53,52 @@ test('Ops Console primary pages render with local data and screenshot evidence',
   expect(failedApiResponses, 'No validated page should return 5xx API responses').toEqual([])
   expect(browserErrors, 'No validated page should emit uncaught browser errors').toEqual([])
 })
+
+test('Release management can create a staging release task without auto-deploying', async ({ page }, testInfo) => {
+  const browserErrors: string[] = []
+  const failedApiResponses: string[] = []
+  const branchName = 'codex/e2e-staging-release-task'
+
+  page.on('pageerror', (error) => browserErrors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      browserErrors.push(message.text())
+    }
+  })
+  page.on('response', (response) => {
+    const url = response.url()
+    if (url.includes('/api/') && response.status() >= 500) {
+      failedApiResponses.push(`${response.status()} ${url}`)
+    }
+  })
+
+  await page.goto('/releases', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '发布管理' }).click()
+
+  await expect(page.getByRole('button', { name: '新建发布任务' })).toBeEnabled()
+  await page.getByRole('button', { name: '新建发布任务' }).click()
+  await expect(page.getByRole('heading', { name: '新建发布任务' })).toBeVisible()
+  await expect(page.getByText('创建任务不会自动上线')).toBeVisible()
+  await expect(page.getByRole('button', { name: '创建发布任务' })).toBeDisabled()
+
+  await expect(page.getByLabel('分支')).toBeEnabled()
+  await page.getByLabel('分支').selectOption(branchName)
+  await page.getByPlaceholder('记录发布窗口、手动执行位置或回滚注意事项。').fill('E2E staging release task creation only.')
+  await expect(page.getByRole('button', { name: '创建发布任务' })).toBeEnabled()
+  await page.getByRole('button', { name: '创建发布任务' }).press('Enter')
+
+  await expect(page.getByRole('heading', { name: '新建发布任务' })).toBeHidden()
+  await expect(page.getByRole('table').getByText(branchName)).toBeVisible()
+  await expect(page.getByText('Service: gateway')).toBeVisible()
+  await expect(page.getByRole('table').getByText('待执行')).toBeVisible()
+  await expect(page.getByRole('button', { name: '发布到 staging' })).toBeVisible()
+  await expect(page.getByText('Deploy:')).toHaveCount(0)
+
+  await page.screenshot({
+    path: testInfo.outputPath('release-task-created.png'),
+    fullPage: true,
+  })
+
+  expect(failedApiResponses, 'Release task creation should not return 5xx API responses').toEqual([])
+  expect(browserErrors, 'Release task creation should not emit uncaught browser errors').toEqual([])
+})

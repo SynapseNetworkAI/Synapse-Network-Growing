@@ -285,24 +285,25 @@ Release 负责：
 9. execution approval 放行后，系统必须先在目标项目上基于最新 `main` 准备 requirement branch，再启动 execution；不得把 branch / PR 完全拖到流程末端。
 10. GitHub PR merge 是外部事实吸收，不是部署动作；已合并 PR 只允许更新 Release 面状态，不得自动触发 deploy、rollback、删分支或生产变更。
 11. Release Task 是业务发布意图与人工闭环记录；Deployment Record 是物理部署流水。`/releases` 可以统一展示手动与需求流转发布任务，但不得通过临时合并 `deployment_records` 来伪造发布任务列表。
-12. Release Task v1 只能人工标记 `completed / failed / cancelled`，不得自动触发 deploy、rollback 或生产变更；未来联动真实部署只能通过显式 `deployment_record_id` 锚点和 Human Gate 扩展。
-13. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
-14. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
-15. 错误发现 v1 必须优先于机会发现。
+12. Release Task 创建动作不得自动 deploy。Release Task 的分支必须从目标 GitHub 仓库分支列表选择，不能依赖手写自由文本。Staging 只能在该分支存在 open 或 merged PR 且 PR checks 通过后，由 Operator 点击 `发布到 staging` 触发白名单发布 runner，并通过 `deployment_record_id` 留痕；staging runner 必须使用 GCP Workload Identity Federation，不允许 GitHub 保存 GCP JSON key。production deploy / rollback 必须走 Human Gate，不能复用 staging API 或普通 PATCH 绕过。
+13. Release Task 详情必须提供部署排障入口：PR gate、DeploymentRecord、GitHub Actions run URL、health check、failure summary 和 metadata 可下钻查看；主列表只显示状态摘要和下一步动作，不平铺长日志或 raw payload。
+14. acceptance contract 只负责定义完成标准、范围约束和期望证据；最终 verification plan 必须在 execution 完成后由 verification agent 基于真实执行证据生成，harness 不得提前写死完整测试方案。
+15. verification agent 负责决定怎么验，Harness 负责权威执行 required commands 并记录 cwd、exit code、日志路径、耗时和 stdout/stderr excerpt；execution agent 自述测试结果不能单独作为最终 gate。
+16. 错误发现 v1 必须优先于机会发现。
    - 本阶段只自动化 defect self-healing，不自动化新增功能发现。
    - 错误信号必须先进入统一 discovery pipeline，再决定是否 materialize requirement。
-16. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
+17. discovery / approval 都采用 `agent recommendation + system rules + human fallback`。
    - agent 负责理解与推荐。
    - system rules 只负责稳定硬边界。
    - 人只处理高风险、低置信度或系统无法稳定收口的 case。
-17. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
+18. 新状态机不再允许一个对象同时存在多个真假难辨的主状态字段。
    - `Requirement`、`ExecutionAttempt`、`Delivery`、`ApprovalDecision` 都必须只有一个 canonical `state`
    - 旧 `status / phase / resolution_path / latest_release_status` 只允许作为过渡读字段，不能继续作为写入真相
-18. Declarative workflow 的目标与黑板必须可审计。
+19. Declarative workflow 的目标与黑板必须可审计。
    - 原始 intent / acceptance brief 不允许被 repair 覆盖。
    - repair turn 必须从最新 verification result、command evidence 和 blackboard 派生。
    - 第二次 repair 必须读取上一次失败结果，而不是简单重跑旧 prompt。
-19. 自主修复必须有严格预算。
+20. 自主修复必须有严格预算。
    - 所有 workflow loop 必须有 counter guard。
    - verification failure 默认由同一个 workflow run 自循环修复，自动 self-repair 最多 2 次。
    - self-repair 达到预算仍失败时必须 `route_to_human`；人工继续 retry 也复用同一个 run / session，并单独计入 manual retry。

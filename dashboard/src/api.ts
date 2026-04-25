@@ -1193,14 +1193,45 @@ export interface ReleaseTask {
   deployment_record_id: number | null
   project_key: string
   project_display_name: string | null
+  service_key: string | null
   branch_name: string
   environment: 'staging' | 'production' | string
   status: 'requested' | 'completed' | 'failed' | 'cancelled' | string
   actor: string | null
   operator: string | null
   note: string | null
+  deployment_status: string | null
+  deployment_external_run_id: string | null
+  deployment_external_url: string | null
+  deployment_failure_summary: string | null
+  deployment_health_status: string | null
+  deployment_workflow_file: string | null
+  deployment_commit_sha: string | null
+  deployment_started_at: string | null
+  deployment_finished_at: string | null
+  deployment_metadata: Record<string, unknown>
+  pr_gate: {
+    branch_exists: boolean
+    pr_exists: boolean
+    pr_url: string | null
+    pr_number: number | null
+    pr_state: string | null
+    checks_status: 'unknown' | 'pending' | 'success' | 'failed' | string
+    checks_summary: string | null
+    can_create_pr: boolean
+    can_deploy_staging: boolean
+    blocked_reason: string | null
+  }
   created_at: string | null
   updated_at: string | null
+}
+
+export interface ReleaseBranchOption {
+  name: string
+  commit_sha: string | null
+  protected: boolean
+  is_default: boolean
+  source: string
 }
 
 export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
@@ -2221,9 +2252,15 @@ export const api = {
     const q = params.toString() ? `?${params.toString()}` : ''
     return request<ReleaseTask[]>(`/releases/tasks${q}`)
   },
+  getReleaseTaskBranchOptions: (filters: { project_key: string; service_key?: string | null }) => {
+    const params = new URLSearchParams({ project_key: filters.project_key })
+    if (filters.service_key) params.set('service_key', filters.service_key)
+    return request<ReleaseBranchOption[]>(`/releases/branch-options?${params.toString()}`)
+  },
   createReleaseTask: (data: {
     project_key: string
     project_display_name?: string | null
+    service_key?: string | null
     branch_name: string
     environment: 'staging' | 'production'
     actor?: string
@@ -2231,6 +2268,10 @@ export const api = {
   }) => request<ReleaseTask>('/releases/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateReleaseTask: (id: number, data: { status: 'completed' | 'failed' | 'cancelled'; operator?: string; note?: string | null }) =>
     request<ReleaseTask>(`/releases/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createReleaseTaskPr: (id: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseTask>(`/releases/tasks/${id}/create-pr`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  deployReleaseTaskToStaging: (id: number, data?: { actor?: string; note?: string | null }) =>
+    request<ReleaseTask>(`/releases/tasks/${id}/deploy-staging`, { method: 'POST', body: JSON.stringify(data || {}) }),
   getReleaseDetail: (requirementId: number) => request<ReleaseDetail>(`/releases/${requirementId}`),
   prepareRelease: (requirementId: number, data?: { actor?: string; note?: string | null }) =>
     request<ReleaseDetail>(`/releases/${requirementId}/prepare`, { method: 'POST', body: JSON.stringify(data || {}) }),
