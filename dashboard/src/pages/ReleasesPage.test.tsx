@@ -291,6 +291,15 @@ describe('ReleasesPage', () => {
     })
   })
 
+  it('keeps release candidates usable if online records projection is temporarily unavailable', async () => {
+    apiMock.getOnlineReleaseRecords.mockRejectedValue(new Error('path.requirement_id: Input should be a valid integer'))
+
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    expect(await screen.findByText(/Quality gate release/)).toBeTruthy()
+    expect(screen.getByText('发布列表')).toBeTruthy()
+  })
+
   it('shows release management tasks and hides actions for terminal tasks', async () => {
     const user = userEvent.setup()
     render(<ReleasesPage />, { wrapper: MemoryRouter })
@@ -354,6 +363,33 @@ describe('ReleasesPage', () => {
         note: 'Manual staging release',
       })
     })
+  })
+
+  it('explains why green draft PRs cannot deploy staging yet', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        pr_gate: {
+          branch_exists: true,
+          pr_exists: true,
+          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/92',
+          pr_number: 92,
+          pr_state: 'draft',
+          checks_status: 'success',
+          checks_summary: '1 checks passed',
+          can_create_pr: false,
+          can_deploy_staging: false,
+          blocked_reason: 'PR 仍是 Draft，请先在 GitHub 标记 Ready for review 后再发布 staging',
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+
+    expect(screen.getByText(/PR Gate: PR 是 Draft/)).toBeTruthy()
+    expect(screen.getByText(/PR 仍是 Draft/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '发布到 staging' })).toBeDisabled()
   })
 
   it('opens release task details with deployment record and GitHub Actions link', async () => {
@@ -469,6 +505,9 @@ describe('ReleasesPage', () => {
         service_key: 'gateway',
       })
     })
+    await user.type(screen.getByLabelText('筛选分支'), 'new')
+    expect(screen.queryByRole('option', { name: /main/ })).toBeNull()
+    expect(screen.getByRole('option', { name: /codex\/new-release/ })).toBeTruthy()
     await user.selectOptions(screen.getByLabelText('分支'), 'codex/new-release')
     await user.click(screen.getByRole('button', { name: '创建发布任务' }))
 

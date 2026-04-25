@@ -727,6 +727,34 @@ def test_release_task_pr_gate_helper_classifies_pending_failed_unknown_and_draft
     assert gate.checks_status == "pending"
     assert gate.can_deploy_staging is False
 
+    def draft_green_pr(command, capture_output, text, timeout, check, env):
+        if command[1] == "api":
+            return subprocess.CompletedProcess(command, 0, stdout='{"name":"codex/draft"}', stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                [
+                    {
+                        "number": 14,
+                        "url": "https://github.com/example/repo/pull/14",
+                        "state": "OPEN",
+                        "isDraft": True,
+                        "statusCheckRollup": [{"conclusion": "SUCCESS"}],
+                    }
+                ]
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(release_tasks_service.subprocess, "run", draft_green_pr)
+    draft_green_gate = release_tasks_service._release_task_pr_gate_for(row, "example/repo")
+
+    assert draft_green_gate.pr_state == "draft"
+    assert draft_green_gate.checks_status == "success"
+    assert draft_green_gate.can_deploy_staging is False
+    assert "Draft" in draft_green_gate.blocked_reason
+
 
 def test_run_gh_json_classifies_errors(monkeypatch):
     def missing_gh(*args, **kwargs):

@@ -28,14 +28,36 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     const detail = body.detail
-    const message = typeof detail === 'string'
-      ? detail
-      : detail?.message || body.message || `HTTP ${res.status}`
+    const message = formatApiErrorMessage(res.status, body)
     const error = new Error(message) as ApiError
     error.detail = detail ?? body
     throw error
   }
   return res.json()
+}
+
+function formatApiErrorMessage(status: number, body: { detail?: unknown; message?: unknown }): string {
+  const detail = body.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (!item || typeof item !== 'object') return ''
+        const payload = item as { loc?: unknown; msg?: unknown }
+        const loc = Array.isArray(payload.loc) ? payload.loc.join('.') : ''
+        const msg = typeof payload.msg === 'string' ? payload.msg : ''
+        if (loc && msg) return `${loc}: ${msg}`
+        return msg || loc
+      })
+      .filter(Boolean)
+    if (messages.length) return messages.slice(0, 3).join('; ')
+  }
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  if (typeof body.message === 'string' && body.message.trim()) return body.message
+  return `HTTP ${status}`
 }
 
 // Types

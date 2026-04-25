@@ -312,7 +312,9 @@ def _release_task_pr_gate_for(row: ReleaseTaskRow, repo_full_name: str) -> Relea
     gate.checks_status, gate.checks_summary = _checks_summary(
         pr_payload.get("statusCheckRollup") if isinstance(pr_payload.get("statusCheckRollup"), list) else []
     )
-    if state == "closed":
+    if gate.pr_state == "draft":
+        gate.blocked_reason = "PR 仍是 Draft，请先在 GitHub 标记 Ready for review 后再发布 staging"
+    elif state == "closed":
         gate.blocked_reason = "PR 已关闭且未合并，请重新提交 PR 或选择有效分支"
     elif gate.checks_status != "success":
         gate.blocked_reason = gate.checks_summary or "PR checks 未通过"

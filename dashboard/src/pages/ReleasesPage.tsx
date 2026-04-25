@@ -126,6 +126,7 @@ export default function ReleasesPage() {
   const [taskDraft, setTaskDraft] = useState(defaultTaskDraft([]))
   const [taskBusy, setTaskBusy] = useState(false)
   const [branchOptions, setBranchOptions] = useState<ReleaseBranchOption[]>([])
+  const [branchQuery, setBranchQuery] = useState('')
   const [branchLoading, setBranchLoading] = useState(false)
   const [branchError, setBranchError] = useState<string | null>(null)
   const taskTargets = useMemo(() => releaseTargets(policies), [policies])
@@ -133,12 +134,12 @@ export default function ReleasesPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const [nextCandidates, nextTasks, nextOnlineRecords, nextPolicies] = await Promise.all([
+      const [nextCandidates, nextTasks, nextPolicies] = await Promise.all([
         api.getReleaseCandidates(),
         api.getReleaseTasks(),
-        api.getOnlineReleaseRecords({ limit: 100 }),
         api.getProjectPolicies(),
       ])
+      const nextOnlineRecords = await api.getOnlineReleaseRecords({ limit: 100 }).catch(() => [])
       setCandidates(nextCandidates)
       setTasks(nextTasks)
       setOnlineRecords(nextOnlineRecords)
@@ -215,6 +216,17 @@ export default function ReleasesPage() {
   }, [onlineRecords, onlineEnvironmentFilter, search])
 
   const selectedTarget = taskTargets.find((target) => target.project_key === taskDraft.project_key && target.service_key === taskDraft.service_key) || taskTargets[0]
+  const filteredBranchOptions = useMemo(() => {
+    const needle = branchQuery.trim().toLowerCase()
+    const nextOptions = needle
+      ? branchOptions.filter((branch) => branch.name.toLowerCase().includes(needle) || (branch.commit_sha || '').toLowerCase().includes(needle))
+      : branchOptions
+    if (!taskDraft.branch_name || nextOptions.some((branch) => branch.name === taskDraft.branch_name)) {
+      return nextOptions
+    }
+    const selected = branchOptions.find((branch) => branch.name === taskDraft.branch_name)
+    return selected ? [selected, ...nextOptions] : nextOptions
+  }, [branchOptions, branchQuery, taskDraft.branch_name])
 
   useEffect(() => {
     if (!taskDrawerOpen || !taskDraft.project_key) return
@@ -387,6 +399,7 @@ export default function ReleasesPage() {
                 className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={() => {
                   setTaskDraft(defaultTaskDraft(policies))
+                  setBranchQuery('')
                   setTaskDrawerOpen(true)
                 }}
               >
@@ -495,6 +508,7 @@ export default function ReleasesPage() {
                   service_key: target.service_key,
                   branch_name: '',
                 }))
+                setBranchQuery('')
               }}
             >
               {taskTargets.map((target) => (
@@ -506,6 +520,14 @@ export default function ReleasesPage() {
           </label>
           <label className="block space-y-2">
             <FieldLabel>分支</FieldLabel>
+            <input
+              className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm"
+              aria-label="筛选分支"
+              placeholder={branchLoading ? '正在读取 GitHub 分支…' : '输入关键词筛选 GitHub 分支'}
+              value={branchQuery}
+              disabled={branchLoading || !!branchError}
+              onChange={(event) => setBranchQuery(event.target.value)}
+            />
             <select
               className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm"
               aria-label="分支"
@@ -513,8 +535,10 @@ export default function ReleasesPage() {
               disabled={branchLoading || branchOptions.length === 0}
               onChange={(event) => setTaskDraft((current) => ({ ...current, branch_name: event.target.value }))}
             >
-              <option value="">{branchLoading ? '正在读取 GitHub 分支…' : '选择 GitHub 分支'}</option>
-              {branchOptions.map((branch) => (
+              <option value="">
+                {branchLoading ? '正在读取 GitHub 分支…' : filteredBranchOptions.length === 0 && branchQuery ? '没有匹配的 GitHub 分支' : '选择 GitHub 分支'}
+              </option>
+              {filteredBranchOptions.map((branch) => (
                 <option key={branch.name} value={branch.name}>
                   {branch.name}{branch.is_default ? ' · default' : ''}{branch.protected ? ' · protected' : ''}
                 </option>
@@ -832,6 +856,16 @@ function ReleaseTasksTable({
                           onClick={() => onDeployStaging(task)}
                         >
                           {busyAction === `release-task-${task.id}-deploy-staging` ? '发布中…' : '发布到 staging'}
+                        </button>
+                      ) : null}
+                      {task.environment === 'staging' && task.pr_gate?.pr_exists && task.pr_gate?.checks_status === 'success' && !task.pr_gate?.can_deploy_staging ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm text-[color:var(--ops-text-caption)] opacity-70"
+                          disabled
+                          title={task.pr_gate.blocked_reason || 'PR gate 尚未允许 staging 发布'}
+                        >
+                          发布到 staging
                         </button>
                       ) : null}
                       {task.environment === 'production' ? (
@@ -1178,6 +1212,9 @@ function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
   } else if (!gate.pr_exists) {
     label = '未提交 PR'
     tone = 'running'
+  } else if (gate.pr_state === 'draft') {
+    label = 'PR 是 Draft'
+    tone = 'blocked'
   } else if (gate.pr_state === 'merged' && gate.checks_status === 'success') {
     label = 'PR 已合并 / Checks 通过'
     tone = 'delivered'
