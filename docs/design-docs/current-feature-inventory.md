@@ -73,6 +73,7 @@
 11. `agent_self_repair` verify 阶段会执行 Planner-generated acceptance commands，并用硬超时、command artifacts 与 `acceptance_matrix` blackboard 状态暴露运行进度和失败原因。
 12. Acceptance matrix evidence 当前按同一 `workflow_run_id` 归属校验；timestamp-level evidence scoping 是 v2，不属于当前实现。
 13. Push / PR 质量门禁通过 `.githooks/pre-push` 与 GitHub PR CI 复用 `scripts/ci/pr_checks.sh`，覆盖 repo guardrails、backend pytest、Python diff coverage、dashboard tests/build 与 whitespace。
+14. 新增内置 workflow definition `x_official_account_content_ops`：Agent 只生成 X 官方账号内容草稿并运行内容风险检查，随后停在人类审核边界；外部发布不由 workflow 自动触发。
 
 ## 4. Human Gate And Release
 
@@ -99,6 +100,22 @@
 11. 没有 webhook callback 的本地发起 staging 部署，可通过 `/releases` 的 `同步状态` 拉取 GitHub Actions run 结果，并把 success / failure 同步回 DeploymentRecord 与 Release Task；该同步只读吸收外部事实，不触发 deploy / merge / rollback。
 12. Staging 发布分两类：`main` 分支可直接由 Operator 点击 `发布到 staging`；非 main 分支不要求先合并 `main`，但必须存在 PR 且 PR checks 通过。Production 默认只允许从 `main` / tag / verified staging manifest 推进，并必须 Human Gate。
 13. Rollback 不由 Drop Goal、普通 Release Task PATCH 或 staging 快捷按钮触发。Runtime rollback 以历史成功上线记录的 commit / image / manifest 为 target 并进入 Human Gate；代码级 revert 必须走新分支、PR、checks、merge 和正常发布链路。
+
+## 4.5 Social Publishing
+
+当前已具备：
+
+1. `/publishing` 官方账号内容发布控制面。
+2. 第一版只支持 X 平台、`@SynapseNetworkA`、纯文本单条 Post。
+3. `social_accounts` 保存账号投影和 Secret Manager 引用；不保存账号密码，不把 secret 返回前端。
+4. `social_post_drafts` 保存 Agent / operator 草稿、审核状态、标题、最终正文、风险检查、X post id 和失败摘要；`让 Agent 写草稿` 入口只要求 operator 输入目标 / prompt，系统生成 policy-checked 标题和正文。policy 通过时可由人类点击发布；policy 阻断时必须改写，系统不会直接发布。
+5. `social_publish_events` 保存草稿生成、编辑、拒绝、发布请求、发布成功/失败事件。
+6. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
+7. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
+8. GCP Secret Manager token 只在 `publish_x` 时读取；token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
+9. 社媒文案生成使用专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，默认 `codex / gpt-5-codex`，并提供 `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` 处理本地 Codex CLI/账号兼容性；生成时只给 Codex bounded short-form social prompt，避免复用 Planner/workflow runtime 产生验收矩阵或工程计划 JSON。
+10. 生成上下文默认注入 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 额外注入 bounded `launch-strategy` guidance。`ad-creative`、`paid-ads`、`community-marketing`、`imagegen` 不进入 v1 默认链路。
+11. Playwright E2E 包含真实 Codex 生成路径：不 mock `/api/social/posts/generate-draft`，验证标题/正文非空、正文不复制 prompt、不泄露 `/Users/` 或内部指令、policy passed，并且不点击真实 `publish-x`。
 
 ## 5. Error Discovery And Intake Gate
 

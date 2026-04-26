@@ -587,6 +587,74 @@ class ReleaseTaskRow(Base):
     deployment_record = relationship("DeploymentRecordRow")
 
 
+class SocialAccountRow(Base):
+    __tablename__ = "social_accounts"
+    __table_args__ = (
+        UniqueConstraint("platform", "handle", name="social_accounts_platform_handle_uq"),
+        Index("social_accounts_platform_idx", "platform"),
+        Index("social_accounts_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    handle = Column(Text, nullable=False)
+    display_name = Column(Text)
+    secret_ref = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialPostDraftRow(Base):
+    __tablename__ = "social_post_drafts"
+    __table_args__ = (
+        Index("social_post_drafts_status_idx", "status"),
+        Index("social_post_drafts_platform_idx", "platform"),
+        Index("social_post_drafts_account_idx", "account_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    account_id = Column(Integer, ForeignKey("social_accounts.id"), nullable=False)
+    title = Column(Text)
+    body_text = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="needs_review")
+    generated_by = Column(Text, nullable=False, default="operator")
+    reviewed_by = Column(Text)
+    review_note = Column(Text)
+    target_audience = Column(Text)
+    cta = Column(Text)
+    agent_rationale = Column(Text)
+    policy_check_json = Column(Text, nullable=False, default="{}")
+    raw_agent_output_json = Column(Text, nullable=False, default="{}")
+    published_at = Column(DateTime)
+    external_post_id = Column(Text)
+    failure_summary = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    account = relationship("SocialAccountRow")
+    events = relationship("SocialPublishEventRow", order_by="SocialPublishEventRow.id", back_populates="post")
+
+
+class SocialPublishEventRow(Base):
+    __tablename__ = "social_publish_events"
+    __table_args__ = (
+        Index("social_publish_events_post_idx", "post_id"),
+        Index("social_publish_events_type_idx", "event_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey("social_post_drafts.id"), nullable=False)
+    event_type = Column(Text, nullable=False)
+    actor = Column(Text, nullable=False, default="operator")
+    summary = Column(Text)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+    post = relationship("SocialPostDraftRow", back_populates="events")
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (

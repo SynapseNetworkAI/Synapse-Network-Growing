@@ -1338,6 +1338,101 @@ class ReleaseRollbackRequest(BaseModel):
     rollback_target_sha: str
 
 
+class SocialAccountOut(BaseModel):
+    id: int
+    platform: str = "x"
+    handle: str
+    display_name: Optional[str] = None
+    secret_ref: str
+    status: str = "active"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SocialPolicyCheckOut(BaseModel):
+    status: str = "passed"
+    character_count: int = 0
+    warnings: list[str] = []
+    blocked_reasons: list[str] = []
+
+
+class SocialPublishEventOut(BaseModel):
+    id: int
+    post_id: int
+    event_type: str
+    actor: str = "operator"
+    summary: Optional[str] = None
+    payload: dict[str, object] = {}
+    created_at: Optional[datetime] = None
+
+
+class SocialPostDraftOut(BaseModel):
+    id: int
+    platform: str = "x"
+    account_id: int
+    account_handle: Optional[str] = None
+    account_display_name: Optional[str] = None
+    title: Optional[str] = None
+    body_text: str
+    status: str = "needs_review"
+    generated_by: str = "operator"
+    reviewed_by: Optional[str] = None
+    review_note: Optional[str] = None
+    target_audience: Optional[str] = None
+    cta: Optional[str] = None
+    agent_rationale: Optional[str] = None
+    policy_check: SocialPolicyCheckOut = Field(default_factory=SocialPolicyCheckOut)
+    raw_agent_output: dict[str, object] = {}
+    published_at: Optional[datetime] = None
+    external_post_id: Optional[str] = None
+    external_url: Optional[str] = None
+    failure_summary: Optional[str] = None
+    events: list[SocialPublishEventOut] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SocialPostCreateRequest(BaseModel):
+    platform: str = "x"
+    account_id: Optional[int] = None
+    title: Optional[str] = None
+    body_text: str
+    status: str = "needs_review"
+    generated_by: str = "operator"
+    target_audience: Optional[str] = None
+    cta: Optional[str] = None
+    agent_rationale: Optional[str] = None
+    raw_agent_output: dict[str, object] = {}
+
+
+class SocialPostGenerateDraftRequest(BaseModel):
+    account_id: Optional[int] = None
+    prompt: str
+    actor: str = "operator"
+
+
+class SocialPostPatchRequest(BaseModel):
+    title: Optional[str] = None
+    body_text: Optional[str] = None
+    status: Optional[str] = None
+    reviewed_by: str = "operator"
+    review_note: Optional[str] = None
+    target_audience: Optional[str] = None
+    cta: Optional[str] = None
+    agent_rationale: Optional[str] = None
+
+
+class SocialPostRewriteRequest(BaseModel):
+    actor: str = "operator"
+    feedback: Optional[str] = None
+
+
+class SocialPostPublishRequest(BaseModel):
+    actor: str = "operator"
+
+
 class ErrorIntakeRequest(BaseModel):
     source_kind: str
     service_name: str

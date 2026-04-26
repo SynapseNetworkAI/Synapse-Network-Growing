@@ -14,6 +14,7 @@ Usage:
 import abc
 import logging
 import re
+import uuid
 from pathlib import Path
 
 import httpx
@@ -380,7 +381,7 @@ class CodexCLIProvider(LLMProvider):
                 "Return only the final answer content with no surrounding commentary.",
             ]
         )
-        output_path = config.PROJECT_ROOT / "runtime" / "codex-cli-provider" / "last-message.txt"
+        output_path = config.PROJECT_ROOT / "runtime" / "codex-cli-provider" / f"{uuid.uuid4().hex}-last-message.txt"
         cwd, add_dirs = self._resolve_codex_context(user)
         result = run_codex_exec(
             prompt=prompt,
@@ -391,8 +392,12 @@ class CodexCLIProvider(LLMProvider):
             add_dirs=add_dirs,
         )
         if result.exit_code != 0:
-            detail = (result.stderr or result.stdout or result.text or "Codex CLI execution failed").strip()
-            raise RuntimeError(detail[:1000])
+            detail = "\n".join(
+                part.strip()
+                for part in (result.stderr, result.stdout, result.text)
+                if str(part or "").strip()
+            ) or "Codex CLI execution failed"
+            raise RuntimeError(detail[-3000:])
         return result.text.strip(), 0
 
 

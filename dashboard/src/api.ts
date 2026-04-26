@@ -5,9 +5,9 @@ export interface ApiError extends Error {
   detail?: unknown
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -17,8 +17,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      const timeoutError = new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`) as ApiError
-      timeoutError.detail = { message: 'request_timeout', timeout_ms: REQUEST_TIMEOUT_MS }
+      const timeoutError = new Error(`Request timed out after ${timeoutMs / 1000}s`) as ApiError
+      timeoutError.detail = { message: 'request_timeout', timeout_ms: timeoutMs }
       throw timeoutError
     }
     throw error
@@ -1292,6 +1292,60 @@ export interface ReleaseBranchOption {
   source: string
 }
 
+export interface SocialAccount {
+  id: number
+  platform: 'x' | string
+  handle: string
+  display_name: string | null
+  secret_ref: string
+  status: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SocialPolicyCheck {
+  status: 'passed' | 'blocked' | string
+  character_count: number
+  warnings: string[]
+  blocked_reasons: string[]
+}
+
+export interface SocialPublishEvent {
+  id: number
+  post_id: number
+  event_type: string
+  actor: string
+  summary: string | null
+  payload: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface SocialPostDraft {
+  id: number
+  platform: 'x' | string
+  account_id: number
+  account_handle: string | null
+  account_display_name: string | null
+  title: string | null
+  body_text: string
+  status: 'draft' | 'needs_review' | 'approved' | 'publishing' | 'published' | 'failed' | 'rejected' | string
+  generated_by: string
+  reviewed_by: string | null
+  review_note: string | null
+  target_audience: string | null
+  cta: string | null
+  agent_rationale: string | null
+  policy_check: SocialPolicyCheck
+  raw_agent_output: Record<string, unknown>
+  published_at: string | null
+  external_post_id: string | null
+  external_url: string | null
+  failure_summary: string | null
+  events: SocialPublishEvent[]
+  created_at: string | null
+  updated_at: string | null
+}
+
 export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
 
 export interface ReleaseActionPayload {
@@ -2359,6 +2413,44 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ dry_run: false, triggered_by: 'operator' }),
     }),
+  getSocialAccounts: () => request<SocialAccount[]>('/social/accounts'),
+  getSocialPosts: (filters?: { status?: string }) => {
+    const params = new URLSearchParams()
+    if (filters?.status) params.set('status', filters.status)
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<SocialPostDraft[]>(`/social/posts${q}`)
+  },
+  createSocialPost: (data: {
+    platform?: 'x'
+    account_id?: number | null
+    title?: string | null
+    body_text: string
+    status?: string
+    generated_by?: string
+    target_audience?: string | null
+    cta?: string | null
+    agent_rationale?: string | null
+    raw_agent_output?: Record<string, unknown>
+  }) => request<SocialPostDraft>('/social/posts', { method: 'POST', body: JSON.stringify(data) }),
+  generateSocialPostDraft: (data: { account_id?: number | null; prompt: string; actor?: string }) =>
+    request<SocialPostDraft>('/social/posts/generate-draft', { method: 'POST', body: JSON.stringify(data) }, 90_000),
+  updateSocialPost: (
+    id: number,
+    data: {
+      title?: string | null
+      body_text?: string | null
+      status?: string | null
+      reviewed_by?: string
+      review_note?: string | null
+      target_audience?: string | null
+      cta?: string | null
+      agent_rationale?: string | null
+    },
+  ) => request<SocialPostDraft>(`/social/posts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  requestSocialPostRewrite: (id: number, data?: { actor?: string; feedback?: string | null }) =>
+    request<SocialPostDraft>(`/social/posts/${id}/request-rewrite`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  publishSocialPostToX: (id: number, data?: { actor?: string }) =>
+    request<SocialPostDraft>(`/social/posts/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data || {}) }),
 
   getErrors: () => request<ErrorFingerprint[]>('/errors'),
   getErrorDetail: (fingerprintKey: string) => request<ErrorFingerprintDetail>(`/errors/${encodeURIComponent(fingerprintKey)}`),

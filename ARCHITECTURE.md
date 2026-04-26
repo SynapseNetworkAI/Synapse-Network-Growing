@@ -135,8 +135,22 @@ These actions always require a human gate:
 6. External paid spend.
 7. Self-modifying system deployment.
 8. Any action above the active manifest budget threshold.
+9. Public platform posting, official social account publishing, deletion of published posts, or account credential changes.
 
 High evidence does not bypass high risk.
+
+## 5.1 Public Social Publishing Constraints
+
+1. Social Publishing is a Human-Agent Control Plane surface, not autonomous outbound marketing.
+2. Agent atoms may draft title/body copy and run content policy checks for official social content.
+3. Agent atoms and recurring jobs must not publish, delete, schedule, or edit public posts on third-party platforms without explicit human action.
+4. X official account v1 supports only single plain-text posts through the X API. It must not use account passwords, browser automation, or simulated login.
+5. X credentials must live in GCP Secret Manager or equivalent secret storage and be read only at publish time. Tokens, Authorization headers, and raw API payloads must not be returned to the frontend, logs, artifacts, or Lark cards.
+6. `/publishing` draft creation defaults to `让 Agent 写草稿`: the operator supplies a topic or prompt, and the system generates only a title and final X post text. If deterministic policy passes, the draft may show `发布到 X`; if policy blocks it, the draft must require revision and cannot publish.
+7. `/publishing` must show title, final post text, character count, risk check, and clear `发布到 X` confirmation. Raw prompt and raw agent output belong in Debug details.
+8. Failed X publish attempts must become `failed` records with bounded root cause. They must not auto-retry and risk duplicate public posts.
+9. Social copy generation must use the dedicated `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` path, not Planner Sweep or workflow state prompts. The default provider is Codex GPT-5 for short-form copy, with an explicit `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` for local Codex CLI/account compatibility, but it must receive a bounded social-copy prompt, not acceptance matrices or workflow JSON. If the provider fails or does not return `title` and `body_text`, the API must fail closed and must not create a prompt-copy draft.
+10. Social copy generation must inject `.agents/product-marketing-context.md` and `.agents/skills/social-content/SKILL.md`; launch/staging/product-update prompts may additionally inject bounded `.agents/skills/launch-strategy/SKILL.md` guidance. Ad, paid-media, community, image, and video skills are not default v1 inputs.
 
 ## 6. Observability Constraints
 

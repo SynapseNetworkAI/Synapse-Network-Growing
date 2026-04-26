@@ -304,12 +304,50 @@ def build_gateway_reliability_repair_workflow_spec() -> dict[str, Any]:
     return spec
 
 
+def build_x_official_account_content_ops_workflow_spec() -> dict[str, Any]:
+    """Return the human-gated X official account content workflow."""
+
+    return {
+        "workflow_key": "x_official_account_content_ops",
+        "version": 1,
+        "description": "Generate X official account content drafts and stop for human review before public posting.",
+        "initial_state": "generate_draft",
+        "limits": {"max_transitions": 6},
+        "blackboard": {
+            "persist_keys": [
+                "workflow_key",
+                "current_state",
+                "social_post",
+                "content_policy_check",
+                "human_gate_decisions",
+            ]
+        },
+        "states": {
+            "generate_draft": {
+                "atom": "x_generate_content_draft",
+                "output_key": "social_post",
+                "transitions": [{"goto": "content_policy_check"}],
+            },
+            "content_policy_check": {
+                "atom": "x_content_policy_check",
+                "output_key": "content_policy_check",
+                "transitions": [{"goto": "awaiting_human_review"}],
+            },
+            "awaiting_human_review": {
+                "terminal": True,
+                "resolution": "public_post_human_review_required",
+            },
+        },
+    }
+
+
 def built_in_workflow_specs() -> dict[str, dict[str, Any]]:
     """Return built-in declarative workflow specs keyed by workflow key."""
 
     specs = {
         "agent_self_repair": build_agent_self_repair_workflow_spec(),
         "gateway_reliability_repair": build_gateway_reliability_repair_workflow_spec(),
+        "x_official_account_content_ops": build_x_official_account_content_ops_workflow_spec(),
     }
     return specs
 
@@ -1435,7 +1473,54 @@ def default_atom_registry() -> AtomRegistry:
         "observe_gateway_recovery",
         lambda _ctx: AtomResult(summary="Gateway recovery observed", writes={"observation": {"restored": True, "not_restored": False}}),
     )
+    registry.register("x_generate_content_draft", _x_generate_content_draft)
+    registry.register("x_content_policy_check", _x_content_policy_check)
     return registry
+
+
+def _x_generate_content_draft(ctx: WorkflowContext) -> AtomResult:
+    from server.schemas import SocialPostCreateRequest
+    from server.services.social.publishing import create_social_post
+
+    body_text = str(ctx.requirement.description_markdown or ctx.requirement.title or "").strip()
+    if len(body_text) > 260:
+        body_text = f"{body_text[:257].rstrip()}..."
+    if not body_text:
+        body_text = "Synapse is building safer human-agent operations for real business workflows."
+    post = create_social_post(
+        ctx.db,
+        SocialPostCreateRequest(
+            title=str(ctx.requirement.title or "X official account draft"),
+            body_text=body_text,
+            status="needs_review",
+            generated_by="x_official_account_content_ops",
+            target_audience="Synapse builders, partners, and early operators",
+            cta="Follow for build notes and operator updates",
+            agent_rationale="Draft created from the requirement intent. Public posting remains human-gated.",
+            raw_agent_output={"workflow_run_id": int(ctx.workflow_run.id), "requirement_id": int(ctx.requirement.id)},
+        ),
+    )
+    return AtomResult(
+        summary="X official account draft created; no external publish attempted.",
+        writes={
+            "social_post": {
+                "draft_id": post.id,
+                "status": post.status,
+                "account_handle": post.account_handle,
+            }
+        },
+    )
+
+
+def _x_content_policy_check(ctx: WorkflowContext) -> AtomResult:
+    from server.services.social.publishing import run_content_policy_check
+
+    body_text = str(ctx.requirement.description_markdown or ctx.requirement.title or "").strip()
+    policy = run_content_policy_check(body_text)
+    return AtomResult(
+        summary="Content policy checked; workflow stops for human review.",
+        writes={"content_policy_check": policy},
+    )
 
 
 def _risk_evidence_gate(ctx: WorkflowContext) -> AtomResult:

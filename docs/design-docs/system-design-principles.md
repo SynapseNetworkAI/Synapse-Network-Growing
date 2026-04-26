@@ -67,6 +67,7 @@
 7. 下游 deterministic atom 只能读取 parsed payload，不能把非结构化模型输出当作可信输入。
 8. 高风险 atom 必须进入 human gate；资金、结算、合约、auth、生产部署和外部付费动作不得自动放行。
 9. Blackboard 只保存 workflow 继续运行需要的最终 KV；禁止把 `state_outputs`、`transition_history`、raw artifact map 或长日志写回 `blackboard_json`。
+10. 公开平台发声属于 representational communication：Agent 可以写稿、改稿和做内容风险检查，但不得自行发布、删除或修改官方账号内容。发布到 X、删除 X post、社交账号凭据变更必须由 Human Gate 或明确 operator click 触发。
 
 ## 6.6 No Legacy Workflow Compatibility
 
@@ -178,6 +179,9 @@
 15. Human Gate 决策按钮必须有本地防抖和 loading/disabled 状态；`approve` 在失败场景中必须使用中性语义，例如 `确认并放行`，不得被渲染成“全绿通过”。
 16. Human Gate 决策可能异步唤醒 Runner；没有 WebSocket 时，前端必须在决策后短轮询 workflow detail，确认是否推进、完成或重新阻断，不能只凭 POST 成功显示“已解决”。
 17. Workflow Delivery Summary 必须先验证 `delivery_status` / `release_status` 是可信交付状态，再渲染 PR、branch 或 compare 字段；孤立的历史 branch / PR URL 不得让主视图展示脏交付。
+18. Social Publishing 默认视图必须人审优先：新建入口应优先让 operator 输入目标 / prompt，由 Agent 生成 policy-checked 标题和正文；policy 通过的草稿可以显示 `发布到 X`，但必须由 operator 显式点击确认；raw prompt、raw agent output、secret ref、API payload 只能放 Debug details。policy blocked 草稿不得显示可用的外部发布动作。
+19. Social Publishing 文案生成必须走专用 short-form copy provider 配置。默认可使用 Codex GPT-5，并允许显式 fallback model 处理本地 Codex CLI/账号兼容性，但只能使用社媒生成 prompt，不能复用 Planner Sweep、workflow acceptance matrix 或工程执行 prompt。若 provider 不可用、返回非 JSON、缺少 `title/body_text`、复制 prompt、泄露本地路径或输出 workflow JSON，系统必须 fail closed，不创建假草稿。
+20. Social Publishing 生成上下文必须优先读取 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 可额外使用 bounded `launch-strategy` skill。图片、视频、广告投放和跨平台分发不属于 v1 默认生成面。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 
@@ -238,6 +242,22 @@ Release 负责：
 1. requirement 意图编辑
 2. execution 主控制入口
 3. release 主决策入口
+
+### 6.5 Social Publishing
+
+Social Publishing 负责：
+
+1. Agent 根据 operator 输入的目标 / prompt 生成官方账号内容标题和正文。
+2. 人类检查、编辑、拒绝，或在 policy 通过后显式点击发布。
+3. 人类点击确认后通过平台 API 发布，并保存外部 post id、错误摘要和事件历史。
+4. 真实 E2E 必须能证明 Codex 生成的正文不是 prompt 原文，不包含本地路径、内部指令、workflow JSON 或 acceptance matrix，且不会在测试中真实发布到 X。
+
+Social Publishing 不得承担：
+
+1. 账号密码网页登录自动化。
+2. 未经人类确认的自动发帖、删帖、thread 扩展或跨平台群发。
+3. 凭据编辑或 Secret Manager 写入。
+4. 将 X API token、Authorization header、raw API payload 暴露到前端或日志。
 
 ## 7.5 Project 是正式主对象
 

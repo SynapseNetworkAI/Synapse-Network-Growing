@@ -14,6 +14,7 @@ import NotificationsPage from './pages/NotificationsPage'
 import SchedulesPage from './pages/SchedulesPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
+import PublishingPage from './pages/PublishingPage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
@@ -40,6 +41,7 @@ const navGroups = [
       { to: '/requirements', label: '需求池', meta: 'Requirements' },
       { to: '/workflows', label: '运行轨迹', meta: 'Workflow Runs' },
       { to: '/releases', label: '发布交付', meta: 'Delivery' },
+      { to: '/publishing', label: '内容发布', meta: 'Social Publishing' },
     ],
   },
   {
@@ -77,6 +79,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
+  { match: (pathname) => pathname === '/publishing', title: '内容发布', meta: 'Social publishing' },
   { match: (pathname) => pathname === '/projects', title: '项目', meta: 'Project list' },
   { match: (pathname) => pathname.startsWith('/projects/'), title: '项目详情', meta: 'Project detail' },
   { match: (pathname) => pathname === '/errors', title: '错误', meta: 'Error list' },
@@ -180,6 +183,7 @@ export default function App() {
                 <Route path="/schedules" element={<SchedulesPage />} />
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
+                <Route path="/publishing" element={<PublishingPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
                 <Route path="/errors" element={<ErrorsPage />} />

@@ -132,6 +132,10 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
 LLM_EXECUTION_MODE = os.environ.get("LLM_EXECUTION_MODE", "sync").strip().lower() or "sync"  # sync | session
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "300"))
+SOCIAL_CONTENT_LLM_PROVIDER = os.environ.get("SOCIAL_CONTENT_LLM_PROVIDER", "codex").strip().lower() or "codex"
+SOCIAL_CONTENT_LLM_MODEL = os.environ.get("SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex").strip() or "gpt-5-codex"
+SOCIAL_CONTENT_LLM_FALLBACK_MODEL = os.environ.get("SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4").strip() or "gpt-5.4"
+SOCIAL_CONTENT_LLM_TIMEOUT = int(os.environ.get("SOCIAL_CONTENT_LLM_TIMEOUT", "60"))
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 
