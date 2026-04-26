@@ -19,6 +19,8 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialXOAuthCallbackOut,
+    SocialXOAuthStartOut,
     SocialReplyItemOut,
     SocialRepostCandidateOut,
     SocialTrendItemOut,
@@ -27,6 +29,7 @@ from server.schemas import (
 from server.services.social.publishing import (
     create_social_campaign_goal,
     create_social_post,
+    complete_x_oauth_authorization,
     generate_social_post_draft,
     get_social_media_preview_path,
     list_social_campaign_goals,
@@ -42,6 +45,7 @@ from server.services.social.publishing import (
     remove_social_post_media,
     request_social_post_rewrite,
     social_ops_overview,
+    start_x_oauth_authorization,
     update_social_post,
     upload_social_post_image,
 )
@@ -59,6 +63,22 @@ def _http_error(exc: ValueError) -> HTTPException:
 @router.get("/accounts", response_model=list[SocialAccountOut])
 def list_social_accounts_endpoint(db: Session = Depends(get_db)):
     return list_social_accounts(db)
+
+
+@router.get("/x/oauth/start", response_model=SocialXOAuthStartOut)
+def start_x_oauth_endpoint(account_id: int | None = None, db: Session = Depends(get_db)):
+    try:
+        return start_x_oauth_authorization(db, account_id=account_id)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/x/oauth/callback", response_model=SocialXOAuthCallbackOut)
+def complete_x_oauth_endpoint(state: str, code: str, db: Session = Depends(get_db)):
+    try:
+        return complete_x_oauth_authorization(db, state=state, code=code)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/ops/overview", response_model=SocialOpsOverviewOut)

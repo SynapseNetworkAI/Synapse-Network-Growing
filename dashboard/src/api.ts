@@ -1330,8 +1330,16 @@ export interface SocialAccount {
   display_name: string | null
   secret_ref: string
   status: string
+  auth_status?: 'authorized' | 'needs_authorization' | 'unknown' | string
+  auth_message?: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface SocialXOAuthStart {
+  auth_url: string
+  state: string
+  expires_at: string | null
 }
 
 export interface SocialPolicyCheck {
@@ -2553,6 +2561,12 @@ export const api = {
       body: JSON.stringify({ dry_run: false, triggered_by: 'operator' }),
     }),
   getSocialAccounts: () => request<SocialAccount[]>('/social/accounts'),
+  startSocialXOAuth: (accountId?: number | null) => {
+    const params = new URLSearchParams()
+    if (accountId) params.set('account_id', String(accountId))
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<SocialXOAuthStart>(`/social/x/oauth/start${q}`)
+  },
   getSocialOpsOverview: () => request<SocialOpsOverview>('/social/ops/overview'),
   getSocialCampaignGoals: () => request<SocialCampaignGoal[]>('/social/campaign-goals'),
   createSocialCampaignGoal: (data: {

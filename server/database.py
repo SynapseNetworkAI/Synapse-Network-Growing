@@ -605,6 +605,28 @@ class SocialAccountRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class SocialOAuthSessionRow(Base):
+    __tablename__ = "social_oauth_sessions"
+    __table_args__ = (
+        Index("social_oauth_sessions_state_idx", "state", unique=True),
+        Index("social_oauth_sessions_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    account_id = Column(Integer, ForeignKey("social_accounts.id"), nullable=True)
+    state = Column(Text, nullable=False)
+    code_verifier = Column(Text, nullable=False)
+    redirect_uri = Column(Text, nullable=False)
+    scope = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime)
+
+    account = relationship("SocialAccountRow")
+
+
 class SocialPostDraftRow(Base):
     __tablename__ = "social_post_drafts"
     __table_args__ = (
@@ -1673,6 +1695,7 @@ def _migrate(engine_):
 
     social_tables = {
         "social_campaign_goals": SocialCampaignGoalRow,
+        "social_oauth_sessions": SocialOAuthSessionRow,
         "social_trend_items": SocialTrendItemRow,
         "social_watchlist_accounts": SocialWatchlistAccountRow,
         "social_reply_items": SocialReplyItemRow,

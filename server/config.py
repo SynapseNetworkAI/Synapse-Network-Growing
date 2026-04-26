@@ -139,6 +139,10 @@ SOCIAL_CONTENT_LLM_TIMEOUT = int(os.environ.get("SOCIAL_CONTENT_LLM_TIMEOUT", "1
 SOCIAL_IMAGE_PROVIDER = os.environ.get("SOCIAL_IMAGE_PROVIDER", "openai_images").strip().lower() or "openai_images"
 SOCIAL_IMAGE_MODEL = os.environ.get("SOCIAL_IMAGE_MODEL", "gpt-image-1.5").strip() or "gpt-image-1.5"
 SOCIAL_IMAGE_TIMEOUT = int(os.environ.get("SOCIAL_IMAGE_TIMEOUT", "90"))
+X_OAUTH_CLIENT_ID_SECRET = os.environ.get("X_OAUTH_CLIENT_ID_SECRET", "x-official-oauth2-client-id").strip() or "x-official-oauth2-client-id"
+X_OAUTH_CLIENT_SECRET_SECRET = os.environ.get("X_OAUTH_CLIENT_SECRET_SECRET", "x-official-oauth2-client-secret").strip() or "x-official-oauth2-client-secret"
+X_OAUTH_REFRESH_TOKEN_SECRET = os.environ.get("X_OAUTH_REFRESH_TOKEN_SECRET", "x-official-oauth2-refresh-token").strip() or "x-official-oauth2-refresh-token"
+X_OAUTH_REDIRECT_URI = os.environ.get("X_OAUTH_REDIRECT_URI", "http://127.0.0.1:9700/api/social/x/oauth/callback").strip() or "http://127.0.0.1:9700/api/social/x/oauth/callback"
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 

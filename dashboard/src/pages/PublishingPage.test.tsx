@@ -17,6 +17,7 @@ const apiMock = vi.hoisted(() => ({
   getSocialRepostCandidates: vi.fn(),
   getSocialPostMetrics: vi.fn(),
   getSocialPosts: vi.fn(),
+  startSocialXOAuth: vi.fn(),
   createSocialPost: vi.fn(),
   generateSocialPostDraft: vi.fn(),
   updateSocialPost: vi.fn(),
@@ -80,6 +81,8 @@ describe('PublishingPage', () => {
         display_name: 'Synapse Network',
         secret_ref: 'x-official-oauth2-user-token',
         status: 'active',
+        auth_status: 'authorized',
+        auth_message: 'OAuth refresh token is configured.',
         created_at: '2026-04-25T00:00:00Z',
         updated_at: '2026-04-25T00:00:00Z',
       },
@@ -143,6 +146,7 @@ describe('PublishingPage', () => {
     apiMock.getSocialRepostCandidates.mockResolvedValue([])
     apiMock.getSocialPostMetrics.mockResolvedValue([])
     apiMock.getSocialPosts.mockResolvedValue([draft()])
+    apiMock.startSocialXOAuth.mockResolvedValue({ auth_url: 'https://twitter.com/i/oauth2/authorize?state=test', state: 'test', expires_at: '2026-04-25T00:10:00Z' })
     apiMock.createSocialPost.mockResolvedValue(draft({ id: 8 }))
     apiMock.generateSocialPostDraft.mockResolvedValue(draft({ id: 8, status: 'approved', generated_by: 'social_content_agent_v1', reviewed_by: 'operator' }))
     apiMock.updateSocialPost.mockResolvedValue(draft({ status: 'approved' }))
@@ -248,6 +252,81 @@ describe('PublishingPage', () => {
     await waitFor(() => {
       expect(apiMock.publishSocialPostToX).toHaveBeenCalledWith(7, { actor: 'operator' })
     })
+  })
+
+  it('shows resend for failed publish attempts that are otherwise safe', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialPosts.mockResolvedValue([draft({
+      status: 'failed',
+      failure_summary: 'Google Secret Manager client is unavailable in this runtime.',
+      policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
+    })])
+    renderPage()
+
+    expect(await screen.findByRole('button', { name: '重新发送' })).toBeInTheDocument()
+    expect(screen.getByText('Google Secret Manager client is unavailable in this runtime.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重新发送' }))
+    expect(screen.getByText('这会代表 @SynapseNetworkA 公开发布内容到 X。确认后不可由系统自动撤回。')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '重新发送' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(apiMock.publishSocialPostToX).toHaveBeenCalledWith(7, { actor: 'operator' })
+    })
+  })
+
+  it('requires OAuth connection before resending a safe failed post', async () => {
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    apiMock.getSocialAccounts.mockResolvedValue([
+      {
+        id: 1,
+        platform: 'x',
+        handle: 'SynapseNetworkA',
+        display_name: 'Synapse Network',
+        secret_ref: 'x-official',
+        status: 'active',
+        auth_status: 'needs_authorization',
+        auth_message: 'X OAuth refresh token is missing.',
+        created_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.getSocialPosts.mockResolvedValue([draft({
+      status: 'failed',
+      failure_summary: 'X media upload authentication failed.',
+      policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
+    })])
+    renderPage()
+
+    expect((await screen.findAllByRole('button', { name: '连接 X 官方账号' })).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: '重新发送' })).not.toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '连接 X 官方账号' })[0])
+
+    await waitFor(() => {
+      expect(apiMock.startSocialXOAuth).toHaveBeenCalledWith(1)
+      expect(openSpy).toHaveBeenCalledWith('https://twitter.com/i/oauth2/authorize?state=test', '_blank', 'noopener,noreferrer')
+    })
+    openSpy.mockRestore()
+  })
+
+  it('shows the backend failure reason when resend still fails', async () => {
+    const user = userEvent.setup()
+    const failedPost = draft({
+      status: 'failed',
+      failure_summary: 'X media upload authentication failed. Update the OAuth user token secret.',
+      policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
+    })
+    apiMock.getSocialPosts.mockResolvedValue([failedPost])
+    apiMock.publishSocialPostToX.mockResolvedValue(failedPost)
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '重新发送' }))
+    await user.click(screen.getAllByRole('button', { name: '重新发送' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(apiMock.publishSocialPostToX).toHaveBeenCalledWith(7, { actor: 'operator' })
+    })
+    expect((await screen.findAllByText('X media upload authentication failed. Update the OAuth user token secret.')).length).toBeGreaterThan(0)
   })
 
   it('asks Agent to generate publish-ready text without publishing', async () => {

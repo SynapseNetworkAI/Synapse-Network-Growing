@@ -1,5 +1,6 @@
 import io
 import urllib.error
+from datetime import timedelta
 
 import pytest
 
@@ -9,8 +10,10 @@ from server.database import (
     SocialPostMetricRow,
     SocialReplyItemRow,
     SocialRepostCandidateRow,
+    utcnow,
     WorkflowRunRow,
 )
+from server.routers import social as social_router
 from server.services.social import publishing as social_publishing
 from server.services.workflows import declarative
 
@@ -149,6 +152,23 @@ def test_social_ops_center_projection_is_human_gated_and_read_only(synced_client
     assert reposts.json()[0]["suggested_quote"]
     assert metrics.status_code == 200
     assert metrics.json()[0]["impressions"] == 1200
+
+
+def test_default_social_account_migrates_legacy_token_ref(db_session):
+    db_session.add(
+        SocialAccountRow(
+            platform="x",
+            handle=social_publishing.DEFAULT_X_HANDLE,
+            display_name="Synapse Network",
+            secret_ref="x-official-oauth2-user-token",
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    account = social_publishing.ensure_default_social_account(db_session)
+
+    assert account.secret_ref == social_publishing.DEFAULT_X_SECRET_REF
 
 
 def test_social_campaign_goal_can_be_created(synced_client):
@@ -1167,6 +1187,221 @@ def test_x_auth_failure_is_bounded_and_does_not_leak_secret(monkeypatch, synced_
     assert "authorization" not in str(payload).lower()
 
 
+def test_x_oauth_start_returns_pkce_authorization_url(monkeypatch, synced_client):
+    social_publishing.x_oauth_token_provider._cache.clear()
+
+    def fake_read(secret_ref):
+        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_ID_SECRET:
+            return "client-id-123"
+        raise AssertionError(f"unexpected secret read: {secret_ref}")
+
+    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+
+    response = synced_client.get("/api/social/x/oauth/start")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "https://twitter.com/i/oauth2/authorize" in payload["auth_url"]
+    assert "tweet.write" in payload["auth_url"]
+    assert "offline.access" in payload["auth_url"]
+    assert "code_challenge_method=S256" in payload["auth_url"]
+    assert payload["state"]
+
+
+def test_social_oauth_router_errors_are_bounded(monkeypatch, synced_client):
+    monkeypatch.setattr(
+        social_router,
+        "start_x_oauth_authorization",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("oauth start failed")),
+    )
+    start = synced_client.get("/api/social/x/oauth/start")
+    assert start.status_code == 400
+    assert start.json()["detail"] == "oauth start failed"
+
+    monkeypatch.setattr(
+        social_router,
+        "complete_x_oauth_authorization",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("oauth callback failed")),
+    )
+    callback = synced_client.get("/api/social/x/oauth/callback?state=s&code=c")
+    assert callback.status_code == 400
+    assert callback.json()["detail"] == "oauth callback failed"
+
+
+def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(monkeypatch, synced_client):
+    social_publishing.x_oauth_token_provider._cache.clear()
+    stored_versions: list[tuple[str, str]] = []
+
+    def fake_read(secret_ref):
+        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_ID_SECRET:
+            return "client-id-123"
+        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET:
+            return "client-secret-456"
+        raise AssertionError(f"unexpected secret read: {secret_ref}")
+
+    class FakeTokenResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return b'{"access_token":"access-token-secret","refresh_token":"refresh-token-secret","expires_in":7200}'
+
+    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(social_publishing.secret_store, "add_version", lambda secret_ref, value: stored_versions.append((secret_ref, value)))
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeTokenResponse())
+
+    start = synced_client.get("/api/social/x/oauth/start").json()
+    callback = synced_client.get(f"/api/social/x/oauth/callback?state={start['state']}&code=oauth-code")
+
+    assert callback.status_code == 200
+    payload = callback.json()
+    assert payload["status"] == "authorized"
+    assert "access-token-secret" not in str(payload)
+    assert stored_versions == [(social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-token-secret")]
+
+
+def test_x_oauth_callback_rejects_invalid_and_expired_state(monkeypatch, synced_client, db_session):
+    with pytest.raises(ValueError, match="requires state and code"):
+        social_publishing.complete_x_oauth_authorization(db_session, state="", code="")
+    with pytest.raises(ValueError, match="not recognized"):
+        social_publishing.complete_x_oauth_authorization(db_session, state="missing", code="code")
+
+    account = social_publishing.ensure_default_social_account(db_session)
+    used = social_publishing.SocialOAuthSessionRow(
+        platform="x",
+        account_id=int(account.id),
+        state="used-state",
+        code_verifier="verifier",
+        redirect_uri="http://127.0.0.1/callback",
+        scope=social_publishing.X_OAUTH_SCOPE,
+        status="completed",
+        expires_at=utcnow() + timedelta(minutes=5),
+    )
+    expired = social_publishing.SocialOAuthSessionRow(
+        platform="x",
+        account_id=int(account.id),
+        state="expired-state",
+        code_verifier="verifier",
+        redirect_uri="http://127.0.0.1/callback",
+        scope=social_publishing.X_OAUTH_SCOPE,
+        status="pending",
+        expires_at=utcnow() - timedelta(minutes=1),
+    )
+    db_session.add_all([used, expired])
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="already used"):
+        social_publishing.complete_x_oauth_authorization(db_session, state="used-state", code="code")
+    with pytest.raises(ValueError, match="expired"):
+        social_publishing.complete_x_oauth_authorization(db_session, state="expired-state", code="code")
+
+
+def test_x_oauth_callback_marks_session_failed_on_exchange_error(monkeypatch, db_session):
+    account = social_publishing.ensure_default_social_account(db_session)
+    session = social_publishing.SocialOAuthSessionRow(
+        platform="x",
+        account_id=int(account.id),
+        state="exchange-fails",
+        code_verifier="verifier",
+        redirect_uri="http://127.0.0.1/callback",
+        scope=social_publishing.X_OAUTH_SCOPE,
+        status="pending",
+        expires_at=utcnow() + timedelta(minutes=5),
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    def fail_exchange(**kwargs):
+        raise social_publishing.SocialPublishError("x_refresh_failed", "token exchange failed")
+
+    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "exchange_authorization_code", fail_exchange)
+    with pytest.raises(ValueError, match="token exchange failed"):
+        social_publishing.complete_x_oauth_authorization(db_session, state="exchange-fails", code="code")
+    db_session.refresh(session)
+    assert session.status == "failed"
+
+
+def test_publish_refreshes_oauth_access_token_and_records_refresh_event(monkeypatch, synced_client):
+    social_publishing.x_oauth_token_provider._cache.clear()
+    stored_versions: list[tuple[str, str]] = []
+    seen_authorizations: list[str] = []
+
+    def fake_read(secret_ref):
+        values = {
+            social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id-123",
+            social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret-456",
+            social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET: "refresh-old",
+        }
+        if secret_ref in values:
+            return values[secret_ref]
+        raise AssertionError(f"unexpected secret read: {secret_ref}")
+
+    class FakeResponse:
+        def __init__(self, raw: bytes):
+            self.raw = raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return self.raw
+
+    def fake_urlopen(request, timeout):
+        if request.full_url == social_publishing.X_OAUTH_TOKEN_URL:
+            return FakeResponse(b'{"access_token":"access-fresh","refresh_token":"refresh-new","expires_in":7200}')
+        if request.full_url == social_publishing.X_POST_URL:
+            seen_authorizations.append(dict(request.header_items()).get("Authorization", ""))
+            return FakeResponse(b'{"data":{"id":"1800000000000000999"}}')
+        raise AssertionError(f"unexpected url: {request.full_url}")
+
+    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(social_publishing.secret_store, "add_version", lambda secret_ref, value: stored_versions.append((secret_ref, value)))
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", fake_urlopen)
+
+    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post after OAuth refresh."}).json()
+    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
+
+    assert published["status"] == "published"
+    assert published["external_post_id"] == "1800000000000000999"
+    assert seen_authorizations == ["Bearer access-fresh"]
+    assert stored_versions == [(social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-new")]
+    events = [event for event in published["events"] if event["event_type"] == "x_token_refreshed"]
+    assert events
+    assert "access-fresh" not in str(published)
+
+
+def test_failed_publish_can_be_retried_after_secret_or_rate_limit_fix(monkeypatch, synced_client):
+    attempts = {"count": 0}
+
+    def flaky_publish(account, body_text):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise social_publishing.SocialPublishError("x_auth_failed", "X API authentication failed. Update the OAuth user token secret.")
+        return social_publishing.XPublishResult(post_id="1800000000000000044", response_summary={"data": {"id": "1800000000000000044"}})
+
+    monkeypatch.setattr(social_publishing.x_publisher, "publish_text", flaky_publish)
+    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post after credential recovery."}).json()
+    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+
+    failed = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
+    assert failed["status"] == "failed"
+    assert "authentication failed" in failed["failure_summary"]
+
+    retried = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    assert retried.status_code == 200
+    payload = retried.json()
+    assert payload["status"] == "published"
+    assert payload["external_post_id"] == "1800000000000000044"
+    assert attempts["count"] == 2
+
+
 def test_x_rate_limit_failure_records_failed_status(monkeypatch, synced_client):
     def fake_publish(account, body_text):
         raise social_publishing.SocialPublishError("x_rate_limited", "X API rate limit reached. Try again after the rate-limit window.")
@@ -1335,7 +1570,7 @@ def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(401))
     with pytest.raises(social_publishing.SocialPublishError) as auth_error:
         publisher.publish_text(account, "Safe text.")
-    assert auth_error.value.kind == "x_auth_failed"
+    assert auth_error.value.kind == "x_publish_auth_failed"
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(429))
     with pytest.raises(social_publishing.SocialPublishError) as rate_error:
@@ -1354,6 +1589,135 @@ def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: MissingIdResponse())
     with pytest.raises(social_publishing.SocialPublishError, match="did not include a post id"):
         publisher.publish_text(account, "Safe text.")
+
+
+def test_secret_store_gcp_paths_and_version_rotation(monkeypatch):
+    store = social_publishing.SecretValueStore()
+    monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
+    monkeypatch.delenv("STAGING_GCP_PROJECT_ID", raising=False)
+
+    with pytest.raises(social_publishing.SocialPublishError, match="secret reference is empty"):
+        store._secret_name("")
+    assert store._secret_name("projects/demo/secrets/x/versions/latest") == "projects/demo/secrets/x/versions/latest"
+    with pytest.raises(social_publishing.SocialPublishError, match="project id is required"):
+        store._secret_name("x-secret")
+
+    with pytest.raises(social_publishing.SocialPublishError, match="secret reference is empty"):
+        store._secret_parent("")
+    assert store._secret_parent("projects/demo/secrets/x/versions/latest") == "projects/demo/secrets/x"
+    with pytest.raises(social_publishing.SocialPublishError, match="project id is required"):
+        store._secret_parent("x-secret")
+
+    monkeypatch.setenv("GCP_PROJECT_ID", "demo-project")
+    assert store._secret_name("x-secret") == "projects/demo-project/secrets/x-secret/versions/latest"
+    assert store._secret_parent("x-secret") == "projects/demo-project/secrets/x-secret"
+    with pytest.raises(social_publishing.SocialPublishError, match="environment variable is missing"):
+        store.read("env:MISSING")
+    with pytest.raises(social_publishing.SocialPublishError, match="environment variable"):
+        store.add_version("env:X_REFRESH", "new-refresh")
+
+    class FakePayload:
+        data = b"secret-value"
+
+    class FakeAccessResponse:
+        payload = FakePayload()
+
+    calls: list[dict] = []
+
+    class FakeSecretManagerClient:
+        def access_secret_version(self, request):
+            calls.append({"access": request})
+            return FakeAccessResponse()
+
+        def add_secret_version(self, request):
+            calls.append({"add": request})
+
+    from google.cloud import secretmanager
+
+    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: FakeSecretManagerClient())
+    assert store.read("x-secret") == "secret-value"
+    store.add_version("x-refresh", "new-refresh")
+    assert calls[0]["access"]["name"] == "projects/demo-project/secrets/x-secret/versions/latest"
+    assert calls[1]["add"]["parent"] == "projects/demo-project/secrets/x-refresh"
+    assert calls[1]["add"]["payload"]["data"] == b"new-refresh"
+
+    class EmptySecretManagerClient(FakeSecretManagerClient):
+        def access_secret_version(self, request):
+            return type("Response", (), {"payload": type("Payload", (), {"data": b""})()})()
+
+    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: EmptySecretManagerClient())
+    with pytest.raises(social_publishing.SocialPublishError, match="secret is empty"):
+        store.read("x-secret")
+
+
+def test_oauth_token_provider_status_and_error_paths(monkeypatch):
+    class FakeStore:
+        def __init__(self):
+            self.values = {
+                social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id",
+                social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret",
+                social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET: "refresh-token",
+            }
+            self.rotations: list[tuple[str, str]] = []
+
+        def read(self, key):
+            value = self.values.get(key)
+            if value is None:
+                raise social_publishing.SocialPublishError("x_auth_failed", "missing")
+            return value
+
+        def add_version(self, key, value):
+            self.rotations.append((key, value))
+
+    provider = social_publishing.XOAuth2TokenProvider(FakeStore())
+    assert provider.auth_status()[0] == "authorized"
+
+    provider_missing = social_publishing.XOAuth2TokenProvider(type("MissingStore", (), {
+        "read": lambda self, key: (_ for _ in ()).throw(social_publishing.SocialPublishError("x_auth_failed", "missing refresh")),
+    })())
+    assert provider_missing.auth_status() == ("needs_authorization", "missing refresh")
+
+    class FakeResponse:
+        def __init__(self, raw: bytes):
+            self.raw = raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return self.raw
+
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeResponse(b'{"expires_in":7200}'),
+    )
+    with pytest.raises(social_publishing.SocialPublishError, match="did not include access_token"):
+        provider.get_access_token()
+    with pytest.raises(social_publishing.SocialPublishError, match="callback response did not include access_token"):
+        provider.exchange_authorization_code(code="code", code_verifier="verifier", redirect_uri="http://127.0.0.1/callback")
+
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeResponse(b'{"access_token":"access-only","expires_in":7200}'),
+    )
+    with pytest.raises(social_publishing.SocialPublishError, match="did not include refresh_token"):
+        provider.exchange_authorization_code(code="code", code_verifier="verifier", redirect_uri="http://127.0.0.1/callback")
+
+    def raise_http(status):
+        raise urllib.error.HTTPError("https://api.x.com/2/oauth2/token", status, "error", {}, io.BytesIO(b"oauth failure"))
+
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(400))
+    with pytest.raises(social_publishing.SocialPublishError, match="token exchange failed"):
+        provider.get_access_token()
+
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(500))
+    with pytest.raises(social_publishing.SocialPublishError, match="token endpoint returned"):
+        provider.get_access_token()
 
 
 def test_x_media_upload_http_error_paths(monkeypatch):
@@ -1376,19 +1740,31 @@ def test_x_media_upload_http_error_paths(monkeypatch):
         def read(self, _limit):
             return self.raw
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeUploadResponse(b'{"media_id_string":"m-1"}'))
+    captured_upload: dict[str, object] = {}
+
+    def fake_media_upload(request, timeout):
+        captured_upload["url"] = request.full_url
+        captured_upload["headers"] = dict(request.header_items())
+        captured_upload["payload"] = social_publishing._json_loads(request.data.decode("utf-8"), {})
+        return FakeUploadResponse(b'{"data":{"id":"m-1"}}')
+
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", fake_media_upload)
     assert publisher.upload_image(account, str(image_path)) == "m-1"
+    assert captured_upload["url"] == "https://api.x.com/2/media/upload"
+    assert captured_upload["payload"]["media_category"] == "tweet_image"
+    assert captured_upload["payload"]["media_type"] == "image/png"
+    assert captured_upload["payload"]["media"]
 
     with pytest.raises(social_publishing.SocialPublishError, match="file is missing"):
         publisher.upload_image(account, str(image_path.with_name("missing.png")))
 
     def raise_media_http(status):
-        raise urllib.error.HTTPError("https://upload.twitter.com/1.1/media/upload.json", status, "error", {}, io.BytesIO(b"media failure"))
+        raise urllib.error.HTTPError("https://api.x.com/2/media/upload", status, "error", {}, io.BytesIO(b"media failure"))
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(403))
     with pytest.raises(social_publishing.SocialPublishError) as auth_error:
         publisher.upload_image(account, str(image_path))
-    assert auth_error.value.kind == "x_auth_failed"
+    assert auth_error.value.kind == "x_media_upload_auth_failed"
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(429))
     with pytest.raises(social_publishing.SocialPublishError) as rate_error:

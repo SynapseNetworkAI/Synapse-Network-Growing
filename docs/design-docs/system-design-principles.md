@@ -266,6 +266,7 @@ Social Publishing 不得承担：
 1. 账号密码网页登录自动化。
 2. 未经人类确认的自动发帖、删帖、thread 扩展、视频/GIF、多图或跨平台群发。
 3. 凭据编辑或 Secret Manager 写入。
+4. X OAuth2 `access_token` 持久化到数据库或前端状态。系统只能持久化 client id、client secret、refresh token 的 Secret Manager 引用；短期 access token 必须通过 refresh flow 在发布请求内存中生成和使用。
 4. 将 X API token、Authorization header、raw API payload 暴露到前端或日志。
 
 ## 7.5 Project 是正式主对象

@@ -114,7 +114,7 @@
 7. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
 8. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
 9. 有图片时 `publish-x` 必须先上传 X media，拿到 `media_id` 后再创建 Post；media upload 失败不得降级成纯文字发布。
-10. GCP Secret Manager token 只在 `publish_x` 时读取；token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
+10. GCP Secret Manager 只保存 X OAuth2 长期凭据：client id、client secret、refresh token；`access_token` 通过 refresh flow 在发布请求内存中短暂生成，不入库、不写日志、不进入事件 payload。token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
 11. 社媒文案生成使用专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，默认 `codex / gpt-5-codex`，并提供 `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` 处理本地 Codex CLI/账号兼容性；生成时只给 Codex bounded X brand/operator prompt，避免复用 Planner/workflow runtime 产生验收矩阵或工程计划 JSON。
 12. 图片生成使用 `SOCIAL_IMAGE_PROVIDER=openai_images` / `SOCIAL_IMAGE_MODEL=gpt-image-1.5`，由后端 OpenAI Images provider 生成 runtime 预览资产；Codex 内置 image_gen 只适合人工预览，不作为生产后端能力。
 13. 生成上下文默认注入 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 额外注入 bounded `launch-strategy` guidance。`ad-creative`、`paid-ads`、`community-marketing`、视频、GIF、多图和 thread 不进入 v1 默认链路。

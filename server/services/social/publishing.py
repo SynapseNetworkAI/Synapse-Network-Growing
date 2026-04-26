@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import base64
+import contextvars
+import hashlib
 import mimetypes
 import os
 import re
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +28,7 @@ from server.database import (
     SessionLocal,
     SocialAccountRow,
     SocialCampaignGoalRow,
+    SocialOAuthSessionRow,
     SocialPostDraftRow,
     SocialPostMediaAssetRow,
     SocialPostMetricRow,
@@ -44,6 +50,8 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialXOAuthCallbackOut,
+    SocialXOAuthStartOut,
     SocialReplyItemOut,
     SocialRepostCandidateOut,
     SocialTrendItemOut,
@@ -53,10 +61,17 @@ from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
 
 DEFAULT_X_HANDLE = "SynapseNetworkA"
-DEFAULT_X_SECRET_REF = "x-official-oauth2-user-token"
+DEFAULT_X_SECRET_REF = "x-official"
 X_POST_URL = "https://api.x.com/2/tweets"
-X_MEDIA_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+X_MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload"
+X_OAUTH_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize"
+X_OAUTH_TOKEN_URL = "https://api.x.com/2/oauth2/token"
+X_OAUTH_SCOPE = "tweet.read tweet.write users.read offline.access"
 logger = logging.getLogger("ops-dashboard.social-publishing")
+_x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "x_publish_access_token",
+    default=None,
+)
 
 ALLOWED_STATUSES = {"draft", "generating", "needs_review", "approved", "publishing", "published", "failed", "rejected"}
 HUMAN_SETTLED_STATUSES = {"published", "rejected"}
@@ -744,6 +759,7 @@ image_generator: SocialImageGenerator = SocialImageGenerator()
 
 
 def _account_out(row: SocialAccountRow) -> dict[str, Any]:
+    auth_status, auth_message = x_oauth_token_provider.auth_status()
     return {
         "id": int(row.id),
         "platform": row.platform,
@@ -751,6 +767,8 @@ def _account_out(row: SocialAccountRow) -> dict[str, Any]:
         "display_name": row.display_name,
         "secret_ref": row.secret_ref,
         "status": row.status,
+        "auth_status": auth_status,
+        "auth_message": auth_message,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -854,6 +872,10 @@ def ensure_default_social_account(db: Session) -> SocialAccountRow:
         .one_or_none()
     )
     if row is not None:
+        if row.secret_ref == "x-official-oauth2-user-token":
+            row.secret_ref = DEFAULT_X_SECRET_REF
+            db.commit()
+            db.refresh(row)
         return row
     row = SocialAccountRow(
         platform="x",
@@ -939,6 +961,84 @@ def list_social_accounts(db: Session) -> list[dict[str, Any]]:
     ensure_default_social_account(db)
     rows = db.query(SocialAccountRow).order_by(SocialAccountRow.platform.asc(), SocialAccountRow.handle.asc()).all()
     return [_account_out(row) for row in rows]
+
+
+def _pkce_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def start_x_oauth_authorization(db: Session, *, account_id: int | None = None) -> SocialXOAuthStartOut:
+    account = _get_account(db, account_id)
+    client_id = secret_store.read(config.X_OAUTH_CLIENT_ID_SECRET)
+    state = uuid.uuid4().hex
+    code_verifier = base64.urlsafe_b64encode(os.urandom(48)).decode("ascii").rstrip("=")
+    redirect_uri = config.X_OAUTH_REDIRECT_URI
+    expires_at = utcnow() + timedelta(minutes=10)
+    session = SocialOAuthSessionRow(
+        platform="x",
+        account_id=int(account.id),
+        state=state,
+        code_verifier=code_verifier,
+        redirect_uri=redirect_uri,
+        scope=X_OAUTH_SCOPE,
+        status="pending",
+        expires_at=expires_at,
+    )
+    db.add(session)
+    db.commit()
+    params = urllib.parse.urlencode(
+        {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": X_OAUTH_SCOPE,
+            "state": state,
+            "code_challenge": _pkce_challenge(code_verifier),
+            "code_challenge_method": "S256",
+        }
+    )
+    return SocialXOAuthStartOut(auth_url=f"{X_OAUTH_AUTHORIZE_URL}?{params}", state=state, expires_at=expires_at)
+
+
+def complete_x_oauth_authorization(db: Session, *, state: str, code: str) -> SocialXOAuthCallbackOut:
+    clean_state = str(state or "").strip()
+    clean_code = str(code or "").strip()
+    if not clean_state or not clean_code:
+        raise ValueError("OAuth callback requires state and code")
+    session = db.query(SocialOAuthSessionRow).filter(SocialOAuthSessionRow.state == clean_state).one_or_none()
+    if session is None:
+        raise ValueError("OAuth state was not recognized")
+    if session.status != "pending":
+        raise ValueError("OAuth state was already used")
+    expires_at = session.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < utcnow():
+        session.status = "expired"
+        db.commit()
+        raise ValueError("OAuth state expired; start authorization again")
+    account = session.account or ensure_default_social_account(db)
+    try:
+        x_oauth_token_provider.exchange_authorization_code(
+            code=clean_code,
+            code_verifier=session.code_verifier,
+            redirect_uri=session.redirect_uri,
+            profile_ref=account.secret_ref,
+        )
+    except SocialPublishError as exc:
+        session.status = "failed"
+        db.commit()
+        raise ValueError(exc.summary) from exc
+    account.status = "active"
+    session.status = "completed"
+    session.completed_at = utcnow()
+    db.commit()
+    return SocialXOAuthCallbackOut(
+        status="authorized",
+        account_handle=account.handle,
+        message=f"@{account.handle} OAuth authorization is ready. Access tokens will be refreshed in memory at publish time.",
+    )
 
 
 def social_ops_overview(db: Session) -> SocialOpsOverviewOut:
@@ -1556,6 +1656,180 @@ def upload_social_post_image(
     return _post_out(row)
 
 
+@dataclass
+class XOAuth2AccessToken:
+    access_token: str
+    refreshed: bool = False
+    refresh_token_rotated: bool = False
+
+
+class SecretValueStore:
+    """Read/write secret values without exposing them to API payloads or logs."""
+
+    def _secret_name(self, secret_ref: str) -> str:
+        ref = str(secret_ref or "").strip()
+        if not ref:
+            raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
+        if ref.startswith("projects/"):
+            return ref
+        project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("STAGING_GCP_PROJECT_ID")
+        if not project_id:
+            raise SocialPublishError("x_auth_failed", "GCP project id is required to read the X credential secret.")
+        return f"projects/{project_id}/secrets/{ref}/versions/latest"
+
+    def _secret_parent(self, secret_ref: str) -> str:
+        ref = str(secret_ref or "").strip()
+        if not ref:
+            raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
+        if ref.startswith("projects/"):
+            return ref.rsplit("/versions/", 1)[0]
+        project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("STAGING_GCP_PROJECT_ID")
+        if not project_id:
+            raise SocialPublishError("x_auth_failed", "GCP project id is required to write the X credential secret.")
+        return f"projects/{project_id}/secrets/{ref}"
+
+    def read(self, secret_ref: str) -> str:
+        ref = str(secret_ref or "").strip()
+        if ref.startswith("env:"):
+            value = os.environ.get(ref.removeprefix("env:"), "")
+            if not value:
+                raise SocialPublishError("x_auth_failed", "X credential environment variable is missing.")
+            return value
+        try:
+            from google.cloud import secretmanager  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional production dependency
+            raise SocialPublishError("x_auth_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
+        try:
+            response = secretmanager.SecretManagerServiceClient().access_secret_version(request={"name": self._secret_name(ref)})
+        except Exception as exc:  # pragma: no cover - credential dependent
+            raise SocialPublishError("x_auth_failed", f"Secret Manager read failed: {_bounded_excerpt(str(exc))}") from exc
+        value = response.payload.data.decode("utf-8", errors="replace").strip()
+        if not value:
+            raise SocialPublishError("x_auth_failed", "X credential secret is empty.")
+        return value
+
+    def add_version(self, secret_ref: str, value: str) -> None:
+        ref = str(secret_ref or "").strip()
+        if ref.startswith("env:"):
+            raise SocialPublishError("x_refresh_failed", "X refresh token cannot be rotated into an environment variable.")
+        try:
+            from google.cloud import secretmanager  # type: ignore
+        except Exception as exc:  # pragma: no cover - optional production dependency
+            raise SocialPublishError("x_refresh_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
+        try:
+            secretmanager.SecretManagerServiceClient().add_secret_version(
+                request={
+                    "parent": self._secret_parent(ref),
+                    "payload": {"data": value.encode("utf-8")},
+                }
+            )
+        except Exception as exc:  # pragma: no cover - credential dependent
+            raise SocialPublishError("x_refresh_failed", f"Secret Manager refresh token write failed: {_bounded_excerpt(str(exc))}") from exc
+
+
+secret_store = SecretValueStore()
+
+
+class XOAuth2TokenProvider:
+    """Refresh X OAuth2 access tokens from long-lived Secret Manager credentials."""
+
+    def __init__(self, store: SecretValueStore):
+        self.store = store
+        # Kept for backwards-compatible tests that clear runtime token state.
+        # Access tokens are intentionally not cached across publish requests.
+        self._cache: dict[str, tuple[str, float]] = {}
+
+    def auth_status(self) -> tuple[str, str | None]:
+        try:
+            self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        except SocialPublishError as exc:
+            return "needs_authorization", exc.summary
+        return "authorized", "OAuth refresh token is configured."
+
+    def _client_credentials(self) -> tuple[str, str]:
+        return (
+            self.store.read(config.X_OAUTH_CLIENT_ID_SECRET),
+            self.store.read(config.X_OAUTH_CLIENT_SECRET_SECRET),
+        )
+
+    def _token_request(self, form: dict[str, str]) -> dict[str, Any]:
+        client_id, client_secret = self._client_credentials()
+        payload = urllib.parse.urlencode({**form, "client_id": client_id}).encode("utf-8")
+        basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+        request = urllib.request.Request(
+            X_OAUTH_TOKEN_URL,
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Basic {basic}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - fixed X OAuth endpoint
+                raw = response.read(8192).decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read(4096).decode("utf-8", errors="replace")
+            if exc.code in {400, 401, 403}:
+                raise SocialPublishError("x_refresh_failed", f"X OAuth token exchange failed with HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
+            raise SocialPublishError("x_refresh_failed", f"X OAuth token endpoint returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
+        except Exception as exc:  # pragma: no cover - network dependent
+            raise SocialPublishError("x_refresh_failed", f"X OAuth token request failed: {_bounded_excerpt(str(exc))}") from exc
+        data = _json_loads(raw, {})
+        if not isinstance(data, dict):
+            raise SocialPublishError("x_refresh_failed", "X OAuth token response was not JSON.")
+        return data
+
+    def get_access_token(self, profile_ref: str = DEFAULT_X_SECRET_REF) -> XOAuth2AccessToken:
+        ref = str(profile_ref or "").strip()
+        if not ref:
+            raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
+        if ref.startswith("env:"):
+            return XOAuth2AccessToken(access_token=self.store.read(ref), refreshed=False)
+        refresh_token = self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        data = self._token_request({"grant_type": "refresh_token", "refresh_token": refresh_token})
+        access_token = str(data.get("access_token") or "").strip()
+        if not access_token:
+            raise SocialPublishError("x_refresh_failed", "X OAuth refresh response did not include access_token.")
+        expires_in = int(data.get("expires_in") or 7200)
+        new_refresh_token = str(data.get("refresh_token") or "").strip()
+        rotated = False
+        if new_refresh_token and new_refresh_token != refresh_token:
+            self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, new_refresh_token)
+            rotated = True
+        return XOAuth2AccessToken(access_token=access_token, refreshed=True, refresh_token_rotated=rotated)
+
+    def exchange_authorization_code(self, *, code: str, code_verifier: str, redirect_uri: str, profile_ref: str = DEFAULT_X_SECRET_REF) -> XOAuth2AccessToken:
+        data = self._token_request(
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            }
+        )
+        access_token = str(data.get("access_token") or "").strip()
+        refresh_token = str(data.get("refresh_token") or "").strip()
+        if not access_token:
+            raise SocialPublishError("x_refresh_failed", "X OAuth callback response did not include access_token.")
+        if not refresh_token:
+            raise SocialPublishError("x_refresh_failed", "X OAuth callback response did not include refresh_token. Confirm offline.access scope is enabled.")
+        self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, refresh_token)
+        return XOAuth2AccessToken(access_token=access_token, refreshed=True, refresh_token_rotated=True)
+
+
+x_oauth_token_provider = XOAuth2TokenProvider(secret_store)
+
+
+def _read_secret_token(secret_ref: str) -> str:
+    """Compatibility wrapper: return a short-lived OAuth2 access token."""
+
+    request_token = _x_publish_access_token.get()
+    if request_token and not str(secret_ref or "").strip().startswith("env:"):
+        return request_token
+    return x_oauth_token_provider.get_access_token(secret_ref).access_token
+
+
 class XApiPublisher:
     """Narrow adapter for X API publishing.
 
@@ -1567,24 +1841,23 @@ class XApiPublisher:
         path = Path(image_path)
         if not path.is_file():
             raise SocialPublishError("x_media_upload_failed", "Image asset file is missing; regenerate the image before publishing.")
-        boundary = f"----synapse-social-{uuid.uuid4().hex}"
         content_type = mimetypes.guess_type(str(path))[0] or "image/png"
-        body = b"".join(
-            [
-                f"--{boundary}\r\n".encode(),
-                f'Content-Disposition: form-data; name="media"; filename="{path.name}"\r\n'.encode(),
-                f"Content-Type: {content_type}\r\n\r\n".encode(),
-                path.read_bytes(),
-                f"\r\n--{boundary}--\r\n".encode(),
-            ]
-        )
+        payload = json.dumps(
+            {
+                "media": base64.b64encode(path.read_bytes()).decode("ascii"),
+                "media_category": "tweet_image",
+                "media_type": content_type,
+                "shared": False,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
         request = urllib.request.Request(
             X_MEDIA_UPLOAD_URL,
-            data=body,
+            data=payload,
             method="POST",
             headers={
                 "Authorization": f"Bearer {token}",
-                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Content-Type": "application/json",
             },
         )
         try:
@@ -1593,14 +1866,22 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_auth_failed", "X media upload authentication failed. Update the OAuth user token secret.") from exc
+                raise SocialPublishError("x_media_upload_auth_failed", "X media upload authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X media upload rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_media_upload_failed", f"X media upload returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
         except Exception as exc:  # pragma: no cover - network/credential dependent
             raise SocialPublishError("x_media_upload_failed", f"X media upload failed: {_bounded_excerpt(str(exc))}") from exc
         data = _json_loads(raw, {})
-        media_id = str((data.get("media_id_string") if isinstance(data, dict) else "") or (data.get("media_id") if isinstance(data, dict) else "") or "").strip()
+        data_obj = (data.get("data") if isinstance(data, dict) else {}) or {}
+        media_id = str(
+            (data_obj.get("id") if isinstance(data_obj, dict) else "")
+            or (data_obj.get("media_id") if isinstance(data_obj, dict) else "")
+            or (data_obj.get("media_key") if isinstance(data_obj, dict) else "")
+            or (data.get("media_id_string") if isinstance(data, dict) else "")
+            or (data.get("media_id") if isinstance(data, dict) else "")
+            or ""
+        ).strip()
         if not media_id:
             raise SocialPublishError("x_media_upload_failed", "X media upload response did not include media_id.")
         return media_id
@@ -1626,7 +1907,7 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_auth_failed", "X API authentication failed. Update the OAuth user token secret.") from exc
+                raise SocialPublishError("x_publish_auth_failed", "X API authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X API rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_api_failed", f"X API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -1639,42 +1920,19 @@ class XApiPublisher:
         return XPublishResult(post_id=post_id, response_summary={"data": {"id": post_id}, "media_ids": media_ids or []})
 
 
-def _read_secret_token(secret_ref: str) -> str:
-    ref = str(secret_ref or "").strip()
-    if not ref:
-        raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
-    if ref.startswith("env:"):
-        value = os.environ.get(ref.removeprefix("env:"), "")
-        if not value:
-            raise SocialPublishError("x_auth_failed", "X credential environment variable is missing.")
-        return value
-    try:
-        from google.cloud import secretmanager  # type: ignore
-    except Exception as exc:  # pragma: no cover - optional production dependency
-        raise SocialPublishError("x_auth_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
-    project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("STAGING_GCP_PROJECT_ID")
-    if not project_id and not ref.startswith("projects/"):
-        raise SocialPublishError("x_auth_failed", "GCP project id is required to read the X credential secret.")
-    secret_name = ref if ref.startswith("projects/") else f"projects/{project_id}/secrets/{ref}/versions/latest"
-    try:
-        response = secretmanager.SecretManagerServiceClient().access_secret_version(request={"name": secret_name})
-    except Exception as exc:  # pragma: no cover - credential dependent
-        raise SocialPublishError("x_auth_failed", f"Secret Manager read failed: {_bounded_excerpt(str(exc))}") from exc
-    token = response.payload.data.decode("utf-8", errors="replace").strip()
-    if not token:
-        raise SocialPublishError("x_auth_failed", "X credential secret is empty.")
-    return token
-
-
 x_publisher: XApiPublisher = XApiPublisher()
+
+
+def _publisher_uses_real_x_http() -> bool:
+    return getattr(getattr(x_publisher, "publish_text", None), "__func__", None) is XApiPublisher.publish_text
 
 
 def publish_social_post_to_x(db: Session, post_id: int, body: SocialPostPublishRequest) -> SocialPostDraftOut:
     row = _get_post(db, post_id)
     if row.platform != "x":
         raise ValueError("only X publishing is supported in v1")
-    if row.status != "approved":
-        raise ValueError("only approved social drafts can be published to X")
+    if row.status not in {"approved", "failed"}:
+        raise ValueError("only approved or failed social drafts can be published to X")
     policy = run_content_policy_check(row.body_text)
     row.policy_check_json = _json_dumps(policy)
     if policy["status"] != "passed":
@@ -1692,7 +1950,20 @@ def publish_social_post_to_x(db: Session, post_id: int, body: SocialPostPublishR
     _record_event(db, row, "publish_requested", actor=body.actor, summary="Human requested X publish.")
     db.commit()
     db.refresh(row)
+    token_context = None
     try:
+        if _publisher_uses_real_x_http():
+            token_result = x_oauth_token_provider.get_access_token(row.account.secret_ref)
+            token_context = _x_publish_access_token.set(token_result.access_token)
+            if token_result.refreshed:
+                _record_event(
+                    db,
+                    row,
+                    "x_token_refreshed",
+                    actor=body.actor,
+                    summary="Refreshed X OAuth2 access token for this publish attempt.",
+                    payload={"refresh_token_rotated": token_result.refresh_token_rotated},
+                )
         media_ids: list[str] = []
         for media in active_image_assets:
             if media.x_media_id:
@@ -1725,6 +1996,9 @@ def publish_social_post_to_x(db: Session, post_id: int, body: SocialPostPublishR
         db.commit()
         db.refresh(row)
         return _post_out(row)
+    finally:
+        if token_context is not None:
+            _x_publish_access_token.reset(token_context)
 
     row.status = "published"
     row.external_post_id = result.post_id

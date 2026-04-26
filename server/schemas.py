@@ -1345,10 +1345,24 @@ class SocialAccountOut(BaseModel):
     display_name: Optional[str] = None
     secret_ref: str
     status: str = "active"
+    auth_status: str = "unknown"
+    auth_message: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class SocialXOAuthStartOut(BaseModel):
+    auth_url: str
+    state: str
+    expires_at: Optional[datetime] = None
+
+
+class SocialXOAuthCallbackOut(BaseModel):
+    status: str
+    account_handle: str
+    message: str
 
 
 class SocialPolicyCheckOut(BaseModel):

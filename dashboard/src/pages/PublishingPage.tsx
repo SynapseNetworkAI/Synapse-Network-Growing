@@ -78,7 +78,15 @@ function statusLabel(status: string) {
 
 function canPublish(post: SocialPostDraft) {
   const activeMedia = (post.media_assets ?? []).filter((asset) => asset.status !== 'removed')
-  return post.status === 'approved' && post.policy_check.status === 'passed' && activeMedia.every((asset) => asset.status === 'ready' || asset.status === 'uploaded')
+  return (post.status === 'approved' || post.status === 'failed') && post.policy_check.status === 'passed' && Boolean(post.body_text?.trim()) && activeMedia.every((asset) => asset.status === 'ready' || asset.status === 'uploaded')
+}
+
+function accountAuthorized(account: SocialAccount | undefined) {
+  return account?.auth_status === 'authorized'
+}
+
+function publishActionLabel(post: SocialPostDraft | null) {
+  return post?.status === 'failed' ? '重新发送' : '发布到 X'
 }
 
 function activeMediaAssets(post: SocialPostDraft | null) {
@@ -145,6 +153,7 @@ export default function PublishingPage() {
   const imageInputRef = useRef<HTMLInputElement | null>(null)
 
   const activeAccount = useMemo(() => accounts.find((account) => String(account.id) === form.accountId) ?? accounts[0], [accounts, form.accountId])
+  const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts])
   const canSave = editing ? form.bodyText.trim().length > 0 : form.prompt.trim().length > 0
   const totalPages = Math.max(1, Math.ceil(posts.length / pageSize))
   const pagedPosts = posts.slice((page - 1) * pageSize, page * pageSize)
@@ -310,6 +319,16 @@ export default function PublishingPage() {
     }, 2000)
   }
 
+  async function connectXAccount(accountId?: number | null) {
+    try {
+      const result = await api.startSocialXOAuth(accountId)
+      window.open(result.auth_url, '_blank', 'noopener,noreferrer')
+      toast.info('已打开 X 授权页面，授权完成后回到本页刷新。')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '无法启动 X 授权')
+    }
+  }
+
   async function saveDraft() {
     if (savingDraft) return
     setSavingDraft(true)
@@ -367,8 +386,15 @@ export default function PublishingPage() {
     if (!publishTarget || busyId) return
     setBusyId(publishTarget.id)
     try {
-      await api.publishSocialPostToX(publishTarget.id, { actor: 'operator' })
-      toast.success('已发布到 X')
+      const updated = await api.publishSocialPostToX(publishTarget.id, { actor: 'operator' })
+      setPosts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      if (updated.status === 'published') {
+        toast.success('已发布到 X')
+      } else if (updated.status === 'failed') {
+        toast.error(updated.failure_summary || '发送失败，请修复后重新发送')
+      } else {
+        toast.info(`发布请求已记录，当前状态：${statusLabel(updated.status)}`)
+      }
       setPublishTarget(null)
       await load()
     } catch (error) {
@@ -477,6 +503,15 @@ export default function PublishingPage() {
         description="输入 Prompt，Agent 生成 X 标题、正文和可选配图；公开发布必须由人类点击确认。v1 支持 @SynapseNetworkA 单条图文 Post。"
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {activeAccount ? (
+              accountAuthorized(activeAccount) ? (
+                <span className="rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100">X 已授权</span>
+              ) : (
+                <button type="button" className="rounded-xl border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount.id)}>
+                  连接 X 官方账号
+                </button>
+              )
+            ) : null}
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => load()}>
               刷新
             </button>
@@ -505,6 +540,11 @@ export default function PublishingPage() {
               <div className="mt-2 text-sm leading-6 text-amber-100">发布、回复、引用转发、删除均需人类确认。</div>
             </div>
           </div>
+          {activeAccount && !accountAuthorized(activeAccount) ? (
+            <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
+              X 官方账号未完成 OAuth2 授权：{activeAccount.auth_message || '需要连接 @SynapseNetworkA 后才能发布或重新发送。'}
+            </div>
+          ) : null}
           {campaignGoals[0] ? (
             <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.08] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -576,7 +616,9 @@ export default function PublishingPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
-                {pagedPosts.map((post) => (
+                {pagedPosts.map((post) => {
+                  const postAccount = accountById.get(post.account_id)
+                  return (
                   <tr key={post.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
                     <td className="max-w-[420px] px-5 py-4">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">X · @{post.account_handle ?? 'SynapseNetworkA'}</div>
@@ -631,15 +673,21 @@ export default function PublishingPage() {
                             拒绝
                           </button>
                         ) : null}
-                        {post.status === 'approved' && canPublish(post) ? (
+                        {canPublish(post) && accountAuthorized(postAccount) ? (
                           <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busyId === post.id} onClick={() => setPublishTarget(post)}>
-                            发布到 X
+                            {publishActionLabel(post)}
+                          </button>
+                        ) : null}
+                        {canPublish(post) && !accountAuthorized(postAccount) ? (
+                          <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
+                            连接 X 官方账号
                           </button>
                         ) : null}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
@@ -948,7 +996,7 @@ export default function PublishingPage() {
             ? `这会代表 @SynapseNetworkA 公开发布内容到 X，并附带 ${activeMediaAssets(publishTarget).length} 张图片。确认后不可由系统自动撤回。`
             : '这会代表 @SynapseNetworkA 公开发布内容到 X。确认后不可由系统自动撤回。'
         }
-        confirmLabel="发布到 X"
+        confirmLabel={publishActionLabel(publishTarget)}
         loading={Boolean(publishTarget && busyId === publishTarget.id)}
         onConfirm={publishToX}
         onClose={() => setPublishTarget(null)}
