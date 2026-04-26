@@ -315,6 +315,9 @@ export function OverlayModal({
       />
       <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
         <section
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
           className={cx(
             'w-full max-w-[980px] translate-y-6 rounded-[calc(var(--ops-radius-shell)-4px)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] shadow-[0_28px_90px_rgba(15,23,42,0.24)] backdrop-blur-xl transition duration-200',
             open ? 'pointer-events-auto translate-y-0' : '',

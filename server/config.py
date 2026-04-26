@@ -134,8 +134,11 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "300"))
 SOCIAL_CONTENT_LLM_PROVIDER = os.environ.get("SOCIAL_CONTENT_LLM_PROVIDER", "codex").strip().lower() or "codex"
 SOCIAL_CONTENT_LLM_MODEL = os.environ.get("SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex").strip() or "gpt-5-codex"
-SOCIAL_CONTENT_LLM_FALLBACK_MODEL = os.environ.get("SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4").strip() or "gpt-5.4"
-SOCIAL_CONTENT_LLM_TIMEOUT = int(os.environ.get("SOCIAL_CONTENT_LLM_TIMEOUT", "60"))
+SOCIAL_CONTENT_LLM_FALLBACK_MODEL = os.environ.get("SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.5,gpt-5.4").strip() or "gpt-5.5,gpt-5.4"
+SOCIAL_CONTENT_LLM_TIMEOUT = int(os.environ.get("SOCIAL_CONTENT_LLM_TIMEOUT", "180"))
+SOCIAL_IMAGE_PROVIDER = os.environ.get("SOCIAL_IMAGE_PROVIDER", "openai_images").strip().lower() or "openai_images"
+SOCIAL_IMAGE_MODEL = os.environ.get("SOCIAL_IMAGE_MODEL", "gpt-image-1.5").strip() or "gpt-image-1.5"
+SOCIAL_IMAGE_TIMEOUT = int(os.environ.get("SOCIAL_IMAGE_TIMEOUT", "90"))
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 

@@ -616,6 +616,7 @@ class SocialPostDraftRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(Text, nullable=False, default="x")
     account_id = Column(Integer, ForeignKey("social_accounts.id"), nullable=False)
+    source_type = Column(Text, nullable=False, default="manual_prompt")
     title = Column(Text)
     body_text = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="needs_review")
@@ -635,6 +636,31 @@ class SocialPostDraftRow(Base):
 
     account = relationship("SocialAccountRow")
     events = relationship("SocialPublishEventRow", order_by="SocialPublishEventRow.id", back_populates="post")
+    media_assets = relationship("SocialPostMediaAssetRow", order_by="SocialPostMediaAssetRow.id", back_populates="post")
+
+
+class SocialPostMediaAssetRow(Base):
+    __tablename__ = "social_post_media_assets"
+    __table_args__ = (
+        Index("social_post_media_assets_post_idx", "post_id"),
+        Index("social_post_media_assets_status_idx", "status"),
+        Index("social_post_media_assets_type_idx", "media_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey("social_post_drafts.id"), nullable=False)
+    media_type = Column(Text, nullable=False, default="image")
+    status = Column(Text, nullable=False, default="generating")
+    prompt = Column(Text)
+    alt_text = Column(Text)
+    local_path = Column(Text)
+    preview_url = Column(Text)
+    x_media_id = Column(Text)
+    failure_summary = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    post = relationship("SocialPostDraftRow", back_populates="media_assets")
 
 
 class SocialPublishEventRow(Base):
@@ -653,6 +679,130 @@ class SocialPublishEventRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
     post = relationship("SocialPostDraftRow", back_populates="events")
+
+
+class SocialCampaignGoalRow(Base):
+    __tablename__ = "social_campaign_goals"
+    __table_args__ = (
+        Index("social_campaign_goals_status_idx", "status"),
+        Index("social_campaign_goals_platform_idx", "platform"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    title = Column(Text, nullable=False)
+    objective = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="active")
+    cadence = Column(Text, nullable=False, default="daily")
+    content_pillars_json = Column(Text, nullable=False, default="[]")
+    success_metrics_json = Column(Text, nullable=False, default="[]")
+    created_by = Column(Text, nullable=False, default="operator")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialTrendItemRow(Base):
+    __tablename__ = "social_trend_items"
+    __table_args__ = (
+        Index("social_trend_items_status_idx", "status"),
+        Index("social_trend_items_topic_idx", "topic"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_platform = Column(Text, nullable=False, default="x")
+    source_url = Column(Text)
+    author_handle = Column(Text)
+    topic = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False)
+    relevance_score = Column(Float, nullable=False, default=0.0)
+    status = Column(Text, nullable=False, default="new")
+    collected_at = Column(DateTime, nullable=False, default=utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialWatchlistAccountRow(Base):
+    __tablename__ = "social_watchlist_accounts"
+    __table_args__ = (
+        UniqueConstraint("platform", "handle", name="social_watchlist_platform_handle_uq"),
+        Index("social_watchlist_status_idx", "status"),
+        Index("social_watchlist_category_idx", "category"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    handle = Column(Text, nullable=False)
+    display_name = Column(Text)
+    category = Column(Text, nullable=False, default="ai_agent_builder")
+    rationale = Column(Text)
+    status = Column(Text, nullable=False, default="active")
+    last_checked_at = Column(DateTime)
+    latest_summary = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialReplyItemRow(Base):
+    __tablename__ = "social_reply_items"
+    __table_args__ = (
+        UniqueConstraint("platform", "external_reply_id", name="social_reply_platform_external_uq"),
+        Index("social_reply_items_status_idx", "status"),
+        Index("social_reply_items_intent_idx", "intent"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    external_reply_id = Column(Text, nullable=False)
+    author_handle = Column(Text)
+    incoming_text = Column(Text, nullable=False)
+    intent = Column(Text, nullable=False, default="unknown")
+    suggested_reply = Column(Text)
+    risk_level = Column(Text, nullable=False, default="normal")
+    status = Column(Text, nullable=False, default="needs_review")
+    source_url = Column(Text)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialRepostCandidateRow(Base):
+    __tablename__ = "social_repost_candidates"
+    __table_args__ = (
+        Index("social_repost_candidates_status_idx", "status"),
+        Index("social_repost_candidates_score_idx", "relevance_score"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(Text, nullable=False, default="x")
+    source_url = Column(Text)
+    author_handle = Column(Text)
+    source_text = Column(Text, nullable=False)
+    suggested_quote = Column(Text)
+    relevance_score = Column(Float, nullable=False, default=0.0)
+    status = Column(Text, nullable=False, default="candidate")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SocialPostMetricRow(Base):
+    __tablename__ = "social_post_metrics"
+    __table_args__ = (
+        Index("social_post_metrics_post_idx", "post_id"),
+        Index("social_post_metrics_external_post_idx", "external_post_id"),
+        Index("social_post_metrics_observed_idx", "observed_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, ForeignKey("social_post_drafts.id"))
+    external_post_id = Column(Text)
+    impressions = Column(Integer, nullable=False, default=0)
+    likes = Column(Integer, nullable=False, default=0)
+    replies = Column(Integer, nullable=False, default=0)
+    reposts = Column(Integer, nullable=False, default=0)
+    follows = Column(Integer, nullable=False, default=0)
+    link_clicks = Column(Integer, nullable=False, default=0)
+    summary = Column(Text)
+    observed_at = Column(DateTime, nullable=False, default=utcnow)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 class RequirementDependencyRow(Base):
@@ -1520,6 +1670,27 @@ def _migrate(engine_):
             logger.info("Migrating: repairing release_tasks deployment_record foreign key")
             _rebuild_sqlite_release_tasks_with_current_fks(engine_)
             insp = inspect(engine_)
+
+    social_tables = {
+        "social_campaign_goals": SocialCampaignGoalRow,
+        "social_trend_items": SocialTrendItemRow,
+        "social_watchlist_accounts": SocialWatchlistAccountRow,
+        "social_reply_items": SocialReplyItemRow,
+        "social_repost_candidates": SocialRepostCandidateRow,
+        "social_post_metrics": SocialPostMetricRow,
+    }
+    for table_name, row_class in social_tables.items():
+        if table_name not in tables:
+            logger.info("Migrating: creating '%s' table", table_name)
+            row_class.__table__.create(bind=engine_, checkfirst=True)
+
+    if "social_post_drafts" in tables:
+        existing = {c["name"] for c in insp.get_columns("social_post_drafts")}
+        if "source_type" not in existing:
+            logger.info("Migrating: adding 'source_type' column to social_post_drafts table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE social_post_drafts ADD COLUMN source_type TEXT DEFAULT 'manual_prompt'"))
+                conn.commit()
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

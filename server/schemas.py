@@ -1368,10 +1368,25 @@ class SocialPublishEventOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class SocialPostMediaAssetOut(BaseModel):
+    id: int
+    post_id: int
+    media_type: str = "image"
+    status: str = "generating"
+    prompt: Optional[str] = None
+    alt_text: Optional[str] = None
+    preview_url: Optional[str] = None
+    x_media_id: Optional[str] = None
+    failure_summary: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 class SocialPostDraftOut(BaseModel):
     id: int
     platform: str = "x"
     account_id: int
+    source_type: str = "manual_prompt"
     account_handle: Optional[str] = None
     account_display_name: Optional[str] = None
     title: Optional[str] = None
@@ -1389,6 +1404,7 @@ class SocialPostDraftOut(BaseModel):
     external_post_id: Optional[str] = None
     external_url: Optional[str] = None
     failure_summary: Optional[str] = None
+    media_assets: list[SocialPostMediaAssetOut] = []
     events: list[SocialPublishEventOut] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -1397,6 +1413,7 @@ class SocialPostDraftOut(BaseModel):
 class SocialPostCreateRequest(BaseModel):
     platform: str = "x"
     account_id: Optional[int] = None
+    source_type: str = "manual_prompt"
     title: Optional[str] = None
     body_text: str
     status: str = "needs_review"
@@ -1411,6 +1428,8 @@ class SocialPostGenerateDraftRequest(BaseModel):
     account_id: Optional[int] = None
     prompt: str
     actor: str = "operator"
+    style_type: Optional[str] = None
+    media_mode: str = "auto"
 
 
 class SocialPostPatchRequest(BaseModel):
@@ -1431,6 +1450,107 @@ class SocialPostRewriteRequest(BaseModel):
 
 class SocialPostPublishRequest(BaseModel):
     actor: str = "operator"
+
+
+class SocialCampaignGoalOut(BaseModel):
+    id: int
+    platform: str = "x"
+    title: str
+    objective: str
+    status: str = "active"
+    cadence: str = "daily"
+    content_pillars: list[str] = []
+    success_metrics: list[str] = []
+    created_by: str = "operator"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SocialCampaignGoalCreateRequest(BaseModel):
+    title: str
+    objective: str
+    cadence: str = "daily"
+    content_pillars: list[str] = []
+    success_metrics: list[str] = []
+    created_by: str = "operator"
+
+
+class SocialTrendItemOut(BaseModel):
+    id: int
+    source_platform: str = "x"
+    source_url: Optional[str] = None
+    author_handle: Optional[str] = None
+    topic: str
+    summary: str
+    relevance_score: float = 0.0
+    status: str = "new"
+    collected_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SocialWatchlistAccountOut(BaseModel):
+    id: int
+    platform: str = "x"
+    handle: str
+    display_name: Optional[str] = None
+    category: str = "ai_agent_builder"
+    rationale: Optional[str] = None
+    status: str = "active"
+    last_checked_at: Optional[datetime] = None
+    latest_summary: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class SocialReplyItemOut(BaseModel):
+    id: int
+    platform: str = "x"
+    external_reply_id: str
+    author_handle: Optional[str] = None
+    incoming_text: str
+    intent: str = "unknown"
+    suggested_reply: Optional[str] = None
+    risk_level: str = "normal"
+    status: str = "needs_review"
+    source_url: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class SocialRepostCandidateOut(BaseModel):
+    id: int
+    platform: str = "x"
+    source_url: Optional[str] = None
+    author_handle: Optional[str] = None
+    source_text: str
+    suggested_quote: Optional[str] = None
+    relevance_score: float = 0.0
+    status: str = "candidate"
+    updated_at: Optional[datetime] = None
+
+
+class SocialPostMetricOut(BaseModel):
+    id: int
+    post_id: Optional[int] = None
+    external_post_id: Optional[str] = None
+    impressions: int = 0
+    likes: int = 0
+    replies: int = 0
+    reposts: int = 0
+    follows: int = 0
+    link_clicks: int = 0
+    summary: Optional[str] = None
+    observed_at: Optional[datetime] = None
+
+
+class SocialOpsOverviewOut(BaseModel):
+    active_goal_count: int = 0
+    draft_queue_count: int = 0
+    needs_review_count: int = 0
+    trend_count: int = 0
+    reply_needs_review_count: int = 0
+    repost_candidate_count: int = 0
+    published_count: int = 0
+    human_gate_required: bool = True
+    safety_summary: str = "Agent can draft and analyze; humans must publish, reply, repost, or delete."
 
 
 class ErrorIntakeRequest(BaseModel):

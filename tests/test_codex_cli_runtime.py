@@ -10,6 +10,7 @@ from server.services.runtime.codex_cli import (
     CodexAsyncExecResult,
     CodexExecResult,
     _build_codex_exec_command,
+    _parse_codex_exec_stdout,
     _sanitize_plugin_manifests,
     run_codex_exec,
     start_codex_exec_async,
@@ -211,6 +212,39 @@ def test_codex_cli_generic_codex_models_omit_model_flag(tmp_path):
     )
 
     assert "-m" not in command
+
+
+def test_codex_cli_json_parser_preserves_error_events():
+    stdout = "\n".join(
+        [
+            '{"type":"thread.started","thread_id":"thread-err"}',
+            '{"type":"error","message":"model requires newer Codex"}',
+            '{"type":"turn.failed","error":{"message":"turn failed because model requires newer Codex"}}',
+        ]
+    )
+
+    passthrough, text, thread_id, event_count, usage, turn_count = _parse_codex_exec_stdout(stdout)
+
+    assert text == ""
+    assert thread_id == "thread-err"
+    assert event_count == 3
+    assert turn_count == 0
+    assert usage is None
+    assert "model requires newer Codex" in passthrough
+    assert "turn failed because model requires newer Codex" in passthrough
+
+
+def test_codex_cli_json_parser_preserves_string_turn_failed_error():
+    stdout = '{"type":"turn.failed","error":"plain string failure"}'
+
+    passthrough, text, thread_id, event_count, usage, turn_count = _parse_codex_exec_stdout(stdout)
+
+    assert text == ""
+    assert thread_id is None
+    assert event_count == 1
+    assert turn_count == 0
+    assert usage is None
+    assert "plain string failure" in passthrough
 
 
 def test_codex_cli_async_runtime_clears_stale_output_before_launch(tmp_path):

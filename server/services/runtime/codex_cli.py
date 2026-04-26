@@ -354,6 +354,18 @@ def _parse_codex_exec_stdout(stdout: str | bytes) -> tuple[str, str, str | None,
                 value = str(item.get("text") or "").strip()
                 if value:
                     final_text = value
+        elif event_type == "error":
+            value = str(payload.get("message") or payload.get("error") or "").strip()
+            if value:
+                passthrough_lines.append(value)
+        elif event_type == "turn.failed":
+            error_payload = payload.get("error")
+            if isinstance(error_payload, dict):
+                value = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+            else:
+                value = str(error_payload or "").strip()
+            if value:
+                passthrough_lines.append(value)
 
     return "\n".join(passthrough_lines).strip(), final_text, thread_id, event_count, latest_usage, turn_count
 

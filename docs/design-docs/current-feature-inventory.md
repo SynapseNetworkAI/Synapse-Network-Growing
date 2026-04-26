@@ -106,16 +106,26 @@
 当前已具备：
 
 1. `/publishing` 官方账号内容发布控制面。
-2. 第一版只支持 X 平台、`@SynapseNetworkA`、纯文本单条 Post。
+2. 第一版只支持 X 平台、`@SynapseNetworkA`、单条 Post，并最多附带一张 Agent 生成的图片。
 3. `social_accounts` 保存账号投影和 Secret Manager 引用；不保存账号密码，不把 secret 返回前端。
-4. `social_post_drafts` 保存 Agent / operator 草稿、审核状态、标题、最终正文、风险检查、X post id 和失败摘要；`让 Agent 写草稿` 入口只要求 operator 输入目标 / prompt，系统生成 policy-checked 标题和正文。policy 通过时可由人类点击发布；policy 阻断时必须改写，系统不会直接发布。
-5. `social_publish_events` 保存草稿生成、编辑、拒绝、发布请求、发布成功/失败事件。
-6. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
-7. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
-8. GCP Secret Manager token 只在 `publish_x` 时读取；token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
-9. 社媒文案生成使用专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，默认 `codex / gpt-5-codex`，并提供 `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` 处理本地 Codex CLI/账号兼容性；生成时只给 Codex bounded short-form social prompt，避免复用 Planner/workflow runtime 产生验收矩阵或工程计划 JSON。
-10. 生成上下文默认注入 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 额外注入 bounded `launch-strategy` guidance。`ad-creative`、`paid-ads`、`community-marketing`、`imagegen` 不进入 v1 默认链路。
-11. Playwright E2E 包含真实 Codex 生成路径：不 mock `/api/social/posts/generate-draft`，验证标题/正文非空、正文不复制 prompt、不泄露 `/Users/` 或内部指令、policy passed，并且不点击真实 `publish-x`。
+4. `social_post_drafts` 保存 Agent / operator 草稿、审核状态、标题、最终正文、风险检查、X post id 和失败摘要；`让 Agent 写草稿` 入口只要求 operator 输入目标 / prompt，系统生成 policy-checked 标题、正文和可选图片决策。policy 通过且 media ready 时可由人类点击发布；policy 阻断或图片失败时必须改写、重新生成图片或移除图片，系统不会直接发布。
+5. `social_post_media_assets` 保存单张图片资产：`media_type=image`、生成 prompt、alt text、预览 URL、本地 runtime 路径、X media id 和失败摘要。
+6. `social_publish_events` 保存草稿生成、图片生成、图片上传、编辑、拒绝、发布请求、发布成功/失败事件。
+7. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
+8. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
+9. 有图片时 `publish-x` 必须先上传 X media，拿到 `media_id` 后再创建 Post；media upload 失败不得降级成纯文字发布。
+10. GCP Secret Manager token 只在 `publish_x` 时读取；token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
+11. 社媒文案生成使用专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，默认 `codex / gpt-5-codex`，并提供 `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` 处理本地 Codex CLI/账号兼容性；生成时只给 Codex bounded X brand/operator prompt，避免复用 Planner/workflow runtime 产生验收矩阵或工程计划 JSON。
+12. 图片生成使用 `SOCIAL_IMAGE_PROVIDER=openai_images` / `SOCIAL_IMAGE_MODEL=gpt-image-1.5`，由后端 OpenAI Images provider 生成 runtime 预览资产；Codex 内置 image_gen 只适合人工预览，不作为生产后端能力。
+13. 生成上下文默认注入 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 额外注入 bounded `launch-strategy` guidance。`ad-creative`、`paid-ads`、`community-marketing`、视频、GIF、多图和 thread 不进入 v1 默认链路。
+14. Social Publishing 不做应用层 280 字符硬限制；policy 和 UI 只展示字符数，真实平台限制由 X API 在发布时返回 root cause。
+15. 默认生成 X Premium 风格完整运营内容，不再主动优化为旧 280 字符短帖；短帖只在 operator 明确要求或材料不足时生成。
+16. Playwright E2E 包含真实 Codex 生成路径：不 mock `/api/social/posts/generate-draft`，验证标题/正文非空、正文不复制 prompt、不泄露 `/Users/` 或内部指令、policy passed，并且不点击真实 `publish-x`；图片生成 E2E 默认 mock，避免 CI 外部配额不稳定。
+17. `/publishing` 使用 Modal-only 交互：让 Agent 写草稿、编辑草稿和发布确认都必须是居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。
+18. Social Publishing UI 必须参考 vendored `ui-ux-pro-max` SaaS / Ops Console 设计约束，保持深色 cockpit、清晰状态 badge、低噪声操作和可读表单。
+19. `/publishing` 已升级为 Social Ops Center：默认按 `Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics` 展示运营链路。
+20. 新增运营对象投影：`social_campaign_goals`、`social_trend_items`、`social_watchlist_accounts`、`social_reply_items`、`social_repost_candidates`、`social_post_metrics`。这些对象默认只读或 draft-only，不会自动对 X 产生公开动作。
+21. `/publishing` 分面包括 `今日队列`、`趋势雷达`、`回帖处理`、`转发候选`、`已发布效果`、`品牌规则`。趋势采集、watchlist、回复草稿、引用转发候选和 metrics 只辅助 operator 决策；发布、回复、引用转发、删除仍必须 Human Gate。
 
 ## 5. Error Discovery And Intake Gate
 

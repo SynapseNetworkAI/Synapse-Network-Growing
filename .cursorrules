@@ -9,3 +9,10 @@ Read these first:
 For workflow, planning, scheduler, release, notification, runtime, auth, finance, settlement, or production-safety work, also read `.github/instructions/architecture-constraints.instructions.md`.
 
 Do not duplicate architecture rules here. `ARCHITECTURE.md` is the shared source for Cursor, Codex, Copilot, Gemini, and Claude.
+
+## Critical UI Rules
+
+1. NEVER USE DRAWERS for new UI work. Do not add Drawer, Slide-out, Offcanvas, Side Panel, or right-side sheet components for create, edit, view, form, confirmation, or detail interactions.
+2. ALWAYS USE CENTERED MODALS for popups, forms, confirmations, creation flows, and editing flows. The modal must be centered on screen.
+3. Modal backgrounds must use a dark overlay mask that blocks interaction with the underlying page.
+4. New Ops Console UI must follow the vendored `ui-ux-pro-max` SaaS / Ops Console design guidance from `.agents/skills/ui-ux-pro-max/SKILL.md`.

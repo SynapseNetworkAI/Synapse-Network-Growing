@@ -165,7 +165,7 @@
 1. Operator 页面必须优先展示“状态、原因、下一步动作”，而不是把 JSON、表、日志和对象列表平铺在同一个主视图。
 2. Planning Console 必须体现 `goal_key` 数据穿透：goal、candidate、requirement、workflow、release 的信息要在 goal lane 中汇聚。
 3. Candidate 不得在 Planning 主视图中作为孤立全局队列展示；审批动作必须发生在所属 goal 上下文里。
-4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、drawer 或 details 展开，不得成为默认主操作面板。
+4. Raw payload、raw JSON、raw artifact 只能通过 Debug tab、centered Modal 或 details 展开，不得成为默认主操作面板。
 5. Raw Manifest JSON 不得作为 Goal PRD/Markdown 主入口；目标长文必须通过 Goal Markdown editor 编辑。
 6. History、archive、debug 信息必须和当前操作面分离，避免遮挡 operator 当下要做的判断。
 7. Planning 主视图必须按 operator decision priority 排序：需要处理的 candidate 优先，其次已 materialized 的工作，再次是 Fail-Closed 拦截记录，最后才是 rejected / suppressed 历史。
@@ -179,14 +179,18 @@
 15. Human Gate 决策按钮必须有本地防抖和 loading/disabled 状态；`approve` 在失败场景中必须使用中性语义，例如 `确认并放行`，不得被渲染成“全绿通过”。
 16. Human Gate 决策可能异步唤醒 Runner；没有 WebSocket 时，前端必须在决策后短轮询 workflow detail，确认是否推进、完成或重新阻断，不能只凭 POST 成功显示“已解决”。
 17. Workflow Delivery Summary 必须先验证 `delivery_status` / `release_status` 是可信交付状态，再渲染 PR、branch 或 compare 字段；孤立的历史 branch / PR URL 不得让主视图展示脏交付。
-18. Social Publishing 默认视图必须人审优先：新建入口应优先让 operator 输入目标 / prompt，由 Agent 生成 policy-checked 标题和正文；policy 通过的草稿可以显示 `发布到 X`，但必须由 operator 显式点击确认；raw prompt、raw agent output、secret ref、API payload 只能放 Debug details。policy blocked 草稿不得显示可用的外部发布动作。
-19. Social Publishing 文案生成必须走专用 short-form copy provider 配置。默认可使用 Codex GPT-5，并允许显式 fallback model 处理本地 Codex CLI/账号兼容性，但只能使用社媒生成 prompt，不能复用 Planner Sweep、workflow acceptance matrix 或工程执行 prompt。若 provider 不可用、返回非 JSON、缺少 `title/body_text`、复制 prompt、泄露本地路径或输出 workflow JSON，系统必须 fail closed，不创建假草稿。
-20. Social Publishing 生成上下文必须优先读取 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 可额外使用 bounded `launch-strategy` skill。图片、视频、广告投放和跨平台分发不属于 v1 默认生成面。
+18. Social Publishing 默认视图必须人审优先：新建入口应优先让 operator 输入目标 / prompt，由 Agent 生成 policy-checked 标题、正文和可选单张图片；policy 通过且所有 active media ready 的草稿可以显示 `发布到 X`，但必须由 operator 显式点击确认；raw prompt、raw agent output、secret ref、API payload 只能放 Debug details。policy blocked 或 image failed 草稿不得显示可用的外部发布动作。
+19. Social Publishing 文案生成必须走专用 X brand/operator copy provider 配置。默认可使用 Codex GPT-5，并允许显式 fallback model 处理本地 Codex CLI/账号兼容性，但只能使用社媒生成 prompt，不能复用 Planner Sweep、workflow acceptance matrix 或工程执行 prompt。若 provider 不可用、返回非 JSON、缺少 `title/body_text/media_decision`、重复复制 prompt、泄露本地路径/secret/workflow JSON 或输出高风险金融承诺，系统必须 fail closed，不创建假草稿。
+20. Social Publishing 不得在应用层强制 280 字符限制；前端和 policy 只展示 `character_count`，X 会员/平台长度限制由 X API 在真实发布时返回并展示 root cause。
+21. Social Publishing 默认生成 X Premium 风格的完整运营内容：有 hook、有多段解释、有产品价值和可信细节；只有 operator 明确要求短帖或输入材料不足时才生成短内容。
+22. Social Publishing 生成上下文必须优先读取 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 可额外使用 bounded `launch-strategy` skill。图片生成由 `image_prompt` 进入 OpenAI Images provider；视频、GIF、多图、thread、广告投放和跨平台分发不属于 v1 默认生成面。
+23. Social Publishing 图文发布必须保持单图上限：图片 prompt 不得包含本地路径、secret、workflow JSON、内部部署细节或高风险金融承诺；X media upload 失败时必须进入 `failed`，不得悄悄降级成纯文字发布。
+24. Social Publishing 的新建、编辑、查看和发布确认必须使用居中 `Modal` / `Dialog`，并带有深色阻断遮罩；不得使用 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出详情栏。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 
 1. 每个主页面必须有文档说明页面职责、输入、输出、下一步动作和证据位置。
-2. 页面测试不得只断言 render 成功；必须覆盖主按钮、Tab、Drawer、详情跳转或空状态解释。
+2. 页面测试不得只断言 render 成功；必须覆盖主按钮、Tab、居中 Modal、详情跳转或空状态解释。
 3. 产品级 E2E 必须保留 dogfood 证据，包括截图、复现步骤、浏览器 console/network 结果和 DB lineage summary。
 4. 证明新架构可跑通时，必须沿 `Operating Manifest -> RequirementCandidate -> Requirement -> WorkflowRun -> Evidence` 验证数据穿透。
 5. 测试和 dogfood 默认禁止真实 Lark、生产发布、资金、auth、合约和外部付费副作用。
@@ -247,15 +251,20 @@ Release 负责：
 
 Social Publishing 负责：
 
-1. Agent 根据 operator 输入的目标 / prompt 生成官方账号内容标题和正文。
+1. Agent 根据 operator 输入的目标 / prompt 生成官方账号内容标题、正文和可选单张图片 prompt。
 2. 人类检查、编辑、拒绝，或在 policy 通过后显式点击发布。
-3. 人类点击确认后通过平台 API 发布，并保存外部 post id、错误摘要和事件历史。
+3. 人类点击确认后通过平台 API 发布；如有图片，必须先上传 media 并带 `media_ids` 创建 X Post，并保存外部 post id、media id、错误摘要和事件历史。
 4. 真实 E2E 必须能证明 Codex 生成的正文不是 prompt 原文，不包含本地路径、内部指令、workflow JSON 或 acceptance matrix，且不会在测试中真实发布到 X。
+5. 长文由模型和人审决定，系统只把字符数作为审核信息展示，不用 280 字符硬门禁替代 X API 的真实平台反馈。
+6. 图片生成失败或 X media upload 失败必须可见并阻断发布，不得伪造图片或降级成纯文字发布。
+7. Social Ops Center 必须以目标驱动组织运营：`Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics`。
+8. 趋势雷达、watchlist、回帖处理、引用转发候选和发布效果 metrics 只能作为 read-only / draft-only 决策输入；它们不能自动点赞、关注、回复、转发或发布。
+9. 第三方增长工具只能作为只读素材源或草稿源接入，必须通过内部 brand refinement、risk evidence gate 和 Human Gate 后才能对外行动。
 
 Social Publishing 不得承担：
 
 1. 账号密码网页登录自动化。
-2. 未经人类确认的自动发帖、删帖、thread 扩展或跨平台群发。
+2. 未经人类确认的自动发帖、删帖、thread 扩展、视频/GIF、多图或跨平台群发。
 3. 凭据编辑或 Secret Manager 写入。
 4. 将 X API token、Authorization header、raw API payload 暴露到前端或日志。
 
@@ -381,9 +390,10 @@ Social Publishing 不得承担：
 4. Requirement、Execution、Release 三面必须使用各自独立的页面模板，不得继续复用万能卡片页模板。
 5. 颜色只承担状态和强调，不承担大面积装饰；工作台不是营销页。
 6. 新 UI 必须优先复用统一的 workbench shell、section、inspector、activity feed 和 state badge 结构。
-7. 列表页默认不承载常驻 create/edit 大表单；新增与编辑应优先采用 `Toolbar + Drawer` 模式。
+7. 列表页默认不承载常驻 create/edit 大表单；新增、编辑、查看和确认必须优先采用 `Toolbar + centered Modal/Dialog` 模式。Drawer、Slide-out、Offcanvas、Side Panel 和右侧滑出面板属于 legacy debt，新 UI 不得复制。
 8. Requirement create 只采集最小 intent；acceptance 默认由 agent 在创建后生成，并允许在详情页修订。
 9. 禁止继续使用浏览器原生 `alert / confirm`；危险操作必须使用统一确认弹窗，成功/失败反馈优先使用统一 toast。
+10. 新 UI 必须参考 `.agents/skills/ui-ux-pro-max/SKILL.md` 的 SaaS / Ops Console 设计系统建议，并保持深色 cockpit 的清晰层级、状态 badge、低噪声操作区和可读表单。
 
 ## 14. 前端防回潮约束
 

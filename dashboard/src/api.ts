@@ -36,6 +36,37 @@ async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUE
   return res.json()
 }
 
+async function requestForm<T>(path: string, formData: FormData, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+  let res: Response
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      const timeoutError = new Error(`Request timed out after ${timeoutMs / 1000}s`) as ApiError
+      timeoutError.detail = { message: 'request_timeout', timeout_ms: timeoutMs }
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    const detail = body.detail
+    const message = formatApiErrorMessage(res.status, body)
+    const error = new Error(message) as ApiError
+    error.detail = detail ?? body
+    throw error
+  }
+  return res.json()
+}
+
 function formatApiErrorMessage(status: number, body: { detail?: unknown; message?: unknown }): string {
   const detail = body.detail
   if (typeof detail === 'string' && detail.trim()) return detail
@@ -1324,11 +1355,12 @@ export interface SocialPostDraft {
   id: number
   platform: 'x' | string
   account_id: number
+  source_type: string
   account_handle: string | null
   account_display_name: string | null
   title: string | null
   body_text: string
-  status: 'draft' | 'needs_review' | 'approved' | 'publishing' | 'published' | 'failed' | 'rejected' | string
+  status: 'draft' | 'generating' | 'needs_review' | 'approved' | 'publishing' | 'published' | 'failed' | 'rejected' | string
   generated_by: string
   reviewed_by: string | null
   review_note: string | null
@@ -1341,9 +1373,116 @@ export interface SocialPostDraft {
   external_post_id: string | null
   external_url: string | null
   failure_summary: string | null
+  media_assets: SocialPostMediaAsset[]
   events: SocialPublishEvent[]
   created_at: string | null
   updated_at: string | null
+}
+
+export interface SocialPostMediaAsset {
+  id: number
+  post_id: number
+  media_type: 'image' | string
+  status: 'generating' | 'ready' | 'uploaded' | 'failed' | 'removed' | string
+  prompt: string | null
+  alt_text: string | null
+  preview_url: string | null
+  x_media_id: string | null
+  failure_summary: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SocialOpsOverview {
+  active_goal_count: number
+  draft_queue_count: number
+  needs_review_count: number
+  trend_count: number
+  reply_needs_review_count: number
+  repost_candidate_count: number
+  published_count: number
+  human_gate_required: boolean
+  safety_summary: string
+}
+
+export interface SocialCampaignGoal {
+  id: number
+  platform: string
+  title: string
+  objective: string
+  status: string
+  cadence: string
+  content_pillars: string[]
+  success_metrics: string[]
+  created_by: string
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SocialTrendItem {
+  id: number
+  source_platform: string
+  source_url: string | null
+  author_handle: string | null
+  topic: string
+  summary: string
+  relevance_score: number
+  status: string
+  collected_at: string | null
+  updated_at: string | null
+}
+
+export interface SocialWatchlistAccount {
+  id: number
+  platform: string
+  handle: string
+  display_name: string | null
+  category: string
+  rationale: string | null
+  status: string
+  last_checked_at: string | null
+  latest_summary: string | null
+  updated_at: string | null
+}
+
+export interface SocialReplyItem {
+  id: number
+  platform: string
+  external_reply_id: string
+  author_handle: string | null
+  incoming_text: string
+  intent: string
+  suggested_reply: string | null
+  risk_level: string
+  status: string
+  source_url: string | null
+  updated_at: string | null
+}
+
+export interface SocialRepostCandidate {
+  id: number
+  platform: string
+  source_url: string | null
+  author_handle: string | null
+  source_text: string
+  suggested_quote: string | null
+  relevance_score: number
+  status: string
+  updated_at: string | null
+}
+
+export interface SocialPostMetric {
+  id: number
+  post_id: number | null
+  external_post_id: string | null
+  impressions: number
+  likes: number
+  replies: number
+  reposts: number
+  follows: number
+  link_clicks: number
+  summary: string | null
+  observed_at: string | null
 }
 
 export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
@@ -2414,6 +2553,21 @@ export const api = {
       body: JSON.stringify({ dry_run: false, triggered_by: 'operator' }),
     }),
   getSocialAccounts: () => request<SocialAccount[]>('/social/accounts'),
+  getSocialOpsOverview: () => request<SocialOpsOverview>('/social/ops/overview'),
+  getSocialCampaignGoals: () => request<SocialCampaignGoal[]>('/social/campaign-goals'),
+  createSocialCampaignGoal: (data: {
+    title: string
+    objective: string
+    cadence?: string
+    content_pillars?: string[]
+    success_metrics?: string[]
+    created_by?: string
+  }) => request<SocialCampaignGoal>('/social/campaign-goals', { method: 'POST', body: JSON.stringify(data) }),
+  getSocialTrends: () => request<SocialTrendItem[]>('/social/trends'),
+  getSocialWatchlist: () => request<SocialWatchlistAccount[]>('/social/watchlist'),
+  getSocialReplies: () => request<SocialReplyItem[]>('/social/replies'),
+  getSocialRepostCandidates: () => request<SocialRepostCandidate[]>('/social/repost-candidates'),
+  getSocialPostMetrics: () => request<SocialPostMetric[]>('/social/post-metrics'),
   getSocialPosts: (filters?: { status?: string }) => {
     const params = new URLSearchParams()
     if (filters?.status) params.set('status', filters.status)
@@ -2423,6 +2577,7 @@ export const api = {
   createSocialPost: (data: {
     platform?: 'x'
     account_id?: number | null
+    source_type?: string
     title?: string | null
     body_text: string
     status?: string
@@ -2432,7 +2587,7 @@ export const api = {
     agent_rationale?: string | null
     raw_agent_output?: Record<string, unknown>
   }) => request<SocialPostDraft>('/social/posts', { method: 'POST', body: JSON.stringify(data) }),
-  generateSocialPostDraft: (data: { account_id?: number | null; prompt: string; actor?: string }) =>
+  generateSocialPostDraft: (data: { account_id?: number | null; prompt: string; actor?: string; style_type?: string; media_mode?: string }) =>
     request<SocialPostDraft>('/social/posts/generate-draft', { method: 'POST', body: JSON.stringify(data) }, 90_000),
   updateSocialPost: (
     id: number,
@@ -2451,6 +2606,17 @@ export const api = {
     request<SocialPostDraft>(`/social/posts/${id}/request-rewrite`, { method: 'POST', body: JSON.stringify(data || {}) }),
   publishSocialPostToX: (id: number, data?: { actor?: string }) =>
     request<SocialPostDraft>(`/social/posts/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  regenerateSocialPostImage: (id: number, data?: { actor?: string }) =>
+    request<SocialPostDraft>(`/social/posts/${id}/regenerate-image`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  removeSocialPostMedia: (postId: number, mediaId: number) =>
+    request<SocialPostDraft>(`/social/posts/${postId}/media/${mediaId}`, { method: 'DELETE' }),
+  uploadSocialPostImage: (postId: number, file: File, data?: { actor?: string; alt_text?: string | null }) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('actor', data?.actor || 'operator')
+    if (data?.alt_text) formData.append('alt_text', data.alt_text)
+    return requestForm<SocialPostDraft>(`/social/posts/${postId}/media/upload`, formData, 60_000)
+  },
 
   getErrors: () => request<ErrorFingerprint[]>('/errors'),
   getErrorDetail: (fingerprintKey: string) => request<ErrorFingerprintDetail>(`/errors/${encodeURIComponent(fingerprintKey)}`),

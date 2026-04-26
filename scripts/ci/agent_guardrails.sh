@@ -67,6 +67,40 @@ search_text "Acceptance Matrix Is Executable Contract|liveness diagnostic only|r
   docs/design-docs/system-design-principles.md \
   docs/design-docs/current-feature-inventory.md >/dev/null
 
+echo "[guardrails] social publishing modal-only UI"
+if search_text "OverlayDrawer|Drawer|Offcanvas|SidePanel|Side Panel" dashboard/src/pages/PublishingPage.tsx; then
+  echo "PublishingPage must use centered Modal/Dialog interactions, not drawers or side panels." >&2
+  exit 1
+fi
+search_text "ui-ux-pro-max" \
+  .cursorrules \
+  docs/design-docs/frontend-control-plane-figma-implementation.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+search_text "Modal-only" \
+  .cursorrules \
+  docs/design-docs/frontend-control-plane-figma-implementation.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+search_text "NEVER USE DRAWERS" \
+  .cursorrules \
+  docs/design-docs/frontend-control-plane-figma-implementation.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+search_text "应用层强制 280|character_count" \
+  ARCHITECTURE.md \
+  docs/design-docs/system-design-principles.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+search_text "social_post_media_assets|SOCIAL_IMAGE_PROVIDER|media_ids" \
+  ARCHITECTURE.md \
+  docs/design-docs/system-design-principles.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+search_text "Social Ops Center|Trend Radar|Reply Inbox|Repost Candidates|Observe Metrics" \
+  ARCHITECTURE.md \
+  docs/design-docs/system-design-principles.md \
+  docs/design-docs/current-feature-inventory.md >/dev/null
+if search_text "under 280 characters|x_post_exceeds_280_characters|/280" server/services/social/publishing.py dashboard/src/pages/PublishingPage.tsx dashboard/src/api.ts; then
+  echo "Social Publishing must not reintroduce app-level 280-character hard limits." >&2
+  exit 1
+fi
+
 echo "[guardrails] whitespace"
 git diff --check
 

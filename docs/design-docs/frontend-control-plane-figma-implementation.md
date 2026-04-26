@@ -69,7 +69,19 @@ System Ops
 - Human-readable UI uses Inter/Fira Sans; machine data uses JetBrains Mono/Fira Code.
 - AI output is rendered as a Reasoning Card with an accent rail.
 - High-risk gates use amber or rose treatments and must expose evidence.
-- Raw JSON must not be the primary UI; it belongs in Debug drawers/tabs.
+- Raw JSON must not be the primary UI; it belongs in Debug tabs, centered modals, or `<details>`.
+
+## ui-ux-pro-max SaaS Design Constraint
+
+New Ops Console UI work must reference the vendored `ui-ux-pro-max` skill before implementation:
+
+```bash
+python3 .agents/skills/ui-ux-pro-max/scripts/search.py "SaaS ops console dark control plane social publishing modal" --design-system -p "Synapse Agent Ops"
+```
+
+Use the resulting SaaS / Ops Console guidance as a constraint, not a wholesale theme replacement: preserve the dark cockpit shell, prefer clear hierarchy, concise status badges, low-noise actions, strong focus states, and readable modal forms.
+
+For new create, edit, view, form, and confirmation interactions, the approved popup primitive is a centered `Modal` / `Dialog` with a dark blocking overlay. Do not introduce Drawer, Slide-out, Offcanvas, Side Panel, or right-side sheet interactions for new UI work. Existing drawers are legacy debt and should not be copied.
 
 ## Readability Contract
 
@@ -82,7 +94,7 @@ Dark cockpit pages must be readable before they are visually clever. Any fronten
 - Buttons that create new business objects must use operator language. For example, use `创建后续需求` with helper text instead of the ambiguous `Create Follow-up Requirement`.
 - `Open PR` must link to a real GitHub PR URL when delivery is real. If delivery is simulated, the page must say so clearly and must not imply an external PR exists.
 - Workflow verification must display command evidence. A completed run without command evidence is not considered fully observable.
-- Dense cockpit cards must enforce readable density with line-clamp, max-height, drawers, or `<details>` for long content.
+- Dense cockpit cards must enforce readable density with line-clamp, max-height, centered modals, or `<details>` for long content.
 - Long-form Markdown is never a card body in dense operator views. Goal PRDs, Candidate descriptions, Planner raw output and metadata dumps must be opt-in.
 - Fail-Closed / validation_failed drafts must be grouped as diagnostic intercepts, not mixed into the main active-work stream.
 - Mission-control planning pages must use `Active / Achieved / Dropped` grouping. Active work is expanded first; historical groups are collapsed, searchable, and use virtualized history when large.

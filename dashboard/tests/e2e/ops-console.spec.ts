@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 const routes = [
   { path: '/command-center', title: '司令部' },
@@ -50,7 +51,22 @@ type MockSocialPost = {
   external_post_id: string | null
   external_url: string | null
   failure_summary: string | null
+  media_assets: MockSocialMediaAsset[]
   events: unknown[]
+  created_at: string
+  updated_at: string
+}
+
+type MockSocialMediaAsset = {
+  id: number
+  post_id: number
+  media_type: 'image'
+  status: string
+  prompt: string | null
+  alt_text: string | null
+  preview_url: string | null
+  x_media_id: string | null
+  failure_summary: string | null
   created_at: string
   updated_at: string
 }
@@ -65,7 +81,6 @@ function json(route: Route, body: unknown, status = 200) {
 
 function socialPolicyCheck(bodyText: string): MockSocialPost['policy_check'] {
   const blockedReasons: string[] = []
-  if (bodyText.length > 280) blockedReasons.push('body_text exceeds X character limit')
   if (/guaranteed|risk-free|send funds|收益保证|稳赚/i.test(bodyText)) {
     blockedReasons.push('public post contains unsafe financial promise')
   }
@@ -90,12 +105,14 @@ function writeSocialDogfoodReport({
   consoleErrors,
   networkEvents,
   details,
+  bugfixRequired,
 }: {
   status: 'passed' | 'failed'
   screenshotPath?: string
   consoleErrors: string[]
   networkEvents: string[]
   details: string[]
+  bugfixRequired?: string[]
 }) {
   const outDir = socialDogfoodDir()
   fs.mkdirSync(path.join(outDir, 'screenshots'), { recursive: true })
@@ -126,13 +143,105 @@ function writeSocialDogfoodReport({
     '',
     networkEvents.length ? networkEvents.map((line) => `- ${line}`).join('\n') : '- none',
     '',
+    '## Bugfix Required',
+    '',
+    bugfixRequired?.length ? bugfixRequired.map((line) => `- ${line}`).join('\n') : '- none',
+    '',
   ].join('\n')
   fs.writeFileSync(path.join(outDir, 'report.md'), report, 'utf-8')
+}
+
+function pythonBin() {
+  const configured = process.env.PYTHON_BIN
+  if (configured && fs.existsSync(configured)) return configured
+  const local = '/Users/cliff/workspace/agent/.venv/bin/python'
+  if (fs.existsSync(local)) return local
+  return 'python3'
+}
+
+function querySocialDraftMaxId() {
+  const dbPath = fs.existsSync(path.resolve(process.cwd(), '..', '.playwright', 'ops-e2e.sqlite'))
+    ? '.playwright/ops-e2e.sqlite'
+    : 'server/ops.db'
+  const script = `
+import sqlite3
+conn = sqlite3.connect(${JSON.stringify(dbPath)})
+row = conn.execute("select coalesce(max(id), 0) from social_post_drafts").fetchone()
+print(row[0] or 0)
+`
+  return Number(execFileSync(pythonBin(), ['-c', script], { cwd: path.resolve(process.cwd(), '..'), encoding: 'utf-8' }).trim() || '0')
+}
+
+function queryLatestSocialDraftAfter(minId: number) {
+  const dbPath = fs.existsSync(path.resolve(process.cwd(), '..', '.playwright', 'ops-e2e.sqlite'))
+    ? '.playwright/ops-e2e.sqlite'
+    : 'server/ops.db'
+  const script = `
+import json, sqlite3, sys
+min_id = int(sys.argv[1])
+conn = sqlite3.connect(${JSON.stringify(dbPath)})
+conn.row_factory = sqlite3.Row
+row = conn.execute(
+    "select id, title, body_text, status, policy_check_json, raw_agent_output_json from social_post_drafts where id > ? order by id desc limit 1",
+    (min_id,),
+).fetchone()
+if row is None:
+    print("{}")
+else:
+    payload = dict(row)
+    for key in ("policy_check_json", "raw_agent_output_json"):
+        try:
+            payload[key.removesuffix("_json")] = json.loads(payload.pop(key) or "{}")
+        except Exception:
+            payload[key.removesuffix("_json")] = {}
+    print(json.dumps(payload, ensure_ascii=False))
+`
+  const raw = execFileSync(pythonBin(), ['-c', script, String(minId)], { cwd: path.resolve(process.cwd(), '..'), encoding: 'utf-8' })
+  return JSON.parse(raw || '{}') as {
+    id?: number
+    title?: string
+    body_text?: string
+    status?: string
+    policy_check?: { status?: string; character_count?: number }
+    raw_agent_output?: Record<string, unknown>
+  }
+}
+
+function latestSocialBackendLogExcerpt() {
+  const logPath = path.resolve(process.cwd(), '..', 'server', 'logs', 'ops-dashboard.jsonl')
+  if (!fs.existsSync(logPath)) return 'server log not found'
+  const lines = fs.readFileSync(logPath, 'utf-8').split(/\r?\n/).filter(Boolean)
+  return lines
+    .slice(-300)
+    .filter((line) => /social|generate-draft|codex_cli_exec|agent_generation/i.test(line))
+    .slice(-20)
+    .join('\n')
+    .slice(0, 4000)
+}
+
+async function recordSocialDogfoodBug(page: Page, summary: string, logExcerpt: string) {
+  await page.request
+    .post('/api/bugs/intake', {
+      data: {
+        source_key: 'manual_bug_report',
+        project_key: 'synapse-network-growing',
+        project_root_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing',
+        title: 'Social Publishing real Codex generation E2E failed',
+        summary,
+        severity: 'high',
+        source_ref: 'dogfood:social-publishing-real-generation',
+        environment: 'local',
+        log_excerpt: logExcerpt,
+        metadata: { component: 'social_publishing', test_name: 'Social Publishing real Codex draft generation succeeds' },
+      },
+    })
+    .catch(() => undefined)
 }
 
 async function installMockSocialApi(page: Page) {
   const posts: MockSocialPost[] = []
   let nextPostId = 7001
+  let nextMediaId = 9001
   const now = () => new Date().toISOString()
   const account = {
     id: 1,
@@ -196,6 +305,7 @@ async function installMockSocialApi(page: Page) {
         external_post_id: null,
         external_url: null,
         failure_summary: null,
+        media_assets: [],
         events: [],
         created_at: timestamp,
         updated_at: timestamp,
@@ -210,6 +320,7 @@ async function installMockSocialApi(page: Page) {
         account_id?: number | null
         prompt: string
         actor?: string
+        media_mode?: string
       }
       const timestamp = now()
       const unsafeMatch = payload.prompt.match(/Unsafe X draft \d+/)
@@ -218,8 +329,23 @@ async function installMockSocialApi(page: Page) {
         ? 'Guaranteed risk-free returns. Send funds now.'
         : 'Synapse now has a simpler human-gated X publishing flow: prompt in, polished post out, operator click to publish.'
       const policyCheck = socialPolicyCheck(bodyText)
+      const postId = nextPostId++
+      const mediaId = nextMediaId++
+      const mediaAssets: MockSocialMediaAsset[] = payload.media_mode === 'text_only' ? [] : [{
+        id: mediaId,
+        post_id: postId,
+        media_type: 'image',
+        status: 'ready',
+        prompt: 'Dark SaaS visual of AI agents connected through a settlement layer.',
+        alt_text: 'AI agents connected by the Synapse Network settlement layer.',
+        preview_url: `/api/social/media/${mediaId}/preview`,
+        x_media_id: null,
+        failure_summary: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }]
       const post: MockSocialPost = {
-        id: nextPostId++,
+        id: postId,
         platform: 'x',
         account_id: payload.account_id ?? account.id,
         account_handle: account.handle,
@@ -239,12 +365,22 @@ async function installMockSocialApi(page: Page) {
         external_post_id: null,
         external_url: null,
         failure_summary: null,
+        media_assets: mediaAssets,
         events: [],
         created_at: timestamp,
         updated_at: timestamp,
       }
       posts.unshift(post)
       await json(route, post)
+      return
+    }
+
+    if (/^\/api\/social\/media\/\d+\/preview$/.test(url.pathname) && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from('fake-image'),
+      })
       return
     }
 
@@ -289,6 +425,7 @@ async function installMockSocialApi(page: Page) {
     if (action === 'publish-x' && method === 'POST') {
       post.status = 'published'
       post.reviewed_by = post.reviewed_by ?? 'operator'
+      post.media_assets = post.media_assets.map((asset) => ({ ...asset, status: 'uploaded', x_media_id: asset.x_media_id ?? `mock-media-${asset.id}` }))
       post.published_at = now()
       post.external_post_id = '1800000000000000002'
       post.external_url = 'https://x.com/SynapseNetworkA/status/1800000000000000002'
@@ -406,12 +543,15 @@ test('Social Publishing operator can generate and mock publish an X draft', asyn
   await expect(page.getByRole('heading', { name: '让 Agent 写草稿' })).toBeVisible()
 
   await page.getByLabel('目标 / Prompt').fill(prompt)
+  await expect(page.getByLabel('媒体策略')).toHaveValue('auto')
   await page.getByRole('button', { name: '生成草稿' }).click()
 
   const draftRow = page.getByRole('row').filter({ hasText: title })
   await expect(draftRow).toBeVisible()
   await expect(draftRow.getByText('可发布')).toBeVisible()
   await expect(draftRow.getByText('prompt in, polished post out')).toBeVisible()
+  await expect(draftRow.getByText('图片已生成')).toBeVisible()
+  await expect(draftRow.getByAltText('AI agents connected by the Synapse Network settlement layer.')).toBeVisible()
   await expect(draftRow.getByText(prompt)).toHaveCount(0)
   await expect(draftRow.getByText('目标受众')).toHaveCount(0)
   await expect(draftRow.getByText('CTA')).toHaveCount(0)
@@ -421,6 +561,7 @@ test('Social Publishing operator can generate and mock publish an X draft', asyn
 
   await draftRow.getByRole('button', { name: '发布到 X' }).click()
   await expect(page.getByRole('heading', { name: '确认发布到 X' })).toBeVisible()
+  await expect(page.getByText(/附带 1 张图片/)).toBeVisible()
   await page.getByRole('button', { name: '发布到 X' }).last().click()
 
   const publishedRow = page.getByRole('row').filter({ hasText: title })
@@ -456,7 +597,10 @@ test('Social Publishing real Codex draft generation succeeds', async ({ page }, 
   const consoleErrors: string[] = []
   const networkEvents: string[] = []
   const details: string[] = []
-  const screenshotPath = path.join(socialDogfoodDir(), 'screenshots', 'publishing-page.png')
+  const bugfixRequired: string[] = []
+  const screenshotPath = path.join(socialDogfoodDir(), 'screenshots', 'generated-draft.png')
+  const beforeMaxId = querySocialDraftMaxId()
+  details.push(`Starting social_post_drafts max id: ${beforeMaxId}`)
 
   page.on('pageerror', (error) => consoleErrors.push(error.message))
   page.on('console', (message) => {
@@ -480,22 +624,32 @@ test('Social Publishing real Codex draft generation succeeds', async ({ page }, 
 
     const firstRow = page.locator('tbody tr').first()
     await expect(firstRow, 'real Codex generation should create a new visible draft row').toBeVisible({ timeout: 90_000 })
-    await expect(firstRow.getByRole('button', { name: '发布到 X' }), 'real E2E validates publish readiness but must not click publish').toBeVisible({ timeout: 10_000 })
+    await expect(firstRow.getByRole('button', { name: '发布到 X' }), 'real E2E validates publish readiness but must not click publish').toBeVisible({ timeout: 90_000 })
 
     const postsResponse = await page.request.get('/api/social/posts')
     expect(postsResponse.ok()).toBeTruthy()
     const posts = await postsResponse.json()
     expect(Array.isArray(posts)).toBeTruthy()
     const newest = posts[0]
+    const dbNewest = queryLatestSocialDraftAfter(beforeMaxId)
+    expect(dbNewest.id, 'a new social_post_drafts row should be inserted').toBeGreaterThan(beforeMaxId)
     expect(newest.title?.trim()).toBeTruthy()
     expect(newest.body_text?.trim()).toBeTruthy()
+    expect(dbNewest.title?.trim()).toBeTruthy()
+    expect(dbNewest.body_text?.trim()).toBeTruthy()
     expect(newest.body_text).not.toBe(realCodexSocialPrompt)
+    expect(dbNewest.body_text).not.toBe(realCodexSocialPrompt)
     expect(newest.body_text.length).toBeLessThanOrEqual(280)
+    expect(dbNewest.body_text!.length).toBeLessThanOrEqual(280)
     expect(newest.policy_check?.status).toBe('passed')
+    expect(dbNewest.policy_check?.status).toBe('passed')
     expect(newest.status).toBe('approved')
+    expect(dbNewest.status).toBe('approved')
     for (const forbidden of ['/Users/', '读取', '给出文档', '如何发布', '生成第一篇']) {
       expect(newest.body_text).not.toContain(forbidden)
       expect(newest.title).not.toContain(forbidden)
+      expect(dbNewest.body_text).not.toContain(forbidden)
+      expect(dbNewest.title).not.toContain(forbidden)
     }
     expect(JSON.stringify(newest).toLowerCase()).not.toContain('acceptance matrix')
     expect(JSON.stringify(newest).toLowerCase()).not.toContain('required_commands')
@@ -504,7 +658,8 @@ test('Social Publishing real Codex draft generation succeeds', async ({ page }, 
     details.push(`Generated title: ${newest.title}`)
     details.push(`Generated body_text: ${newest.body_text}`)
     details.push(`Post id: ${newest.id}`)
-    writeSocialDogfoodReport({ status: 'passed', screenshotPath, consoleErrors, networkEvents, details })
+    details.push(`DB inserted post id: ${dbNewest.id}`)
+    writeSocialDogfoodReport({ status: 'passed', screenshotPath, consoleErrors, networkEvents, details, bugfixRequired })
     await testInfo.attach('social-publishing-real-generation-report', {
       path: path.join(socialDogfoodDir(), 'report.md'),
       contentType: 'text/markdown',
@@ -512,8 +667,14 @@ test('Social Publishing real Codex draft generation succeeds', async ({ page }, 
   } catch (error) {
     fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined)
-    details.push(error instanceof Error ? error.message : String(error))
-    writeSocialDogfoodReport({ status: 'failed', screenshotPath, consoleErrors, networkEvents, details })
+    const message = error instanceof Error ? error.message : String(error)
+    const backendLogExcerpt = latestSocialBackendLogExcerpt()
+    details.push(message)
+    details.push(`Backend log excerpt:\n${backendLogExcerpt}`)
+    bugfixRequired.push('Real Social Publishing generation failed from the browser flow.')
+    bugfixRequired.push(message)
+    await recordSocialDogfoodBug(page, message, backendLogExcerpt)
+    writeSocialDogfoodReport({ status: 'failed', screenshotPath, consoleErrors, networkEvents, details, bugfixRequired })
     throw error
   }
 })

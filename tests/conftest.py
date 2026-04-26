@@ -185,6 +185,8 @@ def setup_db():
         lambda runner_command, env: _FakePopen(runner_command, env=env),
     ), patch(
         "server.config.LARK_DELIVERY_DRY_RUN", True
+    ), patch(
+        "server.services.social.publishing.SessionLocal", TestSession
     ):
         yield
     with TEST_ENGINE.begin() as conn:

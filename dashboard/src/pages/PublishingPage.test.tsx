@@ -8,11 +8,22 @@ import PublishingPage from './PublishingPage'
 
 const apiMock = vi.hoisted(() => ({
   getSocialAccounts: vi.fn(),
+  getSocialOpsOverview: vi.fn(),
+  getSocialCampaignGoals: vi.fn(),
+  createSocialCampaignGoal: vi.fn(),
+  getSocialTrends: vi.fn(),
+  getSocialWatchlist: vi.fn(),
+  getSocialReplies: vi.fn(),
+  getSocialRepostCandidates: vi.fn(),
+  getSocialPostMetrics: vi.fn(),
   getSocialPosts: vi.fn(),
   createSocialPost: vi.fn(),
   generateSocialPostDraft: vi.fn(),
   updateSocialPost: vi.fn(),
   publishSocialPostToX: vi.fn(),
+  regenerateSocialPostImage: vi.fn(),
+  removeSocialPostMedia: vi.fn(),
+  uploadSocialPostImage: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -24,6 +35,7 @@ function draft(overrides: Record<string, unknown> = {}) {
     id: 7,
     platform: 'x',
     account_id: 1,
+    source_type: 'manual_prompt',
     account_handle: 'SynapseNetworkA',
     account_display_name: 'Synapse Network',
     title: 'Build note',
@@ -36,11 +48,12 @@ function draft(overrides: Record<string, unknown> = {}) {
     cta: 'legacy follow',
     agent_rationale: 'legacy rationale',
     policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
-    raw_agent_output: { source: 'test' },
+    raw_agent_output: { source: 'test', prompt_excerpt: 'Write a concise launch note about staging governance.', style_type: 'marketing' },
     published_at: null,
     external_post_id: null,
     external_url: null,
     failure_summary: null,
+    media_assets: [],
     events: [],
     created_at: '2026-04-25T00:00:00Z',
     updated_at: '2026-04-25T00:00:00Z',
@@ -71,17 +84,94 @@ describe('PublishingPage', () => {
         updated_at: '2026-04-25T00:00:00Z',
       },
     ])
+    apiMock.getSocialOpsOverview.mockResolvedValue({
+      active_goal_count: 1,
+      draft_queue_count: 1,
+      needs_review_count: 0,
+      trend_count: 1,
+      reply_needs_review_count: 0,
+      repost_candidate_count: 0,
+      published_count: 0,
+      human_gate_required: true,
+      safety_summary: 'Agent drafts; humans publish.',
+    })
+    apiMock.getSocialCampaignGoals.mockResolvedValue([
+      {
+        id: 1,
+        platform: 'x',
+        title: 'Build trust for Synapse Network official X',
+        objective: 'Explain Synapse Network to AI agent builders.',
+        status: 'active',
+        cadence: 'daily',
+        content_pillars: ['Product education'],
+        success_metrics: ['engagement rate'],
+        created_by: 'system_seed',
+        created_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.createSocialCampaignGoal.mockResolvedValue({})
+    apiMock.getSocialTrends.mockResolvedValue([
+      {
+        id: 1,
+        source_platform: 'x',
+        source_url: null,
+        author_handle: null,
+        topic: 'AI agents need payment rails',
+        summary: 'Agent builders increasingly need budgeted API access.',
+        relevance_score: 0.82,
+        status: 'new',
+        collected_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.getSocialWatchlist.mockResolvedValue([
+      {
+        id: 1,
+        platform: 'x',
+        handle: 'LangChainAI',
+        display_name: 'LangChain',
+        category: 'agent_framework',
+        rationale: 'Agent framework builders are a primary Synapse audience.',
+        status: 'active',
+        last_checked_at: null,
+        latest_summary: 'Not synced yet.',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.getSocialReplies.mockResolvedValue([])
+    apiMock.getSocialRepostCandidates.mockResolvedValue([])
+    apiMock.getSocialPostMetrics.mockResolvedValue([])
     apiMock.getSocialPosts.mockResolvedValue([draft()])
     apiMock.createSocialPost.mockResolvedValue(draft({ id: 8 }))
     apiMock.generateSocialPostDraft.mockResolvedValue(draft({ id: 8, status: 'approved', generated_by: 'social_content_agent_v1', reviewed_by: 'operator' }))
     apiMock.updateSocialPost.mockResolvedValue(draft({ status: 'approved' }))
     apiMock.publishSocialPostToX.mockResolvedValue(draft({ status: 'published', external_post_id: '1801', external_url: 'https://x.com/SynapseNetworkA/status/1801' }))
+    apiMock.regenerateSocialPostImage.mockResolvedValue(draft())
+    apiMock.removeSocialPostMedia.mockResolvedValue(draft())
+    apiMock.uploadSocialPostImage.mockResolvedValue(draft({
+      media_assets: [{
+        id: 4,
+        post_id: 7,
+        media_type: 'image',
+        status: 'ready',
+        prompt: 'manual_upload',
+        alt_text: 'Operator uploaded launch graphic.',
+        preview_url: '/api/social/media/4/preview',
+        x_media_id: null,
+        failure_summary: null,
+        created_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      }],
+    }))
   })
 
   it('shows the minimal generated draft surface and hides legacy content metadata', async () => {
     renderPage()
 
     expect(await screen.findByText('官方账号内容发布')).toBeInTheDocument()
+    expect(screen.getByText('Build trust for Synapse Network official X')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '趋势雷达' })).toBeInTheDocument()
     expect(screen.getByText('Synapse Agent Ops now has a human-gated X publishing surface.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发布到 X' })).toBeInTheDocument()
     expect(screen.queryByText('目标受众')).not.toBeInTheDocument()
@@ -91,6 +181,43 @@ describe('PublishingPage', () => {
     expect(screen.queryByText('legacy follow')).not.toBeInTheDocument()
     expect(screen.queryByText('legacy rationale')).not.toBeInTheDocument()
     expect(screen.getByText('第 1 / 1 页 · 共 1 条草稿')).toBeInTheDocument()
+  })
+
+  it('shows social ops trend radar and watchlist without publishing actions', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '趋势雷达' }))
+
+    expect(screen.getByText('AI agents need payment rails')).toBeInTheDocument()
+    expect(screen.getByText('Agent builders increasingly need budgeted API access.')).toBeInTheDocument()
+    expect(screen.getByText('@LangChainAI')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发布到 X' })).not.toBeInTheDocument()
+  })
+
+  it('shows generated image thumbnails and includes image count in publish confirmation', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialPosts.mockResolvedValue([draft({
+      media_assets: [{
+        id: 3,
+        post_id: 7,
+        media_type: 'image',
+        status: 'ready',
+        prompt: 'A polished AI settlement network visual.',
+        alt_text: 'Abstract AI agents connected through a settlement layer.',
+        preview_url: '/api/social/media/3/preview',
+        x_media_id: null,
+        failure_summary: null,
+        created_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      }],
+    })])
+    renderPage()
+
+    expect(await screen.findByText('图片已生成')).toBeInTheDocument()
+    expect(screen.getByAltText('Abstract AI agents connected through a settlement layer.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '发布到 X' }))
+    expect(screen.getByText(/并附带 1 张图片/)).toBeInTheDocument()
   })
 
   it('does not show a publish action when policy blocks a generated draft', async () => {
@@ -129,8 +256,11 @@ describe('PublishingPage', () => {
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: '让 Agent 写草稿' }))
+    expect(screen.getByRole('dialog', { name: '让 Agent 写草稿' })).toBeInTheDocument()
     expect(screen.queryByLabelText('标题')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('最终发布正文')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('内容风格')).toHaveValue('marketing')
+    expect(screen.getByLabelText('媒体策略')).toHaveValue('auto')
     await user.type(screen.getByLabelText('目标 / Prompt'), prompt)
     await user.click(screen.getByRole('button', { name: '生成草稿' }))
 
@@ -138,10 +268,70 @@ describe('PublishingPage', () => {
       expect(apiMock.generateSocialPostDraft).toHaveBeenCalledWith(expect.objectContaining({
         account_id: 1,
         prompt,
+        style_type: 'marketing',
+        media_mode: 'auto',
         actor: 'operator',
       }))
     })
     expect(apiMock.createSocialPost).not.toHaveBeenCalled()
     expect(apiMock.publishSocialPostToX).not.toHaveBeenCalled()
+  })
+
+  it('opens approved draft editing in a centered modal', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '编辑' }))
+
+    expect(screen.getByRole('dialog', { name: '编辑内容草稿' })).toBeInTheDocument()
+    expect(screen.getByLabelText('目标 / Prompt')).toHaveValue('Write a concise launch note about staging governance.')
+    expect(screen.getByLabelText('最终发布正文')).toHaveValue('Synapse Agent Ops now has a human-gated X publishing surface.')
+    expect(screen.getByText('这条草稿当前没有配图。')).toBeInTheDocument()
+  })
+
+  it('lets an operator attach a manual image while editing a draft', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '编辑' }))
+    const imageFile = new File(['fake-png'], 'launch.png', { type: 'image/png' })
+    await user.upload(screen.getByLabelText('选择图片文件'), imageFile)
+    await user.clear(screen.getByLabelText('图片 alt text'))
+    await user.type(screen.getByLabelText('图片 alt text'), 'Operator uploaded launch graphic.')
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    await waitFor(() => {
+      expect(apiMock.uploadSocialPostImage).toHaveBeenCalledWith(
+        7,
+        imageFile,
+        { actor: 'operator', alt_text: 'Operator uploaded launch graphic.' },
+      )
+    })
+  })
+
+  it('keeps the modal open and restores the generate button after diagnostic generation failure', async () => {
+    const user = userEvent.setup()
+    let rejectGeneration: (error: Error) => void = () => undefined
+    apiMock.generateSocialPostDraft.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectGeneration = reject
+        }),
+    )
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '让 Agent 写草稿' }))
+    expect(screen.getByRole('dialog', { name: '让 Agent 写草稿' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('目标 / Prompt'), 'Write the first public X post.')
+    await user.click(screen.getByRole('button', { name: '生成草稿' }))
+
+    expect(screen.getByRole('button', { name: '生成中...' })).toBeDisabled()
+    rejectGeneration(new Error('agent_generation_failed: provider=codex exit_code=1 stderr=quota exceeded'))
+    await waitFor(() => {
+      expect(screen.getByText(/provider=codex exit_code=1/)).toBeInTheDocument()
+    })
+    expect(screen.getByRole('heading', { name: '让 Agent 写草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '让 Agent 写草稿' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成草稿' })).toBeEnabled()
   })
 })
