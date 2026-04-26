@@ -9,7 +9,7 @@ author: engineering-ops
 
 # Synapse Deployment Governance
 
-本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。旧版 GCE/SSH 部署已降级为历史 fallback；Synapse-Network staging 默认使用 GitHub Actions + Cloud Build + Cloud Run。
+本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。`Synapse-Network` staging 默认使用 GitHub Actions + Cloud Build + Cloud Run；`Synapse-Network-Provider` V1 继续使用其目标仓库既有 GitHub Actions -> SSH -> GCE staging script，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。
 
 ## 1. 固定部署策略
 
@@ -38,6 +38,13 @@ author: engineering-ops
 4. Cloud Build image build scripts
 5. Cloud Run migration/deploy/smoke scripts
 6. rollback manifest and image-digest recovery commands
+
+当前目标仓库策略：
+
+| Project | Service key | Staging runner | Required GitHub secrets |
+|---|---|---|---|
+| `Synapse-Network` | `gateway`, `gateway-admin`, `admin-front`, `user-front` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network-Provider` | `provider-service` | GitHub Actions + SSH + `scripts/deploy/staging.sh` on GCE | `STAGING_DEPLOY_SSH_KEY`, `STAGING_DEPLOY_HOST`, `STAGING_DEPLOY_USER`, `STAGING_REPO_DIR` |
 
 ## 3. Promotion Rule
 
@@ -95,7 +102,7 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 5. 等待 PR Checks 通过。非 `main` 分支 Checks pending / failed 时不得发布 staging。
 6. Checks 通过后，由 Operator 点击 `发布到 staging`。
 7. 如果 GitHub Actions 没有 callback 到 Ops Console，点击 `/releases` 的 `同步状态`，由系统只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task。
-8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、Cloud Run deploy、revision / image / manifest 和 health check 成功。
+8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、目标 runner、revision / image / manifest 或 GCE script evidence，以及 health check 成功。
 9. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
 
 Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。

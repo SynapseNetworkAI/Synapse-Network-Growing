@@ -40,6 +40,7 @@ const DEFAULT_RELEASE_TARGETS = [
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'gateway-admin', service_label: 'Gateway Admin API' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'admin-front', service_label: 'Admin Front' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'user-front', service_label: 'User Front' },
+  { project_key: 'synapse-network-provider', project_display_name: 'Synapse-Network-Provider', service_key: 'provider-service', service_label: 'Provider Service' },
 ]
 
 function releaseTone(state: string | null | undefined) {

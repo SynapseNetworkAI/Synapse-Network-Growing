@@ -1493,7 +1493,7 @@ export interface SocialPostMetric {
   observed_at: string | null
 }
 
-export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'all'
+export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'provider-service' | 'all'
 
 export interface ReleaseActionPayload {
   actor?: string

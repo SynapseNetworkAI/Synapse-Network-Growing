@@ -20,15 +20,21 @@ from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseTaskRo
 from server.schemas import ReleaseBranchOptionOut, ReleaseTaskOut, ReleaseTaskPrGateOut
 from server.services.delivery.deployment_governance import _callback_url, _dispatch_github_workflow, _json_dump
 from server.services.delivery.pull_request import _gh_env
+from server.services.projects.policy_registry import ensure_default_project_policies
 
 VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
 VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-VALID_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front"}
+SYNAPSE_NETWORK_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front"}
+PROJECT_SERVICE_KEYS = {
+    "synapse-network": SYNAPSE_NETWORK_SERVICE_KEYS,
+    "synapse-network-provider": {"provider-service"},
+}
 DIRECT_STAGING_BRANCHES = {"main"}
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 SYNAPSE_NETWORK_REPO = "cliff-personal/Synapse-Network"
+SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY = "synapse-network-provider"
 STAGING_WORKFLOW_FILE = "deploy-staging.yml"
 E2E_BRANCH_OPTIONS = [
     "main",
@@ -38,7 +44,40 @@ E2E_BRANCH_OPTIONS = [
 SUCCESS_CHECK_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PENDING_CHECK_STATUSES = {"QUEUED", "IN_PROGRESS", "PENDING", "REQUESTED", "WAITING"}
-REQUIRED_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"}
+REQUIRED_GCP_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"}
+REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {
+    "STAGING_DEPLOY_SSH_KEY",
+    "STAGING_DEPLOY_HOST",
+    "STAGING_DEPLOY_USER",
+    "STAGING_REPO_DIR",
+}
+
+
+def _valid_service_keys_for_project(project_key: str) -> set[str]:
+    return PROJECT_SERVICE_KEYS.get(_clean(project_key), SYNAPSE_NETWORK_SERVICE_KEYS)
+
+
+def _service_key_error_for_project(project_key: str) -> str:
+    allowed = ", ".join(sorted(_valid_service_keys_for_project(project_key)))
+    return f"service_key must be one of: {allowed}"
+
+
+def _deploy_strategy_for_project(project_key: str) -> str:
+    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
+        return "github_actions_ssh_gce"
+    return "github_actions_gcp_cloudrun"
+
+
+def _controlled_steps_for_project(project_key: str) -> list[str]:
+    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
+        return ["checkout", "resolve_ref", "ssh_deploy", "health_check"]
+    return ["checkout", "preflight", "build", "push", "cloud_run_deploy", "health_check"]
+
+
+def _required_staging_deploy_secrets_for_project(project_key: str | None) -> set[str]:
+    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
+        return REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS
+    return REQUIRED_GCP_STAGING_DEPLOY_SECRETS
 
 
 def _clean(value: str | None) -> str:
@@ -145,6 +184,7 @@ def _project_display_name(db: Session, project_key: str, explicit: str | None) -
 
 
 def _policy_for_project(db: Session, project_key: str) -> ProjectPolicyRow | None:
+    ensure_default_project_policies(db)
     return (
         db.query(ProjectPolicyRow)
         .filter(ProjectPolicyRow.project_key == project_key)
@@ -268,7 +308,7 @@ def _github_branch_exists(repo_full_name: str, branch_name: str) -> tuple[bool, 
     return False, error or "无法确认分支状态，请稍后同步"
 
 
-def _missing_required_staging_deploy_secrets(repo_full_name: str) -> tuple[list[str], str | None]:
+def _missing_required_staging_deploy_secrets(repo_full_name: str, project_key: str | None = None) -> tuple[list[str], str | None]:
     """Return missing GitHub secrets required before dispatching staging deploy.
 
     This is a fail-fast preflight. Without these secrets the GitHub workflow
@@ -278,16 +318,17 @@ def _missing_required_staging_deploy_secrets(repo_full_name: str) -> tuple[list[
 
     if config.E2E_MODE:
         return [], None
+    required_secrets = _required_staging_deploy_secrets_for_project(project_key)
     status, payload, error = _run_gh_json(
         ["secret", "list", "--repo", repo_full_name, "--json", "name"],
         timeout=30,
     )
     if status != "ok":
-        return sorted(REQUIRED_STAGING_DEPLOY_SECRETS), error or "Unable to verify GitHub deployment secrets."
+        return sorted(required_secrets), error or "Unable to verify GitHub deployment secrets."
     if not isinstance(payload, list):
-        return sorted(REQUIRED_STAGING_DEPLOY_SECRETS), "GitHub secret list response was not valid."
+        return sorted(required_secrets), "GitHub secret list response was not valid."
     present = {_clean(item.get("name")) for item in payload if isinstance(item, dict)}
-    missing = sorted(secret for secret in REQUIRED_STAGING_DEPLOY_SECRETS if secret not in present)
+    missing = sorted(secret for secret in required_secrets if secret not in present)
     return missing, None
 
 
@@ -458,8 +499,8 @@ def list_release_task_branch_options(
     if not cleaned_project_key:
         raise ValueError("project_key is required")
     cleaned_service_key = _clean(service_key).lower()
-    if cleaned_service_key and cleaned_service_key not in VALID_SERVICE_KEYS:
-        raise ValueError("service_key must be gateway, gateway-admin, admin-front, or user-front")
+    if cleaned_service_key and cleaned_service_key not in _valid_service_keys_for_project(cleaned_project_key):
+        raise ValueError(_service_key_error_for_project(cleaned_project_key))
     policy = _policy_for_project(db, cleaned_project_key)
     repo_full_name = _release_task_deploy_repo(policy, cleaned_project_key)
     options = _github_branch_options(repo_full_name)
@@ -528,8 +569,8 @@ def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
     service_key = _clean(getattr(body, "service_key", "")).lower()
     if not service_key and project_key == SYNAPSE_NETWORK_PROJECT_KEY:
         service_key = "gateway"
-    if service_key and service_key not in VALID_SERVICE_KEYS:
-        raise ValueError("service_key must be gateway, gateway-admin, admin-front, or user-front")
+    if service_key and service_key not in _valid_service_keys_for_project(project_key):
+        raise ValueError(_service_key_error_for_project(project_key))
     requirement_id = int(getattr(body, "requirement_id", 0) or 0) or None
     if source_type == "manual":
         requirement_id = None
@@ -920,18 +961,18 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
     if not branch_name:
         raise ValueError("branch_name is required before staging deploy.")
     service_key = _clean(getattr(row, "service_key", None)).lower()
-    if service_key not in VALID_SERVICE_KEYS:
-        raise ValueError("service_key must be gateway, gateway-admin, admin-front, or user-front")
+    project_key = _clean(row.project_key)
+    if service_key not in _valid_service_keys_for_project(project_key):
+        raise ValueError(_service_key_error_for_project(project_key))
     if row.deployment_record_id is not None:
         raise ValueError("Release task already has a deployment record.")
 
-    project_key = _clean(row.project_key)
     policy = _policy_for_project(db, project_key)
     repo_full_name = _release_task_deploy_repo(policy, project_key)
     gate = _release_task_pr_gate_for(row, repo_full_name)
     if not gate.can_deploy_staging:
         raise ValueError(gate.blocked_reason or "PR checks must pass before staging deploy.")
-    missing_secrets, secret_error = _missing_required_staging_deploy_secrets(repo_full_name)
+    missing_secrets, secret_error = _missing_required_staging_deploy_secrets(repo_full_name, project_key=project_key)
     if missing_secrets:
         detail = ", ".join(missing_secrets)
         suffix = f" ({secret_error})" if secret_error else ""
@@ -939,6 +980,25 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
     workflow_file = _release_task_workflow_file(policy)
     actor = _clean(getattr(body, "actor", "operator")) or "operator"
     note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
+    deploy_strategy = _deploy_strategy_for_project(project_key)
+    controlled_steps = _controlled_steps_for_project(project_key)
+    deployment_metadata = {
+        "release_task_id": int(row.id),
+        "service_key": service_key,
+        "deploy_repo_full_name": repo_full_name,
+        "deploy_strategy": deploy_strategy,
+        "sourceRefType": "branch",
+        "sourceRef": branch_name,
+        "deployScope": service_key,
+        "controlledSteps": controlled_steps,
+    }
+    if deploy_strategy == "github_actions_gcp_cloudrun":
+        deployment_metadata.update(
+            {
+                "gcpProject": "engineering-staging-svc-1442",
+                "region": "us-central1",
+            }
+        )
     record = DeploymentRecordRow(
         requirement_id=int(row.requirement_id) if row.requirement_id is not None else None,
         project_policy_id=int(policy.id) if policy is not None else None,
@@ -951,20 +1011,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         actor=actor,
         trigger_source="release_task",
         notes=note,
-        metadata_json=_json_dump(
-            {
-                "release_task_id": int(row.id),
-                "service_key": service_key,
-                "deploy_repo_full_name": repo_full_name,
-                "deploy_strategy": "github_actions_gcp_cloudrun",
-                "sourceRefType": "branch",
-                "sourceRef": branch_name,
-                "deployScope": service_key,
-                "gcpProject": "engineering-staging-svc-1442",
-                "region": "us-central1",
-                "controlledSteps": ["checkout", "preflight", "build", "push", "cloud_run_deploy", "health_check"],
-            }
-        ),
+        metadata_json=_json_dump(deployment_metadata),
         started_at=utcnow(),
     )
     db.add(record)
@@ -1022,7 +1069,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
                         "release_task_id": int(row.id),
                         "service_key": service_key,
                         "deploy_repo_full_name": repo_full_name,
-                        "deploy_strategy": "github_actions_gcp_cloudrun",
+                        "deploy_strategy": deploy_strategy,
                         "dispatch_failed_before_record_commit": True,
                     }
                 ),

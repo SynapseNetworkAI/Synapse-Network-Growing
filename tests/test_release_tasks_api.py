@@ -559,6 +559,37 @@ def test_release_task_branch_options_use_github_repo(monkeypatch, synced_client)
     assert payload[0]["source"] == "github"
 
 
+def test_provider_release_task_branch_options_use_provider_repo(monkeypatch, synced_client, db_session):
+    def fake_branch_options(repo_full_name, *, max_records=100):
+        assert repo_full_name == "cliff-personal/Synapse-Network-Provider"
+        return [
+            release_tasks_service.ReleaseBranchOptionOut(
+                name="main",
+                commit_sha="provider-main",
+                protected=True,
+                is_default=True,
+                source="github",
+            )
+        ]
+
+    monkeypatch.setattr(release_tasks_service, "_github_branch_options", fake_branch_options)
+
+    response = synced_client.get(
+        "/api/releases/branch-options",
+        params={"project_key": "synapse-network-provider", "service_key": "provider-service"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["commit_sha"] == "provider-main"
+
+    invalid = synced_client.get(
+        "/api/releases/branch-options",
+        params={"project_key": "synapse-network-provider", "service_key": "gateway"},
+    )
+    assert invalid.status_code == 400
+    assert "provider-service" in invalid.json()["detail"]
+
+
 def test_release_task_branch_options_validate_project_and_service(monkeypatch, synced_client):
     assert synced_client.get("/api/releases/branch-options", params={"service_key": "gateway"}).status_code == 422
     assert synced_client.get(
@@ -1229,7 +1260,7 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", fake_dispatch)
     monkeypatch.setattr(release_tasks_service, "_callback_url", lambda record_id: f"https://ops.example/api/deployments/{record_id}/report")
     monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", lambda row, repo: _successful_pr_gate())
-    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo: ([], None))
+    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo, **kwargs: ([], None))
 
     task = synced_client.post(
         "/api/releases/tasks",
@@ -1260,6 +1291,55 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
     assert calls[0]["inputs"]["source_ref"] == "codex/staging-gateway"
 
 
+def test_provider_release_task_staging_deploy_dispatches_provider_workflow(monkeypatch, synced_client, db_session):
+    calls = []
+    secret_checks = []
+
+    def fake_dispatch(**kwargs):
+        calls.append(kwargs)
+        return "https://github.com/cliff-personal/Synapse-Network-Provider/actions/workflows/deploy-staging.yml"
+
+    def fake_secret_check(repo, **kwargs):
+        secret_checks.append((repo, kwargs.get("project_key")))
+        return [], None
+
+    monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", fake_dispatch)
+    monkeypatch.setattr(release_tasks_service, "_callback_url", lambda record_id: f"https://ops.example/api/deployments/{record_id}/report")
+    monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", lambda row, repo: _successful_pr_gate())
+    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", fake_secret_check)
+
+    task = synced_client.post(
+        "/api/releases/tasks",
+        json={
+            "project_key": "synapse-network-provider",
+            "project_display_name": "Synapse-Network-Provider",
+            "service_key": "provider-service",
+            "branch_name": "codex/provider-staging",
+            "environment": "staging",
+        },
+    ).json()
+
+    response = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/deploy-staging",
+        json={"actor": "ops-lead", "note": "ship provider staging"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deployment_record_id"] is not None
+    assert secret_checks == [("cliff-personal/Synapse-Network-Provider", "synapse-network-provider")]
+    assert calls[0]["repo_full_name"] == "cliff-personal/Synapse-Network-Provider"
+    assert calls[0]["workflow_file"] == "deploy-staging.yml"
+    assert calls[0]["inputs"]["deploy_scope"] == "provider-service"
+    assert calls[0]["inputs"]["source_ref"] == "codex/provider-staging"
+
+    deployment = db_session.get(DeploymentRecordRow, payload["deployment_record_id"])
+    metadata = json.loads(deployment.metadata_json)
+    assert metadata["deploy_strategy"] == "github_actions_ssh_gce"
+    assert metadata["service_key"] == "provider-service"
+    assert metadata["controlledSteps"] == ["checkout", "resolve_ref", "ssh_deploy", "health_check"]
+
+
 def test_release_task_staging_deploy_blocks_missing_github_auth_secrets(monkeypatch, synced_client, db_session):
     calls = []
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", lambda **kwargs: calls.append(kwargs))
@@ -1267,7 +1347,7 @@ def test_release_task_staging_deploy_blocks_missing_github_auth_secrets(monkeypa
     monkeypatch.setattr(
         release_tasks_service,
         "_missing_required_staging_deploy_secrets",
-        lambda repo: (["GCP_DEPLOY_SERVICE_ACCOUNT", "GCP_WORKLOAD_IDENTITY_PROVIDER"], None),
+        lambda repo, **kwargs: (["GCP_DEPLOY_SERVICE_ACCOUNT", "GCP_WORKLOAD_IDENTITY_PROVIDER"], None),
     )
     task = synced_client.post(
         "/api/releases/tasks",
@@ -1317,6 +1397,27 @@ def test_release_task_staging_secret_preflight_helper(monkeypatch):
     assert release_tasks_service._missing_required_staging_deploy_secrets("example/repo") == ([], None)
 
 
+def test_provider_release_task_staging_secret_preflight_uses_ssh_secrets(monkeypatch):
+    monkeypatch.setattr(release_tasks_service.config, "E2E_MODE", False)
+    monkeypatch.setattr(
+        release_tasks_service,
+        "_run_gh_json",
+        lambda *args, **kwargs: (
+            "ok",
+            [{"name": "STAGING_DEPLOY_HOST"}, {"name": "STAGING_DEPLOY_USER"}],
+            "",
+        ),
+    )
+
+    missing, error = release_tasks_service._missing_required_staging_deploy_secrets(
+        "cliff-personal/Synapse-Network-Provider",
+        project_key="synapse-network-provider",
+    )
+
+    assert missing == ["STAGING_DEPLOY_SSH_KEY", "STAGING_REPO_DIR"]
+    assert error is None
+
+
 def test_release_task_pr_gate_helper_edges(monkeypatch):
     assert release_tasks_service._checks_summary([object(), {"status": "WEIRD"}]) == (
         "pending",
@@ -1345,7 +1446,7 @@ def test_release_task_staging_deploy_uses_project_policy_repo_and_callback_token
 
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", fake_dispatch)
     monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", lambda row, repo: _successful_pr_gate())
-    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo: ([], None))
+    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo, **kwargs: ([], None))
     create_project_policy(
         db_session,
         **ProjectPolicyCreate(
@@ -1377,7 +1478,7 @@ def test_release_task_staging_deploy_uses_project_policy_repo_and_callback_token
 def test_release_task_staging_deploy_validation_and_callback_closure(monkeypatch, synced_client, db_session):
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", lambda **kwargs: "https://example.test/workflow")
     monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", lambda row, repo: _successful_pr_gate())
-    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo: ([], None))
+    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo, **kwargs: ([], None))
 
     production_task = synced_client.post(
         "/api/releases/tasks",
@@ -1438,7 +1539,7 @@ def test_release_task_staging_deploy_failures_are_recorded(monkeypatch, synced_c
 
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", failing_dispatch)
     monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", lambda row, repo: _successful_pr_gate())
-    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo: ([], None))
+    monkeypatch.setattr(release_tasks_service, "_missing_required_staging_deploy_secrets", lambda repo, **kwargs: ([], None))
     task = synced_client.post(
         "/api/releases/tasks",
         json={

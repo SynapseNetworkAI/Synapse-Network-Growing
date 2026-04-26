@@ -614,6 +614,37 @@ describe('ReleasesPage', () => {
     })
   })
 
+  it('offers Synapse-Network-Provider as a staging release target', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '新建发布任务' }))
+    expect(screen.getByRole('option', { name: 'Synapse-Network-Provider · Provider Service' })).toBeTruthy()
+
+    await user.selectOptions(screen.getByLabelText('项目 / 服务'), 'synapse-network-provider::provider-service')
+    await waitFor(() => {
+      expect(apiMock.getReleaseTaskBranchOptions).toHaveBeenCalledWith({
+        project_key: 'synapse-network-provider',
+        service_key: 'provider-service',
+      })
+    })
+    await user.selectOptions(screen.getByLabelText('分支'), 'main')
+    await user.click(screen.getByRole('button', { name: '创建发布任务' }))
+
+    await waitFor(() => {
+      expect(apiMock.createReleaseTask).toHaveBeenCalledWith({
+        project_key: 'synapse-network-provider',
+        project_display_name: 'Synapse-Network-Provider',
+        service_key: 'provider-service',
+        branch_name: 'main',
+        environment: 'staging',
+        actor: 'operator',
+        note: null,
+      })
+    })
+  })
+
   it('shows production safety copy and marks requested task failed', async () => {
     const user = userEvent.setup()
     render(<ReleasesPage />, { wrapper: MemoryRouter })

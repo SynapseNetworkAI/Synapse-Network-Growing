@@ -121,7 +121,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 100,
         "deploy_repo_full_name": "cliff-personal/Synapse-Network-Provider",
-        "deploy_strategy": "github_actions_ssh",
+        "deploy_strategy": "github_actions_ssh_gce",
         "deploy_trigger_enabled": True,
         "staging_host_label": "staging-vm",
         "production_host_label": "prod-vm",
