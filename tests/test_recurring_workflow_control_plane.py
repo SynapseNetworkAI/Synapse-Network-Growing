@@ -21,6 +21,7 @@ from server.services.scheduling.recurring_workflows import (
 )
 from server.services.scheduling.locks import acquire_scheduler_lock
 from server.services.planning.scheduler import goal_planner_sweep_due
+from server.services.releases.deployment_status_scheduler import ReleaseDeploymentStatusSweepScheduler
 from server.services.releases.service import sync_release_pr_statuses
 
 
@@ -249,6 +250,104 @@ def test_release_pr_status_recurring_workflow_records_history(db_session, monkey
     history = list_recurring_workflow_runs(db_session, "release_pr_status_sweep")
     assert history
     assert history[0].status == "succeeded"
+
+
+def test_release_deployment_status_recurring_workflow_records_history(db_session, monkeypatch):
+    rows = sync_recurring_workflows(db_session)
+    assert any(row.workflow_key == "release_deployment_status_sweep" for row in rows)
+
+    monkeypatch.setattr(
+        "server.services.scheduling.recurring_workflows.sync_release_task_deployment_statuses",
+        lambda db, **kwargs: {
+            "processed_count": 1,
+            "succeeded_ids": [19],
+            "failed_ids": [],
+            "running_ids": [],
+            "pending_ids": [],
+        },
+    )
+
+    result = run_recurring_workflow(db_session, workflow_key="release_deployment_status_sweep", dry_run=False)
+
+    assert result["status"] == "completed"
+    assert result["result"]["processed_count"] == 1
+    assert result["result"]["succeeded_ids"] == [19]
+    history = list_recurring_workflow_runs(db_session, "release_deployment_status_sweep")
+    assert history
+    assert history[0].status == "succeeded"
+
+
+def test_release_deployment_status_recurring_workflow_dry_run_counts_candidates(db_session):
+    from server.database import DeploymentRecordRow
+
+    db_session.add(
+        DeploymentRecordRow(
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="requested",
+            trigger_source="release_task",
+            metadata_json="{}",
+        )
+    )
+    db_session.add(
+        DeploymentRecordRow(
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            trigger_source="release_task",
+            metadata_json="{}",
+        )
+    )
+    db_session.commit()
+    sync_recurring_workflows(db_session)
+
+    result = run_recurring_workflow(db_session, workflow_key="release_deployment_status_sweep", dry_run=True)
+
+    assert result["status"] == "completed"
+    assert result["result"]["candidate_deployment_count"] == 1
+    assert result["result"]["read_only_github"] is True
+
+
+def test_release_deployment_status_scheduler_runs_once_and_stops(monkeypatch):
+    import time
+
+    calls: list[str] = []
+
+    class FakeSession:
+        def close(self):
+            calls.append("close")
+
+    def fake_sync(db):
+        calls.append("sync")
+
+    def fake_run(db, *, workflow_key, triggered_by):
+        calls.append(f"{workflow_key}:{triggered_by}")
+        return {"result": {"processed_count": 1, "succeeded_ids": [19], "failed_ids": [], "running_ids": [], "pending_ids": []}}
+
+    monkeypatch.setattr("server.services.releases.deployment_status_scheduler.sync_recurring_workflows", fake_sync)
+    monkeypatch.setattr("server.services.releases.deployment_status_scheduler.run_recurring_workflow", fake_run)
+
+    scheduler = ReleaseDeploymentStatusSweepScheduler(
+        session_factory=FakeSession,
+        interval_seconds=60,
+        startup_delay_seconds=0,
+    )
+    assert scheduler.status_snapshot()["running"] is False
+
+    scheduler.start()
+    for _ in range(20):
+        if "release_deployment_status_sweep:scheduler" in calls:
+            break
+        time.sleep(0.01)
+    scheduler.stop()
+
+    snapshot = scheduler.status_snapshot()
+    assert snapshot["enabled"] is True
+    assert "sync" in calls
+    assert "release_deployment_status_sweep:scheduler" in calls
+    assert "close" in calls
 
 
 def test_goal_planner_sweep_due_after_daily_slot_without_prior_run():

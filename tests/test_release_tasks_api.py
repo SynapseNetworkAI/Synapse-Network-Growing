@@ -1,6 +1,6 @@
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from server.database import DeploymentRecordRow, ReleaseTaskRow, RequirementRow
 from server.schemas import ProjectPolicyCreate, ReleaseTaskPrGateOut
@@ -985,6 +985,7 @@ def test_github_actions_sync_helpers_cover_edges(monkeypatch, db_session):
             [
                 "bad",
                 {"createdAt": "2026-04-25T00:00:00Z", "databaseId": 1},
+                {"createdAt": "2026-04-25T00:59:00Z", "databaseId": 99},
                 {"createdAt": "bad", "databaseId": None},
                 {"createdAt": "2026-04-25T01:01:00Z", "databaseId": 2},
             ],
@@ -1081,6 +1082,237 @@ def test_release_task_deployment_status_sync_handles_missing_run_and_view_errors
     assert int(missing_repo.id) in result["error_ids"]
     assert int(missing_run.id) in result["pending_ids"]
     assert int(view_error.id) in result["error_ids"]
+
+
+def test_release_task_deployment_status_sync_handles_missing_repo_and_terminal_record(monkeypatch, db_session):
+    missing_repo = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+        metadata_json="{}",
+    )
+    terminal = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="succeeded",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    odd_status = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="paused",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add_all([missing_repo, terminal, odd_status])
+    db_session.commit()
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert int(missing_repo.id) in result["error_ids"]
+    assert int(terminal.id) not in result["error_ids"]
+    assert int(odd_status.id) not in result["error_ids"]
+    db_session.refresh(missing_repo)
+    assert "missing deploy_repo_full_name" in (missing_repo.notes or "")
+
+
+def test_release_task_deployment_age_handles_empty_and_naive_timestamps():
+    record = DeploymentRecordRow(project_key="synapse-network", environment="staging", action="deploy")
+    record.started_at = None
+    record.created_at = None
+    assert release_tasks_service._deployment_age_seconds(record, now=datetime.now(timezone.utc)) == 0.0
+
+    record.started_at = datetime(2030, 1, 1, 0, 0, 0)
+    now = datetime(2030, 1, 1, 0, 1, 0, tzinfo=timezone.utc)
+    assert release_tasks_service._deployment_age_seconds(record, now=now) == 60.0
+
+
+def test_release_task_deployment_status_sync_is_terminal_safe(monkeypatch, db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="staging",
+        status="completed",
+        actor="operator",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    monkeypatch.setattr(release_tasks_service, "_find_recent_actions_run_id", lambda *args, **kwargs: "99")
+    monkeypatch.setattr(
+        release_tasks_service,
+        "_github_actions_run_view",
+        lambda *args, **kwargs: (
+            {
+                "databaseId": 99,
+                "status": "completed",
+                "conclusion": "success",
+                "url": "https://github.com/example/repo/actions/runs/99",
+                "headSha": "abc123",
+            },
+            None,
+        ),
+    )
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert result["processed_count"] == 0
+    assert int(record.id) in result["skipped_terminal_ids"]
+    db_session.refresh(record)
+    db_session.refresh(task)
+    assert record.status == "requested"
+    assert task.status == "completed"
+
+
+def test_release_task_deployment_apply_skips_terminal_record(db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="succeeded",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add(record)
+    db_session.commit()
+
+    state = release_tasks_service._apply_github_run_to_deployment(
+        db_session,
+        record,
+        run_payload={
+            "databaseId": 99,
+            "status": "in_progress",
+            "conclusion": "",
+            "url": "https://github.com/example/repo/actions/runs/99",
+            "headSha": "abc123",
+        },
+        run_id="99",
+    )
+
+    assert state == "succeeded"
+    assert record.status == "succeeded"
+
+
+def test_release_task_deployment_status_sync_marks_removed_run_failed(monkeypatch, db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        external_run_id="55",
+        trigger_source="release_task",
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="staging",
+        status="requested",
+        actor="operator",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        release_tasks_service,
+        "_github_actions_run_view",
+        lambda *args, **kwargs: (None, "GitHub resource was not found."),
+    )
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert int(record.id) in result["failed_ids"]
+    assert int(record.id) in result["removed_run_ids"]
+    db_session.refresh(record)
+    db_session.refresh(task)
+    assert record.status == "failed"
+    assert task.status == "failed"
+    assert "manual deletion detected" in (record.notes or "")
+    assert json.loads(record.metadata_json)["deploymentSyncFailureKind"] == "run_removed_from_source"
+
+
+def test_release_task_deployment_status_sync_times_out_missing_run_id(monkeypatch, db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="requested",
+        trigger_source="release_task",
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add(record)
+    db_session.commit()
+    monkeypatch.setattr(release_tasks_service.config, "RELEASE_DEPLOYMENT_PENDING_RUN_ID_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(release_tasks_service, "_find_recent_actions_run_id", lambda *args, **kwargs: None)
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert int(record.id) in result["failed_ids"]
+    assert int(record.id) in result["timeout_ids"]
+    db_session.refresh(record)
+    assert record.status == "failed"
+    assert "run id not found" in (record.notes or "")
+
+
+def test_release_task_deployment_status_sync_times_out_running_run(monkeypatch, db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="running",
+        external_run_id="101",
+        trigger_source="release_task",
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=40),
+        metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
+    )
+    db_session.add(record)
+    db_session.commit()
+    monkeypatch.setattr(release_tasks_service.config, "RELEASE_DEPLOYMENT_RUNNING_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(
+        release_tasks_service,
+        "_github_actions_run_view",
+        lambda *args, **kwargs: (
+            {
+                "databaseId": 101,
+                "status": "in_progress",
+                "conclusion": "",
+                "url": "https://github.com/example/repo/actions/runs/101",
+                "headSha": "abc123",
+            },
+            None,
+        ),
+    )
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert int(record.id) in result["failed_ids"]
+    db_session.refresh(record)
+    assert record.status == "failed"
+    assert "still running" in (record.notes or "")
 
 
 def test_release_task_pr_gate_projects_branch_pr_and_checks(monkeypatch, synced_client, db_session):
@@ -1335,9 +1567,18 @@ def test_provider_release_task_staging_deploy_dispatches_provider_workflow(monke
 
     deployment = db_session.get(DeploymentRecordRow, payload["deployment_record_id"])
     metadata = json.loads(deployment.metadata_json)
-    assert metadata["deploy_strategy"] == "github_actions_ssh_gce"
+    assert metadata["deploy_strategy"] == "github_actions_wif_cloudrun"
     assert metadata["service_key"] == "provider-service"
-    assert metadata["controlledSteps"] == ["checkout", "resolve_ref", "ssh_deploy", "health_check"]
+    assert metadata["controlledSteps"] == [
+        "checkout",
+        "resolve_ref",
+        "wif_auth",
+        "cloud_build",
+        "artifact_push",
+        "cloud_run_deploy",
+        "health_check",
+    ]
+    assert metadata["cloud_run_service"] == "synapse-staging-provider"
 
 
 def test_release_task_staging_deploy_blocks_missing_github_auth_secrets(monkeypatch, synced_client, db_session):
@@ -1397,14 +1638,14 @@ def test_release_task_staging_secret_preflight_helper(monkeypatch):
     assert release_tasks_service._missing_required_staging_deploy_secrets("example/repo") == ([], None)
 
 
-def test_provider_release_task_staging_secret_preflight_uses_ssh_secrets(monkeypatch):
+def test_provider_release_task_staging_secret_preflight_uses_wif_secrets(monkeypatch):
     monkeypatch.setattr(release_tasks_service.config, "E2E_MODE", False)
     monkeypatch.setattr(
         release_tasks_service,
         "_run_gh_json",
         lambda *args, **kwargs: (
             "ok",
-            [{"name": "STAGING_DEPLOY_HOST"}, {"name": "STAGING_DEPLOY_USER"}],
+            [{"name": "GCP_WORKLOAD_IDENTITY_PROVIDER"}],
             "",
         ),
     )
@@ -1414,7 +1655,13 @@ def test_provider_release_task_staging_secret_preflight_uses_ssh_secrets(monkeyp
         project_key="synapse-network-provider",
     )
 
-    assert missing == ["STAGING_DEPLOY_SSH_KEY", "STAGING_REPO_DIR"]
+    assert missing == [
+        "GCP_DEPLOY_SERVICE_ACCOUNT",
+        "STAGING_ARTIFACT_REGISTRY_REPOSITORY",
+        "STAGING_EVIDENCE_BUCKET",
+        "STAGING_GCP_PROJECT_ID",
+        "STAGING_GCP_REGION",
+    ]
     assert error is None
 
 

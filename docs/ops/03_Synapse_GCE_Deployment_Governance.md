@@ -9,7 +9,7 @@ author: engineering-ops
 
 # Synapse Deployment Governance
 
-本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。`Synapse-Network` staging 默认使用 GitHub Actions + Cloud Build + Cloud Run；`Synapse-Network-Provider` V1 继续使用其目标仓库既有 GitHub Actions -> SSH -> GCE staging script，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。
+本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。两者 staging 默认使用 GitHub Actions + GCP Workload Identity Federation + Cloud Build + Cloud Run，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。
 
 ## 1. 固定部署策略
 
@@ -44,7 +44,7 @@ author: engineering-ops
 | Project | Service key | Staging runner | Required GitHub secrets |
 |---|---|---|---|
 | `Synapse-Network` | `gateway`, `gateway-admin`, `admin-front`, `user-front` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network-Provider` | `provider-service` | GitHub Actions + SSH + `scripts/deploy/staging.sh` on GCE | `STAGING_DEPLOY_SSH_KEY`, `STAGING_DEPLOY_HOST`, `STAGING_DEPLOY_USER`, `STAGING_REPO_DIR` |
+| `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
 
 ## 3. Promotion Rule
 
@@ -101,7 +101,7 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 4. 如果选择非 `main` 分支且没有 PR，点击 `提交 PR`。
 5. 等待 PR Checks 通过。非 `main` 分支 Checks pending / failed 时不得发布 staging。
 6. Checks 通过后，由 Operator 点击 `发布到 staging`。
-7. 如果 GitHub Actions 没有 callback 到 Ops Console，点击 `/releases` 的 `同步状态`，由系统只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task。
+7. 如果 GitHub Actions 没有 callback 到 Ops Console，全局 `release_deployment_status_sweep` 会自动只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task；也可以点击 `/releases` 的 `同步状态` 立即触发同一幂等同步函数。
 8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、目标 runner、revision / image / manifest 或 GCE script evidence，以及 health check 成功。
 9. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
 
@@ -122,7 +122,7 @@ Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接�
 6. health check 是否通过。
 7. 该记录是否来自某个 Release Task。
 
-上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注直接伪造成真实上线结果。没有 webhook callback 的部署应通过 `同步状态` 拉取 GitHub Actions run 结果后再更新账本。
+上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注直接伪造成真实上线结果。没有 webhook callback 的部署应通过全局 `release_deployment_status_sweep` 或手动 `同步状态` 拉取 GitHub Actions run 结果后再更新账本。同步只处理未终态 DeploymentRecord，不会为每个发布任务动态创建定时任务，也不会回滚人工 completed / failed / cancelled 终态；GitHub run 被手动删除时必须以 `manual deletion detected` / `run removed from source` 形式收敛为可诊断失败。
 
 ## 8. 回滚说明
 

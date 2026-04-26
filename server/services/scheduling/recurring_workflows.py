@@ -21,6 +21,7 @@ from server.database import (
     NotificationFingerprintRow,
     RecurringWorkflowRow,
     RecurringWorkflowRunRow,
+    DeploymentRecordRow,
     ReleaseRecordRow,
     RequirementRow,
     WorkflowArtifactRow,
@@ -41,6 +42,7 @@ from server.services.runtime.alerting import build_ops_url, deliver_policy_notif
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
+from server.services.releases.tasks import sync_release_task_deployment_statuses
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -206,6 +208,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "schedule": {"cadence": "interval", "interval_minutes": 30},
         "input_query": {"release_status": ["pr_opened", "pr_open", "ready_for_merge"], "has_pr": True},
         "output_action": {"kind": "sync_release_pr_status", "read_only_github": True},
+        "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "processed_count"},
+    },
+    {
+        "workflow_key": "release_deployment_status_sweep",
+        "display_name": "Release Deployment Status Sweep",
+        "description": "Read GitHub Actions staging deployment runs and reconcile Release Tasks and Deployment Records.",
+        "trigger_type": "scheduled",
+        "owner_role": "release_operator",
+        "schedule": {"cadence": "interval", "interval_minutes": 1},
+        "input_query": {"deployment_status": ["requested", "running", "pending"], "trigger_source": "release_task"},
+        "output_action": {"kind": "sync_release_deployment_status", "read_only_github": True},
         "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "processed_count"},
     },
@@ -1426,6 +1440,22 @@ def _execute_recurring_workflow(
                 "max_records": 50,
                 "read_only_github": True,
             }
+        if workflow_key == "release_deployment_status_sweep":
+            pending_count = (
+                db.query(DeploymentRecordRow)
+                .filter(
+                    DeploymentRecordRow.trigger_source == "release_task",
+                    DeploymentRecordRow.status.in_(("requested", "running", "pending")),
+                )
+                .count()
+            )
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "candidate_deployment_count": int(pending_count),
+                "max_records": 50,
+                "read_only_github": True,
+            }
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1490,6 +1520,8 @@ def _execute_recurring_workflow(
         return _ci_status_sweep(db)
     if workflow_key == "release_pr_status_sweep":
         return sync_release_pr_statuses(db, max_records=50, per_record_sleep_seconds=1.0)
+    if workflow_key == "release_deployment_status_sweep":
+        return sync_release_task_deployment_statuses(db, max_records=50)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
@@ -1554,6 +1586,7 @@ def recurring_workflow_health(
     goal_planner_scheduler_status: dict[str, Any] | None = None,
     ci_status_scheduler_status: dict[str, Any] | None = None,
     release_pr_status_scheduler_status: dict[str, Any] | None = None,
+    release_deployment_status_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
@@ -1579,6 +1612,10 @@ def recurring_workflow_health(
         },
         "release_pr_status_scheduler": release_pr_status_scheduler_status or {
             "enabled": bool(getattr(config, "RELEASE_PR_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "release_deployment_status_scheduler": release_deployment_status_scheduler_status or {
+            "enabled": bool(getattr(config, "RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

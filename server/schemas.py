@@ -2178,6 +2178,7 @@ class RecurringWorkflowHealthOut(BaseModel):
     goal_planner_scheduler: dict[str, object] = {}
     ci_status_scheduler: dict[str, object] = {}
     release_pr_status_scheduler: dict[str, object] = {}
+    release_deployment_status_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 

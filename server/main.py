@@ -21,6 +21,7 @@ from server.routers import agents, skills, copilot_auth, requirements, project_p
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
+from server.services.releases.deployment_status_scheduler import ReleaseDeploymentStatusSweepScheduler
 from server.services.releases.pr_status_scheduler import ReleasePrStatusSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
 from server.services.workflows.ci_scheduler import CiStatusSweepScheduler
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
     goal_planner_scheduler = None
     ci_status_scheduler = None
     release_pr_status_scheduler = None
+    release_deployment_status_scheduler = None  # pragma: no cover - lifespan wiring
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
@@ -70,6 +72,10 @@ async def lifespan(app: FastAPI):
         release_pr_status_scheduler = ReleasePrStatusSweepScheduler()
         release_pr_status_scheduler.start()
         app.state.release_pr_status_scheduler = release_pr_status_scheduler
+    if config.RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED:  # pragma: no cover - lifespan wiring
+        release_deployment_status_scheduler = ReleaseDeploymentStatusSweepScheduler()
+        release_deployment_status_scheduler.start()
+        app.state.release_deployment_status_scheduler = release_deployment_status_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -81,6 +87,8 @@ async def lifespan(app: FastAPI):
             notification_dispatcher.stop()
         if release_pr_status_scheduler is not None:
             release_pr_status_scheduler.stop()
+        if release_deployment_status_scheduler is not None:  # pragma: no cover - lifespan wiring
+            release_deployment_status_scheduler.stop()
         if ci_status_scheduler is not None:
             ci_status_scheduler.stop()
         if goal_planner_scheduler is not None:
