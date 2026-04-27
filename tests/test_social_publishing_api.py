@@ -1733,6 +1733,20 @@ def test_secret_store_creates_missing_refresh_secret_before_adding_version(monke
     assert calls[2]["add"]["payload"]["data"] == b"new-refresh"
 
 
+def test_secret_store_create_request_rejects_invalid_secret_refs(monkeypatch):
+    store = social_publishing.SecretValueStore()
+    monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo")
+
+    with pytest.raises(social_publishing.SocialPublishError, match="reference is invalid"):
+        store._secret_create_request("x-refresh")
+
+    monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo/secrets/")
+    with pytest.raises(social_publishing.SocialPublishError, match="reference is invalid"):
+        store._secret_create_request("x-refresh")
+
+    assert store._is_secret_not_found(RuntimeError("404 secret not found"))
+
+
 def test_oauth_token_provider_status_and_error_paths(monkeypatch):
     class FakeStore:
         def __init__(self):
