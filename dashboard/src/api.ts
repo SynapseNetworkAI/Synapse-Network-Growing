@@ -2581,6 +2581,8 @@ export const api = {
   getSocialWatchlist: () => request<SocialWatchlistAccount[]>('/social/watchlist'),
   getSocialReplies: () => request<SocialReplyItem[]>('/social/replies'),
   getSocialRepostCandidates: () => request<SocialRepostCandidate[]>('/social/repost-candidates'),
+  publishSocialRepostCandidateToX: (id: number, data: { actor?: string; action?: 'quote' | 'repost' | string } = {}) =>
+    request<SocialRepostCandidate>(`/social/repost-candidates/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data) }),
   getSocialPostMetrics: () => request<SocialPostMetric[]>('/social/post-metrics'),
   getSocialPosts: (filters?: { status?: string }) => {
     const params = new URLSearchParams()

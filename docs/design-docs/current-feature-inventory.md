@@ -126,6 +126,12 @@
 19. `/publishing` 已升级为 Social Ops Center：默认按 `Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics` 展示运营链路。
 20. 新增运营对象投影：`social_campaign_goals`、`social_trend_items`、`social_watchlist_accounts`、`social_reply_items`、`social_repost_candidates`、`social_post_metrics`。这些对象默认只读或 draft-only，不会自动对 X 产生公开动作。
 21. `/publishing` 分面包括 `今日队列`、`趋势雷达`、`回帖处理`、`转发候选`、`已发布效果`、`品牌规则`。趋势采集、watchlist、回复草稿、引用转发候选和 metrics 只辅助 operator 决策；发布、回复、引用转发、删除仍必须 Human Gate。
+22. X 专属 recurring workflows 使用平台前缀命名：`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。公共数据表仍保持 `social_*`，为后续 LinkedIn / Discord / site content 扩展保留平台字段。
+23. X Social Sweep Scheduler 真实自动触发 `x_social_*` workflows；`x_social_daily_content_planner` 每小时 tick，但按 `OPS_OPERATOR_TIMEZONE` 的自然日幂等：同一 X 账号每天最多生成 1 条 `source_type=daily_planner` 草稿；已生成则返回 `already_created=true`，不会制造重复草稿。生成结果必须进入 `needs_review`，不得自动发布。
+24. `x_social_trend_radar_sweep` 和 `x_social_repost_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，不调用 X repost / quote / reply / publish API。
+25. X 趋势雷达 v1 的真实数据入口是 Watchlist timeline，而不是全网搜索：`social_watchlist_accounts -> GET /2/users/by/username/:username -> GET /2/users/:id/tweets -> social_trend_items`。每个 watchlist account 通过 `last_checked_at` 做 1 小时级节流；X rate limit / auth failure 只能写 diagnostic，不得强制重试或伪造真实趋势。
+26. `social_trend_items.source_url` 是 X 来源真相边界。带 `https://x.com/.../status/...` 的趋势可以进入 `x_social_repost_candidate_sweep`；本地趋势种子或缺少 source URL 的素材只能作为内容灵感，UI 必须禁用转发/引用发布。
+27. `x_social_repost_candidate_sweep` 生成的 `suggested_quote` 必须增加 Synapse 视角或额外观点，不得只是 `Great point` / `Interesting` 这类无价值附和。
 
 ## 5. Error Discovery And Intake Gate
 

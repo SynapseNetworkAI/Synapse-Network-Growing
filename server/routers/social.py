@@ -19,6 +19,7 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialRepostPublishRequest,
     SocialXOAuthCallbackOut,
     SocialXOAuthStartOut,
     SocialReplyItemOut,
@@ -42,6 +43,7 @@ from server.services.social.publishing import (
     list_social_trends,
     list_social_watchlist,
     publish_social_post_to_x,
+    publish_social_repost_candidate_to_x,
     regenerate_social_post_image,
     remove_social_post_media,
     request_social_post_rewrite,
@@ -118,6 +120,14 @@ def list_social_replies_endpoint(db: Session = Depends(get_db)):
 @router.get("/repost-candidates", response_model=list[SocialRepostCandidateOut])
 def list_social_repost_candidates_endpoint(db: Session = Depends(get_db)):
     return list_social_repost_candidates(db)
+
+
+@router.post("/repost-candidates/{candidate_id}/publish-x", response_model=SocialRepostCandidateOut)
+def publish_social_repost_candidate_to_x_endpoint(candidate_id: int, body: SocialRepostPublishRequest, db: Session = Depends(get_db)):
+    try:
+        return publish_social_repost_candidate_to_x(db, candidate_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/post-metrics", response_model=list[SocialPostMetricOut])

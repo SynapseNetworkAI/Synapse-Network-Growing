@@ -24,6 +24,7 @@ from server.services.planning.scheduler import GoalPlannerSweepScheduler
 from server.services.releases.deployment_status_scheduler import ReleaseDeploymentStatusSweepScheduler
 from server.services.releases.pr_status_scheduler import ReleasePrStatusSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
+from server.services.social.scheduler import XSocialSweepScheduler
 from server.services.workflows.ci_scheduler import CiStatusSweepScheduler
 
 setup_ops_logging(
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     ci_status_scheduler = None
     release_pr_status_scheduler = None
     release_deployment_status_scheduler = None  # pragma: no cover - lifespan wiring
+    x_social_scheduler = None
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
@@ -76,6 +78,10 @@ async def lifespan(app: FastAPI):
         release_deployment_status_scheduler = ReleaseDeploymentStatusSweepScheduler()
         release_deployment_status_scheduler.start()
         app.state.release_deployment_status_scheduler = release_deployment_status_scheduler
+    if config.X_SOCIAL_SWEEP_SCHEDULER_ENABLED:  # pragma: no cover - lifespan wiring
+        x_social_scheduler = XSocialSweepScheduler()
+        x_social_scheduler.start()
+        app.state.x_social_scheduler = x_social_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -89,6 +95,8 @@ async def lifespan(app: FastAPI):
             release_pr_status_scheduler.stop()
         if release_deployment_status_scheduler is not None:  # pragma: no cover - lifespan wiring
             release_deployment_status_scheduler.stop()
+        if x_social_scheduler is not None:  # pragma: no cover - lifespan wiring
+            x_social_scheduler.stop()
         if ci_status_scheduler is not None:
             ci_status_scheduler.stop()
         if goal_planner_scheduler is not None:

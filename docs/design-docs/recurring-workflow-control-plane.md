@@ -24,7 +24,7 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 ## Current Background Mechanisms
 
-当前平台存在五类后台或准后台机制：
+当前平台存在六类后台或准后台机制：
 
 1. **Bug Log Sweep Scheduler**
    - 真实自动运行的后台 scheduler。
@@ -33,7 +33,7 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 2. **Recurring Workflows Registry**
    - 内置 recurring workflow 定义清单。
-   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`、`release_pr_status_sweep`。
+   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`、`release_pr_status_sweep`、`release_deployment_status_sweep`、`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。
    - v1 支持手动 `Dry Run` 与 `Run Now`，但不自动按 schedule 执行全部 registry。
 
 3. **Notification Dispatcher**
@@ -48,6 +48,11 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 5. **Portfolio / Operating Review Scheduler**
    - 面向 company review、weekly review、portfolio cleanup 的任务定义。
    - v1 先进入 registry 与手动运行，不自动启动周期执行，避免突然扩大系统行为面。
+
+6. **X Social Sweep Scheduler**
+   - 真实自动运行的轻量 scheduler。
+   - 只调度 `x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。
+   - 只能生成 human-reviewed draft、read-only trend summary 和 repost candidate，不能自动发布、回复、转发、关注或删除。
 
 6. **Release PR Status Sweep Scheduler**
    - 只读同步 GitHub PR 外部状态。
@@ -429,6 +434,9 @@ OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS=5
 6. GitHub `404 / Not Found` 是业务终态，不是普通网络失败；必须映射为 `pr_closed / abandoned`，`next_action=review_missing_pr`，并记录 `PR removed from GitHub or no longer accessible`，避免永久僵尸轮询。
 7. Timeout、5xx、auth 或未知 CLI 失败不得覆盖本地 release 状态，只能写本次 recurring run 的失败摘要，等待下次 sweep 或 operator 处理。
 8. 合并 PR 不自动部署；deploy / rollback 仍必须进入 Release surface 与 Human Gate。
+9. X Social recurring workflows 是平台前缀化的运营自动化：`x_social_daily_content_planner` 每小时 tick 且每天最多生成 1 条 human-reviewed draft；`x_social_trend_radar_sweep` 优先从 Watchlist timeline 只读采集真实 X posts，并按 `last_checked_at` 做账号级节流；`x_social_repost_candidate_sweep` 只从带真实 `source_url` 的趋势生成引用转发候选。它们不得自动发布、回复、转发或关注账号。
+10. `x_social_trend_radar_sweep` 的 Rate Limit 语义必须 fail-soft：X API 429 / auth / 权限问题只写 diagnostic 和 run result，不强制重试、不阻断其它定时任务、不把本地 seed 冒充真实 X 来源。
+11. `x_social_repost_candidate_sweep` 的输出必须 value-add：quote 文案需要提供 Synapse angle、agent/API/payment rails 观点或开发者收益，不得只生成 `Great point` / `Interesting` 这类附和式内容。
 
 ## Implementation Notes
 
@@ -470,6 +478,6 @@ v1 只把 **已有内置任务** 管理起来。后续如果要开放自定义 s
 
 1. v1 只读管理内置任务，不支持新增/编辑自定义定时任务。
 2. v1 不实现通用 schedule 自动运行所有 registry。
-3. 当前真实自动定时运行的任务包括 Bug Log Sweep Scheduler、Goal Planner Sweep Scheduler，以及只读的 Release PR Status Sweep Scheduler；CI Status Sweep 默认需要显式开启。
+3. 当前真实自动定时运行的任务包括 Bug Log Sweep Scheduler、Goal Planner Sweep Scheduler、只读的 Release PR Status Sweep Scheduler、Release Deployment Status Sweep Scheduler，以及 draft-only 的 X Social Sweep Scheduler；CI Status Sweep 默认需要显式开启。
 4. Notification Dispatcher 是告警可靠性的一部分，因此必须后台 loop。
 5. 所有高风险 recurring workflow 的手动运行默认不 auto-start requirement。

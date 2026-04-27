@@ -157,6 +157,11 @@ High evidence does not bypass high risk.
 14. `/publishing` is the Social Ops Center: it organizes official X operations as `Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics`.
 15. Social Growth automation may generate daily draft ideas, read-only trend summaries, watchlist notes, reply drafts, quote/repost candidates, and post metrics; all public actions still require explicit Human Gate / operator click.
 16. Trend radar, watchlist, reply inbox, repost candidates, and metrics are read-only or draft-only control-plane objects until an operator confirms an external action. Third-party growth tools may provide read-only inputs or draft suggestions, but must not hold direct publish authority.
+17. Platform-specific social recurring workflow keys must be prefixed by platform. X uses `x_social_daily_content_planner`, `x_social_trend_radar_sweep`, and `x_social_repost_candidate_sweep`; future platforms should use names such as `linkedin_social_*`, `discord_social_*`, or `site_content_*`.
+18. `x_social_daily_content_planner` may tick hourly, but it must be idempotent by operator-local day and create at most one `source_type=daily_planner` draft per X account per day. It must leave the draft in human review and must never call X publish/reply/repost APIs.
+19. X Social Sweep Scheduler may automatically trigger only the `x_social_*` draft/read-only workflows. It is not a generic external-action scheduler and must not be reused for public posting, reply, repost, follow, unfollow, or delete without a separate Human Gate design.
+20. `x_social_trend_radar_sweep` v1 reads real X data from the configured Watchlist timeline only. It resolves watchlist handles through X API v2, fetches recent user posts, filters by engagement, relevance, text length, and dedupe, and records source URLs. Rate limits and auth failures are diagnostics, not retry storms or fake trend generation.
+21. `x_social_repost_candidate_sweep` may only create quote/repost candidates from trend items with a real X `source_url`; local seed trends are inspiration only. Suggested quotes must add a Synapse-specific viewpoint rather than generic agreement.
 
 ## 6. Observability Constraints
 

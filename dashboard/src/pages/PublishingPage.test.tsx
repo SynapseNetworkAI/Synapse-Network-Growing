@@ -15,6 +15,7 @@ const apiMock = vi.hoisted(() => ({
   getSocialWatchlist: vi.fn(),
   getSocialReplies: vi.fn(),
   getSocialRepostCandidates: vi.fn(),
+  publishSocialRepostCandidateToX: vi.fn(),
   getSocialPostMetrics: vi.fn(),
   getSocialPosts: vi.fn(),
   getSocialPost: vi.fn(),
@@ -236,8 +237,53 @@ describe('PublishingPage', () => {
 
     expect(screen.getByText('AI agents need payment rails')).toBeInTheDocument()
     expect(screen.getByText('Agent builders increasingly need budgeted API access.')).toBeInTheDocument()
+    expect(screen.getByText('来源：本地趋势种子')).toBeInTheDocument()
     expect(screen.getByText('@LangChainAI')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '发布到 X' })).not.toBeInTheDocument()
+  })
+
+  it('shows repost candidates as a paginated list and requires confirmation before quote publishing', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialRepostCandidates.mockResolvedValue([
+      {
+        id: 31,
+        platform: 'x',
+        source_url: 'https://x.com/OpenAI/status/100',
+        author_handle: 'OpenAI',
+        source_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+        suggested_quote: 'This is exactly why agent-native payment rails matter: builders need budgeted API access without manual billing glue.',
+        relevance_score: 0.91,
+        status: 'candidate',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.publishSocialRepostCandidateToX.mockResolvedValue({
+      id: 31,
+      platform: 'x',
+      source_url: 'https://x.com/OpenAI/status/100',
+      author_handle: 'OpenAI',
+      source_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+      suggested_quote: 'This is exactly why agent-native payment rails matter: builders need budgeted API access without manual billing glue.',
+      relevance_score: 0.91,
+      status: 'published',
+      updated_at: '2026-04-25T00:00:00Z',
+    })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '转发候选' }))
+    expect(screen.getByText('第 1 / 1 页 · 共 1 条候选')).toBeInTheDocument()
+    expect(screen.getByText('@OpenAI')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '详情' }))
+
+    expect(screen.getByRole('dialog', { name: '转发 / 引用候选 #31' })).toBeInTheDocument()
+    expect(screen.getAllByText('AI agents increasingly need reliable tool access and payment primitives.').length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: '引用发布到 X' }))
+    expect(screen.getByText(/公开发布 Agent 拟写的引用文案/)).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '引用发布到 X' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(apiMock.publishSocialRepostCandidateToX).toHaveBeenCalledWith(31, { actor: 'operator', action: 'quote' })
+    })
   })
 
   it('shows generated image thumbnails and includes image count in publish confirmation', async () => {

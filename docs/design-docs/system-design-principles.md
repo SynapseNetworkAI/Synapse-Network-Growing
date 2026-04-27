@@ -140,6 +140,10 @@
 23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
 24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
 25. `release_pr_status_sweep` 只能只读同步 GitHub PR 外部状态；`MERGED` 可更新本地 release 为 merged，`CLOSED` 或 `404 / Not Found` 必须收敛为 abandoned/review 状态，不能永久保留 `pr_opened` 僵尸记录。
+26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但同一 operator-local day 只能生成一条 human-reviewed draft。趋势雷达和转发候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
+27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。
+28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
+29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
@@ -260,6 +264,7 @@ Social Publishing 负责：
 7. Social Ops Center 必须以目标驱动组织运营：`Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics`。
 8. 趋势雷达、watchlist、回帖处理、引用转发候选和发布效果 metrics 只能作为 read-only / draft-only 决策输入；它们不能自动点赞、关注、回复、转发或发布。
 9. 第三方增长工具只能作为只读素材源或草稿源接入，必须通过内部 brand refinement、risk evidence gate 和 Human Gate 后才能对外行动。
+10. Trend Radar 的来源必须可解释：真实 X 数据展示 `source_platform=x`、作者、source URL、采集时间和互动摘要；本地趋势种子必须标记为 seed/inspiration，并禁用引用转发。
 
 Social Publishing 不得承担：
 

@@ -43,6 +43,11 @@ from server.services.scheduling.locks import acquire_scheduler_lock, release_sch
 from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
+from server.services.social.publishing import (
+    run_x_social_daily_content_planner,
+    run_x_social_repost_candidate_sweep,
+    run_x_social_trend_radar_sweep,
+)
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -222,6 +227,42 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "sync_release_deployment_status", "read_only_github": True},
         "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "processed_count"},
+    },
+    {
+        "workflow_key": "x_social_daily_content_planner",
+        "display_name": "X Social Daily Content Planner",
+        "description": "Hourly tick that creates at most one human-reviewed X official-account draft per operator-local day.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "hourly", "interval_hours": 1},
+        "input_query": {"platform": "x", "source_type": "daily_planner", "idempotency": "one_draft_per_local_day"},
+        "output_action": {"kind": "create_social_draft", "auto_publish": False, "human_gate_required": True},
+        "escalation_rule": {"on_generation_failure": "notify_portfolio_operator", "on_already_created": "no_op"},
+        "validation_signal": {"success_metric": "created_post_id"},
+    },
+    {
+        "workflow_key": "x_social_trend_radar_sweep",
+        "display_name": "X Social Trend Radar Sweep",
+        "description": "Read-only X trend/watchlist sweep for AI, agent, API, and payment topics with quality filtering.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "interval", "interval_minutes": 240},
+        "input_query": {"platform": "x", "sources": ["watchlist", "trend_items"], "read_only": True},
+        "output_action": {"kind": "refresh_social_trend_radar", "external_actions": []},
+        "escalation_rule": {"on_connector_missing": "diagnostic_only", "on_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "retained_count"},
+    },
+    {
+        "workflow_key": "x_social_repost_candidate_sweep",
+        "display_name": "X Social Repost Candidate Sweep",
+        "description": "Generate human-gated quote/repost candidates from high-quality X trend radar items.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "interval", "interval_minutes": 720},
+        "input_query": {"platform": "x", "trend_min_relevance_score": 0.75},
+        "output_action": {"kind": "create_repost_candidates", "auto_repost": False, "human_gate_required": True},
+        "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "created_candidate_ids"},
     },
 ]
 
@@ -1456,6 +1497,34 @@ def _execute_recurring_workflow(
                 "max_records": 50,
                 "read_only_github": True,
             }
+        if workflow_key == "x_social_daily_content_planner":
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "platform": "x",
+                "cadence": "hourly",
+                "idempotency": "one_draft_per_operator_local_day",
+                "auto_publish": False,
+                "human_gate_required": True,
+            }
+        if workflow_key == "x_social_trend_radar_sweep":
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "platform": "x",
+                "read_only": True,
+                "min_relevance_score": 0.70,
+                "external_actions": [],
+            }
+        if workflow_key == "x_social_repost_candidate_sweep":
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "platform": "x",
+                "auto_repost": False,
+                "human_gate_required": True,
+                "min_relevance_score": 0.75,
+            }
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1522,6 +1591,12 @@ def _execute_recurring_workflow(
         return sync_release_pr_statuses(db, max_records=50, per_record_sleep_seconds=1.0)
     if workflow_key == "release_deployment_status_sweep":
         return sync_release_task_deployment_statuses(db, max_records=50)
+    if workflow_key == "x_social_daily_content_planner":
+        return run_x_social_daily_content_planner(db)
+    if workflow_key == "x_social_trend_radar_sweep":
+        return run_x_social_trend_radar_sweep(db)
+    if workflow_key == "x_social_repost_candidate_sweep":
+        return run_x_social_repost_candidate_sweep(db)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
@@ -1587,6 +1662,7 @@ def recurring_workflow_health(
     ci_status_scheduler_status: dict[str, Any] | None = None,
     release_pr_status_scheduler_status: dict[str, Any] | None = None,
     release_deployment_status_scheduler_status: dict[str, Any] | None = None,
+    x_social_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = list_recurring_workflows(db)
@@ -1616,6 +1692,10 @@ def recurring_workflow_health(
         },
         "release_deployment_status_scheduler": release_deployment_status_scheduler_status or {
             "enabled": bool(getattr(config, "RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "x_social_scheduler": x_social_scheduler_status or {
+            "enabled": bool(getattr(config, "X_SOCIAL_SWEEP_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

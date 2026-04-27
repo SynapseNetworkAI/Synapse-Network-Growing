@@ -90,6 +90,7 @@ def test_recurring_workflows_health_endpoint(synced_client):
     assert "bug_log_scheduler" in payload
     assert "lock" in payload["bug_log_scheduler"]
     assert "release_pr_status_scheduler" in payload
+    assert "x_social_scheduler" in payload
     assert "notification_dispatcher" in payload
     assert payload["recurring_registry"]["total_count"] >= 7
 
@@ -104,6 +105,32 @@ def test_recurring_workflow_runs_endpoint(synced_client):
     assert runs
     assert runs[0]["workflow_key"] == "bug_log_sweep"
     assert runs[0]["dry_run"] is True
+
+
+def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_client):
+    response = synced_client.get("/api/recurring-workflows")
+    assert response.status_code == 200
+    workflow_keys = {row["workflow_key"] for row in response.json()}
+    assert {
+        "x_social_daily_content_planner",
+        "x_social_trend_radar_sweep",
+        "x_social_repost_candidate_sweep",
+    }.issubset(workflow_keys)
+
+    daily = synced_client.post("/api/recurring-workflows/x_social_daily_content_planner/run", json={"dry_run": True})
+    assert daily.status_code == 200
+    daily_payload = daily.json()
+    assert daily_payload["status"] == "completed"
+    assert daily_payload["result"]["idempotency"] == "one_draft_per_operator_local_day"
+    assert daily_payload["result"]["human_gate_required"] is True
+
+    trends = synced_client.post("/api/recurring-workflows/x_social_trend_radar_sweep/run", json={"dry_run": True})
+    assert trends.status_code == 200
+    assert trends.json()["result"]["external_actions"] == []
+
+    reposts = synced_client.post("/api/recurring-workflows/x_social_repost_candidate_sweep/run", json={"dry_run": True})
+    assert reposts.status_code == 200
+    assert reposts.json()["result"]["auto_repost"] is False
 
 
 def _create_release_for_pr_sync(db_session, *, status="pr_opened", delivery_state="pr_open", pr_number=31, pr_url=None):

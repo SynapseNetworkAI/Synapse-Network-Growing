@@ -103,8 +103,15 @@ export default function App() {
       <div className="flex min-h-screen">
         <aside className="hidden w-[286px] shrink-0 border-r border-white/8 bg-[color:var(--ops-sidebar-bg)] px-5 py-6 lg:flex lg:flex-col">
           <div>
-            <div className="machine-label text-cyan-200/70">Synapse Network</div>
-            <div className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ops-text-title)]">Agent Ops</div>
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-cyan-200/20 bg-white shadow-[0_0_28px_rgba(34,211,238,0.12)]">
+                <img src="/synapse-network-icon.svg" alt="SynapseNetwork" className="h-10 w-10" />
+              </span>
+              <div>
+                <div className="machine-label text-cyan-200/70">Synapse Network</div>
+                <div className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ops-text-title)]">Agent Ops</div>
+              </div>
+            </div>
             <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Human-Agent Control Plane</div>
           </div>
 

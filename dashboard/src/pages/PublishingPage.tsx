@@ -111,6 +111,38 @@ function postSortRank(post: SocialPostDraft) {
   return ranks[post.status] ?? 6
 }
 
+function signalStatusTone(status: string): 'default' | 'ready' | 'running' | 'blocked' | 'validating' | 'delivered' | 'muted' {
+  if (status === 'published') return 'delivered'
+  if (status === 'publishing') return 'running'
+  if (status === 'failed' || status === 'rejected') return 'blocked'
+  if (status === 'candidate' || status === 'needs_review') return 'ready'
+  return 'validating'
+}
+
+function repostStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    candidate: '候选',
+    needs_review: '待审核',
+    publishing: '发布中',
+    published: '已发布',
+    failed: '失败',
+    rejected: '已拒绝',
+  }
+  return map[status] ?? status
+}
+
+function repostSortRank(candidate: SocialRepostCandidate) {
+  const ranks: Record<string, number> = {
+    publishing: 0,
+    candidate: 1,
+    needs_review: 1,
+    failed: 2,
+    published: 8,
+    rejected: 9,
+  }
+  return ranks[candidate.status] ?? 5
+}
+
 function publishActionLabel(post: SocialPostDraft | null) {
   return post?.status === 'failed' ? '重新发送' : '发布到 X'
 }
@@ -185,6 +217,13 @@ export default function PublishingPage() {
   const [form, setForm] = useState<DraftForm>(emptyForm)
   const [savingDraft, setSavingDraft] = useState(false)
   const [page, setPage] = useState(1)
+  const [trendPage, setTrendPage] = useState(1)
+  const [watchlistPage, setWatchlistPage] = useState(1)
+  const [repostPage, setRepostPage] = useState(1)
+  const [repostDetail, setRepostDetail] = useState<SocialRepostCandidate | null>(null)
+  const [repostPublishTarget, setRepostPublishTarget] = useState<SocialRepostCandidate | null>(null)
+  const [repostPublishAction, setRepostPublishAction] = useState<'quote' | 'repost'>('quote')
+  const [repostBusyId, setRepostBusyId] = useState<number | null>(null)
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null)
   const [selectedImageAltText, setSelectedImageAltText] = useState('')
@@ -205,6 +244,25 @@ export default function PublishingPage() {
   )
   const totalPages = Math.max(1, Math.ceil(sortedPosts.length / pageSize))
   const pagedPosts = sortedPosts.slice((page - 1) * pageSize, page * pageSize)
+  const sortedTrends = useMemo(
+    () => [...trends].sort((left, right) => (right.relevance_score ?? 0) - (left.relevance_score ?? 0) || new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()),
+    [trends],
+  )
+  const trendTotalPages = Math.max(1, Math.ceil(sortedTrends.length / pageSize))
+  const pagedTrends = sortedTrends.slice((trendPage - 1) * pageSize, trendPage * pageSize)
+  const watchlistTotalPages = Math.max(1, Math.ceil(watchlist.length / pageSize))
+  const pagedWatchlist = watchlist.slice((watchlistPage - 1) * pageSize, watchlistPage * pageSize)
+  const sortedReposts = useMemo(
+    () =>
+      [...reposts].sort((left, right) => {
+        const rankDelta = repostSortRank(left) - repostSortRank(right)
+        if (rankDelta !== 0) return rankDelta
+        return (right.relevance_score ?? 0) - (left.relevance_score ?? 0) || new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()
+      }),
+    [reposts],
+  )
+  const repostTotalPages = Math.max(1, Math.ceil(sortedReposts.length / pageSize))
+  const pagedReposts = sortedReposts.slice((repostPage - 1) * pageSize, repostPage * pageSize)
 
   async function load(nextFilter = filter) {
     setLoading(true)
@@ -260,6 +318,30 @@ export default function PublishingPage() {
       setPage(totalPages)
     }
   }, [page, totalPages])
+
+  useEffect(() => {
+    if (trendPage > trendTotalPages) {
+      setTrendPage(trendTotalPages)
+    }
+  }, [trendPage, trendTotalPages])
+
+  useEffect(() => {
+    if (watchlistPage > watchlistTotalPages) {
+      setWatchlistPage(watchlistTotalPages)
+    }
+  }, [watchlistPage, watchlistTotalPages])
+
+  useEffect(() => {
+    if (repostPage > repostTotalPages) {
+      setRepostPage(repostTotalPages)
+    }
+  }, [repostPage, repostTotalPages])
+
+  useEffect(() => {
+    setTrendPage(1)
+    setWatchlistPage(1)
+    setRepostPage(1)
+  }, [opsTab])
 
   useEffect(() => {
     return () => {
@@ -463,6 +545,26 @@ export default function PublishingPage() {
       toast.error(error instanceof Error ? error.message : '发布失败')
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function publishRepostCandidateToX() {
+    if (!repostPublishTarget || repostBusyId) return
+    setRepostBusyId(repostPublishTarget.id)
+    try {
+      const updated = await api.publishSocialRepostCandidateToX(repostPublishTarget.id, {
+        actor: 'operator',
+        action: repostPublishAction,
+      })
+      setReposts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setRepostDetail((current) => (current?.id === updated.id ? updated : current))
+      toast.success(repostPublishAction === 'quote' ? '已引用发布到 X' : '已转发链接到 X')
+      setRepostPublishTarget(null)
+      await load()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '发布候选失败')
+    } finally {
+      setRepostBusyId(null)
     }
   }
 
@@ -789,29 +891,71 @@ export default function PublishingPage() {
           title="趋势雷达"
           description="只读采集 AI / agent / API / payment 相关热点，保留来源链接；Agent 只能摘要和推荐跟进，不会自动互动。"
         >
-          <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
-            <div className="space-y-3">
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">
               {trends.length === 0 ? <EmptyPane>暂无趋势素材。后续由 social_trend_radar_sweep 只读采集。</EmptyPane> : null}
-              {trends.map((trend) => (
-                <div key={trend.id} className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="font-semibold text-[color:var(--ops-text-title)]">{trend.topic}</div>
-                    <StateBadge tone="validating">score {Math.round(trend.relevance_score * 100)}</StateBadge>
+              {trends.length > 0 ? (
+                <>
+                  <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                    <thead className="bg-[color:var(--ops-panel-subtle)] text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                      <tr>
+                        <th className="px-5 py-4 font-medium">主题</th>
+                        <th className="px-5 py-4 font-medium">来源</th>
+                        <th className="px-5 py-4 font-medium">分数</th>
+                        <th className="px-5 py-4 text-right font-medium">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
+                      {pagedTrends.map((trend) => (
+                        <tr key={trend.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
+                          <td className="max-w-[460px] px-5 py-4">
+                            <div className="font-semibold text-[color:var(--ops-text-title)]">{trend.topic}</div>
+                            <div className="mt-2 line-clamp-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">{trend.summary}</div>
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="font-semibold text-[color:var(--ops-text-body)]">@{trend.author_handle ?? 'unknown'}</div>
+                            <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
+                              {trend.source_url ? '来源：X 原帖' : '来源：本地趋势种子'}
+                            </div>
+                            <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{formatDateTime(trend.updated_at)}</div>
+                          </td>
+                          <td className="px-5 py-4">
+                            <StateBadge tone="validating">score {Math.round(trend.relevance_score * 100)}</StateBadge>
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            {trend.source_url ? <a className="inline-flex rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={trend.source_url} target="_blank" rel="noreferrer">打开来源</a> : <span className="text-xs text-[color:var(--ops-text-caption)]">无来源链接</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    <span>第 {trendPage} / {trendTotalPages} 页 · 共 {trends.length} 条趋势</span>
+                    <div className="flex gap-2">
+                      <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={trendPage <= 1} onClick={() => setTrendPage((current) => Math.max(1, current - 1))}>上一页</button>
+                      <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={trendPage >= trendTotalPages} onClick={() => setTrendPage((current) => Math.min(trendTotalPages, current + 1))}>下一页</button>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{trend.summary}</p>
-                  {trend.source_url ? <a className="mt-3 inline-flex text-xs font-semibold text-cyan-100 underline" href={trend.source_url} target="_blank" rel="noreferrer">打开来源</a> : null}
-                </div>
-              ))}
+                </>
+              ) : null}
             </div>
-            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
-              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">Watchlist</div>
-              <div className="mt-3 space-y-3">
-                {watchlist.map((account) => (
-                  <div key={account.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+            <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)] bg-white/[0.03]">
+              <div className="border-b border-[color:var(--ops-stroke-soft)] px-5 py-4 text-sm font-semibold text-[color:var(--ops-text-title)]">Watchlist</div>
+              <div className="divide-y divide-[color:var(--ops-stroke-soft)]">
+                {pagedWatchlist.map((account) => (
+                  <div key={account.id} className="bg-[color:var(--ops-panel-subtle)] px-5 py-4">
                     <div className="font-semibold text-[color:var(--ops-text-body)]">@{account.handle}</div>
-                    <div className="mt-1 text-xs text-[color:var(--ops-text-muted)]">{account.category} · {account.rationale}</div>
+                    <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-muted)]">{account.category} · {account.rationale}</div>
+                    {account.latest_summary ? <div className="mt-2 line-clamp-2 text-xs text-[color:var(--ops-text-caption)]">{account.latest_summary}</div> : null}
                   </div>
                 ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                <span>第 {watchlistPage} / {watchlistTotalPages} 页 · 共 {watchlist.length} 个账号</span>
+                <div className="flex gap-2">
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={watchlistPage <= 1} onClick={() => setWatchlistPage((current) => Math.max(1, current - 1))}>上一页</button>
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={watchlistPage >= watchlistTotalPages} onClick={() => setWatchlistPage((current) => Math.min(watchlistTotalPages, current + 1))}>下一页</button>
+                </div>
               </div>
             </div>
           </div>
@@ -849,21 +993,56 @@ export default function PublishingPage() {
           description="推荐品牌相关的高质量 X 内容；Agent 只拟引用文案，人类点击后才会引用转发。"
         >
           {reposts.length === 0 ? <EmptyPane>暂无转发候选。后续由 social_repost_candidate_sweep 从趋势和 watchlist 中生成。</EmptyPane> : null}
-          <div className="grid gap-4 md:grid-cols-2">
-            {reposts.map((candidate) => (
-              <div key={candidate.id} className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">@{candidate.author_handle ?? 'unknown'}</div>
-                  <StateBadge tone="validating">fit {Math.round(candidate.relevance_score * 100)}</StateBadge>
+          {reposts.length > 0 ? (
+            <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead className="bg-[color:var(--ops-panel-subtle)] text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                  <tr>
+                    <th className="px-5 py-4 font-medium">ID</th>
+                    <th className="px-5 py-4 font-medium">来源内容</th>
+                    <th className="px-5 py-4 font-medium">状态 / Fit</th>
+                    <th className="px-5 py-4 font-medium">引用文案</th>
+                    <th className="px-5 py-4 font-medium">更新</th>
+                    <th className="px-5 py-4 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
+                  {pagedReposts.map((candidate) => (
+                    <tr key={candidate.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
+                      <td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-[color:var(--ops-text-caption)]">#{candidate.id}</td>
+                      <td className="max-w-[320px] px-5 py-4">
+                        <div className="font-semibold text-[color:var(--ops-text-title)]">@{candidate.author_handle ?? 'unknown'}</div>
+                        <div className="mt-2 line-clamp-3 text-xs leading-5 text-[color:var(--ops-text-muted)]">{candidate.source_text}</div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <StateBadge tone={signalStatusTone(candidate.status)}>{repostStatusLabel(candidate.status)}</StateBadge>
+                        <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">fit {Math.round(candidate.relevance_score * 100)}</div>
+                      </td>
+                      <td className="max-w-[340px] px-5 py-4">
+                        <div className="line-clamp-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] px-3 py-2 text-xs leading-5 text-cyan-50">
+                          {candidate.suggested_quote || 'Agent 尚未生成引用文案。'}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(candidate.updated_at)}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => setRepostDetail(candidate)}>详情</button>
+                          {candidate.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={candidate.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                <span>第 {repostPage} / {repostTotalPages} 页 · 共 {reposts.length} 条候选</span>
+                <div className="flex gap-2">
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={repostPage <= 1} onClick={() => setRepostPage((current) => Math.max(1, current - 1))}>上一页</button>
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={repostPage >= repostTotalPages} onClick={() => setRepostPage((current) => Math.min(repostTotalPages, current + 1))}>下一页</button>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{candidate.source_text}</p>
-                <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] p-3 text-sm leading-6 text-cyan-50">
-                  {candidate.suggested_quote || 'Agent 尚未生成引用文案。'}
-                </div>
-                {candidate.source_url ? <a className="mt-3 inline-flex text-xs font-semibold text-cyan-100 underline" href={candidate.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : null}
         </SectionFrame>
       ) : null}
 
@@ -914,6 +1093,88 @@ export default function PublishingPage() {
           </div>
         </SectionFrame>
       ) : null}
+
+      <OverlayModal
+        open={Boolean(repostDetail)}
+        eyebrow="Repost Candidate"
+        title={repostDetail ? `转发 / 引用候选 #${repostDetail.id}` : '转发 / 引用候选'}
+        description="这里展示候选来源、Agent 拟写引用文案和公开操作。发布到 X 前必须由 operator 明确确认。"
+        onClose={() => setRepostDetail(null)}
+        actions={
+          <>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => setRepostDetail(null)}>
+              关闭
+            </button>
+            {repostDetail && !accountAuthorized(activeAccount) ? (
+              <button type="button" className="rounded-xl border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount?.id)}>
+                连接 X 官方账号
+              </button>
+            ) : null}
+            {repostDetail && accountAuthorized(activeAccount) && repostDetail.status !== 'published' && repostDetail.status !== 'publishing' ? (
+              <>
+                <button
+                  type="button"
+                  className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50"
+                  disabled={!repostDetail.source_url || repostBusyId === repostDetail.id}
+                  onClick={() => {
+                    setRepostPublishAction('repost')
+                    setRepostPublishTarget(repostDetail)
+                  }}
+                >
+                  转发链接到 X
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  disabled={!repostDetail.source_url || !repostDetail.suggested_quote || repostBusyId === repostDetail.id}
+                  onClick={() => {
+                    setRepostPublishAction('quote')
+                    setRepostPublishTarget(repostDetail)
+                  }}
+                >
+                  引用发布到 X
+                </button>
+              </>
+            ) : null}
+          </>
+        }
+      >
+        {repostDetail ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Author</div>
+                <div className="mt-2 font-semibold">@{repostDetail.author_handle ?? 'unknown'}</div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Status</div>
+                <div className="mt-2"><StateBadge tone={signalStatusTone(repostDetail.status)}>{repostStatusLabel(repostDetail.status)}</StateBadge></div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Fit Score</div>
+                <div className="mt-2 font-semibold">{Math.round(repostDetail.relevance_score * 100)}</div>
+              </div>
+            </div>
+              <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Source Post</div>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{repostDetail.source_text}</p>
+                {repostDetail.source_url ? <a className="mt-3 inline-flex text-sm font-semibold text-cyan-100 underline" href={repostDetail.source_url} target="_blank" rel="noreferrer">打开原帖</a> : null}
+                {!repostDetail.source_url ? (
+                  <div className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                    这条候选没有 X 原帖链接，只能作为内容灵感，不能执行转发或引用发布。
+                  </div>
+                ) : null}
+              </div>
+            <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.08] p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/75">Suggested Quote</div>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-cyan-50">{repostDetail.suggested_quote || 'Agent 尚未生成引用文案。'}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
+              Human Gate：引用发布或转发链接都会代表 @SynapseNetworkA 公开发声。系统不会自动点赞、关注、删除或绕过 X OAuth。
+            </div>
+          </div>
+        ) : null}
+      </OverlayModal>
 
       <OverlayModal
         open={Boolean(detailPost)}
@@ -1187,6 +1448,20 @@ export default function PublishingPage() {
         loading={Boolean(publishTarget && busyId === publishTarget.id)}
         onConfirm={publishToX}
         onClose={() => setPublishTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(repostPublishTarget)}
+        title={repostPublishAction === 'quote' ? '确认引用发布到 X' : '确认转发链接到 X'}
+        description={
+          repostPublishAction === 'quote'
+            ? '这会代表 @SynapseNetworkA 公开发布 Agent 拟写的引用文案，并附带原帖链接。确认后不可由系统自动撤回。'
+            : '这会代表 @SynapseNetworkA 公开发布原帖链接。确认后不可由系统自动撤回。'
+        }
+        confirmLabel={repostPublishAction === 'quote' ? '引用发布到 X' : '转发链接到 X'}
+        loading={Boolean(repostPublishTarget && repostBusyId === repostPublishTarget.id)}
+        onConfirm={publishRepostCandidateToX}
+        onClose={() => setRepostPublishTarget(null)}
       />
     </div>
   )

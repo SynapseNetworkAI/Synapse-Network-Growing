@@ -16,9 +16,10 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -50,6 +51,7 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialRepostPublishRequest,
     SocialXOAuthCallbackOut,
     SocialXOAuthStartOut,
     SocialReplyItemOut,
@@ -59,6 +61,7 @@ from server.schemas import (
 )
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
+from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
 
 DEFAULT_X_HANDLE = "SynapseNetworkA"
 DEFAULT_X_SECRET_REF = "x-official"
@@ -612,6 +615,24 @@ def _safe_event_payload(payload: dict[str, Any] | None = None) -> dict[str, Any]
     return data
 
 
+def _ensure_aware_utc(value: datetime | None) -> datetime:
+    current = value or utcnow()
+    if current.tzinfo is None:
+        return current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc)
+
+
+def _operator_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(config.OPERATOR_TIMEZONE)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _operator_local_date(value: datetime | None = None) -> str:
+    return _ensure_aware_utc(value).astimezone(_operator_timezone()).date().isoformat()
+
+
 def run_content_policy_check(body_text: str) -> dict[str, Any]:
     """Deterministic content policy check for a human-gated X post."""
 
@@ -931,13 +952,41 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                 created_by="system_seed",
             )
         )
-    if db.query(SocialWatchlistAccountRow).count() == 0:
-        for handle, display_name, category, rationale in [
-            ("OpenAI", "OpenAI", "ai_platform", "AI platform updates shape agent-builder narratives."),
-            ("AnthropicAI", "Anthropic", "ai_platform", "Claude and agent safety conversations are relevant to trusted automation."),
-            ("LangChainAI", "LangChain", "agent_framework", "Agent framework builders are a primary Synapse audience."),
-            ("MCP", "Model Context Protocol", "agent_protocol", "MCP-native discovery is a core product proof point."),
-        ]:
+    default_watchlist = [
+        ("OpenAI", "OpenAI", "ai_company", "AI platform updates shape agent-builder narratives."),
+        ("AnthropicAI", "Anthropic", "ai_company", "Claude and agent safety conversations are relevant to trusted automation."),
+        ("GoogleDeepMind", "Google DeepMind", "ai_company", "Frontier model and research updates influence AI builder narratives."),
+        ("NVIDIAAI", "NVIDIA AI", "ai_company", "AI compute and agent infrastructure trends shape provider demand."),
+        ("AIatMeta", "Meta AI", "ai_company", "Open model and agent tooling updates are important developer signals."),
+        ("MistralAI", "Mistral AI", "ai_company", "European frontier model updates matter to agent builders."),
+        ("xai", "xAI", "ai_company", "Grok and real-time AI product updates shape X-native AI discussion."),
+        ("cohere", "Cohere", "ai_company", "Enterprise AI and retrieval updates matter to API providers."),
+        ("huggingface", "Hugging Face", "ai_company", "Open model and developer ecosystem signals are relevant to Synapse builders."),
+        ("perplexity_ai", "Perplexity", "ai_company", "AI search and answer engine adoption is a relevant operator trend."),
+        ("LangChainAI", "LangChain", "agent_framework", "Agent framework builders are a primary Synapse audience."),
+        ("MCP", "Model Context Protocol", "agent_protocol", "MCP-native discovery is a core product proof point."),
+        ("sama", "Sam Altman", "ai_leader", "OpenAI leadership signals help track AI platform direction."),
+        ("gdb", "Greg Brockman", "ai_leader", "OpenAI engineering leadership is relevant to platform builders."),
+        ("ilyasut", "Ilya Sutskever", "ai_researcher", "Frontier model research perspective."),
+        ("karpathy", "Andrej Karpathy", "ai_researcher", "Practical AI engineering and agent commentary."),
+        ("demishassabis", "Demis Hassabis", "ai_leader", "Google DeepMind leadership and research direction."),
+        ("ylecun", "Yann LeCun", "ai_researcher", "AI research debate and model architecture commentary."),
+        ("AndrewYNg", "Andrew Ng", "ai_operator", "AI education, productization, and applied AI signals."),
+        ("drfeifei", "Fei-Fei Li", "ai_researcher", "Human-centered AI and research direction."),
+        ("DrJimFan", "Jim Fan", "ai_researcher", "Embodied agents and simulation commentary."),
+        ("fchollet", "François Chollet", "ai_researcher", "Reasoning, benchmarks, and model intelligence discussion."),
+        ("jeremyphoward", "Jeremy Howard", "ai_operator", "Practical AI builders and developer education."),
+        ("Thom_Wolf", "Thomas Wolf", "ai_operator", "Open-source AI ecosystem and Hugging Face signals."),
+        ("ClementDelangue", "Clément Delangue", "ai_founder", "Hugging Face ecosystem and open AI strategy."),
+        ("AravSrinivas", "Aravind Srinivas", "ai_founder", "AI search and product growth signals."),
+        ("hwchase17", "Harrison Chase", "agent_founder", "LangChain and agent workflow signals."),
+    ]
+    existing_handles = {
+        str(row.handle or "").lower()
+        for row in db.query(SocialWatchlistAccountRow.handle).all()
+    }
+    for handle, display_name, category, rationale in default_watchlist:
+        if handle.lower() not in existing_handles:
             db.add(
                 SocialWatchlistAccountRow(
                     handle=handle,
@@ -947,6 +996,7 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                     latest_summary="Not synced yet. Trend radar is read-only until an X read connector is configured.",
                 )
             )
+            existing_handles.add(handle.lower())
     if db.query(SocialTrendItemRow).count() == 0:
         db.add(
             SocialTrendItemRow(
@@ -1160,20 +1210,21 @@ def list_social_replies(db: Session) -> list[SocialReplyItemOut]:
 
 def list_social_repost_candidates(db: Session) -> list[SocialRepostCandidateOut]:
     rows = db.query(SocialRepostCandidateRow).order_by(SocialRepostCandidateRow.relevance_score.desc(), SocialRepostCandidateRow.updated_at.desc()).limit(100).all()
-    return [
-        SocialRepostCandidateOut(
-            id=int(row.id),
-            platform=row.platform,
-            source_url=row.source_url,
-            author_handle=row.author_handle,
-            source_text=row.source_text,
-            suggested_quote=row.suggested_quote,
-            relevance_score=float(row.relevance_score or 0.0),
-            status=row.status,
-            updated_at=row.updated_at,
-        )
-        for row in rows
-    ]
+    return [_repost_candidate_out(row) for row in rows]
+
+
+def _repost_candidate_out(row: SocialRepostCandidateRow) -> SocialRepostCandidateOut:
+    return SocialRepostCandidateOut(
+        id=int(row.id),
+        platform=row.platform,
+        source_url=row.source_url,
+        author_handle=row.author_handle,
+        source_text=row.source_text,
+        suggested_quote=row.suggested_quote,
+        relevance_score=float(row.relevance_score or 0.0),
+        status=row.status,
+        updated_at=row.updated_at,
+    )
 
 
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
@@ -1194,6 +1245,567 @@ def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
         )
         for row in rows
     ]
+
+
+def _daily_planner_raw_metadata(row: SocialPostDraftRow) -> dict[str, Any]:
+    data = _json_loads(row.raw_agent_output_json, {})
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
+def _find_existing_daily_planner_post(
+    db: Session,
+    *,
+    account_id: int,
+    local_date: str,
+) -> SocialPostDraftRow | None:
+    rows = (
+        db.query(SocialPostDraftRow)
+        .filter(
+            SocialPostDraftRow.platform == "x",
+            SocialPostDraftRow.account_id == account_id,
+            SocialPostDraftRow.source_type == "daily_planner",
+        )
+        .order_by(SocialPostDraftRow.id.desc())
+        .limit(50)
+        .all()
+    )
+    for row in rows:
+        raw = _daily_planner_raw_metadata(row)
+        if str(raw.get("planner_local_date") or "") == local_date:
+            return row
+    return None
+
+
+def _top_social_trends(db: Session, *, limit: int = 3, min_score: float = 0.70) -> list[SocialTrendItemRow]:
+    return (
+        db.query(SocialTrendItemRow)
+        .filter(
+            SocialTrendItemRow.status.in_(("new", "saved", "candidate")),
+            SocialTrendItemRow.relevance_score >= float(min_score),
+        )
+        .order_by(SocialTrendItemRow.relevance_score.desc(), SocialTrendItemRow.collected_at.desc(), SocialTrendItemRow.id.desc())
+        .limit(max(1, int(limit)))
+        .all()
+    )
+
+
+def _watchlist_highlights(db: Session, *, limit: int = 6) -> list[SocialWatchlistAccountRow]:
+    priority = ("ai_company", "agent_framework", "agent_protocol", "ai_founder", "ai_researcher", "ai_leader")
+    rows = (
+        db.query(SocialWatchlistAccountRow)
+        .filter(SocialWatchlistAccountRow.status == "active")
+        .order_by(SocialWatchlistAccountRow.updated_at.desc(), SocialWatchlistAccountRow.id.asc())
+        .all()
+    )
+    rows.sort(key=lambda row: (priority.index(row.category) if row.category in priority else len(priority), str(row.handle).lower()))
+    return rows[: max(1, int(limit))]
+
+
+X_RELEVANCE_KEYWORDS = (
+    "agent",
+    "agents",
+    "ai agent",
+    "mcp",
+    "api",
+    "apis",
+    "payment",
+    "payments",
+    "micropayment",
+    "settlement",
+    "infrastructure",
+    "infra",
+    "developer",
+    "developers",
+    "tool",
+    "tools",
+    "automation",
+    "autonomous",
+)
+X_GENERIC_QUOTE_PREFIXES = (
+    "great point",
+    "well said",
+    "interesting",
+    "love this",
+    "agree",
+    "this",
+)
+
+
+def _parse_x_datetime(value: str | None) -> datetime:
+    if not value:
+        return utcnow()
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return utcnow()
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def _x_post_url(handle: str, post_id: str) -> str:
+    return f"https://x.com/{str(handle or '').lstrip('@')}/status/{post_id}"
+
+
+def _x_engagement_score(metrics: dict[str, Any] | None) -> float:
+    data = metrics or {}
+    likes = int(data.get("like_count") or 0)
+    reposts = int(data.get("retweet_count") or data.get("repost_count") or 0)
+    replies = int(data.get("reply_count") or 0)
+    quotes = int(data.get("quote_count") or 0)
+    weighted = likes + (2 * reposts) + replies + (2 * quotes)
+    if weighted <= 0:
+        return 0.0
+    return min(0.30, (weighted ** 0.5) / 50)
+
+
+def _x_keyword_relevance(text: str) -> float:
+    normalized = str(text or "").lower()
+    hits = sum(1 for keyword in X_RELEVANCE_KEYWORDS if keyword in normalized)
+    return min(0.45, hits * 0.09)
+
+
+def _x_watchlist_weight(row: SocialWatchlistAccountRow) -> float:
+    weights = {
+        "agent_founder": 0.18,
+        "agent_framework": 0.18,
+        "agent_protocol": 0.18,
+        "ai_company": 0.14,
+        "ai_founder": 0.14,
+        "ai_researcher": 0.12,
+        "ai_leader": 0.12,
+        "ai_operator": 0.12,
+    }
+    return weights.get(str(row.category or ""), 0.08)
+
+
+def _score_watchlist_x_post(text: str, metrics: dict[str, Any] | None, watchlist_row: SocialWatchlistAccountRow) -> float:
+    base = 0.30
+    return min(1.0, base + _x_keyword_relevance(text) + _x_engagement_score(metrics) + _x_watchlist_weight(watchlist_row))
+
+
+def _x_metrics_summary(metrics: dict[str, Any] | None) -> str:
+    data = metrics or {}
+    return (
+        f"likes={int(data.get('like_count') or 0)}, "
+        f"reposts={int(data.get('retweet_count') or data.get('repost_count') or 0)}, "
+        f"replies={int(data.get('reply_count') or 0)}, "
+        f"quotes={int(data.get('quote_count') or 0)}"
+    )
+
+
+def _is_due_for_x_watchlist_sync(row: SocialWatchlistAccountRow, now: datetime) -> bool:
+    if row.last_checked_at is None:
+        return True
+    checked_at = row.last_checked_at
+    if checked_at.tzinfo is not None:
+        checked_at = checked_at.astimezone(timezone.utc).replace(tzinfo=None)
+    comparison_now = now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo is not None else now
+    return checked_at <= comparison_now - timedelta(minutes=config.X_WATCHLIST_SYNC_INTERVAL_MINUTES)
+
+
+def _should_keep_x_post(post: XPost, score: float, *, min_relevance_score: float) -> bool:
+    if len(str(post.text or "").strip()) < config.X_TREND_MIN_TEXT_CHARS:
+        return False
+    return score >= float(min_relevance_score)
+
+
+def _is_value_add_quote(quote: str | None, source_text: str) -> bool:
+    text = str(quote or "").strip()
+    if len(text) < 80:
+        return False
+    lowered = text.lower()
+    if any(lowered.startswith(prefix) for prefix in X_GENERIC_QUOTE_PREFIXES):
+        return False
+    source_normalized = _normalize_for_copy_check(source_text)
+    quote_normalized = _normalize_for_copy_check(text)
+    if source_normalized and quote_normalized and (quote_normalized in source_normalized or source_normalized in quote_normalized):
+        return False
+    return "synapse" in lowered or "agent" in lowered or "api" in lowered or "payment" in lowered
+
+
+def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float) -> dict[str, Any]:
+    now = utcnow()
+    due_accounts = (
+        db.query(SocialWatchlistAccountRow)
+        .filter(SocialWatchlistAccountRow.platform == "x", SocialWatchlistAccountRow.status == "active")
+        .order_by(SocialWatchlistAccountRow.last_checked_at.asc().nullsfirst(), SocialWatchlistAccountRow.id.asc())
+        .all()
+    )
+    due_accounts = [row for row in due_accounts if _is_due_for_x_watchlist_sync(row, now)][: config.X_WATCHLIST_MAX_ACCOUNTS_PER_SWEEP]
+    if not due_accounts:
+        return {
+            "connector": "x_watchlist_timeline",
+            "x_read_connector_configured": True,
+            "due_watchlist_count": 0,
+            "created_trend_ids": [],
+            "skipped_short_text_count": 0,
+            "skipped_low_relevance_count": 0,
+            "duplicate_count": 0,
+            "rate_limited": False,
+            "diagnostic": "No watchlist accounts are due for X timeline sync.",
+        }
+
+    token_result = x_oauth_token_provider.get_access_token(DEFAULT_X_SECRET_REF)
+    client = XApiClient(token_result.access_token)
+    created_ids: list[int] = []
+    skipped_short = 0
+    skipped_low = 0
+    duplicate_count = 0
+    synced_handles: list[str] = []
+    diagnostic = "Synced due watchlist accounts from X user timelines."
+
+    for account in due_accounts:
+        handle = str(account.handle or "").strip().lstrip("@")
+        try:
+            user = client.get_user_by_username(handle)
+            posts = client.get_user_tweets(user.id, max_results=config.X_WATCHLIST_TWEETS_PER_ACCOUNT)
+        except XApiRateLimitError as exc:
+            account.last_checked_at = now
+            account.latest_summary = "X API rate limit reached; this account will be retried after the watchlist sync interval."
+            diagnostic = f"X API rate limit reached while syncing @{handle}: {_bounded_excerpt(str(exc), max_chars=300)}"
+            db.commit()
+            return {
+                "connector": "x_watchlist_timeline",
+                "x_read_connector_configured": True,
+                "due_watchlist_count": len(due_accounts),
+                "synced_handles": synced_handles,
+                "created_trend_ids": created_ids,
+                "skipped_short_text_count": skipped_short,
+                "skipped_low_relevance_count": skipped_low,
+                "duplicate_count": duplicate_count,
+                "rate_limited": True,
+                "diagnostic": diagnostic,
+            }
+        except (XApiAuthError, XApiTransientError) as exc:
+            account.last_checked_at = now
+            account.latest_summary = f"X timeline sync failed: {_bounded_excerpt(str(exc), max_chars=240)}"
+            diagnostic = f"X timeline sync failed for @{handle}: {_bounded_excerpt(str(exc), max_chars=300)}"
+            continue
+
+        synced_handles.append(handle)
+        account.last_checked_at = now
+        account.display_name = account.display_name or user.name
+        if not posts:
+            account.latest_summary = "X timeline returned no recent public posts."
+            continue
+        account.latest_summary = _bounded_excerpt(posts[0].text, max_chars=240)
+        for post in posts:
+            source_url = _x_post_url(user.username, post.id)
+            if db.query(SocialTrendItemRow.id).filter(SocialTrendItemRow.source_url == source_url).first():
+                duplicate_count += 1
+                continue
+            score = _score_watchlist_x_post(post.text, post.public_metrics, account)
+            if len(str(post.text or "").strip()) < config.X_TREND_MIN_TEXT_CHARS:
+                skipped_short += 1
+                continue
+            if not _should_keep_x_post(post, score, min_relevance_score=min_relevance_score):
+                skipped_low += 1
+                continue
+            topic = _bounded_excerpt(str(post.text or "").splitlines()[0], max_chars=96)
+            summary = _bounded_excerpt(
+                f"{post.text}\n\nSource: X watchlist @{user.username}. Public metrics: {_x_metrics_summary(post.public_metrics)}.",
+                max_chars=1000,
+            )
+            row = SocialTrendItemRow(
+                source_platform="x",
+                source_url=source_url,
+                author_handle=user.username,
+                topic=topic or f"@{user.username} watchlist update",
+                summary=summary,
+                relevance_score=score,
+                status="new",
+                collected_at=_parse_x_datetime(post.created_at),
+            )
+            db.add(row)
+            db.flush()
+            created_ids.append(int(row.id))
+    db.commit()
+    return {
+        "connector": "x_watchlist_timeline",
+        "x_read_connector_configured": True,
+        "due_watchlist_count": len(due_accounts),
+        "synced_handles": synced_handles,
+        "created_trend_ids": created_ids,
+        "skipped_short_text_count": skipped_short,
+        "skipped_low_relevance_count": skipped_low,
+        "duplicate_count": duplicate_count,
+        "rate_limited": False,
+        "diagnostic": diagnostic,
+    }
+
+
+def _recent_social_metric_rows(db: Session, *, limit: int = 3) -> list[SocialPostMetricRow]:
+    return (
+        db.query(SocialPostMetricRow)
+        .order_by(SocialPostMetricRow.observed_at.desc(), SocialPostMetricRow.id.desc())
+        .limit(max(1, int(limit)))
+        .all()
+    )
+
+
+def _build_daily_planner_prompt(
+    db: Session,
+    *,
+    local_date: str,
+) -> tuple[str, dict[str, Any]]:
+    goal = (
+        db.query(SocialCampaignGoalRow)
+        .filter(SocialCampaignGoalRow.platform == "x", SocialCampaignGoalRow.status == "active")
+        .order_by(SocialCampaignGoalRow.updated_at.desc(), SocialCampaignGoalRow.id.desc())
+        .first()
+    )
+    trends = _top_social_trends(db)
+    watchlist = _watchlist_highlights(db)
+    metrics = _recent_social_metric_rows(db)
+    variable_candidates: list[str] = []
+    variable_candidates.extend([f"Trend: {trend.topic} — {trend.summary}" for trend in trends])
+    variable_candidates.extend([f"Watchlist: @{row.handle} — {row.rationale or row.latest_summary or row.display_name or row.handle}" for row in watchlist])
+    variable_factor = variable_candidates[0] if variable_candidates else "Fresh angle: explain why autonomous agents need governed API access and payment rails."
+    if variable_candidates:
+        day_offset = sum(int(part) for part in local_date.split("-") if part.isdigit())
+        variable_factor = variable_candidates[day_offset % len(variable_candidates)]
+
+    content_pillars = _json_loads(goal.content_pillars_json, []) if goal else []
+    success_metrics = _json_loads(goal.success_metrics_json, []) if goal else []
+    metric_lines = [
+        f"- post_metric_id={row.id}: impressions={row.impressions}, likes={row.likes}, replies={row.replies}, reposts={row.reposts}, link_clicks={row.link_clicks}, summary={row.summary or 'no summary'}"
+        for row in metrics
+    ]
+    prompt = "\n".join(
+        [
+            f"Create today's human-reviewed X official account draft for Synapse Network. Local date: {local_date}.",
+            "This is a scheduled daily planner draft. Do not publish, reply, repost, follow, delete, or claim an external action happened.",
+            "",
+            "# Active campaign goal",
+            f"Title: {goal.title if goal else 'Build trust for Synapse Network official X'}",
+            f"Objective: {goal.objective if goal else 'Explain Synapse Network to AI agent builders and API providers.'}",
+            f"Content pillars: {', '.join(str(item) for item in content_pillars) or 'Product education, shipping proof, agent economy commentary, developer use cases, trust and governance'}",
+            f"Success metrics: {', '.join(str(item) for item in success_metrics) or 'published posts/week, engagement rate, profile visits, docs clicks'}",
+            "",
+            "# Variable factor for freshness",
+            variable_factor,
+            "",
+            "# Top trend radar items",
+            "\n".join(f"- {trend.topic}: {trend.summary} (score={trend.relevance_score:.2f})" for trend in trends) or "- metrics_unavailable: no high-quality trend radar item yet.",
+            "",
+            "# Watchlist highlights",
+            "\n".join(f"- @{row.handle} ({row.category}): {row.rationale or row.latest_summary or row.display_name or row.handle}" for row in watchlist) or "- no watchlist highlights available.",
+            "",
+            "# Recent 3 published post performance",
+            "\n".join(metric_lines) or "- metrics_unavailable: no recent post metrics yet.",
+            "",
+            "Write a substantial, high-trust X post with a strong hook, concrete product value, and relevant hashtags. Keep it public-facing and useful to AI agent builders, API providers, and developer operators.",
+        ]
+    )
+    metadata = {
+        "planner_local_date": local_date,
+        "trend_item_ids": [int(row.id) for row in trends],
+        "watchlist_handles": [str(row.handle) for row in watchlist],
+        "recent_metric_post_ids": [int(row.post_id) for row in metrics if row.post_id is not None],
+        "variable_factor": variable_factor,
+        "metrics_available": bool(metrics),
+    }
+    return prompt, metadata
+
+
+def run_x_social_daily_content_planner(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+    """Generate at most one human-reviewed X draft per operator-local day."""
+
+    ensure_default_social_ops_seed(db)
+    account = ensure_default_social_account(db)
+    local_date = _operator_local_date(now)
+    planner_run_key = f"x_daily:{int(account.id)}:{local_date}"
+    existing = _find_existing_daily_planner_post(db, account_id=int(account.id), local_date=local_date)
+    if existing is not None:
+        return {
+            "already_created": True,
+            "created_post_id": None,
+            "existing_post_id": int(existing.id),
+            "planner_local_date": local_date,
+            "planner_run_key": planner_run_key,
+            "status": existing.status,
+        }
+
+    prompt, metadata = _build_daily_planner_prompt(db, local_date=local_date)
+    metadata = {**metadata, "planner_run_key": planner_run_key, "source_type": "daily_planner"}
+    row = SocialPostDraftRow(
+        platform="x",
+        account_id=int(account.id),
+        source_type="daily_planner",
+        title="X daily planner draft is generating",
+        body_text="",
+        status="generating",
+        generated_by="x_social_daily_content_planner",
+        policy_check_json=_json_dumps(_generation_running_policy()),
+        raw_agent_output_json=_json_dumps(
+            {
+                "source": "x_social_daily_content_planner",
+                "status": "generating",
+                "provider": config.SOCIAL_CONTENT_LLM_PROVIDER,
+                "requested_model": config.SOCIAL_CONTENT_LLM_MODEL,
+                "media_mode": "text_only",
+                "prompt_excerpt": _bounded_excerpt(prompt, max_chars=240),
+                **metadata,
+            }
+        ),
+    )
+    db.add(row)
+    db.flush()
+    _record_event(
+        db,
+        row,
+        "daily_planner_generation_started",
+        actor="x_social_daily_content_planner",
+        summary="Hourly X social planner created today's draft shell; no external publish attempted.",
+        payload={"planner_local_date": local_date, "planner_run_key": planner_run_key},
+    )
+    db.commit()
+    _finalize_generated_social_post(
+        db,
+        int(row.id),
+        prompt=prompt,
+        actor="x_social_daily_content_planner",
+        style_type="marketing",
+        media_mode="text_only",
+    )
+    row = _get_post(db, int(row.id))
+    raw = _daily_planner_raw_metadata(row)
+    raw.update(metadata)
+    raw["source"] = "x_social_daily_content_planner"
+    row.raw_agent_output_json = _json_dumps(raw)
+    if row.status == "approved":
+        row.status = "needs_review"
+        row.reviewed_by = None
+        _record_event(
+            db,
+            row,
+            "daily_planner_requires_human_review",
+            actor="x_social_daily_content_planner",
+            summary="Policy passed, but scheduled X drafts remain in needs_review until an operator approves publishing.",
+            payload={"planner_local_date": local_date, "planner_run_key": planner_run_key},
+        )
+    db.commit()
+    return {
+        "already_created": False,
+        "created_post_id": int(row.id),
+        "existing_post_id": None,
+        "planner_local_date": local_date,
+        "planner_run_key": planner_run_key,
+        "status": row.status,
+        "policy_status": _json_loads(row.policy_check_json, {}).get("status"),
+        "trend_item_ids": metadata["trend_item_ids"],
+        "watchlist_handles": metadata["watchlist_handles"],
+        "recent_metric_post_ids": metadata["recent_metric_post_ids"],
+    }
+
+
+def run_x_social_trend_radar_sweep(db: Session, *, min_relevance_score: float = 0.70) -> dict[str, Any]:
+    """Read X watchlist timelines, then summarize retained trend items.
+
+    The sweep is read-only against X: it never likes, follows, replies, reposts,
+    or publishes. If X auth/rate limits are unavailable, it records diagnostics
+    and falls back to filtering existing rows without inventing sourced trends.
+    """
+
+    ensure_default_social_ops_seed(db)
+    watchlist_sync: dict[str, Any]
+    try:
+        watchlist_sync = _sync_x_watchlist_timeline_posts(db, min_relevance_score=min_relevance_score)
+    except SocialPublishError as exc:
+        watchlist_sync = {
+            "connector": "local_seed_and_existing_trends",
+            "x_read_connector_configured": False,
+            "created_trend_ids": [],
+            "rate_limited": False,
+            "diagnostic": f"X watchlist timeline sync unavailable: {exc.summary}",
+        }
+    candidates = (
+        db.query(SocialTrendItemRow)
+        .filter(SocialTrendItemRow.status.in_(("new", "saved", "candidate")))
+        .order_by(SocialTrendItemRow.relevance_score.desc(), SocialTrendItemRow.collected_at.desc(), SocialTrendItemRow.id.desc())
+        .limit(100)
+        .all()
+    )
+    retained = [row for row in candidates if float(row.relevance_score or 0.0) >= float(min_relevance_score)]
+    filtered = [row for row in candidates if row not in retained]
+    watchlist_count = db.query(SocialWatchlistAccountRow).filter(SocialWatchlistAccountRow.status == "active").count()
+    return {
+        "read_only": True,
+        "external_actions": [],
+        "connector": watchlist_sync.get("connector", "local_seed_and_existing_trends"),
+        "x_read_connector_configured": bool(watchlist_sync.get("x_read_connector_configured")),
+        "min_relevance_score": float(min_relevance_score),
+        "retained_count": len(retained),
+        "filtered_count": len(filtered),
+        "retained_trend_ids": [int(row.id) for row in retained],
+        "watchlist_active_count": int(watchlist_count),
+        "created_trend_ids": watchlist_sync.get("created_trend_ids", []),
+        "due_watchlist_count": int(watchlist_sync.get("due_watchlist_count") or 0),
+        "synced_handles": watchlist_sync.get("synced_handles", []),
+        "skipped_short_text_count": int(watchlist_sync.get("skipped_short_text_count") or 0),
+        "skipped_low_relevance_count": int(watchlist_sync.get("skipped_low_relevance_count") or 0),
+        "duplicate_count": int(watchlist_sync.get("duplicate_count") or 0),
+        "rate_limited": bool(watchlist_sync.get("rate_limited")),
+        "diagnostic": watchlist_sync.get("diagnostic")
+        or "Sweep filtered existing trend rows and watchlist timeline inputs only.",
+    }
+
+
+def run_x_social_repost_candidate_sweep(db: Session, *, min_relevance_score: float = 0.75, max_created: int = 5) -> dict[str, Any]:
+    """Create human-gated quote/repost candidates from retained trend items only."""
+
+    ensure_default_social_ops_seed(db)
+    trends = _top_social_trends(db, limit=25, min_score=min_relevance_score)
+    created_ids: list[int] = []
+    skipped_ids: list[int] = []
+    existing_texts = {
+        _normalize_for_copy_check(str(row[0] or ""))
+        for row in db.query(SocialRepostCandidateRow.source_text).all()
+    }
+    for trend in trends:
+        if len(created_ids) >= max(1, int(max_created)):
+            break
+        if not trend.source_url:
+            skipped_ids.append(int(trend.id))
+            continue
+        source_text = f"{trend.topic}: {trend.summary}".strip()
+        normalized = _normalize_for_copy_check(source_text)
+        if normalized in existing_texts:
+            skipped_ids.append(int(trend.id))
+            continue
+        quote = (
+            "Relevant signal for AI agent builders: "
+            f"{trend.summary} Synapse angle: autonomous agents need governed API access, budgets, and payment rails."
+        )
+        if not _is_value_add_quote(quote, source_text):
+            skipped_ids.append(int(trend.id))
+            continue
+        row = SocialRepostCandidateRow(
+            platform="x",
+            source_url=trend.source_url,
+            author_handle=trend.author_handle,
+            source_text=source_text,
+            suggested_quote=_bounded_excerpt(quote, max_chars=1000),
+            relevance_score=float(trend.relevance_score or 0.0),
+            status="candidate",
+        )
+        db.add(row)
+        db.flush()
+        created_ids.append(int(row.id))
+        existing_texts.add(normalized)
+    db.commit()
+    return {
+        "read_only": True,
+        "external_actions": [],
+        "created_candidate_ids": created_ids,
+        "skipped_trend_ids": skipped_ids,
+        "source_trend_ids": [int(row.id) for row in trends],
+        "min_relevance_score": float(min_relevance_score),
+        "human_gate_required": True,
+    }
 
 
 def _get_post(db: Session, post_id: int) -> SocialPostDraftRow:
@@ -2063,3 +2675,78 @@ def publish_social_post_to_x(db: Session, post_id: int, body: SocialPostPublishR
     db.commit()
     db.refresh(row)
     return _post_out(row)
+
+
+def publish_social_repost_candidate_to_x(
+    db: Session,
+    candidate_id: int,
+    body: SocialRepostPublishRequest,
+) -> SocialRepostCandidateOut:
+    """Human-gated quote/repost action for a retained X candidate.
+
+    v1 uses the same official X post API as normal publishing. A "quote" posts
+    the proposed quote plus the source URL; a "repost" posts the source URL.
+    Native retweet/quote APIs can be added later behind the same Human Gate.
+    """
+
+    candidate = db.get(SocialRepostCandidateRow, candidate_id)
+    if candidate is None:
+        raise ValueError("social repost candidate not found")
+    if candidate.platform != "x":
+        raise ValueError("only X repost candidates are supported in v1")
+    action = str(body.action or "quote").strip().lower()
+    if action not in {"quote", "repost"}:
+        raise ValueError("unsupported repost action")
+    if candidate.status not in {"candidate", "failed"}:
+        raise ValueError("only candidate or failed repost candidates can be published")
+    source_url = str(candidate.source_url or "").strip()
+    if not source_url:
+        raise ValueError("repost candidate requires a source URL")
+    suggested_quote = str(candidate.suggested_quote or "").strip()
+    if action == "quote" and not suggested_quote:
+        raise ValueError("quote publish requires suggested quote text")
+
+    body_text = f"{suggested_quote}\n\n{source_url}" if action == "quote" else source_url
+    policy = run_content_policy_check(body_text)
+    if policy["status"] != "passed":
+        candidate.status = "failed"
+        candidate.updated_at = utcnow()
+        db.commit()
+        raise ValueError("blocked repost candidate cannot be published")
+
+    account = ensure_default_social_account(db)
+    candidate.status = "publishing"
+    candidate.updated_at = utcnow()
+    post = SocialPostDraftRow(
+        platform="x",
+        account_id=int(account.id),
+        source_type="repost_candidate",
+        title=f"{'Quote' if action == 'quote' else 'Repost'}: @{candidate.author_handle or 'unknown'}",
+        body_text=body_text,
+        status="approved",
+        generated_by="x_social_repost_candidate_sweep",
+        reviewed_by=body.actor,
+        policy_check_json=_json_dumps(policy),
+        raw_agent_output_json=_json_dumps(
+            {
+                "repost_candidate_id": int(candidate.id),
+                "repost_action": action,
+                "source_url": source_url,
+                "author_handle": candidate.author_handle,
+                "human_gate_required": True,
+            }
+        ),
+    )
+    db.add(post)
+    db.commit()
+    db.refresh(post)
+
+    published_post = publish_social_post_to_x(db, int(post.id), SocialPostPublishRequest(actor=body.actor))
+    candidate = db.get(SocialRepostCandidateRow, candidate_id)
+    if candidate is None:
+        raise ValueError("social repost candidate not found")
+    candidate.status = "published" if published_post.status == "published" else "failed"
+    candidate.updated_at = utcnow()
+    db.commit()
+    db.refresh(candidate)
+    return _repost_candidate_out(candidate)

@@ -1466,6 +1466,11 @@ class SocialPostPublishRequest(BaseModel):
     actor: str = "operator"
 
 
+class SocialRepostPublishRequest(BaseModel):
+    actor: str = "operator"
+    action: str = "quote"
+
+
 class SocialCampaignGoalOut(BaseModel):
     id: int
     platform: str = "x"
@@ -2179,6 +2184,7 @@ class RecurringWorkflowHealthOut(BaseModel):
     ci_status_scheduler: dict[str, object] = {}
     release_pr_status_scheduler: dict[str, object] = {}
     release_deployment_status_scheduler: dict[str, object] = {}
+    x_social_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 

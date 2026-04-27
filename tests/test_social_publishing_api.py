@@ -1,16 +1,19 @@
 import io
 import urllib.error
 import urllib.parse
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from server.database import (
     RequirementRow,
     SocialAccountRow,
+    SocialPostDraftRow,
     SocialPostMetricRow,
     SocialReplyItemRow,
     SocialRepostCandidateRow,
+    SocialTrendItemRow,
+    SocialWatchlistAccountRow,
     utcnow,
     WorkflowRunRow,
 )
@@ -56,9 +59,293 @@ class FakeImageGenerator:
         )
 
 
+class FakeXAccessToken:
+    access_token = "test-x-access-token"
+    refreshed = True
+    refresh_token_rotated = False
+
+
+class FakeXReadClient:
+    def __init__(self, access_token: str):
+        self.access_token = access_token
+
+    def get_user_by_username(self, username: str):
+        class User:
+            pass
+
+        user = User()
+        user.id = "user-1"
+        user.username = username
+        user.name = "Example AI"
+        return user
+
+    def get_user_tweets(self, user_id: str, *, max_results: int = 5):
+        return [
+            social_publishing.XPost(
+                id="tweet-1",
+                text="AI agents are starting to need reliable API access, budget controls, payment rails, and developer infrastructure for autonomous workflows.",
+                author_id=user_id,
+                created_at="2026-04-26T12:00:00Z",
+                public_metrics={"like_count": 120, "retweet_count": 12, "reply_count": 5, "quote_count": 3},
+            ),
+            social_publishing.XPost(
+                id="tweet-short",
+                text="Cool.",
+                author_id=user_id,
+                created_at="2026-04-26T11:00:00Z",
+                public_metrics={"like_count": 500},
+            ),
+        ]
+
+
 def _fetch_social_post(client, post_id: int) -> dict:
     rows = client.get("/api/social/posts").json()
     return next(row for row in rows if row["id"] == post_id)
+
+
+def test_x_social_daily_content_planner_creates_one_human_review_draft_per_local_day(monkeypatch, db_session):
+    calls = []
+
+    def fake_generate(prompt, *, style_type=None, media_mode=None):
+        calls.append({"prompt": prompt, "style_type": style_type, "media_mode": media_mode})
+        return social_publishing.GeneratedXPost(
+            title="Daily Synapse Network update",
+            body_text="AI agents need trusted payment rails. Synapse Network helps builders give agents governed API access, budgets, and settlement paths. #AIAgents #AgentEconomy",
+            media_decision="text",
+            context_sources=("product-marketing-context", "social-content"),
+            model="test-model",
+        )
+
+    monkeypatch.setattr(social_publishing, "_generate_x_post_copy", fake_generate)
+    monkeypatch.setattr(
+        social_publishing.x_publisher,
+        "publish_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("daily planner must not publish to X")),
+    )
+
+    result = social_publishing.run_x_social_daily_content_planner(db_session)
+
+    assert result["already_created"] is False
+    assert result["created_post_id"]
+    assert result["status"] == "needs_review"
+    assert calls and calls[0]["media_mode"] == "text_only"
+    row = db_session.get(SocialPostDraftRow, result["created_post_id"])
+    assert row is not None
+    assert row.source_type == "daily_planner"
+    assert row.generated_by == "x_social_daily_content_planner"
+    raw = social_publishing._json_loads(row.raw_agent_output_json, {})
+    assert raw["planner_local_date"] == result["planner_local_date"]
+    assert raw["planner_run_key"] == result["planner_run_key"]
+    assert raw["watchlist_handles"]
+
+    second = social_publishing.run_x_social_daily_content_planner(db_session)
+
+    assert second["already_created"] is True
+    assert second["existing_post_id"] == result["created_post_id"]
+    assert db_session.query(SocialPostDraftRow).filter(SocialPostDraftRow.source_type == "daily_planner").count() == 1
+
+
+def test_x_social_trend_and_repost_sweeps_are_filtered_and_human_gated(db_session):
+    social_publishing.ensure_default_social_account(db_session)
+    db_session.add_all(
+        [
+            SocialTrendItemRow(
+                topic="High quality agent payment discussion",
+                summary="Agent builders are discussing budgeted API calls and tool access.",
+                relevance_score=0.91,
+                status="new",
+                source_url="https://x.com/example/status/1",
+                author_handle="agent_builder",
+            ),
+            SocialTrendItemRow(
+                topic="Low quality meme",
+                summary="Unrelated low-signal meme.",
+                relevance_score=0.20,
+                status="new",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    trend_result = social_publishing.run_x_social_trend_radar_sweep(db_session, min_relevance_score=0.70)
+
+    assert trend_result["read_only"] is True
+    assert trend_result["external_actions"] == []
+    assert trend_result["retained_count"] >= 1
+    assert trend_result["filtered_count"] >= 1
+
+    repost_result = social_publishing.run_x_social_repost_candidate_sweep(db_session, min_relevance_score=0.75)
+
+    assert repost_result["human_gate_required"] is True
+    assert repost_result["external_actions"] == []
+    assert repost_result["created_candidate_ids"]
+    candidate = db_session.get(SocialRepostCandidateRow, repost_result["created_candidate_ids"][0])
+    assert candidate is not None
+    assert candidate.status == "candidate"
+    assert "Synapse angle" in candidate.suggested_quote
+
+
+def test_x_social_trend_radar_syncs_due_watchlist_from_x(monkeypatch, db_session):
+    social_publishing.ensure_default_social_account(db_session)
+    social_publishing.ensure_default_social_ops_seed(db_session)
+    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
+    db_session.add(
+        SocialWatchlistAccountRow(
+            platform="x",
+            handle="ExampleAI",
+            display_name="Example AI",
+            category="agent_framework",
+            rationale="Relevant agent infrastructure account.",
+            status="active",
+            last_checked_at=None,
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
+    monkeypatch.setattr(social_publishing, "XApiClient", FakeXReadClient)
+
+    result = social_publishing.run_x_social_trend_radar_sweep(db_session, min_relevance_score=0.70)
+
+    assert result["connector"] == "x_watchlist_timeline"
+    assert result["x_read_connector_configured"] is True
+    assert result["created_trend_ids"]
+    assert result["skipped_short_text_count"] >= 1
+    trend = db_session.get(SocialTrendItemRow, result["created_trend_ids"][0])
+    assert trend is not None
+    assert trend.source_url == "https://x.com/ExampleAI/status/tweet-1"
+    assert trend.author_handle == "ExampleAI"
+    assert "Public metrics" in trend.summary
+
+
+def test_x_social_trend_radar_records_rate_limit_without_retrying(monkeypatch, db_session):
+    social_publishing.ensure_default_social_account(db_session)
+    social_publishing.ensure_default_social_ops_seed(db_session)
+    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
+    db_session.add(
+        SocialWatchlistAccountRow(
+            platform="x",
+            handle="RateLimitedAI",
+            category="ai_company",
+            status="active",
+            last_checked_at=None,
+        )
+    )
+    db_session.commit()
+
+    class RateLimitedClient:
+        def __init__(self, access_token: str):
+            self.access_token = access_token
+
+        def get_user_by_username(self, username: str):
+            raise social_publishing.XApiRateLimitError("too many requests")
+
+    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
+    monkeypatch.setattr(social_publishing, "XApiClient", RateLimitedClient)
+
+    result = social_publishing.run_x_social_trend_radar_sweep(db_session)
+
+    assert result["rate_limited"] is True
+    assert "rate limit" in result["diagnostic"].lower()
+    account = db_session.query(SocialWatchlistAccountRow).filter(SocialWatchlistAccountRow.handle == "RateLimitedAI").one()
+    assert account.last_checked_at is not None
+
+
+def test_x_social_repost_candidate_sweep_requires_source_url(db_session):
+    social_publishing.ensure_default_social_account(db_session)
+    db_session.add_all(
+        [
+            SocialTrendItemRow(
+                topic="Local seed should not be reposted",
+                summary="Agent builders need payment rails, but this is local seed data without an X source.",
+                relevance_score=0.95,
+                status="new",
+                source_url=None,
+            ),
+            SocialTrendItemRow(
+                topic="Real X source can become repost candidate",
+                summary="Agent builders need payment rails and governed API budgets.",
+                relevance_score=0.93,
+                status="new",
+                source_url="https://x.com/example/status/2",
+                author_handle="example",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = social_publishing.run_x_social_repost_candidate_sweep(db_session, min_relevance_score=0.75)
+
+    assert result["created_candidate_ids"]
+    candidates = db_session.query(SocialRepostCandidateRow).all()
+    assert all(candidate.source_url for candidate in candidates)
+    assert result["skipped_trend_ids"]
+
+
+def test_x_social_helper_branches_are_deterministic(monkeypatch, db_session):
+    assert social_publishing._ensure_aware_utc(datetime(2026, 1, 1)).tzinfo is not None
+    monkeypatch.setattr(social_publishing.config, "OPERATOR_TIMEZONE", "Invalid/Zone")
+    assert social_publishing._operator_timezone().key == "UTC"
+
+    post = SocialPostDraftRow(
+        platform="x",
+        account_id=1,
+        title="Bad metadata",
+        body_text="metadata",
+        raw_agent_output_json="[]",
+    )
+    assert social_publishing._daily_planner_raw_metadata(post) == {}
+    assert social_publishing._parse_x_datetime(None).tzinfo is not None
+    assert social_publishing._parse_x_datetime("not-a-date").tzinfo is not None
+    assert social_publishing._parse_x_datetime("2026-04-27T00:00:00").tzinfo is None
+    assert social_publishing._x_engagement_score({}) == 0.0
+
+    watch = SocialWatchlistAccountRow(handle="TimezoneAI", last_checked_at=datetime.now(timezone.utc))
+    assert social_publishing._is_due_for_x_watchlist_sync(watch, datetime.now(timezone.utc)) is False
+    short_post = social_publishing.XPost(id="short", text="Tiny")
+    assert social_publishing._should_keep_x_post(short_post, 1.0, min_relevance_score=0.1) is False
+    assert social_publishing._is_value_add_quote("Great point!", "AI agents need payments") is False
+    assert social_publishing._is_value_add_quote(
+        "AI agents need payment rails. Synapse adds budgets and governed API access for builders.",
+        "AI agents need payment rails.",
+    ) is False
+
+    social_publishing.ensure_default_social_ops_seed(db_session)
+    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
+    db_session.commit()
+    result = social_publishing._sync_x_watchlist_timeline_posts(db_session, min_relevance_score=0.70)
+    assert result["due_watchlist_count"] == 0
+
+
+def test_x_social_trend_radar_handles_auth_failure_as_diagnostic(monkeypatch, db_session):
+    social_publishing.ensure_default_social_account(db_session)
+    social_publishing.ensure_default_social_ops_seed(db_session)
+    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
+    db_session.add(
+        SocialWatchlistAccountRow(
+            platform="x",
+            handle="AuthFailAI",
+            category="ai_company",
+            status="active",
+            last_checked_at=None,
+        )
+    )
+    db_session.commit()
+
+    class AuthFailClient:
+        def __init__(self, access_token: str):
+            self.access_token = access_token
+
+        def get_user_by_username(self, username: str):
+            raise social_publishing.XApiAuthError("auth failed")
+
+    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
+    monkeypatch.setattr(social_publishing, "XApiClient", AuthFailClient)
+
+    result = social_publishing.run_x_social_trend_radar_sweep(db_session)
+
+    assert result["x_read_connector_configured"] is True
+    assert "auth failed" in result["diagnostic"]
 
 
 def test_social_draft_create_does_not_call_x_api(monkeypatch, synced_client):
@@ -194,6 +481,46 @@ def test_social_ops_center_projection_is_human_gated_and_read_only(synced_client
     assert reposts.json()[0]["suggested_quote"]
     assert metrics.status_code == 200
     assert metrics.json()[0]["impressions"] == 1200
+
+
+def test_repost_candidate_quote_publish_creates_human_gated_x_post(monkeypatch, synced_client, db_session):
+    captured: dict[str, str] = {}
+
+    def fake_publish(account, body_text, media_ids=None):
+        captured["handle"] = account.handle
+        captured["body_text"] = body_text
+        return social_publishing.XPublishResult(post_id="1800000000000000031", response_summary={"data": {"id": "1800000000000000031"}})
+
+    monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
+    candidate = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/100",
+        author_handle="OpenAI",
+        source_text="AI agents increasingly need reliable tool access and payment primitives.",
+        suggested_quote="This is exactly why agent-native payment rails matter: builders need budgeted API access without manual billing glue.",
+        relevance_score=0.91,
+        status="candidate",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    db_session.refresh(candidate)
+
+    response = synced_client.post(
+        f"/api/social/repost-candidates/{candidate.id}/publish-x",
+        json={"actor": "operator", "action": "quote"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "published"
+    assert captured["handle"] == "SynapseNetworkA"
+    assert "agent-native payment rails matter" in captured["body_text"]
+    assert "https://x.com/OpenAI/status/100" in captured["body_text"]
+    post = db_session.query(SocialPostDraftRow).filter(SocialPostDraftRow.source_type == "repost_candidate").one()
+    assert post.status == "published"
+    assert post.reviewed_by == "operator"
+    raw = social_publishing._json_loads(post.raw_agent_output_json, {})
+    assert raw["repost_candidate_id"] == candidate.id
+    assert raw["repost_action"] == "quote"
 
 
 def test_default_social_account_migrates_legacy_token_ref(db_session):

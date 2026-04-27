@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./dashboard/public/synapse-network-icon.svg" alt="SynapseNetwork logo" width="96" />
+</p>
+
 # Synapse-Network-Growing
 
 `Synapse-Network-Growing` is the Company Ops control plane for the Synapse system. Its purpose is to turn goals, signals, incidents, and operator intent into observable agent-first workflows that can plan, execute, verify, request approval, and deliver safely.
