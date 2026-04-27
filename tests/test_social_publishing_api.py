@@ -543,6 +543,29 @@ def test_social_trend_query_filters_and_detail_endpoint(synced_client, db_sessio
     assert local_seed.json()["total"] == 1
     assert local_seed.json()["items"][0]["source_kind"] == "local_seed"
 
+    all_sources = synced_client.get(
+        "/api/social/trends/query",
+        params={"q": "synapse-query-marker", "source_kind": "all", "limit": 10, "offset": 0},
+    )
+    assert all_sources.status_code == 200
+    assert all_sources.json()["total"] == 3
+
+    other_source = synced_client.get(
+        "/api/social/trends/query",
+        params={"q": "synapse-query-marker", "source_kind": "other"},
+    )
+    assert other_source.status_code == 200
+    assert other_source.json()["total"] == 1
+    assert other_source.json()["items"][0]["source_kind"] == "other"
+
+    invalid_date = synced_client.get("/api/social/trends/query", params={"date_from": "not-a-date"})
+    assert invalid_date.status_code == 400
+    assert "invalid date filter" in invalid_date.json()["detail"]
+
+    invalid_source = synced_client.get("/api/social/trends/query", params={"source_kind": "bluesky"})
+    assert invalid_source.status_code == 400
+    assert "unsupported source_kind" in invalid_source.json()["detail"]
+
     detail_id = payload["items"][0]["id"]
     detail = synced_client.get(f"/api/social/trends/{detail_id}")
     assert detail.status_code == 200
