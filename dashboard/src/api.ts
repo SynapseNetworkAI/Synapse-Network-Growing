@@ -1436,8 +1436,16 @@ export interface SocialTrendItem {
   summary: string
   relevance_score: number
   status: string
+  source_kind?: 'x_post' | 'local_seed' | 'other' | string
   collected_at: string | null
   updated_at: string | null
+}
+
+export interface SocialTrendQueryResult {
+  items: SocialTrendItem[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface SocialWatchlistAccount {
@@ -2578,6 +2586,27 @@ export const api = {
     created_by?: string
   }) => request<SocialCampaignGoal>('/social/campaign-goals', { method: 'POST', body: JSON.stringify(data) }),
   getSocialTrends: () => request<SocialTrendItem[]>('/social/trends'),
+  querySocialTrends: (filters?: {
+    q?: string
+    date_from?: string
+    date_to?: string
+    source_kind?: 'x_post' | 'local_seed' | 'other' | 'all' | string
+    author_handle?: string
+    limit?: number
+    offset?: number
+  }) => {
+    const params = new URLSearchParams()
+    if (filters?.q) params.set('q', filters.q)
+    if (filters?.date_from) params.set('date_from', filters.date_from)
+    if (filters?.date_to) params.set('date_to', filters.date_to)
+    if (filters?.source_kind) params.set('source_kind', filters.source_kind)
+    if (filters?.author_handle) params.set('author_handle', filters.author_handle)
+    if (typeof filters?.limit === 'number') params.set('limit', String(filters.limit))
+    if (typeof filters?.offset === 'number') params.set('offset', String(filters.offset))
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<SocialTrendQueryResult>(`/social/trends/query${q}`)
+  },
+  getSocialTrend: (id: number) => request<SocialTrendItem>(`/social/trends/${id}`),
   getSocialWatchlist: () => request<SocialWatchlistAccount[]>('/social/watchlist'),
   getSocialReplies: () => request<SocialReplyItem[]>('/social/replies'),
   getSocialRepostCandidates: () => request<SocialRepostCandidate[]>('/social/repost-candidates'),

@@ -15,6 +15,7 @@ import SchedulesPage from './pages/SchedulesPage'
 import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
 import PublishingPage from './pages/PublishingPage'
+import PublishingTrendResultsPage from './pages/PublishingTrendResultsPage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
@@ -79,6 +80,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
+  { match: (pathname) => pathname === '/publishing/trends', title: 'X 趋势雷达结果', meta: 'Social trend radar' },
   { match: (pathname) => pathname === '/publishing', title: '内容发布', meta: 'Social publishing' },
   { match: (pathname) => pathname === '/projects', title: '项目', meta: 'Project list' },
   { match: (pathname) => pathname.startsWith('/projects/'), title: '项目详情', meta: 'Project detail' },
@@ -191,6 +193,7 @@ export default function App() {
                 <Route path="/releases" element={<ReleasesPage />} />
                 <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
                 <Route path="/publishing" element={<PublishingPage />} />
+                <Route path="/publishing/trends" element={<PublishingTrendResultsPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/:id" element={<ProjectDetailPage />} />
                 <Route path="/errors" element={<ErrorsPage />} />

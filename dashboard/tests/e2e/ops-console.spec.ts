@@ -11,6 +11,7 @@ const routes = [
   { path: '/requirements', title: '需求池' },
   { path: '/workflows', title: '运行轨迹' },
   { path: '/publishing', title: '官方账号内容发布' },
+  { path: '/publishing/trends', title: 'X 趋势雷达结果' },
   { path: '/schedules', title: '定时任务' },
   { path: '/releases', title: '发布' },
   { path: '/projects', title: '项目' },
@@ -382,6 +383,32 @@ async function installMockSocialApi(page: Page) {
           updated_at: now(),
         },
       ])
+      return
+    }
+
+    if (url.pathname === '/api/social/trends/query' && method === 'GET') {
+      const query = (url.searchParams.get('q') ?? '').toLowerCase()
+      const sourceKind = url.searchParams.get('source_kind') ?? 'all'
+      const author = (url.searchParams.get('author_handle') ?? '').replace(/^@/, '').toLowerCase()
+      const limit = Number(url.searchParams.get('limit') ?? '20')
+      const offset = Number(url.searchParams.get('offset') ?? '0')
+      let rows = trends.slice()
+      if (query) {
+        rows = rows.filter((trend) =>
+          [trend.topic, trend.summary, trend.author_handle, trend.source_url].some((value) => String(value ?? '').toLowerCase().includes(query)),
+        )
+      }
+      if (sourceKind === 'x_post') rows = rows.filter((trend) => trend.source_platform === 'x' && Boolean(trend.source_url))
+      if (sourceKind === 'local_seed') rows = rows.filter((trend) => !trend.source_url)
+      if (author) rows = rows.filter((trend) => String(trend.author_handle ?? '').toLowerCase() === author)
+      await json(route, { items: rows.slice(offset, offset + limit), total: rows.length, limit, offset })
+      return
+    }
+
+    const trendDetailMatch = url.pathname.match(/^\/api\/social\/trends\/(\d+)$/)
+    if (trendDetailMatch && method === 'GET') {
+      const trend = trends.find((row) => row.id === Number(trendDetailMatch[1]))
+      await json(route, trend ?? { detail: 'trend_not_found' }, trend ? 200 : 404)
       return
     }
 
@@ -947,6 +974,33 @@ test('Social Publishing is discoverable from the sidebar', async ({ page }) => {
   await publishingLink.click()
   await expect(page).toHaveURL(/\/publishing$/)
   await expect(page.getByRole('heading', { name: '官方账号内容发布' })).toBeVisible()
+})
+
+test('Social Publishing trend radar results support search filters and detail modal', async ({ page }) => {
+  await installMockSocialApi(page)
+
+  await page.goto('/publishing', { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '趋势雷达' }).click()
+  await page.getByRole('link', { name: '查看全部趋势' }).click()
+
+  await expect(page).toHaveURL(/\/publishing\/trends$/)
+  await expect(page.getByRole('heading', { name: 'X 趋势雷达结果' }).first()).toBeVisible()
+  await expect(page.getByText('AI agents need payment rails')).toBeVisible()
+  await page.getByLabel('关键字搜索').fill('payment rails')
+  await page.getByLabel('来源类型').selectOption('x_post')
+  await page.getByLabel('作者筛选').fill('@OpenAI')
+  await page.getByRole('button', { name: '搜索' }).click()
+
+  const row = page.getByRole('row').filter({ hasText: 'AI agents need payment rails' })
+  await expect(row).toBeVisible()
+  await expect(row.getByText('X 原帖')).toBeVisible()
+  await expect(row.getByRole('link', { name: '打开来源' })).toHaveAttribute('href', 'https://x.com/OpenAI/status/100')
+  await row.getByRole('button', { name: '详情' }).click()
+
+  const detailModal = page.getByRole('dialog', { name: '趋势详情 #8101' })
+  await expect(detailModal).toBeVisible()
+  await expect(detailModal.getByText('Agent builders increasingly need budgeted tool/API access. Use as content inspiration, not as sourced claim.')).toBeVisible()
+  await expect(detailModal.getByRole('link', { name: '打开 X 原帖' })).toHaveAttribute('href', 'https://x.com/OpenAI/status/100')
 })
 
 test('Social Publishing operator can generate and mock publish an X draft', async ({ page }, testInfo) => {

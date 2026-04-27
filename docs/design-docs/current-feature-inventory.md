@@ -131,6 +131,8 @@
 24. `x_social_trend_radar_sweep` 和 `x_social_repost_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，不调用 X repost / quote / reply / publish API。
 25. X 趋势雷达 v1 的真实数据入口是 Watchlist timeline，而不是全网搜索：`social_watchlist_accounts -> GET /2/users/by/username/:username -> GET /2/users/:id/tweets -> social_trend_items`。每个 watchlist account 通过 `last_checked_at` 做 1 小时级节流；X rate limit / auth failure 只能写 diagnostic，不得强制重试或伪造真实趋势。
 26. `social_trend_items.source_url` 是 X 来源真相边界。带 `https://x.com/.../status/...` 的趋势可以进入 `x_social_repost_candidate_sweep`；本地趋势种子或缺少 source URL 的素材只能作为内容灵感，UI 必须禁用转发/引用发布。
+27. `/publishing/trends` 是 `x_social_trend_radar_sweep` 结果检索页。它只读展示 `social_trend_items`，支持 operator-local 日期范围、关键字、来源类型和作者筛选，列表分页，点击行后用居中 Modal 查看完整来源、摘要、采集时间和 `source_kind`。
+28. 趋势详情页继续遵守 Modal-only + `ui-ux-pro-max` SaaS/Ops 约束：真实 X 来源展示 `打开 X 原帖`，本地趋势种子明确标注“仅作内容灵感，不能引用转发”，不提供任何自动互动动作。
 27. `x_social_repost_candidate_sweep` 生成的 `suggested_quote` 必须增加 Synapse 视角或额外观点，不得只是 `Great point` / `Interesting` 这类无价值附和。
 
 ## 5. Error Discovery And Intake Gate

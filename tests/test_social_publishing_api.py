@@ -483,6 +483,76 @@ def test_social_ops_center_projection_is_human_gated_and_read_only(synced_client
     assert metrics.json()[0]["impressions"] == 1200
 
 
+def test_social_trend_query_filters_and_detail_endpoint(synced_client, db_session):
+    now = utcnow()
+    old = now - timedelta(days=10)
+    db_session.add_all(
+        [
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url="https://x.com/OpenAI/status/4242",
+                author_handle="OpenAI",
+                topic="synapse-query-marker AI agents need payment rails",
+                summary="A high-signal X post about agent payment infrastructure.",
+                relevance_score=0.93,
+                status="new",
+                collected_at=now,
+            ),
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url=None,
+                author_handle=None,
+                topic="synapse-query-marker local seed",
+                summary="Local inspiration without a source URL.",
+                relevance_score=0.70,
+                status="saved",
+                collected_at=now,
+            ),
+            SocialTrendItemRow(
+                source_platform="rss",
+                source_url="https://example.com/agent-payments",
+                author_handle="ExampleSource",
+                topic="synapse-query-marker external article",
+                summary="Non-X source retained for future platform expansion.",
+                relevance_score=0.80,
+                status="new",
+                collected_at=old,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    local_day = social_publishing._operator_local_date(now)
+    response = synced_client.get(
+        "/api/social/trends/query",
+        params={"q": "synapse-query-marker", "source_kind": "x_post", "author_handle": "@OpenAI", "date_from": local_day, "date_to": local_day},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["author_handle"] == "OpenAI"
+    assert payload["items"][0]["source_kind"] == "x_post"
+
+    local_seed = synced_client.get(
+        "/api/social/trends/query",
+        params={"q": "synapse-query-marker", "source_kind": "local_seed", "date_from": local_day, "date_to": local_day},
+    )
+
+    assert local_seed.status_code == 200
+    assert local_seed.json()["total"] == 1
+    assert local_seed.json()["items"][0]["source_kind"] == "local_seed"
+
+    detail_id = payload["items"][0]["id"]
+    detail = synced_client.get(f"/api/social/trends/{detail_id}")
+    assert detail.status_code == 200
+    assert detail.json()["source_url"] == "https://x.com/OpenAI/status/4242"
+    assert detail.json()["summary"] == "A high-signal X post about agent payment infrastructure."
+
+    missing = synced_client.get("/api/social/trends/999999")
+    assert missing.status_code == 404
+
+
 def test_repost_candidate_quote_publish_creates_human_gated_x_post(monkeypatch, synced_client, db_session):
     captured: dict[str, str] = {}
 

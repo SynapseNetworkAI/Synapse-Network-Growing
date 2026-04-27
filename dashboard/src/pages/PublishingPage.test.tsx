@@ -239,6 +239,7 @@ describe('PublishingPage', () => {
     expect(screen.getByText('Agent builders increasingly need budgeted API access.')).toBeInTheDocument()
     expect(screen.getByText('来源：本地趋势种子')).toBeInTheDocument()
     expect(screen.getByText('@LangChainAI')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看全部趋势' })).toHaveAttribute('href', '/publishing/trends')
     expect(screen.queryByRole('button', { name: '发布到 X' })).not.toBeInTheDocument()
   })
 

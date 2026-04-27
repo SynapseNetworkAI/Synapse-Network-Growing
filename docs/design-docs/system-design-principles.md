@@ -144,6 +144,7 @@
 27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。
 28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
 29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
+30. X 趋势结果检索属于只读运营情报面。`/publishing/trends` 可以按日期、关键字、来源类型和作者检索 `social_trend_items`，但不得触发抓取、回复、转发或发布；趋势详情必须使用居中 Modal，并用 `source_url` 明确区分真实 X 原帖与本地趋势种子。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
@@ -190,6 +191,7 @@
 22. Social Publishing 生成上下文必须优先读取 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 可额外使用 bounded `launch-strategy` skill。图片生成由 `image_prompt` 进入 OpenAI Images provider；视频、GIF、多图、thread、广告投放和跨平台分发不属于 v1 默认生成面。
 23. Social Publishing 图文发布必须保持单图上限：图片 prompt 不得包含本地路径、secret、workflow JSON、内部部署细节或高风险金融承诺；X media upload 失败时必须进入 `failed`，不得悄悄降级成纯文字发布。
 24. Social Publishing 的新建、编辑、查看和发布确认必须使用居中 `Modal` / `Dialog`，并带有深色阻断遮罩；不得使用 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出详情栏。
+25. Social Publishing 的趋势详情同样遵守 Modal-only：真实 X 趋势可以展示 source URL 和打开原帖入口，本地趋势种子只能作为内容灵感，UI 不得给出引用/转发发布动作。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

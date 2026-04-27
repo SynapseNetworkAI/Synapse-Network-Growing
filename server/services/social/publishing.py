@@ -16,11 +16,12 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -56,6 +57,7 @@ from server.schemas import (
     SocialXOAuthStartOut,
     SocialReplyItemOut,
     SocialRepostCandidateOut,
+    SocialTrendQueryOut,
     SocialTrendItemOut,
     SocialWatchlistAccountOut,
 )
@@ -1151,21 +1153,126 @@ def create_social_campaign_goal(db: Session, body: SocialCampaignGoalCreateReque
 def list_social_trends(db: Session) -> list[SocialTrendItemOut]:
     ensure_default_social_ops_seed(db)
     rows = db.query(SocialTrendItemRow).order_by(SocialTrendItemRow.collected_at.desc(), SocialTrendItemRow.id.desc()).limit(100).all()
-    return [
-        SocialTrendItemOut(
-            id=int(row.id),
-            source_platform=row.source_platform,
-            source_url=row.source_url,
-            author_handle=row.author_handle,
-            topic=row.topic,
-            summary=row.summary,
-            relevance_score=float(row.relevance_score or 0.0),
-            status=row.status,
-            collected_at=row.collected_at,
-            updated_at=row.updated_at,
+    return [_social_trend_out(row) for row in rows]
+
+
+def _social_trend_source_kind(row: SocialTrendItemRow) -> str:
+    if row.source_platform == "x" and str(row.source_url or "").strip():
+        return "x_post"
+    if not str(row.source_url or "").strip():
+        return "local_seed"
+    return "other"
+
+
+def _social_trend_out(row: SocialTrendItemRow) -> SocialTrendItemOut:
+    return SocialTrendItemOut(
+        id=int(row.id),
+        source_platform=row.source_platform,
+        source_url=row.source_url,
+        author_handle=row.author_handle,
+        topic=row.topic,
+        summary=row.summary,
+        relevance_score=float(row.relevance_score or 0.0),
+        status=row.status,
+        source_kind=_social_trend_source_kind(row),
+        collected_at=row.collected_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _parse_operator_local_day(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(f"invalid date filter: {value}") from exc
+
+
+def _operator_local_day_start_utc(value: date) -> datetime:
+    zone = _operator_timezone()
+    local_start = datetime(value.year, value.month, value.day, tzinfo=zone)
+    return local_start.astimezone(timezone.utc)
+
+
+def _apply_social_trend_source_filter(query, source_kind: str):
+    normalized = str(source_kind or "all").strip().lower()
+    if normalized == "all":
+        return query
+    if normalized == "x_post":
+        return query.filter(
+            SocialTrendItemRow.source_platform == "x",
+            SocialTrendItemRow.source_url.isnot(None),
+            SocialTrendItemRow.source_url != "",
         )
-        for row in rows
-    ]
+    if normalized == "local_seed":
+        return query.filter(or_(SocialTrendItemRow.source_url.is_(None), SocialTrendItemRow.source_url == ""))
+    if normalized == "other":
+        return query.filter(
+            SocialTrendItemRow.source_platform != "x",
+            SocialTrendItemRow.source_url.isnot(None),
+            SocialTrendItemRow.source_url != "",
+        )
+    raise ValueError(f"unsupported source_kind: {source_kind}")
+
+
+def query_social_trends(
+    db: Session,
+    *,
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_kind: str = "all",
+    author_handle: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> SocialTrendQueryOut:
+    ensure_default_social_ops_seed(db)
+    safe_limit = min(max(int(limit or 20), 1), 100)
+    safe_offset = max(int(offset or 0), 0)
+    query = db.query(SocialTrendItemRow)
+
+    from_day = _parse_operator_local_day(date_from)
+    to_day = _parse_operator_local_day(date_to)
+    if from_day:
+        query = query.filter(SocialTrendItemRow.collected_at >= _operator_local_day_start_utc(from_day))
+    if to_day:
+        query = query.filter(SocialTrendItemRow.collected_at < _operator_local_day_start_utc(to_day + timedelta(days=1)))
+
+    query = _apply_social_trend_source_filter(query, source_kind)
+
+    normalized_author = str(author_handle or "").strip().lstrip("@")
+    if normalized_author:
+        query = query.filter(SocialTrendItemRow.author_handle.ilike(normalized_author))
+
+    normalized_q = str(q or "").strip()
+    if normalized_q:
+        pattern = f"%{normalized_q}%"
+        query = query.filter(
+            or_(
+                SocialTrendItemRow.topic.ilike(pattern),
+                SocialTrendItemRow.summary.ilike(pattern),
+                SocialTrendItemRow.author_handle.ilike(pattern),
+                SocialTrendItemRow.source_url.ilike(pattern),
+            )
+        )
+
+    total = query.count()
+    rows = (
+        query.order_by(SocialTrendItemRow.collected_at.desc(), SocialTrendItemRow.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+        .all()
+    )
+    return SocialTrendQueryOut(items=[_social_trend_out(row) for row in rows], total=total, limit=safe_limit, offset=safe_offset)
+
+
+def get_social_trend(db: Session, trend_id: int) -> SocialTrendItemOut:
+    ensure_default_social_ops_seed(db)
+    row = db.get(SocialTrendItemRow, trend_id)
+    if row is None:
+        raise ValueError(f"social trend {trend_id} not found")
+    return _social_trend_out(row)
 
 
 def list_social_watchlist(db: Session) -> list[SocialWatchlistAccountOut]:

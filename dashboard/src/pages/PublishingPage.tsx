@@ -890,6 +890,14 @@ export default function PublishingPage() {
           eyebrow="Trend Radar"
           title="趋势雷达"
           description="只读采集 AI / agent / API / payment 相关热点，保留来源链接；Agent 只能摘要和推荐跟进，不会自动互动。"
+          actions={
+            <a
+              className="rounded-2xl border border-cyan-300/35 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+              href="/publishing/trends"
+            >
+              查看全部趋势
+            </a>
+          }
         >
           <div className="space-y-4">
             <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">

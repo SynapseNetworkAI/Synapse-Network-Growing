@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ from server.schemas import (
     SocialXOAuthStartOut,
     SocialReplyItemOut,
     SocialRepostCandidateOut,
+    SocialTrendQueryOut,
     SocialTrendItemOut,
     SocialWatchlistAccountOut,
 )
@@ -33,6 +34,7 @@ from server.services.social.publishing import (
     complete_x_oauth_authorization,
     generate_social_post_draft,
     get_social_post,
+    get_social_trend,
     get_social_media_preview_path,
     list_social_campaign_goals,
     list_social_accounts,
@@ -44,6 +46,7 @@ from server.services.social.publishing import (
     list_social_watchlist,
     publish_social_post_to_x,
     publish_social_repost_candidate_to_x,
+    query_social_trends,
     regenerate_social_post_image,
     remove_social_post_media,
     request_social_post_rewrite,
@@ -105,6 +108,40 @@ def create_social_campaign_goal_endpoint(body: SocialCampaignGoalCreateRequest, 
 @router.get("/trends", response_model=list[SocialTrendItemOut])
 def list_social_trends_endpoint(db: Session = Depends(get_db)):
     return list_social_trends(db)
+
+
+@router.get("/trends/query", response_model=SocialTrendQueryOut)
+def query_social_trends_endpoint(
+    q: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_kind: str = "all",
+    author_handle: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    try:
+        return query_social_trends(
+            db,
+            q=q,
+            date_from=date_from,
+            date_to=date_to,
+            source_kind=source_kind,
+            author_handle=author_handle,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/trends/{trend_id}", response_model=SocialTrendItemOut)
+def get_social_trend_endpoint(trend_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_social_trend(db, trend_id)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/watchlist", response_model=list[SocialWatchlistAccountOut])

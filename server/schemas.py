@@ -1503,8 +1503,16 @@ class SocialTrendItemOut(BaseModel):
     summary: str
     relevance_score: float = 0.0
     status: str = "new"
+    source_kind: str = "local_seed"
     collected_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class SocialTrendQueryOut(BaseModel):
+    items: list[SocialTrendItemOut] = []
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
 
 
 class SocialWatchlistAccountOut(BaseModel):
