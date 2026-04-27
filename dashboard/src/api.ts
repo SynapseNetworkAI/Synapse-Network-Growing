@@ -2588,6 +2588,7 @@ export const api = {
     const q = params.toString() ? `?${params.toString()}` : ''
     return request<SocialPostDraft[]>(`/social/posts${q}`)
   },
+  getSocialPost: (id: number) => request<SocialPostDraft>(`/social/posts/${id}`),
   createSocialPost: (data: {
     platform?: 'x'
     account_id?: number | null

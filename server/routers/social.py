@@ -31,6 +31,7 @@ from server.services.social.publishing import (
     create_social_post,
     complete_x_oauth_authorization,
     generate_social_post_draft,
+    get_social_post,
     get_social_media_preview_path,
     list_social_campaign_goals,
     list_social_accounts,
@@ -127,6 +128,14 @@ def list_social_post_metrics_endpoint(db: Session = Depends(get_db)):
 @router.get("/posts", response_model=list[SocialPostDraftOut])
 def list_social_posts_endpoint(status: str | None = None, db: Session = Depends(get_db)):
     return list_social_posts(db, status=status)
+
+
+@router.get("/posts/{post_id}", response_model=SocialPostDraftOut)
+def get_social_post_endpoint(post_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_social_post(db, post_id)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post("/posts", response_model=SocialPostDraftOut)

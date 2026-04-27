@@ -85,6 +85,32 @@ function accountAuthorized(account: SocialAccount | undefined) {
   return account?.auth_status === 'authorized'
 }
 
+function needsXReconnect(post: SocialPostDraft) {
+  const reason = `${post.failure_summary ?? ''} ${(post.media_assets ?? []).map((asset) => asset.failure_summary ?? '').join(' ')}`.toLowerCase()
+  return (
+    post.status === 'failed' &&
+    (reason.includes('oauth') ||
+      reason.includes('authentication failed') ||
+      reason.includes('media.write') ||
+      reason.includes('reconnect the x official account') ||
+      reason.includes('token secret'))
+  )
+}
+
+function postSortRank(post: SocialPostDraft) {
+  const ranks: Record<string, number> = {
+    publishing: 0,
+    generating: 1,
+    approved: 2,
+    failed: 3,
+    needs_review: 4,
+    draft: 5,
+    published: 8,
+    rejected: 9,
+  }
+  return ranks[post.status] ?? 6
+}
+
 function publishActionLabel(post: SocialPostDraft | null) {
   return post?.status === 'failed' ? '重新发送' : '发布到 X'
 }
@@ -125,6 +151,17 @@ function promptExcerpt(post: SocialPostDraft | null) {
   return typeof eventPrompt === 'string' && eventPrompt.trim() ? eventPrompt : ''
 }
 
+function compactJson(value: unknown) {
+  if (!value || (typeof value === 'object' && Object.keys(value as Record<string, unknown>).length === 0)) {
+    return '{}'
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 export default function PublishingPage() {
   const toast = useToast()
   const [accounts, setAccounts] = useState<SocialAccount[]>([])
@@ -142,6 +179,8 @@ export default function PublishingPage() {
   const [busyId, setBusyId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<SocialPostDraft | null>(null)
+  const [detailPost, setDetailPost] = useState<SocialPostDraft | null>(null)
+  const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null)
   const [publishTarget, setPublishTarget] = useState<SocialPostDraft | null>(null)
   const [form, setForm] = useState<DraftForm>(emptyForm)
   const [savingDraft, setSavingDraft] = useState(false)
@@ -155,8 +194,17 @@ export default function PublishingPage() {
   const activeAccount = useMemo(() => accounts.find((account) => String(account.id) === form.accountId) ?? accounts[0], [accounts, form.accountId])
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts])
   const canSave = editing ? form.bodyText.trim().length > 0 : form.prompt.trim().length > 0
-  const totalPages = Math.max(1, Math.ceil(posts.length / pageSize))
-  const pagedPosts = posts.slice((page - 1) * pageSize, page * pageSize)
+  const sortedPosts = useMemo(
+    () =>
+      [...posts].sort((left, right) => {
+        const rankDelta = postSortRank(left) - postSortRank(right)
+        if (rankDelta !== 0) return rankDelta
+        return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+      }),
+    [posts],
+  )
+  const totalPages = Math.max(1, Math.ceil(sortedPosts.length / pageSize))
+  const pagedPosts = sortedPosts.slice((page - 1) * pageSize, page * pageSize)
 
   async function load(nextFilter = filter) {
     setLoading(true)
@@ -326,6 +374,20 @@ export default function PublishingPage() {
       toast.info('已打开 X 授权页面，授权完成后回到本页刷新。')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '无法启动 X 授权')
+    }
+  }
+
+  async function openDetailModal(post: SocialPostDraft) {
+    setDetailPost(post)
+    setDetailLoadingId(post.id)
+    try {
+      const detail = await api.getSocialPost(post.id)
+      setDetailPost(detail)
+      setPosts((current) => current.map((item) => (item.id === detail.id ? detail : item)))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载草稿详情失败')
+    } finally {
+      setDetailLoadingId(null)
     }
   }
 
@@ -605,9 +667,10 @@ export default function PublishingPage() {
         {!loading && posts.length === 0 ? <EmptyPane>当前没有内容草稿。可以先新建一条，或让 Agent 在工作流里生成候选内容。</EmptyPane> : null}
         {!loading && posts.length > 0 ? (
           <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">
-            <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead className="bg-[color:var(--ops-panel-subtle)] text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
                 <tr>
+                  <th className="px-5 py-4 font-medium">ID</th>
                   <th className="px-5 py-4 font-medium">标题</th>
                   <th className="px-5 py-4 font-medium">状态</th>
                   <th className="px-5 py-4 font-medium">风险 / 字符</th>
@@ -618,8 +681,10 @@ export default function PublishingPage() {
               <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
                 {pagedPosts.map((post) => {
                   const postAccount = accountById.get(post.account_id)
+                  const reconnectRequired = needsXReconnect(post)
                   return (
                   <tr key={post.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
+                    <td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-[color:var(--ops-text-caption)]">#{post.id}</td>
                     <td className="max-w-[420px] px-5 py-4">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">X · @{post.account_handle ?? 'SynapseNetworkA'}</div>
                       <div className="mt-1 font-semibold text-[color:var(--ops-text-title)]">{post.title || `X draft #${post.id}`}</div>
@@ -665,6 +730,9 @@ export default function PublishingPage() {
                     <td className="px-5 py-4 text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(post.updated_at)}</td>
                     <td className="px-5 py-4">
                       <div className="flex flex-wrap justify-end gap-2">
+                        <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" disabled={detailLoadingId === post.id} onClick={() => openDetailModal(post)}>
+                          {detailLoadingId === post.id ? '加载中...' : '详情'}
+                        </button>
                         <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" disabled={post.status === 'generating'} onClick={() => openEditModal(post)}>
                           编辑
                         </button>
@@ -673,12 +741,22 @@ export default function PublishingPage() {
                             拒绝
                           </button>
                         ) : null}
+                        {canPublish(post) && reconnectRequired && !accountAuthorized(postAccount) ? (
+                          <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
+                            重新连接 X 官方账号
+                          </button>
+                        ) : null}
                         {canPublish(post) && accountAuthorized(postAccount) ? (
                           <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busyId === post.id} onClick={() => setPublishTarget(post)}>
                             {publishActionLabel(post)}
                           </button>
                         ) : null}
-                        {canPublish(post) && !accountAuthorized(postAccount) ? (
+                        {canPublish(post) && reconnectRequired && accountAuthorized(postAccount) ? (
+                          <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
+                            重新连接 X 官方账号
+                          </button>
+                        ) : null}
+                        {canPublish(post) && !accountAuthorized(postAccount) && !reconnectRequired ? (
                           <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
                             连接 X 官方账号
                           </button>
@@ -836,6 +914,115 @@ export default function PublishingPage() {
           </div>
         </SectionFrame>
       ) : null}
+
+      <OverlayModal
+        open={Boolean(detailPost)}
+        eyebrow="X official account"
+        title={detailPost ? `内容草稿 #${detailPost.id}` : '内容草稿详情'}
+        description="记录这条草稿从生成、审核、图片处理到发布结果的全过程数据。"
+        onClose={() => setDetailPost(null)}
+      >
+        {detailPost ? (
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Status</div>
+                <div className="mt-2"><StateBadge tone={statusTone(detailPost.status)}>{statusLabel(detailPost.status)}</StateBadge></div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Policy</div>
+                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{detailPost.policy_check.status} · {detailPost.policy_check.character_count} chars</div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Created</div>
+                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{formatDateTime(detailPost.created_at)}</div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Updated</div>
+                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{formatDateTime(detailPost.updated_at)}</div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Draft Content</div>
+              <div className="mt-3 text-lg font-semibold text-[color:var(--ops-text-title)]">{detailPost.title || `X draft #${detailPost.id}`}</div>
+              <div className="mt-3 whitespace-pre-wrap rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4 text-sm leading-6 text-[color:var(--ops-text-body)]">{detailPost.body_text || '-'}</div>
+              {promptExcerpt(detailPost) ? (
+                <div className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.06] p-4">
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/70">Original Prompt</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-cyan-50">{promptExcerpt(detailPost)}</div>
+                </div>
+              ) : null}
+              {detailPost.failure_summary ? (
+                <div className="mt-3 rounded-2xl border border-rose-300/25 bg-rose-300/10 p-4 text-sm leading-6 text-rose-100">{detailPost.failure_summary}</div>
+              ) : null}
+              {detailPost.external_post_id ? (
+                <a className="mt-3 inline-flex rounded-xl border border-cyan-300/35 px-3 py-2 text-sm font-semibold text-cyan-100" href={detailPost.external_url ?? '#'} target="_blank" rel="noreferrer">
+                  Open on X · {detailPost.external_post_id}
+                </a>
+              ) : null}
+            </div>
+
+            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
+              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">图片资产</div>
+              {activeMediaAssets(detailPost).length === 0 ? (
+                <div className="mt-3 rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">这条草稿没有活动图片。</div>
+              ) : (
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {activeMediaAssets(detailPost).map((asset) => (
+                    <div key={asset.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+                      {asset.preview_url && asset.status !== 'failed' ? <img src={asset.preview_url} alt={asset.alt_text ?? 'X image preview'} className="h-36 w-full rounded-xl object-cover" /> : null}
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <StateBadge tone={asset.status === 'failed' ? 'blocked' : asset.status === 'generating' ? 'running' : 'ready'}>{mediaStatusLabel(asset.status)}</StateBadge>
+                        <span className="font-mono text-xs text-[color:var(--ops-text-caption)]">media #{asset.id}</span>
+                      </div>
+                      <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{asset.alt_text || asset.prompt || '-'}</div>
+                      {asset.x_media_id ? <div className="mt-2 font-mono text-xs text-[color:var(--ops-text-caption)]">x_media_id: {asset.x_media_id}</div> : null}
+                      {asset.failure_summary ? <div className="mt-2 text-xs text-rose-200">{asset.failure_summary}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">任务过程 Timeline</div>
+                <span className="text-xs text-[color:var(--ops-text-caption)]">{detailPost.events.length} events</span>
+              </div>
+              {detailPost.events.length === 0 ? (
+                <div className="mt-3 rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">暂无过程事件。</div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {detailPost.events.map((event) => (
+                    <div key={event.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-xs uppercase tracking-[0.12em] text-cyan-100">{event.event_type}</div>
+                          <div className="mt-1 text-sm text-[color:var(--ops-text-body)]">{event.summary || '-'}</div>
+                        </div>
+                        <div className="text-right text-xs text-[color:var(--ops-text-caption)]">
+                          <div>{formatDateTime(event.created_at)}</div>
+                          <div>by {event.actor}</div>
+                        </div>
+                      </div>
+                      <details className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] px-3 py-2">
+                        <summary className="cursor-pointer text-xs text-[color:var(--ops-text-muted)]">查看事件 payload</summary>
+                        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-[color:var(--ops-text-body)]">{compactJson(event.payload)}</pre>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <details className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">Debug metadata</summary>
+              <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-[color:var(--ops-panel-strong)] p-4 text-xs leading-5 text-[color:var(--ops-text-body)]">{compactJson(detailPost.raw_agent_output)}</pre>
+            </details>
+          </div>
+        ) : null}
+      </OverlayModal>
 
       <OverlayModal
         open={modalOpen}

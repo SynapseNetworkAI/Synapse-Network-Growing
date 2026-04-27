@@ -110,7 +110,7 @@
 3. `social_accounts` 保存账号投影和 Secret Manager 引用；不保存账号密码，不把 secret 返回前端。
 4. `social_post_drafts` 保存 Agent / operator 草稿、审核状态、标题、最终正文、风险检查、X post id 和失败摘要；`让 Agent 写草稿` 入口只要求 operator 输入目标 / prompt，系统生成 policy-checked 标题、正文和可选图片决策。policy 通过且 media ready 时可由人类点击发布；policy 阻断或图片失败时必须改写、重新生成图片或移除图片，系统不会直接发布。
 5. `social_post_media_assets` 保存单张图片资产：`media_type=image`、生成 prompt、alt text、预览 URL、本地 runtime 路径、X media id 和失败摘要。
-6. `social_publish_events` 保存草稿生成、图片生成、图片上传、编辑、拒绝、发布请求、发布成功/失败事件。
+6. `social_publish_events` 保存草稿生成、图片生成、图片上传、编辑、拒绝、发布请求、发布成功/失败事件；`/publishing` 草稿列表必须显示草稿 ID，详情居中 Modal 通过 `GET /api/social/posts/{id}` 展示草稿内容、媒体资产、事件 timeline、外部发布结果和 bounded debug metadata。
 7. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
 8. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
 9. 有图片时 `publish-x` 必须先上传 X media，拿到 `media_id` 后再创建 Post；media upload 失败不得降级成纯文字发布。

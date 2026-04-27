@@ -66,7 +66,7 @@ X_POST_URL = "https://api.x.com/2/tweets"
 X_MEDIA_UPLOAD_URL = "https://api.x.com/2/media/upload"
 X_OAUTH_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize"
 X_OAUTH_TOKEN_URL = "https://api.x.com/2/oauth2/token"
-X_OAUTH_SCOPE = "tweet.read tweet.write users.read offline.access"
+X_OAUTH_SCOPE = "tweet.read tweet.write users.read media.write offline.access"
 logger = logging.getLogger("ops-dashboard.social-publishing")
 _x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "x_publish_access_token",
@@ -345,6 +345,7 @@ def _build_social_generation_prompt(
         "Do not expose internal paths, workflow JSON, secrets, acceptance matrices, or private implementation details. "
         "When media is useful, write a safe image prompt for a polished SaaS/AI infrastructure visual. "
         "The image prompt must not include local paths, secrets, private deployment details, financial return promises, or text that must be exactly rendered. "
+        "End body_text with 2-4 relevant X hashtags. Prefer tags such as #AIAgents, #AgentEconomy, #APIs, #Micropayments, #DeveloperTools, or #MachinePayments when they fit. "
         "Tone: technical but accessible, forward-thinking, confident, trustworthy, and readable. "
         "Return JSON only: {'title': '...', 'body_text': '...', 'media_decision': 'text|image', 'image_prompt': '...', 'image_alt_text': '...'}."
     )
@@ -367,6 +368,7 @@ def _build_social_generation_prompt(
         "Start with a strong hook, explain the public product benefit, and make the post worth reading or sharing. "
         "Prefer a complete X Premium post with several compact paragraphs when there is enough material. "
         "Do not optimize for the old 280-character tweet format. "
+        "Finish the post with 2-4 natural hashtags that match the topic; do not use generic spammy tags. "
         "If the goal contains instructions like 'read docs', 'how to publish', or 'generate the first post', "
         "do not copy those instructions; translate them into product context and audience value.\n\n"
         f"Operator goal:\n{safe_operator_goal}"
@@ -1222,6 +1224,12 @@ def list_social_posts(db: Session, *, status: str | None = None) -> list[SocialP
     return [_post_out(row) for row in query.all()]
 
 
+def get_social_post(db: Session, post_id: int) -> SocialPostDraftOut:
+    """Return one social draft with its process timeline and publish result."""
+
+    return _post_out(_get_post(db, post_id))
+
+
 def create_social_post(db: Session, body: SocialPostCreateRequest) -> SocialPostDraftOut:
     if body.platform != "x":
         raise ValueError("only X is supported in social publishing v1")
@@ -1688,6 +1696,29 @@ class SecretValueStore:
             raise SocialPublishError("x_auth_failed", "GCP project id is required to write the X credential secret.")
         return f"projects/{project_id}/secrets/{ref}"
 
+    def _secret_create_request(self, secret_ref: str) -> dict[str, Any]:
+        parent = self._secret_parent(secret_ref)
+        if "/secrets/" not in parent:
+            raise SocialPublishError("x_refresh_failed", "X refresh token secret reference is invalid.")
+        project_parent, secret_id = parent.rsplit("/secrets/", 1)
+        if not project_parent or not secret_id:
+            raise SocialPublishError("x_refresh_failed", "X refresh token secret reference is invalid.")
+        return {
+            "parent": project_parent,
+            "secret_id": secret_id,
+            "secret": {"replication": {"automatic": {}}},
+        }
+
+    def _is_secret_not_found(self, exc: Exception) -> bool:
+        try:
+            from google.api_core import exceptions as google_exceptions  # type: ignore
+
+            if isinstance(exc, google_exceptions.NotFound):
+                return True
+        except Exception:  # pragma: no cover - optional dependency shape
+            pass
+        return "not found" in str(exc).lower()
+
     def read(self, secret_ref: str) -> str:
         ref = str(secret_ref or "").strip()
         if ref.startswith("env:"):
@@ -1716,15 +1747,29 @@ class SecretValueStore:
             from google.cloud import secretmanager  # type: ignore
         except Exception as exc:  # pragma: no cover - optional production dependency
             raise SocialPublishError("x_refresh_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
+        client = secretmanager.SecretManagerServiceClient()
+        request = {
+            "parent": self._secret_parent(ref),
+            "payload": {"data": value.encode("utf-8")},
+        }
         try:
-            secretmanager.SecretManagerServiceClient().add_secret_version(
+            client.add_secret_version(
                 request={
-                    "parent": self._secret_parent(ref),
-                    "payload": {"data": value.encode("utf-8")},
+                    "parent": request["parent"],
+                    "payload": request["payload"],
                 }
             )
         except Exception as exc:  # pragma: no cover - credential dependent
-            raise SocialPublishError("x_refresh_failed", f"Secret Manager refresh token write failed: {_bounded_excerpt(str(exc))}") from exc
+            if not self._is_secret_not_found(exc):
+                raise SocialPublishError("x_refresh_failed", f"Secret Manager refresh token write failed: {_bounded_excerpt(str(exc))}") from exc
+            try:
+                client.create_secret(request=self._secret_create_request(ref))
+                client.add_secret_version(request=request)
+            except Exception as retry_exc:  # pragma: no cover - credential dependent
+                raise SocialPublishError(
+                    "x_refresh_failed",
+                    f"Secret Manager refresh token write failed after creating secret: {_bounded_excerpt(str(retry_exc))}",
+                ) from retry_exc
 
 
 secret_store = SecretValueStore()
@@ -1866,7 +1911,10 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_media_upload_auth_failed", "X media upload authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+                raise SocialPublishError(
+                    "x_media_upload_auth_failed",
+                    "X media upload authentication failed. Reconnect the X official account and approve the media.write scope.",
+                ) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X media upload rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_media_upload_failed", f"X media upload returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc

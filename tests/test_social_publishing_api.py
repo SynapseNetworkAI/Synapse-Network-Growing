@@ -1,5 +1,6 @@
 import io
 import urllib.error
+import urllib.parse
 from datetime import timedelta
 
 import pytest
@@ -93,6 +94,47 @@ def test_social_draft_create_does_not_call_x_api(monkeypatch, synced_client):
     assert payload["policy_check"]["status"] == "passed"
     assert payload["external_post_id"] is None
     assert called is False
+
+
+def test_social_post_detail_returns_events_and_publish_result(monkeypatch, synced_client):
+    monkeypatch.setattr(
+        social_publishing.x_publisher,
+        "publish_text",
+        lambda account, body_text, media_ids=None: social_publishing.XPublishResult(
+            post_id="1801",
+            response_summary={"data": {"id": "1801"}},
+        ),
+    )
+    created = synced_client.post(
+        "/api/social/posts",
+        json={
+            "title": "Operator update",
+            "body_text": "Synapse Network now has a human-reviewed X publishing workflow.",
+            "status": "approved",
+        },
+    ).json()
+
+    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    assert published.status_code == 200
+
+    detail = synced_client.get(f"/api/social/posts/{created['id']}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["id"] == created["id"]
+    assert payload["external_post_id"] == "1801"
+    assert payload["external_url"].endswith("/status/1801")
+    event_types = [event["event_type"] for event in payload["events"]]
+    assert "draft_created" in event_types
+    assert "publish_requested" in event_types
+    assert "published" in event_types
+    assert payload["events"][-1]["payload"]["external_post_id"] == "1801"
+
+
+def test_social_post_detail_missing_returns_404(synced_client):
+    response = synced_client.get("/api/social/posts/999999")
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"]
 
 
 def test_social_ops_center_projection_is_human_gated_and_read_only(synced_client, db_session):
@@ -524,6 +566,9 @@ def test_agent_prompt_uses_dedicated_social_content_provider(monkeypatch, synced
     assert "technical:" in str(observed["prompt"])
     assert "X Premium-style post" in str(observed["prompt"])
     assert "Do not optimize for the old 280-character tweet format" in str(observed["prompt"])
+    assert "2-4 relevant X hashtags" in str(observed["prompt"])
+    assert "#AIAgents" in str(observed["prompt"])
+    assert "Finish the post with 2-4 natural hashtags" in str(observed["prompt"])
     assert "single X post text under 280 characters" not in str(observed["prompt"])
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["raw_agent_output"]["requested_model"] == "gpt-5-codex"
@@ -689,6 +734,7 @@ def test_agent_prompt_adds_launch_skill_context(monkeypatch, synced_client):
     assert "Announce the staging launch update." in observed_prompts["user"]
     assert "strong hook" in observed_prompts["system"]
     assert "clear product value" in observed_prompts["system"]
+    assert "hashtags" in observed_prompts["system"]
 
 
 def test_agent_prompt_sanitizes_internal_paths_before_provider_call(monkeypatch, synced_client):
@@ -1203,8 +1249,11 @@ def test_x_oauth_start_returns_pkce_authorization_url(monkeypatch, synced_client
     payload = response.json()
     assert "https://twitter.com/i/oauth2/authorize" in payload["auth_url"]
     assert "tweet.write" in payload["auth_url"]
+    assert "media.write" in payload["auth_url"]
     assert "offline.access" in payload["auth_url"]
     assert "code_challenge_method=S256" in payload["auth_url"]
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(payload["auth_url"]).query)
+    assert query["redirect_uri"] == ["http://127.0.0.1:9600/api/social/x/oauth/callback"]
     assert payload["state"]
 
 
@@ -1650,6 +1699,40 @@ def test_secret_store_gcp_paths_and_version_rotation(monkeypatch):
         store.read("x-secret")
 
 
+def test_secret_store_creates_missing_refresh_secret_before_adding_version(monkeypatch):
+    store = social_publishing.SecretValueStore()
+    monkeypatch.setenv("GCP_PROJECT_ID", "demo-project")
+
+    from google.api_core import exceptions as google_exceptions
+    from google.cloud import secretmanager
+
+    calls: list[dict] = []
+
+    class FakeSecretManagerClient:
+        def __init__(self):
+            self.created = False
+
+        def add_secret_version(self, request):
+            calls.append({"add": request})
+            if not self.created:
+                raise google_exceptions.NotFound("secret missing")
+
+        def create_secret(self, request):
+            calls.append({"create": request})
+            self.created = True
+
+    client = FakeSecretManagerClient()
+    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: client)
+
+    store.add_version("x-refresh", "new-refresh")
+
+    assert calls[0]["add"]["parent"] == "projects/demo-project/secrets/x-refresh"
+    assert calls[1]["create"]["parent"] == "projects/demo-project"
+    assert calls[1]["create"]["secret_id"] == "x-refresh"
+    assert calls[1]["create"]["secret"]["replication"] == {"automatic": {}}
+    assert calls[2]["add"]["payload"]["data"] == b"new-refresh"
+
+
 def test_oauth_token_provider_status_and_error_paths(monkeypatch):
     class FakeStore:
         def __init__(self):
@@ -1765,6 +1848,7 @@ def test_x_media_upload_http_error_paths(monkeypatch):
     with pytest.raises(social_publishing.SocialPublishError) as auth_error:
         publisher.upload_image(account, str(image_path))
     assert auth_error.value.kind == "x_media_upload_auth_failed"
+    assert "media.write" in auth_error.value.summary
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(429))
     with pytest.raises(social_publishing.SocialPublishError) as rate_error:

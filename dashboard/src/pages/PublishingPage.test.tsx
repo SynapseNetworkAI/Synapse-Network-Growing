@@ -17,6 +17,7 @@ const apiMock = vi.hoisted(() => ({
   getSocialRepostCandidates: vi.fn(),
   getSocialPostMetrics: vi.fn(),
   getSocialPosts: vi.fn(),
+  getSocialPost: vi.fn(),
   startSocialXOAuth: vi.fn(),
   createSocialPost: vi.fn(),
   generateSocialPostDraft: vi.fn(),
@@ -146,6 +147,28 @@ describe('PublishingPage', () => {
     apiMock.getSocialRepostCandidates.mockResolvedValue([])
     apiMock.getSocialPostMetrics.mockResolvedValue([])
     apiMock.getSocialPosts.mockResolvedValue([draft()])
+    apiMock.getSocialPost.mockResolvedValue(draft({
+      events: [
+        {
+          id: 1,
+          post_id: 7,
+          event_type: 'draft_generated',
+          actor: 'social_content_agent_v1',
+          summary: 'Agent generated title and body.',
+          payload: { prompt_excerpt: 'Write a concise launch note about staging governance.' },
+          created_at: '2026-04-25T00:01:00Z',
+        },
+        {
+          id: 2,
+          post_id: 7,
+          event_type: 'published',
+          actor: 'operator',
+          summary: 'Published to X as post 1801.',
+          payload: { external_post_id: '1801' },
+          created_at: '2026-04-25T00:02:00Z',
+        },
+      ],
+    }))
     apiMock.startSocialXOAuth.mockResolvedValue({ auth_url: 'https://twitter.com/i/oauth2/authorize?state=test', state: 'test', expires_at: '2026-04-25T00:10:00Z' })
     apiMock.createSocialPost.mockResolvedValue(draft({ id: 8 }))
     apiMock.generateSocialPostDraft.mockResolvedValue(draft({ id: 8, status: 'approved', generated_by: 'social_content_agent_v1', reviewed_by: 'operator' }))
@@ -177,6 +200,8 @@ describe('PublishingPage', () => {
     expect(screen.getByText('Build trust for Synapse Network official X')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '趋势雷达' })).toBeInTheDocument()
     expect(screen.getByText('Synapse Agent Ops now has a human-gated X publishing surface.')).toBeInTheDocument()
+    expect(screen.getByText('#7')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '详情' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '发布到 X' })).toBeInTheDocument()
     expect(screen.queryByText('目标受众')).not.toBeInTheDocument()
     expect(screen.queryByText('CTA')).not.toBeInTheDocument()
@@ -185,6 +210,22 @@ describe('PublishingPage', () => {
     expect(screen.queryByText('legacy follow')).not.toBeInTheDocument()
     expect(screen.queryByText('legacy rationale')).not.toBeInTheDocument()
     expect(screen.getByText('第 1 / 1 页 · 共 1 条草稿')).toBeInTheDocument()
+  })
+
+  it('opens a centered detail modal with full process timeline and result data', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '详情' }))
+
+    await waitFor(() => expect(apiMock.getSocialPost).toHaveBeenCalledWith(7))
+    expect(screen.getByRole('dialog', { name: '内容草稿 #7' })).toBeInTheDocument()
+    expect(screen.getByText('任务过程 Timeline')).toBeInTheDocument()
+    expect(screen.getByText('draft_generated')).toBeInTheDocument()
+    expect(screen.getByText('published')).toBeInTheDocument()
+    expect(screen.getByText('Agent generated title and body.')).toBeInTheDocument()
+    expect(screen.getByText('Debug metadata')).toBeInTheDocument()
+    expect(screen.queryByText('Drawer')).not.toBeInTheDocument()
   })
 
   it('shows social ops trend radar and watchlist without publishing actions', async () => {
@@ -309,11 +350,54 @@ describe('PublishingPage', () => {
     openSpy.mockRestore()
   })
 
+  it('shows resend plus reconnect for failed media auth attempts when account status is authorized', async () => {
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const failedPost = draft({
+      status: 'failed',
+      failure_summary: 'X media upload authentication failed. Reconnect the X official account and approve the media.write scope.',
+      policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
+    })
+    apiMock.getSocialPosts.mockResolvedValue([failedPost])
+    renderPage()
+
+    expect(await screen.findByRole('button', { name: '重新发送' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '重新连接 X 官方账号' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重新连接 X 官方账号' }))
+
+    await waitFor(() => {
+      expect(apiMock.startSocialXOAuth).toHaveBeenCalledWith(1)
+      expect(openSpy).toHaveBeenCalledWith('https://twitter.com/i/oauth2/authorize?state=test', '_blank', 'noopener,noreferrer')
+    })
+    openSpy.mockRestore()
+  })
+
+  it('sorts unpublished drafts above published and rejected records', async () => {
+    apiMock.getSocialPosts.mockResolvedValue([
+      draft({ id: 1, title: 'Rejected record', status: 'rejected', updated_at: '2026-04-25T04:00:00Z' }),
+      draft({ id: 2, title: 'Published record', status: 'published', updated_at: '2026-04-25T05:00:00Z' }),
+      draft({ id: 3, title: 'Approved record', status: 'approved', updated_at: '2026-04-25T01:00:00Z' }),
+      draft({ id: 4, title: 'Failed record', status: 'failed', updated_at: '2026-04-25T02:00:00Z' }),
+    ])
+    renderPage()
+
+    await screen.findByText('Approved record')
+    const order = screen
+      .getAllByRole('row')
+      .map((row) => row.textContent ?? '')
+      .filter((text) => text.includes(' record'))
+
+    expect(order[0]).toContain('Approved record')
+    expect(order[1]).toContain('Failed record')
+    expect(order[2]).toContain('Published record')
+    expect(order[3]).toContain('Rejected record')
+  })
+
   it('shows the backend failure reason when resend still fails', async () => {
     const user = userEvent.setup()
     const failedPost = draft({
       status: 'failed',
-      failure_summary: 'X media upload authentication failed. Update the OAuth user token secret.',
+      failure_summary: 'X API returned HTTP 500 while creating the post.',
       policy_check: { status: 'passed', character_count: 67, warnings: [], blocked_reasons: [] },
     })
     apiMock.getSocialPosts.mockResolvedValue([failedPost])
@@ -326,7 +410,7 @@ describe('PublishingPage', () => {
     await waitFor(() => {
       expect(apiMock.publishSocialPostToX).toHaveBeenCalledWith(7, { actor: 'operator' })
     })
-    expect((await screen.findAllByText('X media upload authentication failed. Update the OAuth user token secret.')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('X API returned HTTP 500 while creating the post.')).length).toBeGreaterThan(0)
   })
 
   it('asks Agent to generate publish-ready text without publishing', async () => {
