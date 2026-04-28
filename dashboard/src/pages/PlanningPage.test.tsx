@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PlanningPage from './PlanningPage'
 
 const apiMock = vi.hoisted(() => ({
   getPlanningMissionControl: vi.fn(),
+  getPlanningMissionBoard: vi.fn(),
   getPlanningManifestHistory: vi.fn(),
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
@@ -39,9 +41,9 @@ const manifest = {
     global_constraints: ['No production deploy without human approval.'],
   },
   goal_count: 2,
-  active_goal_count: 2,
+  active_goal_count: 1,
   dropped_goal_count: 0,
-  achieved_goal_count: 0,
+  achieved_goal_count: 1,
   review_summary: {},
   change_log: [],
   created_by: 'operator',
@@ -50,44 +52,20 @@ const manifest = {
   archived_at: null,
 }
 
-const reliabilityGoal = {
+const activeGoal = {
   id: 101,
   manifest_id: 1,
-  goal_key: 'gateway_reliability',
-  title: 'Gateway reliability',
-  intent_excerpt: 'Keep gateway healthy.',
-  success_metric: '5xx < 1%',
-  domain: 'reliability',
-  status: 'active',
-  workflow_key: 'gateway_reliability_repair',
-  project_key: 'synapse',
-  priority: 'normal',
-  risk_level: 'normal',
-  weight: 0.6,
-  acceptance_kind: 'business',
-  execution_acceptance_steps: [],
-  metadata: {},
-  closed_at: null,
-  review_note: null,
-  drop_decision: {},
-  created_at: '2026-04-19T00:00:00Z',
-  updated_at: '2026-04-19T00:00:00Z',
-}
-
-const growthGoal = {
-  id: 102,
-  manifest_id: 1,
-  goal_key: 'operator_growth',
-  title: 'Operator growth',
-  intent_excerpt: 'Find growth work.',
-  success_metric: 'approved candidate throughput',
-  domain: 'growth',
+  goal_key: 'synapse_growth_operating_loop',
+  title: 'Build the Synapse growth operating loop',
+  intent_excerpt: 'Use product, growth, and engineering lanes to move one active company goal.',
+  success_metric: 'All active work is visible under one goal or unassigned.',
+  domain: 'ops',
   status: 'active',
   workflow_key: 'agent_self_repair',
-  project_key: 'synapse',
+  project_key: 'synapse-network-growing',
   priority: 'normal',
   risk_level: 'normal',
-  weight: 0.25,
+  weight: 1,
   acceptance_kind: 'business',
   execution_acceptance_steps: [],
   metadata: {},
@@ -99,43 +77,28 @@ const growthGoal = {
 }
 
 const achievedGoal = {
-  ...growthGoal,
-  id: 103,
+  ...activeGoal,
+  id: 102,
   goal_key: 'completed_lint_contracts',
   title: 'Completed lint contracts',
-  intent_excerpt: 'Historical contract work already shipped.',
-  success_metric: 'contract checks shipped',
-  domain: 'ops',
   status: 'achieved',
-  weight: 0.1,
+  intent_excerpt: 'Historical work already shipped.',
 }
 
-const droppedGoal = {
-  ...growthGoal,
-  id: 104,
-  goal_key: 'retired_gateway_idea',
-  title: 'Retired gateway idea',
-  intent_excerpt: 'Dropped historical gateway work.',
-  success_metric: 'not pursued',
-  domain: 'reliability',
-  status: 'dropped',
-  weight: 0.05,
-}
-
-const reliabilityCandidate = {
+const pendingCandidate = {
   id: 10,
   manifest_id: 1,
-  goal_key: 'gateway_reliability',
-  candidate_fingerprint: 'fp-10',
-  title: 'Add gateway precision guardrail',
-  description_markdown: 'Guardrail belongs under reliability.',
+  goal_key: activeGoal.goal_key,
+  candidate_fingerprint: 'candidate-10',
+  title: 'Add mission board API',
+  description_markdown: 'Candidate belongs under the active goal.',
   project_id: 1,
-  project_key: 'synapse',
-  workflow_key: 'gateway_reliability_repair',
+  project_key: 'synapse-network-growing',
+  workflow_key: 'agent_self_repair',
   priority: 'normal',
   risk_level: 'normal',
-  confidence: 0.82,
-  rationale: 'Reliability goal has capacity.',
+  confidence: 0.9,
+  rationale: 'Needed to wire lanes together.',
   expected_evidence: [],
   status: 'pending',
   suppression_reason: null,
@@ -150,47 +113,6 @@ const reliabilityCandidate = {
   rejected_at: null,
 }
 
-const materializedCandidate = {
-  ...reliabilityCandidate,
-  id: 11,
-  candidate_fingerprint: 'fp-11',
-  title: 'Weaponize self-repair lint and architecture contract gates',
-  description_markdown: 'This long materialized markdown should not be visible in the mission lane.',
-  status: 'materialized',
-  materialized_requirement_id: 6,
-  confidence: 0.89,
-  metadata: {
-    generated_by: 'planner_agent_v1',
-    auto_run_status: 'workflow_completed',
-  },
-  updated_at: '2026-04-19T01:00:00Z',
-}
-
-const validationFailedCandidate = {
-  ...reliabilityCandidate,
-  id: 12,
-  candidate_fingerprint: 'fp-12',
-  title: 'Unsafe planner output draft',
-  description_markdown: 'Raw planner output with verbose markdown should stay behind details.',
-  status: 'validation_failed',
-  materialized_requirement_id: null,
-  suppression_reason: 'acceptance_validation_failed',
-  confidence: 0.66,
-  metadata: {
-    generated_by: 'planner_agent_v1',
-    acceptance_validation_error: "required command 'python -m ruff check' is not in the safe command allowlist.",
-  },
-  updated_at: '2026-04-19T02:00:00Z',
-}
-
-const duplicateValidationFailedCandidate = {
-  ...validationFailedCandidate,
-  id: 13,
-  candidate_fingerprint: 'fp-13',
-  title: 'Unsafe planner output retry',
-  updated_at: '2026-04-19T03:00:00Z',
-}
-
 const mission = {
   manifest,
   global_steering: {
@@ -200,57 +122,29 @@ const mission = {
   },
   goal_lanes: [
     {
-      goal_key: 'gateway_reliability',
-      goal: reliabilityGoal,
+      goal_key: activeGoal.goal_key,
+      goal: activeGoal,
       rollup: {
         manifest_id: 1,
-        goal_key: 'gateway_reliability',
-        goal: reliabilityGoal,
-        candidate_status_counts: { pending: 1, materialized: 1, validation_failed: 1 },
-        requirement_status_counts: {},
-        workflow_status_counts: {},
+        goal_key: activeGoal.goal_key,
+        goal: activeGoal,
+        candidate_status_counts: { pending: 1 },
+        requirement_status_counts: { running: 1 },
+        workflow_status_counts: { running: 1 },
         release_status_counts: {},
       },
-      candidates: [reliabilityCandidate, materializedCandidate, validationFailedCandidate, duplicateValidationFailedCandidate],
+      candidates: [pendingCandidate],
     },
     {
-      goal_key: 'operator_growth',
-      goal: growthGoal,
-      rollup: {
-        manifest_id: 1,
-        goal_key: 'operator_growth',
-        goal: growthGoal,
-        candidate_status_counts: {},
-        requirement_status_counts: {},
-        workflow_status_counts: {},
-        release_status_counts: {},
-      },
-      candidates: [],
-    },
-    {
-      goal_key: 'completed_lint_contracts',
+      goal_key: achievedGoal.goal_key,
       goal: achievedGoal,
       rollup: {
         manifest_id: 1,
-        goal_key: 'completed_lint_contracts',
+        goal_key: achievedGoal.goal_key,
         goal: achievedGoal,
-        candidate_status_counts: { materialized: 1 },
+        candidate_status_counts: {},
         requirement_status_counts: { completed: 1 },
         workflow_status_counts: { succeeded: 1 },
-        release_status_counts: { pr_opened: 1 },
-      },
-      candidates: [],
-    },
-    {
-      goal_key: 'retired_gateway_idea',
-      goal: droppedGoal,
-      rollup: {
-        manifest_id: 1,
-        goal_key: 'retired_gateway_idea',
-        goal: droppedGoal,
-        candidate_status_counts: { validation_failed: 1 },
-        requirement_status_counts: {},
-        workflow_status_counts: {},
         release_status_counts: {},
       },
       candidates: [],
@@ -261,370 +155,136 @@ const mission = {
   last_sweep: null,
 }
 
-describe('PlanningPage Mission Control', () => {
+const board = {
+  active_goal: activeGoal,
+  lanes: {
+    product_planner: [
+      {
+        id: 'product_opportunity:1',
+        type: 'product_opportunity',
+        title: 'Track docs and staging conversion from X growth',
+        status: 'proposed',
+        risk_level: 'normal',
+        next_action: 'Create a goal or defer this proposal.',
+        deep_link: '/planning?tab=opportunities',
+        evidence_label: 'docs_clicks',
+        updated_at: '2026-04-19T00:00:00Z',
+      },
+    ],
+    growth_lead: [],
+    software_engineer: [
+      {
+        id: 'candidate:10',
+        type: 'requirement_candidate',
+        title: 'Add mission board API',
+        status: 'pending',
+        risk_level: 'normal',
+        next_action: 'Review candidate and approve, defer, or reject.',
+        deep_link: '/planning?tab=engineering&candidate=10',
+        evidence_label: 'agent_self_repair',
+        updated_at: '2026-04-19T00:00:00Z',
+      },
+    ],
+  },
+  lane_summary: {
+    product_planner: { count: 1 },
+    growth_lead: { count: 0 },
+    software_engineer: { count: 1 },
+  },
+  unassigned: {
+    count: 1,
+    items: [
+      {
+        id: 'workflow:88',
+        type: 'workflow',
+        title: 'Workflow #88: missing lineage',
+        status: 'awaiting_operator',
+        risk_level: 'normal',
+        next_action: 'Repair missing goal_key lineage.',
+        deep_link: '/workflows/88',
+        evidence_label: 'route_to_human',
+        updated_at: '2026-04-19T00:00:00Z',
+      },
+    ],
+  },
+  next_actions: [],
+  manifest: { id: 1, version_name: 'Mission Control Cycle', cycle_label: '2026-W17', updated_at: '2026-04-19T00:00:00Z' },
+}
+
+function renderPlanning(path = '/planning') {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <PlanningPage />
+    </MemoryRouter>,
+  )
+}
+
+describe('PlanningPage queues', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiMock.getPlanningMissionControl.mockResolvedValue(mission)
-    apiMock.getPlanningManifestHistory.mockResolvedValue({ items: [manifest], total: 1, page: 1, page_size: 10, total_pages: 1 })
-    apiMock.approveRequirementCandidate.mockResolvedValue({ ...reliabilityCandidate, status: 'approved' })
-    apiMock.approveAndRunRequirementCandidate.mockResolvedValue({
-      candidate: { ...reliabilityCandidate, status: 'materialized', materialized_requirement_id: 99 },
-      requirement_id: 99,
-      workflow_run_id: 7,
-      workflow_status: 'succeeded',
-      workflow_current_state: 'done',
-      auto_run_status: 'workflow_completed',
-      next_action: 'view_completion_evidence',
-    })
-    apiMock.getPlanningGoal.mockResolvedValue({
-      ...reliabilityGoal,
-      intent_markdown: '# Reliability PRD\n\nKeep gateway healthy with concrete checks.',
-    })
-    apiMock.getPlanningGoalTrace.mockResolvedValue({
-      goal: { id: 101, goal_key: 'gateway_reliability', title: 'Gateway reliability', intent_present: true },
-      nodes: [
-        { kind: 'goal', status: 'ok', title: 'Goal PRD saved', summary: 'PRD exists', object_id: 101, deep_link: '/planning?goal=gateway_reliability', diagnostic: null, metadata: {} },
-        { kind: 'candidate', status: 'ok', title: 'Candidate #10', summary: 'materialized', object_id: 10, deep_link: '/planning?candidate=10', diagnostic: null, metadata: { generated_by: 'planner_agent_v1' } },
-      ],
-      diagnostics: [],
-      next_actions: [],
-      history: [],
-    })
-    apiMock.updatePlanningGoal.mockResolvedValue({
-      ...reliabilityGoal,
-      intent_markdown: '# Updated PRD',
-    })
-    apiMock.createPlanningGoal.mockResolvedValue({
-      ...growthGoal,
-      id: 103,
-      goal_key: 'new_goal',
-      title: 'New goal',
-      intent_markdown: '# New goal',
-    })
-  })
-
-  it('defaults to mission control and groups candidates under their goal lane', async () => {
-    render(<PlanningPage />)
-
-    expect(await screen.findByTestId('mission-control-tab')).toBeTruthy()
-    expect(screen.queryByTestId('raw-manifest-drawer')).toBeNull()
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    expect(lanes).toHaveLength(2)
-    expect(within(lanes[0]).getByText('gateway_reliability')).toBeTruthy()
-    expect(within(lanes[0]).getByText('Add gateway precision guardrail')).toBeTruthy()
-    expect(within(lanes[0]).getByText('Candidates (1 Pending, 1 Materialized, 2 Failed)')).toBeTruthy()
-    expect(within(lanes[1]).queryByText('Add gateway precision guardrail')).toBeNull()
-  })
-
-  it('renders materialized work and deduped fail-closed drafts as progressive disclosure', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    const reliabilityLane = lanes[0]
-
-    expect(within(reliabilityLane).getByTestId('candidate-materialized')).toBeTruthy()
-    expect(within(reliabilityLane).getByText('Materialized: Weaponize self-repair lint and architecture contract gates')).toBeTruthy()
-    expect(within(reliabilityLane).getByRole('link', { name: 'Requirement #6' })).toBeTruthy()
-    expect(within(reliabilityLane).getByTestId('planner-intercepts')).toBeTruthy()
-
-    await user.click(within(reliabilityLane).getByText('展开查看 1 类 Planner 拦截记录 (2 failed attempts)'))
-
-    expect(within(reliabilityLane).getByText('2x Failed')).toBeTruthy()
-    expect(within(reliabilityLane).getByText(/Fail Closed: required command 'python -m ruff check'/)).toBeTruthy()
-    expect(within(reliabilityLane).getByRole('button', { name: 'Edit Goal PRD' })).toBeTruthy()
-    expect(within(reliabilityLane).getByRole('button', { name: 'Run Sweep Now' })).toBeTruthy()
-    expect(within(reliabilityLane).getAllByRole('button', { name: 'Trace Path' }).length).toBeGreaterThan(1)
-    const failedRow = within(reliabilityLane).getByTestId('validation-failed-candidate-row')
-    expect(within(failedRow).queryByRole('button', { name: 'Approve & Run' })).toBeNull()
-    expect(within(failedRow).queryByRole('button', { name: 'Materialize & Run' })).toBeNull()
-    await user.click(within(reliabilityLane).getByText('Show attempts (2)'))
-    expect(within(reliabilityLane).getAllByText('View Agent Raw Output')).toHaveLength(2)
-  })
-
-  it('groups active goals above collapsed historical goals with local search', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    expect(await screen.findByTestId('active-goals-section')).toBeTruthy()
-    const activeSection = screen.getByTestId('active-goals-section')
-    expect(within(activeSection).getByText('Gateway reliability')).toBeTruthy()
-    expect(within(activeSection).queryByText('Completed lint contracts')).toBeNull()
-
-    expect(screen.getByText('Achieved (1)')).toBeTruthy()
-    expect(screen.getByText('Dropped (1)')).toBeTruthy()
-    expect(screen.queryByPlaceholderText('Filter achieved goals...')).toBeNull()
-
-    await user.click(screen.getByRole('button', { name: 'Achieved (1)' }))
-    const achievedSection = screen.getByTestId('achieved-goals-section')
-    await waitFor(() => {
-      expect(within(achievedSection).getByPlaceholderText('Filter achieved goals...')).toBeTruthy()
-    })
-    expect(within(achievedSection).getByText('Completed lint contracts')).toBeTruthy()
-
-    await user.type(within(achievedSection).getByPlaceholderText('Filter achieved goals...'), 'missing')
-    expect(within(achievedSection).queryByText('Completed lint contracts')).toBeNull()
-    expect(within(achievedSection).getByText('No achieved goals match this filter.')).toBeTruthy()
-  })
-
-  it('virtualizes large historical goal groups instead of rendering every row', async () => {
-    const user = userEvent.setup()
-    const achievedLanes = Array.from({ length: 25 }, (_, index) => {
-      const goal = {
-        ...achievedGoal,
-        id: 300 + index,
-        goal_key: `achieved_${index}`,
-        title: `Achieved goal ${index}`,
-      }
-      return {
-        goal_key: goal.goal_key,
-        goal,
-        rollup: {
-          manifest_id: 1,
-          goal_key: goal.goal_key,
-          goal,
-          candidate_status_counts: { materialized: 1 },
-          requirement_status_counts: { completed: 1 },
-          workflow_status_counts: { succeeded: 1 },
-          release_status_counts: {},
-        },
-        candidates: [],
-      }
-    })
-    apiMock.getPlanningMissionControl.mockResolvedValueOnce({
-      ...mission,
-      goal_lanes: [mission.goal_lanes[0], mission.goal_lanes[1], ...achievedLanes],
-    })
-
-    render(<PlanningPage />)
-    await screen.findByTestId('active-goals-section')
-    await user.click(screen.getByRole('button', { name: 'Achieved (25)' }))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('virtualized-achieved-goals')).toBeTruthy()
-    })
-    expect(screen.getAllByTestId('historical-goal-row').length).toBeLessThan(25)
-  })
-
-  it('renders planner intercept timestamps as local time with UTC source in the time element', async () => {
-    const user = userEvent.setup()
-    const { container } = render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByText('展开查看 1 类 Planner 拦截记录 (2 failed attempts)'))
-
-    const time = container.querySelector('time[datetime="2026-04-19T03:00:00.000Z"]')
-    expect(time).toBeTruthy()
-    expect(time?.getAttribute('title')).toBe('2026-04-19T03:00:00.000Z')
-    expect(time?.textContent).toMatch(/GMT[+-]\d{2}:\d{2}/)
-  })
-
-  it('approves and runs a candidate from inside its goal lane', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Approve & Run' }))
-
-    await waitFor(() => {
-      expect(apiMock.approveAndRunRequirementCandidate).toHaveBeenCalledWith(10, { operator: 'operator' })
-    })
-  })
-
-  it('still supports approve-only when an operator wants to stage a candidate', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Approve only' }))
-
-    await waitFor(() => {
-      expect(apiMock.approveRequirementCandidate).toHaveBeenCalledWith(10, { operator: 'operator' })
-    })
-  })
-
-  it('blocks steering save when focus weights do not total 100 percent', async () => {
-    render(<PlanningPage />)
-
-    await screen.findByTestId('focus-weight-sliders')
-    fireEvent.change(screen.getByLabelText('Weight reliability'), { target: { value: '80' } })
-
-    expect(screen.getByTestId('weight-total-warning')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save Steering Revision' })).toBeDisabled()
-  })
-
-  it('keeps raw manifest JSON goal-free and edits full markdown through the goal API', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    await screen.findByTestId('mission-control-tab')
-    await user.click(screen.getByText('Steering Details'))
-    await user.click(screen.getByRole('button', { name: '</> Edit raw JSON' }))
-
-    const rawDrawer = await screen.findByTestId('raw-manifest-drawer')
-    expect(within(rawDrawer).queryByText('gateway_reliability')).toBeNull()
-    expect(within(rawDrawer).getByDisplayValue(/focus_weights/)).toBeTruthy()
-
-    await user.click(within(rawDrawer).getByRole('button', { name: 'Close' }))
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent' }))
-
-    await waitFor(() => {
-      expect(apiMock.getPlanningGoal).toHaveBeenCalledWith(101)
-    })
-    const drawer = await screen.findByTestId('goal-intent-drawer')
-    expect(within(drawer).getByDisplayValue(/Reliability PRD/)).toBeTruthy()
-
-    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), { target: { value: '# Updated PRD\n\n- Check gateway.' } })
-    await user.click(within(drawer).getByRole('button', { name: 'Save Intent' }))
-
-    await waitFor(() => {
-      expect(apiMock.updatePlanningGoal).toHaveBeenCalledWith(101, {
-        intent_markdown: '# Updated PRD\n\n- Check gateway.',
-        operator: 'operator',
-      })
-    })
-  })
-
-  it('opens a single-goal trace panel from the goal lane', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getAllByRole('button', { name: 'Trace Path' })[0])
-
-    await waitFor(() => {
-      expect(apiMock.getPlanningGoalTrace).toHaveBeenCalledWith(101)
-    })
-    const drawer = await screen.findByTestId('goal-trace-drawer')
-    expect(within(drawer).getByText('Goal PRD saved')).toBeTruthy()
-    expect(within(drawer).getByText('Candidate #10')).toBeTruthy()
-  })
-
-  it('marks blocked trace candidates as planner intercepts instead of human gates', async () => {
-    const user = userEvent.setup()
-    apiMock.getPlanningGoalTrace.mockResolvedValueOnce({
-      goal: { id: 101, goal_key: 'gateway_reliability', title: 'Gateway reliability', intent_present: true },
-      nodes: [
-        {
-          kind: 'candidate',
-          status: 'blocked',
-          title: 'Candidate #9',
-          summary: 'validation_failed',
-          object_id: 9,
-          deep_link: '/planning?candidate=9',
-          diagnostic: {
-            reason: 'required command is unsafe',
-            source: 'requirement_candidate',
-            timestamp: '2026-04-20T06:36:09Z',
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        items: [
+          {
+            id: 1,
+            title: 'Track docs and staging conversion from X growth',
+            problem: 'Growth needs attribution.',
+            suggested_goal_key: 'growth_conversion_tracking',
+            recommended_lane: 'both',
+            risk_level: 'normal',
+            success_metric: 'docs clicks visible',
+            next_action: 'Create a reviewed goal.',
+            status: 'proposed',
           },
-          metadata: { generated_by: 'planner_agent_v1' },
-        },
-      ],
-      diagnostics: [],
-      next_actions: [],
-      history: [],
-    })
-    render(<PlanningPage />)
-
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getAllByRole('button', { name: 'Trace Path' })[0])
-
-    const drawer = await screen.findByTestId('goal-trace-drawer')
-    expect(within(drawer).getByText(/Planner Intercept · not a Human Gate/)).toBeTruthy()
+        ],
+      }),
+    })))
+    apiMock.getPlanningMissionControl.mockResolvedValue(mission)
+    apiMock.getPlanningMissionBoard.mockResolvedValue(board)
+    apiMock.getPlanningManifestHistory.mockResolvedValue({ items: [manifest], total: 1, page: 1, page_size: 10, total_pages: 1 })
+    apiMock.getPlanningGoal.mockResolvedValue({ ...activeGoal, intent_markdown: '# Active goal PRD' })
+    apiMock.getPlanningGoalTrace.mockResolvedValue({ goal: activeGoal, nodes: [], diagnostics: [], next_actions: [], history: [] })
   })
 
-  it('closes planning drawers with Escape', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
+  it('defaults to product opportunities instead of repeating the full mission board', async () => {
+    renderPlanning()
 
-    await screen.findByTestId('mission-control-tab')
-    await user.click(screen.getByText('Steering Details'))
-    await user.click(screen.getByRole('button', { name: '</> Edit raw JSON' }))
-    expect(await screen.findByTestId('raw-manifest-drawer')).toBeTruthy()
-
-    await user.keyboard('{Escape}')
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('raw-manifest-drawer')).toBeNull()
-    })
+    expect(await screen.findByTestId('product-opportunities-tab')).toBeInTheDocument()
+    expect(screen.getByText('产品机会 / Goal Proposals')).toBeInTheDocument()
+    expect(screen.queryByTestId('mission-board')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '业务目标 · 1 active' })).toBeInTheDocument()
   })
 
-  it('runs dirty intent Escape through the existing close confirmation', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('shows the engineering queue from the mission board projection', async () => {
     const user = userEvent.setup()
-    render(<PlanningPage />)
+    renderPlanning()
 
-    const lanes = await screen.findAllByTestId('goal-mission-lane')
-    await user.click(within(lanes[0]).getByRole('button', { name: 'Edit Intent' }))
-    const drawer = await screen.findByTestId('goal-intent-drawer')
-    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), { target: { value: '# Dirty PRD' } })
+    await screen.findByTestId('product-opportunities-tab')
+    await user.click(screen.getByRole('button', { name: /工程队列/ }))
 
-    await user.keyboard('{Escape}')
-
-    expect(confirmSpy).toHaveBeenCalled()
-    expect(screen.getByTestId('goal-intent-drawer')).toBeTruthy()
-
-    confirmSpy.mockReturnValue(true)
-    await user.keyboard('{Escape}')
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('goal-intent-drawer')).toBeNull()
-    })
-    confirmSpy.mockRestore()
+    const queue = await screen.findByTestId('engineering-queue-tab')
+    expect(within(queue).getByText('Add mission board API')).toBeInTheDocument()
+    expect(within(queue).getByText('Review candidate and approve, defer, or reject.')).toBeInTheDocument()
   })
 
-  it('creates a goal from core intent and markdown without acceptance JSON', async () => {
-    const user = userEvent.setup()
-    render(<PlanningPage />)
+  it('opens the unassigned queue from query params', async () => {
+    renderPlanning('/planning?tab=unassigned')
 
-    await screen.findByTestId('mission-control-tab')
-    await user.click(screen.getByRole('button', { name: 'New Goal' }))
-
-    const drawer = await screen.findByTestId('goal-settings-drawer')
-    await user.type(within(drawer).getByLabelText('Title'), 'Optimize Payment Gateway')
-    fireEvent.blur(within(drawer).getByLabelText('Title'))
-
-    expect(within(drawer).getByLabelText('Goal key')).toHaveValue('optimize_payment_gateway')
-
-    await user.type(within(drawer).getByLabelText('Success metric'), 'p95 checkout latency < 500ms')
-    fireEvent.change(within(drawer).getByPlaceholderText(/Write the full PRD/), {
-      target: { value: '# Payment Gateway PRD\n\n- Reduce contention\n\n```bash\nnpm test\n```' },
-    })
-    await user.click(within(drawer).getByRole('button', { name: 'preview' }))
-    expect(within(drawer).getByText('Payment Gateway PRD')).toBeTruthy()
-
-    await user.click(within(drawer).getByText('Advanced Settings'))
-    expect(within(drawer).getByText(/Acceptance steps are generated at Candidate level/)).toBeTruthy()
-
-    await user.click(within(drawer).getByRole('button', { name: 'Create Goal' }))
-
-    await waitFor(() => {
-      expect(apiMock.createPlanningGoal).toHaveBeenCalledWith(expect.objectContaining({
-        goal_key: 'optimize_payment_gateway',
-        title: 'Optimize Payment Gateway',
-        intent_markdown: '# Payment Gateway PRD\n\n- Reduce contention\n\n```bash\nnpm test\n```',
-        success_metric: 'p95 checkout latency < 500ms',
-      }))
-    })
-    expect(apiMock.createPlanningGoal.mock.calls[0][0]).not.toHaveProperty('execution_acceptance_steps')
-    expect(apiMock.saveActivePlanningManifest).not.toHaveBeenCalled()
+    const queue = await screen.findByTestId('unassigned-queue-tab')
+    expect(within(queue).getByText('未归属队列')).toBeInTheDocument()
+    expect(within(queue).getByText('Workflow #88: missing lineage')).toBeInTheDocument()
   })
 
-  it('warns before closing a dirty goal creation drawer', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('keeps goal operations in the business goals tab', async () => {
     const user = userEvent.setup()
-    render(<PlanningPage />)
+    renderPlanning()
 
-    await screen.findByTestId('mission-control-tab')
-    await user.click(screen.getByRole('button', { name: 'New Goal' }))
-    const drawer = await screen.findByTestId('goal-settings-drawer')
-    await user.type(within(drawer).getByLabelText('Title'), 'Do not lose this')
-    await user.click(within(drawer).getByRole('button', { name: 'Close' }))
+    await screen.findByTestId('product-opportunities-tab')
+    await user.click(screen.getByRole('button', { name: /业务目标/ }))
 
-    expect(confirmSpy).toHaveBeenCalled()
-    expect(screen.getByTestId('goal-settings-drawer')).toBeTruthy()
-    confirmSpy.mockRestore()
+    const goals = await screen.findByTestId('planning-goals-tab')
+    expect(within(goals).getByText('Build the Synapse growth operating loop')).toBeInTheDocument()
+    expect(within(goals).getByRole('button', { name: 'Edit Intent' })).toBeInTheDocument()
   })
 })

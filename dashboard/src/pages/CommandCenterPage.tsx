@@ -1,28 +1,20 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api, DashboardStats, PlanningMissionControl, RecurringWorkflowHealth, WorkflowRunsSummary } from '../api'
-import { ActionButton, AgentReasoningCard, CockpitPanel, EmptyCockpitState, MetricTile } from '../components/controlPlane'
-import { StateBadge } from '../components/workbench'
+import { useEffect, useState } from 'react'
+import { api, DashboardStats, MissionBoard, WorkflowRunsSummary } from '../api'
+import { ActionButton, AgentReasoningCard, CockpitPanel, MetricTile } from '../components/controlPlane'
+import { MissionBoardPanel } from '../components/MissionBoardPanel'
 
 type LoadState = {
   stats: DashboardStats | null
   workflows: WorkflowRunsSummary | null
-  planning: PlanningMissionControl | null
-  health: RecurringWorkflowHealth | null
+  board: MissionBoard | null
 }
 
 function numberValue(value: number | undefined | null) {
   return value == null ? 0 : value
 }
 
-function formatHealth(value: unknown) {
-  if (!value || typeof value !== 'object') return 'unknown'
-  const record = value as Record<string, unknown>
-  return String(record.health_status || record.status || (record.running ? 'running' : 'unknown'))
-}
-
 export default function CommandCenterPage() {
-  const [state, setState] = useState<LoadState>({ stats: null, workflows: null, planning: null, health: null })
+  const [state, setState] = useState<LoadState>({ stats: null, workflows: null, board: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,16 +24,14 @@ export default function CommandCenterPage() {
     Promise.allSettled([
       api.getStats(),
       api.getWorkflowRunsSummary(),
-      api.getPlanningMissionControl(),
-      api.getRecurringWorkflowHealth(),
+      api.getPlanningMissionBoard(),
     ]).then((results) => {
       if (cancelled) return
-      const [stats, workflows, planning, health] = results
+      const [stats, workflows, board] = results
       setState({
         stats: stats.status === 'fulfilled' ? stats.value : null,
         workflows: workflows.status === 'fulfilled' ? workflows.value : null,
-        planning: planning.status === 'fulfilled' ? planning.value : null,
-        health: health.status === 'fulfilled' ? health.value : null,
+        board: board.status === 'fulfilled' ? board.value : null,
       })
       const rejected = results.find((result) => result.status === 'rejected')
       setError(rejected && rejected.status === 'rejected' ? String(rejected.reason?.message || rejected.reason) : null)
@@ -52,12 +42,8 @@ export default function CommandCenterPage() {
     }
   }, [])
 
-  const activeGoals = useMemo(
-    () => (state.planning?.goal_lanes || []).filter((lane) => String(lane.goal.status || 'active') === 'active'),
-    [state.planning],
-  )
-  const blockerItems = state.workflows?.blocker_items || []
-  const blockers = blockerItems.length || numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) + numberValue(state.workflows?.failed_count ?? state.workflows?.failed)
+  const blockers = numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) + numberValue(state.workflows?.failed_count ?? state.workflows?.failed)
+  const board = state.board
 
   return (
     <div className="space-y-6">
@@ -70,13 +56,13 @@ export default function CommandCenterPage() {
               Command Center
             </h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-[color:var(--ops-text-muted)]">
-              这里不是 Jira，也不是日志墙。它只回答三件事：系统想达成什么、机器正在做什么、哪里需要你做决定。
+              只读驾驶舱：一个公司目标，三条核心战线，所有未归属任务都会亮红灯。复杂处理动作统一回到 Planning / Publishing / Releases。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ActionButton href="/planning" tone="primary">调整目标</ActionButton>
-            <ActionButton href="/gates">处理门禁</ActionButton>
-            <ActionButton href="/workflows">查看运行</ActionButton>
+            <ActionButton href="/planning" tone="primary">Open Planning</ActionButton>
+            <ActionButton href="/publishing">Open Publishing</ActionButton>
+            <ActionButton href="/releases">Open Releases</ActionButton>
           </div>
         </div>
       </section>
@@ -94,63 +80,27 @@ export default function CommandCenterPage() {
         <MetricTile label="Running Workflows" value={state.stats?.workflow_running ?? state.workflows?.running ?? '-'} detail="状态机正在执行或等待下一步" tone="success" />
         <MetricTile label="Needs Human" value={state.workflows?.needs_human ?? state.workflows?.pending_gate_count ?? state.stats?.human_gate_pending ?? '-'} detail="Human Gate 或人工业务确认" tone={numberValue(state.workflows?.needs_human ?? state.workflows?.pending_gate_count) ? 'warning' : 'muted'} />
         <MetricTile label="Failed" value={state.workflows?.failed_count ?? state.workflows?.failed ?? state.stats?.workflow_failed ?? '-'} detail="失败、超预算或证据不足" tone={numberValue(state.workflows?.failed_count ?? state.workflows?.failed) ? 'danger' : 'muted'} />
-        <MetricTile label="Completed Today" value={state.workflows?.completed_today ?? '-'} detail="今天真正完成的 workflow run" tone="success" />
+        <MetricTile label="Unassigned" value={board?.unassigned.count ?? '-'} detail="缺失 goal_key 的 active 数据" tone={board?.unassigned.count ? 'danger' : 'muted'} />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-        <CockpitPanel
-          eyebrow="Active Fronts"
-          title="Goal Mission Lanes"
-          description="从 Operating Manifest 聚合当前战线。Planner 只产生候选，正式执行仍由 Requirement 和 Workflow Run 承接。"
-          actions={<ActionButton href="/planning">打开 Planning</ActionButton>}
-        >
-          {loading ? (
-            <div className="text-sm text-[color:var(--ops-text-muted)]">Loading mission lanes...</div>
-          ) : activeGoals.length ? (
-            <div className="grid gap-3">
-              {activeGoals.slice(0, 5).map((lane) => (
-                <Link key={lane.goal_key} to="/planning" className="group rounded-2xl border border-white/8 bg-white/[0.035] px-4 py-4 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06]">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="font-mono text-sm font-semibold text-cyan-100">{lane.goal_key}</div>
-                      <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-body)]">{String(lane.goal.intent_excerpt || lane.goal.title || 'No intent')}</div>
-                    </div>
-                    <StateBadge tone="running">{String(lane.goal.domain || 'ops')}</StateBadge>
-                  </div>
-                  <div className="mt-4 grid gap-2 text-xs text-[color:var(--ops-text-muted)] sm:grid-cols-4">
-                    <span>candidates {Object.values(lane.rollup.candidate_status_counts || {}).reduce((a, b) => a + Number(b), 0)}</span>
-                    <span>requirements {Object.values(lane.rollup.requirement_status_counts || {}).reduce((a, b) => a + Number(b), 0)}</span>
-                    <span>workflows {Object.values(lane.rollup.workflow_status_counts || {}).reduce((a, b) => a + Number(b), 0)}</span>
-                    <span>releases {Object.values(lane.rollup.release_status_counts || {}).reduce((a, b) => a + Number(b), 0)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <EmptyCockpitState title="No active goals" description="当前 active manifest 没有 active goal。请在 Planning 中创建或恢复一个经营目标。" actions={<ActionButton href="/planning" tone="primary">打开 Planning</ActionButton>} />
-          )}
-        </CockpitPanel>
-
-        <CockpitPanel eyebrow="Blockers" title="Human Oracle Queue" description="真正需要人判断的地方集中在这里，不让 Agent 绕过风险门。">
-          <div className="space-y-3">
-            <AgentReasoningCard
-              title={blockers ? `${blockers} blocker(s) require attention` : 'No operator blocker'}
-              tone={blockers ? 'warning' : 'info'}
-              summary={blockers ? '存在真实 pending Human Gate、人工业务确认或 failed workflow。优先处理证据、风险或业务验收。' : '没有等待人工处理的 blocker。若 workflow 曾经停在 awaiting_operator，gate 决策后应由 Runner 收敛状态，而不是由页面猜测。'}
-              metadata={<ActionButton href="/gates" tone={blockers ? 'primary' : 'default'}>打开 Oracle Gates</ActionButton>}
-            />
-            <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-4">
-              <div className="machine-label text-[color:var(--ops-text-caption)]">Background Health</div>
-              <div className="mt-3 grid gap-2 text-sm text-[color:var(--ops-text-body)]">
-                <div>Bug Scheduler: {formatHealth(state.health?.bug_log_scheduler)}</div>
-                <div>Goal Planner Sweep: {formatHealth(state.health?.goal_planner_scheduler)}</div>
-                <div>Notification Dispatcher: {formatHealth(state.health?.notification_dispatcher)}</div>
-                <div>Recurring Registry: {formatHealth(state.health?.recurring_registry)}</div>
-              </div>
-            </div>
+      {loading ? (
+        <CockpitPanel eyebrow="Mission Board" title="Loading mission board" description="正在汇总 active goal、三条 mission lane 和未归属事项。">
+          <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">
+            Mission Board loading...
           </div>
         </CockpitPanel>
-      </div>
+      ) : (
+        <MissionBoardPanel board={board} compact />
+      )}
+
+      <CockpitPanel eyebrow="Human Oracle" title="Blockers stay actionable" description="Command Center 不处理业务动作，只把你带到正确处理面。">
+        <AgentReasoningCard
+          title={blockers ? `${blockers} blocker(s) require attention` : 'No operator blocker'}
+          tone={blockers ? 'warning' : 'info'}
+          summary={blockers ? '存在 pending Human Gate、人工业务确认或 failed workflow。优先处理证据、风险或业务验收。' : '没有等待人工处理的 blocker。系统当前主线没有需要你立即介入的红灯。'}
+          metadata={<ActionButton href="/gates" tone={blockers ? 'primary' : 'default'}>Open Needs Human</ActionButton>}
+        />
+      </CockpitPanel>
     </div>
   )
 }

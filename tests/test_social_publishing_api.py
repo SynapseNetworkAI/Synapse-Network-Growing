@@ -965,7 +965,6 @@ def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
 
     with pytest.raises(social_publishing.SocialPublishError, match="target tweet id"):
         social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="")
-
     def missing_id_urlopen(_request, timeout):
         return FakeResponse('{"data":{}}')
 
@@ -980,13 +979,14 @@ def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
         return _raise
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(403))
-    with pytest.raises(social_publishing.SocialPublishError, match="authentication failed"):
+    with pytest.raises(social_publishing.SocialPublishError, match="authentication failed") as auth_error:
         social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
+    assert auth_error.value.kind == "x_reply_auth_failed"
+    assert "tweet.write" in auth_error.value.summary and "x error" in auth_error.value.summary
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(429))
     with pytest.raises(social_publishing.SocialPublishError, match="rate limit"):
         social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(500))
     with pytest.raises(social_publishing.SocialPublishError, match="HTTP 500"):
         social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
@@ -1026,7 +1026,7 @@ def test_publish_social_reply_auth_failure_is_diagnostic(monkeypatch, synced_cli
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "failed"
-    assert "authentication failed" in payload["failure_summary"]
+    assert "authentication failed" in payload["failure_summary"] and "Reconnect" in payload["failure_summary"]
     assert payload["metadata"]["publish_failure_kind"] == "x_reply_auth_failed"
 
 

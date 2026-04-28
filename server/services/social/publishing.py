@@ -74,18 +74,12 @@ X_OAUTH_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize"
 X_OAUTH_TOKEN_URL = "https://api.x.com/2/oauth2/token"
 X_OAUTH_SCOPE = "tweet.read tweet.write users.read media.write offline.access"
 logger = logging.getLogger("ops-dashboard.social-publishing")
-_x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "x_publish_access_token",
-    default=None,
-)
-
+_x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar("x_publish_access_token", default=None)
 ALLOWED_STATUSES = {"draft", "generating", "needs_review", "approved", "publishing", "published", "failed", "rejected"}
 HUMAN_SETTLED_STATUSES = {"published", "rejected"}
 SOCIAL_CONTEXT_MAX_CHARS = 1100
 SOCIAL_SKILL_MAX_CHARS = 900
 SOCIAL_LAUNCH_SKILL_MAX_CHARS = 600
-
-# 仅保留硬性的安全/隐私/格式拦截，移除了正常的业务语义词
 SOCIAL_GENERATION_BLOCKED_FRAGMENTS = (
     "/users/",
     "api-key",
@@ -102,7 +96,6 @@ SOCIAL_GENERATION_BLOCKED_FRAGMENTS = (
 SOCIAL_STYLE_TYPES = {"marketing", "technical", "visionary"}
 SOCIAL_MEDIA_MODES = {"auto", "text_only", "image_required"}
 SOCIAL_MEDIA_DECISIONS = {"text", "image"}
-
 SOCIAL_CODEX_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -2810,6 +2803,13 @@ class XApiPublisher:
     Tests replace this object; production reads Secret Manager only at publish time.
     """
 
+    def _auth_failure_summary(self, action: str, raw: str, *, required_scope: str) -> str:
+        excerpt = _bounded_excerpt(raw, max_chars=600)
+        return f"X {action} authentication failed. Reconnect the X official account and approve the {required_scope} scope.{f' X response: {excerpt}' if excerpt else ''}"
+
+    def _reply_forbidden_summary(self, raw: str) -> str:
+        return f"X API does not allow this conversation reply. Reply manually on X, then mark the item as manually replied, or use quote/repost instead.{f' X response: {_bounded_excerpt(raw, max_chars=600)}' if raw else ''}"
+
     def upload_image(self, account: SocialAccountRow, image_path: str) -> str:
         token = _read_secret_token(account.secret_ref)
         path = Path(image_path)
@@ -2840,10 +2840,7 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError(
-                    "x_media_upload_auth_failed",
-                    "X media upload authentication failed. Reconnect the X official account and approve the media.write scope.",
-                ) from exc
+                raise SocialPublishError("x_media_upload_auth_failed", self._auth_failure_summary("media upload", raw, required_scope="media.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X media upload rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_media_upload_failed", f"X media upload returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -2884,7 +2881,7 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_publish_auth_failed", "X API authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+                raise SocialPublishError("x_publish_auth_failed", self._auth_failure_summary("publish", raw, required_scope="tweet.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X API rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_api_failed", f"X API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -2921,7 +2918,9 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_reply_auth_failed", "X reply authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+                if exc.code == 403 and "reply to this conversation is not allowed" in raw.lower():
+                    raise SocialPublishError("x_reply_conversation_forbidden", self._reply_forbidden_summary(raw)) from exc
+                raise SocialPublishError("x_reply_auth_failed", self._auth_failure_summary("reply", raw, required_scope="tweet.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X reply rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_reply_failed", f"X reply API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -3126,21 +3125,24 @@ def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchReques
     row = db.get(SocialReplyItemRow, reply_id)
     if row is None:
         raise ValueError("social reply item not found")
-    if row.status == "published":
+    if row.status in {"published", "published_manual"}:
         raise ValueError("published replies cannot be edited")
     if body.suggested_reply is not None:
         row.suggested_reply = str(body.suggested_reply or "").strip()
     if body.status is not None:
         status = str(body.status or "").strip()
-        if status not in {"needs_review", "approved", "failed", "rejected"}:
+        if status not in {"needs_review", "approved", "failed", "rejected", "published_manual"}:
             raise ValueError("unsupported reply status")
         row.status = status
         row.reviewed_by = body.reviewed_by
+        if status == "published_manual":
+            row.failure_summary = None
+            row.published_external_post_id = row.published_external_post_id or f"manual:{row.source_post_id or int(row.id)}"
     if body.review_note:
         metadata = _json_loads(row.metadata_json, {})
         metadata["review_note"] = str(body.review_note)
         row.metadata_json = _json_dumps(metadata)
-    if row.suggested_reply:
+    if row.suggested_reply and row.status != "published_manual":
         policy = run_content_policy_check(row.suggested_reply)
         metadata = _json_loads(row.metadata_json, {})
         metadata["policy_check"] = policy

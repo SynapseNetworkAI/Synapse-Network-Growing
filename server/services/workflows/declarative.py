@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -3604,6 +3605,51 @@ def _terminate_process_group(process: subprocess.Popen[Any], *, grace_seconds: i
     return killed
 
 
+def _acceptance_python_executable() -> str:
+    """Return the Python runtime used for planner-generated pytest evidence.
+
+    Planner contracts intentionally use portable commands such as
+    `python -m pytest ...`. The workflow runner executes them in a governed
+    environment, so it should bind `python` to the same runtime that is running
+    the Ops service instead of whatever happens to be first on the shell PATH.
+    """
+
+    explicit = str(os.environ.get("PYTHON_BIN") or "").strip()
+    if explicit and os.path.exists(explicit):
+        return explicit
+    workspace_venv = "/Users/cliff/workspace/agent/.venv/bin/python"
+    if os.path.exists(workspace_venv):
+        return workspace_venv
+    return sys.executable
+
+
+def _acceptance_execution_command(command: str) -> str:
+    """Rewrite safe portable pytest commands to the governed Python runtime."""
+
+    try:
+        tokens = shlex.split(str(command or ""))
+    except ValueError:
+        return command
+    if not tokens:
+        return command
+
+    index = 0
+    while index < len(tokens) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[index]):
+        index += 1
+    if index >= len(tokens):
+        return command
+
+    executable = tokens[index].rsplit("/", 1)[-1]
+    python = _acceptance_python_executable()
+    if executable in {"python", "python3"} and tokens[index + 1:index + 3] == ["-m", "pytest"]:
+        tokens[index] = python
+        return " ".join(shlex.quote(token) for token in tokens)
+    if executable == "pytest":
+        tokens[index:index + 1] = [python, "-m", "pytest"]
+        return " ".join(shlex.quote(token) for token in tokens)
+    return command
+
+
 def _run_acceptance_command_result_artifact(
     ctx: WorkflowContext,
     *,
@@ -3628,7 +3674,7 @@ def _run_acceptance_command_result_artifact(
     stderr_excerpt = ""
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         process = subprocess.Popen(
-            command,
+            _acceptance_execution_command(command),
             cwd=cwd,
             env=env,
             shell=True,

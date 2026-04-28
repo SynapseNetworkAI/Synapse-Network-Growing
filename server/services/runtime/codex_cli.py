@@ -24,10 +24,6 @@ _GENERIC_MODEL_ALIASES = {
     "codex",
     "responses",
     "gpt",
-    "gpt-5-codex",
-    "gpt-5-codex-mini",
-    "gpt-5.4-codex",
-    "gpt-5.4-codex-mini",
 }
 _STDERR_NOISE_MARKERS = (
     "model personality requested but model_messages is missing",

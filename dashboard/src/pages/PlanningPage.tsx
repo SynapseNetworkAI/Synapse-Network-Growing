@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useLocation } from 'react-router-dom'
+import { ProductOpportunitiesPanel } from '../components/ProductOpportunitiesPanel'
+import { MissionLaneItem } from '../components/MissionBoardPanel'
 import {
   api,
   DropGoalResult,
   GoalMissionLane,
+  MissionBoard,
+  MissionBoardItem,
   PlanningGoal,
   PlanningManifest,
   PlanningManifestHistory,
@@ -14,16 +19,14 @@ import {
 
 type Goal = PlanningGoal
 
-type ActiveTab = 'mission' | 'history' | 'debug'
+type ActiveTab = 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
 type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
 type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
-
 type SteeringDraft = {
   focusWeights: Record<string, number>
   globalBudget: Record<string, unknown>
   constraintsText: string
 }
-
 type GoalSettingsDraft = {
   goal_key: string
   title: string
@@ -44,6 +47,13 @@ type CachedGoalDetail = {
 }
 
 const overlayStack: string[] = []
+
+function initialPlanningTab(search = window.location.search): ActiveTab {
+  const params = new URLSearchParams(search)
+  const value = params.get('tab')
+  if (value === 'goals' || value === 'engineering' || value === 'unassigned' || value === 'history' || value === 'debug') return value
+  return 'opportunities'
+}
 
 function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
   const onCloseRef = useRef(onClose)
@@ -815,7 +825,7 @@ function traceTone(status: string) {
   return 'border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] text-[color:var(--ops-text-body)]'
 }
 
-function GoalTraceDrawer({
+function GoalTraceModal({
   open,
   trace,
   busy,
@@ -830,11 +840,11 @@ function GoalTraceDrawer({
   onClose: () => void
   onSupersedeRetry: (trace: PlanningGoalTrace) => void
 }>) {
-  useTopOverlayEscape(open, 'goal-trace-drawer', onClose)
+  useTopOverlayEscape(open, 'goal-trace-modal', onClose)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-trace-drawer">
-      <aside className="h-full w-full max-w-4xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" data-testid="goal-trace-modal">
+      <section className="max-h-[90vh] w-full max-w-4xl overflow-auto rounded-[28px] bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Single-Goal Trace</div>
@@ -903,7 +913,7 @@ function GoalTraceDrawer({
             ))}
           </div>
         )}
-      </aside>
+      </section>
     </div>
   )
 }
@@ -1027,7 +1037,7 @@ function PlanningSteeringPanel({
             <button className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700" disabled={busy === 'dry_sweep'} onClick={() => onRunSweep(true)}>Dry Run Planner</button>
             <button className="rounded-xl bg-[color:var(--ops-accent)] px-4 py-2 text-sm font-semibold text-white" disabled={busy === 'sweep'} onClick={() => onRunSweep(false)}>Run Planner Sweep</button>
             <button className="rounded-xl border border-cyan-300/25 bg-cyan-300/[0.06] px-4 py-2 text-sm font-medium text-cyan-100" onClick={onOpenCreateGoal}>New Goal</button>
-            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenArchive}>Archive & Start New Cycle</button>
+            <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onOpenArchive}>Archive & Start New Plan</button>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <div>
@@ -1039,7 +1049,7 @@ function PlanningSteeringPanel({
               <div className="mt-1 text-sm font-semibold text-[color:var(--ops-text-title)]">{manifest?.revision ?? '-'}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Cycle</div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Plan label</div>
               <div className="mt-1 text-sm font-semibold text-[color:var(--ops-text-title)]">{manifest?.cycle_label || '-'}</div>
             </div>
           </div>
@@ -1109,7 +1119,7 @@ function ManifestHistoryPanel({
         <table className="w-full text-left text-sm">
           <thead className="bg-[color:var(--ops-panel-subtle)] text-xs uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">
             <tr>
-              <th className="px-4 py-3">Cycle</th>
+              <th className="px-4 py-3">Plan label</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Goals</th>
               <th className="px-4 py-3">Updated</th>
@@ -1141,7 +1151,7 @@ function ManifestHistoryPanel({
   )
 }
 
-function RawManifestDrawer({
+function RawManifestModal({
   open,
   manifest,
   rawDraft,
@@ -1158,14 +1168,14 @@ function RawManifestDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
-  useTopOverlayEscape(open, 'raw-manifest-drawer', onClose)
+  useTopOverlayEscape(open, 'raw-manifest-modal', onClose)
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40" data-testid="raw-manifest-drawer">
-      <aside className="h-full w-full max-w-2xl overflow-auto bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" data-testid="raw-manifest-modal">
+      <section className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Debug Drawer</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Debug Modal</div>
             <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Raw Manifest JSON</h3>
             <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">Use this only for steering fields. Goals are first-class records and live under /api/planning/goals.</p>
           </div>
@@ -1174,7 +1184,7 @@ function RawManifestDrawer({
         <textarea className="mt-5 h-[65vh] w-full rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100" value={rawDraft || JSON.stringify(manifest?.payload || {}, null, 2)} onChange={(event) => setRawDraft(event.target.value)} spellCheck={false} />
         {rawError && <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{rawError}</div>}
         <button className="mt-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white" onClick={onSave}>Save raw JSON</button>
-      </aside>
+      </section>
     </div>
   )
 }
@@ -1197,7 +1207,7 @@ function ArchiveCycleModal({
   useTopOverlayEscape(open, 'archive-cycle-modal', onClose)
   useEffect(() => {
     if (open) {
-      setVersionName(`Next cycle after ${mission?.manifest.cycle_label || 'current'}`)
+      setVersionName(`Next company plan after ${mission?.manifest.cycle_label || 'current'}`)
       setCycleLabel('')
     }
   }, [open, mission?.manifest.cycle_label])
@@ -1206,17 +1216,17 @@ function ArchiveCycleModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
       <div className="w-full max-w-2xl rounded-[28px] bg-[color:var(--ops-panel)] p-6 shadow-2xl" role="dialog" aria-modal="true">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Archive Cycle</div>
-        <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Archive & Start New Cycle</h3>
+        <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Archive Plan</div>
+        <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">Archive & Start New Company Plan</h3>
         <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">Active goals will carry forward. Achieved and dropped goals stay in the archived review.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <label className="block text-sm font-medium text-[color:var(--ops-text-title)]">Version name<input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" value={versionName} onChange={(event) => setVersionName(event.target.value)} /></label>
-          <label className="block text-sm font-medium text-[color:var(--ops-text-title)]">Cycle label<input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" placeholder="2026-W17" value={cycleLabel} onChange={(event) => setCycleLabel(event.target.value)} /></label>
+          <label className="block text-sm font-medium text-[color:var(--ops-text-title)]">Plan label<input className="mt-2 w-full rounded-xl border px-3 py-2 text-sm" placeholder="Active" value={cycleLabel} onChange={(event) => setCycleLabel(event.target.value)} /></label>
         </div>
         <div className="mt-4 rounded-2xl bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm text-[color:var(--ops-text-muted)]">Carry forward: {activeGoals.map((lane) => lane.goal_key).join(', ') || 'none'}</div>
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded-xl border px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
-          <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white" disabled={!versionName.trim() || !cycleLabel.trim() || busy === 'archive'} onClick={() => onArchive(versionName, cycleLabel)}>Archive Current Cycle</button>
+          <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white" disabled={!versionName.trim() || !cycleLabel.trim() || busy === 'archive'} onClick={() => onArchive(versionName, cycleLabel)}>Archive Current Plan</button>
         </div>
       </div>
     </div>
@@ -1319,7 +1329,7 @@ function MarkdownTabs({
   )
 }
 
-function GoalIntentDrawer({
+function GoalIntentModal({
   goal,
   draft,
   loading,
@@ -1338,11 +1348,11 @@ function GoalIntentDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
-  useTopOverlayEscape(Boolean(goal), 'goal-intent-drawer', onClose)
+  useTopOverlayEscape(Boolean(goal), 'goal-intent-modal', onClose)
   if (!goal) return null
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-intent-drawer">
-      <aside className="h-full w-full max-w-6xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" data-testid="goal-intent-modal">
+      <section className="max-h-[90vh] w-full max-w-6xl overflow-auto rounded-[28px] bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Intent Data Plane</div>
@@ -1369,12 +1379,12 @@ function GoalIntentDrawer({
             </div>
           )}
         </div>
-      </aside>
+      </section>
     </div>
   )
 }
 
-function GoalSettingsDrawer({
+function GoalSettingsModal({
   open,
   goal,
   draft,
@@ -1393,14 +1403,14 @@ function GoalSettingsDrawer({
   onClose: () => void
   onSave: () => void
 }>) {
-  useTopOverlayEscape(open, 'goal-settings-drawer', onClose)
+  useTopOverlayEscape(open, 'goal-settings-modal', onClose)
   if (!open) return null
   const isCreate = !goal
   const update = (key: keyof GoalSettingsDraft, value: string) => setDraft({ ...draft, [key]: value })
   const canSave = Boolean(draft.title.trim()) && Boolean((draft.goal_key || slugifyGoalKey(draft.title)).trim())
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60" data-testid="goal-settings-drawer">
-      <aside className="h-full w-full max-w-3xl overflow-auto bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" data-testid="goal-settings-modal">
+      <section className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-[28px] bg-[color:var(--ops-bg)] p-6 shadow-2xl" role="dialog" aria-modal="true">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Goal Settings</div>
@@ -1476,17 +1486,66 @@ function GoalSettingsDrawer({
             Acceptance steps are generated at Candidate level by Planner. If the Candidate lacks evidence-bound acceptance, materialize/start will fail closed.
           </div>
         </details>
-      </aside>
+      </section>
     </div>
   )
 }
 
+function EngineeringQueue({
+  board,
+}: Readonly<{
+  board: MissionBoard | null
+}>) {
+  const items = board?.lanes.software_engineer || []
+  return (
+    <main className="space-y-4" data-testid="engineering-queue-tab">
+      <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+        <div className="machine-label text-[color:var(--ops-text-caption)]">Software Engineer</div>
+        <h2 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">工程队列</h2>
+        <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">只展示当前 active goal 下的工程候选、需求、Workflow 和 Release Task。代码类执行优先排队，避免撞车。</p>
+      </section>
+      {items.length ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => <MissionLaneItem key={item.id} item={item} />)}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">
+          当前 active goal 下没有工程队列事项。
+        </div>
+      )}
+    </main>
+  )
+}
+
+function UnassignedQueue({ items }: Readonly<{ items: MissionBoardItem[] }>) {
+  return (
+    <main className="space-y-4" data-testid="unassigned-queue-tab">
+      <section className="rounded-[28px] border border-rose-300/25 bg-rose-400/[0.08] p-5">
+        <div className="machine-label text-rose-100/70">Unassigned / Orphaned</div>
+        <h2 className="mt-2 text-2xl font-semibold text-rose-50">未归属队列</h2>
+        <p className="mt-2 text-sm leading-6 text-rose-100/80">这些是 active 但缺失 goal lineage 的数据。它们不能静默躲进 Debug，需要修复 goal_key、归档或取消。</p>
+      </section>
+      {items.length ? (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => <MissionLaneItem key={item.id} item={item} />)}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">
+          没有未归属 active 数据，lineage clean。
+        </div>
+      )}
+    </main>
+  )
+}
+
 export default function PlanningPage() {
+  const location = useLocation()
   const [mission, setMission] = useState<PlanningMissionControl | null>(null)
+  const [missionBoard, setMissionBoard] = useState<MissionBoard | null>(null)
   const [history, setHistory] = useState<PlanningManifestHistory | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState('')
-  const [activeTab, setActiveTab] = useState<ActiveTab>('mission')
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => initialPlanningTab(location.search))
   const [goalStatusView, setGoalStatusView] = useState<GoalStatusView>('active')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1530,11 +1589,13 @@ export default function PlanningPage() {
     setLoading(true)
     setError(null)
     try {
-      const [nextMission, nextHistory] = await Promise.all([
+      const [nextMission, nextBoard, nextHistory] = await Promise.all([
         api.getPlanningMissionControl(),
+        api.getPlanningMissionBoard(),
         api.getPlanningManifestHistory({ page: nextPage, page_size: 10, search: historySearch || undefined }),
       ])
       setMission(nextMission)
+      setMissionBoard(nextBoard)
       setHistory(nextHistory)
       setSteeringDraft(steeringDraftFrom(nextMission))
       setRawDraft(JSON.stringify(nextMission.manifest.payload, null, 2))
@@ -1548,6 +1609,10 @@ export default function PlanningPage() {
   useEffect(() => {
     load(1).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    setActiveTab(initialPlanningTab(location.search))
+  }, [location.search])
 
   useEffect(() => () => {
     Object.values(prefetchTimers.current).forEach((timer) => clearTimeout(timer))
@@ -1852,8 +1917,11 @@ export default function PlanningPage() {
 
       <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="planning-tabs">
         {([
-          ['mission', `Mission Control · ${pendingActions} actions`],
-          ['history', `History · ${history?.total || mission?.history_preview.total || 0}`],
+          ['opportunities', '产品机会'],
+          ['goals', `业务目标 · ${mission?.manifest.active_goal_count || 0} active`],
+          ['engineering', `工程队列 · ${missionBoard?.lanes.software_engineer.length || pendingActions}`],
+          ['unassigned', `未归属 · ${missionBoard?.unassigned.count || 0}`],
+          ['history', `历史 · ${history?.total || mission?.history_preview.total || 0}`],
           ['debug', 'Debug'],
         ] as Array<[ActiveTab, string]>).map(([key, label]) => (
           <button key={key} className={['rounded-xl px-4 py-2 text-sm font-medium transition', activeTab === key ? 'bg-slate-900 text-white' : 'text-[color:var(--ops-text-muted)] hover:bg-[color:var(--ops-panel-strong)]'].join(' ')} onClick={() => setActiveTab(key)}>{label}</button>
@@ -1876,8 +1944,8 @@ export default function PlanningPage() {
         </section>
       )}
 
-      {activeTab === 'mission' && (
-        <main className="space-y-4" data-testid="mission-control-tab">
+      {activeTab === 'opportunities' && (
+        <main className="space-y-4" data-testid="product-opportunities-tab">
           <div className="grid gap-3 md:grid-cols-5">
             {['pending', 'approved', 'materialized', 'rejected', 'suppressed'].map((status) => (
               <div key={status} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3">
@@ -1896,11 +1964,22 @@ export default function PlanningPage() {
               <span className="ml-3">suppressed {(mission.last_sweep.suppressed_items || []).length}</span>
             </div>
           ) : null}
+          <ProductOpportunitiesPanel onChanged={() => load(historyPage).catch(() => {})} />
+        </main>
+      )}
+
+      {activeTab === 'goals' && (
+        <main className="space-y-4" data-testid="planning-goals-tab">
+          <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
+            <div className="machine-label text-[color:var(--ops-text-caption)]">Business Goals</div>
+            <h2 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">业务目标</h2>
+            <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">这里管理正式 Goal；产品机会通过人审后才会进入这条主线。</p>
+          </section>
           <GoalLaneGroups
-            lanes={(mission?.goal_lanes || []).map((lane) => ({
-              ...lane,
-              goal: optimisticExcerpts[lane.goal.id] ? { ...lane.goal, intent_excerpt: optimisticExcerpts[lane.goal.id] } : lane.goal,
-            }))}
+          lanes={(mission?.goal_lanes || []).map((lane) => ({
+            ...lane,
+            goal: optimisticExcerpts[lane.goal.id] ? { ...lane.goal, intent_excerpt: optimisticExcerpts[lane.goal.id] } : lane.goal,
+          }))}
             view={goalStatusView}
             setView={setGoalStatusView}
             busy={busy}
@@ -1915,6 +1994,10 @@ export default function PlanningPage() {
           {!mission?.goal_lanes.length && <div className="rounded-2xl border border-dashed border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-8 text-sm text-[color:var(--ops-text-muted)]">No goals in the active manifest.</div>}
         </main>
       )}
+
+      {activeTab === 'engineering' && <EngineeringQueue board={missionBoard} />}
+
+      {activeTab === 'unassigned' && <UnassignedQueue items={missionBoard?.unassigned.items || []} />}
 
       {activeTab === 'history' && (
         <ManifestHistoryPanel history={history} historySearch={historySearch} setHistorySearch={setHistorySearch} setHistoryPage={setHistoryPage} loadHistory={(page) => load(page).catch(() => {})} />
@@ -1933,11 +2016,11 @@ export default function PlanningPage() {
         </section>
       )}
 
-      <RawManifestDrawer open={rawOpen} manifest={mission?.manifest || null} rawDraft={rawDraft} setRawDraft={setRawDraft} rawError={rawError} onClose={() => setRawOpen(false)} onSave={saveRaw} />
+      <RawManifestModal open={rawOpen} manifest={mission?.manifest || null} rawDraft={rawDraft} setRawDraft={setRawDraft} rawError={rawError} onClose={() => setRawOpen(false)} onSave={saveRaw} />
       <ArchiveCycleModal open={archiveOpen} mission={mission} busy={busy} onClose={() => setArchiveOpen(false)} onArchive={archiveCycle} />
       <DropGoalModal goal={dropGoal} reason={dropReason} busy={busy} setReason={setDropReason} onCancel={() => setDropGoal(null)} onConfirm={confirmDropGoal} />
-      <GoalIntentDrawer goal={intentGoal} draft={intentDraft} loading={intentLoading} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
-      <GoalTraceDrawer
+      <GoalIntentModal goal={intentGoal} draft={intentDraft} loading={intentLoading} busy={busy} error={intentError} setDraft={setIntentDraft} onClose={closeIntentEditor} onSave={saveIntent} />
+      <GoalTraceModal
         open={traceOpen}
         trace={goalTrace}
         busy={busy}
@@ -1945,7 +2028,7 @@ export default function PlanningPage() {
         onSupersedeRetry={supersedeAndRetryPlanner}
         onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }}
       />
-      <GoalSettingsDrawer open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
+      <GoalSettingsModal open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>
   )

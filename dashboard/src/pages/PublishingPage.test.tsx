@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../components/workbench'
@@ -396,7 +396,8 @@ describe('PublishingPage', () => {
 
     await user.click(await screen.findByRole('button', { name: '回帖处理' }))
     await user.click(await screen.findByRole('button', { name: '详情' }))
-    await user.click(screen.getByRole('button', { name: '回复到 X' }))
+    const reviewDialog = screen.getByRole('dialog', { name: '回帖草稿 #41' })
+    await user.click(within(reviewDialog).getByRole('button', { name: '回复到 X' }))
 
     expect(screen.getByText('确认回复到 X')).toBeInTheDocument()
     expect(screen.getByText(/公开评论该 X 原帖/)).toBeInTheDocument()
@@ -410,6 +411,22 @@ describe('PublishingPage', () => {
       })
       expect(apiMock.publishSocialReplyToX).toHaveBeenCalledWith(41, { actor: 'operator' })
     })
+  })
+
+  it('allows retry after reconnecting failed reply authentication', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialReplies.mockResolvedValue([
+      reply({
+        status: 'failed',
+        failure_summary: 'X reply authentication failed. Reconnect the X official account and approve the tweet.write scope.',
+        metadata: { publish_failure_kind: 'x_reply_auth_failed' },
+      }),
+    ])
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '回帖处理' }))
+    expect(await screen.findByRole('button', { name: '重新发送' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新连接 X 官方账号' })).not.toBeInTheDocument()
   })
 
   it('shows view reply instead of generating duplicate replies for handled candidates', async () => {

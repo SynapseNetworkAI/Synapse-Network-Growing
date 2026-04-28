@@ -22,6 +22,7 @@ from server.services.workflows.declarative import (
     AtomResult,
     WorkflowSpecError,
     WorkflowContext,
+    _acceptance_execution_command,
     build_agent_self_repair_workflow_spec,
     build_gateway_reliability_repair_workflow_spec,
     decide_human_gate,
@@ -219,6 +220,17 @@ def test_acceptance_command_runner_hard_times_out_and_records_kill_metadata(db_s
     assert result["kill_grace_seconds"] == 1
     assert "command timed out after 1s" in result["stderr_excerpt"]
     assert result["step_key"] == "timeout_step"
+
+
+def test_acceptance_execution_command_binds_portable_pytest_to_current_python(monkeypatch):
+    monkeypatch.delenv("PYTHON_BIN", raising=False)
+    monkeypatch.setattr(declarative_module.os.path, "exists", lambda path: path == sys.executable)
+
+    command = _acceptance_execution_command("PYTHONPATH=. python -m pytest tests/test_planning_mission_board.py -q -k traction")
+
+    assert command.startswith(f"PYTHONPATH=. {sys.executable} -m pytest ")
+    assert "tests/test_planning_mission_board.py" in command
+    assert " -k traction" in command
 
 
 def test_self_repair_verification_runs_acceptance_matrix_commands(db_session, monkeypatch):

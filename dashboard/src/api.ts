@@ -2112,6 +2112,56 @@ export interface PlanningMissionControl {
   last_sweep: PlannerSweep | null
 }
 
+export interface MissionBoardItem {
+  id: string
+  type: string
+  title: string
+  status: string
+  risk_level: string
+  next_action: string
+  deep_link: string | null
+  evidence_label: string
+  updated_at: string | null
+}
+
+export interface MissionBoard {
+  active_goal: PlanningGoal | null
+  lanes: {
+    product_planner: MissionBoardItem[]
+    growth_lead: MissionBoardItem[]
+    software_engineer: MissionBoardItem[]
+  }
+  lane_summary: Record<string, { count: number }>
+  unassigned: {
+    count: number
+    items: MissionBoardItem[]
+  }
+  traction_proof?: {
+    status: string
+    items: Array<{
+      key: string
+      label: string
+      status: string
+      evidence_label: string
+      next_action: string
+      deep_link: string
+    }>
+  }
+  next_actions: Array<{
+    lane: string
+    title: string
+    next_action: string
+    deep_link: string | null
+    status: string
+  }>
+  manifest?: {
+    id: number
+    version_name: string
+    cycle_label: string
+    updated_at: string | null
+  }
+}
+
 // API functions
 export const api = {
   // Agents
@@ -2148,6 +2198,7 @@ export const api = {
 
   // Planning lifecycle
   getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
+  getPlanningMissionBoard: () => request<MissionBoard>('/planning/mission-board'),
   getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
   saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
     request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),

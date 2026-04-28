@@ -49,6 +49,7 @@ from server.services.social.publishing import (
     run_x_social_repost_candidate_sweep,
     run_x_social_trend_radar_sweep,
 )
+from server.services.planning.product_opportunities import run_product_planning_sweep
 
 
 def _json_loads(raw: str | None, default: Any) -> Any:
@@ -68,7 +69,6 @@ def _json_dumps(payload: Any) -> str:
 
     return json.dumps(payload, ensure_ascii=False, default=_default)
 
-
 def _ensure_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -76,13 +76,11 @@ def _ensure_utc(value: datetime | None) -> datetime | None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
 
-
 def _operator_zone() -> ZoneInfo:
     try:
         return ZoneInfo(config.OPERATOR_TIMEZONE)
     except Exception:
         return ZoneInfo("UTC")
-
 
 BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     {
@@ -121,6 +119,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_failure": "notify_portfolio_operator", "on_empty": "no_op"},
         "validation_signal": {"success_metric": "created_candidate_ids", "min_expected": 0},
     },
+    {"workflow_key": "product_planning_sweep", "display_name": "Product Planning Sweep", "description": "Surface product gaps and goal proposals without creating official goals or starting workflows.", "trigger_type": "scheduled", "owner_role": "product_planner", "schedule": {"cadence": "daily", "suggested_local_time": "09:15"}, "input_query": {"sources": ["active_manifest", "release_records", "bugs", "social_metrics", "docs_gaps"]}, "output_action": {"kind": "create_product_opportunities", "auto_create_goal": False, "auto_start_workflow": False}, "escalation_rule": {"on_failure": "notify_portfolio_operator", "on_empty": "no_op"}, "validation_signal": {"success_metric": "created_opportunity_ids", "min_expected": 0}},
     {
         "workflow_key": "forum_feedback_sweep",
         "display_name": "Forum Feedback Sweep",
@@ -297,7 +296,6 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
         )
     return items
 
-
 def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for row in list(review_payload.get("next_cycle_requirement_bundle") or [])[:limit]:
@@ -311,7 +309,6 @@ def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5)
             }
         )
     return items
-
 
 def _dispatcher_follow_through(
     db: Session,
@@ -457,7 +454,6 @@ def _dispatcher_follow_through(
         "approval_reminders": approval_reminders,
         "follow_up_actions": deduped,
     }
-
 
 def _operator_attention_items(
     *,
@@ -1460,6 +1456,8 @@ def _execute_recurring_workflow(
 
             sweep = run_planner_sweep(db, dry_run=True, triggered_by="scheduler_dry_run")
             return sweep_to_dict(sweep)
+        if workflow_key == "product_planning_sweep":
+            return run_product_planning_sweep(db, dry_run=True)
         if workflow_key == "forum_feedback_sweep":
             return run_forum_feedback_sweep(db, dry_run=True)
         if workflow_key == "ci_status_sweep":
@@ -1568,6 +1566,8 @@ def _execute_recurring_workflow(
 
         sweep = run_planner_sweep(db, dry_run=False, triggered_by="scheduler")
         return sweep_to_dict(sweep)
+    if workflow_key == "product_planning_sweep":
+        return run_product_planning_sweep(db, dry_run=False)
     if workflow_key == "forum_feedback_sweep":
         return run_forum_feedback_sweep(db, dry_run=False)
     if workflow_key == "dispatcher_loop":
