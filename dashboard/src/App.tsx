@@ -21,6 +21,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
 import ErrorDetailPage from './pages/ErrorDetailPage'
+import { api } from './api'
 
 const primaryNavItems = [
   { to: '/command-center', label: 'Command Center', meta: 'Mission Control' },
@@ -141,8 +142,8 @@ function TopNavigation({ currentMeta }: Readonly<{ currentMeta: string }>) {
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/workflows/runs/summary')
-      .then((response) => (response.ok ? response.json() : null))
+    api
+      .getWorkflowRunsSummary()
       .then((summary) => {
         if (cancelled || !summary) return
         const count = Number(summary.pending_gate_count ?? summary.needs_human ?? 0)

@@ -7,7 +7,6 @@ import json
 import os
 import re
 import signal
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -44,6 +43,7 @@ from server.services.requirements.acceptance import (
     validate_required_command_safety,
 )
 from server.services.runtime.alerting import bounded_lark_excerpt, build_ops_url, deliver_policy_notification, notification_service_label
+from server.services.workflows.acceptance_runtime import acceptance_execution_command
 
 
 class WorkflowSpecError(ValueError):
@@ -1886,7 +1886,7 @@ def _workflow_review_summary(ctx: WorkflowContext, *, pr_scope: str) -> str:
     verification = ctx.blackboard.get("verification") or {}
     evidence = ctx.blackboard.get("evidence") or []
     lines = [
-        f"## Workflow",
+        "## Workflow",
         f"- Workflow key: `{ctx.workflow_run.workflow_key}`",
         f"- PR scope: `{pr_scope}`",
         f"- Current state: `{ctx.state_key}`",
@@ -3605,51 +3605,6 @@ def _terminate_process_group(process: subprocess.Popen[Any], *, grace_seconds: i
     return killed
 
 
-def _acceptance_python_executable() -> str:
-    """Return the Python runtime used for planner-generated pytest evidence.
-
-    Planner contracts intentionally use portable commands such as
-    `python -m pytest ...`. The workflow runner executes them in a governed
-    environment, so it should bind `python` to the same runtime that is running
-    the Ops service instead of whatever happens to be first on the shell PATH.
-    """
-
-    explicit = str(os.environ.get("PYTHON_BIN") or "").strip()
-    if explicit and os.path.exists(explicit):
-        return explicit
-    workspace_venv = "/Users/cliff/workspace/agent/.venv/bin/python"
-    if os.path.exists(workspace_venv):
-        return workspace_venv
-    return sys.executable
-
-
-def _acceptance_execution_command(command: str) -> str:
-    """Rewrite safe portable pytest commands to the governed Python runtime."""
-
-    try:
-        tokens = shlex.split(str(command or ""))
-    except ValueError:
-        return command
-    if not tokens:
-        return command
-
-    index = 0
-    while index < len(tokens) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[index]):
-        index += 1
-    if index >= len(tokens):
-        return command
-
-    executable = tokens[index].rsplit("/", 1)[-1]
-    python = _acceptance_python_executable()
-    if executable in {"python", "python3"} and tokens[index + 1:index + 3] == ["-m", "pytest"]:
-        tokens[index] = python
-        return " ".join(shlex.quote(token) for token in tokens)
-    if executable == "pytest":
-        tokens[index:index + 1] = [python, "-m", "pytest"]
-        return " ".join(shlex.quote(token) for token in tokens)
-    return command
-
-
 def _run_acceptance_command_result_artifact(
     ctx: WorkflowContext,
     *,
@@ -3660,7 +3615,6 @@ def _run_acceptance_command_result_artifact(
     kill_grace_seconds: int = 10,
 ) -> dict[str, Any]:
     """Run an evidence-bound acceptance command with a hard process-group timeout."""
-
     cwd = str(getattr(ctx.requirement, "target_project_path", "") or "").strip()
     if not cwd or not os.path.isdir(cwd):
         cwd = str(config.PROJECT_ROOT)
@@ -3674,7 +3628,7 @@ def _run_acceptance_command_result_artifact(
     stderr_excerpt = ""
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         process = subprocess.Popen(
-            _acceptance_execution_command(command),
+            acceptance_execution_command(command),
             cwd=cwd,
             env=env,
             shell=True,

@@ -89,6 +89,15 @@ def _slug(value: str) -> str:
     return text[:80] or "product_opportunity"
 
 
+def _text(value: Any, default: str = "") -> str:
+    text = str(value or "")
+    return text if text else default
+
+
+def _optional_text(value: Any) -> str | None:
+    return _text(value) or None
+
+
 def product_opportunity_to_dict(row: ProductOpportunityRow) -> dict[str, Any]:
     return {
         "id": int(row.id),
@@ -96,20 +105,20 @@ def product_opportunity_to_dict(row: ProductOpportunityRow) -> dict[str, Any]:
         "converted_goal_id": int(row.converted_goal_id)
         if row.converted_goal_id
         else None,
-        "title": str(row.title or ""),
-        "problem": str(row.problem or ""),
-        "why_now": str(row.why_now or ""),
+        "title": _text(row.title),
+        "problem": _text(row.problem),
+        "why_now": _text(row.why_now),
         "evidence": _json_loads(row.evidence_json, []),
-        "suggested_goal_key": str(row.suggested_goal_key or ""),
-        "recommended_lane": str(row.recommended_lane or "growth_lead"),
-        "risk_level": str(row.risk_level or "normal"),
-        "success_metric": str(row.success_metric or ""),
-        "next_action": str(row.next_action or ""),
-        "status": str(row.status or "proposed"),
-        "source": str(row.source or "product_planning_sweep"),
-        "created_by": str(row.created_by or "product_planner"),
-        "reviewed_by": str(row.reviewed_by or "") or None,
-        "review_note": str(row.review_note or "") or None,
+        "suggested_goal_key": _text(row.suggested_goal_key),
+        "recommended_lane": _text(row.recommended_lane, "growth_lead"),
+        "risk_level": _text(row.risk_level, "normal"),
+        "success_metric": _text(row.success_metric),
+        "next_action": _text(row.next_action),
+        "status": _text(row.status, "proposed"),
+        "source": _text(row.source, "product_planning_sweep"),
+        "created_by": _text(row.created_by, "product_planner"),
+        "reviewed_by": _optional_text(row.reviewed_by),
+        "review_note": _optional_text(row.review_note),
         "metadata": _json_loads(row.metadata_json, {}),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -338,57 +347,81 @@ def defer_product_opportunity(
     return product_opportunity_to_dict(row)
 
 
-def create_goal_from_product_opportunity(
-    db: Session, opportunity_id: int, *, operator: str
+def _existing_goal_response(
+    db: Session, row: ProductOpportunityRow
+) -> dict[str, Any] | None:
+    if not row.converted_goal_id:
+        return None
+    goal = db.get(PlanningGoalRow, int(row.converted_goal_id))
+    if goal is None:
+        return None
+    return {
+        "opportunity": product_opportunity_to_dict(row),
+        "goal": goal_to_dict(goal, include_intent=True),
+        "already_created": True,
+    }
+
+
+def _workflow_key_for_lane(lane: str) -> str:
+    if lane in {"software_engineer", "both"}:
+        return "agent_self_repair"
+    return "x_social_daily_content_planner"
+
+
+def _goal_payload_from_opportunity(
+    row: ProductOpportunityRow, *, operator: str
 ) -> dict[str, Any]:
-    row = get_product_opportunity(db, opportunity_id)
-    if row.converted_goal_id:
-        goal = db.get(PlanningGoalRow, int(row.converted_goal_id))
-        if goal is not None:
-            return {
-                "opportunity": product_opportunity_to_dict(row),
-                "goal": goal_to_dict(goal, include_intent=True),
-                "already_created": True,
-            }
-    if str(row.status) in {"rejected", "deferred"}:
-        raise ValueError("rejected or deferred opportunities cannot create goals")
     evidence = "\n".join(f"- {item}" for item in _json_loads(row.evidence_json, []))
-    goal = create_goal(
-        db,
-        {
-            "manifest_id": int(row.manifest_id),
-            "goal_key": str(row.suggested_goal_key or _slug(row.title)),
-            "title": str(row.title),
-            "intent_markdown": (
-                f"# {row.title}\n\n"
-                f"## Problem\n{row.problem}\n\n"
-                f"## Why now\n{row.why_now}\n\n"
-                f"## Evidence\n{evidence or '- product planner signal'}\n\n"
-                f"## Next action\n{row.next_action}\n"
-            ),
-            "success_metric": str(row.success_metric or ""),
-            "domain": "product",
-            "workflow_key": "agent_self_repair"
-            if row.recommended_lane in {"software_engineer", "both"}
-            else "x_social_daily_content_planner",
-            "project_key": "synapse-network-growing",
-            "priority": "normal",
-            "risk_level": str(row.risk_level or "normal"),
-            "weight": 0.1,
-            "acceptance_kind": "business",
-            "metadata": {
-                "source": "product_opportunity",
-                "product_opportunity_id": int(row.id),
-                "recommended_lane": str(row.recommended_lane),
-                "created_by_operator": operator or "operator",
-            },
+    lane = str(row.recommended_lane or "")
+    return {
+        "manifest_id": int(row.manifest_id),
+        "goal_key": str(row.suggested_goal_key or _slug(row.title)),
+        "title": str(row.title),
+        "intent_markdown": (
+            f"# {row.title}\n\n"
+            f"## Problem\n{row.problem}\n\n"
+            f"## Why now\n{row.why_now}\n\n"
+            f"## Evidence\n{evidence or '- product planner signal'}\n\n"
+            f"## Next action\n{row.next_action}\n"
+        ),
+        "success_metric": str(row.success_metric or ""),
+        "domain": "product",
+        "workflow_key": _workflow_key_for_lane(lane),
+        "project_key": "synapse-network-growing",
+        "priority": "normal",
+        "risk_level": str(row.risk_level or "normal"),
+        "weight": 0.1,
+        "acceptance_kind": "business",
+        "metadata": {
+            "source": "product_opportunity",
+            "product_opportunity_id": int(row.id),
+            "recommended_lane": lane,
+            "created_by_operator": operator or "operator",
         },
-    )
+    }
+
+
+def _mark_goal_created(
+    row: ProductOpportunityRow, goal: dict[str, Any], *, operator: str
+) -> None:
     row.status = "goal_created"
     row.converted_goal_id = int(goal["id"])
     row.reviewed_by = operator or "operator"
     row.review_note = "created_goal"
     row.updated_at = utcnow()
+
+
+def create_goal_from_product_opportunity(
+    db: Session, opportunity_id: int, *, operator: str
+) -> dict[str, Any]:
+    row = get_product_opportunity(db, opportunity_id)
+    existing = _existing_goal_response(db, row)
+    if existing is not None:
+        return existing
+    if str(row.status) in {"rejected", "deferred"}:
+        raise ValueError("rejected or deferred opportunities cannot create goals")
+    goal = create_goal(db, _goal_payload_from_opportunity(row, operator=operator))
+    _mark_goal_created(row, goal, operator=operator)
     db.commit()
     db.refresh(row)
     return {

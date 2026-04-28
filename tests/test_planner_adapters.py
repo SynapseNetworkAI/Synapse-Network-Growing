@@ -48,9 +48,14 @@ def test_llm_planner_adapter_does_not_write_codex_session_metadata(monkeypatch):
     monkeypatch.setattr(config, "PLANNER_BACKEND", "claude")
     monkeypatch.setattr(config, "PLANNER_MODEL", "claude-test")
     monkeypatch.setattr(config, "PLANNER_TIMEOUT", 123)
-    monkeypatch.setattr("server.services.workflows.planner_provider.get_provider", lambda name: FakeProvider())
+    monkeypatch.setattr(
+        "server.services.workflows.planner_provider.get_provider",
+        lambda name: FakeProvider(),
+    )
 
-    response = generate_planner_text(PlannerRequest(prompt="Need plan", system_prompt="Plan", metadata=metadata))
+    response = generate_planner_text(
+        PlannerRequest(prompt="Need plan", system_prompt="Plan", metadata=metadata)
+    )
 
     assert response.text == "LLM plan"
     assert response.tokens == 13
@@ -81,14 +86,16 @@ def test_codex_cli_planner_adapter_records_session_metadata(monkeypatch, tmp_pat
             thread_id="thread-cli-plan",
         ),
     ) as mock_run:
-        response = generate_planner_text(PlannerRequest(
-            prompt="Raw plan",
-            raw_prompt=True,
-            cwd=tmp_path,
-            output_path=output_path,
-            resume_session_id="thread-old",
-            metadata=metadata,
-        ))
+        response = generate_planner_text(
+            PlannerRequest(
+                prompt="Raw plan",
+                raw_prompt=True,
+                cwd=tmp_path,
+                output_path=output_path,
+                resume_session_id="thread-old",
+                metadata=metadata,
+            )
+        )
 
     assert isinstance(CodexCliPlannerAdapter(), CodexCliPlannerAdapter)
     assert response.text == "Codex CLI plan"
@@ -101,8 +108,12 @@ def test_codex_cli_planner_adapter_records_session_metadata(monkeypatch, tmp_pat
     assert metadata["planning_resumed_from_session_id"] == "thread-old"
 
 
-def test_codex_cli_planner_adapter_falls_back_on_model_compatibility_error(monkeypatch, tmp_path):
+def test_codex_cli_planner_adapter_falls_back_on_model_compatibility_error(
+    monkeypatch, tmp_path
+):
     output_path = tmp_path / "runtime" / "plans" / "plan.md"
+    output_path.parent.mkdir(parents=True)
+    output_path.write_text("stale incompatible output", encoding="utf-8")
     metadata: dict[str, object] = {}
     monkeypatch.setattr(config, "PLANNER_BACKEND", "codex_cli")
     monkeypatch.setattr(config, "PLANNER_MODEL", "gpt-5-codex")
@@ -132,13 +143,15 @@ def test_codex_cli_planner_adapter_falls_back_on_model_compatibility_error(monke
             ),
         ],
     ) as mock_run:
-        response = generate_planner_text(PlannerRequest(
-            prompt="Need plan",
-            raw_prompt=True,
-            cwd=tmp_path,
-            output_path=output_path,
-            metadata=metadata,
-        ))
+        response = generate_planner_text(
+            PlannerRequest(
+                prompt="Need plan",
+                raw_prompt=True,
+                cwd=tmp_path,
+                output_path=output_path,
+                metadata=metadata,
+            )
+        )
 
     attempted = [call.kwargs["model"] for call in mock_run.call_args_list]
     assert attempted == ["gpt-5-codex", "gpt-5.4"]
@@ -169,14 +182,16 @@ def test_codex_sdk_planner_adapter_records_session_metadata(monkeypatch, tmp_pat
             metadata={},
         ),
     ) as mock_run:
-        response = generate_planner_text(PlannerRequest(
-            prompt="Need plan",
-            system_prompt="Plan well",
-            cwd=tmp_path,
-            output_path=output_path,
-            resume_session_id="thread-old",
-            metadata=metadata,
-        ))
+        response = generate_planner_text(
+            PlannerRequest(
+                prompt="Need plan",
+                system_prompt="Plan well",
+                cwd=tmp_path,
+                output_path=output_path,
+                resume_session_id="thread-old",
+                metadata=metadata,
+            )
+        )
 
     assert isinstance(CodexSdkPlannerAdapter(), CodexSdkPlannerAdapter)
     assert response.text == "Codex SDK plan"

@@ -1,20 +1,13 @@
 import io
-import json
 import urllib.error
 import urllib.parse
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 
 from server.database import (
     RequirementRow,
     SocialAccountRow,
-    SocialPostDraftRow,
-    SocialPostMetricRow,
-    SocialReplyItemRow,
-    SocialRepostCandidateRow,
-    SocialTrendItemRow,
-    SocialWatchlistAccountRow,
     utcnow,
     WorkflowRunRow,
 )
@@ -87,7 +80,12 @@ class FakeXReadClient:
                 text="AI agents are starting to need reliable API access, budget controls, payment rails, and developer infrastructure for autonomous workflows.",
                 author_id=user_id,
                 created_at="2026-04-26T12:00:00Z",
-                public_metrics={"like_count": 120, "retweet_count": 12, "reply_count": 5, "quote_count": 3},
+                public_metrics={
+                    "like_count": 120,
+                    "retweet_count": 12,
+                    "reply_count": 5,
+                    "quote_count": 3,
+                },
             ),
             social_publishing.XPost(
                 id="tweet-short",
@@ -102,932 +100,6 @@ class FakeXReadClient:
 def _fetch_social_post(client, post_id: int) -> dict:
     rows = client.get("/api/social/posts").json()
     return next(row for row in rows if row["id"] == post_id)
-
-
-def test_x_social_daily_content_planner_creates_one_human_review_draft_per_local_day(monkeypatch, db_session):
-    calls = []
-
-    def fake_generate(prompt, *, style_type=None, media_mode=None):
-        calls.append({"prompt": prompt, "style_type": style_type, "media_mode": media_mode})
-        return social_publishing.GeneratedXPost(
-            title="Daily Synapse Network update",
-            body_text="AI agents need trusted payment rails. Synapse Network helps builders give agents governed API access, budgets, and settlement paths. #AIAgents #AgentEconomy",
-            media_decision="text",
-            context_sources=("product-marketing-context", "social-content"),
-            model="test-model",
-        )
-
-    monkeypatch.setattr(social_publishing, "_generate_x_post_copy", fake_generate)
-    monkeypatch.setattr(
-        social_publishing.x_publisher,
-        "publish_text",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("daily planner must not publish to X")),
-    )
-
-    result = social_publishing.run_x_social_daily_content_planner(db_session)
-
-    assert result["already_created"] is False
-    assert result["created_post_id"]
-    assert result["status"] == "needs_review"
-    assert calls and calls[0]["media_mode"] == "text_only"
-    row = db_session.get(SocialPostDraftRow, result["created_post_id"])
-    assert row is not None
-    assert row.source_type == "daily_planner"
-    assert row.generated_by == "x_social_daily_content_planner"
-    raw = social_publishing._json_loads(row.raw_agent_output_json, {})
-    assert raw["planner_local_date"] == result["planner_local_date"]
-    assert raw["planner_run_key"] == result["planner_run_key"]
-    assert raw["watchlist_handles"]
-
-    second = social_publishing.run_x_social_daily_content_planner(db_session)
-
-    assert second["already_created"] is True
-    assert second["existing_post_id"] == result["created_post_id"]
-    assert db_session.query(SocialPostDraftRow).filter(SocialPostDraftRow.source_type == "daily_planner").count() == 1
-
-
-def test_x_social_trend_and_repost_sweeps_are_filtered_and_human_gated(db_session):
-    social_publishing.ensure_default_social_account(db_session)
-    db_session.add_all(
-        [
-            SocialTrendItemRow(
-                topic="High quality agent payment discussion",
-                summary="Agent builders are discussing budgeted API calls and tool access.",
-                relevance_score=0.91,
-                status="new",
-                source_url="https://x.com/example/status/1",
-                author_handle="agent_builder",
-            ),
-            SocialTrendItemRow(
-                topic="Low quality meme",
-                summary="Unrelated low-signal meme.",
-                relevance_score=0.20,
-                status="new",
-            ),
-        ]
-    )
-    db_session.commit()
-
-    trend_result = social_publishing.run_x_social_trend_radar_sweep(db_session, min_relevance_score=0.70)
-
-    assert trend_result["read_only"] is True
-    assert trend_result["external_actions"] == []
-    assert trend_result["retained_count"] >= 1
-    assert trend_result["filtered_count"] >= 1
-
-    repost_result = social_publishing.run_x_social_repost_candidate_sweep(db_session, min_relevance_score=0.75)
-
-    assert repost_result["human_gate_required"] is True
-    assert repost_result["external_actions"] == []
-    assert repost_result["created_candidate_ids"]
-    candidate = db_session.get(SocialRepostCandidateRow, repost_result["created_candidate_ids"][0])
-    assert candidate is not None
-    assert candidate.status == "candidate"
-    assert "Synapse angle" in candidate.suggested_quote
-
-
-def test_x_social_trend_radar_syncs_due_watchlist_from_x(monkeypatch, db_session):
-    social_publishing.ensure_default_social_account(db_session)
-    social_publishing.ensure_default_social_ops_seed(db_session)
-    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
-    db_session.add(
-        SocialWatchlistAccountRow(
-            platform="x",
-            handle="ExampleAI",
-            display_name="Example AI",
-            category="agent_framework",
-            rationale="Relevant agent infrastructure account.",
-            status="active",
-            last_checked_at=None,
-        )
-    )
-    db_session.commit()
-
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-    monkeypatch.setattr(social_publishing, "XApiClient", FakeXReadClient)
-
-    result = social_publishing.run_x_social_trend_radar_sweep(db_session, min_relevance_score=0.70)
-
-    assert result["connector"] == "x_watchlist_timeline"
-    assert result["x_read_connector_configured"] is True
-    assert result["created_trend_ids"]
-    assert result["skipped_short_text_count"] >= 1
-    trend = db_session.get(SocialTrendItemRow, result["created_trend_ids"][0])
-    assert trend is not None
-    assert trend.source_url == "https://x.com/ExampleAI/status/tweet-1"
-    assert trend.author_handle == "ExampleAI"
-    assert "Public metrics" in trend.summary
-
-
-def test_x_social_trend_radar_records_rate_limit_without_retrying(monkeypatch, db_session):
-    social_publishing.ensure_default_social_account(db_session)
-    social_publishing.ensure_default_social_ops_seed(db_session)
-    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
-    db_session.add(
-        SocialWatchlistAccountRow(
-            platform="x",
-            handle="RateLimitedAI",
-            category="ai_company",
-            status="active",
-            last_checked_at=None,
-        )
-    )
-    db_session.commit()
-
-    class RateLimitedClient:
-        def __init__(self, access_token: str):
-            self.access_token = access_token
-
-        def get_user_by_username(self, username: str):
-            raise social_publishing.XApiRateLimitError("too many requests")
-
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-    monkeypatch.setattr(social_publishing, "XApiClient", RateLimitedClient)
-
-    result = social_publishing.run_x_social_trend_radar_sweep(db_session)
-
-    assert result["rate_limited"] is True
-    assert "rate limit" in result["diagnostic"].lower()
-    account = db_session.query(SocialWatchlistAccountRow).filter(SocialWatchlistAccountRow.handle == "RateLimitedAI").one()
-    assert account.last_checked_at is not None
-
-
-def test_x_social_repost_candidate_sweep_requires_source_url(db_session):
-    social_publishing.ensure_default_social_account(db_session)
-    db_session.add_all(
-        [
-            SocialTrendItemRow(
-                topic="Local seed should not be reposted",
-                summary="Agent builders need payment rails, but this is local seed data without an X source.",
-                relevance_score=0.95,
-                status="new",
-                source_url=None,
-            ),
-            SocialTrendItemRow(
-                topic="Real X source can become repost candidate",
-                summary="Agent builders need payment rails and governed API budgets.",
-                relevance_score=0.93,
-                status="new",
-                source_url="https://x.com/example/status/2",
-                author_handle="example",
-            ),
-        ]
-    )
-    db_session.commit()
-
-    result = social_publishing.run_x_social_repost_candidate_sweep(db_session, min_relevance_score=0.75)
-
-    assert result["created_candidate_ids"]
-    candidates = db_session.query(SocialRepostCandidateRow).all()
-    assert all(candidate.source_url for candidate in candidates)
-    assert result["skipped_trend_ids"]
-
-
-def test_x_social_helper_branches_are_deterministic(monkeypatch, db_session):
-    assert social_publishing._ensure_aware_utc(datetime(2026, 1, 1)).tzinfo is not None
-    monkeypatch.setattr(social_publishing.config, "OPERATOR_TIMEZONE", "Invalid/Zone")
-    assert social_publishing._operator_timezone().key == "UTC"
-
-    post = SocialPostDraftRow(
-        platform="x",
-        account_id=1,
-        title="Bad metadata",
-        body_text="metadata",
-        raw_agent_output_json="[]",
-    )
-    assert social_publishing._daily_planner_raw_metadata(post) == {}
-    assert social_publishing._parse_x_datetime(None).tzinfo is not None
-    assert social_publishing._parse_x_datetime("not-a-date").tzinfo is not None
-    assert social_publishing._parse_x_datetime("2026-04-27T00:00:00").tzinfo is None
-    assert social_publishing._x_engagement_score({}) == 0.0
-    assert social_publishing._gcp_adc_reauth_summary().startswith("Local Google credentials expired")
-    assert social_publishing._extract_x_post_id(None) == ""
-    assert social_publishing._extract_x_post_id("https://x.com/OpenAI/status/12345") == "12345"
-    assert social_publishing._extract_x_post_id("https://x.com/i/web/statuses/23456") == "23456"
-    assert social_publishing._extract_x_post_id("https://example.com/share?tweet_id=34567") == "34567"
-    assert social_publishing._extract_x_post_id("https://example.com/no-id") == ""
-    assert "governed access" in social_publishing._reply_generation_for_candidate(
-        SocialRepostCandidateRow(source_text="Agentic APIs and developer infrastructure need reliable tools.")
-    )[0]
-    assert "Better models" in social_publishing._reply_generation_for_candidate(
-        SocialRepostCandidateRow(source_text="Frontier model inference and coding agents keep improving.")
-    )[0]
-    assert "Useful signal" in social_publishing._reply_generation_for_candidate(
-        SocialRepostCandidateRow(source_text="A broad ecosystem update without obvious keywords.")
-    )[0]
-
-    watch = SocialWatchlistAccountRow(handle="TimezoneAI", last_checked_at=datetime.now(timezone.utc))
-    assert social_publishing._is_due_for_x_watchlist_sync(watch, datetime.now(timezone.utc)) is False
-    short_post = social_publishing.XPost(id="short", text="Tiny")
-    assert social_publishing._should_keep_x_post(short_post, 1.0, min_relevance_score=0.1) is False
-    assert social_publishing._is_value_add_quote("Great point!", "AI agents need payments") is False
-    assert social_publishing._is_value_add_quote(
-        "AI agents need payment rails. Synapse adds budgets and governed API access for builders.",
-        "AI agents need payment rails.",
-    ) is False
-
-    social_publishing.ensure_default_social_ops_seed(db_session)
-    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
-    db_session.commit()
-    result = social_publishing._sync_x_watchlist_timeline_posts(db_session, min_relevance_score=0.70)
-    assert result["due_watchlist_count"] == 0
-
-
-def test_x_social_trend_radar_handles_auth_failure_as_diagnostic(monkeypatch, db_session):
-    social_publishing.ensure_default_social_account(db_session)
-    social_publishing.ensure_default_social_ops_seed(db_session)
-    db_session.query(SocialWatchlistAccountRow).update({SocialWatchlistAccountRow.last_checked_at: utcnow()})
-    db_session.add(
-        SocialWatchlistAccountRow(
-            platform="x",
-            handle="AuthFailAI",
-            category="ai_company",
-            status="active",
-            last_checked_at=None,
-        )
-    )
-    db_session.commit()
-
-    class AuthFailClient:
-        def __init__(self, access_token: str):
-            self.access_token = access_token
-
-        def get_user_by_username(self, username: str):
-            raise social_publishing.XApiAuthError("auth failed")
-
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-    monkeypatch.setattr(social_publishing, "XApiClient", AuthFailClient)
-
-    result = social_publishing.run_x_social_trend_radar_sweep(db_session)
-
-    assert result["x_read_connector_configured"] is True
-    assert "auth failed" in result["diagnostic"]
-
-
-def test_social_draft_create_does_not_call_x_api(monkeypatch, synced_client):
-    called = False
-
-    def fail_publish(*args, **kwargs):
-        nonlocal called
-        called = True
-        raise AssertionError("draft creation must not publish to X")
-
-    monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fail_publish)
-
-    accounts = synced_client.get("/api/social/accounts")
-    assert accounts.status_code == 200
-    account_id = accounts.json()[0]["id"]
-
-    response = synced_client.post(
-        "/api/social/posts",
-        json={
-            "account_id": account_id,
-            "title": "Operator update",
-            "body_text": "We are building the Synapse human-agent ops control plane in public.",
-            "generated_by": "planner_agent_v1",
-            "target_audience": "builders",
-            "cta": "Follow for shipping notes",
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "needs_review"
-    assert payload["source_type"] == "manual_prompt"
-    assert payload["policy_check"]["status"] == "passed"
-    assert payload["external_post_id"] is None
-    assert called is False
-
-
-def test_social_post_detail_returns_events_and_publish_result(monkeypatch, synced_client):
-    monkeypatch.setattr(
-        social_publishing.x_publisher,
-        "publish_text",
-        lambda account, body_text, media_ids=None: social_publishing.XPublishResult(
-            post_id="1801",
-            response_summary={"data": {"id": "1801"}},
-        ),
-    )
-    created = synced_client.post(
-        "/api/social/posts",
-        json={
-            "title": "Operator update",
-            "body_text": "Synapse Network now has a human-reviewed X publishing workflow.",
-            "status": "approved",
-        },
-    ).json()
-
-    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
-    assert published.status_code == 200
-
-    detail = synced_client.get(f"/api/social/posts/{created['id']}")
-    assert detail.status_code == 200
-    payload = detail.json()
-    assert payload["id"] == created["id"]
-    assert payload["external_post_id"] == "1801"
-    assert payload["external_url"].endswith("/status/1801")
-    event_types = [event["event_type"] for event in payload["events"]]
-    assert "draft_created" in event_types
-    assert "publish_requested" in event_types
-    assert "published" in event_types
-    assert payload["events"][-1]["payload"]["external_post_id"] == "1801"
-
-
-def test_social_post_detail_missing_returns_404(synced_client):
-    response = synced_client.get("/api/social/posts/999999")
-
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"]
-
-
-def test_social_ops_center_projection_is_human_gated_and_read_only(synced_client, db_session):
-    overview = synced_client.get("/api/social/ops/overview")
-    assert overview.status_code == 200
-    assert overview.json()["human_gate_required"] is True
-
-    goals = synced_client.get("/api/social/campaign-goals")
-    assert goals.status_code == 200
-    assert goals.json()
-    assert "Synapse Network" in goals.json()[0]["title"]
-
-    trends = synced_client.get("/api/social/trends")
-    assert trends.status_code == 200
-    assert trends.json()[0]["topic"]
-
-    watchlist = synced_client.get("/api/social/watchlist")
-    assert watchlist.status_code == 200
-    assert any(row["handle"] == "LangChainAI" for row in watchlist.json())
-
-    db_session.add(
-        SocialReplyItemRow(
-            external_reply_id="reply-1",
-            author_handle="builder",
-            incoming_text="How do agents pay APIs?",
-            intent="technical_question",
-            suggested_reply="Synapse gives agents budgeted API access with human-governed official replies.",
-        )
-    )
-    db_session.add(
-        SocialRepostCandidateRow(
-            author_handle="agent_builder",
-            source_text="Agents need safer API budgets.",
-            suggested_quote="This is exactly the M2M payment gap Synapse is built for.",
-            relevance_score=0.91,
-        )
-    )
-    db_session.add(
-        SocialPostMetricRow(
-            external_post_id="post-1",
-            impressions=1200,
-            likes=42,
-            replies=5,
-            link_clicks=9,
-            summary="Good developer engagement.",
-        )
-    )
-    db_session.commit()
-
-    replies = synced_client.get("/api/social/replies")
-    reposts = synced_client.get("/api/social/repost-candidates")
-    metrics = synced_client.get("/api/social/post-metrics")
-
-    assert replies.status_code == 200
-    assert replies.json()[0]["status"] == "needs_review"
-    assert reposts.status_code == 200
-    assert reposts.json()[0]["suggested_quote"]
-    assert metrics.status_code == 200
-    assert metrics.json()[0]["impressions"] == 1200
-
-
-def test_social_trend_query_filters_and_detail_endpoint(synced_client, db_session):
-    now = utcnow()
-    old = now - timedelta(days=10)
-    db_session.add_all(
-        [
-            SocialTrendItemRow(
-                source_platform="x",
-                source_url="https://x.com/OpenAI/status/4242",
-                author_handle="OpenAI",
-                topic="synapse-query-marker AI agents need payment rails",
-                summary="A high-signal X post about agent payment infrastructure.",
-                relevance_score=0.93,
-                status="new",
-                collected_at=now,
-            ),
-            SocialTrendItemRow(
-                source_platform="x",
-                source_url=None,
-                author_handle=None,
-                topic="synapse-query-marker local seed",
-                summary="Local inspiration without a source URL.",
-                relevance_score=0.70,
-                status="saved",
-                collected_at=now,
-            ),
-            SocialTrendItemRow(
-                source_platform="rss",
-                source_url="https://example.com/agent-payments",
-                author_handle="ExampleSource",
-                topic="synapse-query-marker external article",
-                summary="Non-X source retained for future platform expansion.",
-                relevance_score=0.80,
-                status="new",
-                collected_at=old,
-            ),
-        ]
-    )
-    db_session.commit()
-
-    local_day = social_publishing._operator_local_date(now)
-    response = synced_client.get(
-        "/api/social/trends/query",
-        params={"q": "synapse-query-marker", "source_kind": "x_post", "author_handle": "@OpenAI", "date_from": local_day, "date_to": local_day},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["total"] == 1
-    assert payload["items"][0]["author_handle"] == "OpenAI"
-    assert payload["items"][0]["source_kind"] == "x_post"
-
-    local_seed = synced_client.get(
-        "/api/social/trends/query",
-        params={"q": "synapse-query-marker", "source_kind": "local_seed", "date_from": local_day, "date_to": local_day},
-    )
-
-    assert local_seed.status_code == 200
-    assert local_seed.json()["total"] == 1
-    assert local_seed.json()["items"][0]["source_kind"] == "local_seed"
-
-    all_sources = synced_client.get(
-        "/api/social/trends/query",
-        params={"q": "synapse-query-marker", "source_kind": "all", "limit": 10, "offset": 0},
-    )
-    assert all_sources.status_code == 200
-    assert all_sources.json()["total"] == 3
-
-    other_source = synced_client.get(
-        "/api/social/trends/query",
-        params={"q": "synapse-query-marker", "source_kind": "other"},
-    )
-    assert other_source.status_code == 200
-    assert other_source.json()["total"] == 1
-    assert other_source.json()["items"][0]["source_kind"] == "other"
-
-    invalid_date = synced_client.get("/api/social/trends/query", params={"date_from": "not-a-date"})
-    assert invalid_date.status_code == 400
-    assert "invalid date filter" in invalid_date.json()["detail"]
-
-    invalid_source = synced_client.get("/api/social/trends/query", params={"source_kind": "bluesky"})
-    assert invalid_source.status_code == 400
-    assert "unsupported source_kind" in invalid_source.json()["detail"]
-
-    detail_id = payload["items"][0]["id"]
-    detail = synced_client.get(f"/api/social/trends/{detail_id}")
-    assert detail.status_code == 200
-    assert detail.json()["source_url"] == "https://x.com/OpenAI/status/4242"
-    assert detail.json()["summary"] == "A high-signal X post about agent payment infrastructure."
-
-    missing = synced_client.get("/api/social/trends/999999")
-    assert missing.status_code == 404
-
-
-def test_repost_candidate_quote_publish_creates_human_gated_x_post(monkeypatch, synced_client, db_session):
-    captured: dict[str, str] = {}
-
-    def fake_publish(account, body_text, media_ids=None):
-        captured["handle"] = account.handle
-        captured["body_text"] = body_text
-        return social_publishing.XPublishResult(post_id="1800000000000000031", response_summary={"data": {"id": "1800000000000000031"}})
-
-    monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
-    candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/OpenAI/status/100",
-        author_handle="OpenAI",
-        source_text="AI agents increasingly need reliable tool access and payment primitives.",
-        suggested_quote="This is exactly why agent-native payment rails matter: builders need budgeted API access without manual billing glue.",
-        relevance_score=0.91,
-        status="candidate",
-    )
-    db_session.add(candidate)
-    db_session.commit()
-    db_session.refresh(candidate)
-
-    response = synced_client.post(
-        f"/api/social/repost-candidates/{candidate.id}/publish-x",
-        json={"actor": "operator", "action": "quote"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "published"
-    assert captured["handle"] == "SynapseNetworkA"
-    assert "agent-native payment rails matter" in captured["body_text"]
-    assert "https://x.com/OpenAI/status/100" in captured["body_text"]
-    post = db_session.query(SocialPostDraftRow).filter(SocialPostDraftRow.source_type == "repost_candidate").one()
-    assert post.status == "published"
-    assert post.reviewed_by == "operator"
-    raw = social_publishing._json_loads(post.raw_agent_output_json, {})
-    assert raw["repost_candidate_id"] == candidate.id
-    assert raw["repost_action"] == "quote"
-
-
-def test_x_social_reply_candidate_sweep_creates_one_human_gated_reply(db_session):
-    db_session.add_all(
-        [
-            SocialRepostCandidateRow(
-                platform="x",
-                source_url="https://x.com/NVIDIAAI/status/249",
-                author_handle="NVIDIAAI",
-                source_text="Agentic tools need reliable infrastructure for coding, APIs, and automation.",
-                suggested_quote="Agent-native infrastructure also needs payment and access rails.",
-                relevance_score=1.0,
-                status="candidate",
-            ),
-            SocialRepostCandidateRow(
-                platform="x",
-                source_url="https://x.com/OpenAI/status/250",
-                author_handle="OpenAI",
-                source_text="AI agents are getting better at reasoning and using tools.",
-                suggested_quote="As agents get better at tools, the rails around access, spend, and settlement matter more.",
-                relevance_score=0.95,
-                status="candidate",
-            ),
-        ]
-    )
-    db_session.commit()
-
-    result = social_publishing.run_x_social_reply_candidate_sweep(db_session, max_created=1)
-
-    assert result["human_gate_required"] is True
-    assert result["auto_publish"] is False
-    assert result["external_actions"] == []
-    assert len(result["created_reply_ids"]) == 1
-    reply = db_session.get(SocialReplyItemRow, result["created_reply_ids"][0])
-    assert reply is not None
-    assert reply.status == "needs_review"
-    assert reply.source_candidate_id is not None
-    assert reply.source_post_id in {"249", "250"}
-    assert reply.suggested_reply
-    assert "Great point" not in reply.suggested_reply
-    metadata = social_publishing._json_loads(reply.metadata_json, {})
-    assert metadata["human_gate_required"] is True
-    assert metadata["auto_publish"] is False
-
-
-def test_x_social_reply_candidate_sweep_skips_local_seed_and_duplicates(db_session):
-    real_candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/AnthropicAI/status/777",
-        author_handle="AnthropicAI",
-        source_text="Markets of AI agents could provide value, but there are rough edges around access and trust.",
-        suggested_quote="Agent markets need trust, budgets, and settlement rails.",
-        relevance_score=0.98,
-        status="candidate",
-    )
-    local_candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url=None,
-        author_handle="unknown",
-        source_text="Local seed only.",
-        suggested_quote="Local seed should not be replied to.",
-        relevance_score=0.99,
-        status="candidate",
-    )
-    db_session.add_all([real_candidate, local_candidate])
-    db_session.commit()
-    db_session.refresh(real_candidate)
-    db_session.add(
-        SocialReplyItemRow(
-            external_reply_id="target:777",
-            source_candidate_id=int(real_candidate.id),
-            source_url=real_candidate.source_url,
-            source_post_id="777",
-            source_author_handle="AnthropicAI",
-            source_text=real_candidate.source_text,
-            author_handle="AnthropicAI",
-            incoming_text=real_candidate.source_text,
-            suggested_reply="Already drafted.",
-            status="needs_review",
-        )
-    )
-    db_session.commit()
-
-    result = social_publishing.run_x_social_reply_candidate_sweep(db_session, max_created=1)
-
-    assert result["created_reply_ids"] == []
-    assert result["no_candidate"] is True
-    assert db_session.query(SocialReplyItemRow).count() == 1
-
-
-def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(monkeypatch, synced_client, db_session):
-    captured: dict[str, str] = {}
-
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-
-    def fake_publish_reply(account, body_text, *, in_reply_to_tweet_id):
-        captured["handle"] = account.handle
-        captured["body_text"] = body_text
-        captured["in_reply_to_tweet_id"] = in_reply_to_tweet_id
-        return social_publishing.XPublishResult(
-            post_id="1800000000000000777",
-            response_summary={"data": {"id": "1800000000000000777"}, "reply_to": in_reply_to_tweet_id},
-        )
-
-    monkeypatch.setattr(social_publishing.x_publisher, "publish_reply", fake_publish_reply)
-    candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/OpenAI/status/777",
-        author_handle="OpenAI",
-        source_text="AI agents increasingly need reliable tool access and payment primitives.",
-        suggested_quote="This is exactly why agent-native payment rails matter.",
-        relevance_score=0.91,
-        status="candidate",
-    )
-    db_session.add(candidate)
-    db_session.commit()
-    db_session.refresh(candidate)
-
-    generated = synced_client.post(f"/api/social/repost-candidates/{candidate.id}/generate-reply", json={"actor": "operator"})
-
-    assert generated.status_code == 200
-    reply = generated.json()
-    assert reply["status"] == "needs_review"
-    assert reply["source_post_id"] == "777"
-    assert reply["source_candidate_id"] == candidate.id
-
-    approved = synced_client.patch(
-        f"/api/social/replies/{reply['id']}",
-        json={"suggested_reply": "Agentic products also need governed access, budgets, and settlement rails when tools become paid services.", "status": "approved", "reviewed_by": "operator"},
-    )
-    assert approved.status_code == 200
-    published = synced_client.post(f"/api/social/replies/{reply['id']}/publish-x", json={"actor": "operator"})
-
-    assert published.status_code == 200
-    payload = published.json()
-    assert payload["status"] == "published"
-    assert payload["published_external_post_id"] == "1800000000000000777"
-    assert captured["handle"] == "SynapseNetworkA"
-    assert captured["in_reply_to_tweet_id"] == "777"
-    assert "governed access" in captured["body_text"]
-    db_session.refresh(candidate)
-    assert candidate.status == "replied"
-
-
-def test_reply_generation_edge_cases_and_api_errors(synced_client, db_session, monkeypatch):
-    local_candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url=None,
-        author_handle="unknown",
-        source_text="Local seed only.",
-        suggested_quote="Local seed.",
-        relevance_score=0.9,
-        status="candidate",
-    )
-    bad_url_candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/OpenAI",
-        author_handle="OpenAI",
-        source_text="Missing tweet id.",
-        suggested_quote="Missing tweet id.",
-        relevance_score=0.9,
-        status="candidate",
-    )
-    published_candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/OpenAI/status/999",
-        author_handle="OpenAI",
-        source_text="Already handled.",
-        suggested_quote="Already handled.",
-        relevance_score=0.9,
-        status="published",
-    )
-    db_session.add_all([local_candidate, bad_url_candidate, published_candidate])
-    db_session.commit()
-    db_session.refresh(local_candidate)
-    db_session.refresh(bad_url_candidate)
-    db_session.refresh(published_candidate)
-
-    assert synced_client.post("/api/social/repost-candidates/999999/generate-reply", json={"actor": "operator"}).status_code == 404
-    assert synced_client.post(f"/api/social/repost-candidates/{local_candidate.id}/generate-reply", json={"actor": "operator"}).status_code == 400
-    assert synced_client.post(f"/api/social/repost-candidates/{bad_url_candidate.id}/generate-reply", json={"actor": "operator"}).status_code == 400
-    assert synced_client.post(f"/api/social/repost-candidates/{published_candidate.id}/generate-reply", json={"actor": "operator"}).status_code == 400
-    assert synced_client.patch("/api/social/replies/999999", json={"status": "approved"}).status_code == 404
-    assert synced_client.post("/api/social/replies/999999/publish-x", json={"actor": "operator"}).status_code == 404
-
-    candidate = SocialRepostCandidateRow(
-        platform="x",
-        source_url="https://x.com/OpenAI/status/555",
-        author_handle="OpenAI",
-        source_text="AI agents increasingly need reliable tool access and payment primitives.",
-        suggested_quote="Agent-native infrastructure needs payment and access rails.",
-        relevance_score=0.91,
-        status="candidate",
-    )
-    db_session.add(candidate)
-    db_session.commit()
-    db_session.refresh(candidate)
-    first = social_publishing._create_reply_from_repost_candidate(db_session, candidate, actor="test")
-    second = social_publishing._create_reply_from_repost_candidate(db_session, candidate, actor="test")
-    assert second.id == first.id
-
-    reply = SocialReplyItemRow(
-        external_reply_id="target:556",
-        source_url="https://x.com/OpenAI/status/556",
-        source_post_id="556",
-        incoming_text="Agents need payments.",
-        suggested_reply="Safe reply.",
-        status="needs_review",
-    )
-    db_session.add(reply)
-    db_session.commit()
-    db_session.refresh(reply)
-    assert synced_client.patch(f"/api/social/replies/{reply.id}", json={"status": "unknown"}).status_code == 400
-    blocked = synced_client.patch(
-        f"/api/social/replies/{reply.id}",
-        json={"suggested_reply": "Guaranteed risk-free profit if you send funds.", "status": "approved", "reviewed_by": "operator", "review_note": "unsafe"},
-    )
-    assert blocked.status_code == 200
-    assert blocked.json()["status"] == "failed"
-    assert blocked.json()["metadata"]["review_note"] == "unsafe"
-    fixed = synced_client.patch(
-        f"/api/social/replies/{reply.id}",
-        json={"suggested_reply": "Agentic systems need governed payment rails for API access.", "status": "failed", "reviewed_by": "operator"},
-    )
-    assert fixed.status_code == 200
-    assert fixed.json()["status"] == "needs_review"
-    assert fixed.json()["failure_summary"] is None
-    assert synced_client.patch(f"/api/social/replies/{reply.id}", json={"status": "published"}).status_code == 400
-
-    published_reply = SocialReplyItemRow(
-        external_reply_id="1801",
-        source_url="https://x.com/OpenAI/status/557",
-        source_post_id="557",
-        incoming_text="Agents need payments.",
-        suggested_reply="Already published.",
-        status="published",
-    )
-    db_session.add(published_reply)
-    db_session.commit()
-    db_session.refresh(published_reply)
-    assert synced_client.patch(f"/api/social/replies/{published_reply.id}", json={"status": "approved"}).status_code == 400
-
-    def create_raises(*_args, **_kwargs):
-        raise ValueError("boom")
-
-    monkeypatch.setattr(social_publishing, "_create_reply_from_repost_candidate", create_raises)
-    result = social_publishing.run_x_social_reply_candidate_sweep(db_session, max_created=1)
-    assert result["created_reply_ids"] == []
-    assert result["skipped_candidate_ids"]
-
-
-def test_publish_social_reply_validation_edges(monkeypatch, synced_client, db_session):
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-
-    non_x = SocialReplyItemRow(
-        platform="linkedin",
-        external_reply_id="target:1",
-        source_post_id="1",
-        incoming_text="External post.",
-        suggested_reply="Safe reply.",
-        status="approved",
-    )
-    settled = SocialReplyItemRow(
-        external_reply_id="target:2",
-        source_post_id="2",
-        incoming_text="External post.",
-        suggested_reply="Safe reply.",
-        status="published",
-    )
-    empty_text = SocialReplyItemRow(
-        external_reply_id="target:3",
-        source_post_id="3",
-        incoming_text="External post.",
-        suggested_reply="",
-        status="approved",
-    )
-    missing_source = SocialReplyItemRow(
-        external_reply_id="target:4",
-        incoming_text="External post.",
-        suggested_reply="Safe reply.",
-        status="approved",
-    )
-    blocked = SocialReplyItemRow(
-        external_reply_id="target:5",
-        source_post_id="5",
-        incoming_text="External post.",
-        suggested_reply="Guaranteed risk-free profit if you send funds.",
-        status="approved",
-    )
-    db_session.add_all([non_x, settled, empty_text, missing_source, blocked])
-    db_session.commit()
-    for row in [non_x, settled, empty_text, missing_source, blocked]:
-        db_session.refresh(row)
-
-    assert synced_client.post(f"/api/social/replies/{non_x.id}/publish-x", json={"actor": "operator"}).status_code == 400
-    assert synced_client.post(f"/api/social/replies/{settled.id}/publish-x", json={"actor": "operator"}).status_code == 400
-    assert synced_client.post(f"/api/social/replies/{empty_text.id}/publish-x", json={"actor": "operator"}).status_code == 400
-    assert synced_client.post(f"/api/social/replies/{missing_source.id}/publish-x", json={"actor": "operator"}).status_code == 400
-    blocked_response = synced_client.post(f"/api/social/replies/{blocked.id}/publish-x", json={"actor": "operator"})
-    assert blocked_response.status_code == 200
-    assert blocked_response.json()["status"] == "failed"
-    assert "Blocked:" in blocked_response.json()["failure_summary"]
-
-
-def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
-    account = SocialAccountRow(platform="x", handle="SynapseNetworkA", secret_ref="x-official", status="active")
-    requests: list[dict[str, object]] = []
-
-    class FakeResponse:
-        def __init__(self, payload: str):
-            self.payload = payload
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-        def read(self, _limit=None):
-            return self.payload.encode("utf-8")
-
-    monkeypatch.setattr(social_publishing, "_read_secret_token", lambda _secret_ref: "short-lived-token")
-
-    def ok_urlopen(request, timeout):
-        requests.append(json.loads(request.data.decode("utf-8")))
-        return FakeResponse('{"data":{"id":"reply-123"}}')
-
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", ok_urlopen)
-    result = social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-    assert result.post_id == "reply-123"
-    assert requests[0]["text"] == "Helpful reply"
-    assert requests[0]["reply"] == {"in_reply_to_tweet_id": "123"}
-
-    with pytest.raises(social_publishing.SocialPublishError, match="target tweet id"):
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="")
-    def missing_id_urlopen(_request, timeout):
-        return FakeResponse('{"data":{}}')
-
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", missing_id_urlopen)
-    with pytest.raises(social_publishing.SocialPublishError, match="did not include"):
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-
-    def http_error(code: int):
-        def _raise(_request, timeout):
-            raise urllib.error.HTTPError("https://api.x.com/2/tweets", code, "error", {}, io.BytesIO(b"x error"))
-
-        return _raise
-
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(403))
-    with pytest.raises(social_publishing.SocialPublishError, match="authentication failed") as auth_error:
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-    assert auth_error.value.kind == "x_reply_auth_failed"
-    assert "tweet.write" in auth_error.value.summary and "x error" in auth_error.value.summary
-
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(429))
-    with pytest.raises(social_publishing.SocialPublishError, match="rate limit"):
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", http_error(500))
-    with pytest.raises(social_publishing.SocialPublishError, match="HTTP 500"):
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-
-    def generic_error(_request, timeout):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", generic_error)
-    with pytest.raises(social_publishing.SocialPublishError, match="network down"):
-        social_publishing.XApiPublisher().publish_reply(account, "Helpful reply", in_reply_to_tweet_id="123")
-
-
-def test_publish_social_reply_auth_failure_is_diagnostic(monkeypatch, synced_client, db_session):
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "get_access_token", lambda *_args, **_kwargs: FakeXAccessToken())
-
-    def fail_publish_reply(*_args, **_kwargs):
-        raise social_publishing.SocialPublishError("x_reply_auth_failed", "X reply authentication failed. Reconnect the X official account.")
-
-    monkeypatch.setattr(social_publishing.x_publisher, "publish_reply", fail_publish_reply)
-    reply = SocialReplyItemRow(
-        external_reply_id="target:888",
-        source_url="https://x.com/OpenAI/status/888",
-        source_post_id="888",
-        source_author_handle="OpenAI",
-        source_text="Agents need reliable tool access.",
-        author_handle="OpenAI",
-        incoming_text="Agents need reliable tool access.",
-        suggested_reply="Agentic systems need governed access and settlement rails as tool usage becomes paid.",
-        status="approved",
-    )
-    db_session.add(reply)
-    db_session.commit()
-    db_session.refresh(reply)
-
-    response = synced_client.post(f"/api/social/replies/{reply.id}/publish-x", json={"actor": "operator"})
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "failed"
-    assert "authentication failed" in payload["failure_summary"] and "Reconnect" in payload["failure_summary"]
-    assert payload["metadata"]["publish_failure_kind"] == "x_reply_auth_failed"
 
 
 def test_default_social_account_migrates_legacy_token_ref(db_session):
@@ -1076,7 +148,9 @@ def test_social_campaign_goal_requires_title_and_objective(synced_client):
     assert "title and objective" in response.json()["detail"]
 
 
-def test_agent_prompt_generates_publish_ready_draft_without_publishing(monkeypatch, synced_client):
+def test_agent_prompt_generates_publish_ready_draft_without_publishing(
+    monkeypatch, synced_client
+):
     called = False
 
     def fail_publish(*args, **kwargs):
@@ -1085,7 +159,9 @@ def test_agent_prompt_generates_publish_ready_draft_without_publishing(monkeypat
         raise AssertionError("Agent draft generation must not publish to X")
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fail_publish)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1124,7 +200,9 @@ def test_agent_prompt_generates_publish_ready_draft_without_publishing(monkeypat
 def test_text_only_media_mode_does_not_create_media_asset(monkeypatch, synced_client):
     image_generator = FakeImageGenerator()
     monkeypatch.setattr(social_publishing, "image_generator", image_generator)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1135,7 +213,11 @@ def test_text_only_media_mode_does_not_create_media_asset(monkeypatch, synced_cl
 
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"prompt": "Write an update.", "media_mode": "text_only", "actor": "operator"},
+        json={
+            "prompt": "Write an update.",
+            "media_mode": "text_only",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1147,10 +229,14 @@ def test_text_only_media_mode_does_not_create_media_asset(monkeypatch, synced_cl
     assert payload["raw_agent_output"]["media_decision"] == "text"
 
 
-def test_auto_media_mode_creates_image_asset_when_agent_decides_image(monkeypatch, synced_client):
+def test_auto_media_mode_creates_image_asset_when_agent_decides_image(
+    monkeypatch, synced_client
+):
     image_generator = FakeImageGenerator()
     monkeypatch.setattr(social_publishing, "image_generator", image_generator)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1161,7 +247,11 @@ def test_auto_media_mode_creates_image_asset_when_agent_decides_image(monkeypatc
 
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"prompt": "Write a launch update with a visual if useful.", "media_mode": "auto", "actor": "operator"},
+        json={
+            "prompt": "Write a launch update with a visual if useful.",
+            "media_mode": "auto",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1176,9 +266,15 @@ def test_auto_media_mode_creates_image_asset_when_agent_decides_image(monkeypatc
     assert image_generator.calls[0]["prompt"].startswith("A polished dark SaaS visual")
 
 
-def test_image_generation_failure_blocks_publish_until_removed_or_regenerated(monkeypatch, synced_client):
-    monkeypatch.setattr(social_publishing, "image_generator", FakeImageGenerator(fail=True))
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+def test_image_generation_failure_blocks_publish_until_removed_or_regenerated(
+    monkeypatch, synced_client
+):
+    monkeypatch.setattr(
+        social_publishing, "image_generator", FakeImageGenerator(fail=True)
+    )
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1189,7 +285,11 @@ def test_image_generation_failure_blocks_publish_until_removed_or_regenerated(mo
 
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"prompt": "Write a launch update with a visual.", "media_mode": "image_required", "actor": "operator"},
+        json={
+            "prompt": "Write a launch update with a visual.",
+            "media_mode": "image_required",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1198,7 +298,9 @@ def test_image_generation_failure_blocks_publish_until_removed_or_regenerated(mo
     assert payload["media_assets"][0]["status"] == "failed"
     assert "quota exhausted" in payload["media_assets"][0]["failure_summary"]
 
-    publish = synced_client.post(f"/api/social/posts/{payload['id']}/publish-x", json={"actor": "operator"})
+    publish = synced_client.post(
+        f"/api/social/posts/{payload['id']}/publish-x", json={"actor": "operator"}
+    )
     assert publish.status_code == 400
     assert "image media failed" in publish.json()["detail"]
 
@@ -1206,7 +308,9 @@ def test_image_generation_failure_blocks_publish_until_removed_or_regenerated(mo
 def test_media_preview_regenerate_and_remove_endpoints(monkeypatch, synced_client):
     image_generator = FakeImageGenerator()
     monkeypatch.setattr(social_publishing, "image_generator", image_generator)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1217,7 +321,11 @@ def test_media_preview_regenerate_and_remove_endpoints(monkeypatch, synced_clien
 
     created = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"prompt": "Write a launch update with a visual.", "media_mode": "image_required", "actor": "operator"},
+        json={
+            "prompt": "Write a launch update with a visual.",
+            "media_mode": "image_required",
+            "actor": "operator",
+        },
     ).json()
     payload = _fetch_social_post(synced_client, created["id"])
     asset = payload["media_assets"][0]
@@ -1226,21 +334,43 @@ def test_media_preview_regenerate_and_remove_endpoints(monkeypatch, synced_clien
     assert preview.status_code == 200
     assert preview.content == b"fake-image"
 
-    regenerated = synced_client.post(f"/api/social/posts/{created['id']}/regenerate-image", json={"actor": "operator"})
+    regenerated = synced_client.post(
+        f"/api/social/posts/{created['id']}/regenerate-image",
+        json={"actor": "operator"},
+    )
     assert regenerated.status_code == 200
     regenerated_payload = regenerated.json()
-    assert len([item for item in regenerated_payload["media_assets"] if item["status"] != "removed"]) == 1
+    assert (
+        len(
+            [
+                item
+                for item in regenerated_payload["media_assets"]
+                if item["status"] != "removed"
+            ]
+        )
+        == 1
+    )
 
-    active_asset = next(item for item in regenerated_payload["media_assets"] if item["status"] != "removed")
-    removed = synced_client.delete(f"/api/social/posts/{created['id']}/media/{active_asset['id']}")
+    active_asset = next(
+        item
+        for item in regenerated_payload["media_assets"]
+        if item["status"] != "removed"
+    )
+    removed = synced_client.delete(
+        f"/api/social/posts/{created['id']}/media/{active_asset['id']}"
+    )
     assert removed.status_code == 200
     assert all(item["status"] == "removed" for item in removed.json()["media_assets"])
 
 
-def test_manual_image_upload_replaces_active_media_and_supports_preview(monkeypatch, synced_client):
+def test_manual_image_upload_replaces_active_media_and_supports_preview(
+    monkeypatch, synced_client
+):
     image_generator = FakeImageGenerator()
     monkeypatch.setattr(social_publishing, "image_generator", image_generator)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1250,7 +380,11 @@ def test_manual_image_upload_replaces_active_media_and_supports_preview(monkeypa
     )
     created = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"prompt": "Write a launch update with a visual.", "media_mode": "image_required", "actor": "operator"},
+        json={
+            "prompt": "Write a launch update with a visual.",
+            "media_mode": "image_required",
+            "actor": "operator",
+        },
     ).json()
     before = _fetch_social_post(synced_client, created["id"])
     assert before["media_assets"][0]["status"] == "ready"
@@ -1264,18 +398,26 @@ def test_manual_image_upload_replaces_active_media_and_supports_preview(monkeypa
 
     assert upload.status_code == 200
     payload = upload.json()
-    active_assets = [asset for asset in payload["media_assets"] if asset["status"] != "removed"]
-    removed_assets = [asset for asset in payload["media_assets"] if asset["status"] == "removed"]
+    active_assets = [
+        asset for asset in payload["media_assets"] if asset["status"] != "removed"
+    ]
+    removed_assets = [
+        asset for asset in payload["media_assets"] if asset["status"] == "removed"
+    ]
     assert len(active_assets) == 1
     assert removed_assets
     assert active_assets[0]["status"] == "ready"
     assert active_assets[0]["alt_text"] == "Operator supplied launch graphic"
     assert synced_client.get(active_assets[0]["preview_url"]).content == png
-    assert any(event["event_type"] == "image_uploaded_manual" for event in payload["events"])
+    assert any(
+        event["event_type"] == "image_uploaded_manual" for event in payload["events"]
+    )
 
 
 def test_manual_image_upload_rejects_non_image_and_settled_posts(synced_client):
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe draft."}).json()
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft."}
+    ).json()
 
     bad_upload = synced_client.post(
         f"/api/social/posts/{created['id']}/media/upload",
@@ -1285,7 +427,10 @@ def test_manual_image_upload_rejects_non_image_and_settled_posts(synced_client):
     assert bad_upload.status_code == 400
     assert "image" in bad_upload.json()["detail"]
 
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "rejected", "reviewed_by": "operator"})
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "rejected", "reviewed_by": "operator"},
+    )
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
     settled_upload = synced_client.post(
         f"/api/social/posts/{created['id']}/media/upload",
@@ -1301,41 +446,86 @@ def test_manual_image_upload_validation_edge_cases():
     assert social_publishing._image_extension(None, "image/webp", b"") == ".webp"
     assert social_publishing._image_extension(None, "image/gif", b"") == ".gif"
     assert social_publishing._image_extension(None, "", b"\xff\xd8\xfffake") == ".jpg"
-    assert social_publishing._image_extension(None, "", b"\x89PNG\r\n\x1a\nfake") == ".png"
+    assert (
+        social_publishing._image_extension(None, "", b"\x89PNG\r\n\x1a\nfake") == ".png"
+    )
     assert social_publishing._image_extension(None, "", b"GIF89afake") == ".gif"
     assert social_publishing._image_extension(None, "", b"RIFFxxxxWEBPfake") == ".webp"
     with pytest.raises(ValueError, match="empty"):
         social_publishing._validate_uploaded_image("launch.png", "image/png", b"")
     with pytest.raises(ValueError, match="8MB"):
-        social_publishing._validate_uploaded_image("launch.png", "image/png", b"x" * (8 * 1024 * 1024 + 1))
+        social_publishing._validate_uploaded_image(
+            "launch.png", "image/png", b"x" * (8 * 1024 * 1024 + 1)
+        )
     with pytest.raises(ValueError, match="image"):
         social_publishing._image_extension("notes.txt", "", b"not an image")
 
 
 def test_media_preview_and_regenerate_validation_errors(monkeypatch, synced_client):
     monkeypatch.setattr(social_publishing, "image_generator", FakeImageGenerator())
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe draft."}).json()
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft."}
+    ).json()
     assert synced_client.get("/api/social/media/999999/preview").status_code == 404
-    regenerated = synced_client.post(f"/api/social/posts/{created['id']}/regenerate-image", json={"actor": "operator"})
+    regenerated = synced_client.post(
+        f"/api/social/posts/{created['id']}/regenerate-image",
+        json={"actor": "operator"},
+    )
     assert regenerated.status_code == 200
-    active_asset = next(item for item in regenerated.json()["media_assets"] if item["status"] != "removed")
+    active_asset = next(
+        item
+        for item in regenerated.json()["media_assets"]
+        if item["status"] != "removed"
+    )
     assert "Synapse Network official X post" in active_asset["prompt"]
-    assert synced_client.delete(f"/api/social/posts/{created['id']}/media/999999").status_code == 404
-    assert synced_client.delete(f"/api/social/posts/{created['id']}/media/{active_asset['id']}").status_code == 200
+    assert (
+        synced_client.delete(
+            f"/api/social/posts/{created['id']}/media/999999"
+        ).status_code
+        == 404
+    )
+    assert (
+        synced_client.delete(
+            f"/api/social/posts/{created['id']}/media/{active_asset['id']}"
+        ).status_code
+        == 200
+    )
 
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
     monkeypatch.setattr(
         social_publishing.x_publisher,
         "publish_text",
-        lambda account, body_text: social_publishing.XPublishResult(post_id="1804", response_summary={"data": {"id": "1804"}}),
+        lambda account, body_text: social_publishing.XPublishResult(
+            post_id="1804", response_summary={"data": {"id": "1804"}}
+        ),
     )
-    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
-    assert synced_client.post(f"/api/social/posts/{published['id']}/regenerate-image", json={"actor": "operator"}).status_code == 400
-    assert synced_client.delete(f"/api/social/posts/{published['id']}/media/999999").status_code == 400
+    published = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    ).json()
+    assert (
+        synced_client.post(
+            f"/api/social/posts/{published['id']}/regenerate-image",
+            json={"actor": "operator"},
+        ).status_code
+        == 400
+    )
+    assert (
+        synced_client.delete(
+            f"/api/social/posts/{published['id']}/media/999999"
+        ).status_code
+        == 400
+    )
 
 
-def test_media_preview_rejects_missing_or_outside_files(synced_client, db_session, tmp_path):
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe draft."}).json()
+def test_media_preview_rejects_missing_or_outside_files(
+    synced_client, db_session, tmp_path
+):
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft."}
+    ).json()
     outside = tmp_path / "outside.png"
     outside.write_bytes(b"outside")
     outside_media = social_publishing.SocialPostMediaAssetRow(
@@ -1347,7 +537,10 @@ def test_media_preview_rejects_missing_or_outside_files(synced_client, db_sessio
     db_session.add(outside_media)
     db_session.commit()
 
-    assert synced_client.get(f"/api/social/media/{outside_media.id}/preview").status_code == 400
+    assert (
+        synced_client.get(f"/api/social/media/{outside_media.id}/preview").status_code
+        == 400
+    )
 
     missing = social_publishing._media_runtime_dir() / "missing-preview.png"
     missing_media = social_publishing.SocialPostMediaAssetRow(
@@ -1359,10 +552,15 @@ def test_media_preview_rejects_missing_or_outside_files(synced_client, db_sessio
     db_session.add(missing_media)
     db_session.commit()
 
-    assert synced_client.get(f"/api/social/media/{missing_media.id}/preview").status_code == 400
+    assert (
+        synced_client.get(f"/api/social/media/{missing_media.id}/preview").status_code
+        == 400
+    )
 
 
-def test_agent_prompt_uses_dedicated_social_content_provider(monkeypatch, synced_client):
+def test_agent_prompt_uses_dedicated_social_content_provider(
+    monkeypatch, synced_client
+):
     observed: dict[str, object] = {}
 
     def fake_codex_exec(**kwargs):
@@ -1379,14 +577,23 @@ def test_agent_prompt_uses_dedicated_social_content_provider(monkeypatch, synced
             json_event_count=1,
         )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex")
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex"
+    )
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex"
+    )
     monkeypatch.setattr(social_publishing, "run_codex_exec", fake_codex_exec)
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Write a concise public update.", "style_type": "technical", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Write a concise public update.",
+            "style_type": "technical",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1404,7 +611,9 @@ def test_agent_prompt_uses_dedicated_social_content_provider(monkeypatch, synced
     assert "high-trust" in str(observed["prompt"])
     assert "technical:" in str(observed["prompt"])
     assert "X Premium-style post" in str(observed["prompt"])
-    assert "Do not optimize for the old 280-character tweet format" in str(observed["prompt"])
+    assert "Do not optimize for the old 280-character tweet format" in str(
+        observed["prompt"]
+    )
     assert "2-4 relevant X hashtags" in str(observed["prompt"])
     assert "#AIAgents" in str(observed["prompt"])
     assert "Finish the post with 2-4 natural hashtags" in str(observed["prompt"])
@@ -1416,7 +625,9 @@ def test_agent_prompt_uses_dedicated_social_content_provider(monkeypatch, synced
     assert payload["raw_agent_output"]["generation_metadata"]["output_artifact"]
 
 
-def test_codex_nonzero_with_valid_json_and_noise_is_accepted(monkeypatch, synced_client):
+def test_codex_nonzero_with_valid_json_and_noise_is_accepted(
+    monkeypatch, synced_client
+):
     def fake_codex_exec(**kwargs):
         return social_publishing.CodexExecResult(
             text='{"title":"Cleanup-noise output","body_text":"Synapse staging is live for builders to review agent payment infrastructure safely."}',
@@ -1428,20 +639,31 @@ def test_codex_nonzero_with_valid_json_and_noise_is_accepted(monkeypatch, synced
             output_path=kwargs["output_path"],
         )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex"
+    )
     monkeypatch.setattr(social_publishing, "run_codex_exec", fake_codex_exec)
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Write a concise staging launch update.", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Write a concise staging launch update.",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["title"] == "Cleanup-noise output"
     assert payload["raw_agent_output"]["generation_metadata"]["exit_code"] == 1
-    assert payload["raw_agent_output"]["generation_metadata"]["nonzero_exit_with_valid_json"] is True
+    assert (
+        payload["raw_agent_output"]["generation_metadata"][
+            "nonzero_exit_with_valid_json"
+        ]
+        is True
+    )
 
 
 def test_codex_timeout_with_valid_json_artifact_is_accepted(monkeypatch, synced_client):
@@ -1456,21 +678,30 @@ def test_codex_timeout_with_valid_json_artifact_is_accepted(monkeypatch, synced_
             output_path=kwargs["output_path"],
         )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex"
+    )
     monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_TIMEOUT", 180)
     monkeypatch.setattr(social_publishing, "run_codex_exec", fake_codex_exec)
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Write a launch update for Synapse Network.", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Write a launch update for Synapse Network.",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["status"] == "approved"
     assert payload["raw_agent_output"]["generation_metadata"]["exit_code"] == 124
-    assert payload["raw_agent_output"]["generation_metadata"]["timeout_after_valid_json"] is True
+    assert (
+        payload["raw_agent_output"]["generation_metadata"]["timeout_after_valid_json"]
+        is True
+    )
 
 
 def test_codex_nonzero_without_valid_json_fails_closed(monkeypatch, synced_client):
@@ -1485,14 +716,22 @@ def test_codex_nonzero_without_valid_json_fails_closed(monkeypatch, synced_clien
             output_path=kwargs["output_path"],
         )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex")
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex"
+    )
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex"
+    )
     monkeypatch.setattr(social_publishing, "run_codex_exec", fake_codex_exec)
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Write a concise staging launch update.", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Write a concise staging launch update.",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1503,7 +742,9 @@ def test_codex_nonzero_without_valid_json_fails_closed(monkeypatch, synced_clien
     assert "output_artifact=" in payload["failure_summary"]
 
 
-def test_codex_model_compatibility_falls_back_to_supported_model(monkeypatch, synced_client):
+def test_codex_model_compatibility_falls_back_to_supported_model(
+    monkeypatch, synced_client
+):
     observed_models: list[str] = []
 
     def fake_codex_exec(**kwargs):
@@ -1528,15 +769,25 @@ def test_codex_model_compatibility_falls_back_to_supported_model(monkeypatch, sy
             output_path=kwargs["output_path"],
         )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex")
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex")
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.5,gpt-5.4")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "codex"
+    )
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-5-codex"
+    )
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.5,gpt-5.4"
+    )
     monkeypatch.setattr(social_publishing, "run_codex_exec", fake_codex_exec)
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Write a concise staging launch update.", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Write a concise staging launch update.",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1544,7 +795,11 @@ def test_codex_model_compatibility_falls_back_to_supported_model(monkeypatch, sy
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["raw_agent_output"]["requested_model"] == "gpt-5-codex"
     assert payload["raw_agent_output"]["model"] == "gpt-5.4"
-    assert payload["raw_agent_output"]["generation_metadata"]["attempted_models"] == ["gpt-5-codex", "gpt-5.5", "gpt-5.4"]
+    assert payload["raw_agent_output"]["generation_metadata"]["attempted_models"] == [
+        "gpt-5-codex",
+        "gpt-5.5",
+        "gpt-5.4",
+    ]
     assert payload["raw_agent_output"]["generation_metadata"]["fallback_used"] is True
 
 
@@ -1555,15 +810,26 @@ def test_agent_prompt_adds_launch_skill_context(monkeypatch, synced_client):
         def call(self, system, user, model, temperature, timeout):
             observed_prompts["system"] = system
             observed_prompts["user"] = user
-            return '{"title":"Staging is live","body_text":"Synapse staging is live for operators to review the agent-payment workflow before broader rollout."}', 0
+            return (
+                '{"title":"Staging is live","body_text":"Synapse staging is live for operators to review the agent-payment workflow before broader rollout."}',
+                0,
+            )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: ObservedProvider())
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: ObservedProvider()
+    )
 
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
     response = synced_client.post(
         "/api/social/posts/generate-draft",
-        json={"account_id": account_id, "prompt": "Announce the staging launch update.", "actor": "operator"},
+        json={
+            "account_id": account_id,
+            "prompt": "Announce the staging launch update.",
+            "actor": "operator",
+        },
     )
 
     assert response.status_code == 200
@@ -1576,16 +842,25 @@ def test_agent_prompt_adds_launch_skill_context(monkeypatch, synced_client):
     assert "hashtags" in observed_prompts["system"]
 
 
-def test_agent_prompt_sanitizes_internal_paths_before_provider_call(monkeypatch, synced_client):
+def test_agent_prompt_sanitizes_internal_paths_before_provider_call(
+    monkeypatch, synced_client
+):
     observed_prompts: dict[str, str] = {}
 
     class ObservedProvider:
         def call(self, system, user, model, temperature, timeout):
             observed_prompts["user"] = user
-            return '{"title":"First public update","body_text":"Synapse staging is live, and the team is preparing the first official X update for builders."}', 0
+            return (
+                '{"title":"First public update","body_text":"Synapse staging is live, and the team is preparing the first official X update for builders."}',
+                0,
+            )
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: ObservedProvider())
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: ObservedProvider()
+    )
 
     response = synced_client.post(
         "/api/social/posts/generate-draft",
@@ -1606,36 +881,50 @@ def test_agent_prompt_sanitizes_internal_paths_before_provider_call(monkeypatch,
 
 
 def test_social_generation_helper_edge_cases(monkeypatch):
-    parsed = social_publishing._parse_generated_x_post('{"title":"T","body_text":"B","media_decision":"weird"}')
+    parsed = social_publishing._parse_generated_x_post(
+        '{"title":"T","body_text":"B","media_decision":"weird"}'
+    )
     assert parsed.media_decision == "text"
-    fenced = social_publishing._parse_generated_x_post('```json\n{"title":"Fenced","body_text":"Body"}\n```')
+    fenced = social_publishing._parse_generated_x_post(
+        '```json\n{"title":"Fenced","body_text":"Body"}\n```'
+    )
     assert fenced.title == "Fenced"
-    extracted = social_publishing._parse_generated_x_post('prefix {"title":"Nested","body_text":"brace in string } ok"} suffix')
+    extracted = social_publishing._parse_generated_x_post(
+        'prefix {"title":"Nested","body_text":"brace in string } ok"} suffix'
+    )
     assert extracted.body_text == "brace in string } ok"
     with pytest.raises(ValueError, match="invalid JSON"):
-        social_publishing._parse_generated_x_post('prefix {"title": "Broken", "body_text": } suffix')
-    assert social_publishing._codex_nonzero_can_use_json(
-        social_publishing.CodexExecResult(
-            text='{"title":"T","body_text":"B"}',
-            stdout="",
-            stderr="cleanup error",
-            exit_code=1,
-            execution_time_ms=1,
-            command=["codex"],
-            output_path=None,
+        social_publishing._parse_generated_x_post(
+            'prefix {"title": "Broken", "body_text": } suffix'
         )
-    ) is True
-    assert social_publishing._codex_nonzero_can_use_json(
-        social_publishing.CodexExecResult(
-            text="not json",
-            stdout="",
-            stderr="cleanup error",
-            exit_code=1,
-            execution_time_ms=1,
-            command=["codex"],
-            output_path=None,
+    assert (
+        social_publishing._codex_nonzero_can_use_json(
+            social_publishing.CodexExecResult(
+                text='{"title":"T","body_text":"B"}',
+                stdout="",
+                stderr="cleanup error",
+                exit_code=1,
+                execution_time_ms=1,
+                command=["codex"],
+                output_path=None,
+            )
         )
-    ) is False
+        is True
+    )
+    assert (
+        social_publishing._codex_nonzero_can_use_json(
+            social_publishing.CodexExecResult(
+                text="not json",
+                stdout="",
+                stderr="cleanup error",
+                exit_code=1,
+                execution_time_ms=1,
+                command=["codex"],
+                output_path=None,
+            )
+        )
+        is False
+    )
     assert "agent economy" in social_publishing._style_guidance("visionary")
     social_publishing._validate_generated_x_post(
         "Write about API access",
@@ -1647,7 +936,9 @@ def test_social_generation_helper_edge_cases(monkeypatch):
     with pytest.raises(ValueError, match="credential-shaped"):
         social_publishing._validate_generated_x_post(
             "Write about a launch",
-            social_publishing.GeneratedXPost(title="Unsafe", body_text="api_key=sk-test-secret123456"),
+            social_publishing.GeneratedXPost(
+                title="Unsafe", body_text="api_key=sk-test-secret123456"
+            ),
         )
     with pytest.raises(ValueError, match="image_prompt_empty"):
         social_publishing._validate_image_prompt("")
@@ -1658,14 +949,20 @@ def test_social_generation_helper_edge_cases(monkeypatch):
     with pytest.raises(ValueError, match="high_risk"):
         social_publishing._validate_image_prompt("Guaranteed profit visual")
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
-        lambda provider_name=None: FakeSocialCopyProvider('{"title":"No prompt","body_text":"Safe public copy.","media_decision":"image"}'),
+        lambda provider_name=None: FakeSocialCopyProvider(
+            '{"title":"No prompt","body_text":"Safe public copy.","media_decision":"image"}'
+        ),
     )
     with pytest.raises(ValueError, match="image_prompt"):
-        social_publishing._generate_x_post_copy("Write with image", media_mode="image_required")
+        social_publishing._generate_x_post_copy(
+            "Write with image", media_mode="image_required"
+        )
 
 
 def test_openai_image_generator_success_and_failure_paths(monkeypatch):
@@ -1674,7 +971,9 @@ def test_openai_image_generator_success_and_failure_paths(monkeypatch):
     with pytest.raises(ValueError, match="unsupported provider"):
         generator.generate_image(prompt="A safe image", asset_id=501)
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_IMAGE_PROVIDER", "openai_images")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_IMAGE_PROVIDER", "openai_images"
+    )
     monkeypatch.setattr(social_publishing.config, "OPENAI_API_KEY", "")
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         generator.generate_image(prompt="A safe image", asset_id=502)
@@ -1696,14 +995,22 @@ def test_openai_image_generator_success_and_failure_paths(monkeypatch):
     monkeypatch.setattr(
         social_publishing.urllib.request,
         "urlopen",
-        lambda request, timeout: FakeImageResponse(b'{"data":[{"b64_json":"ZmFrZS1pbWFnZQ=="}]}'),
+        lambda request, timeout: FakeImageResponse(
+            b'{"data":[{"b64_json":"ZmFrZS1pbWFnZQ=="}]}'
+        ),
     )
     result = generator.generate_image(prompt="A safe image", asset_id=503)
     assert result.preview_url.endswith("/api/social/media/503/preview")
     assert "social-post-media-503.png" in result.local_path
 
     def raise_openai_http(request, timeout):
-        raise urllib.error.HTTPError("https://api.openai.com/v1/images/generations", 400, "bad", {}, io.BytesIO(b"bad request"))
+        raise urllib.error.HTTPError(
+            "https://api.openai.com/v1/images/generations",
+            400,
+            "bad",
+            {},
+            io.BytesIO(b"bad request"),
+        )
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", raise_openai_http)
     with pytest.raises(ValueError, match="HTTP 400"):
@@ -1718,7 +1025,9 @@ def test_openai_image_generator_success_and_failure_paths(monkeypatch):
         generator.generate_image(prompt="A safe image", asset_id=505)
 
 
-def test_agent_prompt_with_blocked_content_requires_revision_without_publishing(monkeypatch, synced_client):
+def test_agent_prompt_with_blocked_content_requires_revision_without_publishing(
+    monkeypatch, synced_client
+):
     called = False
 
     def fail_publish(*args, **kwargs):
@@ -1727,11 +1036,15 @@ def test_agent_prompt_with_blocked_content_requires_revision_without_publishing(
         raise AssertionError("blocked Agent draft generation must not publish to X")
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fail_publish)
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
-        lambda provider_name=None: FakeSocialCopyProvider('{"title":"Unsafe launch claim","body_text":"Guaranteed risk-free returns. Send funds now."}'),
+        lambda provider_name=None: FakeSocialCopyProvider(
+            '{"title":"Unsafe launch claim","body_text":"Guaranteed risk-free returns. Send funds now."}'
+        ),
     )
     account_id = synced_client.get("/api/social/accounts").json()[0]["id"]
 
@@ -1753,7 +1066,9 @@ def test_agent_prompt_with_blocked_content_requires_revision_without_publishing(
     assert called is False
 
 
-def test_agent_prompt_copy_retries_once_before_creating_draft(monkeypatch, synced_client):
+def test_agent_prompt_copy_retries_once_before_creating_draft(
+    monkeypatch, synced_client
+):
     prompt = "Tell people we created an X account and ask them to follow us."
     provider = SequencedSocialCopyProvider(
         [
@@ -1761,22 +1076,32 @@ def test_agent_prompt_copy_retries_once_before_creating_draft(monkeypatch, synce
             '{"title":"Synapse Network is live on X","body_text":"AI agents need a way to pay for APIs safely. Synapse Network gives them zero-gas micropayments, budget isolation, and an MCP-native path to discover and use services."}',
         ]
     )
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: provider)
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: provider
+    )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["status"] == "approved"
     assert payload["body_text"] != prompt
-    assert payload["raw_agent_output"]["generation_metadata"]["rewrite_attempted"] is True
+    assert (
+        payload["raw_agent_output"]["generation_metadata"]["rewrite_attempted"] is True
+    )
     assert len(provider.calls) == 2
     assert provider.calls[0]["temperature"] == 0.7
     assert provider.calls[1]["temperature"] == 0.3
 
 
-def test_agent_invalid_json_retries_once_before_creating_draft(monkeypatch, synced_client):
+def test_agent_invalid_json_retries_once_before_creating_draft(
+    monkeypatch, synced_client
+):
     prompt = "Introduce Synapse Network to AI agent builders."
     provider = SequencedSocialCopyProvider(
         [
@@ -1784,16 +1109,24 @@ def test_agent_invalid_json_retries_once_before_creating_draft(monkeypatch, sync
             '{"title":"Synapse Network for AI agents","body_text":"AI agents can reason and use tools, but they still need safe payment rails. Synapse Network gives builders zero-gas micropayments, budget isolation, and a settlement layer for API access."}',
         ]
     )
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: provider)
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: provider
+    )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["status"] == "approved"
     assert payload["title"] == "Synapse Network for AI agents"
-    assert payload["raw_agent_output"]["generation_metadata"]["rewrite_attempted"] is True
+    assert (
+        payload["raw_agent_output"]["generation_metadata"]["rewrite_attempted"] is True
+    )
     assert "not valid JSON" in provider.calls[1]["user"]
 
 
@@ -1812,10 +1145,16 @@ def test_agent_prompt_copy_still_fails_after_rewrite_budget(monkeypatch, synced_
             f'{{"title":"Still copied prompt","body_text":"{prompt}"}}',
         ]
     )
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: provider)
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: provider
+    )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
@@ -1823,9 +1162,13 @@ def test_agent_prompt_copy_still_fails_after_rewrite_budget(monkeypatch, synced_
     assert "agent_generation_low_transform" in payload["failure_summary"]
 
 
-def test_agent_prompt_internal_path_or_workflow_output_is_rejected(monkeypatch, synced_client):
+def test_agent_prompt_internal_path_or_workflow_output_is_rejected(
+    monkeypatch, synced_client
+):
     prompt = "Read /Users/cliff/workspace/agent/Synapse-Network/docs and write the first X post."
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
     monkeypatch.setattr(
         social_publishing,
         "get_provider",
@@ -1834,7 +1177,9 @@ def test_agent_prompt_internal_path_or_workflow_output_is_rejected(monkeypatch, 
         ),
     )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft", json={"prompt": prompt, "actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
@@ -1848,18 +1193,32 @@ def test_agent_prompt_internal_path_or_workflow_output_is_rejected(monkeypatch, 
             '{"title":"Workflow JSON","body_text":"acceptance matrix required_commands show the workflow JSON for this launch."}'
         ),
     )
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": "Write a launch note.", "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft",
+        json={"prompt": "Write a launch note.", "actor": "operator"},
+    )
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
     assert payload["status"] == "failed"
     assert payload["failure_summary"].startswith("agent_generation_")
 
 
-def test_agent_generation_invalid_json_fails_without_creating_draft(monkeypatch, synced_client):
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: FakeSocialCopyProvider("not json"))
+def test_agent_generation_invalid_json_fails_without_creating_draft(
+    monkeypatch, synced_client
+):
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing,
+        "get_provider",
+        lambda provider_name=None: FakeSocialCopyProvider("not json"),
+    )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": "Write a launch note.", "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft",
+        json={"prompt": "Write a launch note.", "actor": "operator"},
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
@@ -1867,15 +1226,24 @@ def test_agent_generation_invalid_json_fails_without_creating_draft(monkeypatch,
     assert "agent_generation_failed" in payload["failure_summary"]
 
 
-def test_agent_generation_provider_failure_fails_without_creating_draft(monkeypatch, synced_client):
+def test_agent_generation_provider_failure_fails_without_creating_draft(
+    monkeypatch, synced_client
+):
     class FailingProvider:
         def call(self, system, user, model, temperature, timeout):
             raise RuntimeError("provider unavailable")
 
-    monkeypatch.setattr(social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider")
-    monkeypatch.setattr(social_publishing, "get_provider", lambda provider_name=None: FailingProvider())
+    monkeypatch.setattr(
+        social_publishing.config, "SOCIAL_CONTENT_LLM_PROVIDER", "test-provider"
+    )
+    monkeypatch.setattr(
+        social_publishing, "get_provider", lambda provider_name=None: FailingProvider()
+    )
 
-    response = synced_client.post("/api/social/posts/generate-draft", json={"prompt": "Write a launch note.", "actor": "operator"})
+    response = synced_client.post(
+        "/api/social/posts/generate-draft",
+        json={"prompt": "Write a launch note.", "actor": "operator"},
+    )
 
     assert response.status_code == 200
     payload = _fetch_social_post(synced_client, response.json()["id"])
@@ -1889,24 +1257,33 @@ def test_unapproved_draft_cannot_publish(synced_client):
         json={"body_text": "A safe draft that still needs human review."},
     ).json()
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 400
     assert "only approved" in response.json()["detail"]
 
 
-def test_approved_draft_publishes_to_x_with_mocked_publisher(monkeypatch, synced_client):
+def test_approved_draft_publishes_to_x_with_mocked_publisher(
+    monkeypatch, synced_client
+):
     captured: dict[str, str] = {}
 
     def fake_publish(account, body_text):
         captured["handle"] = account.handle
         captured["body_text"] = body_text
-        return social_publishing.XPublishResult(post_id="1800000000000000001", response_summary={"data": {"id": "1800000000000000001"}})
+        return social_publishing.XPublishResult(
+            post_id="1800000000000000001",
+            response_summary={"data": {"id": "1800000000000000001"}},
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
     created = synced_client.post(
         "/api/social/posts",
-        json={"body_text": "Synapse Agent Ops now has a human-gated X publishing surface."},
+        json={
+            "body_text": "Synapse Agent Ops now has a human-gated X publishing surface."
+        },
     ).json()
     approved = synced_client.patch(
         f"/api/social/posts/{created['id']}",
@@ -1914,7 +1291,9 @@ def test_approved_draft_publishes_to_x_with_mocked_publisher(monkeypatch, synced
     )
     assert approved.status_code == 200
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -1927,7 +1306,9 @@ def test_approved_draft_publishes_to_x_with_mocked_publisher(monkeypatch, synced
     }
 
 
-def test_approved_draft_with_image_uploads_media_before_x_publish(monkeypatch, synced_client, db_session):
+def test_approved_draft_with_image_uploads_media_before_x_publish(
+    monkeypatch, synced_client, db_session
+):
     captured: dict[str, object] = {}
 
     def fake_upload(account, image_path):
@@ -1939,15 +1320,23 @@ def test_approved_draft_with_image_uploads_media_before_x_publish(monkeypatch, s
         captured["publish_handle"] = account.handle
         captured["body_text"] = body_text
         captured["media_ids"] = media_ids
-        return social_publishing.XPublishResult(post_id="1800000000000000042", response_summary={"data": {"id": "1800000000000000042"}})
+        return social_publishing.XPublishResult(
+            post_id="1800000000000000042",
+            response_summary={"data": {"id": "1800000000000000042"}},
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "upload_image", fake_upload)
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
     created = synced_client.post(
         "/api/social/posts",
-        json={"body_text": "Synapse Network now ships reviewable X posts with generated images."},
+        json={
+            "body_text": "Synapse Network now ships reviewable X posts with generated images."
+        },
     ).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
     image_path = social_publishing._media_runtime_dir() / "publish-test-image.png"
     image_path.write_bytes(b"fake-image")
     media = social_publishing.SocialPostMediaAssetRow(
@@ -1962,23 +1351,35 @@ def test_approved_draft_with_image_uploads_media_before_x_publish(monkeypatch, s
     db_session.add(media)
     db_session.commit()
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "published"
     assert captured["media_ids"] == ["media-123"]
-    assert captured["body_text"] == "Synapse Network now ships reviewable X posts with generated images."
+    assert (
+        captured["body_text"]
+        == "Synapse Network now ships reviewable X posts with generated images."
+    )
     assert payload["media_assets"][0]["x_media_id"] == "media-123"
     assert payload["media_assets"][0]["status"] == "uploaded"
 
 
-def test_publish_rejects_pending_image_and_reuses_uploaded_media_id(monkeypatch, synced_client, db_session):
+def test_publish_rejects_pending_image_and_reuses_uploaded_media_id(
+    monkeypatch, synced_client, db_session
+):
     created = synced_client.post(
         "/api/social/posts",
-        json={"body_text": "Synapse Network now supports human-reviewed X image posts."},
+        json={
+            "body_text": "Synapse Network now supports human-reviewed X image posts."
+        },
     ).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
     pending_media = social_publishing.SocialPostMediaAssetRow(
         post_id=int(created["id"]),
         media_type="image",
@@ -1988,7 +1389,9 @@ def test_publish_rejects_pending_image_and_reuses_uploaded_media_id(monkeypatch,
     db_session.add(pending_media)
     db_session.commit()
 
-    pending = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    pending = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
     assert pending.status_code == 400
     assert "not ready" in pending.json()["detail"]
 
@@ -2010,27 +1413,43 @@ def test_publish_rejects_pending_image_and_reuses_uploaded_media_id(monkeypatch,
 
     def fake_publish(account, body_text, media_ids=None):
         captured["media_ids"] = media_ids
-        return social_publishing.XPublishResult(post_id="1800000000000000099", response_summary={"data": {"id": "1800000000000000099"}})
+        return social_publishing.XPublishResult(
+            post_id="1800000000000000099",
+            response_summary={"data": {"id": "1800000000000000099"}},
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "upload_image", fail_upload)
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
 
-    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    published = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
     assert published.status_code == 200
     assert captured["media_ids"] == ["media-existing"]
 
 
-def test_x_media_upload_failure_does_not_fallback_to_text_only(monkeypatch, synced_client, db_session):
+def test_x_media_upload_failure_does_not_fallback_to_text_only(
+    monkeypatch, synced_client, db_session
+):
     def fail_upload(account, image_path):
-        raise social_publishing.SocialPublishError("x_media_upload_failed", "X media upload failed.")
+        raise social_publishing.SocialPublishError(
+            "x_media_upload_failed", "X media upload failed."
+        )
 
     def fail_if_text_publish(*args, **kwargs):
         raise AssertionError("must not publish text-only when image upload fails")
 
     monkeypatch.setattr(social_publishing.x_publisher, "upload_image", fail_upload)
-    monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fail_if_text_publish)
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe image-backed post."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    monkeypatch.setattr(
+        social_publishing.x_publisher, "publish_text", fail_if_text_publish
+    )
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe image-backed post."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
     image_path = social_publishing._media_runtime_dir() / "publish-fail-image.png"
     image_path.write_bytes(b"fake-image")
     db_session.add(
@@ -2046,7 +1465,9 @@ def test_x_media_upload_failure_does_not_fallback_to_text_only(monkeypatch, sync
     )
     db_session.commit()
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -2056,18 +1477,31 @@ def test_x_media_upload_failure_does_not_fallback_to_text_only(monkeypatch, sync
 
 def test_x_auth_failure_is_bounded_and_does_not_leak_secret(monkeypatch, synced_client):
     def fake_publish(account, body_text):
-        raise social_publishing.SocialPublishError("x_auth_failed", "X API authentication failed. Update the OAuth user token secret.")
+        raise social_publishing.SocialPublishError(
+            "x_auth_failed",
+            "X API authentication failed. Update the OAuth user token secret.",
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe post."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "failed"
-    assert payload["failure_summary"] == "X API authentication failed. Update the OAuth user token secret."
+    assert (
+        payload["failure_summary"]
+        == "X API authentication failed. Update the OAuth user token secret."
+    )
     assert "token-value" not in str(payload).lower()
     assert "authorization" not in str(payload).lower()
 
@@ -2092,7 +1526,9 @@ def test_x_oauth_start_returns_pkce_authorization_url(monkeypatch, synced_client
     assert "offline.access" in payload["auth_url"]
     assert "code_challenge_method=S256" in payload["auth_url"]
     query = urllib.parse.parse_qs(urllib.parse.urlparse(payload["auth_url"]).query)
-    assert query["redirect_uri"] == ["http://127.0.0.1:9600/api/social/x/oauth/callback"]
+    assert query["redirect_uri"] == [
+        "http://127.0.0.1:9600/api/social/x/oauth/callback"
+    ]
     assert payload["state"]
 
 
@@ -2109,14 +1545,18 @@ def test_social_oauth_router_errors_are_bounded(monkeypatch, synced_client):
     monkeypatch.setattr(
         social_router,
         "complete_x_oauth_authorization",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("oauth callback failed")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("oauth callback failed")
+        ),
     )
     callback = synced_client.get("/api/social/x/oauth/callback?state=s&code=c")
     assert callback.status_code == 400
     assert callback.json()["detail"] == "oauth callback failed"
 
 
-def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(monkeypatch, synced_client):
+def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
+    monkeypatch, synced_client
+):
     social_publishing.x_oauth_token_provider._cache.clear()
     stored_versions: list[tuple[str, str]] = []
 
@@ -2138,24 +1578,40 @@ def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(mo
             return b'{"access_token":"access-token-secret","refresh_token":"refresh-token-secret","expires_in":7200}'
 
     monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
-    monkeypatch.setattr(social_publishing.secret_store, "add_version", lambda secret_ref, value: stored_versions.append((secret_ref, value)))
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeTokenResponse())
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "add_version",
+        lambda secret_ref, value: stored_versions.append((secret_ref, value)),
+    )
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeTokenResponse(),
+    )
 
     start = synced_client.get("/api/social/x/oauth/start").json()
-    callback = synced_client.get(f"/api/social/x/oauth/callback?state={start['state']}&code=oauth-code")
+    callback = synced_client.get(
+        f"/api/social/x/oauth/callback?state={start['state']}&code=oauth-code"
+    )
 
     assert callback.status_code == 200
     payload = callback.json()
     assert payload["status"] == "authorized"
     assert "access-token-secret" not in str(payload)
-    assert stored_versions == [(social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-token-secret")]
+    assert stored_versions == [
+        (social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-token-secret")
+    ]
 
 
-def test_x_oauth_callback_rejects_invalid_and_expired_state(monkeypatch, synced_client, db_session):
+def test_x_oauth_callback_rejects_invalid_and_expired_state(
+    monkeypatch, synced_client, db_session
+):
     with pytest.raises(ValueError, match="requires state and code"):
         social_publishing.complete_x_oauth_authorization(db_session, state="", code="")
     with pytest.raises(ValueError, match="not recognized"):
-        social_publishing.complete_x_oauth_authorization(db_session, state="missing", code="code")
+        social_publishing.complete_x_oauth_authorization(
+            db_session, state="missing", code="code"
+        )
 
     account = social_publishing.ensure_default_social_account(db_session)
     used = social_publishing.SocialOAuthSessionRow(
@@ -2182,12 +1638,18 @@ def test_x_oauth_callback_rejects_invalid_and_expired_state(monkeypatch, synced_
     db_session.commit()
 
     with pytest.raises(ValueError, match="already used"):
-        social_publishing.complete_x_oauth_authorization(db_session, state="used-state", code="code")
+        social_publishing.complete_x_oauth_authorization(
+            db_session, state="used-state", code="code"
+        )
     with pytest.raises(ValueError, match="expired"):
-        social_publishing.complete_x_oauth_authorization(db_session, state="expired-state", code="code")
+        social_publishing.complete_x_oauth_authorization(
+            db_session, state="expired-state", code="code"
+        )
 
 
-def test_x_oauth_callback_marks_session_failed_on_exchange_error(monkeypatch, db_session):
+def test_x_oauth_callback_marks_session_failed_on_exchange_error(
+    monkeypatch, db_session
+):
     account = social_publishing.ensure_default_social_account(db_session)
     session = social_publishing.SocialOAuthSessionRow(
         platform="x",
@@ -2203,16 +1665,26 @@ def test_x_oauth_callback_marks_session_failed_on_exchange_error(monkeypatch, db
     db_session.commit()
 
     def fail_exchange(**kwargs):
-        raise social_publishing.SocialPublishError("x_refresh_failed", "token exchange failed")
+        raise social_publishing.SocialPublishError(
+            "x_refresh_failed", "token exchange failed"
+        )
 
-    monkeypatch.setattr(social_publishing.x_oauth_token_provider, "exchange_authorization_code", fail_exchange)
+    monkeypatch.setattr(
+        social_publishing.x_oauth_token_provider,
+        "exchange_authorization_code",
+        fail_exchange,
+    )
     with pytest.raises(ValueError, match="token exchange failed"):
-        social_publishing.complete_x_oauth_authorization(db_session, state="exchange-fails", code="code")
+        social_publishing.complete_x_oauth_authorization(
+            db_session, state="exchange-fails", code="code"
+        )
     db_session.refresh(session)
     assert session.status == "failed"
 
 
-def test_publish_refreshes_oauth_access_token_and_records_refresh_event(monkeypatch, synced_client):
+def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
+    monkeypatch, synced_client
+):
     social_publishing.x_oauth_token_provider._cache.clear()
     stored_versions: list[tuple[str, str]] = []
     seen_authorizations: list[str] = []
@@ -2242,47 +1714,85 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(monkeypa
 
     def fake_urlopen(request, timeout):
         if request.full_url == social_publishing.X_OAUTH_TOKEN_URL:
-            return FakeResponse(b'{"access_token":"access-fresh","refresh_token":"refresh-new","expires_in":7200}')
+            return FakeResponse(
+                b'{"access_token":"access-fresh","refresh_token":"refresh-new","expires_in":7200}'
+            )
         if request.full_url == social_publishing.X_POST_URL:
-            seen_authorizations.append(dict(request.header_items()).get("Authorization", ""))
+            seen_authorizations.append(
+                dict(request.header_items()).get("Authorization", "")
+            )
             return FakeResponse(b'{"data":{"id":"1800000000000000999"}}')
         raise AssertionError(f"unexpected url: {request.full_url}")
 
     monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
-    monkeypatch.setattr(social_publishing.secret_store, "add_version", lambda secret_ref, value: stored_versions.append((secret_ref, value)))
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "add_version",
+        lambda secret_ref, value: stored_versions.append((secret_ref, value)),
+    )
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", fake_urlopen)
 
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post after OAuth refresh."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
-    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe post after OAuth refresh."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
+    published = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    ).json()
 
     assert published["status"] == "published"
     assert published["external_post_id"] == "1800000000000000999"
     assert seen_authorizations == ["Bearer access-fresh"]
-    assert stored_versions == [(social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-new")]
-    events = [event for event in published["events"] if event["event_type"] == "x_token_refreshed"]
+    assert stored_versions == [
+        (social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-new")
+    ]
+    events = [
+        event
+        for event in published["events"]
+        if event["event_type"] == "x_token_refreshed"
+    ]
     assert events
     assert "access-fresh" not in str(published)
 
 
-def test_failed_publish_can_be_retried_after_secret_or_rate_limit_fix(monkeypatch, synced_client):
+def test_failed_publish_can_be_retried_after_secret_or_rate_limit_fix(
+    monkeypatch, synced_client
+):
     attempts = {"count": 0}
 
     def flaky_publish(account, body_text):
         attempts["count"] += 1
         if attempts["count"] == 1:
-            raise social_publishing.SocialPublishError("x_auth_failed", "X API authentication failed. Update the OAuth user token secret.")
-        return social_publishing.XPublishResult(post_id="1800000000000000044", response_summary={"data": {"id": "1800000000000000044"}})
+            raise social_publishing.SocialPublishError(
+                "x_auth_failed",
+                "X API authentication failed. Update the OAuth user token secret.",
+            )
+        return social_publishing.XPublishResult(
+            post_id="1800000000000000044",
+            response_summary={"data": {"id": "1800000000000000044"}},
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", flaky_publish)
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post after credential recovery."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe post after credential recovery."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
 
-    failed = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
+    failed = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    ).json()
     assert failed["status"] == "failed"
     assert "authentication failed" in failed["failure_summary"]
 
-    retried = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    retried = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
     assert retried.status_code == 200
     payload = retried.json()
     assert payload["status"] == "published"
@@ -2292,13 +1802,23 @@ def test_failed_publish_can_be_retried_after_secret_or_rate_limit_fix(monkeypatc
 
 def test_x_rate_limit_failure_records_failed_status(monkeypatch, synced_client):
     def fake_publish(account, body_text):
-        raise social_publishing.SocialPublishError("x_rate_limited", "X API rate limit reached. Try again after the rate-limit window.")
+        raise social_publishing.SocialPublishError(
+            "x_rate_limited",
+            "X API rate limit reached. Try again after the rate-limit window.",
+        )
 
     monkeypatch.setattr(social_publishing.x_publisher, "publish_text", fake_publish)
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe post for rate limit test."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved", "reviewed_by": "operator"})
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe post for rate limit test."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}",
+        json={"status": "approved", "reviewed_by": "operator"},
+    )
 
-    response = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"})
+    response = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -2331,15 +1851,21 @@ def test_policy_check_blocks_empty_and_risky_content_but_not_long_text():
     assert long["character_count"] == 600
     assert "x_post_exceeds_280_characters" not in long["blocked_reasons"]
 
-    risky = social_publishing.run_content_policy_check("Launching soon with guaranteed risk-free return.")
+    risky = social_publishing.run_content_policy_check(
+        "Launching soon with guaranteed risk-free return."
+    )
     assert risky["status"] == "blocked"
     assert "guaranteed_return" in risky["blocked_reasons"]
     assert "time_sensitive_claim_review" in risky["warnings"]
 
 
 def test_social_post_update_reject_rewrite_and_filter(synced_client):
-    first = synced_client.post("/api/social/posts", json={"body_text": "First safe draft."}).json()
-    second = synced_client.post("/api/social/posts", json={"body_text": "Second safe draft."}).json()
+    first = synced_client.post(
+        "/api/social/posts", json={"body_text": "First safe draft."}
+    ).json()
+    second = synced_client.post(
+        "/api/social/posts", json={"body_text": "Second safe draft."}
+    ).json()
 
     edit_response = synced_client.patch(
         f"/api/social/posts/{first['id']}",
@@ -2367,7 +1893,10 @@ def test_social_post_update_reject_rewrite_and_filter(synced_client):
     assert rewrite.status_code == 200
     assert rewrite.json()["review_note"] == "Make it calmer."
 
-    rejected = synced_client.patch(f"/api/social/posts/{second['id']}", json={"status": "rejected", "reviewed_by": "operator"})
+    rejected = synced_client.patch(
+        f"/api/social/posts/{second['id']}",
+        json={"status": "rejected", "reviewed_by": "operator"},
+    )
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
 
@@ -2375,15 +1904,21 @@ def test_social_post_update_reject_rewrite_and_filter(synced_client):
     assert filtered.status_code == 200
     assert [item["id"] for item in filtered.json()] == [second["id"]]
 
-    rewrite_settled = synced_client.post(f"/api/social/posts/{second['id']}/request-rewrite", json={"actor": "operator"})
+    rewrite_settled = synced_client.post(
+        f"/api/social/posts/{second['id']}/request-rewrite", json={"actor": "operator"}
+    )
     assert rewrite_settled.status_code == 400
 
 
 def test_social_api_rejects_invalid_inputs(synced_client, db_session):
-    invalid_platform = synced_client.post("/api/social/posts", json={"platform": "linkedin", "body_text": "Safe draft."})
+    invalid_platform = synced_client.post(
+        "/api/social/posts", json={"platform": "linkedin", "body_text": "Safe draft."}
+    )
     assert invalid_platform.status_code == 400
 
-    invalid_status = synced_client.post("/api/social/posts", json={"body_text": "Safe draft.", "status": "published"})
+    invalid_status = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft.", "status": "published"}
+    )
     assert invalid_status.status_code == 400
 
     blocked_approved = synced_client.post(
@@ -2392,22 +1927,46 @@ def test_social_api_rejects_invalid_inputs(synced_client, db_session):
     )
     assert blocked_approved.status_code == 400
 
-    account = SocialAccountRow(platform="mastodon", handle="synapse", display_name="Synapse", secret_ref="env:TOKEN", status="active")
+    account = SocialAccountRow(
+        platform="mastodon",
+        handle="synapse",
+        display_name="Synapse",
+        secret_ref="env:TOKEN",
+        status="active",
+    )
     db_session.add(account)
     db_session.commit()
-    inactive = SocialAccountRow(platform="x", handle="Inactive", display_name="Inactive", secret_ref="env:TOKEN", status="disabled")
+    inactive = SocialAccountRow(
+        platform="x",
+        handle="Inactive",
+        display_name="Inactive",
+        secret_ref="env:TOKEN",
+        status="disabled",
+    )
     db_session.add(inactive)
     db_session.commit()
 
-    wrong_platform = synced_client.post("/api/social/posts", json={"account_id": int(account.id), "body_text": "Safe draft."})
+    wrong_platform = synced_client.post(
+        "/api/social/posts",
+        json={"account_id": int(account.id), "body_text": "Safe draft."},
+    )
     assert wrong_platform.status_code == 400
-    inactive_response = synced_client.post("/api/social/posts", json={"account_id": int(inactive.id), "body_text": "Safe draft."})
+    inactive_response = synced_client.post(
+        "/api/social/posts",
+        json={"account_id": int(inactive.id), "body_text": "Safe draft."},
+    )
     assert inactive_response.status_code == 400
-    missing_post = synced_client.patch("/api/social/posts/9999", json={"status": "approved"})
+    missing_post = synced_client.patch(
+        "/api/social/posts/9999", json={"status": "approved"}
+    )
     assert missing_post.status_code == 404
 
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe draft."}).json()
-    invalid_patch = synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "publishing"})
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft."}
+    ).json()
+    invalid_patch = synced_client.patch(
+        f"/api/social/posts/{created['id']}", json={"status": "publishing"}
+    )
     assert invalid_patch.status_code == 400
 
 
@@ -2415,27 +1974,44 @@ def test_published_social_post_cannot_be_edited(monkeypatch, synced_client):
     monkeypatch.setattr(
         social_publishing.x_publisher,
         "publish_text",
-        lambda account, body_text: social_publishing.XPublishResult(post_id="1802", response_summary={"data": {"id": "1802"}}),
+        lambda account, body_text: social_publishing.XPublishResult(
+            post_id="1802", response_summary={"data": {"id": "1802"}}
+        ),
     )
-    created = synced_client.post("/api/social/posts", json={"body_text": "Safe draft."}).json()
-    synced_client.patch(f"/api/social/posts/{created['id']}", json={"status": "approved"})
-    published = synced_client.post(f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}).json()
+    created = synced_client.post(
+        "/api/social/posts", json={"body_text": "Safe draft."}
+    ).json()
+    synced_client.patch(
+        f"/api/social/posts/{created['id']}", json={"status": "approved"}
+    )
+    published = synced_client.post(
+        f"/api/social/posts/{created['id']}/publish-x", json={"actor": "operator"}
+    ).json()
 
-    response = synced_client.patch(f"/api/social/posts/{published['id']}", json={"body_text": "Edit after publish."})
+    response = synced_client.patch(
+        f"/api/social/posts/{published['id']}",
+        json={"body_text": "Edit after publish."},
+    )
 
     assert response.status_code == 400
     assert "cannot be edited" in response.json()["detail"]
 
 
 def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
-    with pytest.raises(social_publishing.SocialPublishError, match="secret reference is empty"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="secret reference is empty"
+    ):
         social_publishing._read_secret_token("")
-    with pytest.raises(social_publishing.SocialPublishError, match="environment variable is missing"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="environment variable is missing"
+    ):
         social_publishing._read_secret_token("env:MISSING_X_TOKEN")
     monkeypatch.setenv("X_TEST_TOKEN", "token-value")
     assert social_publishing._read_secret_token("env:X_TEST_TOKEN") == "token-value"
 
-    account = SocialAccountRow(platform="x", handle="SynapseNetworkA", secret_ref="env:X_TEST_TOKEN")
+    account = SocialAccountRow(
+        platform="x", handle="SynapseNetworkA", secret_ref="env:X_TEST_TOKEN"
+    )
     publisher = social_publishing.XApiPublisher()
 
     class FakeResponse:
@@ -2448,24 +2024,46 @@ def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
         def read(self, _limit):
             return b'{"data":{"id":"1803"}}'
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeResponse(),
+    )
     result = publisher.publish_text(account, "Safe text.")
     assert result.post_id == "1803"
 
     def raise_http(status):
-        raise urllib.error.HTTPError("https://api.x.com/2/tweets", status, "error", {}, io.BytesIO(b"failure body"))
+        raise urllib.error.HTTPError(
+            "https://api.x.com/2/tweets",
+            status,
+            "error",
+            {},
+            io.BytesIO(b"failure body"),
+        )
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(401))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_http(401),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as auth_error:
         publisher.publish_text(account, "Safe text.")
     assert auth_error.value.kind == "x_publish_auth_failed"
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(429))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_http(429),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as rate_error:
         publisher.publish_text(account, "Safe text.")
     assert rate_error.value.kind == "x_rate_limited"
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(500))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_http(500),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as api_error:
         publisher.publish_text(account, "Safe text.")
     assert api_error.value.kind == "x_api_failed"
@@ -2474,8 +2072,14 @@ def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
         def read(self, _limit):
             return b'{"data":{}}'
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: MissingIdResponse())
-    with pytest.raises(social_publishing.SocialPublishError, match="did not include a post id"):
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: MissingIdResponse(),
+    )
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="did not include a post id"
+    ):
         publisher.publish_text(account, "Safe text.")
 
 
@@ -2484,24 +2088,45 @@ def test_secret_store_gcp_paths_and_version_rotation(monkeypatch):
     monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
     monkeypatch.delenv("STAGING_GCP_PROJECT_ID", raising=False)
 
-    with pytest.raises(social_publishing.SocialPublishError, match="secret reference is empty"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="secret reference is empty"
+    ):
         store._secret_name("")
-    assert store._secret_name("projects/demo/secrets/x/versions/latest") == "projects/demo/secrets/x/versions/latest"
-    with pytest.raises(social_publishing.SocialPublishError, match="project id is required"):
+    assert (
+        store._secret_name("projects/demo/secrets/x/versions/latest")
+        == "projects/demo/secrets/x/versions/latest"
+    )
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="project id is required"
+    ):
         store._secret_name("x-secret")
 
-    with pytest.raises(social_publishing.SocialPublishError, match="secret reference is empty"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="secret reference is empty"
+    ):
         store._secret_parent("")
-    assert store._secret_parent("projects/demo/secrets/x/versions/latest") == "projects/demo/secrets/x"
-    with pytest.raises(social_publishing.SocialPublishError, match="project id is required"):
+    assert (
+        store._secret_parent("projects/demo/secrets/x/versions/latest")
+        == "projects/demo/secrets/x"
+    )
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="project id is required"
+    ):
         store._secret_parent("x-secret")
 
     monkeypatch.setenv("GCP_PROJECT_ID", "demo-project")
-    assert store._secret_name("x-secret") == "projects/demo-project/secrets/x-secret/versions/latest"
+    assert (
+        store._secret_name("x-secret")
+        == "projects/demo-project/secrets/x-secret/versions/latest"
+    )
     assert store._secret_parent("x-secret") == "projects/demo-project/secrets/x-secret"
-    with pytest.raises(social_publishing.SocialPublishError, match="environment variable is missing"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="environment variable is missing"
+    ):
         store.read("env:MISSING")
-    with pytest.raises(social_publishing.SocialPublishError, match="environment variable"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="environment variable"
+    ):
         store.add_version("env:X_REFRESH", "new-refresh")
 
     class FakePayload:
@@ -2522,18 +2147,27 @@ def test_secret_store_gcp_paths_and_version_rotation(monkeypatch):
 
     from google.cloud import secretmanager
 
-    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: FakeSecretManagerClient())
+    monkeypatch.setattr(
+        secretmanager, "SecretManagerServiceClient", lambda: FakeSecretManagerClient()
+    )
     assert store.read("x-secret") == "secret-value"
     store.add_version("x-refresh", "new-refresh")
-    assert calls[0]["access"]["name"] == "projects/demo-project/secrets/x-secret/versions/latest"
+    assert (
+        calls[0]["access"]["name"]
+        == "projects/demo-project/secrets/x-secret/versions/latest"
+    )
     assert calls[1]["add"]["parent"] == "projects/demo-project/secrets/x-refresh"
     assert calls[1]["add"]["payload"]["data"] == b"new-refresh"
 
     class EmptySecretManagerClient(FakeSecretManagerClient):
         def access_secret_version(self, request):
-            return type("Response", (), {"payload": type("Payload", (), {"data": b""})()})()
+            return type(
+                "Response", (), {"payload": type("Payload", (), {"data": b""})()}
+            )()
 
-    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: EmptySecretManagerClient())
+    monkeypatch.setattr(
+        secretmanager, "SecretManagerServiceClient", lambda: EmptySecretManagerClient()
+    )
     with pytest.raises(social_publishing.SocialPublishError, match="secret is empty"):
         store.read("x-secret")
 
@@ -2576,11 +2210,15 @@ def test_secret_store_create_request_rejects_invalid_secret_refs(monkeypatch):
     store = social_publishing.SecretValueStore()
     monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo")
 
-    with pytest.raises(social_publishing.SocialPublishError, match="reference is invalid"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="reference is invalid"
+    ):
         store._secret_create_request("x-refresh")
 
     monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo/secrets/")
-    with pytest.raises(social_publishing.SocialPublishError, match="reference is invalid"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="reference is invalid"
+    ):
         store._secret_create_request("x-refresh")
 
     assert store._is_secret_not_found(RuntimeError("404 secret not found"))
@@ -2608,15 +2246,38 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
     provider = social_publishing.XOAuth2TokenProvider(FakeStore())
     assert provider.auth_status()[0] == "authorized"
 
-    provider_missing = social_publishing.XOAuth2TokenProvider(type("MissingStore", (), {
-        "read": lambda self, key: (_ for _ in ()).throw(social_publishing.SocialPublishError("x_auth_failed", "missing refresh")),
-    })())
+    provider_missing = social_publishing.XOAuth2TokenProvider(
+        type(
+            "MissingStore",
+            (),
+            {
+                "read": lambda self, key: (_ for _ in ()).throw(
+                    social_publishing.SocialPublishError(
+                        "x_auth_failed", "missing refresh"
+                    )
+                ),
+            },
+        )()
+    )
     assert provider_missing.auth_status() == ("needs_authorization", "missing refresh")
 
-    provider_expired = social_publishing.XOAuth2TokenProvider(type("ExpiredStore", (), {
-        "read": lambda self, key: (_ for _ in ()).throw(social_publishing.SocialPublishError("gcp_adc_expired", "Run `gcloud auth application-default login`")),
-    })())
-    assert provider_expired.auth_status() == ("gcp_adc_expired", "Run `gcloud auth application-default login`")
+    provider_expired = social_publishing.XOAuth2TokenProvider(
+        type(
+            "ExpiredStore",
+            (),
+            {
+                "read": lambda self, key: (_ for _ in ()).throw(
+                    social_publishing.SocialPublishError(
+                        "gcp_adc_expired", "Run `gcloud auth application-default login`"
+                    )
+                ),
+            },
+        )()
+    )
+    assert provider_expired.auth_status() == (
+        "gcp_adc_expired",
+        "Run `gcloud auth application-default login`",
+    )
 
     class FakeResponse:
         def __init__(self, raw: bytes):
@@ -2636,34 +2297,71 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
         "urlopen",
         lambda request, timeout: FakeResponse(b'{"expires_in":7200}'),
     )
-    with pytest.raises(social_publishing.SocialPublishError, match="did not include access_token"):
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="did not include access_token"
+    ):
         provider.get_access_token()
-    with pytest.raises(social_publishing.SocialPublishError, match="callback response did not include access_token"):
-        provider.exchange_authorization_code(code="code", code_verifier="verifier", redirect_uri="http://127.0.0.1/callback")
+    with pytest.raises(
+        social_publishing.SocialPublishError,
+        match="callback response did not include access_token",
+    ):
+        provider.exchange_authorization_code(
+            code="code",
+            code_verifier="verifier",
+            redirect_uri="http://127.0.0.1/callback",
+        )
 
     monkeypatch.setattr(
         social_publishing.urllib.request,
         "urlopen",
-        lambda request, timeout: FakeResponse(b'{"access_token":"access-only","expires_in":7200}'),
+        lambda request, timeout: FakeResponse(
+            b'{"access_token":"access-only","expires_in":7200}'
+        ),
     )
-    with pytest.raises(social_publishing.SocialPublishError, match="did not include refresh_token"):
-        provider.exchange_authorization_code(code="code", code_verifier="verifier", redirect_uri="http://127.0.0.1/callback")
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="did not include refresh_token"
+    ):
+        provider.exchange_authorization_code(
+            code="code",
+            code_verifier="verifier",
+            redirect_uri="http://127.0.0.1/callback",
+        )
 
     def raise_http(status):
-        raise urllib.error.HTTPError("https://api.x.com/2/oauth2/token", status, "error", {}, io.BytesIO(b"oauth failure"))
+        raise urllib.error.HTTPError(
+            "https://api.x.com/2/oauth2/token",
+            status,
+            "error",
+            {},
+            io.BytesIO(b"oauth failure"),
+        )
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(400))
-    with pytest.raises(social_publishing.SocialPublishError, match="token exchange failed"):
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_http(400),
+    )
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="token exchange failed"
+    ):
         provider.get_access_token()
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_http(500))
-    with pytest.raises(social_publishing.SocialPublishError, match="token endpoint returned"):
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_http(500),
+    )
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="token endpoint returned"
+    ):
         provider.get_access_token()
 
 
 def test_x_media_upload_http_error_paths(monkeypatch):
     monkeypatch.setenv("X_TEST_TOKEN", "token-value")
-    account = SocialAccountRow(platform="x", handle="SynapseNetworkA", secret_ref="env:X_TEST_TOKEN")
+    account = SocialAccountRow(
+        platform="x", handle="SynapseNetworkA", secret_ref="env:X_TEST_TOKEN"
+    )
     publisher = social_publishing.XApiPublisher()
     image_path = social_publishing._media_runtime_dir() / "x-upload-test.png"
     image_path.write_bytes(b"fake-image")
@@ -2686,7 +2384,9 @@ def test_x_media_upload_http_error_paths(monkeypatch):
     def fake_media_upload(request, timeout):
         captured_upload["url"] = request.full_url
         captured_upload["headers"] = dict(request.header_items())
-        captured_upload["payload"] = social_publishing._json_loads(request.data.decode("utf-8"), {})
+        captured_upload["payload"] = social_publishing._json_loads(
+            request.data.decode("utf-8"), {}
+        )
         return FakeUploadResponse(b'{"data":{"id":"m-1"}}')
 
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", fake_media_upload)
@@ -2700,38 +2400,68 @@ def test_x_media_upload_http_error_paths(monkeypatch):
         publisher.upload_image(account, str(image_path.with_name("missing.png")))
 
     def raise_media_http(status):
-        raise urllib.error.HTTPError("https://api.x.com/2/media/upload", status, "error", {}, io.BytesIO(b"media failure"))
+        raise urllib.error.HTTPError(
+            "https://api.x.com/2/media/upload",
+            status,
+            "error",
+            {},
+            io.BytesIO(b"media failure"),
+        )
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(403))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_media_http(403),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as auth_error:
         publisher.upload_image(account, str(image_path))
     assert auth_error.value.kind == "x_media_upload_auth_failed"
     assert "media.write" in auth_error.value.summary
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(429))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_media_http(429),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as rate_error:
         publisher.upload_image(account, str(image_path))
     assert rate_error.value.kind == "x_rate_limited"
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: raise_media_http(500))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: raise_media_http(500),
+    )
     with pytest.raises(social_publishing.SocialPublishError) as media_error:
         publisher.upload_image(account, str(image_path))
     assert media_error.value.kind == "x_media_upload_failed"
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeUploadResponse(b'{}'))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeUploadResponse(b"{}"),
+    )
     with pytest.raises(social_publishing.SocialPublishError, match="media_id"):
         publisher.upload_image(account, str(image_path))
 
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeUploadResponse(b'{"data":{"id":"1805"}}'))
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeUploadResponse(b'{"data":{"id":"1805"}}'),
+    )
     result = publisher.publish_text(account, "Safe text.", media_ids=["m-1"])
     assert result.response_summary["media_ids"] == ["m-1"]
 
 
-def test_x_content_workflow_atoms_create_draft_without_external_publish(monkeypatch, db_session):
+def test_x_content_workflow_atoms_create_draft_without_external_publish(
+    monkeypatch, db_session
+):
     monkeypatch.setattr(
         social_publishing.x_publisher,
         "publish_text",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("workflow draft atom must not publish")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("workflow draft atom must not publish")
+        ),
     )
     requirement = RequirementRow(
         title="Draft X launch update",

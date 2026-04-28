@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 from server.database import (
     RequirementCandidateRow,
@@ -7,6 +8,12 @@ from server.database import (
     WorkflowRunRow,
 )
 from server.services.planning.lifecycle import ensure_active_manifest
+from server.services.planning.mission_lane_items import (
+    candidate_next_action,
+    release_next_action,
+    requirement_next_action,
+    workflow_next_action,
+)
 from server.services.planning.mission_board import mission_board_snapshot
 from server.services.planning.product_opportunities import run_product_planning_sweep
 
@@ -18,9 +25,15 @@ def test_mission_board_returns_fixed_nested_lanes(db_session):
     board = mission_board_snapshot(db_session)
 
     assert board["active_goal"] is not None
-    assert set(board["lanes"]) == {"product_planner", "growth_lead", "software_engineer"}
+    assert set(board["lanes"]) == {
+        "product_planner",
+        "growth_lead",
+        "software_engineer",
+    }
     assert board["lanes"]["product_planner"]
-    assert board["lane_summary"]["product_planner"]["count"] == len(board["lanes"]["product_planner"])
+    assert board["lane_summary"]["product_planner"]["count"] == len(
+        board["lanes"]["product_planner"]
+    )
     assert "nodes" not in board
     assert "edges" not in board
     assert board["manifest"]["id"] == manifest.id
@@ -31,7 +44,11 @@ def test_mission_board_api_returns_tree_not_graph(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload["lanes"]) == {"product_planner", "growth_lead", "software_engineer"}
+    assert set(payload["lanes"]) == {
+        "product_planner",
+        "growth_lead",
+        "software_engineer",
+    }
     assert "unassigned" in payload
     assert "next_actions" in payload
     assert "nodes" not in payload
@@ -76,8 +93,15 @@ def test_mission_board_projects_active_goal_traction_proof(db_session):
         "staging_release",
         "ops_lane_health",
     }.issubset(proof_keys)
-    assert all(item["status"] in {"present", "missing", "blocked"} for item in proof["items"])
-    assert next(item for item in proof["items"] if item["key"] == "docs_staging_visits")["status"] == "missing"
+    assert all(
+        item["status"] in {"present", "missing", "blocked"} for item in proof["items"]
+    )
+    assert (
+        next(item for item in proof["items"] if item["key"] == "docs_staging_visits")[
+            "status"
+        ]
+        == "missing"
+    )
 
 
 def test_mission_board_surfaces_active_orphans_but_not_terminal_history(db_session):
@@ -130,3 +154,27 @@ def test_reset_goal_mission_lanes_requires_confirm():
     )
     assert result.returncode == 2
     assert "LOCAL_MISSION_RESET" in result.stdout
+
+
+def test_mission_lane_next_actions_cover_status_variants():
+    assert "Materialize" in candidate_next_action(SimpleNamespace(status="approved"))
+    assert "Fail-Closed" in candidate_next_action(
+        SimpleNamespace(status="validation_failed")
+    )
+    assert "Watch workflow" in requirement_next_action(
+        SimpleNamespace(status="running")
+    )
+    assert "resolve blocker" in requirement_next_action(
+        SimpleNamespace(status="blocked")
+    )
+    assert "human gate" in workflow_next_action(
+        SimpleNamespace(status="running", current_state="awaiting_operator")
+    )
+    assert "root cause" in workflow_next_action(
+        SimpleNamespace(status="failed", current_state="")
+    )
+    assert "Monitor" in workflow_next_action(
+        SimpleNamespace(status="queued", current_state="")
+    )
+    assert "deploy staging" in release_next_action(SimpleNamespace(status="requested"))
+    assert "deploy failure" in release_next_action(SimpleNamespace(status="failed"))

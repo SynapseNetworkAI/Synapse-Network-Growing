@@ -18,6 +18,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = ROOT / "server" / "ops.db"
 CONFIRM = "LOCAL_MISSION_RESET"
+RESET_TABLES = (
+    "product_opportunities",
+    "planner_sweeps",
+    "requirement_candidates",
+    "workflow_state_events",
+    "atom_invocations",
+    "workflow_artifacts",
+    "blackboard_snapshots",
+    "human_gate_requests",
+    "workflow_runs",
+    "requirement_acceptance_checks",
+    "requirement_attachments",
+    "requirements",
+    "operating_manifests",
+    "planning_goals",
+)
 GOAL_KEY = "synapse_public_preview_traction"
 GOAL_TITLE = "Launch Synapse Network public preview and prove agent-payment traction"
 GOAL_INTENT = """Synapse Network is now moving from internal dogfood toward public-preview traction.
@@ -32,97 +48,112 @@ GOAL_SUCCESS_METRIC = (
     "X engagement, successful staging releases, and Ops Console lane health are visible in the control plane."
 )
 
+
+def _opportunity(
+    title: str,
+    problem: str,
+    why_now: str,
+    evidence: list[str],
+    goal_key: str,
+    lane: str,
+    metric: str,
+    next_action: str,
+    *,
+    risk: str = "normal",
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "problem": problem,
+        "why_now": why_now,
+        "evidence": evidence,
+        "suggested_goal_key": goal_key,
+        "recommended_lane": lane,
+        "risk_level": risk,
+        "success_metric": metric,
+        "next_action": next_action,
+    }
+
+
 PRODUCT_LINE_OPPORTUNITIES = [
-    {
-        "title": "Core Gateway & Settlement public-preview proof",
-        "problem": "The core product must prove an agent can discover a service, invoke it, pay safely, and receive an auditable receipt in staging.",
-        "why_now": "Public-preview messaging is already going out on X; the product must provide a reproducible proof path behind that story.",
-        "evidence": [
-            "Product context positions Synapse as the settlement layer for AI agents.",
-            "Gateway, settlement, SDK, and provider runtime exist, but public-preview proof needs a single evidence path.",
-            "Staging and release records are already tracked in the Ops control plane.",
+    _opportunity(
+        "Core Gateway & Settlement public-preview proof",
+        "Prove discover -> invoke -> pay -> receipt in staging.",
+        "Public-preview messaging needs one reproducible product proof path.",
+        [
+            "Product context: settlement layer for AI agents.",
+            "Gateway, settlement, SDK, provider runtime, and release records exist.",
         ],
-        "suggested_goal_key": "core_gateway_settlement_preview",
-        "recommended_lane": "software_engineer",
-        "risk_level": "normal",
-        "success_metric": "A staging smoke proves discover -> invoke -> pay -> receipt with bounded budget and visible evidence.",
-        "next_action": "Create an engineering goal that turns the end-to-end payment path into an evidence-bound requirement.",
-    },
-    {
-        "title": "Provider Runtime self-serve onboarding path",
-        "problem": "A new API provider still needs a clear path from docs to service registration, staging health, Cloud Run release, and Gateway marketplace visibility.",
-        "why_now": "Provider staging deployment is now connected to the release control plane, so onboarding is the next supply-side bottleneck.",
-        "evidence": [
-            "Synapse-Network-Provider is a first-class release target.",
-            "Provider runtime exposes service endpoints and registration/onboarding commands.",
+        "core_gateway_settlement_preview",
+        "software_engineer",
+        "A staging smoke proves discover -> invoke -> pay -> receipt with bounded budget and visible evidence.",
+        "Create an engineering goal for the end-to-end payment path.",
+    ),
+    _opportunity(
+        "Provider Runtime self-serve onboarding path",
+        "Make provider registration, staging health, release, and Gateway visibility self-serve.",
+        "Provider is now a first-class release target, so onboarding is the next supply-side bottleneck.",
+        [
+            "Provider runtime exposes service endpoints.",
             "Successful Provider staging deployments are preserved in DeploymentRecords.",
         ],
-        "suggested_goal_key": "provider_self_serve_onboarding",
-        "recommended_lane": "software_engineer",
-        "risk_level": "normal",
-        "success_metric": "A provider can follow docs, register/update a service, pass staging health, and see it through Gateway discovery without operator handholding.",
-        "next_action": "Create a provider onboarding goal and route missing docs/API/health checks into software_engineer.",
-    },
-    {
-        "title": "SDK & Developer Experience quickstart",
-        "problem": "Developers need a 5-minute Python/TypeScript quickstart, MCP/agent demo, receipt example, and failure troubleshooting path.",
-        "why_now": "Staging SDK docs exist, but public-preview conversion depends on a fast proof that a real agent can call paid/free services safely.",
-        "evidence": [
-            "Synapse-Network-Sdk defaults public preview examples to staging.",
-            "Python and TypeScript SDK surfaces exist for search, invoke, and receipt.",
-            "The product promise needs a runnable developer proof, not only positioning copy.",
+        "provider_self_serve_onboarding",
+        "software_engineer",
+        "A provider can register/update a service, pass staging health, and appear through Gateway discovery.",
+        "Create a provider onboarding goal and route docs/API/health gaps into software_engineer.",
+    ),
+    _opportunity(
+        "SDK & Developer Experience quickstart",
+        "Create a 5-minute Python/TypeScript quickstart with agent demo, receipt example, and troubleshooting.",
+        "Public-preview conversion depends on a fast runnable proof for real agent builders.",
+        [
+            "SDK examples default to staging.",
+            "Python and TypeScript surfaces exist for search, invoke, and receipt.",
         ],
-        "suggested_goal_key": "sdk_developer_quickstart",
-        "recommended_lane": "both",
-        "risk_level": "normal",
-        "success_metric": "A new developer can complete SDK install, service search, invocation, and receipt verification in under 5 minutes.",
-        "next_action": "Create a cross-lane goal: growth_lead frames the developer story and software_engineer fills the runnable demo gaps.",
-    },
-    {
-        "title": "Growth / Social Ops conversion loop",
-        "problem": "X publishing can create reach, but the system must connect daily content, trend radar, repost/reply actions, and docs/staging/GitHub conversion signals.",
-        "why_now": "The official X account is already publishing, reposting, and tracking candidates; the next step is proving downstream product interest.",
-        "evidence": [
-            "Existing X drafts, repost candidates, and reply items are preserved.",
-            "Growth work is human-gated, so it is safe to increase cadence through review queues.",
-            "Current conversion lineage from X to docs/staging/GitHub remains thin.",
+        "sdk_developer_quickstart",
+        "both",
+        "A new developer completes install, service search, invocation, and receipt verification in under 5 minutes.",
+        "Create a cross-lane goal: growth_lead frames the story and software_engineer fills runnable demo gaps.",
+    ),
+    _opportunity(
+        "Growth / Social Ops conversion loop",
+        "Connect X content, trend radar, repost/reply actions, and docs/staging/GitHub conversion signals.",
+        "The official X account is active; the next step is proving downstream product interest.",
+        [
+            "X drafts, repost candidates, and reply items are preserved.",
+            "Growth work remains human-gated.",
         ],
-        "suggested_goal_key": "growth_social_conversion_loop",
-        "recommended_lane": "growth_lead",
-        "risk_level": "normal",
-        "success_metric": "Daily X content, trend radar, repost/reply candidates, and published-effect metrics feed Planning with docs/staging/GitHub conversion evidence.",
-        "next_action": "Create a growth goal that improves content cadence, source quality, and conversion attribution without automatic public actions.",
-    },
-    {
-        "title": "Ops Control Plane stabilization",
-        "problem": "The control plane must make Mission Board, Planning Queues, Release sync, Quality Gates, and Product Planner proposals understandable and reliable.",
-        "why_now": "The operator experience has moved from debug screens to business lanes; reliability now determines whether autonomous work can be trusted.",
-        "evidence": [
-            "Mission Board and top navigation are now the intended operating surface.",
-            "Release status sync, quality gates, and Product Planner proposals are core trust mechanisms.",
-            "Old dogfood data made the current company objective hard to read.",
+        "growth_social_conversion_loop",
+        "growth_lead",
+        "Daily content and published-effect metrics feed Planning with docs/staging/GitHub conversion evidence.",
+        "Create a growth goal for cadence, source quality, and attribution without automatic public actions.",
+    ),
+    _opportunity(
+        "Ops Control Plane stabilization",
+        "Make Mission Board, Planning Queues, Release sync, Quality Gates, and Product Planner reliable.",
+        "Autonomous work can only be trusted when the operator surface is clear and evidence-bound.",
+        [
+            "Mission Board and top navigation are the operating surface.",
+            "Release sync and quality gates are core trust mechanisms.",
         ],
-        "suggested_goal_key": "ops_control_plane_stabilization",
-        "recommended_lane": "software_engineer",
-        "risk_level": "normal",
-        "success_metric": "Command Center shows clean active goals, lane queues, release sync status, quality gates, and unassigned red lights without raw-debug noise.",
-        "next_action": "Create an engineering goal for remaining control-plane reliability, tests, and operator UX gaps.",
-    },
-    {
-        "title": "Trust / Production Readiness governance",
-        "problem": "Production promotion needs clear Human Gate rules, rollback policy, auth/secret handling, observability, and public trust documentation.",
-        "why_now": "Staging releases are working; production cannot be allowed to inherit staging shortcuts or ambiguous social/release automation.",
-        "evidence": [
+        "ops_control_plane_stabilization",
+        "software_engineer",
+        "Command Center shows clean active goals, lane queues, release sync status, quality gates, and unassigned red lights.",
+        "Create an engineering goal for remaining control-plane reliability and UX gaps.",
+    ),
+    _opportunity(
+        "Trust / Production Readiness governance",
+        "Document Human Gate rules, rollback policy, auth/secret handling, observability, and public trust boundaries.",
+        "Staging works; production cannot inherit staging shortcuts.",
+        [
             "Staging deployment records prove release automation is viable.",
-            "Production deploy, rollback, auth, settlement, and public social actions remain high-risk surfaces.",
-            "Human Gate and audit evidence must be explicit before production promotion.",
+            "Production deploy, rollback, auth, settlement, and social actions are high-risk.",
         ],
-        "suggested_goal_key": "trust_production_readiness",
-        "recommended_lane": "both",
-        "risk_level": "high",
-        "success_metric": "Production deploy/rollback, X public actions, OAuth/secret flows, and observability have documented Human Gate boundaries and audit evidence.",
-        "next_action": "Create a trust/governance goal before enabling production promotion or higher-risk automation.",
-    },
+        "trust_production_readiness",
+        "both",
+        "Production deploy/rollback, X public actions, OAuth/secret flows, and observability have audit evidence.",
+        "Create a trust/governance goal before production promotion or higher-risk automation.",
+        risk="high",
+    ),
 ]
 
 
@@ -130,14 +161,18 @@ def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
-def _delete_if_table_exists(conn: sqlite3.Connection, table: str, where: str | None = None) -> int:
+def _delete_if_table_exists(
+    conn: sqlite3.Connection, table: str, where: str | None = None
+) -> int:
     exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
         (table,),
     ).fetchone()
     if not exists:
         return 0
-    sql = f"DELETE FROM {table}"
+    if table not in RESET_TABLES:
+        raise ValueError(f"refusing to delete non-reset table: {table}")
+    sql = f"DELETE FROM {table}"  # nosec B608 - table is restricted to RESET_TABLES.
     if where:
         sql += f" WHERE {where}"
     cursor = conn.execute(sql)
@@ -187,7 +222,11 @@ def _insert_seed(conn: sqlite3.Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     payload = {
         "global_budget": {"daily_usd_limit": 25, "max_concurrent_workers": 2},
-        "focus_weights": {"product_planner": 0.34, "growth_lead": 0.33, "software_engineer": 0.33},
+        "focus_weights": {
+            "product_planner": 0.34,
+            "growth_lead": 0.33,
+            "software_engineer": 0.33,
+        },
         "global_constraints": [
             "Product planner proposes only; human review creates formal goals.",
             "Public X/social actions require operator confirmation.",
@@ -243,7 +282,10 @@ def _insert_seed(conn: sqlite3.Connection) -> None:
             1.0,
             "business",
             "[]",
-            json.dumps({"source": "local_mission_reset", "company_goal": True}, ensure_ascii=False),
+            json.dumps(
+                {"source": "local_mission_reset", "company_goal": True},
+                ensure_ascii=False,
+            ),
             "{}",
             now,
             now,
@@ -274,7 +316,10 @@ def _insert_seed(conn: sqlite3.Connection) -> None:
                 "proposed",
                 "local_mission_reset",
                 "product_planner",
-                json.dumps({"seed_goal_id": goal_id, "company_goal_key": GOAL_KEY}, ensure_ascii=False),
+                json.dumps(
+                    {"seed_goal_id": goal_id, "company_goal_key": GOAL_KEY},
+                    ensure_ascii=False,
+                ),
                 now,
                 now,
             ),
@@ -282,7 +327,9 @@ def _insert_seed(conn: sqlite3.Connection) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reset local Goal Mission Lanes demo data.")
+    parser = argparse.ArgumentParser(
+        description="Reset local Goal Mission Lanes demo data."
+    )
     parser.add_argument("--db", default=str(DEFAULT_DB), help="Path to SQLite ops.db")
     parser.add_argument("--confirm", default="", help=f"Required literal: {CONFIRM}")
     args = parser.parse_args()
@@ -306,22 +353,7 @@ def main() -> int:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("PRAGMA busy_timeout=5000")
         deleted: dict[str, int] = {}
-        for table in [
-            "product_opportunities",
-            "planner_sweeps",
-            "requirement_candidates",
-            "workflow_state_events",
-            "atom_invocations",
-            "workflow_artifacts",
-            "blackboard_snapshots",
-            "human_gate_requests",
-            "workflow_runs",
-            "requirement_acceptance_checks",
-            "requirement_attachments",
-            "requirements",
-            "operating_manifests",
-            "planning_goals",
-        ]:
+        for table in RESET_TABLES:
             deleted[table] = _delete_if_table_exists(conn, table)
         _insert_seed(conn)
         conn.commit()

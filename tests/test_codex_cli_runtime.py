@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from server import config
 from server.services.runtime.codex_cli import (
-    CodexAsyncExecResult,
     CodexExecResult,
     _build_codex_exec_command,
     _parse_codex_exec_stdout,

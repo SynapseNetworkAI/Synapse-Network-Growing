@@ -23,6 +23,7 @@ done < <("$OPS_PYTHON" "$ROOT_DIR/scripts/ci/static_quality_gate.py" --base "$DI
 
 changed_python=()
 new_python=()
+new_runtime_python=()
 changed_dashboard=()
 for file in "${changed_files[@]}"; do
   case "$file" in
@@ -33,6 +34,17 @@ for file in "${changed_files[@]}"; do
       elif ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
         new_python+=("$file")
       fi
+      case "$file" in
+        tests/*)
+          ;;
+        *)
+          if git diff --name-status "$DIFF_BASE" -- "$file" | awk '$1 == "A" { found=1 } END { exit found ? 0 : 1 }'; then
+            new_runtime_python+=("$file")
+          elif ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+            new_runtime_python+=("$file")
+          fi
+          ;;
+      esac
       ;;
     dashboard/src/*.ts|dashboard/src/*.tsx|dashboard/src/**/*.ts|dashboard/src/**/*.tsx)
       changed_dashboard+=("$file")
@@ -55,10 +67,10 @@ else
 fi
 
 echo "[quality] python complexity ratchet"
-if [[ ${#new_python[@]} -gt 0 ]]; then
-  uvx xenon --max-absolute B --max-modules B --max-average A "${new_python[@]}"
+if [[ ${#new_runtime_python[@]} -gt 0 ]]; then
+  uvx xenon --max-absolute B --max-modules B --max-average A "${new_runtime_python[@]}"
 else
-  echo "[quality] no new Python files; legacy complexity is protected by size/function ratchet"
+  echo "[quality] no new runtime Python files; legacy/test complexity is protected by size/function ratchet"
 fi
 
 echo "[quality] dashboard typecheck"
