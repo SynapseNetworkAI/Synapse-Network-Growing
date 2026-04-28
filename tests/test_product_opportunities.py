@@ -5,6 +5,7 @@ from server.services.planning.product_opportunities import (
     create_goal_from_product_opportunity,
     defer_product_opportunity,
     get_product_opportunity,
+    product_opportunity_summary,
     reject_product_opportunity,
     run_product_planning_sweep,
 )
@@ -58,6 +59,29 @@ def test_rejected_and_deferred_opportunities_do_not_create_goals(db_session):
 
     assert rejected["status"] == "rejected"
     assert deferred["status"] == "deferred"
+
+
+def test_product_opportunity_summary_counts_review_states(db_session):
+    run_product_planning_sweep(db_session)
+    opportunities = (
+        db_session.query(ProductOpportunityRow)
+        .filter(ProductOpportunityRow.status == "proposed")
+        .limit(2)
+        .all()
+    )
+    reject_product_opportunity(
+        db_session, int(opportunities[0].id), operator="operator", reason="not_now"
+    )
+    defer_product_opportunity(
+        db_session, int(opportunities[1].id), operator="operator", reason="later"
+    )
+
+    summary = product_opportunity_summary(db_session)
+
+    assert summary["total"] >= 2
+    assert summary["counts"]["rejected"] == 1
+    assert summary["counts"]["deferred"] == 1
+    assert summary["pending_review"] == summary["counts"]["proposed"]
 
 
 def test_product_opportunity_api_routes_cover_review_actions(client, db_session):
