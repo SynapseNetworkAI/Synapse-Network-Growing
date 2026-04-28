@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+"""Default Social Ops seed data."""
+
+DEFAULT_WATCHLIST_ACCOUNTS: list[tuple[str, str, str, str]] = [
+    (
+        "OpenAI",
+        "OpenAI",
+        "ai_company",
+        "AI platform updates shape agent-builder narratives.",
+    ),
+    (
+        "AnthropicAI",
+        "Anthropic",
+        "ai_company",
+        "Claude and agent safety conversations are relevant to trusted automation.",
+    ),
+    (
+        "GoogleDeepMind",
+        "Google DeepMind",
+        "ai_company",
+        "Frontier model and research updates influence AI builder narratives.",
+    ),
+    (
+        "NVIDIAAI",
+        "NVIDIA AI",
+        "ai_company",
+        "AI compute and agent infrastructure trends shape provider demand.",
+    ),
+    (
+        "AIatMeta",
+        "Meta AI",
+        "ai_company",
+        "Open model and agent tooling updates are important developer signals.",
+    ),
+    (
+        "MistralAI",
+        "Mistral AI",
+        "ai_company",
+        "European frontier model updates matter to agent builders.",
+    ),
+    (
+        "xai",
+        "xAI",
+        "ai_company",
+        "Grok and real-time AI product updates shape X-native AI discussion.",
+    ),
+    (
+        "cohere",
+        "Cohere",
+        "ai_company",
+        "Enterprise AI and retrieval updates matter to API providers.",
+    ),
+    (
+        "huggingface",
+        "Hugging Face",
+        "ai_company",
+        "Open model and developer ecosystem signals are relevant to Synapse builders.",
+    ),
+    (
+        "perplexity_ai",
+        "Perplexity",
+        "ai_company",
+        "AI search and answer engine adoption is a relevant operator trend.",
+    ),
+    (
+        "LangChainAI",
+        "LangChain",
+        "agent_framework",
+        "Agent framework builders are a primary Synapse audience.",
+    ),
+    (
+        "MCP",
+        "Model Context Protocol",
+        "agent_protocol",
+        "MCP-native discovery is a core product proof point.",
+    ),
+    (
+        "sama",
+        "Sam Altman",
+        "ai_leader",
+        "OpenAI leadership signals help track AI platform direction.",
+    ),
+    (
+        "gdb",
+        "Greg Brockman",
+        "ai_leader",
+        "OpenAI engineering leadership is relevant to platform builders.",
+    ),
+    (
+        "ilyasut",
+        "Ilya Sutskever",
+        "ai_researcher",
+        "Frontier model research perspective.",
+    ),
+    (
+        "karpathy",
+        "Andrej Karpathy",
+        "ai_researcher",
+        "Practical AI engineering and agent commentary.",
+    ),
+    (
+        "demishassabis",
+        "Demis Hassabis",
+        "ai_leader",
+        "Google DeepMind leadership and research direction.",
+    ),
+    (
+        "ylecun",
+        "Yann LeCun",
+        "ai_researcher",
+        "AI research debate and model architecture commentary.",
+    ),
+    (
+        "AndrewYNg",
+        "Andrew Ng",
+        "ai_operator",
+        "AI education, productization, and applied AI signals.",
+    ),
+    (
+        "drfeifei",
+        "Fei-Fei Li",
+        "ai_researcher",
+        "Human-centered AI and research direction.",
+    ),
+    (
+        "DrJimFan",
+        "Jim Fan",
+        "ai_researcher",
+        "Embodied agents and simulation commentary.",
+    ),
+    (
+        "fchollet",
+        "François Chollet",
+        "ai_researcher",
+        "Reasoning, benchmarks, and model intelligence discussion.",
+    ),
+    (
+        "jeremyphoward",
+        "Jeremy Howard",
+        "ai_operator",
+        "Practical AI builders and developer education.",
+    ),
+    (
+        "Thom_Wolf",
+        "Thomas Wolf",
+        "ai_operator",
+        "Open-source AI ecosystem and Hugging Face signals.",
+    ),
+    (
+        "ClementDelangue",
+        "Clément Delangue",
+        "ai_founder",
+        "Hugging Face ecosystem and open AI strategy.",
+    ),
+    (
+        "AravSrinivas",
+        "Aravind Srinivas",
+        "ai_founder",
+        "AI search and product growth signals.",
+    ),
+    (
+        "hwchase17",
+        "Harrison Chase",
+        "agent_founder",
+        "LangChain and agent workflow signals.",
+    ),
+]

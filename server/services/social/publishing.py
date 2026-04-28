@@ -64,6 +64,7 @@ from server.schemas import (
 )
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
+from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
 
 DEFAULT_X_HANDLE = "SynapseNetworkA"
@@ -977,40 +978,11 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                 created_by="system_seed",
             )
         )
-    default_watchlist = [
-        ("OpenAI", "OpenAI", "ai_company", "AI platform updates shape agent-builder narratives."),
-        ("AnthropicAI", "Anthropic", "ai_company", "Claude and agent safety conversations are relevant to trusted automation."),
-        ("GoogleDeepMind", "Google DeepMind", "ai_company", "Frontier model and research updates influence AI builder narratives."),
-        ("NVIDIAAI", "NVIDIA AI", "ai_company", "AI compute and agent infrastructure trends shape provider demand."),
-        ("AIatMeta", "Meta AI", "ai_company", "Open model and agent tooling updates are important developer signals."),
-        ("MistralAI", "Mistral AI", "ai_company", "European frontier model updates matter to agent builders."),
-        ("xai", "xAI", "ai_company", "Grok and real-time AI product updates shape X-native AI discussion."),
-        ("cohere", "Cohere", "ai_company", "Enterprise AI and retrieval updates matter to API providers."),
-        ("huggingface", "Hugging Face", "ai_company", "Open model and developer ecosystem signals are relevant to Synapse builders."),
-        ("perplexity_ai", "Perplexity", "ai_company", "AI search and answer engine adoption is a relevant operator trend."),
-        ("LangChainAI", "LangChain", "agent_framework", "Agent framework builders are a primary Synapse audience."),
-        ("MCP", "Model Context Protocol", "agent_protocol", "MCP-native discovery is a core product proof point."),
-        ("sama", "Sam Altman", "ai_leader", "OpenAI leadership signals help track AI platform direction."),
-        ("gdb", "Greg Brockman", "ai_leader", "OpenAI engineering leadership is relevant to platform builders."),
-        ("ilyasut", "Ilya Sutskever", "ai_researcher", "Frontier model research perspective."),
-        ("karpathy", "Andrej Karpathy", "ai_researcher", "Practical AI engineering and agent commentary."),
-        ("demishassabis", "Demis Hassabis", "ai_leader", "Google DeepMind leadership and research direction."),
-        ("ylecun", "Yann LeCun", "ai_researcher", "AI research debate and model architecture commentary."),
-        ("AndrewYNg", "Andrew Ng", "ai_operator", "AI education, productization, and applied AI signals."),
-        ("drfeifei", "Fei-Fei Li", "ai_researcher", "Human-centered AI and research direction."),
-        ("DrJimFan", "Jim Fan", "ai_researcher", "Embodied agents and simulation commentary."),
-        ("fchollet", "François Chollet", "ai_researcher", "Reasoning, benchmarks, and model intelligence discussion."),
-        ("jeremyphoward", "Jeremy Howard", "ai_operator", "Practical AI builders and developer education."),
-        ("Thom_Wolf", "Thomas Wolf", "ai_operator", "Open-source AI ecosystem and Hugging Face signals."),
-        ("ClementDelangue", "Clément Delangue", "ai_founder", "Hugging Face ecosystem and open AI strategy."),
-        ("AravSrinivas", "Aravind Srinivas", "ai_founder", "AI search and product growth signals."),
-        ("hwchase17", "Harrison Chase", "agent_founder", "LangChain and agent workflow signals."),
-    ]
     existing_handles = {
         str(row.handle or "").lower()
         for row in db.query(SocialWatchlistAccountRow.handle).all()
     }
-    for handle, display_name, category, rationale in default_watchlist:
+    for handle, display_name, category, rationale in DEFAULT_WATCHLIST_ACCOUNTS:
         if handle.lower() not in existing_handles:
             db.add(
                 SocialWatchlistAccountRow(
@@ -1031,7 +1003,10 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                 status="new",
             )
         )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # pragma: no cover - concurrent startup seed race
+        db.rollback()
 
 
 def list_social_accounts(db: Session) -> list[dict[str, Any]]:
@@ -2242,9 +2217,17 @@ def _finalize_generated_social_post(
         logger.info("social_generation_skipped_non_generating", extra={"post_id": post_id, "status": row.status})
         return
     normalized_media_mode = _normalize_media_mode(media_mode)
+    db.rollback()
     try:
         generated = _generate_x_post_copy(prompt, style_type=style_type, media_mode=normalized_media_mode)
         policy = run_content_policy_check(generated.body_text)
+        row = db.get(SocialPostDraftRow, post_id)
+        if row is None:  # pragma: no cover - stale async job race
+            logger.warning("social_generation_post_missing_after_generation", extra={"post_id": post_id})
+            return
+        if row.status != "generating":  # pragma: no cover - operator changed draft mid-generation
+            logger.info("social_generation_skipped_after_generation", extra={"post_id": post_id, "status": row.status})
+            return
         generated_status = "approved" if policy["status"] == "passed" else "needs_review"
         row.title = generated.title
         row.body_text = generated.body_text
@@ -2292,6 +2275,10 @@ def _finalize_generated_social_post(
             },
         )
     except Exception as exc:
+        row = db.get(SocialPostDraftRow, post_id)
+        if row is None:  # pragma: no cover - stale async job race
+            logger.warning("social_generation_failure_post_missing", extra={"post_id": post_id})
+            return
         row.status = "failed"
         row.failure_summary = _bounded_excerpt(str(exc), max_chars=1000)
         row.policy_check_json = _json_dumps(run_content_policy_check(row.body_text or ""))

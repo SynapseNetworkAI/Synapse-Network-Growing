@@ -30,6 +30,13 @@ _load_dotenv(_PROJECT_ROOT / ".env")
 # ── Environment ───────────────────────────────────────────────
 ENV = os.environ.get("OPS_ENV", "local")  # local | prod
 
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).lower() in {"1", "true", "yes", "on"}
+
+
+_OPS_E2E_MODE = _env_flag("OPS_E2E_MODE")
+
 # ── Paths ─────────────────────────────────────────────────────
 PROJECT_ROOT = _PROJECT_ROOT
 ROLES_DIR = os.environ.get("ROLES_DIR", str(PROJECT_ROOT / "roles"))
@@ -58,7 +65,7 @@ LARK_RELEASE_WEBHOOK_URL = os.environ.get("OPS_LARK_RELEASE_WEBHOOK_URL", "").st
 LARK_RELEASE_KEYWORD = os.environ.get("OPS_LARK_RELEASE_KEYWORD", "发布").strip() or "发布"
 LARK_DELIVERY_DRY_RUN = os.environ.get("OPS_LARK_DELIVERY_DRY_RUN", "false").lower() in {"1", "true", "yes", "on"}
 OPS_BASE_URL = os.environ.get("OPS_BASE_URL", "").strip().rstrip("/")
-NOTIFICATION_DISPATCHER_ENABLED = os.environ.get("OPS_NOTIFICATION_DISPATCHER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+NOTIFICATION_DISPATCHER_ENABLED = _env_flag("OPS_NOTIFICATION_DISPATCHER_ENABLED", "false" if _OPS_E2E_MODE else "true")
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS = max(1, int(os.environ.get("OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS", "5")))
 NOTIFICATION_ALERT_BURST_PER_MINUTE = max(1, int(os.environ.get("OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE", "5")))
 NOTIFICATION_DEFAULT_COOLDOWN_SECONDS = max(0, int(os.environ.get("OPS_NOTIFICATION_DEFAULT_COOLDOWN_SECONDS", "900")))
@@ -69,7 +76,7 @@ NOTIFICATION_MAX_DELIVERY_ATTEMPTS = max(1, int(os.environ.get("OPS_NOTIFICATION
 RUNTIME_AUTH_ALERTS_ENABLED = os.environ.get("OPS_RUNTIME_AUTH_ALERTS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 BUG_LOG_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_BUG_LOG_SWEEP_SCHEDULER_ENABLED",
-    "true" if ENV == "local" else "false",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
 ).lower() in {"1", "true", "yes", "on"}
 BUG_LOG_SWEEP_INTERVAL_MINUTES = max(1, int(os.environ.get("OPS_BUG_LOG_SWEEP_INTERVAL_MINUTES", "5")))
 BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_BUG_LOG_SWEEP_STARTUP_DELAY_SECONDS", "15")))
@@ -79,7 +86,7 @@ BUG_LOG_SWEEP_MAX_CREATED = max(1, int(os.environ.get("OPS_BUG_LOG_SWEEP_MAX_CRE
 BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS = max(5, int(os.environ.get("OPS_BUG_LOG_SWEEP_SCHEDULER_POLL_SECONDS", "30")))
 GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED",
-    "true" if ENV == "local" else "false",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
 ).lower() in {"1", "true", "yes", "on"}
 OPERATOR_TIMEZONE = os.environ.get("OPS_OPERATOR_TIMEZONE", "Asia/Kuala_Lumpur").strip() or "Asia/Kuala_Lumpur"
 GOAL_PLANNER_SWEEP_LOCAL_TIME = os.environ.get("OPS_GOAL_PLANNER_SWEEP_LOCAL_TIME", "09:00").strip() or "09:00"
@@ -95,13 +102,13 @@ CI_STATUS_SWEEP_RUNTIME_CAP_SECONDS = max(5, int(os.environ.get("OPS_CI_STATUS_S
 CI_STATUS_SWEEP_STALE_LOCK_SECONDS = max(60, int(os.environ.get("OPS_CI_STATUS_SWEEP_STALE_LOCK_SECONDS", "300")))
 RELEASE_PR_STATUS_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_RELEASE_PR_STATUS_SWEEP_SCHEDULER_ENABLED",
-    "true" if ENV == "local" else "false",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
 ).lower() in {"1", "true", "yes", "on"}
 RELEASE_PR_STATUS_SWEEP_INTERVAL_SECONDS = max(60, int(os.environ.get("OPS_RELEASE_PR_STATUS_SWEEP_INTERVAL_SECONDS", "1800")))
 RELEASE_PR_STATUS_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_RELEASE_PR_STATUS_SWEEP_STARTUP_DELAY_SECONDS", "30")))
 RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED",
-    "true" if ENV == "local" else "false",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
 ).lower() in {"1", "true", "yes", "on"}
 RELEASE_DEPLOYMENT_STATUS_SWEEP_INTERVAL_SECONDS = max(60, int(os.environ.get("OPS_RELEASE_DEPLOYMENT_STATUS_SWEEP_INTERVAL_SECONDS", "60")))
 RELEASE_DEPLOYMENT_STATUS_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_RELEASE_DEPLOYMENT_STATUS_SWEEP_STARTUP_DELAY_SECONDS", "20")))
@@ -109,7 +116,7 @@ RELEASE_DEPLOYMENT_PENDING_RUN_ID_TIMEOUT_SECONDS = max(60, int(os.environ.get("
 RELEASE_DEPLOYMENT_RUNNING_TIMEOUT_SECONDS = max(60, int(os.environ.get("OPS_RELEASE_DEPLOYMENT_RUNNING_TIMEOUT_SECONDS", "1800")))
 X_SOCIAL_SWEEP_SCHEDULER_ENABLED = os.environ.get(
     "OPS_X_SOCIAL_SWEEP_SCHEDULER_ENABLED",
-    "true" if ENV == "local" else "false",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
 ).lower() in {"1", "true", "yes", "on"}
 X_SOCIAL_SWEEP_SCHEDULER_POLL_SECONDS = max(60, int(os.environ.get("OPS_X_SOCIAL_SWEEP_SCHEDULER_POLL_SECONDS", "300")))
 X_SOCIAL_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_X_SOCIAL_SWEEP_STARTUP_DELAY_SECONDS", "45")))
@@ -233,7 +240,7 @@ RUNTIME_TIER_STANDARD_MODEL = os.environ.get("OPS_RUNTIME_TIER_STANDARD_MODEL", 
 RUNTIME_TIER_MAX_BACKEND = os.environ.get("OPS_RUNTIME_TIER_MAX_BACKEND", "").strip().lower()
 RUNTIME_TIER_MAX_PROVIDER = os.environ.get("OPS_RUNTIME_TIER_MAX_PROVIDER", "").strip().lower()
 RUNTIME_TIER_MAX_MODEL = os.environ.get("OPS_RUNTIME_TIER_MAX_MODEL", "").strip()
-E2E_MODE = os.environ.get("OPS_E2E_MODE", "false").lower() in {"1", "true", "yes", "on"}
+E2E_MODE = _OPS_E2E_MODE
 E2E_SYNC_DISPATCH = os.environ.get("OPS_E2E_SYNC_DISPATCH", "false").lower() in {"1", "true", "yes", "on"}
 
 # Per-provider credentials (loaded from .env or environment)

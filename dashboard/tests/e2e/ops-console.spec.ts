@@ -967,9 +967,9 @@ test('Release management can create a staging release task without auto-deployin
   expect(browserErrors, 'Release task creation should not emit uncaught browser errors').toEqual([])
 })
 
-test('Social Publishing is discoverable from the sidebar', async ({ page }) => {
+test('Social Publishing is discoverable from the top navigation', async ({ page }) => {
   await page.goto('/planning', { waitUntil: 'domcontentloaded' })
-  const publishingLink = page.getByRole('link', { name: /内容发布/i })
+  const publishingLink = page.getByRole('link', { name: /^Publishing$/i })
   await expect(publishingLink).toBeVisible()
   await publishingLink.click()
   await expect(page).toHaveURL(/\/publishing$/)
