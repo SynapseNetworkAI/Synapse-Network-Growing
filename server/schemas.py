@@ -1471,6 +1471,17 @@ class SocialRepostPublishRequest(BaseModel):
     action: str = "quote"
 
 
+class SocialReplyPatchRequest(BaseModel):
+    suggested_reply: Optional[str] = None
+    status: Optional[str] = None
+    reviewed_by: str = "operator"
+    review_note: Optional[str] = None
+
+
+class SocialReplyPublishRequest(BaseModel):
+    actor: str = "operator"
+
+
 class SocialCampaignGoalOut(BaseModel):
     id: int
     platform: str = "x"
@@ -1532,13 +1543,23 @@ class SocialReplyItemOut(BaseModel):
     id: int
     platform: str = "x"
     external_reply_id: str
+    source_candidate_id: Optional[int] = None
+    source_post_id: Optional[str] = None
+    source_author_handle: Optional[str] = None
+    source_text: Optional[str] = None
     author_handle: Optional[str] = None
     incoming_text: str
     intent: str = "unknown"
     suggested_reply: Optional[str] = None
+    generation_reason: Optional[str] = None
     risk_level: str = "normal"
     status: str = "needs_review"
     source_url: Optional[str] = None
+    published_external_post_id: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    failure_summary: Optional[str] = None
+    metadata: dict[str, object] = {}
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
 

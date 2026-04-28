@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Static quality gates that complement tests/build/coverage.
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DIFF_BASE="${1:-}"
+OPS_PYTHON="${OPS_PYTHON:-$("$ROOT_DIR/scripts/ci/detect_python.sh")}"
+
+if [[ -z "$DIFF_BASE" ]]; then
+  DIFF_BASE="$("$ROOT_DIR/scripts/ci/resolve_diff_base.sh")"
+fi
+
+cd "$ROOT_DIR"
+
+echo "[quality] static size/function ratchet"
+"$OPS_PYTHON" "$ROOT_DIR/scripts/ci/static_quality_gate.py" --base "$DIFF_BASE"
+
+changed_files=()
+while IFS= read -r file; do
+  [[ -n "$file" ]] && changed_files+=("$file")
+done < <("$OPS_PYTHON" "$ROOT_DIR/scripts/ci/static_quality_gate.py" --base "$DIFF_BASE" --print-changed)
+
+changed_python=()
+new_python=()
+changed_dashboard=()
+for file in "${changed_files[@]}"; do
+  case "$file" in
+    *.py)
+      changed_python+=("$file")
+      if git diff --name-status "$DIFF_BASE" -- "$file" | awk '$1 == "A" { found=1 } END { exit found ? 0 : 1 }'; then
+        new_python+=("$file")
+      elif ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+        new_python+=("$file")
+      fi
+      ;;
+    dashboard/src/*.ts|dashboard/src/*.tsx|dashboard/src/**/*.ts|dashboard/src/**/*.tsx)
+      changed_dashboard+=("$file")
+      ;;
+  esac
+done
+
+echo "[quality] python lint"
+if [[ ${#changed_python[@]} -gt 0 ]]; then
+  uvx ruff check --select F401,F541,F821,F841 "${changed_python[@]}"
+else
+  echo "[quality] no changed Python files; skipping changed-file ruff"
+fi
+
+echo "[quality] python format ratchet"
+if [[ ${#new_python[@]} -gt 0 ]]; then
+  uvx ruff format --check "${new_python[@]}"
+else
+  echo "[quality] no new Python files; legacy formatting is tracked separately"
+fi
+
+echo "[quality] python complexity ratchet"
+if [[ ${#new_python[@]} -gt 0 ]]; then
+  uvx xenon --max-absolute B --max-modules B --max-average A "${new_python[@]}"
+else
+  echo "[quality] no new Python files; legacy complexity is protected by size/function ratchet"
+fi
+
+echo "[quality] dashboard typecheck"
+npm --prefix dashboard run typecheck
+
+echo "[quality] dashboard lint"
+QUALITY_DIFF_BASE="$DIFF_BASE" npm --prefix dashboard run lint
+
+echo "[quality] duplicate code ratchet"
+"$OPS_PYTHON" "$ROOT_DIR/scripts/ci/duplicate_code_gate.py" --base "$DIFF_BASE"
+
+echo "[quality] secret scan"
+if [[ -f "$ROOT_DIR/.secrets.baseline" ]]; then
+  uvx detect-secrets scan --baseline "$ROOT_DIR/.secrets.baseline" >/tmp/synapse_detect_secrets_scan.json
+else
+  echo "[quality] .secrets.baseline missing; running changed-file entropy/token scan"
+  "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/secret_diff_scan.py" --base "$DIFF_BASE"
+fi
+
+echo "[quality] python security lint"
+if [[ ${#new_python[@]} -gt 0 ]]; then
+  uvx bandit -q -r "${new_python[@]}" -x tests
+else
+  echo "[quality] no new Python files; legacy security debt is tracked separately"
+fi
+
+echo "[quality] python dependency audit"
+uvx pip-audit -r requirements.txt
+
+if [[ -f "$ROOT_DIR/dashboard/yarn.lock" ]]; then
+  echo "[quality] dashboard dependency audit"
+  "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/yarn_audit_gate.py"
+fi
+
+echo "[quality] branch protection diagnostic"
+bash "$ROOT_DIR/scripts/ci/check_branch_protection.sh"
+
+echo "[quality] ok"

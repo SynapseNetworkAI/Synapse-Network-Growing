@@ -113,7 +113,7 @@ export default function CommandCenterPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="font-mono text-sm font-semibold text-cyan-100">{lane.goal_key}</div>
-                      <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-body)]">{String(lane.goal.intent || lane.goal.title || 'No intent')}</div>
+                      <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-body)]">{String(lane.goal.intent_excerpt || lane.goal.title || 'No intent')}</div>
                     </div>
                     <StateBadge tone="running">{String(lane.goal.domain || 'ops')}</StateBadge>
                   </div>

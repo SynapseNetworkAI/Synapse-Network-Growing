@@ -1330,7 +1330,7 @@ export interface SocialAccount {
   display_name: string | null
   secret_ref: string
   status: string
-  auth_status?: 'authorized' | 'needs_authorization' | 'unknown' | string
+  auth_status?: 'authorized' | 'needs_authorization' | 'gcp_adc_expired' | 'unknown' | string
   auth_message?: string | null
   created_at: string | null
   updated_at: string | null
@@ -1465,13 +1465,23 @@ export interface SocialReplyItem {
   id: number
   platform: string
   external_reply_id: string
+  source_candidate_id: number | null
+  source_post_id: string | null
+  source_author_handle: string | null
+  source_text: string | null
   author_handle: string | null
   incoming_text: string
   intent: string
   suggested_reply: string | null
+  generation_reason: string | null
   risk_level: string
   status: string
   source_url: string | null
+  published_external_post_id: string | null
+  reviewed_by: string | null
+  failure_summary: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
   updated_at: string | null
 }
 
@@ -2609,7 +2619,13 @@ export const api = {
   getSocialTrend: (id: number) => request<SocialTrendItem>(`/social/trends/${id}`),
   getSocialWatchlist: () => request<SocialWatchlistAccount[]>('/social/watchlist'),
   getSocialReplies: () => request<SocialReplyItem[]>('/social/replies'),
+  updateSocialReply: (id: number, data: { suggested_reply?: string; status?: string; reviewed_by?: string; review_note?: string | null }) =>
+    request<SocialReplyItem>(`/social/replies/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  publishSocialReplyToX: (id: number, data: { actor?: string } = {}) =>
+    request<SocialReplyItem>(`/social/replies/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data) }),
   getSocialRepostCandidates: () => request<SocialRepostCandidate[]>('/social/repost-candidates'),
+  generateSocialReplyForRepostCandidate: (id: number, data: { actor?: string } = {}) =>
+    request<SocialReplyItem>(`/social/repost-candidates/${id}/generate-reply`, { method: 'POST', body: JSON.stringify(data) }),
   publishSocialRepostCandidateToX: (id: number, data: { actor?: string; action?: 'quote' | 'repost' | string } = {}) =>
     request<SocialRepostCandidate>(`/social/repost-candidates/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data) }),
   getSocialPostMetrics: () => request<SocialPostMetric[]>('/social/post-metrics'),

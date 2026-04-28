@@ -775,13 +775,22 @@ class SocialReplyItemRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(Text, nullable=False, default="x")
     external_reply_id = Column(Text, nullable=False)
+    source_candidate_id = Column(Integer)
+    source_post_id = Column(Text)
+    source_author_handle = Column(Text)
+    source_text = Column(Text)
     author_handle = Column(Text)
     incoming_text = Column(Text, nullable=False)
     intent = Column(Text, nullable=False, default="unknown")
     suggested_reply = Column(Text)
+    generation_reason = Column(Text)
     risk_level = Column(Text, nullable=False, default="normal")
     status = Column(Text, nullable=False, default="needs_review")
     source_url = Column(Text)
+    published_external_post_id = Column(Text)
+    reviewed_by = Column(Text)
+    failure_summary = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
@@ -1706,6 +1715,26 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+
+    if "social_reply_items" in tables:
+        existing = {c["name"] for c in insp.get_columns("social_reply_items")}
+        social_reply_cols = {
+            "source_candidate_id": "INTEGER",
+            "source_post_id": "TEXT",
+            "source_author_handle": "TEXT",
+            "source_text": "TEXT",
+            "generation_reason": "TEXT",
+            "published_external_post_id": "TEXT",
+            "reviewed_by": "TEXT",
+            "failure_summary": "TEXT",
+            "metadata_json": "TEXT DEFAULT '{}'",
+        }
+        for col, col_type in social_reply_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to social_reply_items table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE social_reply_items ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "social_post_drafts" in tables:
         existing = {c["name"] for c in insp.get_columns("social_post_drafts")}

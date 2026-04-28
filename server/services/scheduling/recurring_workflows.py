@@ -45,6 +45,7 @@ from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
 from server.services.social.publishing import (
     run_x_social_daily_content_planner,
+    run_x_social_reply_candidate_sweep,
     run_x_social_repost_candidate_sweep,
     run_x_social_trend_radar_sweep,
 )
@@ -263,6 +264,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "output_action": {"kind": "create_repost_candidates", "auto_repost": False, "human_gate_required": True},
         "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "created_candidate_ids"},
+    },
+    {
+        "workflow_key": "x_social_reply_candidate_sweep",
+        "display_name": "X Social Reply Candidate Sweep",
+        "description": "Generate one human-gated positive reply draft from real X repost candidates every 30 minutes.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "interval", "interval_minutes": 30},
+        "input_query": {"platform": "x", "source": "social_repost_candidates", "requires_source_url": True},
+        "output_action": {"kind": "create_reply_draft", "auto_reply": False, "human_gate_required": True},
+        "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "created_reply_ids"},
     },
 ]
 
@@ -1525,6 +1538,17 @@ def _execute_recurring_workflow(
                 "human_gate_required": True,
                 "min_relevance_score": 0.75,
             }
+        if workflow_key == "x_social_reply_candidate_sweep":
+            return {
+                "dry_run": True,
+                "workflow_key": workflow_key,
+                "platform": "x",
+                "cadence": "every_30_minutes",
+                "source": "social_repost_candidates",
+                "max_created_per_run": 1,
+                "auto_reply": False,
+                "human_gate_required": True,
+            }
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1597,6 +1621,8 @@ def _execute_recurring_workflow(
         return run_x_social_trend_radar_sweep(db)
     if workflow_key == "x_social_repost_candidate_sweep":
         return run_x_social_repost_candidate_sweep(db)
+    if workflow_key == "x_social_reply_candidate_sweep":
+        return run_x_social_reply_candidate_sweep(db)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)

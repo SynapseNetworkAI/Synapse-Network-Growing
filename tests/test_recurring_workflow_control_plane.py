@@ -115,6 +115,7 @@ def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_cli
         "x_social_daily_content_planner",
         "x_social_trend_radar_sweep",
         "x_social_repost_candidate_sweep",
+        "x_social_reply_candidate_sweep",
     }.issubset(workflow_keys)
 
     daily = synced_client.post("/api/recurring-workflows/x_social_daily_content_planner/run", json={"dry_run": True})
@@ -131,6 +132,26 @@ def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_cli
     reposts = synced_client.post("/api/recurring-workflows/x_social_repost_candidate_sweep/run", json={"dry_run": True})
     assert reposts.status_code == 200
     assert reposts.json()["result"]["auto_repost"] is False
+
+    replies = synced_client.post("/api/recurring-workflows/x_social_reply_candidate_sweep/run", json={"dry_run": True})
+    assert replies.status_code == 200
+    assert replies.json()["result"]["auto_reply"] is False
+    assert replies.json()["result"]["max_created_per_run"] == 1
+
+
+def test_x_social_reply_candidate_sweep_recurring_run_invokes_service(db_session, monkeypatch):
+    sync_recurring_workflows(db_session)
+
+    def fake_reply_sweep(db):
+        assert db is db_session
+        return {"created_reply_ids": [41], "human_gate_required": True, "auto_publish": False}
+
+    monkeypatch.setattr("server.services.scheduling.recurring_workflows.run_x_social_reply_candidate_sweep", fake_reply_sweep)
+
+    result = run_recurring_workflow(db_session, workflow_key="x_social_reply_candidate_sweep", dry_run=False)
+
+    assert result["status"] == "completed"
+    assert result["result"]["created_reply_ids"] == [41]
 
 
 def _create_release_for_pr_sync(db_session, *, status="pr_opened", delivery_state="pr_open", pr_number=31, pr_url=None):

@@ -10,7 +10,6 @@ import hashlib
 import mimetypes
 import os
 import re
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,6 +51,8 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialReplyPatchRequest,
+    SocialReplyPublishRequest,
     SocialRepostPublishRequest,
     SocialXOAuthCallbackOut,
     SocialXOAuthStartOut,
@@ -122,6 +123,15 @@ class SocialPublishError(RuntimeError):
         super().__init__(summary)
         self.kind = kind
         self.summary = summary
+
+
+def _is_gcp_adc_reauth_error(value: object) -> bool:
+    text = str(value or "").lower()
+    return "reauthentication is needed" in text or "application-default login" in text
+
+
+def _gcp_adc_reauth_summary() -> str:
+    return "Local Google credentials expired. Run `gcloud auth application-default login` and refresh /publishing."
 
 
 @dataclass(frozen=True)
@@ -718,6 +728,26 @@ def _validate_uploaded_image(filename: str | None, content_type: str | None, pay
     return _image_extension(filename, content_type, payload)
 
 
+def _safe_image_prompt_context(value: str | None, *, max_chars: int) -> str:
+    text = _bounded_excerpt(str(value or "").strip(), max_chars=max_chars)
+    text = re.sub(r"/Users/[A-Za-z0-9._/\-]+", "[path]", text)
+    text = re.sub(r"https?://\S+", "[link]", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _fallback_image_prompt_for_post(row: SocialPostDraftRow) -> tuple[str, str]:
+    title = _safe_image_prompt_context(row.title or "Synapse Network X update", max_chars=120)
+    body = _safe_image_prompt_context(row.body_text, max_chars=260)
+    prompt = (
+        "Create a polished, high-trust SaaS and AI infrastructure illustration for a Synapse Network official X post. "
+        f"Theme: {title}. "
+        f"Public message context: {body or 'AI agents, API access, payment rails, budget controls, and settlement infrastructure.'} "
+        "Visualize AI agents connected to APIs through governed payment rails and settlement flows. "
+        "Use a modern dark ops cockpit aesthetic with abstract network nodes, subtle cyan/green accents, no readable text, no logos, no screenshots, and no secrets."
+    )
+    return prompt, _bounded_excerpt(f"Synapse Network visual for {title}", max_chars=180)
+
+
 def _media_preview_url(asset_id: int) -> str:
     return f"/api/social/media/{asset_id}/preview"
 
@@ -1297,22 +1327,33 @@ def list_social_watchlist(db: Session) -> list[SocialWatchlistAccountOut]:
 
 def list_social_replies(db: Session) -> list[SocialReplyItemOut]:
     rows = db.query(SocialReplyItemRow).order_by(SocialReplyItemRow.updated_at.desc(), SocialReplyItemRow.id.desc()).limit(100).all()
-    return [
-        SocialReplyItemOut(
-            id=int(row.id),
-            platform=row.platform,
-            external_reply_id=row.external_reply_id,
-            author_handle=row.author_handle,
-            incoming_text=row.incoming_text,
-            intent=row.intent,
-            suggested_reply=row.suggested_reply,
-            risk_level=row.risk_level,
-            status=row.status,
-            source_url=row.source_url,
-            updated_at=row.updated_at,
-        )
-        for row in rows
-    ]
+    return [_social_reply_out(row) for row in rows]
+
+
+def _social_reply_out(row: SocialReplyItemRow) -> SocialReplyItemOut:
+    return SocialReplyItemOut(
+        id=int(row.id),
+        platform=row.platform,
+        external_reply_id=row.external_reply_id,
+        source_candidate_id=int(row.source_candidate_id) if row.source_candidate_id else None,
+        source_post_id=row.source_post_id,
+        source_author_handle=row.source_author_handle,
+        source_text=row.source_text,
+        author_handle=row.author_handle,
+        incoming_text=row.incoming_text,
+        intent=row.intent,
+        suggested_reply=row.suggested_reply,
+        generation_reason=row.generation_reason,
+        risk_level=row.risk_level,
+        status=row.status,
+        source_url=row.source_url,
+        published_external_post_id=row.published_external_post_id,
+        reviewed_by=row.reviewed_by,
+        failure_summary=row.failure_summary,
+        metadata=_json_loads(row.metadata_json, {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def list_social_repost_candidates(db: Session) -> list[SocialRepostCandidateOut]:
@@ -1332,6 +1373,108 @@ def _repost_candidate_out(row: SocialRepostCandidateRow) -> SocialRepostCandidat
         status=row.status,
         updated_at=row.updated_at,
     )
+
+
+def _extract_x_post_id(source_url: str | None) -> str:
+    text = str(source_url or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"/status(?:es)?/(\d+)", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"(?:tweet_id|post_id|id)=(\d+)", text)
+    return match.group(1) if match else ""
+
+
+def _reply_generation_for_candidate(candidate: SocialRepostCandidateRow) -> tuple[str, str, str]:
+    source = str(candidate.source_text or "").strip()
+    summary = str(candidate.suggested_quote or "").strip()
+    joined = f"{source}\n{summary}".lower()
+    if any(term in joined for term in ("payment", "settlement", "billing", "micropayment", "budget")):
+        reply = (
+            "This is the missing layer for agentic products: not just smarter models, but governed access, budgets, and settlement that work at machine speed. "
+            "Agent builders need payment rails designed for autonomous workflows."
+        )
+    elif any(term in joined for term in ("api", "tool", "mcp", "developer", "infra", "infrastructure")):
+        reply = (
+            "Strong signal for agent builders. As agents use more tools and APIs, the hard part becomes governed access: permissions, budgets, metering, and settlement. "
+            "That infrastructure layer is becoming as important as the model."
+        )
+    elif any(term in joined for term in ("model", "reason", "coding", "inference", "compute")):
+        reply = (
+            "Better models unlock more autonomous workflows, but those workflows still need rails for tool access, spend control, and service usage. "
+            "The next layer is making agent execution accountable and economically programmable."
+        )
+    else:
+        reply = (
+            "Useful signal for the agent ecosystem. The more capable agents become, the more they need reliable rails for accessing services, controlling spend, and settling usage without manual glue."
+        )
+    reason = (
+        "Generated as a positive, value-add reply that connects the source post to Synapse Network's public thesis: "
+        "AI agents need governed API access, budgets, and payment/settlement rails."
+    )
+    return _bounded_excerpt(reply, max_chars=900), "normal", reason
+
+
+def _create_reply_from_repost_candidate(
+    db: Session,
+    candidate: SocialRepostCandidateRow,
+    *,
+    actor: str = "x_social_reply_candidate_sweep",
+) -> SocialReplyItemRow:
+    source_url = str(candidate.source_url or "").strip()
+    if not source_url:
+        raise ValueError("reply candidate requires a real X source URL")
+    source_post_id = _extract_x_post_id(source_url)
+    if not source_post_id:
+        raise ValueError("reply candidate source URL does not include a tweet id")
+    existing = (
+        db.query(SocialReplyItemRow)
+        .filter(
+            SocialReplyItemRow.platform == "x",
+            or_(
+                SocialReplyItemRow.source_candidate_id == int(candidate.id),
+                SocialReplyItemRow.source_post_id == source_post_id,
+            ),
+        )
+        .order_by(SocialReplyItemRow.id.desc())
+        .first()
+    )
+    if existing is not None:
+        return existing
+    suggested_reply, risk_level, reason = _reply_generation_for_candidate(candidate)
+    policy = run_content_policy_check(suggested_reply)
+    status = "needs_review" if policy["status"] == "passed" else "failed"
+    failure_summary = None if policy["status"] == "passed" else f"Blocked: {', '.join(policy['blocked_reasons'])}"
+    row = SocialReplyItemRow(
+        platform="x",
+        external_reply_id=f"target:{source_post_id}",
+        source_candidate_id=int(candidate.id),
+        source_post_id=source_post_id,
+        source_author_handle=candidate.author_handle,
+        source_text=candidate.source_text,
+        author_handle=candidate.author_handle,
+        incoming_text=candidate.source_text,
+        intent="repost_candidate_reply",
+        suggested_reply=suggested_reply,
+        generation_reason=reason,
+        risk_level=risk_level,
+        status=status,
+        source_url=source_url,
+        failure_summary=failure_summary,
+        metadata_json=_json_dumps(
+            {
+                "generated_by": actor,
+                "source_candidate_id": int(candidate.id),
+                "policy_check": policy,
+                "human_gate_required": True,
+                "auto_publish": False,
+            }
+        ),
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
@@ -1915,6 +2058,62 @@ def run_x_social_repost_candidate_sweep(db: Session, *, min_relevance_score: flo
     }
 
 
+def run_x_social_reply_candidate_sweep(db: Session, *, max_created: int = 1) -> dict[str, Any]:
+    """Create human-reviewed reply drafts from real X repost candidates.
+
+    The sweep never calls X write APIs. It chooses at most one unprocessed
+    candidate per run so a 30-minute cadence cannot turn into reply spam.
+    """
+
+    ensure_default_social_ops_seed(db)
+    existing_candidate_ids = {
+        int(row[0])
+        for row in db.query(SocialReplyItemRow.source_candidate_id)
+        .filter(SocialReplyItemRow.source_candidate_id.isnot(None))
+        .all()
+        if row[0] is not None
+    }
+    candidates = (
+        db.query(SocialRepostCandidateRow)
+        .filter(
+            SocialRepostCandidateRow.status == "candidate",
+            SocialRepostCandidateRow.source_url.isnot(None),
+        )
+        .order_by(SocialRepostCandidateRow.relevance_score.desc(), SocialRepostCandidateRow.updated_at.desc(), SocialRepostCandidateRow.id.desc())
+        .limit(25)
+        .all()
+    )
+    created_ids: list[int] = []
+    skipped_ids: list[int] = []
+    for candidate in candidates:
+        if len(created_ids) >= max(1, int(max_created)):
+            break
+        if int(candidate.id) in existing_candidate_ids:
+            skipped_ids.append(int(candidate.id))
+            continue
+        if not _extract_x_post_id(candidate.source_url):
+            skipped_ids.append(int(candidate.id))
+            continue
+        try:
+            row = _create_reply_from_repost_candidate(db, candidate, actor="x_social_reply_candidate_sweep")
+        except ValueError:
+            skipped_ids.append(int(candidate.id))
+            continue
+        created_ids.append(int(row.id))
+        existing_candidate_ids.add(int(candidate.id))
+    db.commit()
+    return {
+        "read_only": False,
+        "auto_publish": False,
+        "external_actions": [],
+        "human_gate_required": True,
+        "created_reply_ids": created_ids,
+        "skipped_candidate_ids": skipped_ids,
+        "candidate_count": len(candidates),
+        "no_candidate": not bool(created_ids),
+    }
+
+
 def _get_post(db: Session, post_id: int) -> SocialPostDraftRow:
     row = db.get(SocialPostDraftRow, post_id)
     if row is None:
@@ -2300,7 +2499,11 @@ def regenerate_social_post_image(db: Session, post_id: int, *, actor: str = "ope
     prompt = str((active_assets[-1].prompt if active_assets else None) or raw_output.get("image_prompt") or "").strip()
     alt_text = str((active_assets[-1].alt_text if active_assets else None) or raw_output.get("image_alt_text") or "").strip()
     if not prompt:
-        raise ValueError("no image prompt is available for this draft")
+        prompt, alt_text = _fallback_image_prompt_for_post(row)
+        raw_output["image_prompt"] = prompt
+        raw_output["image_alt_text"] = alt_text
+        raw_output["image_prompt_source"] = "deterministic_content_fallback"
+        row.raw_agent_output_json = _json_dumps(raw_output)
     for asset in active_assets:
         asset.status = "removed"
     _generate_media_asset_for_post(db, row, prompt=prompt, alt_text=alt_text, actor=actor)
@@ -2452,6 +2655,8 @@ class SecretValueStore:
         try:
             response = secretmanager.SecretManagerServiceClient().access_secret_version(request={"name": self._secret_name(ref)})
         except Exception as exc:  # pragma: no cover - credential dependent
+            if _is_gcp_adc_reauth_error(exc):
+                raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from exc
             raise SocialPublishError("x_auth_failed", f"Secret Manager read failed: {_bounded_excerpt(str(exc))}") from exc
         value = response.payload.data.decode("utf-8", errors="replace").strip()
         if not value:
@@ -2479,12 +2684,16 @@ class SecretValueStore:
                 }
             )
         except Exception as exc:  # pragma: no cover - credential dependent
+            if _is_gcp_adc_reauth_error(exc):
+                raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from exc
             if not self._is_secret_not_found(exc):
                 raise SocialPublishError("x_refresh_failed", f"Secret Manager refresh token write failed: {_bounded_excerpt(str(exc))}") from exc
             try:
                 client.create_secret(request=self._secret_create_request(ref))
                 client.add_secret_version(request=request)
             except Exception as retry_exc:  # pragma: no cover - credential dependent
+                if _is_gcp_adc_reauth_error(retry_exc):
+                    raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from retry_exc
                 raise SocialPublishError(
                     "x_refresh_failed",
                     f"Secret Manager refresh token write failed after creating secret: {_bounded_excerpt(str(retry_exc))}",
@@ -2507,6 +2716,8 @@ class XOAuth2TokenProvider:
         try:
             self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
         except SocialPublishError as exc:
+            if exc.kind == "gcp_adc_expired":
+                return "gcp_adc_expired", exc.summary
             return "needs_authorization", exc.summary
         return "authorized", "OAuth refresh token is configured."
 
@@ -2555,7 +2766,6 @@ class XOAuth2TokenProvider:
         access_token = str(data.get("access_token") or "").strip()
         if not access_token:
             raise SocialPublishError("x_refresh_failed", "X OAuth refresh response did not include access_token.")
-        expires_in = int(data.get("expires_in") or 7200)
         new_refresh_token = str(data.get("refresh_token") or "").strip()
         rotated = False
         if new_refresh_token and new_refresh_token != refresh_token:
@@ -2685,6 +2895,43 @@ class XApiPublisher:
         if not post_id:
             raise SocialPublishError("x_api_failed", "X API response did not include a post id.")
         return XPublishResult(post_id=post_id, response_summary={"data": {"id": post_id}, "media_ids": media_ids or []})
+
+    def publish_reply(self, account: SocialAccountRow, body_text: str, *, in_reply_to_tweet_id: str) -> XPublishResult:
+        token = _read_secret_token(account.secret_ref)
+        reply_to = str(in_reply_to_tweet_id or "").strip()
+        if not reply_to:
+            raise SocialPublishError("x_reply_failed", "X reply target tweet id is missing.")
+        payload_obj: dict[str, Any] = {
+            "text": body_text,
+            "reply": {"in_reply_to_tweet_id": reply_to},
+        }
+        payload = json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            X_POST_URL,
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - fixed X API endpoint
+                raw = response.read(8192).decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read(4096).decode("utf-8", errors="replace")
+            if exc.code in {401, 403}:
+                raise SocialPublishError("x_reply_auth_failed", "X reply authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+            if exc.code == 429:
+                raise SocialPublishError("x_rate_limited", "X reply rate limit reached. Try again after the rate-limit window.") from exc
+            raise SocialPublishError("x_reply_failed", f"X reply API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
+        except Exception as exc:  # pragma: no cover - network/credential dependent
+            raise SocialPublishError("x_reply_failed", f"X reply request failed: {_bounded_excerpt(str(exc))}") from exc
+        data = _json_loads(raw, {})
+        post_id = str(((data.get("data") if isinstance(data, dict) else {}) or {}).get("id") or "").strip()
+        if not post_id:
+            raise SocialPublishError("x_reply_failed", "X reply API response did not include a post id.")
+        return XPublishResult(post_id=post_id, response_summary={"data": {"id": post_id}, "reply_to": reply_to})
 
 
 x_publisher: XApiPublisher = XApiPublisher()
@@ -2857,3 +3104,133 @@ def publish_social_repost_candidate_to_x(
     db.commit()
     db.refresh(candidate)
     return _repost_candidate_out(candidate)
+
+
+def generate_social_reply_for_repost_candidate(
+    db: Session,
+    candidate_id: int,
+    body: SocialReplyPublishRequest | SocialPostPublishRequest,
+) -> SocialReplyItemOut:
+    candidate = db.get(SocialRepostCandidateRow, candidate_id)
+    if candidate is None:
+        raise ValueError("social repost candidate not found")
+    if candidate.status not in {"candidate", "failed"}:
+        raise ValueError("only active repost candidates can generate reply drafts")
+    row = _create_reply_from_repost_candidate(db, candidate, actor=getattr(body, "actor", "operator") or "operator")
+    db.commit()
+    db.refresh(row)
+    return _social_reply_out(row)
+
+
+def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchRequest) -> SocialReplyItemOut:
+    row = db.get(SocialReplyItemRow, reply_id)
+    if row is None:
+        raise ValueError("social reply item not found")
+    if row.status == "published":
+        raise ValueError("published replies cannot be edited")
+    if body.suggested_reply is not None:
+        row.suggested_reply = str(body.suggested_reply or "").strip()
+    if body.status is not None:
+        status = str(body.status or "").strip()
+        if status not in {"needs_review", "approved", "failed", "rejected"}:
+            raise ValueError("unsupported reply status")
+        row.status = status
+        row.reviewed_by = body.reviewed_by
+    if body.review_note:
+        metadata = _json_loads(row.metadata_json, {})
+        metadata["review_note"] = str(body.review_note)
+        row.metadata_json = _json_dumps(metadata)
+    if row.suggested_reply:
+        policy = run_content_policy_check(row.suggested_reply)
+        metadata = _json_loads(row.metadata_json, {})
+        metadata["policy_check"] = policy
+        row.metadata_json = _json_dumps(metadata)
+        if policy["status"] != "passed":
+            row.status = "failed"
+            row.failure_summary = f"Blocked: {', '.join(policy['blocked_reasons'])}"
+        elif row.status == "failed" and row.failure_summary and row.failure_summary.startswith("Blocked:"):
+            row.status = "needs_review"
+            row.failure_summary = None
+    row.updated_at = utcnow()
+    db.commit()
+    db.refresh(row)
+    return _social_reply_out(row)
+
+
+def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPublishRequest) -> SocialReplyItemOut:
+    row = db.get(SocialReplyItemRow, reply_id)
+    if row is None:
+        raise ValueError("social reply item not found")
+    if row.platform != "x":
+        raise ValueError("only X replies are supported in v1")
+    if row.status not in {"needs_review", "approved", "failed"}:
+        raise ValueError("only reviewable or failed replies can be published")
+    reply_text = str(row.suggested_reply or "").strip()
+    if not reply_text:
+        raise ValueError("reply text is empty")
+    source_post_id = str(row.source_post_id or "").strip() or _extract_x_post_id(row.source_url)
+    if not source_post_id:
+        raise ValueError("reply source tweet id is missing")
+    policy = run_content_policy_check(reply_text)
+    if policy["status"] != "passed":
+        row.status = "failed"
+        row.failure_summary = f"Blocked: {', '.join(policy['blocked_reasons'])}"
+        row.updated_at = utcnow()
+        db.commit()
+        db.refresh(row)
+        return _social_reply_out(row)
+    account = ensure_default_social_account(db)
+    row.status = "publishing"
+    row.reviewed_by = body.actor
+    row.failure_summary = None
+    row.updated_at = utcnow()
+    db.commit()
+
+    token_context = None
+    try:
+        token_result = x_oauth_token_provider.get_access_token(account.secret_ref)
+        token_context = _x_publish_access_token.set(token_result.access_token)
+        result = x_publisher.publish_reply(account, reply_text, in_reply_to_tweet_id=source_post_id)
+    except SocialPublishError as exc:
+        row = db.get(SocialReplyItemRow, reply_id)
+        if row is None:
+            raise ValueError("social reply item not found") from exc
+        row.status = "failed"
+        row.failure_summary = exc.summary
+        row.updated_at = utcnow()
+        metadata = _json_loads(row.metadata_json, {})
+        metadata["publish_failure_kind"] = exc.kind
+        row.metadata_json = _json_dumps(metadata)
+        db.commit()
+        db.refresh(row)
+        return _social_reply_out(row)
+    finally:
+        if token_context is not None:
+            _x_publish_access_token.reset(token_context)
+
+    row = db.get(SocialReplyItemRow, reply_id)
+    if row is None:
+        raise ValueError("social reply item not found")
+    row.status = "published"
+    row.external_reply_id = result.post_id
+    row.published_external_post_id = result.post_id
+    row.failure_summary = None
+    row.updated_at = utcnow()
+    metadata = _json_loads(row.metadata_json, {})
+    metadata.update(
+        {
+            "published_by": body.actor,
+            "response_summary": result.response_summary,
+            "reply_to": source_post_id,
+        }
+    )
+    row.metadata_json = _json_dumps(metadata)
+    candidate_id = int(row.source_candidate_id or 0)
+    if candidate_id:
+        candidate = db.get(SocialRepostCandidateRow, candidate_id)
+        if candidate is not None and candidate.status == "candidate":
+            candidate.status = "replied"
+            candidate.updated_at = utcnow()
+    db.commit()
+    db.refresh(row)
+    return _social_reply_out(row)

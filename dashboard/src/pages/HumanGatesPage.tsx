@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, DeclarativeWorkflowRunSummary } from '../api'
 import { ActionButton, AgentReasoningCard, CockpitPanel, EmptyCockpitState, MetricTile } from '../components/controlPlane'
-import { StateBadge, useToast } from '../components/workbench'
+import { StateBadge } from '../components/workbench'
 
 function formatTime(value: string | null | undefined) {
   if (!value) return '-'
@@ -20,7 +20,6 @@ export default function HumanGatesPage() {
   const [failed, setFailed] = useState<DeclarativeWorkflowRunSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const toast = useToast()
   const navigate = useNavigate()
 
   const load = () => {

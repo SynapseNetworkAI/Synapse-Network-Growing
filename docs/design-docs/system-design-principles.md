@@ -112,6 +112,12 @@
 3. Python runtime 必须通过脚本动态探测；不得把单台机器的虚拟环境路径写死成唯一可用路径。
 4. diff coverage 必须基于可解析的 merge-base；本地 `origin/main` 过旧时应先尝试 fetch，不能用陈旧 diff 误判覆盖率。
 5. `--no-verify` 只能绕过本地 hook，不能被视为合格交付；远端 GitHub CI 仍是最终兜底。
+6. Push Quality Gates v2 必须通过 `scripts/ci/code_quality_gates.sh` 补齐 typecheck、lint、复杂度、行数、重复代码、secret scan、SAST 和 dependency audit。
+7. 行数门禁采用 baseline + ratchet：新生产文件 `<= 500` 行，新测试文件 `<= 900` 行；历史超限文件不得继续增长，除非同 PR 中先拆分或净减少。
+8. Python 复杂度门禁使用 changed/new-code ratchet：新生产 Python 文件必须满足 Xenon `--max-absolute B`，大函数必须拆分，测试文件不作为复杂度 hard gate。
+9. 重复代码门禁必须防止新生产代码引入大块重复；已有重复可以被 baseline 暂时容忍，但不能作为继续复制粘贴的借口。
+10. 安全门禁必须 fail closed：新增 secret、Bandit 高风险问题、Python 依赖漏洞、前端 high/critical audit 都不得通过；输出必须 redacted，不能把 token 原文打印到 CI。
+11. Branch protection 检查是事实吸收，不是口头保证。GitHub plan 不支持 private repo ruleset 时必须明确显示 diagnostic-only，不能伪装成已强制 required checks。
 
 ## 6.7 后台任务必须一等可观测
 
@@ -140,11 +146,12 @@
 23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
 24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
 25. `release_pr_status_sweep` 只能只读同步 GitHub PR 外部状态；`MERGED` 可更新本地 release 为 merged，`CLOSED` 或 `404 / Not Found` 必须收敛为 abandoned/review 状态，不能永久保留 `pr_opened` 僵尸记录。
-26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但同一 operator-local day 只能生成一条 human-reviewed draft。趋势雷达和转发候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
+26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但同一 operator-local day 只能生成一条 human-reviewed draft。趋势雷达、转发候选和回帖候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
 27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。
 28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
 29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
 30. X 趋势结果检索属于只读运营情报面。`/publishing/trends` 可以按日期、关键字、来源类型和作者检索 `social_trend_items`，但不得触发抓取、回复、转发或发布；趋势详情必须使用居中 Modal，并用 `source_url` 明确区分真实 X 原帖与本地趋势种子。
+31. X 回帖增长必须先落入 `social_reply_items` 人审队列。`x_social_reply_candidate_sweep` 每 30 分钟最多生成 1 条回复草稿；公开回复必须由 operator 在 `/publishing -> 回帖处理` 确认，且必须使用 X reply payload 绑定 `in_reply_to_tweet_id`，不得发成普通推文或自动刷评论。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
@@ -267,6 +274,7 @@ Social Publishing 负责：
 8. 趋势雷达、watchlist、回帖处理、引用转发候选和发布效果 metrics 只能作为 read-only / draft-only 决策输入；它们不能自动点赞、关注、回复、转发或发布。
 9. 第三方增长工具只能作为只读素材源或草稿源接入，必须通过内部 brand refinement、risk evidence gate 和 Human Gate 后才能对外行动。
 10. Trend Radar 的来源必须可解释：真实 X 数据展示 `source_platform=x`、作者、source URL、采集时间和互动摘要；本地趋势种子必须标记为 seed/inspiration，并禁用引用转发。
+11. Reply Inbox / 回帖处理必须强调 “value-add reply”：Agent 生成评论要正向、相关并补充观点，不得只是 `Great point`、硬广链接或碰瓷式互动；每条候选最多生成/发布一次回复。
 
 Social Publishing 不得承担：
 

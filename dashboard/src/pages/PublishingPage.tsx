@@ -55,7 +55,7 @@ const emptyForm: DraftForm = {
 const pageSize = 8
 
 function statusTone(status: string): 'default' | 'ready' | 'running' | 'blocked' | 'validating' | 'delivered' | 'muted' {
-  if (status === 'published') return 'delivered'
+  if (status === 'published' || status === 'replied') return 'delivered'
   if (status === 'approved') return 'ready'
   if (status === 'failed' || status === 'rejected') return 'blocked'
   if (status === 'publishing' || status === 'generating') return 'running'
@@ -70,6 +70,7 @@ function statusLabel(status: string) {
     approved: '可发布',
     publishing: '发布中',
     published: '已发布',
+    replied: '已回帖',
     failed: '失败',
     rejected: '已拒绝',
   }
@@ -83,6 +84,11 @@ function canPublish(post: SocialPostDraft) {
 
 function accountAuthorized(account: SocialAccount | undefined) {
   return account?.auth_status === 'authorized'
+}
+
+function gcpAdcExpired(account: SocialAccount | undefined) {
+  const message = `${account?.auth_message ?? ''}`.toLowerCase()
+  return account?.auth_status === 'gcp_adc_expired' || message.includes('application-default login') || message.includes('reauthentication is needed')
 }
 
 function needsXReconnect(post: SocialPostDraft) {
@@ -131,12 +137,37 @@ function repostStatusLabel(status: string) {
   return map[status] ?? status
 }
 
+function replyStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    needs_review: '待审核',
+    approved: '可回复',
+    publishing: '回复中',
+    published: '已回复',
+    failed: '失败',
+    rejected: '已拒绝',
+  }
+  return map[status] ?? status
+}
+
+function replySortRank(reply: SocialReplyItem) {
+  const ranks: Record<string, number> = {
+    publishing: 0,
+    approved: 1,
+    needs_review: 2,
+    failed: 3,
+    published: 8,
+    rejected: 9,
+  }
+  return ranks[reply.status] ?? 5
+}
+
 function repostSortRank(candidate: SocialRepostCandidate) {
   const ranks: Record<string, number> = {
     publishing: 0,
     candidate: 1,
     needs_review: 1,
     failed: 2,
+    replied: 7,
     published: 8,
     rejected: 9,
   }
@@ -224,6 +255,11 @@ export default function PublishingPage() {
   const [repostPublishTarget, setRepostPublishTarget] = useState<SocialRepostCandidate | null>(null)
   const [repostPublishAction, setRepostPublishAction] = useState<'quote' | 'repost'>('quote')
   const [repostBusyId, setRepostBusyId] = useState<number | null>(null)
+  const [replyPage, setReplyPage] = useState(1)
+  const [replyDetail, setReplyDetail] = useState<SocialReplyItem | null>(null)
+  const [replyDraftText, setReplyDraftText] = useState('')
+  const [replyPublishTarget, setReplyPublishTarget] = useState<SocialReplyItem | null>(null)
+  const [replyBusyId, setReplyBusyId] = useState<number | null>(null)
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null)
   const [selectedImageAltText, setSelectedImageAltText] = useState('')
@@ -238,7 +274,7 @@ export default function PublishingPage() {
       [...posts].sort((left, right) => {
         const rankDelta = postSortRank(left) - postSortRank(right)
         if (rankDelta !== 0) return rankDelta
-        return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+        return new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()
       }),
     [posts],
   )
@@ -263,6 +299,24 @@ export default function PublishingPage() {
   )
   const repostTotalPages = Math.max(1, Math.ceil(sortedReposts.length / pageSize))
   const pagedReposts = sortedReposts.slice((repostPage - 1) * pageSize, repostPage * pageSize)
+  const sortedReplies = useMemo(
+    () =>
+      [...replies].sort((left, right) => {
+        const rankDelta = replySortRank(left) - replySortRank(right)
+        if (rankDelta !== 0) return rankDelta
+        return new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()
+      }),
+    [replies],
+  )
+  const replyTotalPages = Math.max(1, Math.ceil(sortedReplies.length / pageSize))
+  const pagedReplies = sortedReplies.slice((replyPage - 1) * pageSize, replyPage * pageSize)
+  const replyByCandidateId = useMemo(() => {
+    const mapping = new Map<number, SocialReplyItem>()
+    for (const reply of replies) {
+      if (reply.source_candidate_id) mapping.set(reply.source_candidate_id, reply)
+    }
+    return mapping
+  }, [replies])
 
   async function load(nextFilter = filter) {
     setLoading(true)
@@ -338,9 +392,16 @@ export default function PublishingPage() {
   }, [repostPage, repostTotalPages])
 
   useEffect(() => {
+    if (replyPage > replyTotalPages) {
+      setReplyPage(replyTotalPages)
+    }
+  }, [replyPage, replyTotalPages])
+
+  useEffect(() => {
     setTrendPage(1)
     setWatchlistPage(1)
     setRepostPage(1)
+    setReplyPage(1)
   }, [opsTab])
 
   useEffect(() => {
@@ -526,6 +587,21 @@ export default function PublishingPage() {
     }
   }
 
+  async function approvePost(post: SocialPostDraft) {
+    if (busyId) return
+    setBusyId(post.id)
+    try {
+      const updated = await api.updateSocialPost(post.id, { status: 'approved', reviewed_by: 'operator' })
+      setPosts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      toast.success('已审核通过，可以发布到 X')
+      await load()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '审核失败')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function publishToX() {
     if (!publishTarget || busyId) return
     setBusyId(publishTarget.id)
@@ -565,6 +641,66 @@ export default function PublishingPage() {
       toast.error(error instanceof Error ? error.message : '发布候选失败')
     } finally {
       setRepostBusyId(null)
+    }
+  }
+
+  async function generateReplyForCandidate(candidate: SocialRepostCandidate) {
+    if (replyBusyId) return
+    setReplyBusyId(candidate.id)
+    try {
+      const reply = await api.generateSocialReplyForRepostCandidate(candidate.id, { actor: 'operator' })
+      setReplies((current) => {
+        const exists = current.some((item) => item.id === reply.id)
+        return exists ? current.map((item) => (item.id === reply.id ? reply : item)) : [reply, ...current]
+      })
+      setReplyDetail(reply)
+      setReplyDraftText(reply.suggested_reply || '')
+      toast.success('已生成回帖草稿，等待人工审核')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成回帖失败')
+    } finally {
+      setReplyBusyId(null)
+    }
+  }
+
+  async function saveReplyDraft(nextStatus = 'approved') {
+    if (!replyDetail || replyBusyId) return
+    setReplyBusyId(replyDetail.id)
+    try {
+      const updated = await api.updateSocialReply(replyDetail.id, {
+        suggested_reply: replyDraftText,
+        status: nextStatus,
+        reviewed_by: 'operator',
+      })
+      setReplies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setReplyDetail(updated)
+      setReplyDraftText(updated.suggested_reply || '')
+      toast.success(nextStatus === 'rejected' ? '已拒绝回帖' : '回帖草稿已保存')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存回帖失败')
+    } finally {
+      setReplyBusyId(null)
+    }
+  }
+
+  async function publishReplyToX(target = replyPublishTarget) {
+    if (!target || replyBusyId) return
+    setReplyBusyId(target.id)
+    try {
+      const updated = await api.publishSocialReplyToX(target.id, { actor: 'operator' })
+      setReplies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setReplyDetail((current) => (current?.id === updated.id ? updated : current))
+      if (updated.status === 'published') {
+        toast.success('已回复到 X')
+      } else {
+        toast.error(updated.failure_summary || '回复失败')
+      }
+      setReplyPublishTarget(null)
+      await load()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '回复到 X 失败')
+    } finally {
+      setReplyBusyId(null)
     }
   }
 
@@ -670,6 +806,8 @@ export default function PublishingPage() {
             {activeAccount ? (
               accountAuthorized(activeAccount) ? (
                 <span className="rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm text-emerald-100">X 已授权</span>
+              ) : gcpAdcExpired(activeAccount) ? (
+                <span className="rounded-xl border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-100">GCP 凭据过期</span>
               ) : (
                 <button type="button" className="rounded-xl border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount.id)}>
                   连接 X 官方账号
@@ -704,7 +842,13 @@ export default function PublishingPage() {
               <div className="mt-2 text-sm leading-6 text-amber-100">发布、回复、引用转发、删除均需人类确认。</div>
             </div>
           </div>
-          {activeAccount && !accountAuthorized(activeAccount) ? (
+          {activeAccount && gcpAdcExpired(activeAccount) ? (
+            <div className="rounded-2xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm leading-6 text-rose-100">
+              <div className="font-semibold">本地 GCP 凭据已过期，暂时无法读取 Secret Manager 里的 X OAuth refresh token。</div>
+              <div className="mt-1">请在本机终端执行 <code className="rounded bg-black/30 px-2 py-1 font-mono text-xs">gcloud auth application-default login</code>，完成后刷新本页。</div>
+              {activeAccount.auth_message ? <div className="mt-1 text-xs text-rose-100/80">{activeAccount.auth_message}</div> : null}
+            </div>
+          ) : activeAccount && !accountAuthorized(activeAccount) ? (
             <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
               X 官方账号未完成 OAuth2 授权：{activeAccount.auth_message || '需要连接 @SynapseNetworkA 后才能发布或重新发送。'}
             </div>
@@ -843,7 +987,12 @@ export default function PublishingPage() {
                             拒绝
                           </button>
                         ) : null}
-                        {canPublish(post) && reconnectRequired && !accountAuthorized(postAccount) ? (
+                        {post.status === 'needs_review' && post.policy_check.status === 'passed' ? (
+                          <button type="button" className="rounded-xl border border-emerald-300/35 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={busyId === post.id} onClick={() => approvePost(post)}>
+                            审核通过
+                          </button>
+                        ) : null}
+                        {canPublish(post) && reconnectRequired && !accountAuthorized(postAccount) && !gcpAdcExpired(postAccount) ? (
                           <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
                             重新连接 X 官方账号
                           </button>
@@ -858,7 +1007,7 @@ export default function PublishingPage() {
                             重新连接 X 官方账号
                           </button>
                         ) : null}
-                        {canPublish(post) && !accountAuthorized(postAccount) && !reconnectRequired ? (
+                        {canPublish(post) && !accountAuthorized(postAccount) && !reconnectRequired && !gcpAdcExpired(postAccount) ? (
                           <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(post.account_id)}>
                             连接 X 官方账号
                           </button>
@@ -974,23 +1123,69 @@ export default function PublishingPage() {
         <SectionFrame
           eyebrow="Reply Inbox"
           title="回帖处理"
-          description="系统可以生成回复草稿，但公开回复必须由人类确认；v1 不做自动回复。"
+          description="每 30 分钟可从真实 X 候选中生成 1 条正向相关的回复草稿；公开回复必须由人类确认。"
         >
-          {replies.length === 0 ? <EmptyPane>暂无待处理回帖。接入 X read 权限后，social_reply_inbox_sweep 会把 mention/reply 转为审核项。</EmptyPane> : null}
-          <div className="grid gap-4 md:grid-cols-2">
-            {replies.map((reply) => (
-              <div key={reply.id} className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">@{reply.author_handle ?? 'unknown'}</div>
-                  <StateBadge tone={reply.risk_level === 'high' ? 'blocked' : 'validating'}>{reply.intent}</StateBadge>
-                </div>
-                <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{reply.incoming_text}</p>
-                <div className="mt-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3 text-sm leading-6 text-[color:var(--ops-text-body)]">
-                  {reply.suggested_reply || 'Agent 尚未生成回复草稿。'}
+          {replies.length === 0 ? <EmptyPane>暂无待处理回帖。可以先在“转发候选”中点击“生成回帖”，或等待 x_social_reply_candidate_sweep 自动生成待审核草稿。</EmptyPane> : null}
+          {replies.length > 0 ? (
+            <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">
+              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+                <thead className="bg-[color:var(--ops-panel-subtle)] text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                  <tr>
+                    <th className="px-5 py-4 font-medium">ID</th>
+                    <th className="px-5 py-4 font-medium">来源</th>
+                    <th className="px-5 py-4 font-medium">状态 / 风险</th>
+                    <th className="px-5 py-4 font-medium">回复草稿</th>
+                    <th className="px-5 py-4 font-medium">更新</th>
+                    <th className="px-5 py-4 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
+                  {pagedReplies.map((reply) => (
+                    <tr key={reply.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
+                      <td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-[color:var(--ops-text-caption)]">#{reply.id}</td>
+                      <td className="max-w-[320px] px-5 py-4">
+                        <div className="font-semibold text-[color:var(--ops-text-title)]">@{reply.source_author_handle || reply.author_handle || 'unknown'}</div>
+                        <div className="mt-2 line-clamp-3 text-xs leading-5 text-[color:var(--ops-text-muted)]">{reply.source_text || reply.incoming_text}</div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <StateBadge tone={signalStatusTone(reply.status)}>{replyStatusLabel(reply.status)}</StateBadge>
+                        <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">risk {reply.risk_level}</div>
+                        {reply.failure_summary ? <div className="mt-2 max-w-[220px] text-xs leading-5 text-rose-200">{reply.failure_summary}</div> : null}
+                      </td>
+                      <td className="max-w-[360px] px-5 py-4">
+                        <div className="line-clamp-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] px-3 py-2 text-xs leading-5 text-cyan-50">
+                          {reply.suggested_reply || 'Agent 尚未生成回复草稿。'}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(reply.updated_at)}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                            onClick={() => {
+                              setReplyDetail(reply)
+                              setReplyDraftText(reply.suggested_reply || '')
+                            }}
+                          >
+                            详情
+                          </button>
+                          {reply.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={reply.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                <span>第 {replyPage} / {replyTotalPages} 页 · 共 {replies.length} 条回帖草稿</span>
+                <div className="flex gap-2">
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={replyPage <= 1} onClick={() => setReplyPage((current) => Math.max(1, current - 1))}>上一页</button>
+                  <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={replyPage >= replyTotalPages} onClick={() => setReplyPage((current) => Math.min(replyTotalPages, current + 1))}>下一页</button>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : null}
         </SectionFrame>
       ) : null}
 
@@ -1015,7 +1210,9 @@ export default function PublishingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[color:var(--ops-stroke-soft)]">
-                  {pagedReposts.map((candidate) => (
+                  {pagedReposts.map((candidate) => {
+                    const candidateReply = replyByCandidateId.get(candidate.id)
+                    return (
                     <tr key={candidate.id} className="bg-[color:var(--ops-workspace-bg)] align-top">
                       <td className="whitespace-nowrap px-5 py-4 font-mono text-xs text-[color:var(--ops-text-caption)]">#{candidate.id}</td>
                       <td className="max-w-[320px] px-5 py-4">
@@ -1032,14 +1229,49 @@ export default function PublishingPage() {
                         </div>
                       </td>
                       <td className="px-5 py-4 text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(candidate.updated_at)}</td>
-                      <td className="px-5 py-4">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => setRepostDetail(candidate)}>详情</button>
-                          {candidate.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={candidate.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
-                        </div>
-                      </td>
+	                      <td className="px-5 py-4">
+	                        <div className="flex flex-wrap justify-end gap-2">
+	                          {candidateReply ? (
+	                            <button
+	                              type="button"
+	                              className="rounded-xl border border-emerald-300/30 px-3 py-2 text-sm text-emerald-100"
+	                              onClick={() => {
+	                                setReplyDetail(candidateReply)
+	                                setReplyDraftText(candidateReply.suggested_reply || '')
+	                              }}
+	                            >
+	                              查看回帖
+	                            </button>
+	                          ) : candidate.source_url && candidate.status === 'candidate' ? (
+	                            <button
+	                              type="button"
+	                              className="rounded-xl border border-emerald-300/30 px-3 py-2 text-sm text-emerald-100 disabled:opacity-50"
+	                              disabled={replyBusyId === candidate.id}
+	                              onClick={() => generateReplyForCandidate(candidate)}
+	                            >
+	                              {replyBusyId === candidate.id ? '生成中...' : '生成回帖'}
+	                            </button>
+	                          ) : null}
+	                          {candidate.source_url && accountAuthorized(activeAccount) && candidate.status !== 'published' && candidate.status !== 'publishing' ? (
+	                            <button
+	                              type="button"
+	                              className="rounded-xl border border-cyan-300/35 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50"
+	                              disabled={repostBusyId === candidate.id}
+	                              onClick={() => {
+	                                setRepostPublishAction('repost')
+	                                setRepostPublishTarget(candidate)
+	                              }}
+	                            >
+	                              转发到 X
+	                            </button>
+	                          ) : null}
+	                          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => setRepostDetail(candidate)}>详情</button>
+	                          {candidate.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={candidate.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
+	                        </div>
+	                      </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
@@ -1177,8 +1409,140 @@ export default function PublishingPage() {
               <div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/75">Suggested Quote</div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-cyan-50">{repostDetail.suggested_quote || 'Agent 尚未生成引用文案。'}</p>
             </div>
+            <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-100/75">Reply Draft</div>
+                  <p className="mt-3 text-sm leading-6 text-emerald-50">
+                    {replyByCandidateId.get(repostDetail.id)?.suggested_reply || '还没有回帖草稿。可以让 Agent 根据原帖生成一条正向、相关、有观点的评论。'}
+                  </p>
+                </div>
+                {replyByCandidateId.get(repostDetail.id) ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-emerald-300/35 px-3 py-2 text-sm font-semibold text-emerald-100"
+                    onClick={() => {
+                      const reply = replyByCandidateId.get(repostDetail.id)
+                      if (reply) {
+                        setReplyDetail(reply)
+                        setReplyDraftText(reply.suggested_reply || '')
+                      }
+                    }}
+                  >
+                    查看回帖
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-emerald-300/35 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50"
+                    disabled={!repostDetail.source_url || replyBusyId === repostDetail.id}
+                    onClick={() => generateReplyForCandidate(repostDetail)}
+                  >
+                    {replyBusyId === repostDetail.id ? '生成中...' : '生成回帖'}
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
               Human Gate：引用发布或转发链接都会代表 @SynapseNetworkA 公开发声。系统不会自动点赞、关注、删除或绕过 X OAuth。
+            </div>
+          </div>
+        ) : null}
+      </OverlayModal>
+
+      <OverlayModal
+        open={Boolean(replyDetail)}
+        eyebrow="X Reply Review"
+        title={replyDetail ? `回帖草稿 #${replyDetail.id}` : '回帖草稿'}
+        description="Agent 可以生成正向相关的评论草稿；回复到 X 前必须由 operator 明确确认。"
+        onClose={() => setReplyDetail(null)}
+        actions={
+          <>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => setReplyDetail(null)}>
+              关闭
+            </button>
+            {replyDetail && replyDetail.status !== 'published' && replyDetail.status !== 'rejected' ? (
+              <button
+                type="button"
+                className="rounded-xl border border-rose-300/30 px-4 py-2 text-sm text-rose-100 disabled:opacity-50"
+                disabled={replyBusyId === replyDetail.id}
+                onClick={() => void saveReplyDraft('rejected')}
+              >
+                拒绝
+              </button>
+            ) : null}
+            {replyDetail && replyDetail.status !== 'published' && replyDetail.status !== 'rejected' ? (
+              <button
+                type="button"
+                className="rounded-xl border border-emerald-300/35 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50"
+                disabled={!replyDraftText.trim() || replyBusyId === replyDetail.id}
+                onClick={() => void saveReplyDraft('approved')}
+              >
+                保存并审核通过
+              </button>
+            ) : null}
+            {replyDetail && ['approved', 'failed'].includes(replyDetail.status) && accountAuthorized(activeAccount) ? (
+              <button
+                type="button"
+                className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                disabled={!replyDraftText.trim() || replyBusyId === replyDetail.id}
+                onClick={() => {
+                  setReplyPublishTarget({ ...replyDetail, suggested_reply: replyDraftText })
+                }}
+              >
+                回复到 X
+              </button>
+            ) : null}
+          </>
+        }
+      >
+        {replyDetail ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Author</div>
+                <div className="mt-2 font-semibold">@{replyDetail.source_author_handle || replyDetail.author_handle || 'unknown'}</div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Status</div>
+                <div className="mt-2"><StateBadge tone={signalStatusTone(replyDetail.status)}>{replyStatusLabel(replyDetail.status)}</StateBadge></div>
+              </div>
+              <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Risk</div>
+                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{replyDetail.risk_level}</div>
+              </div>
+            </div>
+            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Source Post</div>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{replyDetail.source_text || replyDetail.incoming_text}</p>
+              {replyDetail.source_url ? <a className="mt-3 inline-flex text-sm font-semibold text-cyan-100 underline" href={replyDetail.source_url} target="_blank" rel="noreferrer">打开原帖</a> : null}
+            </div>
+            <label className="block text-sm">
+              <span className="text-[color:var(--ops-text-muted)]">Agent 回帖草稿</span>
+              <textarea
+                aria-label="Agent 回帖草稿"
+                className="mt-2 min-h-36 w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel-strong)] px-4 py-3"
+                value={replyDraftText}
+                onChange={(event) => setReplyDraftText(event.target.value)}
+              />
+              <span className="mt-1 block text-xs text-[color:var(--ops-text-caption)]">{replyDraftText.length} chars · 回复必须相关、正向、有额外观点。</span>
+            </label>
+            {replyDetail.generation_reason ? (
+              <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-100/75">Generation Reason</div>
+                <p className="mt-3 text-sm leading-6 text-emerald-50">{replyDetail.generation_reason}</p>
+              </div>
+            ) : null}
+            {replyDetail.failure_summary ? (
+              <div className="rounded-2xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm leading-6 text-rose-100">{replyDetail.failure_summary}</div>
+            ) : null}
+            {replyDetail.published_external_post_id ? (
+              <div className="rounded-2xl border border-cyan-300/25 bg-cyan-300/10 px-4 py-3 text-sm leading-6 text-cyan-50">
+                已回复到 X：{replyDetail.published_external_post_id}
+              </div>
+            ) : null}
+            <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
+              Human Gate：点击“回复到 X”会代表 @SynapseNetworkA 公开评论该原帖。系统不会自动点赞、关注、删除或私信。
             </div>
           </div>
         ) : null}
@@ -1303,7 +1667,7 @@ export default function PublishingPage() {
         }}
         actions={
           <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!canSave || savingDraft} onClick={saveDraft}>
-            {savingDraft ? (editing ? '保存中...' : '生成中...') : editing ? '保存草稿' : '生成草稿'}
+            {savingDraft ? (editing ? '保存中...' : '生成中...') : editing ? (editing.status === 'needs_review' ? '保存并审核通过' : '保存草稿') : '生成草稿'}
           </button>
         }
       >
@@ -1470,6 +1834,29 @@ export default function PublishingPage() {
         loading={Boolean(repostPublishTarget && repostBusyId === repostPublishTarget.id)}
         onConfirm={publishRepostCandidateToX}
         onClose={() => setRepostPublishTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(replyPublishTarget)}
+        title="确认回复到 X"
+        description="这会代表 @SynapseNetworkA 公开评论该 X 原帖。确认后不可由系统自动撤回，也不会自动点赞、关注或私信。"
+        confirmLabel="回复到 X"
+        loading={Boolean(replyPublishTarget && replyBusyId === replyPublishTarget.id)}
+        onConfirm={async () => {
+          let target = replyPublishTarget
+          if (replyDetail && replyDraftText.trim() && replyDetail.id === replyPublishTarget?.id) {
+            const updated = await api.updateSocialReply(replyDetail.id, {
+              suggested_reply: replyDraftText,
+              status: 'approved',
+              reviewed_by: 'operator',
+            })
+            setReplies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+            setReplyDetail(updated)
+            target = updated
+          }
+          await publishReplyToX(target)
+        }}
+        onClose={() => setReplyPublishTarget(null)}
       />
     </div>
   )

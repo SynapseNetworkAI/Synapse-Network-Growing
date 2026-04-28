@@ -14,7 +14,10 @@ const apiMock = vi.hoisted(() => ({
   getSocialTrends: vi.fn(),
   getSocialWatchlist: vi.fn(),
   getSocialReplies: vi.fn(),
+  updateSocialReply: vi.fn(),
+  publishSocialReplyToX: vi.fn(),
   getSocialRepostCandidates: vi.fn(),
+  generateSocialReplyForRepostCandidate: vi.fn(),
   publishSocialRepostCandidateToX: vi.fn(),
   getSocialPostMetrics: vi.fn(),
   getSocialPosts: vi.fn(),
@@ -58,6 +61,33 @@ function draft(overrides: Record<string, unknown> = {}) {
     failure_summary: null,
     media_assets: [],
     events: [],
+    created_at: '2026-04-25T00:00:00Z',
+    updated_at: '2026-04-25T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function reply(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 41,
+    platform: 'x',
+    external_reply_id: 'target:777',
+    source_candidate_id: 31,
+    source_post_id: '777',
+    source_author_handle: 'OpenAI',
+    source_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+    author_handle: 'OpenAI',
+    incoming_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+    intent: 'growth_reply',
+    suggested_reply: 'Agentic products also need governed access, budgets, and settlement rails when tools become paid services.',
+    generation_reason: 'Generated from a real X repost candidate with a payment-rails angle.',
+    risk_level: 'normal',
+    status: 'needs_review',
+    source_url: 'https://x.com/OpenAI/status/777',
+    published_external_post_id: null,
+    reviewed_by: null,
+    failure_summary: null,
+    metadata: { human_gate_required: true, auto_publish: false },
     created_at: '2026-04-25T00:00:00Z',
     updated_at: '2026-04-25T00:00:00Z',
     ...overrides,
@@ -145,7 +175,10 @@ describe('PublishingPage', () => {
       },
     ])
     apiMock.getSocialReplies.mockResolvedValue([])
+    apiMock.updateSocialReply.mockResolvedValue(reply({ status: 'approved', reviewed_by: 'operator' }))
+    apiMock.publishSocialReplyToX.mockResolvedValue(reply({ status: 'published', published_external_post_id: '1800000000000000777', reviewed_by: 'operator' }))
     apiMock.getSocialRepostCandidates.mockResolvedValue([])
+    apiMock.generateSocialReplyForRepostCandidate.mockResolvedValue(reply())
     apiMock.getSocialPostMetrics.mockResolvedValue([])
     apiMock.getSocialPosts.mockResolvedValue([draft()])
     apiMock.getSocialPost.mockResolvedValue(draft({
@@ -287,6 +320,156 @@ describe('PublishingPage', () => {
     })
   })
 
+  it('allows direct link repost from the repost candidate list after confirmation', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialRepostCandidates.mockResolvedValue([
+      {
+        id: 32,
+        platform: 'x',
+        source_url: 'https://x.com/NVIDIAAI/status/200',
+        author_handle: 'NVIDIAAI',
+        source_text: 'Agentic tools need reliable infrastructure.',
+        suggested_quote: 'Agent-native infrastructure needs payment and access rails.',
+        relevance_score: 0.88,
+        status: 'candidate',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.publishSocialRepostCandidateToX.mockResolvedValue({
+      id: 32,
+      platform: 'x',
+      source_url: 'https://x.com/NVIDIAAI/status/200',
+      author_handle: 'NVIDIAAI',
+      source_text: 'Agentic tools need reliable infrastructure.',
+      suggested_quote: 'Agent-native infrastructure needs payment and access rails.',
+      relevance_score: 0.88,
+      status: 'published',
+      updated_at: '2026-04-25T00:00:00Z',
+    })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '转发候选' }))
+    await user.click(await screen.findByRole('button', { name: '转发到 X' }))
+
+    expect(screen.getByText(/公开发布原帖链接/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '转发链接到 X' }))
+
+    await waitFor(() => {
+      expect(apiMock.publishSocialRepostCandidateToX).toHaveBeenCalledWith(32, { actor: 'operator', action: 'repost' })
+    })
+  })
+
+  it('generates a human-reviewed reply draft from a repost candidate', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialRepostCandidates.mockResolvedValue([
+      {
+        id: 31,
+        platform: 'x',
+        source_url: 'https://x.com/OpenAI/status/777',
+        author_handle: 'OpenAI',
+        source_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+        suggested_quote: 'Agent-native infrastructure needs payment and access rails.',
+        relevance_score: 0.91,
+        status: 'candidate',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.generateSocialReplyForRepostCandidate.mockResolvedValue(reply())
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '转发候选' }))
+    await user.click(await screen.findByRole('button', { name: '生成回帖' }))
+
+    await waitFor(() => {
+      expect(apiMock.generateSocialReplyForRepostCandidate).toHaveBeenCalledWith(31, { actor: 'operator' })
+    })
+    expect(screen.getByRole('dialog', { name: '回帖草稿 #41' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Agent 回帖草稿')).toHaveValue('Agentic products also need governed access, budgets, and settlement rails when tools become paid services.')
+    expect(screen.getByText('Human Gate：点击“回复到 X”会代表 @SynapseNetworkA 公开评论该原帖。系统不会自动点赞、关注、删除或私信。')).toBeInTheDocument()
+  })
+
+  it('publishes an approved reply only after confirmation', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialReplies.mockResolvedValue([reply({ status: 'approved', reviewed_by: 'operator' })])
+    apiMock.publishSocialReplyToX.mockResolvedValue(reply({ status: 'published', published_external_post_id: '1800000000000000777', reviewed_by: 'operator' }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '回帖处理' }))
+    await user.click(await screen.findByRole('button', { name: '详情' }))
+    await user.click(screen.getByRole('button', { name: '回复到 X' }))
+
+    expect(screen.getByText('确认回复到 X')).toBeInTheDocument()
+    expect(screen.getByText(/公开评论该 X 原帖/)).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: '回复到 X' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(apiMock.updateSocialReply).toHaveBeenCalledWith(41, {
+        suggested_reply: 'Agentic products also need governed access, budgets, and settlement rails when tools become paid services.',
+        status: 'approved',
+        reviewed_by: 'operator',
+      })
+      expect(apiMock.publishSocialReplyToX).toHaveBeenCalledWith(41, { actor: 'operator' })
+    })
+  })
+
+  it('shows view reply instead of generating duplicate replies for handled candidates', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialRepostCandidates.mockResolvedValue([
+      {
+        id: 31,
+        platform: 'x',
+        source_url: 'https://x.com/OpenAI/status/777',
+        author_handle: 'OpenAI',
+        source_text: 'AI agents increasingly need reliable tool access and payment primitives.',
+        suggested_quote: 'Agent-native infrastructure needs payment and access rails.',
+        relevance_score: 0.91,
+        status: 'candidate',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    apiMock.getSocialReplies.mockResolvedValue([reply()])
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '转发候选' }))
+
+    expect(screen.getByRole('button', { name: '查看回帖' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '生成回帖' })).not.toBeInTheDocument()
+  })
+
+  it('hides direct repost for local seeds and already published candidates', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialRepostCandidates.mockResolvedValue([
+      {
+        id: 33,
+        platform: 'x',
+        source_url: null,
+        author_handle: 'unknown',
+        source_text: 'Local seed inspiration only.',
+        suggested_quote: 'Local seed should not be reposted.',
+        relevance_score: 0.75,
+        status: 'candidate',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+      {
+        id: 34,
+        platform: 'x',
+        source_url: 'https://x.com/OpenAI/status/300',
+        author_handle: 'OpenAI',
+        source_text: 'Already published source.',
+        suggested_quote: 'Already handled.',
+        relevance_score: 0.91,
+        status: 'published',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '转发候选' }))
+
+    expect(screen.queryByRole('button', { name: '转发到 X' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '详情' })).toHaveLength(2)
+  })
+
   it('shows generated image thumbnails and includes image count in publish confirmation', async () => {
     const user = userEvent.setup()
     apiMock.getSocialPosts.mockResolvedValue([draft({
@@ -325,6 +508,19 @@ describe('PublishingPage', () => {
     expect(screen.queryByRole('button', { name: '发布到 X' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '拒绝' }))
     await waitFor(() => expect(apiMock.updateSocialPost).toHaveBeenCalledWith(7, { status: 'rejected', reviewed_by: 'operator' }))
+  })
+
+  it('shows an explicit review approval action for needs-review safe drafts', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialPosts.mockResolvedValue([draft({ status: 'needs_review', reviewed_by: null })])
+    apiMock.updateSocialPost.mockResolvedValue(draft({ status: 'approved', reviewed_by: 'operator' }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '审核通过' }))
+
+    await waitFor(() => {
+      expect(apiMock.updateSocialPost).toHaveBeenCalledWith(7, { status: 'approved', reviewed_by: 'operator' })
+    })
   })
 
   it('requires explicit confirmation before publishing to X', async () => {
@@ -395,6 +591,29 @@ describe('PublishingPage', () => {
       expect(openSpy).toHaveBeenCalledWith('https://twitter.com/i/oauth2/authorize?state=test', '_blank', 'noopener,noreferrer')
     })
     openSpy.mockRestore()
+  })
+
+  it('shows a dedicated local GCP ADC expired warning instead of reconnecting X', async () => {
+    apiMock.getSocialAccounts.mockResolvedValue([
+      {
+        id: 1,
+        platform: 'x',
+        handle: 'SynapseNetworkA',
+        display_name: 'Synapse Network',
+        secret_ref: 'x-official',
+        status: 'active',
+        auth_status: 'gcp_adc_expired',
+        auth_message: 'Local Google credentials expired. Run `gcloud auth application-default login` and refresh /publishing.',
+        created_at: '2026-04-25T00:00:00Z',
+        updated_at: '2026-04-25T00:00:00Z',
+      },
+    ])
+    renderPage()
+
+    expect(await screen.findByText('GCP 凭据过期')).toBeInTheDocument()
+    expect(screen.getByText('本地 GCP 凭据已过期，暂时无法读取 Secret Manager 里的 X OAuth refresh token。')).toBeInTheDocument()
+    expect(screen.getByText('gcloud auth application-default login')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '连接 X 官方账号' })).not.toBeInTheDocument()
   })
 
   it('shows resend plus reconnect for failed media auth attempts when account status is authorized', async () => {

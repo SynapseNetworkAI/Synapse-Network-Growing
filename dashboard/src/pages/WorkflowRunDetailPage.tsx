@@ -893,7 +893,6 @@ function GateDeliveryPanel({
 }>) {
   const summary = workflowDecisionSummary(detail)
   const pr = (detail.blackboard.pr || {}) as Record<string, unknown>
-  const delivery = detail.delivery_summary
   const deliveryView = workflowDeliveryView(detail)
   const deliveryCallout = deliveryView.blockerType === 'delivery_branch_rebase_conflict'
     ? { label: 'Rebase conflict requires operator', tone: 'blocked' }

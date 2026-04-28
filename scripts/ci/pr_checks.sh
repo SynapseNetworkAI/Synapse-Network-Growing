@@ -19,6 +19,9 @@ export OPS_PYTHON="$PYTHON"
 echo "[ci:pr] guardrails"
 bash "$ROOT_DIR/scripts/ci/agent_guardrails.sh"
 
+echo "[ci:pr] static quality gates"
+bash "$ROOT_DIR/scripts/ci/code_quality_gates.sh" "$DIFF_BASE"
+
 echo "[ci:pr] backend tests"
 PYTHONPATH=. "$PYTHON" -m pytest -q
 

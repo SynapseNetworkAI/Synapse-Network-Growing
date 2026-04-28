@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "lint": "bash ../scripts/ci/dashboard_lint.sh",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

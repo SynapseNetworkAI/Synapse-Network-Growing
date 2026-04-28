@@ -157,11 +157,12 @@ High evidence does not bypass high risk.
 14. `/publishing` is the Social Ops Center: it organizes official X operations as `Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics`.
 15. Social Growth automation may generate daily draft ideas, read-only trend summaries, watchlist notes, reply drafts, quote/repost candidates, and post metrics; all public actions still require explicit Human Gate / operator click.
 16. Trend radar, watchlist, reply inbox, repost candidates, and metrics are read-only or draft-only control-plane objects until an operator confirms an external action. Third-party growth tools may provide read-only inputs or draft suggestions, but must not hold direct publish authority.
-17. Platform-specific social recurring workflow keys must be prefixed by platform. X uses `x_social_daily_content_planner`, `x_social_trend_radar_sweep`, and `x_social_repost_candidate_sweep`; future platforms should use names such as `linkedin_social_*`, `discord_social_*`, or `site_content_*`.
+17. Platform-specific social recurring workflow keys must be prefixed by platform. X uses `x_social_daily_content_planner`, `x_social_trend_radar_sweep`, `x_social_repost_candidate_sweep`, and `x_social_reply_candidate_sweep`; future platforms should use names such as `linkedin_social_*`, `discord_social_*`, or `site_content_*`.
 18. `x_social_daily_content_planner` may tick hourly, but it must be idempotent by operator-local day and create at most one `source_type=daily_planner` draft per X account per day. It must leave the draft in human review and must never call X publish/reply/repost APIs.
 19. X Social Sweep Scheduler may automatically trigger only the `x_social_*` draft/read-only workflows. It is not a generic external-action scheduler and must not be reused for public posting, reply, repost, follow, unfollow, or delete without a separate Human Gate design.
 20. `x_social_trend_radar_sweep` v1 reads real X data from the configured Watchlist timeline only. It resolves watchlist handles through X API v2, fetches recent user posts, filters by engagement, relevance, text length, and dedupe, and records source URLs. Rate limits and auth failures are diagnostics, not retry storms or fake trend generation.
 21. `x_social_repost_candidate_sweep` may only create quote/repost candidates from trend items with a real X `source_url`; local seed trends are inspiration only. Suggested quotes must add a Synapse-specific viewpoint rather than generic agreement.
+22. `x_social_reply_candidate_sweep` may run every 30 minutes, but it may only create at most one `social_reply_items.status=needs_review` draft from a real X repost candidate per run. It must never call X reply APIs, and each public reply must go through the `/publishing -> 回帖处理` Human Gate using `POST /2/tweets` with `reply.in_reply_to_tweet_id`.
 
 ## 6. Observability Constraints
 
@@ -186,6 +187,10 @@ High evidence does not bypass high risk.
 8. Acceptance Matrix Is Executable Contract: Planner-generated `execution_acceptance_steps.required_commands` must run in workflow verify, and `verification.status=passed` must depend on `acceptance_matrix.status=passed`.
 9. Timeout mandatory, liveness diagnostic only: Planner-generated acceptance commands must run with deterministic hard timeouts. Liveness and heartbeat fields are diagnostic only; they never replace exit-code evidence or timeout failure.
 10. Default smoke tests cannot replace the Planner contract. Guardrails, `py_compile`, and full pytest are system baselines; they do not satisfy requirement-specific acceptance steps unless those steps have matching evidence in the same `workflow_run_id`.
+11. Push Quality Gates v2 are part of the fail-closed delivery contract. `scripts/ci/pr_checks.sh` must run the same local and CI quality bundle: repo guardrails, `scripts/ci/code_quality_gates.sh`, backend tests, Python diff coverage, dashboard tests/build, security scans, dependency audits, and whitespace checks.
+12. Static quality is ratcheted, not hand-waved. New production source files must stay at or below 500 lines, new test files at or below 900 lines, legacy files above those limits must not grow, and large new Python functions must be extracted before merge.
+13. Complexity, duplication, lint, typecheck, and security gates must fail closed for new or changed code. Historical debt may be baselined only when the baseline prevents growth and gives a clear path to reduction.
+14. Branch protection cannot be claimed unless GitHub enforces it. When private-repo plan limits return 403 or rulesets are unavailable, the system must report that enforcement is diagnostic-only and rely on pre-push plus GitHub Actions until required checks can be made mandatory.
 
 ## 8. Frontend Constraints
 

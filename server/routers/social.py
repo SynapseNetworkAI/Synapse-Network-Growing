@@ -19,6 +19,8 @@ from server.schemas import (
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
+    SocialReplyPatchRequest,
+    SocialReplyPublishRequest,
     SocialRepostPublishRequest,
     SocialXOAuthCallbackOut,
     SocialXOAuthStartOut,
@@ -33,6 +35,7 @@ from server.services.social.publishing import (
     create_social_post,
     complete_x_oauth_authorization,
     generate_social_post_draft,
+    generate_social_reply_for_repost_candidate,
     get_social_post,
     get_social_trend,
     get_social_media_preview_path,
@@ -45,6 +48,7 @@ from server.services.social.publishing import (
     list_social_trends,
     list_social_watchlist,
     publish_social_post_to_x,
+    publish_social_reply_to_x,
     publish_social_repost_candidate_to_x,
     query_social_trends,
     regenerate_social_post_image,
@@ -53,6 +57,7 @@ from server.services.social.publishing import (
     social_ops_overview,
     start_x_oauth_authorization,
     update_social_post,
+    update_social_reply,
     upload_social_post_image,
 )
 
@@ -154,9 +159,33 @@ def list_social_replies_endpoint(db: Session = Depends(get_db)):
     return list_social_replies(db)
 
 
+@router.patch("/replies/{reply_id}", response_model=SocialReplyItemOut)
+def update_social_reply_endpoint(reply_id: int, body: SocialReplyPatchRequest, db: Session = Depends(get_db)):
+    try:
+        return update_social_reply(db, reply_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/replies/{reply_id}/publish-x", response_model=SocialReplyItemOut)
+def publish_social_reply_to_x_endpoint(reply_id: int, body: SocialReplyPublishRequest, db: Session = Depends(get_db)):
+    try:
+        return publish_social_reply_to_x(db, reply_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
 @router.get("/repost-candidates", response_model=list[SocialRepostCandidateOut])
 def list_social_repost_candidates_endpoint(db: Session = Depends(get_db)):
     return list_social_repost_candidates(db)
+
+
+@router.post("/repost-candidates/{candidate_id}/generate-reply", response_model=SocialReplyItemOut)
+def generate_social_reply_for_repost_candidate_endpoint(candidate_id: int, body: SocialReplyPublishRequest, db: Session = Depends(get_db)):
+    try:
+        return generate_social_reply_for_repost_candidate(db, candidate_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post("/repost-candidates/{candidate_id}/publish-x", response_model=SocialRepostCandidateOut)
