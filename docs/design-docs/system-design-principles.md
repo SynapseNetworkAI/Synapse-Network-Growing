@@ -171,6 +171,14 @@
 14. Rollback 只能由 observing failed、deployment failed、kill switch 或 operator manual rollback 触发，并必须记录在 release / deployment 面。
 15. Operating Manifest 只表达商业目标、预算、权重和全局约束，不承载自动执行策略。
 16. Candidate 是否可自动 materialize / start 必须由 deterministic risk router 根据 workflow allowlist、risk level、project policy 和 atom risk profile 决定。
+17. Goal Mission Lanes v1.1 只保留 `product_planner`、`growth_lead`、`software_engineer` 三条核心战线。`content_writer` 不得单独变成 mission lane；它属于 `/publishing` 内部 Agent 能力。
+18. `product_planner` 只能创建 Product Opportunity / Goal Proposal，不能直接启动 workflow、创建正式 requirement、改代码、发 X、deploy、rollback、改 auth 或修改 secret。
+19. `product_planning_sweep` 是 proposal-only recurring workflow；正式 Goal 必须由 operator 在 `/planning` 审核后创建，并保留 opportunity lineage。
+20. 同一时间应优先保持单个 active `code_delivery` 工程执行面，避免 software_engineer lane 与其它代码类 workflow 发生无谓冲突；排队优先于复杂冲突解决。
+21. Goal Mission Board 必须是嵌套树结构：`active_goal -> product_planner / growth_lead / software_engineer -> task cards`。禁止为了 v1 Mission Map 引入 React Flow、D3、G6、canvas 或 graph `nodes[] / edges[]` API。
+22. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
+23. `/planning` 是操作处理态；必须提供 `产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
+24. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
 

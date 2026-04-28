@@ -29,6 +29,12 @@
    - release-ready but not delivered 记录会 blocked。
    - delivered / released 记录保持不变。
 12. Drop Goal 不触发 rollback、revert、删除、unpublish 或已交付产物变更。
+13. Goal Mission Lanes v1.1 保留三条核心战线：`product_planner` 发现产品缺口并提出 Product Opportunity，`growth_lead` 承接增长和 `/publishing`，`software_engineer` 承接 evidence-bound Requirement / Workflow。`content_writer` 是 Social Publishing 内部能力，不作为独立 lane。
+14. `product_planning_sweep` 是轻量 recurring workflow：它只生成 `product_opportunities` / Goal Proposal，不自动创建正式 Goal、Requirement、workflow、X 发布、release、auth 或代码改动。
+15. `/planning` 显示 `产品机会 / Goal Proposals` 审核区。Operator 可将 opportunity 转成 Planning Goal、defer 或 reject；转成 Goal 时保留 `metadata.source=product_opportunity` 与 `product_opportunity_id` lineage。
+16. `/api/planning/mission-board` 提供嵌套 Mission Board：`active_goal`、public-preview traction proof、`product_planner / growth_lead / software_engineer` 三列任务、`lane_summary`、`next_actions`、`unassigned` 红灯，不返回 graph `nodes[] / edges[]`。
+17. `/command-center` 是只读 Mission Dashboard：展示 active goal、三条 lane 摘要、每列最多 3 个最高优先级事项和 Unassigned 红灯；不在这里处理 Create / Reject / Defer。
+18. `/planning` 是处理态 Queues：`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug`。active 但缺失 goal lineage 的数据进入 `未归属`，不能静默藏进 Debug。
 
 ## 2. Requirement Pool
 
@@ -217,17 +223,13 @@
 当前已具备：
 
 1. `/command-center` 作为 Human-Agent Control Plane 首页。
-2. 深色 cockpit AppShell 和分组导航：
-   - Strategy
-   - Intervention
-   - Execution
-   - Factory
-   - System Ops
-3. `/gates` 集中展示 pending human gates、failed / blocked workflow。
-4. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。
-5. `/factory/atoms` 从 workflow definitions 反推 agent / deterministic / terminal atom registry。
-6. `/intake` 作为需求发现入口，连接 errors、planner、forum feedback 和 watcher events。
-7. `/knowledge` 作为 artifacts / SOP Ledger 的一等入口。
-8. `/system/notifications` 展示 notification dispatcher、queue、dead letter、open fingerprint 概览。
-9. Figma / Stitch 原型视觉方向已记录在 `frontend-control-plane-figma-implementation.md`。
-10. Factory pages v1 只读，不开放在线 YAML 编辑。
+2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面左侧 sidebar。主导航只保留 `Command Center`、`Planning`、`Publishing`、`Releases` 四个高频业务入口。
+3. 顶栏右侧保留 `Needs Human` badge、`Cmd+K / Search` 低频入口和 `Alerts` 通知入口；`/gates`、`/requirements`、`/workflows`、`/schedules`、`/projects`、`/errors` 等路由继续存在，但不占用主导航。
+4. `/gates` 集中展示 pending human gates、failed / blocked workflow。
+5. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。
+6. `/factory/atoms` 从 workflow definitions 反推 agent / deterministic / terminal atom registry。
+7. `/intake` 作为需求发现入口，连接 errors、planner、forum feedback 和 watcher events。
+8. `/knowledge` 作为 artifacts / SOP Ledger 的一等入口。
+9. `/system/notifications` 展示 notification dispatcher、queue、dead letter、open fingerprint 概览。
+10. Figma / Stitch 原型视觉方向已记录在 `frontend-control-plane-figma-implementation.md`。
+11. Factory pages v1 只读，不开放在线 YAML 编辑。

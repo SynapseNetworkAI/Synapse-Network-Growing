@@ -1,3 +1,5 @@
+import type { MissionBoard } from './apiMissionBoard'
+export type { MissionBoard, MissionBoardItem } from './apiMissionBoard'
 const BASE = '/api'
 const REQUEST_TIMEOUT_MS = 17000
 
@@ -2148,6 +2150,7 @@ export const api = {
 
   // Planning lifecycle
   getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
+  getPlanningMissionBoard: () => request<MissionBoard>('/planning/mission-board'),
   getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
   saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
     request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),
@@ -2679,10 +2682,7 @@ export const api = {
     if (data?.alt_text) formData.append('alt_text', data.alt_text)
     return requestForm<SocialPostDraft>(`/social/posts/${postId}/media/upload`, formData, 60_000)
   },
-
   getErrors: () => request<ErrorFingerprint[]>('/errors'),
   getErrorDetail: (fingerprintKey: string) => request<ErrorFingerprintDetail>(`/errors/${encodeURIComponent(fingerprintKey)}`),
-
-  // Skills
-  getSkills: () => request<string[]>('/skills'),
+  getSkills: () => request<string[]>('/skills')
 }

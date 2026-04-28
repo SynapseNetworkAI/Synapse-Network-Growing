@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import PlanningPage from '../src/pages/PlanningPage'
 
 const goalbCandidate = {
@@ -102,6 +103,7 @@ const mission = {
 
 const mockApi = {
   getPlanningMissionControl: vi.fn(),
+  getPlanningMissionBoard: vi.fn(),
   getPlanningManifestHistory: vi.fn(),
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
@@ -116,6 +118,7 @@ const mockApi = {
 vi.mock('../src/api', () => ({
   api: {
     getPlanningMissionControl: (...args: unknown[]) => mockApi.getPlanningMissionControl(...args),
+    getPlanningMissionBoard: (...args: unknown[]) => mockApi.getPlanningMissionBoard(...args),
     getPlanningManifestHistory: (...args: unknown[]) => mockApi.getPlanningManifestHistory(...args),
     saveActivePlanningManifest: (...args: unknown[]) => mockApi.saveActivePlanningManifest(...args),
     runPlannerSweep: (...args: unknown[]) => mockApi.runPlannerSweep(...args),
@@ -132,6 +135,27 @@ describe('PlanningPage GoalB mission control', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.getPlanningMissionControl.mockResolvedValue(mission)
+    mockApi.getPlanningMissionBoard.mockResolvedValue({
+      active_goal: mission.goal_lanes[0].goal,
+      lanes: {
+        product_planner: [],
+        growth_lead: [],
+        software_engineer: [],
+      },
+      lane_summary: {
+        product_planner: { count: 0 },
+        growth_lead: { count: 0 },
+        software_engineer: { count: 0 },
+      },
+      unassigned: { count: 0, items: [] },
+      next_actions: [],
+      manifest: {
+        id: mission.manifest.id,
+        version_name: mission.manifest.version_name,
+        cycle_label: mission.manifest.cycle_label,
+        updated_at: mission.manifest.updated_at,
+      },
+    })
     mockApi.getPlanningManifestHistory.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 })
     mockApi.saveActivePlanningManifest.mockResolvedValue(mission.manifest)
     mockApi.runPlannerSweep.mockResolvedValue({
@@ -167,10 +191,15 @@ describe('PlanningPage GoalB mission control', () => {
   })
 
   it('renders GoalB inside Mission Control and runs planner/candidate actions from the goal lane', async () => {
-    render(<PlanningPage />)
+    render(
+      <MemoryRouter>
+        <PlanningPage />
+      </MemoryRouter>,
+    )
 
     await waitFor(() => expect(mockApi.getPlanningMissionControl).toHaveBeenCalled())
-    const missionTab = screen.getByTestId('mission-control-tab')
+    fireEvent.click(screen.getByRole('button', { name: /业务目标/ }))
+    const missionTab = await screen.findByTestId('planning-goals-tab')
     expect(missionTab).toHaveTextContent('goalb')
     expect(missionTab).toHaveTextContent('Advance goal: 验证 Growing 可以根据目标自动拆分任务')
     expect(missionTab).not.toHaveTextContent('GoalB candidate generated from the Operating Manifest.')

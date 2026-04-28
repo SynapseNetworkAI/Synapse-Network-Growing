@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.database import get_db
@@ -48,6 +48,15 @@ from server.services.planning.lifecycle import (
     sweep_to_dict,
     update_goal,
 )
+from server.services.planning.mission_board import mission_board_snapshot
+from server.services.planning.product_opportunities import (
+    create_goal_from_product_opportunity,
+    defer_product_opportunity,
+    get_product_opportunity,
+    list_product_opportunities,
+    product_opportunity_to_dict,
+    reject_product_opportunity,
+)
 
 
 router = APIRouter(prefix="/api/planning", tags=["planning"])
@@ -62,13 +71,20 @@ def get_mission_control(db: Session = Depends(get_db)):
     return mission_control_snapshot(db)
 
 
+@router.get("/mission-board")
+def get_mission_board(db: Session = Depends(get_db)):
+    return mission_board_snapshot(db)
+
+
 @router.get("/manifest/active", response_model=PlanningManifestOut)
 def get_active_manifest(db: Session = Depends(get_db)):
     return manifest_to_dict(ensure_active_manifest(db), db)
 
 
 @router.put("/manifest/active", response_model=PlanningManifestOut)
-def put_active_manifest(body: PlanningManifestSaveRequest, db: Session = Depends(get_db)):
+def put_active_manifest(
+    body: PlanningManifestSaveRequest, db: Session = Depends(get_db)
+):
     try:
         row = save_active_manifest(
             db,
@@ -90,7 +106,9 @@ def get_manifest_history(
     search: str | None = None,
     db: Session = Depends(get_db),
 ):
-    return list_manifest_history(db, page=page, page_size=page_size, status=status, search=search)
+    return list_manifest_history(
+        db, page=page, page_size=page_size, status=status, search=search
+    )
 
 
 @router.get("/goals", response_model=list[PlanningGoalOut])
@@ -100,7 +118,9 @@ def get_goals(
     db: Session = Depends(get_db),
 ):
     try:
-        return list_goals(db, manifest_id=manifest_id, status=status, include_intent=False)
+        return list_goals(
+            db, manifest_id=manifest_id, status=status, include_intent=False
+        )
     except ValueError as exc:
         raise _bad_request(exc) from exc
 
@@ -130,7 +150,9 @@ def post_goal(body: PlanningGoalCreateRequest, db: Session = Depends(get_db)):
 
 
 @router.put("/goals/{goal_id}", response_model=PlanningGoalOut)
-def put_goal(goal_id: int, body: PlanningGoalUpdateRequest, db: Session = Depends(get_db)):
+def put_goal(
+    goal_id: int, body: PlanningGoalUpdateRequest, db: Session = Depends(get_db)
+):
     try:
         return update_goal(db, goal_id, body.model_dump(exclude_unset=True))
     except ValueError as exc:
@@ -157,7 +179,10 @@ def post_drop_goal_by_id(
         raise _bad_request(exc) from exc
 
 
-@router.post("/manifest/{manifest_id}/archive-and-start-cycle", response_model=PlanningManifestOut)
+@router.post(
+    "/manifest/{manifest_id}/archive-and-start-cycle",
+    response_model=PlanningManifestOut,
+)
 def post_archive_and_start_cycle(
     manifest_id: int,
     body: PlanningArchiveCycleRequest,
@@ -165,7 +190,9 @@ def post_archive_and_start_cycle(
 ):
     active = ensure_active_manifest(db)
     if int(active.id) != int(manifest_id):
-        raise HTTPException(status_code=409, detail="only the active manifest can start a new cycle")
+        raise HTTPException(
+            status_code=409, detail="only the active manifest can start a new cycle"
+        )
     try:
         row = archive_and_start_new_cycle(
             db,
@@ -179,7 +206,10 @@ def post_archive_and_start_cycle(
         raise _bad_request(exc) from exc
 
 
-@router.get("/manifest/{manifest_id}/goals/{goal_key}/rollup", response_model=PlanningGoalRollupOut)
+@router.get(
+    "/manifest/{manifest_id}/goals/{goal_key}/rollup",
+    response_model=PlanningGoalRollupOut,
+)
 def get_goal_rollup(manifest_id: int, goal_key: str, db: Session = Depends(get_db)):
     try:
         return goal_rollup(db, manifest_id, goal_key)
@@ -202,6 +232,71 @@ def post_run_planner_sweep(body: PlannerSweepRunRequest, db: Session = Depends(g
         raise _bad_request(exc) from exc
 
 
+@router.get("/product-opportunities")
+def get_product_opportunities(
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return list_product_opportunities(db, status=status, limit=limit)
+
+
+@router.get("/product-opportunities/{opportunity_id}")
+def get_product_opportunity_detail(opportunity_id: int, db: Session = Depends(get_db)):
+    try:
+        return product_opportunity_to_dict(get_product_opportunity(db, opportunity_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/product-opportunities/{opportunity_id}/create-goal")
+def post_product_opportunity_create_goal(
+    opportunity_id: int,
+    body: dict[str, object] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+):
+    try:
+        return create_goal_from_product_opportunity(
+            db, opportunity_id, operator=str(body.get("operator") or "operator")
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post("/product-opportunities/{opportunity_id}/reject")
+def post_product_opportunity_reject(
+    opportunity_id: int,
+    body: dict[str, object] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+):
+    try:
+        return reject_product_opportunity(
+            db,
+            opportunity_id,
+            operator=str(body.get("operator") or "operator"),
+            reason=str(body.get("reason") or "operator_rejected"),
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post("/product-opportunities/{opportunity_id}/defer")
+def post_product_opportunity_defer(
+    opportunity_id: int,
+    body: dict[str, object] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+):
+    try:
+        return defer_product_opportunity(
+            db,
+            opportunity_id,
+            operator=str(body.get("operator") or "operator"),
+            reason=str(body.get("reason") or "operator_deferred"),
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
 @router.get("/candidates", response_model=RequirementCandidatePageOut)
 def get_candidates(
     manifest_id: int | None = None,
@@ -211,22 +306,36 @@ def get_candidates(
     page_size: int = Query(30, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    return list_candidates(db, manifest_id=manifest_id, status=status, goal_key=goal_key, page=page, page_size=page_size)
+    return list_candidates(
+        db,
+        manifest_id=manifest_id,
+        status=status,
+        goal_key=goal_key,
+        page=page,
+        page_size=page_size,
+    )
 
 
-@router.post("/candidates/{candidate_id}/approve", response_model=RequirementCandidateOut)
+@router.post(
+    "/candidates/{candidate_id}/approve", response_model=RequirementCandidateOut
+)
 def post_approve_candidate(
     candidate_id: int,
     body: CandidateDecisionRequest,
     db: Session = Depends(get_db),
 ):
     try:
-        return candidate_to_dict(approve_candidate(db, candidate_id, operator=body.operator))
+        return candidate_to_dict(
+            approve_candidate(db, candidate_id, operator=body.operator)
+        )
     except ValueError as exc:
         raise _bad_request(exc) from exc
 
 
-@router.post("/candidates/{candidate_id}/approve-and-run", response_model=CandidateApproveRunResultOut)
+@router.post(
+    "/candidates/{candidate_id}/approve-and-run",
+    response_model=CandidateApproveRunResultOut,
+)
 def post_approve_and_run_candidate(
     candidate_id: int,
     body: CandidateDecisionRequest,
@@ -238,7 +347,9 @@ def post_approve_and_run_candidate(
         raise _bad_request(exc) from exc
 
 
-@router.post("/candidates/{candidate_id}/reject", response_model=RequirementCandidateOut)
+@router.post(
+    "/candidates/{candidate_id}/reject", response_model=RequirementCandidateOut
+)
 def post_reject_candidate(
     candidate_id: int,
     body: CandidateDecisionRequest,
@@ -258,7 +369,10 @@ def post_reject_candidate(
         raise _bad_request(exc) from exc
 
 
-@router.post("/candidates/{candidate_id}/materialize", response_model=CandidateMaterializeResultOut)
+@router.post(
+    "/candidates/{candidate_id}/materialize",
+    response_model=CandidateMaterializeResultOut,
+)
 def post_materialize_candidate(
     candidate_id: int,
     body: CandidateDecisionRequest,

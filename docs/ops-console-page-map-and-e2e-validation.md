@@ -27,16 +27,26 @@ Operating Manifest
 
 The console is not a database object browser. Each page must explain what it is for, what it reads, what it writes, and what the operator should do next.
 
+## Navigation Model
+
+The desktop shell uses Top Header Navigation, not a left sidebar. The only primary entries are:
+
+```text
+Command Center | Planning | Publishing | Releases
+```
+
+`Needs Human` is a top-level badge that links to `/gates`. `Cmd+K / Search` is the sanctioned entry for low-frequency pages such as `/requirements`, `/workflows`, `/schedules`, `/projects`, `/errors`, `/factory/workflows`, `/factory/atoms`, and `/knowledge`. These routes remain valid deep links, but they must not reappear as persistent sidebar navigation.
+
 ## Page Map
 
 | Page | Purpose | Primary inputs | Primary outputs | Source of truth | Next action |
 |---|---|---|---|---|---|
-| `/command-center` | Global Human-Agent control plane | Dashboard stats, workflow summary, active manifest, scheduler health | Desired state summary, blockers, active fronts, next operator action | `requirements`, `workflow_runs`, `operating_manifests`, scheduler health projections | Open Planning, Gates, or Workflow Operations |
+| `/command-center` | Read-only Mission Dashboard | Dashboard stats, workflow summary, nested mission board | Active goal card, public-preview traction proof, product/growth/engineering lane summary, unassigned red light, next operator action | `/api/planning/mission-board`, stats and workflow summary projections | Open Planning, Publishing, Releases, or Needs Human |
 | `/intake` | Requirement discovery entry point | Error, watcher, forum, planner signal sources | Signal routing map and links to concrete queues | `error_fingerprints`, `requirement_intake_fingerprints`, `requirement_candidates` | Open errors, planning, or schedules |
 | `/gates` | Human Oracle queue | Pending human gates and failed workflows | High-risk decisions with evidence links | `human_gate_requests`, `workflow_runs` | Review gate in `/workflows/:id` |
 | `/requirements` | Requirement pool and workflow readiness queue | Requirement filters, new requirement form, project selection | Requirement rows with workflow status and actions | `requirements`, active `workflow_runs` | Create, edit, submit, or open workflow |
 | `/requirements/:id` | Requirement detail and workflow readiness | Requirement id, acceptance, workflow assets | Workflow readiness, generated acceptance/plan, active workflow link | `requirements`, workflow readiness projection | Generate/start workflow or inspect active run |
-| `/planning` | Goal-centric Mission Control | Active Operating Manifest, goals, budgets, Planner Sweep | RequirementCandidates grouped under goals | `operating_manifests`, `requirement_candidates` | Run sweep, approve-and-run/reject/stage candidate, drop goal |
+| `/planning` | Operational planning queues | Active Operating Manifest, goals, product opportunities, mission board, budgets, Planner Sweep | Product Opportunity review, Business Goals, Engineering Queue, Unassigned active records, History/Debug | `operating_manifests`, `planning_goals`, `product_opportunities`, `requirement_candidates`, `workflow_runs` | Create Goal from opportunity, defer/reject opportunity, fix unassigned lineage, run sweep, approve-and-run/reject/stage candidate, drop goal |
 | `/workflows` | Workflow Operations Center | Workflow filters, tab selection | Active, human-gated, failed, completed, archived runs and definitions | `workflow_runs`, `atom_invocations`, `workflow_artifacts`, `human_gate_requests` | Inspect run, process gate, archive completed run |
 | `/workflows/:id` | Explainable Step Workbench | Workflow run id | Outcome, step inputs/outputs, evidence, gates, debug payload | Workflow run detail projection | Open PR, review gate, create follow-up, inspect failure |
 | `/schedules` | Scheduled Jobs Control Plane | Registry, health, run-now/dry-run controls | Run history, dispatcher health, scheduler status | `recurring_workflows`, `recurring_workflow_runs`, notification queue health | Dry run, run now, inspect failed background task |
@@ -58,17 +68,17 @@ The console is not a database object browser. Each page must explain what it is 
 Every page needs three levels of validation:
 
 1. Render smoke: page loads with representative API data.
-2. Click behavior: primary buttons, tabs, filters, drawers, and links work.
+2. Click behavior: primary buttons, tabs, filters, centered modals, and links work.
 3. Data proof: API or DB state changes match the visible UI.
 
 | Page | Render smoke | Click checks | Data proof |
 |---|---|---|---|
-| `/command-center` | Stats, active goals, blockers, scheduler health render | Planning/Gates/Workflow links | Values come from stats, workflow summary, planning mission control |
+| `/command-center` | Active goal card, three mission lanes, blockers, unassigned red light render | Planning/Publishing/Releases/Needs Human links; no Create/Reject/Defer actions | Values come from nested `/api/planning/mission-board` and summary projections |
 | `/intake` | Signal source cards render | Errors/Planning/Schedules links | Concrete queues remain source-specific |
 | `/gates` | Pending gate and failed run cards render | Review Gate opens workflow detail | Pending gates match workflow run summaries |
 | `/requirements` | Requirement list and empty state render | New requirement, edit drawer, refresh, workflow link | Created requirement exists and selected project id persists |
 | `/requirements/:id` | Workflow readiness panel renders | Generate assets, start workflow, navigate to `/workflows/:id` | Requirement `active_workflow_run_id` is set |
-| `/planning` | Mission Control, goal lanes, history/debug tabs render | Run Planner Sweep, approve-and-run/reject/stage candidate, raw drawer, history tab | Candidate, requirement and workflow inherit `manifest_id` and `goal_key` |
+| `/planning` | Product Opportunities, Business Goals, Engineering Queue, Unassigned, history/debug tabs render | Create Goal from opportunity, defer/reject opportunity, Run Planner Sweep, approve-and-run/reject/stage candidate, centered modal debug, history tab | Product Opportunity creates a Goal only after operator action; candidate, requirement and workflow inherit `manifest_id` and `goal_key`; active missing lineage appears in Unassigned |
 | `/workflows` | Stats, filters, tabs and definitions render | Active/Needs Human/Failed/Completed/Archived/Definitions tabs | Completed run appears in completed tab and can be archived |
 | `/workflows/:id` | Overview and step rail render | Steps/Evidence/Gates/Debug tabs, human gate decision | Step artifacts, events and atom invocations exist |
 | `/schedules` | Health cards, registry and run history render | Dry Run, Run Now confirmation, select workflow | Run history row is created with dry-run/result payload |

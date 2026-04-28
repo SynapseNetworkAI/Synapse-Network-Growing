@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.database import (
@@ -27,6 +28,7 @@ from server.database import (
 )
 from server.schemas import RequirementCreate
 from server.services.projects.project_center import ensure_projects_materialized
+from server.services.planning.defaults import DEFAULT_GOAL_SPECS
 from server.services.planning.planner_agent import (
     EXPECTED_OUTCOMES,
     PlannerAgentError,
@@ -273,32 +275,7 @@ def validate_manifest_payload(payload: dict[str, Any]) -> None:
 
 
 def _default_goal_specs() -> list[dict[str, Any]]:
-    return [
-        {
-            "goal_key": "gateway_reliability",
-            "title": "Gateway reliability",
-            "domain": "reliability",
-            "intent_markdown": "Keep the gateway, workflow runner and agent self-repair loop healthy.",
-            "success_metric": "critical runtime incidents remain at 0 and failed workflows are triaged.",
-            "workflow_key": "gateway_reliability_repair",
-            "project_key": "synapse-network-growing",
-            "priority": "normal",
-            "risk_level": "normal",
-            "weight": 0.6,
-        },
-        {
-            "goal_key": "operator_growth",
-            "title": "Operator growth",
-            "domain": "growth",
-            "intent_markdown": "Continuously discover practical growth and DevRel work for Synapse Network.",
-            "success_metric": "approved candidate throughput increases without operator overload.",
-            "workflow_key": "agent_self_repair",
-            "project_key": "synapse-network-growing",
-            "priority": "normal",
-            "risk_level": "normal",
-            "weight": 0.4,
-        },
-    ]
+    return [dict(spec) for spec in DEFAULT_GOAL_SPECS]
 
 
 def _create_goal_from_spec(db: Session, manifest_id: int, spec: dict[str, Any]) -> PlanningGoalRow:
@@ -336,7 +313,10 @@ def _ensure_default_goals(db: Session, manifest: OperatingManifestRow) -> None:
         return
     for spec in _default_goal_specs():
         _create_goal_from_spec(db, int(manifest.id), spec)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # pragma: no cover - concurrent cold-start race
+        db.rollback()
 
 
 def _goal_counts(db: Session, manifest_id: int) -> dict[str, int]:
@@ -451,10 +431,23 @@ def ensure_active_manifest(db: Session) -> OperatingManifestRow:
         change_log_json=_json_dumps([{"at": _now_iso(), "event": "default_manifest_created"}]),
     )
     db.add(row)
-    db.flush()
-    for spec in _default_goal_specs():
-        _create_goal_from_spec(db, int(row.id), spec)
-    db.commit()
+    try:
+        db.flush()
+        for spec in _default_goal_specs():
+            _create_goal_from_spec(db, int(row.id), spec)
+        db.commit()
+    except IntegrityError:  # pragma: no cover - concurrent cold-start race
+        db.rollback()
+        row = (
+            db.query(OperatingManifestRow)
+            .filter(OperatingManifestRow.status == "active", OperatingManifestRow.active_slot == ACTIVE_MANIFEST_SLOT)
+            .order_by(OperatingManifestRow.id.desc())
+            .first()
+        )
+        if row is None:  # pragma: no cover - database integrity corruption
+            raise
+        _ensure_default_goals(db, row)
+        return row
     db.refresh(row)
     return row
 
@@ -846,7 +839,6 @@ def run_planner_sweep(
                 continue
             workflow_key = str(goal.workflow_key or "").strip() or _default_workflow_for_goal(goal)
             intent = str(goal.intent_markdown or goal.title or goal_key)
-            title = str(goal.title or goal_key).strip() or goal_key
             sequence = (
                 db.query(RequirementCandidateRow)
                 .filter(

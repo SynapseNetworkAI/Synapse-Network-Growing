@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from server import config
 from server.services.agents.llm_adapter import get_provider
-from server.services.runtime.codex_cli import run_codex_exec
+from server.services.runtime.codex_cli import CodexExecResult, run_codex_exec
 from server.services.runtime.codex_sdk import run_codex_sdk_plan
 
 SUPPORTED_PLANNER_BACKENDS = {"openai", "claude", "copilot", "codex_cli", "codex_sdk"}
@@ -152,6 +152,31 @@ def _update_metadata(metadata: dict[str, Any] | None, values: dict[str, Any]) ->
         metadata.update(values)
 
 
+def _is_codex_cli_model_compatibility_result(result: CodexExecResult) -> bool:
+    message = "\n".join([str(result.stderr or ""), str(result.stdout or ""), str(result.text or "")]).lower()
+    return (
+        "requires a newer version of codex" in message
+        or "not supported when using codex with a chatgpt account" in message
+        or "model_not_supported" in message
+    )
+
+
+def _planner_codex_fallback_models(primary_model: str) -> list[str]:
+    candidates = [primary_model]
+    raw = str(config.PLANNER_FALLBACK_MODEL or "").strip()
+    if raw:
+        candidates.extend(item.strip() for item in raw.split(",") if item.strip())
+    candidates.extend(["gpt-5.4", "gpt-5.3-codex"])
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in candidates:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
 class LLMPlannerAdapter:
     def __init__(self, provider_name: str):
         self.backend = provider_name
@@ -210,16 +235,33 @@ class CodexCliPlannerAdapter:
         prompt = _prompt_for_runtime(request)
         prompt_path = output_path.with_suffix(".prompt.md")
         prompt_path.write_text(prompt, encoding="utf-8")
-        result = run_codex_exec(
-            prompt=prompt,
-            cwd=cwd,
-            output_path=output_path,
-            model=model,
-            timeout=timeout,
-            add_dirs=[Path(path).expanduser().resolve() for path in request.add_dirs],
-            sandbox_mode="read-only",
-            resume_thread_id=str(request.resume_session_id or "").strip() or None,
-        )
+        add_dirs = [Path(path).expanduser().resolve() for path in request.add_dirs]
+        resume_thread_id = str(request.resume_session_id or "").strip() or None
+        attempted_models: list[str] = []
+        result: CodexExecResult | None = None
+        used_model = model
+        for candidate_model in _planner_codex_fallback_models(model):
+            attempted_models.append(candidate_model)
+            result = run_codex_exec(
+                prompt=prompt,
+                cwd=cwd,
+                output_path=output_path,
+                model=candidate_model,
+                timeout=timeout,
+                add_dirs=add_dirs,
+                sandbox_mode="read-only",
+                resume_thread_id=resume_thread_id,
+            )
+            used_model = candidate_model
+            if result.exit_code == 0 or not _is_codex_cli_model_compatibility_result(result):
+                break
+            try:
+                if output_path.exists():
+                    output_path.unlink()
+            except OSError:
+                pass
+        if result is None:
+            raise RuntimeError("codex cli planner did not run")
         completed_at = datetime.now(timezone.utc)
         text = str(result.text or "").strip()
         if result.exit_code != 0:
@@ -235,14 +277,16 @@ class CodexCliPlannerAdapter:
                 "planning_output_path": str(output_path),
                 "planning_command": list(result.command),
                 "planning_backend": self.backend,
-                "planning_model": model,
+                "planning_model": used_model,
+                "planning_requested_model": model,
+                "planning_attempted_models": attempted_models,
                 "planning_resumed_from_session_id": str(request.resume_session_id or "").strip() or None,
                 "planning_started_at": started_at.isoformat(),
                 "planning_completed_at": completed_at.isoformat(),
                 "planning_json_event_count": result.json_event_count,
             },
         )
-        return PlannerResponse(text=text, tokens=0, backend=self.backend, model=model)
+        return PlannerResponse(text=text, tokens=0, backend=self.backend, model=used_model)
 
 
 class CodexSdkPlannerAdapter:

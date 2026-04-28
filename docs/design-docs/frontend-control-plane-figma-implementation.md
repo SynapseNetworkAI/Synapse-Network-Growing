@@ -28,19 +28,13 @@ Human Intent
 
 ## Navigation Model
 
-主导航必须按 operator 决策路径组织：
+主导航必须按 operator 决策路径组织，并采用 Top Header Navigation。不要再新增桌面左侧 sidebar / offcanvas / tree menu。主导航只保留高频业务流水线入口：
 
 ```text
-Command Center
-Planning
-Intake
-Oracle Gates
-Execution
-Delivery
-Factory
-Knowledge
-System Ops
+Synapse Agent Ops | Command Center | Planning | Publishing | Releases | Needs Human | Cmd+K / Search | Alerts
 ```
+
+低频和诊断入口通过 Cmd+K / Search、Command Center system health、详情页 deep link 或直接 URL 进入。路由继续保留，但不占用主导航。
 
 当前路由映射：
 
@@ -48,19 +42,20 @@ System Ops
 |---|---|---|
 | `/command-center` | Command Center | Global desired state, blockers, active runs |
 | `/planning` | Planning | Operating Manifest, goals, candidates |
-| `/intake` | Intake | Error, forum, watcher, planner signal entry |
-| `/gates` | Oracle Gates | Pending human gates and failed/blocked runs |
-| `/requirements` | Execution | Requirement pool and workflow readiness |
-| `/workflows` | Execution | Workflow Operations Center |
+| `/publishing` | Growth | Social Ops Center for X / future channels |
+| `/releases` | Delivery | Release tasks, deployments, online records |
+| `/gates` | Needs Human | Pending human gates and failed/blocked runs |
+| `/intake` | Low-frequency Signals | Error, forum, watcher, planner signal entry |
+| `/requirements` | Low-frequency Execution | Requirement pool and workflow readiness |
+| `/workflows` | Low-frequency Execution | Workflow Operations Center |
 | `/workflows/:id` | Execution | Run Explorer / Blackboard |
-| `/releases` | Delivery | PR, release, deployment, observing |
-| `/factory/workflows` | Factory | Read-only workflow definitions |
-| `/factory/atoms` | Factory | Read-only atom registry |
-| `/knowledge` | Knowledge | Artifacts and SOP Ledger entry point |
-| `/schedules` | System Ops | Scheduled jobs and background task health |
-| `/system/notifications` | System Ops | Notification queue and suppression health |
-| `/projects` | System Ops | Project governance and policies |
-| `/errors` | Intake | Error fingerprints and requirement intake gate |
+| `/factory/workflows` | Low-frequency Factory | Read-only workflow definitions |
+| `/factory/atoms` | Low-frequency Factory | Read-only atom registry |
+| `/knowledge` | Low-frequency Knowledge | Artifacts and SOP Ledger entry point |
+| `/schedules` | Low-frequency System Ops | Scheduled jobs and background task health |
+| `/system/notifications` | Low-frequency System Ops | Notification queue and suppression health |
+| `/projects` | Low-frequency System Ops | Project governance and policies |
+| `/errors` | Low-frequency Intake | Error fingerprints and requirement intake gate |
 
 ## Visual Contract
 

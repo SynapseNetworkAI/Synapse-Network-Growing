@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from server import config
 from server.services.runtime.codex_cli import (
-    CodexAsyncExecResult,
     CodexExecResult,
     _build_codex_exec_command,
     _parse_codex_exec_stdout,
@@ -201,7 +200,7 @@ def test_codex_resume_command_omits_exec_only_flags(tmp_path):
     assert command[-2:] == ["thread-123", "-"]
 
 
-def test_codex_cli_generic_codex_models_omit_model_flag(tmp_path):
+def test_codex_cli_explicit_codex_models_are_passed_to_avoid_cli_default_drift(tmp_path):
     command = _build_codex_exec_command(
         cwd=tmp_path,
         model="gpt-5-codex",
@@ -211,7 +210,8 @@ def test_codex_cli_generic_codex_models_omit_model_flag(tmp_path):
         sandbox_mode=None,
     )
 
-    assert "-m" not in command
+    assert "-m" in command
+    assert command[command.index("-m") + 1] == "gpt-5-codex"
 
 
 def test_codex_cli_json_parser_preserves_error_events():

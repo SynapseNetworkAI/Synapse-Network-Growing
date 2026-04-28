@@ -55,7 +55,7 @@ const emptyForm: DraftForm = {
 const pageSize = 8
 
 function statusTone(status: string): 'default' | 'ready' | 'running' | 'blocked' | 'validating' | 'delivered' | 'muted' {
-  if (status === 'published' || status === 'replied') return 'delivered'
+  if (status === 'published' || status === 'published_manual' || status === 'replied') return 'delivered'
   if (status === 'approved') return 'ready'
   if (status === 'failed' || status === 'rejected') return 'blocked'
   if (status === 'publishing' || status === 'generating') return 'running'
@@ -103,6 +103,16 @@ function needsXReconnect(post: SocialPostDraft) {
   )
 }
 
+function needsReplyReconnect(reply: SocialReplyItem) {
+  const reason = `${reply.failure_summary ?? ''} ${reply.metadata?.publish_failure_kind ?? ''}`.toLowerCase()
+  return reply.status === 'failed' && ['oauth', 'authentication failed', 'tweet.write', 'reconnect the x official account', 'token secret'].some((fragment) => reason.includes(fragment))
+}
+
+function canRetryReply(reply: SocialReplyItem) {
+  const reason = `${reply.failure_summary ?? ''} ${reply.metadata?.publish_failure_kind ?? ''}`.toLowerCase()
+  return !reason.includes('x_reply_conversation_forbidden') && !reason.includes('conversation reply')
+}
+
 function postSortRank(post: SocialPostDraft) {
   const ranks: Record<string, number> = {
     publishing: 0,
@@ -118,7 +128,7 @@ function postSortRank(post: SocialPostDraft) {
 }
 
 function signalStatusTone(status: string): 'default' | 'ready' | 'running' | 'blocked' | 'validating' | 'delivered' | 'muted' {
-  if (status === 'published') return 'delivered'
+  if (status === 'published' || status === 'published_manual') return 'delivered'
   if (status === 'publishing') return 'running'
   if (status === 'failed' || status === 'rejected') return 'blocked'
   if (status === 'candidate' || status === 'needs_review') return 'ready'
@@ -138,26 +148,12 @@ function repostStatusLabel(status: string) {
 }
 
 function replyStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    needs_review: '待审核',
-    approved: '可回复',
-    publishing: '回复中',
-    published: '已回复',
-    failed: '失败',
-    rejected: '已拒绝',
-  }
+  const map: Record<string, string> = { needs_review: '待审核', approved: '可回复', publishing: '回复中', published: '已回复', published_manual: '已手动回复', failed: '失败', rejected: '已拒绝' }
   return map[status] ?? status
 }
 
 function replySortRank(reply: SocialReplyItem) {
-  const ranks: Record<string, number> = {
-    publishing: 0,
-    approved: 1,
-    needs_review: 2,
-    failed: 3,
-    published: 8,
-    rejected: 9,
-  }
+  const ranks: Record<string, number> = { publishing: 0, approved: 1, needs_review: 2, failed: 3, published: 8, published_manual: 8, rejected: 9 }
   return ranks[reply.status] ?? 5
 }
 
@@ -675,7 +671,7 @@ export default function PublishingPage() {
       setReplies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
       setReplyDetail(updated)
       setReplyDraftText(updated.suggested_reply || '')
-      toast.success(nextStatus === 'rejected' ? '已拒绝回帖' : '回帖草稿已保存')
+      toast.success(nextStatus === 'rejected' ? '已拒绝回帖' : nextStatus === 'published_manual' ? '已标记为手动回复' : '回帖草稿已保存')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '保存回帖失败')
     } finally {
@@ -704,6 +700,9 @@ export default function PublishingPage() {
     }
   }
 
+function openReplyPublish(reply: SocialReplyItem) {
+  setReplyPublishTarget({ ...reply, suggested_reply: reply.suggested_reply || replyDraftText })
+}
   async function regenerateImage(post: SocialPostDraft) {
     if (busyId) return
     setBusyId(post.id)
@@ -1170,6 +1169,8 @@ export default function PublishingPage() {
                           >
                             详情
                           </button>
+                          {needsReplyReconnect(reply) && !accountAuthorized(activeAccount) && !gcpAdcExpired(activeAccount) ? <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount?.id)}>重新连接 X 官方账号</button> : null}
+                          {['approved', 'failed'].includes(reply.status) && accountAuthorized(activeAccount) && canRetryReply(reply) ? <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!reply.suggested_reply?.trim() || replyBusyId === reply.id} onClick={() => openReplyPublish(reply)}>{reply.status === 'failed' ? '重新发送' : '回复到 X'}</button> : null}
                           {reply.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={reply.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
                         </div>
                       </td>
@@ -1461,7 +1462,7 @@ export default function PublishingPage() {
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => setReplyDetail(null)}>
               关闭
             </button>
-            {replyDetail && replyDetail.status !== 'published' && replyDetail.status !== 'rejected' ? (
+            {replyDetail && !['published', 'published_manual', 'rejected'].includes(replyDetail.status) ? (
               <button
                 type="button"
                 className="rounded-xl border border-rose-300/30 px-4 py-2 text-sm text-rose-100 disabled:opacity-50"
@@ -1471,7 +1472,7 @@ export default function PublishingPage() {
                 拒绝
               </button>
             ) : null}
-            {replyDetail && replyDetail.status !== 'published' && replyDetail.status !== 'rejected' ? (
+            {replyDetail && !['published', 'published_manual', 'rejected'].includes(replyDetail.status) ? (
               <button
                 type="button"
                 className="rounded-xl border border-emerald-300/35 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50"
@@ -1481,18 +1482,9 @@ export default function PublishingPage() {
                 保存并审核通过
               </button>
             ) : null}
-            {replyDetail && ['approved', 'failed'].includes(replyDetail.status) && accountAuthorized(activeAccount) ? (
-              <button
-                type="button"
-                className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                disabled={!replyDraftText.trim() || replyBusyId === replyDetail.id}
-                onClick={() => {
-                  setReplyPublishTarget({ ...replyDetail, suggested_reply: replyDraftText })
-                }}
-              >
-                回复到 X
-              </button>
-            ) : null}
+            {replyDetail && ['approved', 'failed'].includes(replyDetail.status) && accountAuthorized(activeAccount) && canRetryReply(replyDetail) ? <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!replyDraftText.trim() || replyBusyId === replyDetail.id} onClick={() => openReplyPublish({ ...replyDetail, suggested_reply: replyDraftText })}>{replyDetail.status === 'failed' ? '重新发送' : '回复到 X'}</button> : null}
+            {replyDetail && !['published', 'published_manual', 'rejected'].includes(replyDetail.status) ? <button type="button" className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" disabled={replyBusyId === replyDetail.id} onClick={() => void saveReplyDraft('published_manual')}>标记为已手动回复</button> : null}
+            {replyDetail && needsReplyReconnect(replyDetail) && !accountAuthorized(activeAccount) && !gcpAdcExpired(activeAccount) ? <button type="button" className="rounded-xl border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount?.id)}>重新连接 X 官方账号</button> : null}
           </>
         }
       >
@@ -1514,6 +1506,7 @@ export default function PublishingPage() {
             </div>
             <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
               <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Source Post</div>
+              <p className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Source ID: {replyDetail.source_post_id || 'unknown'}</p>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{replyDetail.source_text || replyDetail.incoming_text}</p>
               {replyDetail.source_url ? <a className="mt-3 inline-flex text-sm font-semibold text-cyan-100 underline" href={replyDetail.source_url} target="_blank" rel="noreferrer">打开原帖</a> : null}
             </div>

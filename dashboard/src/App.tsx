@@ -1,4 +1,5 @@
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import CommandCenterPage from './pages/CommandCenterPage'
 import RequirementPool from './pages/RequirementPool'
 import RequirementDetail from './pages/RequirementDetail'
@@ -20,46 +21,41 @@ import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
 import ErrorDetailPage from './pages/ErrorDetailPage'
+import { api } from './api'
 
-const navGroups = [
+const primaryNavItems = [
+  { to: '/command-center', label: 'Command Center', meta: 'Mission Control' },
+  { to: '/planning', label: 'Planning', meta: 'Opportunities & Goals' },
+  { to: '/publishing', label: 'Publishing', meta: 'Social Ops' },
+  { to: '/releases', label: 'Releases', meta: 'Delivery' },
+]
+
+const secondaryNavGroups = [
   {
-    label: 'Strategy',
+    label: 'Work Queues',
     items: [
-      { to: '/command-center', label: '司令部', meta: 'Mission Control' },
-      { to: '/planning', label: '经营规划', meta: 'Operating Manifest' },
-    ],
-  },
-  {
-    label: 'Intervention',
-    items: [
-      { to: '/gates', label: '门禁审批', meta: 'Human Oracle' },
-      { to: '/intake', label: '信号入口', meta: 'Requirement Discovery' },
-    ],
-  },
-  {
-    label: 'Execution',
-    items: [
-      { to: '/requirements', label: '需求池', meta: 'Requirements' },
-      { to: '/workflows', label: '运行轨迹', meta: 'Workflow Runs' },
-      { to: '/releases', label: '发布交付', meta: 'Delivery' },
-      { to: '/publishing', label: '内容发布', meta: 'Social Publishing' },
-    ],
-  },
-  {
-    label: 'Factory',
-    items: [
-      { to: '/factory/workflows', label: '状态机定义', meta: 'Workflow Specs' },
-      { to: '/factory/atoms', label: '原子能力库', meta: 'Atom Registry' },
-      { to: '/knowledge', label: '知识资产', meta: 'SOP Ledger' },
+      { to: '/gates', label: 'Human Gates', meta: 'Needs operator' },
+      { to: '/requirements', label: 'Requirements', meta: 'Engineering queue' },
+      { to: '/workflows', label: 'Workflows', meta: 'Runs and definitions' },
+      { to: '/intake', label: 'Signals', meta: 'Discovery sources' },
     ],
   },
   {
     label: 'System Ops',
     items: [
-      { to: '/schedules', label: '定时任务', meta: 'Scheduled Jobs' },
-      { to: '/system/notifications', label: '通知队列', meta: 'Lark / Queue' },
-      { to: '/projects', label: '项目治理', meta: 'Projects' },
-      { to: '/errors', label: '错误指纹', meta: 'Error Signals' },
+      { to: '/schedules', label: 'Schedules', meta: 'Recurring jobs' },
+      { to: '/system/notifications', label: 'Notifications', meta: 'Lark / queue' },
+      { to: '/projects', label: 'Projects', meta: 'Governance' },
+      { to: '/errors', label: 'Errors', meta: 'Fingerprints' },
+    ],
+  },
+  {
+    label: 'Factory & Knowledge',
+    items: [
+      { to: '/factory/workflows', label: 'Workflow Factory', meta: 'Read-only specs' },
+      { to: '/factory/atoms', label: 'Atom Registry', meta: 'Capability catalog' },
+      { to: '/knowledge', label: 'Knowledge', meta: 'Evidence and SOP' },
+      { to: '/publishing/trends', label: 'Trend Radar Results', meta: 'X trend search' },
     ],
   },
 ]
@@ -92,117 +88,179 @@ function routeTitle(pathname: string) {
   return routeTitles.find((item) => item.match(pathname)) ?? routeTitles[0]
 }
 
-function allNavItems() {
-  return navGroups.flatMap((group) => group.items)
+function isPrimaryActive(pathname: string, target: string) {
+  if (target === '/command-center') return pathname === '/' || pathname === '/command-center'
+  return pathname === target || pathname.startsWith(`${target}/`)
+}
+
+function topNavClass(isActive: boolean) {
+  return [
+    'whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-semibold transition',
+    isActive
+      ? 'border border-cyan-300/25 bg-cyan-300/[0.12] text-cyan-100 shadow-[0_0_28px_rgba(34,211,238,0.10)]'
+      : 'border border-transparent text-[color:var(--ops-text-muted)] hover:border-white/10 hover:bg-white/[0.055] hover:text-[color:var(--ops-text-title)]',
+  ].join(' ')
+}
+
+function CommandSearch({ open, onClose }: Readonly<{ open: boolean; onClose: () => void }>) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/62 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Command search">
+      <div className="w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--ops-panel)] shadow-[0_28px_120px_rgba(0,0,0,0.55)]">
+        <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-6 py-5">
+          <div>
+            <div className="machine-label text-cyan-200/70">Cmd+K</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[color:var(--ops-text-title)]">Command Search</h2>
+            <p className="mt-2 text-sm text-[color:var(--ops-text-muted)]">低频工具不占主导航；从这里进入 Requirements、Workflows、System Ops 和 Debug surfaces。</p>
+          </div>
+          <button type="button" className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onClose}>关闭</button>
+        </div>
+        <div className="max-h-[66vh] overflow-auto p-5">
+          {secondaryNavGroups.map((group) => (
+            <section key={group.label} className="mb-5 last:mb-0">
+              <div className="machine-label mb-2 px-2 text-[color:var(--ops-text-caption)]">{group.label}</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {group.items.map((item) => (
+                  <Link key={item.to} to={item.to} className="rounded-2xl border border-white/8 bg-white/[0.035] px-4 py-3 transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06]" onClick={onClose}>
+                    <div className="font-semibold text-[color:var(--ops-text-title)]">{item.label}</div>
+                    <div className="mt-1 text-xs text-[color:var(--ops-text-muted)]">{item.meta}</div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TopNavigation({ currentMeta }: Readonly<{ currentMeta: string }>) {
+  const location = useLocation()
+  const [needsHuman, setNeedsHuman] = useState<number | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getWorkflowRunsSummary()
+      .then((summary) => {
+        if (cancelled || !summary) return
+        const count = Number(summary.pending_gate_count ?? summary.needs_human ?? 0)
+        setNeedsHuman(Number.isFinite(count) ? count : 0)
+      })
+      .catch(() => {
+        if (!cancelled) setNeedsHuman(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const humanCount = needsHuman ?? 0
+  const hasHumanWork = humanCount > 0
+
+  return (
+    <>
+      <header className="sticky top-0 z-40 border-b border-white/8 bg-[color:var(--ops-header-bg)]/95 px-4 py-3 backdrop-blur-xl md:px-6">
+        <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-4">
+          <Link to="/command-center" className="flex min-w-fit items-center gap-3">
+            <span className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-cyan-200/20 bg-white shadow-[0_0_28px_rgba(34,211,238,0.12)]">
+              <img src="/synapse-network-icon.svg" alt="SynapseNetwork" className="h-9 w-9" />
+            </span>
+            <span>
+              <span className="machine-label block text-cyan-200/70">Synapse Network</span>
+              <span className="block text-lg font-semibold tracking-[-0.04em] text-[color:var(--ops-text-title)]">Agent Ops</span>
+            </span>
+          </Link>
+
+          <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto" aria-label="Primary navigation">
+            {primaryNavItems.map((item) => (
+              <NavLink key={item.to} to={item.to} className={() => topNavClass(isPrimaryActive(location.pathname, item.to))}>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/gates"
+              className={[
+                'rounded-2xl border px-3 py-2 text-sm font-semibold transition',
+                hasHumanWork
+                  ? 'border-amber-300/35 bg-amber-300/[0.10] text-amber-100'
+                  : 'border-white/10 text-[color:var(--ops-text-muted)] hover:bg-white/[0.055]',
+              ].join(' ')}
+            >
+              Needs Human{hasHumanWork ? ` ${humanCount}` : ''}
+            </Link>
+            <button type="button" className="hidden rounded-2xl border border-white/10 px-3 py-2 text-sm text-[color:var(--ops-text-muted)] transition hover:bg-white/[0.055] md:inline-flex" onClick={() => setSearchOpen(true)}>
+              Cmd+K / Search
+            </button>
+            <Link to="/system/notifications" aria-label="Notifications" className="rounded-2xl border border-white/10 px-3 py-2 text-sm text-[color:var(--ops-text-muted)] transition hover:bg-white/[0.055]">
+              Alerts
+            </Link>
+          </div>
+
+          <div className="hidden w-full border-t border-white/8 pt-2 text-xs text-[color:var(--ops-text-caption)] md:block">
+            {currentMeta}
+          </div>
+        </div>
+      </header>
+      <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+    </>
+  )
 }
 
 export default function App() {
   const location = useLocation()
   const current = routeTitle(location.pathname)
+  const routeContext = useMemo(() => `${current.meta} · ${current.title}`, [current.meta, current.title])
 
   return (
     <div className="min-h-screen bg-[color:var(--ops-bg)] text-[color:var(--ops-text-body)]">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-[286px] shrink-0 border-r border-white/8 bg-[color:var(--ops-sidebar-bg)] px-5 py-6 lg:flex lg:flex-col">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-cyan-200/20 bg-white shadow-[0_0_28px_rgba(34,211,238,0.12)]">
-                <img src="/synapse-network-icon.svg" alt="SynapseNetwork" className="h-10 w-10" />
-              </span>
-              <div>
-                <div className="machine-label text-cyan-200/70">Synapse Network</div>
-                <div className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[color:var(--ops-text-title)]">Agent Ops</div>
-              </div>
-            </div>
-            <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Human-Agent Control Plane</div>
+      <div className="min-h-screen">
+        <TopNavigation currentMeta={routeContext} />
+        <main className="min-h-0 px-4 py-5 md:px-6 md:py-6">
+          <div className="mx-auto max-w-[1680px]">
+            <Routes>
+              <Route path="/" element={<Navigate to="/command-center" replace />} />
+              <Route path="/command-center" element={<CommandCenterPage />} />
+              <Route path="/intake" element={<IntakePage />} />
+              <Route path="/gates" element={<HumanGatesPage />} />
+              <Route path="/factory/workflows" element={<WorkflowDefinitionsPage />} />
+              <Route path="/factory/atoms" element={<AtomRegistryPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/system/notifications" element={<NotificationsPage />} />
+              <Route path="/requirements" element={<RequirementPool />} />
+              <Route path="/requirements/:id" element={<RequirementDetail />} />
+              <Route path="/planning" element={<PlanningPage />} />
+              <Route path="/workflows" element={<WorkflowRunsPage />} />
+              <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
+              <Route path="/schedules" element={<SchedulesPage />} />
+              <Route path="/releases" element={<ReleasesPage />} />
+              <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
+              <Route path="/publishing" element={<PublishingPage />} />
+              <Route path="/publishing/trends" element={<PublishingTrendResultsPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:id" element={<ProjectDetailPage />} />
+              <Route path="/errors" element={<ErrorsPage />} />
+              <Route path="/errors/:fingerprintKey" element={<ErrorDetailPage />} />
+              <Route path="*" element={<Navigate to="/command-center" replace />} />
+            </Routes>
           </div>
-
-          <nav className="mt-8 space-y-6">
-            {navGroups.map((group) => (
-              <div key={group.label}>
-                <div className="machine-label mb-2 px-3 text-[color:var(--ops-text-caption)]">{group.label}</div>
-                <div className="space-y-1">
-                  {group.items.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={({ isActive }) =>
-                        [
-                          'group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition',
-                          isActive
-                            ? 'border border-cyan-300/20 bg-cyan-300/12 text-cyan-100 shadow-[0_0_28px_rgba(34,211,238,0.08)]'
-                            : 'border border-transparent text-[color:var(--ops-text-muted)] hover:border-white/8 hover:bg-white/[0.045] hover:text-[color:var(--ops-text-title)]',
-                        ].join(' ')
-                      }
-                    >
-                      <span>{item.label}</span>
-                      <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-[color:var(--ops-text-caption)] xl:inline">{item.meta}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </nav>
-        </aside>
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-white/8 bg-[color:var(--ops-header-bg)] px-4 py-4 backdrop-blur md:px-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="machine-label text-[color:var(--ops-text-caption)]">{current.meta}</div>
-                <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{current.title}</h1>
-              </div>
-              <div className="flex max-w-[68vw] items-center gap-2 overflow-x-auto lg:hidden">
-                {allNavItems().map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) =>
-                      [
-                        'whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition',
-                        isActive
-                          ? 'bg-cyan-300/12 text-cyan-100'
-                          : 'text-[color:var(--ops-text-muted)] hover:bg-white/[0.06]',
-                      ].join(' ')
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
-            </div>
-          </header>
-
-          <main className="min-h-0 flex-1 px-4 py-5 md:px-6 md:py-6">
-            <div className="mx-auto max-w-[1480px]">
-              <Routes>
-                <Route path="/" element={<Navigate to="/command-center" replace />} />
-                <Route path="/command-center" element={<CommandCenterPage />} />
-                <Route path="/intake" element={<IntakePage />} />
-                <Route path="/gates" element={<HumanGatesPage />} />
-                <Route path="/factory/workflows" element={<WorkflowDefinitionsPage />} />
-                <Route path="/factory/atoms" element={<AtomRegistryPage />} />
-                <Route path="/knowledge" element={<KnowledgePage />} />
-                <Route path="/system/notifications" element={<NotificationsPage />} />
-                <Route path="/requirements" element={<RequirementPool />} />
-                <Route path="/requirements/:id" element={<RequirementDetail />} />
-                <Route path="/planning" element={<PlanningPage />} />
-                <Route path="/workflows" element={<WorkflowRunsPage />} />
-                <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
-                <Route path="/schedules" element={<SchedulesPage />} />
-                <Route path="/releases" element={<ReleasesPage />} />
-                <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />
-                <Route path="/publishing" element={<PublishingPage />} />
-                <Route path="/publishing/trends" element={<PublishingTrendResultsPage />} />
-                <Route path="/projects" element={<ProjectsPage />} />
-                <Route path="/projects/:id" element={<ProjectDetailPage />} />
-                <Route path="/errors" element={<ErrorsPage />} />
-                <Route path="/errors/:fingerprintKey" element={<ErrorDetailPage />} />
-                <Route path="*" element={<Navigate to="/command-center" replace />} />
-              </Routes>
-            </div>
-          </main>
-        </div>
+        </main>
       </div>
     </div>
   )

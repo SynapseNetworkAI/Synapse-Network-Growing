@@ -64,6 +64,7 @@ from server.schemas import (
 )
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
+from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
 
 DEFAULT_X_HANDLE = "SynapseNetworkA"
@@ -74,18 +75,12 @@ X_OAUTH_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize"
 X_OAUTH_TOKEN_URL = "https://api.x.com/2/oauth2/token"
 X_OAUTH_SCOPE = "tweet.read tweet.write users.read media.write offline.access"
 logger = logging.getLogger("ops-dashboard.social-publishing")
-_x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "x_publish_access_token",
-    default=None,
-)
-
+_x_publish_access_token: contextvars.ContextVar[str | None] = contextvars.ContextVar("x_publish_access_token", default=None)
 ALLOWED_STATUSES = {"draft", "generating", "needs_review", "approved", "publishing", "published", "failed", "rejected"}
 HUMAN_SETTLED_STATUSES = {"published", "rejected"}
 SOCIAL_CONTEXT_MAX_CHARS = 1100
 SOCIAL_SKILL_MAX_CHARS = 900
 SOCIAL_LAUNCH_SKILL_MAX_CHARS = 600
-
-# 仅保留硬性的安全/隐私/格式拦截，移除了正常的业务语义词
 SOCIAL_GENERATION_BLOCKED_FRAGMENTS = (
     "/users/",
     "api-key",
@@ -102,7 +97,6 @@ SOCIAL_GENERATION_BLOCKED_FRAGMENTS = (
 SOCIAL_STYLE_TYPES = {"marketing", "technical", "visionary"}
 SOCIAL_MEDIA_MODES = {"auto", "text_only", "image_required"}
 SOCIAL_MEDIA_DECISIONS = {"text", "image"}
-
 SOCIAL_CODEX_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -984,40 +978,11 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                 created_by="system_seed",
             )
         )
-    default_watchlist = [
-        ("OpenAI", "OpenAI", "ai_company", "AI platform updates shape agent-builder narratives."),
-        ("AnthropicAI", "Anthropic", "ai_company", "Claude and agent safety conversations are relevant to trusted automation."),
-        ("GoogleDeepMind", "Google DeepMind", "ai_company", "Frontier model and research updates influence AI builder narratives."),
-        ("NVIDIAAI", "NVIDIA AI", "ai_company", "AI compute and agent infrastructure trends shape provider demand."),
-        ("AIatMeta", "Meta AI", "ai_company", "Open model and agent tooling updates are important developer signals."),
-        ("MistralAI", "Mistral AI", "ai_company", "European frontier model updates matter to agent builders."),
-        ("xai", "xAI", "ai_company", "Grok and real-time AI product updates shape X-native AI discussion."),
-        ("cohere", "Cohere", "ai_company", "Enterprise AI and retrieval updates matter to API providers."),
-        ("huggingface", "Hugging Face", "ai_company", "Open model and developer ecosystem signals are relevant to Synapse builders."),
-        ("perplexity_ai", "Perplexity", "ai_company", "AI search and answer engine adoption is a relevant operator trend."),
-        ("LangChainAI", "LangChain", "agent_framework", "Agent framework builders are a primary Synapse audience."),
-        ("MCP", "Model Context Protocol", "agent_protocol", "MCP-native discovery is a core product proof point."),
-        ("sama", "Sam Altman", "ai_leader", "OpenAI leadership signals help track AI platform direction."),
-        ("gdb", "Greg Brockman", "ai_leader", "OpenAI engineering leadership is relevant to platform builders."),
-        ("ilyasut", "Ilya Sutskever", "ai_researcher", "Frontier model research perspective."),
-        ("karpathy", "Andrej Karpathy", "ai_researcher", "Practical AI engineering and agent commentary."),
-        ("demishassabis", "Demis Hassabis", "ai_leader", "Google DeepMind leadership and research direction."),
-        ("ylecun", "Yann LeCun", "ai_researcher", "AI research debate and model architecture commentary."),
-        ("AndrewYNg", "Andrew Ng", "ai_operator", "AI education, productization, and applied AI signals."),
-        ("drfeifei", "Fei-Fei Li", "ai_researcher", "Human-centered AI and research direction."),
-        ("DrJimFan", "Jim Fan", "ai_researcher", "Embodied agents and simulation commentary."),
-        ("fchollet", "François Chollet", "ai_researcher", "Reasoning, benchmarks, and model intelligence discussion."),
-        ("jeremyphoward", "Jeremy Howard", "ai_operator", "Practical AI builders and developer education."),
-        ("Thom_Wolf", "Thomas Wolf", "ai_operator", "Open-source AI ecosystem and Hugging Face signals."),
-        ("ClementDelangue", "Clément Delangue", "ai_founder", "Hugging Face ecosystem and open AI strategy."),
-        ("AravSrinivas", "Aravind Srinivas", "ai_founder", "AI search and product growth signals."),
-        ("hwchase17", "Harrison Chase", "agent_founder", "LangChain and agent workflow signals."),
-    ]
     existing_handles = {
         str(row.handle or "").lower()
         for row in db.query(SocialWatchlistAccountRow.handle).all()
     }
-    for handle, display_name, category, rationale in default_watchlist:
+    for handle, display_name, category, rationale in DEFAULT_WATCHLIST_ACCOUNTS:
         if handle.lower() not in existing_handles:
             db.add(
                 SocialWatchlistAccountRow(
@@ -1038,7 +1003,10 @@ def ensure_default_social_ops_seed(db: Session) -> None:
                 status="new",
             )
         )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # pragma: no cover - concurrent startup seed race
+        db.rollback()
 
 
 def list_social_accounts(db: Session) -> list[dict[str, Any]]:
@@ -2249,9 +2217,17 @@ def _finalize_generated_social_post(
         logger.info("social_generation_skipped_non_generating", extra={"post_id": post_id, "status": row.status})
         return
     normalized_media_mode = _normalize_media_mode(media_mode)
+    db.rollback()
     try:
         generated = _generate_x_post_copy(prompt, style_type=style_type, media_mode=normalized_media_mode)
         policy = run_content_policy_check(generated.body_text)
+        row = db.get(SocialPostDraftRow, post_id)
+        if row is None:  # pragma: no cover - stale async job race
+            logger.warning("social_generation_post_missing_after_generation", extra={"post_id": post_id})
+            return
+        if row.status != "generating":  # pragma: no cover - operator changed draft mid-generation
+            logger.info("social_generation_skipped_after_generation", extra={"post_id": post_id, "status": row.status})
+            return
         generated_status = "approved" if policy["status"] == "passed" else "needs_review"
         row.title = generated.title
         row.body_text = generated.body_text
@@ -2299,6 +2275,10 @@ def _finalize_generated_social_post(
             },
         )
     except Exception as exc:
+        row = db.get(SocialPostDraftRow, post_id)
+        if row is None:  # pragma: no cover - stale async job race
+            logger.warning("social_generation_failure_post_missing", extra={"post_id": post_id})
+            return
         row.status = "failed"
         row.failure_summary = _bounded_excerpt(str(exc), max_chars=1000)
         row.policy_check_json = _json_dumps(run_content_policy_check(row.body_text or ""))
@@ -2810,6 +2790,13 @@ class XApiPublisher:
     Tests replace this object; production reads Secret Manager only at publish time.
     """
 
+    def _auth_failure_summary(self, action: str, raw: str, *, required_scope: str) -> str:
+        excerpt = _bounded_excerpt(raw, max_chars=600)
+        return f"X {action} authentication failed. Reconnect the X official account and approve the {required_scope} scope.{f' X response: {excerpt}' if excerpt else ''}"
+
+    def _reply_forbidden_summary(self, raw: str) -> str:
+        return f"X API does not allow this conversation reply. Reply manually on X, then mark the item as manually replied, or use quote/repost instead.{f' X response: {_bounded_excerpt(raw, max_chars=600)}' if raw else ''}"
+
     def upload_image(self, account: SocialAccountRow, image_path: str) -> str:
         token = _read_secret_token(account.secret_ref)
         path = Path(image_path)
@@ -2840,10 +2827,7 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError(
-                    "x_media_upload_auth_failed",
-                    "X media upload authentication failed. Reconnect the X official account and approve the media.write scope.",
-                ) from exc
+                raise SocialPublishError("x_media_upload_auth_failed", self._auth_failure_summary("media upload", raw, required_scope="media.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X media upload rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_media_upload_failed", f"X media upload returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -2884,7 +2868,7 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_publish_auth_failed", "X API authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+                raise SocialPublishError("x_publish_auth_failed", self._auth_failure_summary("publish", raw, required_scope="tweet.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X API rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_api_failed", f"X API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -2921,7 +2905,9 @@ class XApiPublisher:
         except urllib.error.HTTPError as exc:
             raw = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code in {401, 403}:
-                raise SocialPublishError("x_reply_auth_failed", "X reply authentication failed. Reconnect the X official account or refresh OAuth credentials.") from exc
+                if exc.code == 403 and "reply to this conversation is not allowed" in raw.lower():
+                    raise SocialPublishError("x_reply_conversation_forbidden", self._reply_forbidden_summary(raw)) from exc
+                raise SocialPublishError("x_reply_auth_failed", self._auth_failure_summary("reply", raw, required_scope="tweet.write")) from exc
             if exc.code == 429:
                 raise SocialPublishError("x_rate_limited", "X reply rate limit reached. Try again after the rate-limit window.") from exc
             raise SocialPublishError("x_reply_failed", f"X reply API returned HTTP {exc.code}: {_bounded_excerpt(raw)}") from exc
@@ -3126,21 +3112,24 @@ def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchReques
     row = db.get(SocialReplyItemRow, reply_id)
     if row is None:
         raise ValueError("social reply item not found")
-    if row.status == "published":
+    if row.status in {"published", "published_manual"}:
         raise ValueError("published replies cannot be edited")
     if body.suggested_reply is not None:
         row.suggested_reply = str(body.suggested_reply or "").strip()
     if body.status is not None:
         status = str(body.status or "").strip()
-        if status not in {"needs_review", "approved", "failed", "rejected"}:
+        if status not in {"needs_review", "approved", "failed", "rejected", "published_manual"}:
             raise ValueError("unsupported reply status")
         row.status = status
         row.reviewed_by = body.reviewed_by
+        if status == "published_manual":
+            row.failure_summary = None
+            row.published_external_post_id = row.published_external_post_id or f"manual:{row.source_post_id or int(row.id)}"
     if body.review_note:
         metadata = _json_loads(row.metadata_json, {})
         metadata["review_note"] = str(body.review_note)
         row.metadata_json = _json_dumps(metadata)
-    if row.suggested_reply:
+    if row.suggested_reply and row.status != "published_manual":
         policy = run_content_policy_check(row.suggested_reply)
         metadata = _json_loads(row.metadata_json, {})
         metadata["policy_check"] = policy

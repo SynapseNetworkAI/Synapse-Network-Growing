@@ -43,6 +43,7 @@ from server.services.requirements.acceptance import (
     validate_required_command_safety,
 )
 from server.services.runtime.alerting import bounded_lark_excerpt, build_ops_url, deliver_policy_notification, notification_service_label
+from server.services.workflows.acceptance_runtime import acceptance_execution_command
 
 
 class WorkflowSpecError(ValueError):
@@ -1885,7 +1886,7 @@ def _workflow_review_summary(ctx: WorkflowContext, *, pr_scope: str) -> str:
     verification = ctx.blackboard.get("verification") or {}
     evidence = ctx.blackboard.get("evidence") or []
     lines = [
-        f"## Workflow",
+        "## Workflow",
         f"- Workflow key: `{ctx.workflow_run.workflow_key}`",
         f"- PR scope: `{pr_scope}`",
         f"- Current state: `{ctx.state_key}`",
@@ -3614,7 +3615,6 @@ def _run_acceptance_command_result_artifact(
     kill_grace_seconds: int = 10,
 ) -> dict[str, Any]:
     """Run an evidence-bound acceptance command with a hard process-group timeout."""
-
     cwd = str(getattr(ctx.requirement, "target_project_path", "") or "").strip()
     if not cwd or not os.path.isdir(cwd):
         cwd = str(config.PROJECT_ROOT)
@@ -3628,7 +3628,7 @@ def _run_acceptance_command_result_artifact(
     stderr_excerpt = ""
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         process = subprocess.Popen(
-            command,
+            acceptance_execution_command(command),
             cwd=cwd,
             env=env,
             shell=True,

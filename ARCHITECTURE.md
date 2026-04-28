@@ -110,18 +110,24 @@ graph TD
 12. Drop Goal never triggers rollback, revert, database deletion, unpublish, or delivered release mutation.
 13. Decommissioning delivered functionality is a new requirement with normal workflow, verification, human gate, and release.
 14. Release Task records release intent and human closure; Deployment Record records physical deploy execution. Do not merge deployment logs into the release task list. Release Task branch selection must come from the target GitHub repository branch list rather than free-text entry. Staging Release Tasks may trigger deployment through an explicit operator button and a whitelisted staging runner authenticated by GCP Workload Identity Federation when either the branch is `main` or the branch has an open / merged PR with green checks; production deploy / rollback still requires a Human Gate. Release Task details must expose PR gate state, DeploymentRecord status, GitHub Actions run link, health result, bounded failure summary, and deployment metadata without making raw logs the default list view. Online records must be backed by successful DeploymentRecords; manual completion creates a `manual_completion` DeploymentRecord, and no-callback GitHub Actions deployments are reconciled by global read-only `release_deployment_status_sweep` plus manual sync. Reconciliation is idempotent, only handles non-terminal DeploymentRecords, and must never roll back manually completed / failed / cancelled Release Tasks.
-14. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
-15. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
-16. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
-17. Planner Agent must synthesize evidence-bound candidates from one Goal Markdown PRD at a time; it may repair malformed JSON twice, but unsafe commands, unknown workflow keys, or invalid acceptance must fail closed.
-18. Planner Agent `workflow_key` output must be an enum choice from registered workflow definitions, not free text.
-19. Planner Agent `required_commands` must pass the safe command allowlist / denylist before any candidate can materialize.
+15. Goal Mission Lanes v1.1 has three lanes only: `product_planner`, `growth_lead`, and `software_engineer`. `content_writer` remains an internal `/publishing` capability, not a fourth mission lane.
+16. `product_planning_sweep` may create `product_opportunities` / goal proposals only. It must not create official goals, requirements, workflow runs, X posts, releases, auth changes, or code changes without operator action.
+17. Product Opportunities must be reviewed by an operator before they become a Planning Goal; accepted opportunities preserve lineage through `metadata.source=product_opportunity` and `product_opportunity_id`.
+18. Goal Mission Lanes v1.3 exposes `/api/planning/mission-board` as a nested tree: one `active_goal`, three lane arrays, `lane_summary`, `next_actions`, and `unassigned`. It must not return graph-engine `nodes[]` / `edges[]`.
+19. `/command-center` is read-only Mission Dashboard. It may show the nested Mission Board and red-light unassigned count, but processing actions belong in `/planning`, `/publishing`, `/releases`, or detail pages.
+20. `/planning` is the operational queue surface: Product Opportunities, Business Goals, Engineering Queue, Unassigned, and History/Debug. Active records missing `goal_key` must surface in Unassigned instead of disappearing into debug history.
+21. Planning UI is goal-centric. Do not reintroduce flat Manifest JSON plus detached Candidate queue as the primary surface.
+22. Operating Manifest is business intent, not execution automation policy. Automation permission belongs to deterministic candidate risk routing and workflow/project policy.
+23. Planner-created candidates may be auto-materialized only when a deterministic router proves the workflow, risk level, project policy, and atom profile are safe.
+24. Planner Agent must synthesize evidence-bound candidates from one Goal Markdown PRD at a time; it may repair malformed JSON twice, but unsafe commands, unknown workflow keys, or invalid acceptance must fail closed.
+25. Planner Agent `workflow_key` output must be an enum choice from registered workflow definitions, not free text.
+26. Planner Agent `required_commands` must pass the safe command allowlist / denylist before any candidate can materialize.
     Local dashboard E2E evidence is allowed only through bounded project scripts such as `cd dashboard && npm run test:e2e` or `npm --prefix dashboard run test:e2e`; do not allow arbitrary Playwright, `npx`, external network, or shell execution.
     Planner-generated pytest acceptance commands must target explicit test files or selectors. Broad live workflow commands such as `pytest tests -q`, `pytest -q`, or `python -m pytest -q` are forbidden; full-suite regression belongs to the Final Regression CI runner.
     Git evidence commands are read-only only: `git diff --check` and `git diff --stat` are allowed; `git push/reset/checkout` remain forbidden.
-20. Planner Agent must declare `expected_outcome=code_delivery|verification_only` at Candidate time. Workflow execution may not invent or downgrade this later.
-21. `code_delivery` requires repository changes before PR handoff; no diff must fail closed. `verification_only` may complete without a PR only when evidence-bound verification is complete.
-22. `Supersede & Retry Planner` must inject a one-sweep `context_hint` explaining the superseded no-change attempt so Planner can re-evaluate repo state and avoid repeating a stale `code_delivery` loop.
+27. Planner Agent must declare `expected_outcome=code_delivery|verification_only` at Candidate time. Workflow execution may not invent or downgrade this later.
+28. `code_delivery` requires repository changes before PR handoff; no diff must fail closed. `verification_only` may complete without a PR only when evidence-bound verification is complete.
+29. `Supersede & Retry Planner` must inject a one-sweep `context_hint` explaining the superseded no-change attempt so Planner can re-evaluate repo state and avoid repeating a stale `code_delivery` loop.
 
 ## 5. Human Gate And Kill-Switch Constraints
 
