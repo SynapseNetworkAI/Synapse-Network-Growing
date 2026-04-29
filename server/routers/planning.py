@@ -36,6 +36,7 @@ from server.services.planning.lifecycle import (
     get_goal,
     goal_trace,
     goal_rollup,
+    get_candidate,
     list_candidates,
     list_goals,
     list_manifest_history,
@@ -43,6 +44,7 @@ from server.services.planning.lifecycle import (
     materialize_candidate,
     mission_control_snapshot,
     reject_candidate,
+    retry_candidate_validation,
     run_planner_sweep,
     save_active_manifest,
     sweep_to_dict,
@@ -322,6 +324,14 @@ def get_candidates(
     )
 
 
+@router.get("/candidates/{candidate_id}", response_model=RequirementCandidateOut)
+def get_candidate_detail(candidate_id: int, db: Session = Depends(get_db)):
+    row = get_candidate(db, candidate_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    return candidate_to_dict(row)
+
+
 @router.post(
     "/candidates/{candidate_id}/approve", response_model=RequirementCandidateOut
 )
@@ -333,6 +343,22 @@ def post_approve_candidate(
     try:
         return candidate_to_dict(
             approve_candidate(db, candidate_id, operator=body.operator)
+        )
+    except ValueError as exc:
+        raise _bad_request(exc) from exc
+
+
+@router.post(
+    "/candidates/{candidate_id}/retry-validation", response_model=RequirementCandidateOut
+)
+def post_retry_candidate_validation(
+    candidate_id: int,
+    body: CandidateDecisionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return candidate_to_dict(
+            retry_candidate_validation(db, candidate_id, operator=body.operator)
         )
     except ValueError as exc:
         raise _bad_request(exc) from exc

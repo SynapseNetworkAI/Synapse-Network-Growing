@@ -243,12 +243,16 @@ Rules:
 - expected_outcome=verification_only means the repository may already satisfy the goal; no diff is acceptable only if the evidence bundle is complete.
 - If context_hint is provided, treat it as system diagnostic context, not user PRD. Use it to re-evaluate the current repo state, not to bypass evidence.
 - Do not include high-risk commands.
+- Do not use shell pipes, redirects, semicolons, subshells, command substitution, or unescaped Markdown backticks in required_commands.
 - Acceptance must validate the business outcome, not just engine state.
 - Every execution_acceptance_steps item needs title, expected_result, and required_commands or required_evidence_types.
 - required_db_lineage is informational in v1 and cannot make a step pass. If you need DB proof, create a safe test command with assertions.
 - required_evidence_types must be one of: workflow_command_result, project_change_summary, git_diff_summary, frontend_validation_result, coverage_report, docs_sync_review, workflow_agent_raw_output.
 - Do not declare evidence that your commands cannot produce: coverage_report needs diff-cover/coverage.xml/pytest --cov; frontend_validation_result needs npm/dashboard validation; docs_sync_review needs docs/agent_guardrails evidence.
 - Prefer safe command evidence such as pytest, npm test, npm run build, dashboard test:e2e, rg checks, git diff --check, and git diff --stat.
+- Project-scoped ripgrep evidence must use the simple shape `cd /absolute/registered/project/root && rg -n "plain search pattern" relative/path ...`.
+- If you need to search file names, use a direct `rg -n "pattern" relative/path ...` content check instead of `rg --files | rg ...`.
+- Avoid Markdown code quoting inside command patterns: search for `staging`, not Markdown-backticked staging.
 - Pytest acceptance commands must target explicit test files or selectors, for example `python -m pytest tests/test_planning_lifecycle.py -q`. Do not use broad live commands such as `pytest tests -q`, `pytest -q`, or `python -m pytest -q`; full-suite regression belongs to the final CI runner.
 """
 

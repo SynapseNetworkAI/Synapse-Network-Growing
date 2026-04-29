@@ -19,10 +19,12 @@ const apiMock = vi.hoisted(() => ({
   approveAndRunRequirementCandidate: vi.fn(),
   rejectRequirementCandidate: vi.fn(),
   materializeRequirementCandidate: vi.fn(),
+  retryRequirementCandidateValidation: vi.fn(),
   getPlanningGoal: vi.fn(),
   getPlanningGoalTrace: vi.fn(),
   createPlanningGoal: vi.fn(),
   updatePlanningGoal: vi.fn(),
+  getRequirementCandidate: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -316,7 +318,7 @@ const workbench = {
                 },
                 next_action: 'Review candidate and approve, defer, or reject.',
                 deep_link: '/planning?tab=engineering&candidate=10',
-                detail_api: '/api/planning/candidates?candidate_id=10',
+                detail_api: '/api/planning/candidates/10',
                 updated_at: '2026-04-19T00:00:00Z',
                 evidence_label: 'agent_self_repair',
                 children: [],
@@ -367,6 +369,25 @@ describe('PlanningPage queues', () => {
     apiMock.getPlanningManifestHistory.mockResolvedValue({ items: [manifest], total: 1, page: 1, page_size: 10, total_pages: 1 })
     apiMock.getPlanningGoal.mockResolvedValue({ ...activeGoal, intent_markdown: '# Active goal PRD' })
     apiMock.getPlanningGoalTrace.mockResolvedValue({ goal: activeGoal, nodes: [], diagnostics: [], next_actions: [], history: [] })
+    apiMock.getRequirementCandidate.mockResolvedValue({
+      ...pendingCandidate,
+      status: 'validation_failed',
+      metadata: {
+        acceptance_validation_error: 'required command is not in the safe command allowlist.',
+        acceptance_contract: {
+          execution_acceptance_steps: [
+            {
+              step_key: 'sdk_quickstart_docs',
+              title: 'Verify SDK quickstart evidence',
+              expected_result: 'Quickstart docs include receipt verification.',
+              required_commands: [
+                'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart|receipt" README.md python/README.md',
+              ],
+            },
+          ],
+        },
+      },
+    })
   })
 
   it('defaults to Mission Workbench with a tree hierarchy and stage rail', async () => {
@@ -382,18 +403,28 @@ describe('PlanningPage queues', () => {
     expect(screen.queryByTestId('mission-board')).not.toBeInTheDocument()
   })
 
-  it('opens centered Mission Workbench detail modal', async () => {
+  it('opens centered Candidate detail modal from Mission Workbench detail link', async () => {
     const user = userEvent.setup()
     renderPlanning()
 
     await screen.findByText('目标 → 战线 → 任务 → 证据')
     const row = await screen.findByTestId('mission-workbench-row-candidate:10')
-    await user.click(within(row).getByRole('button', { name: '详情' }))
+    await user.click(within(row).getByRole('link', { name: '详情' }))
 
-    const dialog = screen.getByRole('dialog', { name: /Mission item detail Add mission board API/ })
+    const dialog = await screen.findByRole('dialog', { name: 'Requirement candidate detail' })
     expect(dialog).toBeInTheDocument()
-    expect(within(dialog).getByText('Review candidate and approve, defer, or reject.')).toBeInTheDocument()
+    expect(within(dialog).getByText('Fail-Closed 原因')).toBeInTheDocument()
+    expect(within(dialog).getByText('required command is not in the safe command allowlist.')).toBeInTheDocument()
+    expect(within(dialog).getByText(/cd \/Users\/cliff\/workspace\/agent\/Synapse-Network-Sdk/)).toBeInTheDocument()
     expect(within(dialog).queryByText(/Drawer/i)).not.toBeInTheDocument()
+  })
+
+  it('opens candidate detail directly from query params', async () => {
+    renderPlanning('/planning?tab=engineering&candidate=10')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Requirement candidate detail' })
+    expect(within(dialog).getByText('#10 · synapse_growth_operating_loop · synapse-network-growing · agent_self_repair')).toBeInTheDocument()
+    expect(apiMock.getRequirementCandidate).toHaveBeenCalledWith(10)
   })
 
   it('still exposes product opportunities as a focused queue tab', async () => {

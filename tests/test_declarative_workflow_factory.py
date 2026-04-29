@@ -343,6 +343,45 @@ def test_self_repair_verification_runs_acceptance_matrix_commands(
     )
 
 
+def test_self_repair_verification_skips_ops_compile_for_cross_project_requirements(
+    db_session, monkeypatch
+):
+    run = _create_workflow_run(db_session)
+    run.requirement.target_project_path = "/tmp"
+    run.requirement.acceptance_contract_json = json.dumps(
+        {
+            "execution_acceptance_steps": [
+                {
+                    "step_key": "architecture_doc_search",
+                    "title": "Architecture docs are searchable",
+                    "expected_result": "The architecture doc contains the workflow constitution.",
+                    "required_commands": [
+                        'cd /Users/cliff/workspace/agent/Synapse-Network-Growing && rg -n "Workflow Constraints" ARCHITECTURE.md'
+                    ],
+                    "required_evidence_types": ["workflow_command_result"],
+                }
+            ]
+        }
+    )
+    db_session.flush()
+    monkeypatch.setattr(
+        "server.services.workflows.declarative._launch_final_regression_runner",
+        lambda _runner_command, _env: None,
+    )
+
+    result = run_workflow_state_machine(
+        db_session,
+        workflow_run=run,
+        spec=build_agent_self_repair_workflow_spec(),
+        registry=default_atom_registry(),
+    )
+
+    assert result.final_state == "awaiting_ci"
+    commands = workflow_blackboard(run)["verification"]["command_results"]
+    assert not any("server/services/workflows/declarative.py" in item["command"] for item in commands)
+    assert any(item["command"].startswith("cd /Users/cliff/workspace/agent/Synapse-Network-Growing") for item in commands)
+
+
 def test_self_repair_verification_cannot_pass_when_acceptance_matrix_command_fails(
     db_session,
 ):
@@ -642,3 +681,37 @@ def test_human_gate_continue_retry_preserves_resume_blackboard_updates(
     blackboard = workflow_blackboard(run)
     assert blackboard["ci"]["ci_exit_code_path"] == "new-marker"
     assert blackboard["human_gate_decisions"][0]["comment"] == "retry"
+
+
+def test_continue_retry_resumes_latest_non_gate_state_after_gate_self_loop(db_session):
+    run = _create_workflow_run(db_session)
+    run.current_state = "awaiting_operator"
+    run.status = "awaiting_operator"
+    db_session.add_all(
+        [
+            WorkflowStateEventRow(
+                workflow_run_id=int(run.id),
+                from_state="verify",
+                to_state="awaiting_operator",
+                condition="verification.status == \"failed\"",
+            ),
+            WorkflowStateEventRow(
+                workflow_run_id=int(run.id),
+                from_state="awaiting_operator",
+                to_state="awaiting_operator",
+                condition="operator.continue_retry",
+            ),
+        ]
+    )
+    gate = HumanGateRequestRow(
+        workflow_run_id=int(run.id),
+        state_key="awaiting_operator",
+        gate_type="human_gate",
+        risk_level="normal",
+        status="pending",
+        reason="Verification failed.",
+    )
+    db_session.add(gate)
+    db_session.flush()
+
+    assert declarative_module._previous_state_before_gate(db_session, run, gate) == "verify"

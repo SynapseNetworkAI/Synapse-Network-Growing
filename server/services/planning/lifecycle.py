@@ -1533,6 +1533,67 @@ def list_candidates(
     }
 
 
+def get_candidate(db: Session, candidate_id: int) -> RequirementCandidateRow | None:
+    return db.get(RequirementCandidateRow, int(candidate_id))
+
+
+def retry_candidate_validation(db: Session, candidate_id: int, *, operator: str = "operator") -> RequirementCandidateRow:
+    """Create a fresh pending candidate when a historical fail-closed row now validates.
+
+    Historical validation failures are evidence and should not be rewritten in
+    place. This helper re-runs the current acceptance validator, then clones the
+    candidate into a new pending row with retry lineage.
+    """
+
+    row = db.get(RequirementCandidateRow, candidate_id)
+    if row is None:
+        raise ValueError("candidate not found")
+    if str(row.status or "") != "validation_failed":
+        raise ValueError(f"candidate validation can only be retried from validation_failed, got {row.status}")
+    try:
+        validate_acceptance_contract_for_execution(
+            _candidate_acceptance_contract(row),
+            source="planner_candidate_retry",
+            goal_key=str(row.goal_key or ""),
+        )
+    except AcceptanceValidationError as exc:
+        metadata = _json_loads(row.metadata_json, {})
+        metadata["last_retry_validation_error"] = str(exc)
+        metadata["last_retry_validation_at"] = utcnow().isoformat()
+        row.metadata_json = _json_dumps(metadata)
+        row.updated_at = utcnow()
+        db.commit()
+        raise ValueError(str(exc)) from exc
+
+    now = utcnow()
+    metadata = _json_loads(row.metadata_json, {})
+    metadata.pop("acceptance_validation_error", None)
+    metadata["retry_of_candidate_id"] = int(row.id)
+    metadata["retry_created_by"] = operator
+    metadata["retry_created_at"] = now.isoformat()
+    retry = RequirementCandidateRow(
+        manifest_id=int(row.manifest_id),
+        goal_key=str(row.goal_key or ""),
+        candidate_fingerprint=f"{row.candidate_fingerprint}:retry:{int(now.timestamp())}:{int(row.id)}",
+        title=str(row.title or ""),
+        description_markdown=str(row.description_markdown or ""),
+        project_id=int(row.project_id) if row.project_id else None,
+        project_key=str(row.project_key or "") or None,
+        workflow_key=str(row.workflow_key or ""),
+        priority=str(row.priority or "normal"),
+        risk_level=str(row.risk_level or "normal"),
+        confidence=float(row.confidence or 0.0),
+        rationale=str(row.rationale or ""),
+        expected_evidence_json=str(row.expected_evidence_json or "[]"),
+        status="pending",
+        metadata_json=_json_dumps(metadata),
+    )
+    db.add(retry)
+    db.commit()
+    db.refresh(retry)
+    return retry
+
+
 def approve_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> RequirementCandidateRow:
     row = db.get(RequirementCandidateRow, candidate_id)
     if row is None:

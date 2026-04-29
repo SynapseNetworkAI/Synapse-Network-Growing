@@ -42,6 +42,13 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
 
 SAFE_UVX_TOOLS = {"diff-cover"}
 SAFE_ENV_ASSIGNMENT_NAMES = {"PYTHONPATH", "COVERAGE_FILE", "COVERAGE_DIR", "NODE_ENV", "CI"}
+SAFE_EVIDENCE_PROJECT_ROOTS = {
+    "/Users/cliff/workspace/agent/Synapse-Network-Growing",
+    "/Users/cliff/workspace/agent/Synapse-Network",
+    "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
+    "/Users/cliff/workspace/agent/Synapse-Network-Provider",
+    "/Users/cliff/workspace/agent/Agents-Memory",
+}
 ALLOWED_REQUIRED_EVIDENCE_TYPES = {
     "workflow_command_result",
     "project_change_summary",
@@ -98,9 +105,9 @@ UNSAFE_ARGUMENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 def parse_shell_tokens(command: str) -> list[str]:
     """Tokenize a simple evidence command while preserving shell control punctuation."""
 
-    if "$(" in command or "`" in command:
+    if "$(" in command:
         raise AcceptanceValidationError(
-            "Subshells '$()' and backticks are forbidden in evidence commands. Use direct allowlisted commands only."
+            "Subshells '$()' are forbidden in evidence commands. Use direct allowlisted commands only."
         )
     command_with_explicit_newlines = command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
     lexer = shlex.shlex(command_with_explicit_newlines, posix=True, punctuation_chars=True)
@@ -110,6 +117,25 @@ def parse_shell_tokens(command: str) -> list[str]:
     except ValueError as exc:
         raise AcceptanceValidationError(f"required command cannot be parsed safely: {exc}.") from exc
     return tokens
+
+
+def _escape_unescaped_backticks(command: str) -> str:
+    """Treat planner-produced Markdown backticks as literal search text.
+
+    The workflow runner executes acceptance commands through a shell. Backticks
+    inside double-quoted rg patterns would otherwise be command substitution, so
+    any accepted rg command is stored with literal backticks escaped.
+    """
+
+    escaped: list[str] = []
+    previous = ""
+    for char in str(command or ""):
+        if char == "`" and previous != "\\":
+            escaped.append("\\`")
+        else:
+            escaped.append(char)
+        previous = char
+    return "".join(escaped)
 
 
 def _unsafe_executable_reason(token: str) -> str | None:
@@ -197,6 +223,98 @@ def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
             f"uvx package '{from_package}' is not approved for tool '{tool}'. Use 'uvx {tool}' or 'uvx --from {tool} {tool}'."
         )
     return normalized.startswith("uvx ")
+
+
+def _is_registered_project_path(path: str) -> bool:
+    normalized = str(path or "").rstrip("/")
+    if not normalized.startswith("/"):
+        return False
+    for root in SAFE_EVIDENCE_PROJECT_ROOTS:
+        project_root = root.rstrip("/")
+        if normalized == project_root or normalized.startswith(project_root + "/"):
+            return True
+    return False
+
+
+def _ensure_relative_evidence_paths(tokens: list[str], *, label: str) -> None:
+    for token in tokens:
+        if token.startswith("-"):
+            continue
+        if token.startswith("/"):
+            raise AcceptanceValidationError(f"{label} evidence paths must stay within the project; absolute paths are not allowed.")
+        parts = [part for part in token.split("/") if part]
+        if ".." in parts:
+            raise AcceptanceValidationError(f"{label} evidence paths must stay within the project; parent traversal is not allowed.")
+
+
+def _validate_project_cd_rg_command(tokens: list[str]) -> bool:
+    """Allow read-only ripgrep checks scoped to a registered project root."""
+
+    if len(tokens) < 5 or tokens[0] != "cd":
+        return False
+    if tokens[2:4] != ["&&", "rg"]:
+        return False
+    root = tokens[1].rstrip("/")
+    if not _is_registered_project_path(root):
+        raise AcceptanceValidationError(
+            f"required command uses project root '{tokens[1]}' which is not a registered evidence project root."
+        )
+    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
+        raise AcceptanceValidationError("cd rg evidence commands may not chain after rg.")
+    _ensure_relative_evidence_paths(tokens[4:], label="rg")
+    return True
+
+
+def _validate_project_cd_python_command(tokens: list[str]) -> bool:
+    """Allow local Python compile/pytest checks inside registered project roots."""
+
+    if len(tokens) < 6 or tokens[0] != "cd" or tokens[2] != "&&":
+        return False
+    root = tokens[1].rstrip("/")
+    if not _is_registered_project_path(root):
+        return False
+    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
+        raise AcceptanceValidationError("cd python evidence commands may not chain after the Python command.")
+    command_tokens = _strip_safe_env_assignment_tokens(tokens[3:])
+    if len(command_tokens) < 3:
+        return False
+    executable = command_tokens[0].rsplit("/", 1)[-1]
+    is_python = executable in {"python", "python3"} or command_tokens[0].endswith("/bin/python")
+    if not is_python:
+        return False
+    if command_tokens[1:3] == ["-m", "pytest"]:
+        _validate_pytest_scope(command_tokens, " ".join(tokens))
+        _ensure_relative_evidence_paths([token for token in command_tokens[3:] if not token.startswith("-")], label="pytest")
+        return True
+    if command_tokens[1:3] == ["-m", "py_compile"]:
+        compile_targets = command_tokens[3:]
+        if not compile_targets:
+            raise AcceptanceValidationError("py_compile evidence commands must name explicit Python files.")
+        _ensure_relative_evidence_paths(compile_targets, label="py_compile")
+        if not all(token.endswith(".py") for token in compile_targets):
+            raise AcceptanceValidationError("py_compile evidence commands may only target explicit .py files.")
+        return True
+    return False
+
+
+def _validate_project_cd_npm_command(tokens: list[str]) -> bool:
+    """Allow local npm validation checks inside registered project roots."""
+
+    if len(tokens) < 6 or tokens[0] != "cd" or tokens[2] != "&&":
+        return False
+    root = tokens[1].rstrip("/")
+    if not _is_registered_project_path(root):
+        return False
+    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
+        raise AcceptanceValidationError("cd npm evidence commands may not chain after the npm command.")
+    command_tokens = tokens[3:]
+    if command_tokens[0] != "npm" or command_tokens[1] != "run":
+        return False
+    script = command_tokens[2] if len(command_tokens) > 2 else ""
+    if script not in {"build", "lint", "test", "test:unit", "test:e2e", "typecheck"}:
+        raise AcceptanceValidationError(f"npm script '{script}' is not in the safe evidence allowlist.")
+    _ensure_relative_evidence_paths([token for token in command_tokens[3:] if token != "--" and not token.startswith("-")], label="npm")
+    return True
 
 
 def _pytest_args(executable_tokens: list[str]) -> list[str] | None:
@@ -316,9 +434,18 @@ def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
     if first_basename == "cd":
         for index, token in enumerate(tokens):
             if token in SHELL_CONTROL_TOKENS and index + 1 < len(tokens):
-                next_basename = tokens[index + 1].rsplit("/", 1)[-1]
+                command_tokens = _strip_safe_env_assignment_tokens(tokens[index + 1 :])
+                if not command_tokens:
+                    continue
+                next_basename = command_tokens[0].rsplit("/", 1)[-1]
                 if next_basename == "npm":
                     return _timeout_payload("npm")
+                if next_basename == "rg":
+                    return _timeout_payload("rg")
+                if next_basename in {"python", "python3"} or command_tokens[0].endswith("/bin/python"):
+                    if command_tokens[1:3] == ["-m", "pytest"]:
+                        return _timeout_payload("pytest")
+                    return _timeout_payload("default")
     if first.endswith("scripts/ci/agent_guardrails.sh") or first_basename == "agent_guardrails.sh":
         return _timeout_payload("agent_guardrails")
     return _timeout_payload("default")
@@ -327,10 +454,13 @@ def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
 def validate_required_command_safety(command: str) -> str:
     """Fail closed unless a planner-generated evidence command is explicitly safe."""
 
-    normalized = " ".join(str(command or "").strip().split())
+    raw_command = str(command or "")
+    has_backticks = "`" in raw_command
+    command_to_validate = _escape_unescaped_backticks(raw_command) if has_backticks else raw_command
+    normalized = " ".join(command_to_validate.strip().split())
     if not normalized:
         raise AcceptanceValidationError("required command is empty.")
-    tokens = parse_shell_tokens(str(command or ""))
+    tokens = parse_shell_tokens(command_to_validate)
     _validate_shell_tokens(tokens)
     executable_tokens = _strip_safe_env_assignment_tokens(tokens)
     executable_normalized = " ".join(executable_tokens)
@@ -338,8 +468,22 @@ def validate_required_command_safety(command: str) -> str:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
     is_bound_uvx = _validate_bound_uvx_command(executable_tokens, executable_normalized)
+    is_project_cd_rg = _validate_project_cd_rg_command(executable_tokens)
+    is_project_cd_python = _validate_project_cd_python_command(executable_tokens)
+    is_project_cd_npm = _validate_project_cd_npm_command(executable_tokens)
+    is_plain_rg = bool(executable_tokens and executable_tokens[0] == "rg")
+    if has_backticks and not (is_plain_rg or is_project_cd_rg):
+        raise AcceptanceValidationError(
+            "Subshell backticks are forbidden in evidence commands. Backticks are only allowed as escaped literal rg search text."
+        )
     _validate_pytest_scope(executable_tokens, normalized)
-    if not is_bound_uvx and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
+    if (
+        not is_bound_uvx
+        and not is_project_cd_rg
+        and not is_project_cd_python
+        and not is_project_cd_npm
+        and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES)
+    ):
         raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
     return normalized
 

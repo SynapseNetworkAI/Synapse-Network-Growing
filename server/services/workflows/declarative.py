@@ -1290,6 +1290,8 @@ def default_atom_registry() -> AtomRegistry:
         counters = dict(ctx.blackboard.get("counters") or {})
         should_fail_once = bool(trigger.get("force_first_verification_failure"))
         acceptance_steps = _acceptance_steps_for_requirement(ctx.requirement)
+        target_project_path = str(getattr(ctx.requirement, "target_project_path", "") or "").strip()
+        is_ops_control_plane = os.path.abspath(target_project_path or str(config.PROJECT_ROOT)) == os.path.abspath(str(config.PROJECT_ROOT))
         if should_fail_once and int(counters.get("patch_attempts") or 0) == 0:
             command_result = _record_command_result_artifact(
                 ctx,
@@ -1304,19 +1306,23 @@ def default_atom_registry() -> AtomRegistry:
                 writes={"verification": {"status": "failed", "command_results": [command_result]}},
                 artifacts=(str(command_result["log_artifact_id"]),),
             )
-        command_result = _run_local_command_result_artifact(
-            ctx,
-            command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
-            args=[sys.executable, "-m", "py_compile", "server/services/workflows/declarative.py"],
-            purpose="Verify the self-repair runtime module still compiles.",
-        )
-        command_results = [command_result]
+        command_results: list[dict[str, Any]] = []
+        if is_ops_control_plane:
+            command_results.append(
+                _run_local_command_result_artifact(
+                    ctx,
+                    command="PYTHONPATH=. python -m py_compile server/services/workflows/declarative.py",
+                    args=[sys.executable, "-m", "py_compile", "server/services/workflows/declarative.py"],
+                    purpose="Verify the self-repair runtime module still compiles.",
+                )
+            )
         matrix: dict[str, Any] | None = None
         if acceptance_steps:
             matrix = _run_acceptance_matrix(ctx, steps=acceptance_steps, command_results=command_results)
-        status = "passed" if int(command_result.get("exit_code") or 0) == 0 and (not matrix or matrix.get("status") == "passed") else "failed"
+        fixed_check_passed = all(int(item.get("exit_code") or 0) == 0 for item in command_results)
+        status = "passed" if fixed_check_passed and (not matrix or matrix.get("status") == "passed") else "failed"
         failure_summary = ""
-        if int(command_result.get("exit_code") or 0) != 0:
+        if not fixed_check_passed:
             failure_summary = "self-repair runtime module did not compile"
         elif matrix and matrix.get("status") != "passed":
             failure_summary = str(matrix.get("failure_summary") or "acceptance matrix failed")
@@ -2334,12 +2340,14 @@ def _run_awaiting_business_confirmation(run: WorkflowRunRow) -> bool:
 
 
 def _previous_state_before_gate(db: Session, run: WorkflowRunRow, gate: HumanGateRequestRow) -> str:
+    gate_state = str(gate.state_key or "awaiting_operator")
     event = (
         db.query(WorkflowStateEventRow)
         .filter(
             WorkflowStateEventRow.workflow_run_id == int(run.id),
-            WorkflowStateEventRow.to_state == str(gate.state_key),
+            WorkflowStateEventRow.to_state == gate_state,
             WorkflowStateEventRow.from_state.isnot(None),
+            WorkflowStateEventRow.from_state != gate_state,
         )
         .order_by(WorkflowStateEventRow.id.desc())
         .first()

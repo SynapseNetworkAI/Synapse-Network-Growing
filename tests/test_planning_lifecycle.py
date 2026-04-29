@@ -602,6 +602,34 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         == 'rg -n "max_patch_attempts|patch_attempts|awaiting_operator|open_self_repair_pr|human gate|production deploy" server tests docs'
     )
     assert (
+        validate_required_command_safety(
+            'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart|receipt|agent demo" README.md python/README.md docs/quality-gates.md'
+        )
+        == 'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart|receipt|agent demo" README.md python/README.md docs/quality-gates.md'
+    )
+    assert (
+        validate_required_command_safety(
+            'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "Public Preview default: SDK examples use `staging`|Agent Quickstart" README.md'
+        )
+        == 'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "Public Preview default: SDK examples use \\`staging\\`|Agent Quickstart" README.md'
+    )
+    assert (
+        validate_required_command_safety(
+            "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m py_compile examples/consumer_wallet_to_invoke.py examples/smoke_test.py"
+        )
+        == "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m py_compile examples/consumer_wallet_to_invoke.py examples/smoke_test.py"
+    )
+    assert (
+        validate_required_command_safety(
+            "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m pytest synapse_client/test/test_client_unit.py -q"
+        )
+        == "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m pytest synapse_client/test/test_client_unit.py -q"
+    )
+    assert (
+        validate_required_command_safety("cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/typescript && npm run test:unit -- tests/unit/client.test.ts")
+        == "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/typescript && npm run test:unit -- tests/unit/client.test.ts"
+    )
+    assert (
         validate_required_command_safety("PYTHONPATH=. python -m pytest tests/test_workflows_api.py -q")
         == "PYTHONPATH=. python -m pytest tests/test_workflows_api.py -q"
     )
@@ -624,12 +652,17 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         ("python -m pytest -q", "must target explicit test files"),
         ("echo $(deploy production)", "Subshells"),
         ("echo $(uvx diff-cover coverage.xml)", "Subshells"),
-        ("echo `deploy production`", "Subshells"),
+        ("echo `deploy production`", "Subshell backticks"),
         ("uvx", "must name an approved tool"),
         ("uvx rm-rf-all", "uvx tool 'rm-rf-all'"),
         ('uvx python -c "print(1)"', "uvx tool 'python'"),
         ("uvx --from evil-package diff-cover coverage.xml", "uvx package 'evil-package'"),
         ("uvx diff-cover coverage.xml;deploy production", "deploy"),
+        ('cd /tmp && rg -n "quickstart" README.md', "project root"),
+        ('cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart" /etc/passwd', "stay within the project"),
+        ('cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart" README.md && rm -rf .', "rm"),
+        ("cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m py_compile /tmp/evil.py", "stay within the project"),
+        ("cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/typescript && npm run publish", "npm script 'publish'"),
         ('rg "unterminated', "cannot be parsed safely"),
     ]
     for command, expected_message in blocked_commands:
@@ -649,6 +682,9 @@ def test_acceptance_command_timeout_classifier_uses_core_tool_not_fragile_prefix
         "uvx --from diff-cover diff-cover coverage.xml": ("diff-cover", 180),
         "npm --prefix dashboard run build": ("npm", 600),
         "cd dashboard && npm run test:e2e": ("npm", 600),
+        "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/python && .venv/bin/python -m pytest synapse_client/test/test_client_unit.py -q": ("pytest", 600),
+        "cd /Users/cliff/workspace/agent/Synapse-Network-Sdk/typescript && npm run test:unit -- tests/unit/client.test.ts": ("npm", 600),
+        'cd /Users/cliff/workspace/agent/Synapse-Network-Sdk && rg -n "quickstart|receipt" README.md python/README.md': ("rg", 60),
         'rg -n "production deploy" server tests docs': ("rg", 60),
         "git diff --check": ("git_diff_check", 60),
         "git diff --stat": ("git_diff_stat", 60),

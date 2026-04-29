@@ -376,6 +376,20 @@ def _workflow_key_for_lane(lane: str) -> str:
     return "x_social_daily_content_planner"
 
 
+def _project_key_for_opportunity(row: ProductOpportunityRow) -> str:
+    goal_key = str(row.suggested_goal_key or "").strip().lower()
+    title = str(row.title or "").strip().lower()
+    problem = str(row.problem or "").strip().lower()
+    haystack = f"{goal_key} {title} {problem}"
+    if "sdk" in haystack or "developer experience" in haystack:
+        return "synapse-network-sdk"
+    if "provider" in haystack:
+        return "synapse-network-provider"
+    if "gateway" in haystack or "settlement" in haystack:
+        return "synapse-network"
+    return "synapse-network-growing"
+
+
 def _goal_payload_from_opportunity(
     row: ProductOpportunityRow, *, operator: str
 ) -> dict[str, Any]:
@@ -395,7 +409,7 @@ def _goal_payload_from_opportunity(
         "success_metric": str(row.success_metric or ""),
         "domain": "product",
         "workflow_key": _workflow_key_for_lane(lane),
-        "project_key": "synapse-network-growing",
+        "project_key": _project_key_for_opportunity(row),
         "priority": "normal",
         "risk_level": str(row.risk_level or "normal"),
         "weight": 0.1,

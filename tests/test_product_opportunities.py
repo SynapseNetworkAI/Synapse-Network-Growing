@@ -41,6 +41,22 @@ def test_product_opportunity_can_create_goal_with_lineage(db_session):
     assert result["opportunity"]["converted_goal_id"] == result["goal"]["id"]
 
 
+def test_sdk_product_opportunity_creates_sdk_scoped_goal(db_session):
+    run_product_planning_sweep(db_session)
+    opportunity = (
+        db_session.query(ProductOpportunityRow)
+        .filter(ProductOpportunityRow.suggested_goal_key == "sdk_developer_quickstart")
+        .one()
+    )
+
+    result = create_goal_from_product_opportunity(
+        db_session, int(opportunity.id), operator="operator"
+    )
+
+    assert result["goal"]["goal_key"] == "sdk_developer_quickstart"
+    assert result["goal"]["project_key"] == "synapse-network-sdk"
+
+
 def test_rejected_and_deferred_opportunities_do_not_create_goals(db_session):
     run_product_planning_sweep(db_session)
     opportunities = (
