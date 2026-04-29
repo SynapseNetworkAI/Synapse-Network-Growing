@@ -148,8 +148,8 @@
 23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
 24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
 25. `release_pr_status_sweep` 只能只读同步 GitHub PR 外部状态；`MERGED` 可更新本地 release 为 merged，`CLOSED` 或 `404 / Not Found` 必须收敛为 abandoned/review 状态，不能永久保留 `pr_opened` 僵尸记录。
-26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但同一 operator-local day 只能生成一条 human-reviewed draft。趋势雷达、转发候选和回帖候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
-27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。
+26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但只能补足同一 operator-local day 的 3 条未发布 human-reviewed draft 库存。库存只计算 `generating / needs_review / approved`，`published / rejected / failed` 不计入。趋势雷达、转发候选和回帖候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
+27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。`x_social_post_observer_sweep` 只能只读同步已发布 X post metrics，权限不足时写 diagnostic，不得伪造效果数据。
 28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
 29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
 30. X 趋势结果检索属于只读运营情报面。`/publishing/trends` 可以按日期、关键字、来源类型和作者检索 `social_trend_items`，但不得触发抓取、回复、转发或发布；趋势详情必须使用居中 Modal，并用 `source_url` 明确区分真实 X 原帖与本地趋势种子。

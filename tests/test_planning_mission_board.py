@@ -6,6 +6,7 @@ from server.database import (
     PlanningGoalRow,
     RequirementCandidateRow,
     RequirementRow,
+    SocialReplyItemRow,
     WorkflowRunRow,
 )
 from server.services.planning.lifecycle import ensure_active_manifest
@@ -50,6 +51,10 @@ def test_mission_board_returns_fixed_nested_lanes(db_session):
     assert "nodes" not in board
     assert "edges" not in board
     assert board["manifest"]["id"] == manifest.id
+    opportunity = board["lanes"]["product_planner"][0]
+    assert opportunity["deep_link"].startswith(
+        "/planning?tab=opportunities&opportunity="
+    )
 
 
 def test_mission_board_api_returns_tree_not_graph(client):
@@ -89,6 +94,38 @@ def test_mission_workbench_api_returns_tree_grid_projection(client):
     }
 
 
+def test_reply_drafts_stay_in_publishing_not_mission_tasks(db_session):
+    ensure_active_manifest(db_session)
+    reply = SocialReplyItemRow(
+        platform="x",
+        external_reply_id="reply-draft-local-only",
+        source_author_handle="sama",
+        incoming_text="Interesting agent economy signal.",
+        suggested_reply="Relevant reply draft awaiting human review.",
+        status="needs_review",
+        source_url="https://x.com/sama/status/123",
+    )
+    db_session.add(reply)
+    db_session.commit()
+
+    board = mission_board_snapshot(db_session)
+    growth_items = board["lanes"]["growth_lead"]
+    assert f"social_reply:{reply.id}" not in {item["id"] for item in growth_items}
+    assert all(item["type"] != "reply_draft" for item in growth_items)
+
+    workbench = mission_workbench_snapshot(db_session)
+
+    def walk(node):
+        if not node:
+            return []
+        nodes = [node]
+        for child in node["children"]:
+            nodes.extend(walk(child))
+        return nodes
+
+    assert all(node["type"] != "reply_draft" for node in walk(workbench["root"]))
+
+
 def test_mission_workbench_status_helpers_cover_stage_variants():
     assert _normalize_stage_status("failed") == "blocked"
     assert _normalize_stage_status("queued") == "running"
@@ -101,9 +138,13 @@ def test_mission_workbench_status_helpers_cover_stage_variants():
     assert _detail_api_for_item("invalid") is None
 
 
-def test_mission_workbench_returns_empty_tree_without_active_goal(db_session, monkeypatch):
+def test_mission_workbench_returns_empty_tree_without_active_goal(
+    db_session, monkeypatch
+):
     manifest = ensure_active_manifest(db_session)
-    monkeypatch.setattr(mission_workbench_module, "_active_goals", lambda _db, _manifest_id: [])
+    monkeypatch.setattr(
+        mission_workbench_module, "_active_goals", lambda _db, _manifest_id: []
+    )
 
     payload = mission_workbench_snapshot(db_session)
 
@@ -235,7 +276,9 @@ def test_mission_workbench_nests_goal_lane_and_candidate(db_session):
 
     root = workbench["root"]
     sdk_goal = next(
-        child for child in root["children"] if child["id"] == "goal:sdk_developer_quickstart"
+        child
+        for child in root["children"]
+        if child["id"] == "goal:sdk_developer_quickstart"
     )
     software_lane = next(
         child for child in sdk_goal["children"] if child["lane"] == "software_engineer"

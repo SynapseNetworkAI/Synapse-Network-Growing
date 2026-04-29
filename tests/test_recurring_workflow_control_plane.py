@@ -17,6 +17,7 @@ from server.services.scheduling.recurring_workflows import (
     _runner_stale_sweep,
     _next_run_at,
     list_recurring_workflow_runs,
+    recurring_workflow_to_dict,
     run_recurring_workflow,
     sync_recurring_workflows,
 )
@@ -123,6 +124,24 @@ def test_recurring_workflow_runs_endpoint(synced_client):
     assert runs[0]["dry_run"] is True
 
 
+def test_recurring_workflow_projection_tolerates_legacy_string_last_result(
+    db_session,
+):
+    sync_recurring_workflows(db_session)
+    row = (
+        db_session.query(RecurringWorkflowRow)
+        .filter(RecurringWorkflowRow.workflow_key == "bug_log_sweep")
+        .one()
+    )
+    row.last_result_json = '"legacy object wrapper string"'
+    db_session.commit()
+
+    payload = recurring_workflow_to_dict(row)
+
+    assert payload["last_result"] == {}
+    assert payload["health_status"] in {"healthy", "unknown", "failed"}
+
+
 def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_client):
     response = synced_client.get("/api/recurring-workflows")
     assert response.status_code == 200
@@ -133,6 +152,7 @@ def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_cli
         "x_social_trend_radar_sweep",
         "x_social_repost_candidate_sweep",
         "x_social_reply_candidate_sweep",
+        "x_social_post_observer_sweep",
     }.issubset(workflow_keys)
 
     product = synced_client.post(
@@ -151,7 +171,8 @@ def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_cli
     assert daily.status_code == 200
     daily_payload = daily.json()
     assert daily_payload["status"] == "completed"
-    assert daily_payload["result"]["idempotency"] == "one_draft_per_operator_local_day"
+    assert daily_payload["result"]["idempotency"] == "top_up_to_three_active_drafts_per_operator_local_day"
+    assert daily_payload["result"]["target_count"] == 3
     assert daily_payload["result"]["human_gate_required"] is True
 
     trends = synced_client.post(
@@ -175,7 +196,6 @@ def test_x_social_recurring_workflows_are_registered_and_dry_runnable(synced_cli
     assert replies.status_code == 200
     assert replies.json()["result"]["auto_reply"] is False
     assert replies.json()["result"]["max_created_per_run"] == 1
-
 
 def test_product_planning_sweep_creates_opportunities_not_goals(db_session):
     sync_recurring_workflows(db_session)

@@ -57,6 +57,8 @@ class XPost:
     created_at: str | None = None
     conversation_id: str | None = None
     public_metrics: dict[str, Any] | None = None
+    non_public_metrics: dict[str, Any] | None = None
+    organic_metrics: dict[str, Any] | None = None
 
 
 class XApiClient:
@@ -133,6 +135,29 @@ class XApiClient:
             raise XApiTransientError("X recent search response data was not a list.")
         return [self._post_from_payload(row) for row in rows if isinstance(row, dict) and row.get("id")]
 
+    def get_posts_by_ids(self, tweet_ids: list[str], *, include_owner_metrics: bool = False) -> list[XPost]:
+        ids = [str(item or "").strip() for item in tweet_ids if str(item or "").strip()]
+        if not ids:
+            return []
+        fields = ["created_at", "public_metrics", "author_id", "conversation_id", "entities"]
+        if include_owner_metrics:
+            fields.extend(["non_public_metrics", "organic_metrics"])
+        data = self._get_json(
+            "/tweets",
+            {
+                "ids": ",".join(ids[:100]),
+                "tweet.fields": ",".join(fields),
+                "expansions": "author_id",
+                "user.fields": "username,name,verified,public_metrics",
+            },
+        )
+        rows = data.get("data") if isinstance(data, dict) else None
+        if rows is None:
+            return []
+        if not isinstance(rows, list):
+            raise XApiTransientError("X tweet lookup response data was not a list.")
+        return [self._post_from_payload(row) for row in rows if isinstance(row, dict) and row.get("id")]
+
     def _post_from_payload(self, row: dict[str, Any]) -> XPost:
         return XPost(
             id=str(row.get("id") or ""),
@@ -141,6 +166,8 @@ class XApiClient:
             created_at=str(row.get("created_at") or "") or None,
             conversation_id=str(row.get("conversation_id") or "") or None,
             public_metrics=row.get("public_metrics") if isinstance(row.get("public_metrics"), dict) else None,
+            non_public_metrics=row.get("non_public_metrics") if isinstance(row.get("non_public_metrics"), dict) else None,
+            organic_metrics=row.get("organic_metrics") if isinstance(row.get("organic_metrics"), dict) else None,
         )
 
     def _get_json(self, path: str, params: dict[str, str]) -> dict[str, Any]:

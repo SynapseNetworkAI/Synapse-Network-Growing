@@ -12,7 +12,6 @@ from server.database import (
     RequirementCandidateRow,
     RequirementRow,
     SocialPostDraftRow,
-    SocialReplyItemRow,
     SocialRepostCandidateRow,
     WorkflowRunRow,
 )
@@ -48,7 +47,6 @@ ACTIVE_SOCIAL_DRAFT_STATUSES = {
     "approved",
     "failed",
 }
-ACTIVE_REPLY_STATUSES = {"needs_review", "failed"}
 ACTIVE_REPOST_STATUSES = {"candidate", "failed"}
 
 
@@ -124,7 +122,7 @@ def product_planner_items(db: Session, manifest_id: int) -> ServiceListResult:
                     row.next_action
                     or "Review opportunity and create, defer, or reject the goal proposal."
                 ),
-                deep_link="/planning?tab=opportunities",
+                deep_link=f"/planning?tab=opportunities&opportunity={int(row.id)}",
                 evidence_label=str(payload.get("success_metric") or ""),
                 updated_at=row.updated_at,
             )
@@ -134,9 +132,7 @@ def product_planner_items(db: Session, manifest_id: int) -> ServiceListResult:
 
 @service_list_result
 def growth_items(db: Session) -> ServiceListResult:
-    return sort_mission_items(
-        [*social_draft_items(db), *reply_draft_items(db), *repost_candidate_items(db)]
-    )
+    return sort_mission_items([*social_draft_items(db), *repost_candidate_items(db)])
 
 
 @service_list_result
@@ -159,32 +155,6 @@ def social_draft_items(db: Session) -> ServiceListResult:
                 next_action="Review, edit, publish, or reject the X draft.",
                 deep_link="/publishing",
                 evidence_label=f"{len(str(row.body_text or ''))} chars",
-                updated_at=row.updated_at,
-            )
-        )
-    return items
-
-
-@service_list_result
-def reply_draft_items(db: Session) -> ServiceListResult:
-    items: list[dict[str, Any]] = []
-    for row in (
-        db.query(SocialReplyItemRow)
-        .filter(SocialReplyItemRow.status.in_(sorted(ACTIVE_REPLY_STATUSES)))
-        .order_by(SocialReplyItemRow.updated_at.desc(), SocialReplyItemRow.id.desc())
-        .limit(20)
-        .all()
-    ):
-        items.append(
-            mission_item(
-                item_id=f"social_reply:{row.id}",
-                item_type="reply_draft",
-                title=f"Reply to @{row.source_author_handle or row.author_handle or 'unknown'}",
-                status=str(row.status or "needs_review"),
-                risk_level=str(row.risk_level or "normal"),
-                next_action="Review reply draft before any public X reply.",
-                deep_link="/publishing?tab=replies",
-                evidence_label=str(row.source_url or ""),
                 updated_at=row.updated_at,
             )
         )
@@ -237,9 +207,7 @@ def software_items(
 
 
 @service_list_result
-def candidate_items(
-    db: Session, manifest_id: int, goal_key: str
-) -> ServiceListResult:
+def candidate_items(db: Session, manifest_id: int, goal_key: str) -> ServiceListResult:
     rows = (
         db.query(RequirementCandidateRow)
         .filter(
@@ -303,9 +271,7 @@ def requirement_items(
 
 
 @service_list_result
-def workflow_items(
-    db: Session, manifest_id: int, goal_key: str
-) -> ServiceListResult:
+def workflow_items(db: Session, manifest_id: int, goal_key: str) -> ServiceListResult:
     rows = (
         db.query(WorkflowRunRow)
         .filter(

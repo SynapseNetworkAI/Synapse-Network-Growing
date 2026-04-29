@@ -52,9 +52,11 @@ function initialPlanningTab(search = window.location.search): ActiveTab {
   const params = new URLSearchParams(search)
   const value = params.get('tab')
   if (value === 'workbench') return value
-  if (value === 'goals' || value === 'engineering' || value === 'unassigned' || value === 'history' || value === 'debug') return value
+  if (value === 'opportunities' || value === 'goals' || value === 'engineering' || value === 'unassigned' || value === 'history' || value === 'debug') return value
   return 'workbench'
 }
+
+const selectedOpportunityId = (search = window.location.search) => Number(new URLSearchParams(search).get('opportunity') || 0) || null
 
 function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
   const onCloseRef = useRef(onClose)
@@ -1441,6 +1443,7 @@ export default function PlanningPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState('')
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => initialPlanningTab(location.search))
+  const [focusedOpportunityId, setFocusedOpportunityId] = useState<number | null>(() => selectedOpportunityId(location.search))
   const [goalStatusView, setGoalStatusView] = useState<GoalStatusView>('active')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1509,6 +1512,7 @@ export default function PlanningPage() {
 
   useEffect(() => {
     setActiveTab(initialPlanningTab(location.search))
+    setFocusedOpportunityId(selectedOpportunityId(location.search))
   }, [location.search])
 
   useEffect(() => () => {
@@ -1870,7 +1874,7 @@ export default function PlanningPage() {
               <span className="ml-3">suppressed {(mission.last_sweep.suppressed_items || []).length}</span>
             </div>
           ) : null}
-          <ProductOpportunitiesPanel onChanged={() => load(historyPage).catch(() => {})} />
+          <ProductOpportunitiesPanel focusedOpportunityId={focusedOpportunityId} onChanged={() => load(historyPage).catch(() => {})} />
         </main>
       )}
 

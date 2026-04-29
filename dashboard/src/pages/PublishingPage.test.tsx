@@ -20,6 +20,7 @@ const apiMock = vi.hoisted(() => ({
   generateSocialReplyForRepostCandidate: vi.fn(),
   publishSocialRepostCandidateToX: vi.fn(),
   getSocialPostMetrics: vi.fn(),
+  getSocialPostMetricSummary: vi.fn(),
   getSocialPosts: vi.fn(),
   getSocialPost: vi.fn(),
   startSocialXOAuth: vi.fn(),
@@ -127,6 +128,10 @@ describe('PublishingPage', () => {
       reply_needs_review_count: 0,
       repost_candidate_count: 0,
       published_count: 0,
+      daily_planner_target_count: 3,
+      daily_planner_active_count: 1,
+      daily_planner_local_date: '2026-04-25',
+      daily_planner_active_post_ids: [7],
       human_gate_required: true,
       safety_summary: 'Agent drafts; humans publish.',
     })
@@ -180,6 +185,19 @@ describe('PublishingPage', () => {
     apiMock.getSocialRepostCandidates.mockResolvedValue([])
     apiMock.generateSocialReplyForRepostCandidate.mockResolvedValue(reply())
     apiMock.getSocialPostMetrics.mockResolvedValue([])
+    apiMock.getSocialPostMetricSummary.mockResolvedValue({
+      observed_post_count: 0,
+      metric_row_count: 0,
+      total_impressions: 0,
+      total_likes: 0,
+      total_replies: 0,
+      total_reposts: 0,
+      total_link_clicks: 0,
+      average_engagement: 0,
+      top_posts: [],
+      last_observed_at: null,
+      diagnostic: 'No X post metrics recorded yet.',
+    })
     apiMock.getSocialPosts.mockResolvedValue([draft()])
     apiMock.getSocialPost.mockResolvedValue(draft({
       events: [

@@ -407,6 +407,15 @@ describe('PlanningPage queues', () => {
     expect(screen.getByRole('button', { name: '业务目标 · 1 active' })).toBeInTheDocument()
   })
 
+  it('opens product opportunities directly from a deep link and highlights the item', async () => {
+    renderPlanning('/planning?tab=opportunities&opportunity=1')
+
+    const tab = await screen.findByTestId('product-opportunities-tab')
+    const row = await screen.findByTestId('product-opportunity-1')
+    expect(tab).toBeInTheDocument()
+    expect(row.className).toContain('border-cyan-300')
+  })
+
   it('shows the engineering queue from the mission board projection', async () => {
     const user = userEvent.setup()
     renderPlanning()

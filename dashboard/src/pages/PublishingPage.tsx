@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOverview, type SocialPostDraft, type SocialPostMetric, type SocialReplyItem, type SocialRepostCandidate, type SocialTrendItem, type SocialWatchlistAccount } from '../api'
+import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOverview, type SocialPostDraft, type SocialPostMetric, type SocialPostMetricSummary, type SocialReplyItem, type SocialRepostCandidate, type SocialTrendItem, type SocialWatchlistAccount } from '../api'
 import { ConfirmDialog, EmptyPane, OverlayModal, SectionFrame, StateBadge, useToast } from '../components/workbench'
 import { RegenerateReplyButton, ReplyGeneratedByCard, ReplyGeneratedByText } from '../components/SocialReplyControls'
+import { DailyDraftInventoryBanner, SocialMetricsPanel, SocialOpsSummaryCards } from '../components/SocialOpsSummary'
 
 const statusTabs = [
   { key: '', label: 'All' },
@@ -215,6 +216,7 @@ export default function PublishingPage() {
   const [replies, setReplies] = useState<SocialReplyItem[]>([])
   const [reposts, setReposts] = useState<SocialRepostCandidate[]>([])
   const [metrics, setMetrics] = useState<SocialPostMetric[]>([])
+  const [metricSummary, setMetricSummary] = useState<SocialPostMetricSummary | null>(null)
   const [opsTab, setOpsTab] = useState<OpsTab>('queue')
   const [filter, setFilter] = useState('')
   const [loading, setLoading] = useState(true)
@@ -259,6 +261,8 @@ export default function PublishingPage() {
   )
   const totalPages = Math.max(1, Math.ceil(sortedPosts.length / pageSize))
   const pagedPosts = sortedPosts.slice((page - 1) * pageSize, page * pageSize)
+  const dailyPlannerTarget = overview?.daily_planner_target_count ?? 3
+  const dailyPlannerActive = overview?.daily_planner_active_count ?? 0
   const sortedTrends = useMemo(
     () => [...trends].sort((left, right) => (right.relevance_score ?? 0) - (left.relevance_score ?? 0) || new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()),
     [trends],
@@ -310,6 +314,7 @@ export default function PublishingPage() {
         replyRows,
         repostRows,
         metricRows,
+        metricSummaryRow,
       ] = await Promise.all([
         api.getSocialAccounts(),
         api.getSocialPosts(nextFilter ? { status: nextFilter } : undefined),
@@ -320,6 +325,7 @@ export default function PublishingPage() {
         api.getSocialReplies(),
         api.getSocialRepostCandidates(),
         api.getSocialPostMetrics(),
+        api.getSocialPostMetricSummary(),
       ])
       setAccounts(accountRows)
       setPosts(postRows)
@@ -330,6 +336,7 @@ export default function PublishingPage() {
       setReplies(replyRows)
       setReposts(repostRows)
       setMetrics(metricRows)
+      setMetricSummary(metricSummaryRow)
       if (!form.accountId && accountRows[0]) {
         setForm((current) => ({ ...current, accountId: String(accountRows[0].id) }))
       }
@@ -822,24 +829,12 @@ function openReplyPublish(reply: SocialReplyItem) {
         }
       >
         <div className="space-y-5">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Active Goals</div>
-              <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{overview?.active_goal_count ?? '-'}</div>
-            </div>
-            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Draft Queue</div>
-              <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{overview?.draft_queue_count ?? '-'}</div>
-            </div>
-            <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.03] p-4">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Signals</div>
-              <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{(overview?.trend_count ?? 0) + (overview?.reply_needs_review_count ?? 0) + (overview?.repost_candidate_count ?? 0)}</div>
-            </div>
-            <div className="rounded-3xl border border-amber-300/25 bg-amber-300/10 p-4">
-              <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/80">Human Gate</div>
-              <div className="mt-2 text-sm leading-6 text-amber-100">发布、回复、引用转发、删除均需人类确认。</div>
-            </div>
-          </div>
+          <SocialOpsSummaryCards
+            overview={overview}
+            dailyActive={dailyPlannerActive}
+            dailyTarget={dailyPlannerTarget}
+            campaignGoal={campaignGoals[0]}
+          />
           {activeAccount && gcpAdcExpired(activeAccount) ? (
             <div className="rounded-2xl border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm leading-6 text-rose-100">
               <div className="font-semibold">本地 GCP 凭据已过期，暂时无法读取 Secret Manager 里的 X OAuth refresh token。</div>
@@ -849,18 +844,6 @@ function openReplyPublish(reply: SocialReplyItem) {
           ) : activeAccount && !accountAuthorized(activeAccount) ? (
             <div className="rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
               X 官方账号未完成 OAuth2 授权：{activeAccount.auth_message || '需要连接 @SynapseNetworkA 后才能发布或重新发送。'}
-            </div>
-          ) : null}
-          {campaignGoals[0] ? (
-            <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.08] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-cyan-100/70">Current Campaign Goal</div>
-                  <div className="mt-2 text-lg font-semibold text-[color:var(--ops-text-title)]">{campaignGoals[0].title}</div>
-                  <div className="mt-1 max-w-4xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{campaignGoals[0].objective}</div>
-                </div>
-                <StateBadge tone="ready">{campaignGoals[0].cadence}</StateBadge>
-              </div>
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
@@ -907,6 +890,7 @@ function openReplyPublish(reply: SocialReplyItem) {
         title="内容草稿"
         description="列表只展示标题、状态、字符数和风险检查；详情和调试信息收进编辑或 Debug。"
       >
+        <DailyDraftInventoryBanner active={dailyPlannerActive} target={dailyPlannerTarget} />
         {loading ? <EmptyPane>正在加载内容草稿...</EmptyPane> : null}
         {!loading && posts.length === 0 ? <EmptyPane>当前没有内容草稿。可以先新建一条，或让 Agent 在工作流里生成候选内容。</EmptyPane> : null}
         {!loading && posts.length > 0 ? (
@@ -1294,21 +1278,7 @@ function openReplyPublish(reply: SocialReplyItem) {
           title="已发布效果"
           description="发布后观察 impressions、互动、链接点击和高质量回复，用于反哺下一轮内容 planner。"
         >
-          {metrics.length === 0 ? <EmptyPane>暂无发布效果记录。发布成功后，social_post_observer_sweep 会拉取 1h / 24h 指标。</EmptyPane> : null}
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {metrics.map((metric) => (
-              <div key={metric.id} className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Post {metric.external_post_id ?? metric.post_id ?? '-'}</div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-[color:var(--ops-text-caption)]">Impressions</span><div className="font-semibold">{metric.impressions}</div></div>
-                  <div><span className="text-[color:var(--ops-text-caption)]">Likes</span><div className="font-semibold">{metric.likes}</div></div>
-                  <div><span className="text-[color:var(--ops-text-caption)]">Replies</span><div className="font-semibold">{metric.replies}</div></div>
-                  <div><span className="text-[color:var(--ops-text-caption)]">Clicks</span><div className="font-semibold">{metric.link_clicks}</div></div>
-                </div>
-                {metric.summary ? <p className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">{metric.summary}</p> : null}
-              </div>
-            ))}
-          </div>
+          <SocialMetricsPanel metrics={metrics} summary={metricSummary} formatDateTime={formatDateTime} />
         </SectionFrame>
       ) : null}
 

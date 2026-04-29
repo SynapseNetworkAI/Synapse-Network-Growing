@@ -43,14 +43,15 @@ from server.services.scheduling.locks import acquire_scheduler_lock, release_sch
 from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
+from server.services.social.daily_planner import run_x_social_daily_content_planner
+from server.services.social.post_metrics import run_x_social_post_observer_sweep
 from server.services.social.publishing import (
-    run_x_social_daily_content_planner,
     run_x_social_reply_candidate_sweep,
     run_x_social_repost_candidate_sweep,
     run_x_social_trend_radar_sweep,
 )
 from server.services.planning.product_opportunities import run_product_planning_sweep
-
+from server.services.result_objects import ServiceObjectResult, dump_service_result, service_object_result
 
 def _json_loads(raw: str | None, default: Any) -> Any:
     if not raw:
@@ -60,6 +61,8 @@ def _json_loads(raw: str | None, default: Any) -> Any:
     except Exception:
         return default
 
+def _json_object(raw: str | None) -> dict[str, Any]:
+    payload = _json_loads(raw, {}); return payload if isinstance(payload, dict) else {}
 
 def _json_dumps(payload: Any) -> str:
     def _default(value: Any) -> Any:
@@ -67,21 +70,18 @@ def _json_dumps(payload: Any) -> str:
             return _ensure_utc(value).isoformat() if _ensure_utc(value) else None
         return str(value)
 
-    return json.dumps(payload, ensure_ascii=False, default=_default)
-
+    return json.dumps(dump_service_result(payload), ensure_ascii=False, default=_default)
 def _ensure_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
 def _operator_zone() -> ZoneInfo:
     try:
         return ZoneInfo(config.OPERATOR_TIMEZONE)
     except Exception:
         return ZoneInfo("UTC")
-
 BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     {
         "workflow_key": "bug_log_sweep",
@@ -231,14 +231,14 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     {
         "workflow_key": "x_social_daily_content_planner",
         "display_name": "X Social Daily Content Planner",
-        "description": "Hourly tick that creates at most one human-reviewed X official-account draft per operator-local day.",
+        "description": "Hourly tick that tops up the operator-local day to three human-reviewed X official-account drafts.",
         "trigger_type": "scheduled",
         "owner_role": "growth_lead",
         "schedule": {"cadence": "hourly", "interval_hours": 1},
-        "input_query": {"platform": "x", "source_type": "daily_planner", "idempotency": "one_draft_per_local_day"},
+        "input_query": {"platform": "x", "source_type": "daily_planner", "target_active_drafts_per_day": 3},
         "output_action": {"kind": "create_social_draft", "auto_publish": False, "human_gate_required": True},
-        "escalation_rule": {"on_generation_failure": "notify_portfolio_operator", "on_already_created": "no_op"},
-        "validation_signal": {"success_metric": "created_post_id"},
+        "escalation_rule": {"on_generation_failure": "notify_portfolio_operator", "on_inventory_satisfied": "no_op"},
+        "validation_signal": {"success_metric": "active_count"},
     },
     {
         "workflow_key": "x_social_trend_radar_sweep",
@@ -276,7 +276,27 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "created_reply_ids"},
     },
+    {
+        "workflow_key": "x_social_post_observer_sweep",
+        "display_name": "X Social Post Observer Sweep",
+        "description": "Read published X post metrics and write local observation rows for planner feedback.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "hourly", "interval_hours": 1},
+        "input_query": {"platform": "x", "source": "published_posts", "requires_external_post_id": True},
+        "output_action": {"kind": "observe_social_post_metrics", "read_only_x": True, "auto_publish": False},
+        "escalation_rule": {"on_auth_failure": "diagnostic_only", "on_rate_limit": "diagnostic_only"},
+        "validation_signal": {"success_metric": "observed_count"},
+    },
 ]
+
+_X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
+    "x_social_daily_content_planner": {"platform": "x", "cadence": "hourly", "idempotency": "top_up_to_three_active_drafts_per_operator_local_day", "target_count": 3, "auto_publish": False, "human_gate_required": True},
+    "x_social_trend_radar_sweep": {"platform": "x", "read_only": True, "min_relevance_score": 0.70, "external_actions": []},
+    "x_social_repost_candidate_sweep": {"platform": "x", "auto_repost": False, "human_gate_required": True, "min_relevance_score": 0.75},
+    "x_social_reply_candidate_sweep": {"platform": "x", "cadence": "every_30_minutes", "source": "social_repost_candidates", "max_created_per_run": 1, "auto_reply": False, "human_gate_required": True},
+    "x_social_post_observer_sweep": {"platform": "x", "cadence": "hourly", "read_only": True, "max_records": 20, "auto_publish": False},
+}
 
 
 def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, Any]]:
@@ -295,6 +315,17 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
             }
         )
     return items
+
+def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
+    if workflow_key == "x_social_daily_content_planner":
+        return run_x_social_daily_content_planner(db)
+    if workflow_key == "x_social_trend_radar_sweep":
+        return run_x_social_trend_radar_sweep(db)
+    if workflow_key == "x_social_repost_candidate_sweep":
+        return run_x_social_repost_candidate_sweep(db)
+    if workflow_key == "x_social_reply_candidate_sweep":
+        return run_x_social_reply_candidate_sweep(db)
+    return run_x_social_post_observer_sweep(db)
 
 def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
@@ -734,7 +765,7 @@ def _parse_local_time(value: str) -> tuple[int, int]:
 def _workflow_health_status(row: RecurringWorkflowRow, *, next_run_at: datetime | None, now: datetime | None = None) -> str:
     if str(row.status or "") != "active":
         return "paused"
-    if str(_json_loads(row.last_result_json, {}).get("status") or "").lower() == "failed":
+    if str(_json_object(row.last_result_json).get("status") or "").lower() == "failed":
         return "failed"
     current = _ensure_utc(now) or datetime.now(timezone.utc)
     if next_run_at is not None and next_run_at <= current:
@@ -742,10 +773,10 @@ def _workflow_health_status(row: RecurringWorkflowRow, *, next_run_at: datetime 
     return "healthy"
 
 
-def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
+def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> ServiceObjectResult:
     now = datetime.now(timezone.utc)
     next_run_at = _next_run_at(row, now=now)
-    return {
+    return ServiceObjectResult({
         "id": int(row.id),
         "workflow_key": str(row.workflow_key),
         "display_name": str(row.display_name),
@@ -763,10 +794,10 @@ def recurring_workflow_to_dict(row: RecurringWorkflowRow) -> dict[str, Any]:
         "next_run_at": next_run_at,
         "is_due": bool(next_run_at is not None and next_run_at <= now),
         "health_status": _workflow_health_status(row, next_run_at=next_run_at, now=now),
-        "last_result": _json_loads(row.last_result_json, {}),
+        "last_result": _json_object(row.last_result_json),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
-    }
+    })
 
 
 def sync_recurring_workflows(db: Session) -> list[RecurringWorkflowRow]:
@@ -1327,6 +1358,7 @@ def _ci_status_sweep(
     }
 
 
+@service_object_result
 def run_recurring_workflow(
     db: Session,
     *,
@@ -1338,7 +1370,7 @@ def run_recurring_workflow(
     intake_max_created: int = 2,
     acceptance_limit: int = 20,
     auto_dispatch_acceptance: bool = False,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     row = get_recurring_workflow(db, workflow_key)
     if str(row.status) != "active":
         raise ValueError("Recurring workflow is not active")
@@ -1508,45 +1540,8 @@ def _execute_recurring_workflow(
                 "max_records": 50,
                 "read_only_github": True,
             }
-        if workflow_key == "x_social_daily_content_planner":
-            return {
-                "dry_run": True,
-                "workflow_key": workflow_key,
-                "platform": "x",
-                "cadence": "hourly",
-                "idempotency": "one_draft_per_operator_local_day",
-                "auto_publish": False,
-                "human_gate_required": True,
-            }
-        if workflow_key == "x_social_trend_radar_sweep":
-            return {
-                "dry_run": True,
-                "workflow_key": workflow_key,
-                "platform": "x",
-                "read_only": True,
-                "min_relevance_score": 0.70,
-                "external_actions": [],
-            }
-        if workflow_key == "x_social_repost_candidate_sweep":
-            return {
-                "dry_run": True,
-                "workflow_key": workflow_key,
-                "platform": "x",
-                "auto_repost": False,
-                "human_gate_required": True,
-                "min_relevance_score": 0.75,
-            }
-        if workflow_key == "x_social_reply_candidate_sweep":
-            return {
-                "dry_run": True,
-                "workflow_key": workflow_key,
-                "platform": "x",
-                "cadence": "every_30_minutes",
-                "source": "social_repost_candidates",
-                "max_created_per_run": 1,
-                "auto_reply": False,
-                "human_gate_required": True,
-            }
+        if workflow_key in _X_SOCIAL_DRY_RUNS:
+            return {"dry_run": True, "workflow_key": workflow_key, **_X_SOCIAL_DRY_RUNS[workflow_key]}
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1615,14 +1610,8 @@ def _execute_recurring_workflow(
         return sync_release_pr_statuses(db, max_records=50, per_record_sleep_seconds=1.0)
     if workflow_key == "release_deployment_status_sweep":
         return sync_release_task_deployment_statuses(db, max_records=50)
-    if workflow_key == "x_social_daily_content_planner":
-        return run_x_social_daily_content_planner(db)
-    if workflow_key == "x_social_trend_radar_sweep":
-        return run_x_social_trend_radar_sweep(db)
-    if workflow_key == "x_social_repost_candidate_sweep":
-        return run_x_social_repost_candidate_sweep(db)
-    if workflow_key == "x_social_reply_candidate_sweep":
-        return run_x_social_reply_candidate_sweep(db)
+    if workflow_key in _X_SOCIAL_DRY_RUNS:
+        return _run_x_social_workflow(db, workflow_key)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)
@@ -1653,8 +1642,8 @@ def _duration_ms(started_at: datetime, completed_at: datetime) -> int:
     return max(0, int((completed_at - started_at).total_seconds() * 1000))
 
 
-def recurring_workflow_run_to_dict(row: RecurringWorkflowRunRow) -> dict[str, Any]:
-    return {
+def recurring_workflow_run_to_dict(row: RecurringWorkflowRunRow) -> ServiceObjectResult:
+    return ServiceObjectResult({
         "id": int(row.id),
         "workflow_key": str(row.workflow_key),
         "status": str(row.status),
@@ -1666,7 +1655,7 @@ def recurring_workflow_run_to_dict(row: RecurringWorkflowRunRow) -> dict[str, An
         "started_at": row.started_at,
         "completed_at": row.completed_at,
         "duration_ms": int(row.duration_ms or 0),
-    }
+    })
 
 
 def list_recurring_workflow_runs(db: Session, workflow_key: str, *, limit: int = 50) -> list[RecurringWorkflowRunRow]:
@@ -1690,7 +1679,7 @@ def recurring_workflow_health(
     release_deployment_status_scheduler_status: dict[str, Any] | None = None,
     x_social_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     rows = list_recurring_workflows(db)
     queued_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "queued").count()
     dead_letter_count = db.query(NotificationEventRow).filter(NotificationEventRow.status == "dead_letter").count()
@@ -1702,7 +1691,7 @@ def recurring_workflow_health(
     )
     bug_status = bug_scheduler_status or {"enabled": bool(config.BUG_LOG_SWEEP_SCHEDULER_ENABLED), "running": False}
     bug_status = {**bug_status, "lock": scheduler_lock_snapshot(db, "scheduler:bug_log_sweep")}
-    return {
+    return ServiceObjectResult({
         "bug_log_scheduler": bug_status,
         "goal_planner_scheduler": goal_planner_scheduler_status or {
             "enabled": bool(getattr(config, "GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED", False)),
@@ -1736,4 +1725,4 @@ def recurring_workflow_health(
             "active_count": sum(1 for row in rows if str(row.status or "") == "active"),
             "due_count": sum(1 for row in rows if bool(recurring_workflow_to_dict(row).get("is_due"))),
         },
-    }
+    })

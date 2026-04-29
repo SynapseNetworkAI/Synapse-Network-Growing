@@ -52,7 +52,6 @@ def _stage_for_item_type(item_type: str) -> str:
     return {
         "product_opportunity": "opportunity",
         "publishing_draft": "opportunity",
-        "reply_draft": "opportunity",
         "repost_candidate": "opportunity",
         "requirement_candidate": "candidate",
         "requirement": "requirement",
@@ -121,7 +120,6 @@ def _detail_api_for_item(item_id: str) -> str | None:
         "workflow": f"/api/workflows/runs/{raw_id}",
         "release_task": "/api/releases/tasks",
         "social_draft": f"/api/social/posts/{raw_id}",
-        "social_reply": "/api/social/replies",
         "social_repost": "/api/social/repost-candidates",
     }.get(prefix)
 

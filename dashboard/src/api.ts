@@ -1,5 +1,7 @@
 import type { MissionBoard, MissionWorkbench } from './apiMissionBoard'
 export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage } from './apiMissionBoard'
+import type { SocialOpsOverview, SocialPostMetricSummary } from './types/socialOps'
+export type { SocialOpsOverview, SocialPostMetricSummary, SocialPostMetricTopPost } from './types/socialOps'
 const BASE = '/api'
 const REQUEST_TIMEOUT_MS = 17000
 export interface ApiError extends Error {
@@ -1402,18 +1404,6 @@ export interface SocialPostMediaAsset {
   updated_at: string | null
 }
 
-export interface SocialOpsOverview {
-  active_goal_count: number
-  draft_queue_count: number
-  needs_review_count: number
-  trend_count: number
-  reply_needs_review_count: number
-  repost_candidate_count: number
-  published_count: number
-  human_gate_required: boolean
-  safety_summary: string
-}
-
 export interface SocialCampaignGoal {
   id: number
   platform: string
@@ -2632,6 +2622,7 @@ export const api = {
   publishSocialRepostCandidateToX: (id: number, data: { actor?: string; action?: 'quote' | 'repost' | string } = {}) =>
     request<SocialRepostCandidate>(`/social/repost-candidates/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data) }),
   getSocialPostMetrics: () => request<SocialPostMetric[]>('/social/post-metrics'),
+  getSocialPostMetricSummary: () => request<SocialPostMetricSummary>('/social/post-metrics/summary'),
   getSocialPosts: (filters?: { status?: string }) => {
     const params = new URLSearchParams()
     if (filters?.status) params.set('status', filters.status)

@@ -10,6 +10,8 @@ from server.database import (
     utcnow,
 )
 from server.services.social import publishing as social_publishing
+from server.services.social import daily_planner as social_daily_planner
+from server.services.social import post_metrics as social_post_metrics
 
 
 class FakeXAccessToken:
@@ -55,8 +57,31 @@ class FakeXReadClient:
             ),
         ]
 
+    def get_posts_by_ids(
+        self, tweet_ids: list[str], *, include_owner_metrics: bool = False
+    ):
+        return [
+            social_publishing.XPost(
+                id=tweet_ids[0],
+                text="Synapse Network launch update.",
+                created_at="2026-04-26T12:00:00Z",
+                public_metrics={
+                    "like_count": 11,
+                    "reply_count": 3,
+                    "retweet_count": 2,
+                    "impression_count": 1200,
+                },
+                non_public_metrics={"impression_count": 1400, "url_link_clicks": 9}
+                if include_owner_metrics
+                else None,
+                organic_metrics={"url_link_clicks": 7}
+                if include_owner_metrics
+                else None,
+            )
+        ]
 
-def test_x_social_daily_content_planner_creates_one_human_review_draft_per_local_day(
+
+def test_x_social_daily_content_planner_tops_up_three_human_review_drafts_per_local_day(
     monkeypatch, db_session
 ):
     calls = []
@@ -82,31 +107,123 @@ def test_x_social_daily_content_planner_creates_one_human_review_draft_per_local
         ),
     )
 
-    result = social_publishing.run_x_social_daily_content_planner(db_session)
+    result = social_daily_planner.run_x_social_daily_content_planner(db_session)
 
     assert result["already_created"] is False
-    assert result["created_post_id"]
-    assert result["status"] == "needs_review"
+    assert result["already_satisfied"] is True
+    assert result["target_count"] == 3
+    assert result["active_count"] == 3
+    assert len(result["created_post_ids"]) == 3
+    assert len(calls) == 3
     assert calls and calls[0]["media_mode"] == "text_only"
-    row = db_session.get(SocialPostDraftRow, result["created_post_id"])
-    assert row is not None
-    assert row.source_type == "daily_planner"
-    assert row.generated_by == "x_social_daily_content_planner"
-    raw = social_publishing._json_loads(row.raw_agent_output_json, {})
-    assert raw["planner_local_date"] == result["planner_local_date"]
-    assert raw["planner_run_key"] == result["planner_run_key"]
-    assert raw["watchlist_handles"]
+    rows = [
+        db_session.get(SocialPostDraftRow, post_id)
+        for post_id in result["created_post_ids"]
+    ]
+    assert all(row is not None for row in rows)
+    for index, row in enumerate(rows, start=1):
+        assert row.source_type == "daily_planner"
+        assert row.generated_by == "x_social_daily_content_planner"
+        assert row.status == "needs_review"
+        raw = social_publishing._json_loads(row.raw_agent_output_json, {})
+        assert raw["planner_local_date"] == result["planner_local_date"]
+        assert raw["planner_run_key"].endswith(f":slot-{index}")
+        assert raw["planner_slot"] == index
+        assert raw["watchlist_handles"]
 
-    second = social_publishing.run_x_social_daily_content_planner(db_session)
+    second = social_daily_planner.run_x_social_daily_content_planner(db_session)
 
     assert second["already_created"] is True
-    assert second["existing_post_id"] == result["created_post_id"]
+    assert second["already_satisfied"] is True
+    assert second["active_count"] == 3
+    assert sorted(second["existing_post_ids"]) == sorted(result["created_post_ids"])
     assert (
         db_session.query(SocialPostDraftRow)
         .filter(SocialPostDraftRow.source_type == "daily_planner")
         .count()
-        == 1
+        == 3
     )
+
+
+def test_x_social_daily_content_planner_replenishes_after_publish(
+    monkeypatch, db_session
+):
+    account = social_publishing.ensure_default_social_account(db_session)
+    local_date = social_publishing._operator_local_date()
+    db_session.add_all(
+        [
+            SocialPostDraftRow(
+                platform="x",
+                account_id=account.id,
+                source_type="daily_planner",
+                title="Published slot",
+                body_text="Already shipped.",
+                status="published",
+                generated_by="x_social_daily_content_planner",
+                raw_agent_output_json=social_publishing._json_dumps(
+                    {
+                        "planner_local_date": local_date,
+                        "planner_slot": 1,
+                        "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-1",
+                    }
+                ),
+            ),
+            SocialPostDraftRow(
+                platform="x",
+                account_id=account.id,
+                source_type="daily_planner",
+                title="Active slot 2",
+                body_text="Review me.",
+                status="needs_review",
+                generated_by="x_social_daily_content_planner",
+                raw_agent_output_json=social_publishing._json_dumps(
+                    {
+                        "planner_local_date": local_date,
+                        "planner_slot": 2,
+                        "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-2",
+                    }
+                ),
+            ),
+            SocialPostDraftRow(
+                platform="x",
+                account_id=account.id,
+                source_type="daily_planner",
+                title="Active slot 3",
+                body_text="Review me too.",
+                status="approved",
+                generated_by="x_social_daily_content_planner",
+                raw_agent_output_json=social_publishing._json_dumps(
+                    {
+                        "planner_local_date": local_date,
+                        "planner_slot": 3,
+                        "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-3",
+                    }
+                ),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        social_publishing,
+        "_generate_x_post_copy",
+        lambda *args, **kwargs: social_publishing.GeneratedXPost(
+            title="Backfill slot",
+            body_text="Backfill today's draft inventory after a published post. #AIAgents",
+            media_decision="text",
+            model="test-model",
+        ),
+    )
+
+    result = social_daily_planner.run_x_social_daily_content_planner(db_session)
+
+    assert result["target_count"] == 3
+    assert result["active_count"] == 3
+    assert len(result["created_post_ids"]) == 1
+    created = db_session.get(SocialPostDraftRow, result["created_post_ids"][0])
+    raw = social_publishing._json_loads(created.raw_agent_output_json, {})
+    assert raw["planner_slot"] == 4
+    assert created.status == "needs_review"
 
 
 def test_x_social_trend_and_repost_sweeps_are_filtered_and_human_gated(db_session):
@@ -286,7 +403,7 @@ def test_x_social_helper_branches_are_deterministic(monkeypatch, db_session):
         body_text="metadata",
         raw_agent_output_json="[]",
     )
-    assert social_publishing._daily_planner_raw_metadata(post) == {}
+    assert social_daily_planner._daily_planner_raw_metadata(post) == {}
     assert social_publishing._parse_x_datetime(None).tzinfo is not None
     assert social_publishing._parse_x_datetime("not-a-date").tzinfo is not None
     assert social_publishing._parse_x_datetime("2026-04-27T00:00:00").tzinfo is None
@@ -525,6 +642,49 @@ def test_social_ops_center_projection_is_human_gated_and_read_only(
     assert reposts.json()[0]["suggested_quote"]
     assert metrics.status_code == 200
     assert metrics.json()[0]["impressions"] == 1200
+    summary = synced_client.get("/api/social/post-metrics/summary")
+    assert summary.status_code == 200
+    assert summary.json()["total_likes"] == 42
+    assert summary.json()["top_posts"]
+
+
+def test_x_social_post_observer_sweep_writes_metrics(monkeypatch, db_session):
+    account = social_publishing.ensure_default_social_account(db_session)
+    post = SocialPostDraftRow(
+        platform="x",
+        account_id=account.id,
+        source_type="manual_prompt",
+        title="Published metrics target",
+        body_text="Published post for metrics.",
+        status="published",
+        generated_by="operator",
+        external_post_id="tweet-metrics-1",
+        published_at=utcnow(),
+    )
+    db_session.add(post)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        social_publishing.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: FakeXAccessToken(),
+    )
+    monkeypatch.setattr(social_post_metrics, "XApiClient", FakeXReadClient)
+
+    result = social_post_metrics.run_x_social_post_observer_sweep(db_session)
+
+    assert result["read_only"] is True
+    assert result["observed_count"] == 1
+    metric = db_session.get(SocialPostMetricRow, result["created_metric_ids"][0])
+    assert metric.post_id == post.id
+    assert metric.external_post_id == "tweet-metrics-1"
+    assert metric.impressions == 1400
+    assert metric.likes == 11
+    assert metric.link_clicks == 9
+
+    summary = social_post_metrics.social_post_metrics_summary(db_session)
+    assert summary.total_impressions == 1400
+    assert summary.top_posts[0].external_post_id == "tweet-metrics-1"
 
 
 def test_social_trend_query_filters_and_detail_endpoint(synced_client, db_session):

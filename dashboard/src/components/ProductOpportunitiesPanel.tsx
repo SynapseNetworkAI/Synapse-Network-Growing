@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type ProductOpportunity = {
   id: number
@@ -31,11 +31,12 @@ function laneLabel(value: string) {
   return value || 'Product'
 }
 
-export function ProductOpportunitiesPanel({ onChanged }: Readonly<{ onChanged?: () => void }>) {
+export function ProductOpportunitiesPanel({ focusedOpportunityId, onChanged }: Readonly<{ focusedOpportunityId?: number | null, onChanged?: () => void }>) {
   const [items, setItems] = useState<ProductOpportunity[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const focusedRef = useRef<HTMLElement | null>(null)
 
   async function load() {
     setLoading(true)
@@ -53,6 +54,11 @@ export function ProductOpportunitiesPanel({ onChanged }: Readonly<{ onChanged?: 
   useEffect(() => {
     load().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!focusedOpportunityId || !focusedRef.current) return
+    focusedRef.current.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  }, [focusedOpportunityId, items])
 
   async function decide(id: number, action: 'create-goal' | 'defer' | 'reject') {
     setBusy(`${action}:${id}`)
@@ -93,7 +99,17 @@ export function ProductOpportunitiesPanel({ onChanged }: Readonly<{ onChanged?: 
       ) : null}
       <div className="mt-4 grid gap-3">
         {items.map((item) => (
-          <article key={item.id} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4">
+          <article
+            key={item.id}
+            ref={item.id === focusedOpportunityId ? focusedRef : undefined}
+            className={[
+              'rounded-2xl border px-4 py-4 transition',
+              item.id === focusedOpportunityId
+                ? 'border-cyan-300/45 bg-cyan-300/[0.08] shadow-[0_0_0_1px_rgba(103,232,249,0.14)]'
+                : 'border-white/8 bg-white/[0.03]',
+            ].join(' ')}
+            data-testid={`product-opportunity-${item.id}`}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

@@ -29,7 +29,6 @@ from server.database import (
     SocialOAuthSessionRow,
     SocialPostDraftRow,
     SocialPostMediaAssetRow,
-    SocialPostMetricRow,
     SocialPublishEventRow,
     SocialReplyItemRow,
     SocialRepostCandidateRow,
@@ -44,7 +43,6 @@ from server.schemas import (
     SocialPostCreateRequest,
     SocialPostDraftOut,
     SocialPostGenerateDraftRequest,
-    SocialPostMetricOut,
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
@@ -1093,8 +1091,13 @@ def complete_x_oauth_authorization(db: Session, *, state: str, code: str) -> Soc
 
 
 def social_ops_overview(db: Session) -> SocialOpsOverviewOut:
+    from server.services.social.daily_planner import DAILY_PLANNER_TARGET_COUNT, daily_planner_inventory
+
     ensure_default_social_account(db)
     ensure_default_social_ops_seed(db)
+    account = ensure_default_social_account(db)
+    local_date = _operator_local_date()
+    _daily_rows, active_daily_rows = daily_planner_inventory(db, account_id=int(account.id), local_date=local_date)
     return SocialOpsOverviewOut(
         active_goal_count=db.query(SocialCampaignGoalRow).filter(SocialCampaignGoalRow.status == "active").count(),
         draft_queue_count=db.query(SocialPostDraftRow).filter(SocialPostDraftRow.status.in_(["generating", "draft", "needs_review", "approved"])).count(),
@@ -1103,6 +1106,10 @@ def social_ops_overview(db: Session) -> SocialOpsOverviewOut:
         reply_needs_review_count=db.query(SocialReplyItemRow).filter(SocialReplyItemRow.status == "needs_review").count(),
         repost_candidate_count=db.query(SocialRepostCandidateRow).filter(SocialRepostCandidateRow.status == "candidate").count(),
         published_count=db.query(SocialPostDraftRow).filter(SocialPostDraftRow.status == "published").count(),
+        daily_planner_target_count=DAILY_PLANNER_TARGET_COUNT,
+        daily_planner_active_count=len(active_daily_rows),
+        daily_planner_local_date=local_date,
+        daily_planner_active_post_ids=[int(row.id) for row in active_daily_rows],
     )
 
 
@@ -1407,57 +1414,6 @@ def _create_reply_from_repost_candidate(
     return row
 
 
-def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
-    rows = db.query(SocialPostMetricRow).order_by(SocialPostMetricRow.observed_at.desc(), SocialPostMetricRow.id.desc()).limit(100).all()
-    return [
-        SocialPostMetricOut(
-            id=int(row.id),
-            post_id=row.post_id,
-            external_post_id=row.external_post_id,
-            impressions=int(row.impressions or 0),
-            likes=int(row.likes or 0),
-            replies=int(row.replies or 0),
-            reposts=int(row.reposts or 0),
-            follows=int(row.follows or 0),
-            link_clicks=int(row.link_clicks or 0),
-            summary=row.summary,
-            observed_at=row.observed_at,
-        )
-        for row in rows
-    ]
-
-
-def _daily_planner_raw_metadata(row: SocialPostDraftRow) -> dict[str, Any]:
-    data = _json_loads(row.raw_agent_output_json, {})
-    if isinstance(data, dict):
-        return data
-    return {}
-
-
-def _find_existing_daily_planner_post(
-    db: Session,
-    *,
-    account_id: int,
-    local_date: str,
-) -> SocialPostDraftRow | None:
-    rows = (
-        db.query(SocialPostDraftRow)
-        .filter(
-            SocialPostDraftRow.platform == "x",
-            SocialPostDraftRow.account_id == account_id,
-            SocialPostDraftRow.source_type == "daily_planner",
-        )
-        .order_by(SocialPostDraftRow.id.desc())
-        .limit(50)
-        .all()
-    )
-    for row in rows:
-        raw = _daily_planner_raw_metadata(row)
-        if str(raw.get("planner_local_date") or "") == local_date:
-            return row
-    return None
-
-
 def _top_social_trends(db: Session, *, limit: int = 3, min_score: float = 0.70) -> list[SocialTrendItemRow]:
     return (
         db.query(SocialTrendItemRow)
@@ -1714,171 +1670,6 @@ def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float)
         "duplicate_count": duplicate_count,
         "rate_limited": False,
         "diagnostic": diagnostic,
-    }
-
-
-def _recent_social_metric_rows(db: Session, *, limit: int = 3) -> list[SocialPostMetricRow]:
-    return (
-        db.query(SocialPostMetricRow)
-        .order_by(SocialPostMetricRow.observed_at.desc(), SocialPostMetricRow.id.desc())
-        .limit(max(1, int(limit)))
-        .all()
-    )
-
-
-def _build_daily_planner_prompt(
-    db: Session,
-    *,
-    local_date: str,
-) -> tuple[str, dict[str, Any]]:
-    goal = (
-        db.query(SocialCampaignGoalRow)
-        .filter(SocialCampaignGoalRow.platform == "x", SocialCampaignGoalRow.status == "active")
-        .order_by(SocialCampaignGoalRow.updated_at.desc(), SocialCampaignGoalRow.id.desc())
-        .first()
-    )
-    trends = _top_social_trends(db)
-    watchlist = _watchlist_highlights(db)
-    metrics = _recent_social_metric_rows(db)
-    variable_candidates: list[str] = []
-    variable_candidates.extend([f"Trend: {trend.topic} — {trend.summary}" for trend in trends])
-    variable_candidates.extend([f"Watchlist: @{row.handle} — {row.rationale or row.latest_summary or row.display_name or row.handle}" for row in watchlist])
-    variable_factor = variable_candidates[0] if variable_candidates else "Fresh angle: explain why autonomous agents need governed API access and payment rails."
-    if variable_candidates:
-        day_offset = sum(int(part) for part in local_date.split("-") if part.isdigit())
-        variable_factor = variable_candidates[day_offset % len(variable_candidates)]
-
-    content_pillars = _json_loads(goal.content_pillars_json, []) if goal else []
-    success_metrics = _json_loads(goal.success_metrics_json, []) if goal else []
-    metric_lines = [
-        f"- post_metric_id={row.id}: impressions={row.impressions}, likes={row.likes}, replies={row.replies}, reposts={row.reposts}, link_clicks={row.link_clicks}, summary={row.summary or 'no summary'}"
-        for row in metrics
-    ]
-    prompt = "\n".join(
-        [
-            f"Create today's human-reviewed X official account draft for Synapse Network. Local date: {local_date}.",
-            "This is a scheduled daily planner draft. Do not publish, reply, repost, follow, delete, or claim an external action happened.",
-            "",
-            "# Active campaign goal",
-            f"Title: {goal.title if goal else 'Build trust for Synapse Network official X'}",
-            f"Objective: {goal.objective if goal else 'Explain Synapse Network to AI agent builders and API providers.'}",
-            f"Content pillars: {', '.join(str(item) for item in content_pillars) or 'Product education, shipping proof, agent economy commentary, developer use cases, trust and governance'}",
-            f"Success metrics: {', '.join(str(item) for item in success_metrics) or 'published posts/week, engagement rate, profile visits, docs clicks'}",
-            "",
-            "# Variable factor for freshness",
-            variable_factor,
-            "",
-            "# Top trend radar items",
-            "\n".join(f"- {trend.topic}: {trend.summary} (score={trend.relevance_score:.2f})" for trend in trends) or "- metrics_unavailable: no high-quality trend radar item yet.",
-            "",
-            "# Watchlist highlights",
-            "\n".join(f"- @{row.handle} ({row.category}): {row.rationale or row.latest_summary or row.display_name or row.handle}" for row in watchlist) or "- no watchlist highlights available.",
-            "",
-            "# Recent 3 published post performance",
-            "\n".join(metric_lines) or "- metrics_unavailable: no recent post metrics yet.",
-            "",
-            "Write a substantial, high-trust X post with a strong hook, concrete product value, and relevant hashtags. Keep it public-facing and useful to AI agent builders, API providers, and developer operators.",
-        ]
-    )
-    metadata = {
-        "planner_local_date": local_date,
-        "trend_item_ids": [int(row.id) for row in trends],
-        "watchlist_handles": [str(row.handle) for row in watchlist],
-        "recent_metric_post_ids": [int(row.post_id) for row in metrics if row.post_id is not None],
-        "variable_factor": variable_factor,
-        "metrics_available": bool(metrics),
-    }
-    return prompt, metadata
-
-
-def run_x_social_daily_content_planner(db: Session, *, now: datetime | None = None) -> ServiceObjectResult:
-    """Generate at most one human-reviewed X draft per operator-local day."""
-
-    ensure_default_social_ops_seed(db)
-    account = ensure_default_social_account(db)
-    local_date = _operator_local_date(now)
-    planner_run_key = f"x_daily:{int(account.id)}:{local_date}"
-    existing = _find_existing_daily_planner_post(db, account_id=int(account.id), local_date=local_date)
-    if existing is not None:
-        return {
-            "already_created": True,
-            "created_post_id": None,
-            "existing_post_id": int(existing.id),
-            "planner_local_date": local_date,
-            "planner_run_key": planner_run_key,
-            "status": existing.status,
-        }
-
-    prompt, metadata = _build_daily_planner_prompt(db, local_date=local_date)
-    metadata = {**metadata, "planner_run_key": planner_run_key, "source_type": "daily_planner"}
-    row = SocialPostDraftRow(
-        platform="x",
-        account_id=int(account.id),
-        source_type="daily_planner",
-        title="X daily planner draft is generating",
-        body_text="",
-        status="generating",
-        generated_by="x_social_daily_content_planner",
-        policy_check_json=_json_dumps(_generation_running_policy()),
-        raw_agent_output_json=_json_dumps(
-            {
-                "source": "x_social_daily_content_planner",
-                "status": "generating",
-                "provider": config.SOCIAL_CONTENT_LLM_PROVIDER,
-                "requested_model": config.SOCIAL_CONTENT_LLM_MODEL,
-                "media_mode": "text_only",
-                "prompt_excerpt": _bounded_excerpt(prompt, max_chars=240),
-                **metadata,
-            }
-        ),
-    )
-    db.add(row)
-    db.flush()
-    _record_event(
-        db,
-        row,
-        "daily_planner_generation_started",
-        actor="x_social_daily_content_planner",
-        summary="Hourly X social planner created today's draft shell; no external publish attempted.",
-        payload={"planner_local_date": local_date, "planner_run_key": planner_run_key},
-    )
-    db.commit()
-    _finalize_generated_social_post(
-        db,
-        int(row.id),
-        prompt=prompt,
-        actor="x_social_daily_content_planner",
-        style_type="marketing",
-        media_mode="text_only",
-    )
-    row = _get_post(db, int(row.id))
-    raw = _daily_planner_raw_metadata(row)
-    raw.update(metadata)
-    raw["source"] = "x_social_daily_content_planner"
-    row.raw_agent_output_json = _json_dumps(raw)
-    if row.status == "approved":
-        row.status = "needs_review"
-        row.reviewed_by = None
-        _record_event(
-            db,
-            row,
-            "daily_planner_requires_human_review",
-            actor="x_social_daily_content_planner",
-            summary="Policy passed, but scheduled X drafts remain in needs_review until an operator approves publishing.",
-            payload={"planner_local_date": local_date, "planner_run_key": planner_run_key},
-        )
-    db.commit()
-    return {
-        "already_created": False,
-        "created_post_id": int(row.id),
-        "existing_post_id": None,
-        "planner_local_date": local_date,
-        "planner_run_key": planner_run_key,
-        "status": row.status,
-        "policy_status": _json_loads(row.policy_check_json, {}).get("status"),
-        "trend_item_ids": metadata["trend_item_ids"],
-        "watchlist_handles": metadata["watchlist_handles"],
-        "recent_metric_post_ids": metadata["recent_metric_post_ids"],
     }
 
 
@@ -3232,5 +3023,5 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     db.refresh(row)
     return _social_reply_out(row)
 
-for _name in "run_content_policy_check run_x_social_daily_content_planner run_x_social_trend_radar_sweep run_x_social_repost_candidate_sweep run_x_social_reply_candidate_sweep regenerate_unpublished_social_replies_with_agent".split(): globals()[_name] = service_object_result(globals()[_name])
+for _name in "run_content_policy_check run_x_social_trend_radar_sweep run_x_social_repost_candidate_sweep run_x_social_reply_candidate_sweep regenerate_unpublished_social_replies_with_agent".split(): globals()[_name] = service_object_result(globals()[_name])
 list_social_accounts = service_list_result(list_social_accounts); del _name

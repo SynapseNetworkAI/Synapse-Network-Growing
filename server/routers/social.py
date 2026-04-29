@@ -15,7 +15,6 @@ from server.schemas import (
     SocialPostCreateRequest,
     SocialPostDraftOut,
     SocialPostGenerateDraftRequest,
-    SocialPostMetricOut,
     SocialPostPatchRequest,
     SocialPostPublishRequest,
     SocialPostRewriteRequest,
@@ -30,6 +29,11 @@ from server.schemas import (
     SocialTrendItemOut,
     SocialWatchlistAccountOut,
 )
+from server.schemas_social_metrics import SocialPostMetricOut, SocialPostMetricSummaryOut
+from server.services.social.post_metrics import (
+    list_social_post_metrics,
+    social_post_metrics_summary,
+)
 from server.services.social.publishing import (
     create_social_campaign_goal,
     create_social_post,
@@ -41,7 +45,6 @@ from server.services.social.publishing import (
     get_social_media_preview_path,
     list_social_campaign_goals,
     list_social_accounts,
-    list_social_post_metrics,
     list_social_posts,
     list_social_replies,
     list_social_repost_candidates,
@@ -199,6 +202,11 @@ def publish_social_repost_candidate_to_x_endpoint(candidate_id: int, body: Socia
 @router.get("/post-metrics", response_model=list[SocialPostMetricOut])
 def list_social_post_metrics_endpoint(db: Session = Depends(get_db)):
     return list_social_post_metrics(db)
+
+
+@router.get("/post-metrics/summary", response_model=SocialPostMetricSummaryOut)
+def social_post_metrics_summary_endpoint(db: Session = Depends(get_db)):
+    return social_post_metrics_summary(db)
 
 
 @router.get("/posts", response_model=list[SocialPostDraftOut])

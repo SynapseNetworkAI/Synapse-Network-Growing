@@ -1575,20 +1575,6 @@ class SocialRepostCandidateOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 
-class SocialPostMetricOut(BaseModel):
-    id: int
-    post_id: Optional[int] = None
-    external_post_id: Optional[str] = None
-    impressions: int = 0
-    likes: int = 0
-    replies: int = 0
-    reposts: int = 0
-    follows: int = 0
-    link_clicks: int = 0
-    summary: Optional[str] = None
-    observed_at: Optional[datetime] = None
-
-
 class SocialOpsOverviewOut(BaseModel):
     active_goal_count: int = 0
     draft_queue_count: int = 0
@@ -1597,6 +1583,10 @@ class SocialOpsOverviewOut(BaseModel):
     reply_needs_review_count: int = 0
     repost_candidate_count: int = 0
     published_count: int = 0
+    daily_planner_target_count: int = 3
+    daily_planner_active_count: int = 0
+    daily_planner_local_date: Optional[str] = None
+    daily_planner_active_post_ids: list[int] = []
     human_gate_required: bool = True
     safety_summary: str = "Agent can draft and analyze; humans must publish, reply, repost, or delete."
 
