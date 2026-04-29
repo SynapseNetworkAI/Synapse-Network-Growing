@@ -26,6 +26,10 @@ from server.services.planning.product_opportunities import (
     ensure_product_opportunity_table,
     product_opportunity_to_dict,
 )
+from server.services.result_objects import (
+    ServiceListResult,
+    service_list_result,
+)
 
 ACTIVE_CANDIDATE_STATUSES = {"pending", "approved"}
 ACTIVE_WORKFLOW_STATUSES = {
@@ -91,7 +95,8 @@ def release_next_action(row: ReleaseTaskRow) -> str:
     return "Inspect deployment evidence."
 
 
-def product_planner_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+@service_list_result
+def product_planner_items(db: Session, manifest_id: int) -> ServiceListResult:
     ensure_product_opportunity_table(db)
     rows = (
         db.query(ProductOpportunityRow)
@@ -127,13 +132,15 @@ def product_planner_items(db: Session, manifest_id: int) -> list[dict[str, Any]]
     return items
 
 
-def growth_items(db: Session) -> list[dict[str, Any]]:
+@service_list_result
+def growth_items(db: Session) -> ServiceListResult:
     return sort_mission_items(
         [*social_draft_items(db), *reply_draft_items(db), *repost_candidate_items(db)]
     )
 
 
-def social_draft_items(db: Session) -> list[dict[str, Any]]:
+@service_list_result
+def social_draft_items(db: Session) -> ServiceListResult:
     items: list[dict[str, Any]] = []
     for row in (
         db.query(SocialPostDraftRow)
@@ -158,7 +165,8 @@ def social_draft_items(db: Session) -> list[dict[str, Any]]:
     return items
 
 
-def reply_draft_items(db: Session) -> list[dict[str, Any]]:
+@service_list_result
+def reply_draft_items(db: Session) -> ServiceListResult:
     items: list[dict[str, Any]] = []
     for row in (
         db.query(SocialReplyItemRow)
@@ -183,7 +191,8 @@ def reply_draft_items(db: Session) -> list[dict[str, Any]]:
     return items
 
 
-def repost_candidate_items(db: Session) -> list[dict[str, Any]]:
+@service_list_result
+def repost_candidate_items(db: Session) -> ServiceListResult:
     items: list[dict[str, Any]] = []
     for row in (
         db.query(SocialRepostCandidateRow)
@@ -211,9 +220,10 @@ def repost_candidate_items(db: Session) -> list[dict[str, Any]]:
     return items
 
 
+@service_list_result
 def software_items(
     db: Session, manifest_id: int, goal_key: str | None
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     if not goal_key:
         return []
     return sort_mission_items(
@@ -226,9 +236,10 @@ def software_items(
     )
 
 
+@service_list_result
 def candidate_items(
     db: Session, manifest_id: int, goal_key: str
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     rows = (
         db.query(RequirementCandidateRow)
         .filter(
@@ -260,9 +271,10 @@ def candidate_items(
     ]
 
 
+@service_list_result
 def requirement_items(
     db: Session, manifest_id: int, goal_key: str
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     rows = (
         db.query(RequirementRow)
         .filter(
@@ -290,9 +302,10 @@ def requirement_items(
     ]
 
 
+@service_list_result
 def workflow_items(
     db: Session, manifest_id: int, goal_key: str
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     rows = (
         db.query(WorkflowRunRow)
         .filter(
@@ -320,9 +333,10 @@ def workflow_items(
     ]
 
 
+@service_list_result
 def release_task_items(
     db: Session, manifest_id: int, goal_key: str
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     rows = (
         db.query(ReleaseTaskRow)
         .join(RequirementRow, ReleaseTaskRow.requirement_id == RequirementRow.id)
@@ -351,7 +365,8 @@ def release_task_items(
     ]
 
 
-def unassigned_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+@service_list_result
+def unassigned_items(db: Session, manifest_id: int) -> ServiceListResult:
     return sort_mission_items(
         [
             *unassigned_candidate_items(db, manifest_id),
@@ -361,7 +376,8 @@ def unassigned_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
     )
 
 
-def unassigned_candidate_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+@service_list_result
+def unassigned_candidate_items(db: Session, manifest_id: int) -> ServiceListResult:
     rows = (
         db.query(RequirementCandidateRow)
         .filter(
@@ -391,7 +407,8 @@ def unassigned_candidate_items(db: Session, manifest_id: int) -> list[dict[str, 
     ]
 
 
-def unassigned_requirement_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+@service_list_result
+def unassigned_requirement_items(db: Session, manifest_id: int) -> ServiceListResult:
     rows = (
         db.query(RequirementRow)
         .filter(
@@ -419,7 +436,8 @@ def unassigned_requirement_items(db: Session, manifest_id: int) -> list[dict[str
     ]
 
 
-def unassigned_workflow_items(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+@service_list_result
+def unassigned_workflow_items(db: Session, manifest_id: int) -> ServiceListResult:
     rows = (
         db.query(WorkflowRunRow)
         .filter(

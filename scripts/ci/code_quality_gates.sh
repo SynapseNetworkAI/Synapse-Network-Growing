@@ -16,6 +16,11 @@ cd "$ROOT_DIR"
 echo "[quality] static size/function ratchet"
 "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/static_quality_gate.py" --base "$DIFF_BASE"
 
+# Enforce typed public service returns separately from size/complexity ratchets.
+# Raw maps remain allowed for private serializers and payload/metadata fields.
+echo "[quality] public object return contracts"
+"$OPS_PYTHON" "$ROOT_DIR/scripts/ci/source_quality_checks.py" --base "$DIFF_BASE"
+
 changed_files=()
 while IFS= read -r file; do
   [[ -n "$file" ]] && changed_files+=("$file")

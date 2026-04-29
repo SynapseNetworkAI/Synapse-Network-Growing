@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import SessionLocal
 from server.logging_utils import log_event
+from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.scheduling.recurring_workflows import recurring_workflow_to_dict, run_recurring_workflow, sync_recurring_workflows
 
 logger = logging.getLogger("ops-dashboard.x_social_scheduler")
@@ -57,7 +58,8 @@ class XSocialSweepScheduler:
             self._thread.join(timeout=5)
         log_event(logger, "x_social_scheduler_stopped")
 
-    def status_snapshot(self) -> dict[str, object]:
+    @service_object_result
+    def status_snapshot(self) -> ServiceObjectResult:
         return {
             "enabled": bool(config.X_SOCIAL_SWEEP_SCHEDULER_ENABLED),
             "running": bool(self._thread is not None and self._thread.is_alive() and not self._stop_event.is_set()),

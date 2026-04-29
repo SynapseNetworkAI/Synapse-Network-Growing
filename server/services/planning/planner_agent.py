@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from server import config
 from server.database import PlanningGoalRow
+from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.workflows.declarative import built_in_workflow_specs
 from server.services.workflows.planner_provider import PlannerRequest, generate_planner_text
 
@@ -169,6 +170,7 @@ def synthesize_candidate_for_goal(
     raise PlannerAgentError("Planner Agent failed unexpectedly.", metadata=metadata, raw_output=raw_output)
 
 
+@service_object_result
 def failed_candidate_from_planner_error(
     *,
     error: PlannerAgentError,
@@ -178,7 +180,7 @@ def failed_candidate_from_planner_error(
     project_key: str | None,
     manifest_id: int,
     fingerprint: str,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     partial = error.partial_payload if isinstance(error.partial_payload, dict) else {}
     title = str(partial.get("title") or goal.title or goal.goal_key or "Planner Agent failed").strip()
     description = str(partial.get("description_markdown") or "").strip() or (

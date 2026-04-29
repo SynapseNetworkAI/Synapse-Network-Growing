@@ -10,14 +10,13 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from server.database import DeploymentRecordRow, ProjectRow, ReleaseRecordRow, RequirementRow, WorkflowRunRow, utcnow
+from server.database import ProjectRow, ReleaseRecordRow, RequirementRow, WorkflowRunRow, utcnow
 from server.schemas import ReleaseCandidateOut, ReleaseDetailOut, ValidationCheckResultOut, ValidationRecordSlimOut
 from server.services.delivery.deployment_governance import list_requirement_deployment_records, mark_requirement_no_deploy, trigger_requirement_deployment
 from server.services.delivery.pull_request import query_review_pr_status, sync_requirement_review_pr
 from server.services.delivery.vcs import execute_requirement_delivery_vcs
-from server.services.projects.project_center import project_to_dict
 from server.services.requirements.service import _requirement_to_out, _target_projects_for_requirement, release_to_out
-
+from server.services.result_objects import ServiceObjectResult
 
 def _json_load(raw: str | None, fallback: Any) -> Any:
     if not raw:
@@ -225,7 +224,7 @@ def sync_release_pr_statuses(
     per_record_sleep_seconds: float = 1.0,
     query_status: Callable[..., dict[str, Any]] = query_review_pr_status,
     sleep: Callable[[float], None] | None = None,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     """Synchronize local release records with GitHub PR state.
 
     This is read-only against GitHub. It never merges, closes, deploys, or
@@ -299,7 +298,7 @@ def sync_release_pr_statuses(
         if index < len(rows) - 1 and per_record_sleep_seconds > 0:
             sleeper(float(per_record_sleep_seconds))
     db.commit()
-    return {
+    return ServiceObjectResult({
         "status": "completed",
         "processed_count": int(processed),
         "scanned_count": len(rows),
@@ -311,7 +310,7 @@ def sync_release_pr_statuses(
         "failed_ids": [int(item["release_id"]) for item in failed_items],
         "failed_items": failed_items,
         "rate_limit_sleep_seconds": float(per_record_sleep_seconds),
-    }
+    })
 
 
 def _release_record(db: Session, requirement: RequirementRow, run: WorkflowRunRow | None) -> ReleaseRecordRow:

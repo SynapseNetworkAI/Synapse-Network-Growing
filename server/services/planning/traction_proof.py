@@ -11,6 +11,7 @@ from server.services.planning.mission_board_helpers import (
     ACTIVE_REQUIREMENT_STATUSES,
     TERMINAL_REQUIREMENT_STATUSES,
 )
+from server.services.result_objects import ServiceObjectResult, service_object_result
 
 
 def _proof_item(
@@ -81,6 +82,7 @@ def _overall_status(items: list[dict[str, Any]]) -> str:
     return "present"
 
 
+@service_object_result
 def active_goal_traction_proof(
     db: Session,
     *,
@@ -88,7 +90,7 @@ def active_goal_traction_proof(
     goal_key: str | None,
     lanes: dict[str, list[dict[str, Any]]],
     unassigned_items: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     """Project public-preview traction proof without inventing green states."""
 
     published_x_count = _published_x_count(db)

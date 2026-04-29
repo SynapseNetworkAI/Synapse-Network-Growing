@@ -26,6 +26,7 @@ from server.services.planning.mission_lane_items import (
 from server.services.planning.product_opportunities import (
     ensure_product_opportunity_table,
 )
+from server.services.result_objects import ServiceObjectResult, service_object_result
 
 STAGES = (
     "opportunity",
@@ -371,7 +372,8 @@ def _root_goal_node(
     )
 
 
-def mission_workbench_snapshot(db: Session) -> dict[str, Any]:
+@service_object_result
+def mission_workbench_snapshot(db: Session) -> ServiceObjectResult:
     ensure_product_opportunity_table(db)
     manifest = ensure_active_manifest(db)
     manifest_id = int(manifest.id)

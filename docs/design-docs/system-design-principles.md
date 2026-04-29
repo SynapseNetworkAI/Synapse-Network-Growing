@@ -118,6 +118,8 @@
 9. 重复代码门禁必须防止新生产代码引入大块重复；已有重复可以被 baseline 暂时容忍，但不能作为继续复制粘贴的借口。
 10. 安全门禁必须 fail closed：新增 secret、Bandit 高风险问题、Python 依赖漏洞、前端 high/critical audit 都不得通过；输出必须 redacted，不能把 token 原文打印到 CI。
 11. Branch protection 检查是事实吸收，不是口头保证。GitHub plan 不支持 private repo ruleset 时必须明确显示 diagnostic-only，不能伪装成已强制 required checks。
+12. Public service return contracts 必须对象化：Planning / Social / Releases 等核心模块的 public 函数或方法不得返回裸 `dict`、`Dict[str, Any]`、`dict[str, Any]`、`Mapping[str, Any]` 或前端 `Promise<Record<string, unknown>>`。API-facing Python code 应返回 Pydantic result/response object，并在 FastAPI/API 边界显式 `.model_dump()` 或由 response model 序列化保持 wire JSON 兼容。
+13. Raw map 只允许作为 request body、patch 入参、schema/payload 字段、metadata/blackboard 字段、第三方 API payload、测试 fixture 或 private helper 的中间序列化结构。Private helper 必须以 `_` 开头；如果一个 helper 已经成为跨模块 public surface，应先提升为 typed object contract，再暴露给调用方。
 
 ## 6.7 后台任务必须一等可观测
 

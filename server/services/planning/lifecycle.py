@@ -36,6 +36,7 @@ from server.services.planning.planner_agent import (
     synthesize_candidate_for_goal,
 )
 from server.services.planning.risk_router import route_candidate
+from server.services.result_objects import ServiceListResult, ServiceObjectResult, service_list_result, service_object_result
 from server.services.requirements.acceptance import (
     AcceptanceValidationError,
     normalize_acceptance_contract,
@@ -178,7 +179,7 @@ def _intent_excerpt(value: str, *, limit: int = 200) -> str:
     return text[:limit].rstrip() + "..."
 
 
-def goal_to_dict(row: PlanningGoalRow, *, include_intent: bool = False) -> dict[str, Any]:
+def goal_to_dict(row: PlanningGoalRow, *, include_intent: bool = False) -> ServiceObjectResult:
     intent = str(row.intent_markdown or "")
     payload = {
         "id": int(row.id),
@@ -329,7 +330,7 @@ def _goal_counts(db: Session, manifest_id: int) -> dict[str, int]:
     }
 
 
-def manifest_to_dict(row: OperatingManifestRow, db: Session | None = None) -> dict[str, Any]:
+def manifest_to_dict(row: OperatingManifestRow, db: Session | None = None) -> ServiceObjectResult:
     payload = _manifest_payload(row)
     counts = _goal_counts(db, int(row.id)) if db is not None and row.id is not None else {
         "goal_count": 0,
@@ -355,7 +356,7 @@ def manifest_to_dict(row: OperatingManifestRow, db: Session | None = None) -> di
     }
 
 
-def candidate_to_dict(row: RequirementCandidateRow) -> dict[str, Any]:
+def candidate_to_dict(row: RequirementCandidateRow) -> ServiceObjectResult:
     return {
         "id": int(row.id),
         "manifest_id": int(row.manifest_id),
@@ -385,7 +386,7 @@ def candidate_to_dict(row: RequirementCandidateRow) -> dict[str, Any]:
     }
 
 
-def sweep_to_dict(row: PlannerSweepRow) -> dict[str, Any]:
+def sweep_to_dict(row: PlannerSweepRow) -> ServiceObjectResult:
     parsed_output = _json_loads(row.parsed_output_json, {})
     return {
         "id": int(row.id),
@@ -486,7 +487,7 @@ def list_manifest_history(
     page_size: int = 20,
     status: str | None = None,
     search: str | None = None,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     page = max(1, int(page or 1))
     page_size = min(100, max(1, int(page_size or 20)))
     query = db.query(OperatingManifestRow)
@@ -557,7 +558,7 @@ def _requirement_status_counts(db: Session, manifest_id: int, goal_key: str) -> 
     return result
 
 
-def goal_rollup(db: Session, manifest_id: int, goal_key: str) -> dict[str, Any]:
+def goal_rollup(db: Session, manifest_id: int, goal_key: str) -> ServiceObjectResult:
     manifest = db.get(OperatingManifestRow, manifest_id)
     if manifest is None:
         raise ValueError("manifest not found")
@@ -605,7 +606,7 @@ def _candidate_totals(db: Session, manifest_id: int) -> dict[str, int]:
     return result
 
 
-def mission_control_snapshot(db: Session) -> dict[str, Any]:
+def mission_control_snapshot(db: Session) -> ServiceObjectResult:
     manifest = ensure_active_manifest(db)
     manifest_id = int(manifest.id)
     payload = _manifest_payload(manifest)
@@ -1058,14 +1059,14 @@ def list_goals(
     manifest_id: int | None = None,
     status: str | None = None,
     include_intent: bool = False,
-) -> list[dict[str, Any]]:
+) -> ServiceListResult:
     manifest = ensure_active_manifest(db) if manifest_id is None else db.get(OperatingManifestRow, manifest_id)
     if manifest is None:
         raise ValueError("manifest not found")
     return [goal_to_dict(row, include_intent=include_intent) for row in _goal_rows(db, int(manifest.id), status=status)]
 
 
-def get_goal(db: Session, goal_id: int) -> dict[str, Any]:
+def get_goal(db: Session, goal_id: int) -> ServiceObjectResult:
     row = db.get(PlanningGoalRow, goal_id)
     if row is None:
         raise ValueError("goal not found")
@@ -1229,7 +1230,7 @@ def _objective_status_and_next_action(
     return "incomplete", "collect_missing_evidence"
 
 
-def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
+def goal_trace(db: Session, goal_id: int) -> ServiceObjectResult:
     goal = db.get(PlanningGoalRow, goal_id)
     if goal is None:
         raise ValueError("goal not found")
@@ -1447,7 +1448,7 @@ def goal_trace(db: Session, goal_id: int) -> dict[str, Any]:
     }
 
 
-def create_goal(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+def create_goal(db: Session, payload: dict[str, Any]) -> ServiceObjectResult:
     manifest_id = payload.get("manifest_id")
     manifest = ensure_active_manifest(db) if manifest_id is None else db.get(OperatingManifestRow, int(manifest_id))
     if manifest is None:
@@ -1466,7 +1467,7 @@ def create_goal(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     return goal_to_dict(row, include_intent=True)
 
 
-def update_goal(db: Session, goal_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+def update_goal(db: Session, goal_id: int, payload: dict[str, Any]) -> ServiceObjectResult:
     row = db.get(PlanningGoalRow, goal_id)
     if row is None:
         raise ValueError("goal not found")
@@ -1506,7 +1507,7 @@ def list_candidates(
     goal_key: str | None = None,
     page: int = 1,
     page_size: int = 30,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     page = max(1, int(page or 1))
     page_size = min(100, max(1, int(page_size or 30)))
     query = db.query(RequirementCandidateRow)
@@ -1577,7 +1578,7 @@ def reject_candidate(
     return row
 
 
-def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> dict[str, Any]:
+def materialize_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> ServiceObjectResult:
     row = db.get(RequirementCandidateRow, candidate_id)
     if row is None:
         raise ValueError("candidate not found")
@@ -1686,7 +1687,7 @@ def _auto_run_status(detail: dict[str, Any]) -> str:
     return "workflow_started"
 
 
-def approve_and_run_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> dict[str, Any]:
+def approve_and_run_candidate(db: Session, candidate_id: int, *, operator: str = "operator") -> ServiceObjectResult:
     """Approve a candidate, materialize it, and immediately start its workflow.
 
     This is intentionally not a resurrection of legacy requirement approval. The
@@ -1738,7 +1739,7 @@ def drop_goal(
     reason: str,
     operator: str = "operator",
     halt_mode: str = "safe_halt",
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     if not reason.strip():
         raise ValueError("drop reason is required")
     manifest = db.get(OperatingManifestRow, manifest_id)
@@ -1884,3 +1885,9 @@ def drop_goal(
         "halt_summary": summary,
         "decision": decision,
     }
+
+
+for _name in "goal_to_dict manifest_to_dict candidate_to_dict sweep_to_dict list_manifest_history goal_rollup mission_control_snapshot get_goal goal_trace create_goal update_goal list_candidates materialize_candidate approve_and_run_candidate drop_goal".split():
+    globals()[_name] = service_object_result(globals()[_name])
+list_goals = service_list_result(list_goals)
+del _name

@@ -8,11 +8,12 @@ automation permission lives here and in project/workflow policy.
 """
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Mapping
 
 from sqlalchemy.orm import Session
 
 from server.database import ProjectPolicyRow, RequirementCandidateRow
+from server.services.result_objects import ServiceObjectResult
 from server.services.workflows.declarative import built_in_workflow_specs
 
 
@@ -39,12 +40,14 @@ class CandidateRoutingDecision:
     reason: str
     policy_version: str = ROUTER_POLICY_VERSION
 
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "decision": self.decision,
-            "reason": self.reason,
-            "policy_version": self.policy_version,
-        }
+    def to_dict(self) -> ServiceObjectResult:
+        return ServiceObjectResult(
+            {
+                "decision": self.decision,
+                "reason": self.reason,
+                "policy_version": self.policy_version,
+            }
+        )
 
 
 def route_candidate(db: Session, candidate: RequirementCandidateRow) -> CandidateRoutingDecision:
@@ -92,4 +95,3 @@ def _project_policy_requires_review(db: Session, candidate: RequirementCandidate
     if autonomy_mode in {"execute_autonomously", "autonomous", "auto"}:
         return False
     return bool(policy.requires_manual_approval)
-

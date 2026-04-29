@@ -27,6 +27,7 @@ from server.services.planning.lifecycle import (
     ensure_active_manifest,
     goal_to_dict,
 )
+from server.services.result_objects import ServiceObjectResult, service_object_result
 
 OPPORTUNITY_STATUSES = {"proposed", "goal_created", "rejected", "deferred"}
 RECOMMENDED_LANES = {"growth_lead", "software_engineer", "both"}
@@ -98,7 +99,8 @@ def _optional_text(value: Any) -> str | None:
     return _text(value) or None
 
 
-def product_opportunity_to_dict(row: ProductOpportunityRow) -> dict[str, Any]:
+@service_object_result
+def product_opportunity_to_dict(row: ProductOpportunityRow) -> ServiceObjectResult:
     return {
         "id": int(row.id),
         "manifest_id": int(row.manifest_id),
@@ -239,7 +241,10 @@ def _default_opportunity_specs(
     ]
 
 
-def run_product_planning_sweep(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+@service_object_result
+def run_product_planning_sweep(
+    db: Session, *, dry_run: bool = False
+) -> ServiceObjectResult:
     ensure_product_opportunity_table(db)
     manifest = ensure_active_manifest(db)
     specs = _default_opportunity_specs(db, manifest)
@@ -289,9 +294,10 @@ def run_product_planning_sweep(db: Session, *, dry_run: bool = False) -> dict[st
     }
 
 
+@service_object_result
 def list_product_opportunities(
     db: Session, *, status: str | None = None, limit: int = 50
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     ensure_product_opportunity_table(db)
     query = db.query(ProductOpportunityRow)
     if status and status != "all":
@@ -317,9 +323,10 @@ def get_product_opportunity(db: Session, opportunity_id: int) -> ProductOpportun
     return row
 
 
+@service_object_result
 def reject_product_opportunity(
     db: Session, opportunity_id: int, *, operator: str, reason: str
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     row = get_product_opportunity(db, opportunity_id)
     if str(row.status) == "goal_created":
         raise ValueError("converted opportunities cannot be rejected")
@@ -332,9 +339,10 @@ def reject_product_opportunity(
     return product_opportunity_to_dict(row)
 
 
+@service_object_result
 def defer_product_opportunity(
     db: Session, opportunity_id: int, *, operator: str, reason: str
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     row = get_product_opportunity(db, opportunity_id)
     if str(row.status) == "goal_created":
         raise ValueError("converted opportunities cannot be deferred")
@@ -411,9 +419,10 @@ def _mark_goal_created(
     row.updated_at = utcnow()
 
 
+@service_object_result
 def create_goal_from_product_opportunity(
     db: Session, opportunity_id: int, *, operator: str
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     row = get_product_opportunity(db, opportunity_id)
     existing = _existing_goal_response(db, row)
     if existing is not None:
@@ -431,7 +440,8 @@ def create_goal_from_product_opportunity(
     }
 
 
-def product_opportunity_summary(db: Session) -> dict[str, Any]:
+@service_object_result
+def product_opportunity_summary(db: Session) -> ServiceObjectResult:
     ensure_product_opportunity_table(db)
     rows = db.query(ProductOpportunityRow).all()
     counts: dict[str, int] = {status: 0 for status in OPPORTUNITY_STATUSES}

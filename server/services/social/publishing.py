@@ -1,5 +1,4 @@
 """Social publishing service with human-gated X posting."""
-
 from __future__ import annotations
 
 import json
@@ -19,11 +18,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
 from server import config
 from server.database import (
     SessionLocal,
@@ -64,11 +61,11 @@ from server.schemas import (
 )
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
+from server.services.result_objects import ServiceListResult, ServiceObjectResult, service_list_result, service_object_result
 from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
 from server.services.social.reply_agent import generate_x_reply_for_candidate
 from server.services.social.reply_records import apply_generated_reply_to_row, reply_agent_failure_summary
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
-
 DEFAULT_X_HANDLE = "SynapseNetworkA"
 DEFAULT_X_SECRET_REF = "x-official"
 X_POST_URL = "https://api.x.com/2/tweets"
@@ -641,7 +638,7 @@ def _operator_local_date(value: datetime | None = None) -> str:
     return _ensure_aware_utc(value).astimezone(_operator_timezone()).date().isoformat()
 
 
-def run_content_policy_check(body_text: str) -> dict[str, Any]:
+def run_content_policy_check(body_text: str) -> ServiceObjectResult:
     """Deterministic content policy check for a human-gated X post."""
 
     text = str(body_text or "").strip()
@@ -1011,7 +1008,7 @@ def ensure_default_social_ops_seed(db: Session) -> None:
         db.rollback()
 
 
-def list_social_accounts(db: Session) -> list[dict[str, Any]]:
+def list_social_accounts(db: Session) -> ServiceListResult:
     ensure_default_social_account(db)
     rows = db.query(SocialAccountRow).order_by(SocialAccountRow.platform.asc(), SocialAccountRow.handle.asc()).all()
     return [_account_out(row) for row in rows]
@@ -1394,7 +1391,7 @@ def _create_reply_from_repost_candidate(
             actor=actor,
             generated=generated,
             failure_summary=None,
-            policy=run_content_policy_check(generated.suggested_reply),
+            policy=run_content_policy_check(generated.suggested_reply).model_dump(),
         )
     except Exception as exc:
         apply_generated_reply_to_row(
@@ -1794,7 +1791,7 @@ def _build_daily_planner_prompt(
     return prompt, metadata
 
 
-def run_x_social_daily_content_planner(db: Session, *, now: datetime | None = None) -> dict[str, Any]:
+def run_x_social_daily_content_planner(db: Session, *, now: datetime | None = None) -> ServiceObjectResult:
     """Generate at most one human-reviewed X draft per operator-local day."""
 
     ensure_default_social_ops_seed(db)
@@ -1885,7 +1882,7 @@ def run_x_social_daily_content_planner(db: Session, *, now: datetime | None = No
     }
 
 
-def run_x_social_trend_radar_sweep(db: Session, *, min_relevance_score: float = 0.70) -> dict[str, Any]:
+def run_x_social_trend_radar_sweep(db: Session, *, min_relevance_score: float = 0.70) -> ServiceObjectResult:
     """Read X watchlist timelines, then summarize retained trend items.
 
     The sweep is read-only against X: it never likes, follows, replies, reposts,
@@ -1937,7 +1934,7 @@ def run_x_social_trend_radar_sweep(db: Session, *, min_relevance_score: float = 
     }
 
 
-def run_x_social_repost_candidate_sweep(db: Session, *, min_relevance_score: float = 0.75, max_created: int = 5) -> dict[str, Any]:
+def run_x_social_repost_candidate_sweep(db: Session, *, min_relevance_score: float = 0.75, max_created: int = 5) -> ServiceObjectResult:
     """Create human-gated quote/repost candidates from retained trend items only."""
 
     ensure_default_social_ops_seed(db)
@@ -1991,7 +1988,7 @@ def run_x_social_repost_candidate_sweep(db: Session, *, min_relevance_score: flo
     }
 
 
-def run_x_social_reply_candidate_sweep(db: Session, *, max_created: int = 1) -> dict[str, Any]:
+def run_x_social_reply_candidate_sweep(db: Session, *, max_created: int = 1) -> ServiceObjectResult:
     """Create human-reviewed reply drafts from real X repost candidates.
 
     The sweep never calls X write APIs. It chooses at most one unprocessed
@@ -2102,7 +2099,7 @@ def create_social_post(db: Session, body: SocialPostCreateRequest) -> SocialPost
         target_audience=body.target_audience,
         cta=body.cta,
         agent_rationale=body.agent_rationale,
-        policy_check_json=_json_dumps(policy),
+        policy_check_json=_json_dumps(policy.model_dump()),
         raw_agent_output_json=_json_dumps(body.raw_agent_output),
     )
     db.add(row)
@@ -2199,7 +2196,7 @@ def _finalize_generated_social_post(
         row.status = generated_status
         row.reviewed_by = actor if generated_status == "approved" else None
         row.failure_summary = None
-        row.policy_check_json = _json_dumps(policy)
+        row.policy_check_json = _json_dumps(policy.model_dump())
         row.raw_agent_output_json = _json_dumps(
             {
                 "source": "llm_social_content_agent_v1",
@@ -2246,7 +2243,7 @@ def _finalize_generated_social_post(
             return
         row.status = "failed"
         row.failure_summary = _bounded_excerpt(str(exc), max_chars=1000)
-        row.policy_check_json = _json_dumps(run_content_policy_check(row.body_text or ""))
+        row.policy_check_json = _json_dumps(run_content_policy_check(row.body_text or "").model_dump())
         row.raw_agent_output_json = _json_dumps(
             {
                 "source": "llm_social_content_agent_v1",
@@ -2371,7 +2368,7 @@ def update_social_post(db: Session, post_id: int, body: SocialPostPatchRequest) 
         row.review_note = body.review_note
 
     policy = run_content_policy_check(row.body_text)
-    row.policy_check_json = _json_dumps(policy)
+    row.policy_check_json = _json_dumps(policy.model_dump())
     if body.status == "approved":
         if policy["status"] != "passed":
             raise ValueError("blocked social content cannot be approved")
@@ -2899,7 +2896,7 @@ def publish_social_post_to_x(db: Session, post_id: int, body: SocialPostPublishR
     if row.status not in {"approved", "failed"}:
         raise ValueError("only approved or failed social drafts can be published to X")
     policy = run_content_policy_check(row.body_text)
-    row.policy_check_json = _json_dumps(policy)
+    row.policy_check_json = _json_dumps(policy.model_dump())
     if policy["status"] != "passed":
         raise ValueError("blocked social content cannot be published")
     media_assets = sorted(getattr(row, "media_assets", []) or [], key=lambda asset: int(asset.id or 0))
@@ -3031,7 +3028,7 @@ def publish_social_repost_candidate_to_x(
         status="approved",
         generated_by="x_social_repost_candidate_sweep",
         reviewed_by=body.actor,
-        policy_check_json=_json_dumps(policy),
+        policy_check_json=_json_dumps(policy.model_dump()),
         raw_agent_output_json=_json_dumps(
             {
                 "repost_candidate_id": int(candidate.id),
@@ -3078,7 +3075,7 @@ def generate_social_reply_for_repost_candidate(
     return _social_reply_out(row)
 
 
-def regenerate_unpublished_social_replies_with_agent(db: Session, *, actor: str = "operator") -> dict[str, Any]:
+def regenerate_unpublished_social_replies_with_agent(db: Session, *, actor: str = "operator") -> ServiceObjectResult:
     """Regenerate non-settled reply drafts with the real reply agent.
 
     Published and rejected records are audit results and are intentionally left
@@ -3143,7 +3140,7 @@ def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchReques
     if row.suggested_reply and row.status != "published_manual":
         policy = run_content_policy_check(row.suggested_reply)
         metadata = _json_loads(row.metadata_json, {})
-        metadata["policy_check"] = policy
+        metadata["policy_check"] = policy.model_dump()
         row.metadata_json = _json_dumps(metadata)
         if policy["status"] != "passed":
             row.status = "failed"
@@ -3234,3 +3231,6 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     db.commit()
     db.refresh(row)
     return _social_reply_out(row)
+
+for _name in "run_content_policy_check run_x_social_daily_content_planner run_x_social_trend_radar_sweep run_x_social_repost_candidate_sweep run_x_social_reply_candidate_sweep regenerate_unpublished_social_replies_with_agent".split(): globals()[_name] = service_object_result(globals()[_name])
+list_social_accounts = service_list_result(list_social_accounts); del _name

@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import SessionLocal
 from server.logging_utils import log_event
+from server.services.result_objects import (
+    ServiceObjectResult,
+    as_service_object,
+    service_object_result,
+)
 from server.services.scheduling.recurring_workflows import get_recurring_workflow, run_recurring_workflow, sync_recurring_workflows
 
 logger = logging.getLogger("ops-dashboard.goal_planner_scheduler")
@@ -69,12 +74,18 @@ def goal_planner_sweep_due(
     return previous < today_slot <= current
 
 
-def maybe_run_goal_planner_sweep_once(db: Session, *, now: datetime | None = None) -> dict[str, object] | None:
+def maybe_run_goal_planner_sweep_once(
+    db: Session, *, now: datetime | None = None
+) -> ServiceObjectResult | None:
     sync_recurring_workflows(db)
     row = get_recurring_workflow(db, "goal_planner_sweep")
     if not goal_planner_sweep_due(last_run_at=row.last_run_at, now=now):
         return None
-    return run_recurring_workflow(db, workflow_key="goal_planner_sweep", triggered_by="scheduler")
+    return as_service_object(
+        run_recurring_workflow(
+            db, workflow_key="goal_planner_sweep", triggered_by="scheduler"
+        )
+    )
 
 
 class GoalPlannerSweepScheduler:
@@ -108,7 +119,8 @@ class GoalPlannerSweepScheduler:
             self._thread.join(timeout=5)
         log_event(logger, "goal_planner_scheduler_stopped")
 
-    def status_snapshot(self) -> dict[str, object]:
+    @service_object_result
+    def status_snapshot(self) -> ServiceObjectResult:
         return {
             "enabled": bool(config.GOAL_PLANNER_SWEEP_SCHEDULER_ENABLED),
             "running": bool(self._thread is not None and self._thread.is_alive() and not self._stop_event.is_set()),

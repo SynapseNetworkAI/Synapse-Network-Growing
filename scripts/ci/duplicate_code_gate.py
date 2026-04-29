@@ -97,10 +97,42 @@ def _windows(path: Path) -> list[tuple[int, tuple[str, ...]]]:
     return result
 
 
-def duplicate_failures(changed: list[Path]) -> list[str]:
+def _changed_line_ranges(base: str, path: Path) -> list[tuple[int, int]]:
+    if not (ROOT / path).exists():
+        return []
+    try:
+        tracked = bool(
+            run_git(["ls-files", "--error-unmatch", path.as_posix()]).strip()
+        )
+    except RuntimeError:
+        tracked = False
+    if not tracked:
+        line_count = len(
+            (ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()
+        )
+        return [(1, int(line_count or 1))]
+    diff = run_git(["diff", "--unified=0", base, "--", path.as_posix()])
+    ranges: list[tuple[int, int]] = []
+    for match in re.finditer(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", diff):
+        start = int(match.group(1))
+        count = int(match.group(2) or "1")
+        if count > 0:
+            ranges.append((start, start + count - 1))
+    return ranges
+
+
+def _window_touches_changed_lines(line: int, ranges: list[tuple[int, int]]) -> bool:
+    window_end = line + WINDOW - 1
+    return any(line <= end and window_end >= start for start, end in ranges)
+
+
+def duplicate_failures(changed: list[Path], *, base: str) -> list[str]:
+    changed_ranges = {path: _changed_line_ranges(base, path) for path in changed}
     seen: dict[tuple[str, ...], list[tuple[Path, int]]] = defaultdict(list)
     for path in changed:
         for line, chunk in _windows(path):
+            if not _window_touches_changed_lines(line, changed_ranges.get(path) or []):
+                continue
             seen[chunk].append((path, line))
     failures: list[str] = []
     for locations in seen.values():
@@ -128,7 +160,7 @@ def main(argv: list[str]) -> int:
         print("[quality:duplicates] ok (no changed production source files)")
         return 0
 
-    failures = duplicate_failures(changed)
+    failures = duplicate_failures(changed, base=args.base)
 
     if failures:
         print("[quality:duplicates] failed:", file=sys.stderr)

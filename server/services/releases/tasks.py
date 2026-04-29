@@ -21,7 +21,7 @@ from server.schemas import ReleaseBranchOptionOut, ReleaseTaskOut, ReleaseTaskPr
 from server.services.delivery.deployment_governance import _callback_url, _dispatch_github_workflow, _json_dump
 from server.services.delivery.pull_request import _gh_env
 from server.services.projects.policy_registry import ensure_default_project_policies
-
+from server.services.result_objects import ServiceObjectResult
 VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
 VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "completed", "failed", "cancelled"}
@@ -976,7 +976,7 @@ def _apply_github_run_to_deployment(
     return "pending"
 
 
-def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> dict[str, Any]:
+def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
     rows = (
         db.query(DeploymentRecordRow)
@@ -1064,7 +1064,7 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
         }.get(state, "pending_ids")
         result[key].append(int(record.id))
     db.commit()
-    return result
+    return ServiceObjectResult(result)
 
 
 def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from server import config
 from server.database import SessionLocal
 from server.logging_utils import log_event
+from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.scheduling.recurring_workflows import run_recurring_workflow, sync_recurring_workflows
 
 logger = logging.getLogger("ops-dashboard.release_deployment_status_scheduler")
@@ -53,7 +54,8 @@ class ReleaseDeploymentStatusSweepScheduler:
             self._thread.join(timeout=5)
         log_event(logger, "release_deployment_status_scheduler_stopped")
 
-    def status_snapshot(self) -> dict[str, object]:
+    @service_object_result
+    def status_snapshot(self) -> ServiceObjectResult:
         return {
             "enabled": bool(config.RELEASE_DEPLOYMENT_STATUS_SWEEP_SCHEDULER_ENABLED),
             "running": bool(self._thread is not None and self._thread.is_alive() and not self._stop_event.is_set()),

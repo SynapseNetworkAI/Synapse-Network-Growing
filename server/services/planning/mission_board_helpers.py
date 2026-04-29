@@ -5,6 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from server.services.result_objects import (
+    ServiceListResult,
+    ServiceObjectResult,
+    service_list_result,
+    service_object_result,
+)
+
 ACTIVE_REQUIREMENT_STATUSES = {
     "draft",
     "planning",
@@ -38,6 +45,7 @@ def iso_timestamp(value: Any) -> str | None:
     return str(value)
 
 
+@service_object_result
 def mission_item(
     *,
     item_id: str,
@@ -49,7 +57,7 @@ def mission_item(
     deep_link: str | None = None,
     evidence_label: str = "",
     updated_at: Any = None,
-) -> dict[str, Any]:
+) -> ServiceObjectResult:
     return {
         "id": item_id,
         "type": item_type,
@@ -84,5 +92,6 @@ def mission_item_priority(item: dict[str, Any]) -> tuple[int, str]:
     return (severity + type_boost, str(item.get("updated_at") or ""))
 
 
-def sort_mission_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+@service_list_result
+def sort_mission_items(items: list[dict[str, Any]]) -> ServiceListResult:
     return sorted(items, key=mission_item_priority)[:50]

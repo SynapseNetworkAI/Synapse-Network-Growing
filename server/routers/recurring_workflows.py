@@ -1,4 +1,5 @@
 """Recurring COO workflow registry API."""
+
 from __future__ import annotations
 
 import logging
@@ -8,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.logging_utils import timed_operation
-from server.schemas import RecurringWorkflowHealthOut, RecurringWorkflowOut, RecurringWorkflowRunOut, RecurringWorkflowRunRequest, RecurringWorkflowRunResultOut
+from server.schemas import (
+    RecurringWorkflowHealthOut,
+    RecurringWorkflowOut,
+    RecurringWorkflowRunOut,
+    RecurringWorkflowRunRequest,
+    RecurringWorkflowRunResultOut,
+)
 from server.services.scheduling.recurring_workflows import (
     get_recurring_workflow,
     list_recurring_workflow_runs,
@@ -35,24 +42,42 @@ def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(g
     bug_scheduler = getattr(request.app.state, "bug_log_scheduler", None)
     goal_planner_scheduler = getattr(request.app.state, "goal_planner_scheduler", None)
     ci_status_scheduler = getattr(request.app.state, "ci_status_scheduler", None)
-    release_pr_status_scheduler = getattr(request.app.state, "release_pr_status_scheduler", None)
-    release_deployment_status_scheduler = getattr(request.app.state, "release_deployment_status_scheduler", None)
+    release_pr_status_scheduler = getattr(
+        request.app.state, "release_pr_status_scheduler", None
+    )
+    release_deployment_status_scheduler = getattr(
+        request.app.state, "release_deployment_status_scheduler", None
+    )
     x_social_scheduler = getattr(request.app.state, "x_social_scheduler", None)
-    notification_dispatcher = getattr(request.app.state, "notification_dispatcher", None)
+    notification_dispatcher = getattr(
+        request.app.state, "notification_dispatcher", None
+    )
     return RecurringWorkflowHealthOut(
         **recurring_workflow_health(
             db,
-            bug_scheduler_status=bug_scheduler.status_snapshot() if bug_scheduler is not None else None,
-            goal_planner_scheduler_status=goal_planner_scheduler.status_snapshot() if goal_planner_scheduler is not None else None,
-            ci_status_scheduler_status=ci_status_scheduler.status_snapshot() if ci_status_scheduler is not None else None,
-            release_pr_status_scheduler_status=release_pr_status_scheduler.status_snapshot() if release_pr_status_scheduler is not None else None,
+            bug_scheduler_status=bug_scheduler.status_snapshot()
+            if bug_scheduler is not None
+            else None,
+            goal_planner_scheduler_status=goal_planner_scheduler.status_snapshot()
+            if goal_planner_scheduler is not None
+            else None,
+            ci_status_scheduler_status=ci_status_scheduler.status_snapshot()
+            if ci_status_scheduler is not None
+            else None,
+            release_pr_status_scheduler_status=release_pr_status_scheduler.status_snapshot()
+            if release_pr_status_scheduler is not None
+            else None,
             release_deployment_status_scheduler_status=(
                 release_deployment_status_scheduler.status_snapshot()
                 if release_deployment_status_scheduler is not None
                 else None
             ),
-            x_social_scheduler_status=x_social_scheduler.status_snapshot() if x_social_scheduler is not None else None,
-            notification_dispatcher_status=notification_dispatcher.status_snapshot(db) if notification_dispatcher is not None else None,
+            x_social_scheduler_status=x_social_scheduler.status_snapshot()
+            if x_social_scheduler is not None
+            else None,
+            notification_dispatcher_status=notification_dispatcher.status_snapshot(db)
+            if notification_dispatcher is not None
+            else None,
         )
     )
 
@@ -60,7 +85,9 @@ def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(g
 @router.get("/{workflow_key}", response_model=RecurringWorkflowOut)
 def get_recurring_workflow_endpoint(workflow_key: str, db: Session = Depends(get_db)):
     try:
-        with timed_operation(logger, "recurring_workflows_get", workflow_key=workflow_key, slow_ms=1000):
+        with timed_operation(
+            logger, "recurring_workflows_get", workflow_key=workflow_key, slow_ms=1000
+        ):
             row = get_recurring_workflow(db, workflow_key)
             return RecurringWorkflowOut(**recurring_workflow_to_dict(row))
     except ValueError as exc:
@@ -75,7 +102,10 @@ def list_recurring_workflow_runs_endpoint(
 ):
     try:
         rows = list_recurring_workflow_runs(db, workflow_key, limit=limit)
-        return [RecurringWorkflowRunOut(**recurring_workflow_run_to_dict(row)) for row in rows]
+        return [
+            RecurringWorkflowRunOut(**recurring_workflow_run_to_dict(row))
+            for row in rows
+        ]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -94,7 +124,9 @@ def run_recurring_workflow_endpoint(
     db: Session = Depends(get_db),
 ):
     try:
-        with timed_operation(logger, "recurring_workflows_run", workflow_key=workflow_key, slow_ms=1200):
+        with timed_operation(
+            logger, "recurring_workflows_run", workflow_key=workflow_key, slow_ms=1200
+        ):
             return RecurringWorkflowRunResultOut(
                 **run_recurring_workflow(
                     db,
@@ -109,4 +141,9 @@ def run_recurring_workflow_endpoint(
                 )
             )
     except ValueError as exc:
-        raise HTTPException(status_code=400 if "not active" in str(exc).lower() or "unsupported" in str(exc).lower() else 404, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400
+            if "not active" in str(exc).lower() or "unsupported" in str(exc).lower()
+            else 404,
+            detail=str(exc),
+        ) from exc
