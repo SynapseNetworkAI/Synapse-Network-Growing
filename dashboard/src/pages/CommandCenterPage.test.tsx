@@ -25,6 +25,28 @@ const board = {
     domain: 'ops',
     risk_level: 'normal',
   },
+  active_goals: [
+    {
+      id: 1,
+      goal_key: 'synapse_growth_operating_loop',
+      title: 'Build the Synapse growth operating loop',
+      intent_excerpt: 'One active company goal with product, growth, and engineering lanes.',
+      success_metric: 'All active work has a lane.',
+      domain: 'company',
+      status: 'active',
+      risk_level: 'normal',
+    },
+    {
+      id: 2,
+      goal_key: 'sdk_developer_quickstart',
+      title: 'SDK & Developer Experience quickstart',
+      intent_excerpt: 'Turn the SDK quickstart into an evidence-bound engineering lane.',
+      success_metric: 'Quickstart demo completes with receipt evidence.',
+      domain: 'product',
+      status: 'active',
+      risk_level: 'normal',
+    },
+  ],
   lanes: {
     product_planner: [
       {
@@ -135,11 +157,13 @@ describe('CommandCenterPage mission dashboard', () => {
   it('renders a read-only nested mission board with unassigned red light', async () => {
     renderCommandCenter()
 
-    expect(await screen.findByText('Build the Synapse growth operating loop')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('mission-board')).toBeInTheDocument())
+    expect(screen.getAllByText('Build the Synapse growth operating loop').length).toBeGreaterThan(0)
     expect(screen.getByTestId('mission-lane-product_planner')).toHaveTextContent('Add conversion tracking for staging visits')
     expect(screen.getByTestId('mission-lane-growth_lead')).toHaveTextContent('X launch proof draft')
     expect(screen.getByTestId('mission-lane-software_engineer')).toHaveTextContent('Workflow #13: agent_self_repair')
     expect(screen.getByTestId('mission-traction-proof')).toHaveTextContent('Evidence, not vibes')
+    expect(screen.getByTestId('active-business-goals')).toHaveTextContent('SDK & Developer Experience quickstart')
     expect(screen.getByTestId('mission-traction-proof')).toHaveTextContent('Docs / staging visits')
     expect(screen.getByRole('link', { name: 'Unassigned 1' })).toHaveAttribute('href', '/planning?tab=unassigned')
   })

@@ -3,6 +3,7 @@ import subprocess
 from types import SimpleNamespace
 
 from server.database import (
+    PlanningGoalRow,
     RequirementCandidateRow,
     RequirementRow,
     WorkflowRunRow,
@@ -14,7 +15,18 @@ from server.services.planning.mission_lane_items import (
     requirement_next_action,
     workflow_next_action,
 )
-from server.services.planning.mission_board import mission_board_snapshot
+from server.services.planning import mission_workbench as mission_workbench_module
+from server.services.planning.mission_board import (
+    _primary_active_goal,
+    _software_items_for_active_goals,
+    mission_board_snapshot,
+)
+from server.services.planning.mission_workbench import (
+    _aggregate_stage_status,
+    _detail_api_for_item,
+    _normalize_stage_status,
+    mission_workbench_snapshot,
+)
 from server.services.planning.product_opportunities import run_product_planning_sweep
 
 
@@ -25,6 +37,7 @@ def test_mission_board_returns_fixed_nested_lanes(db_session):
     board = mission_board_snapshot(db_session)
 
     assert board["active_goal"] is not None
+    assert board["active_goals"]
     assert set(board["lanes"]) == {
         "product_planner",
         "growth_lead",
@@ -53,6 +66,82 @@ def test_mission_board_api_returns_tree_not_graph(client):
     assert "next_actions" in payload
     assert "nodes" not in payload
     assert "edges" not in payload
+    assert "active_goals" in payload
+
+
+def test_mission_workbench_api_returns_tree_grid_projection(client):
+    response = client.get("/api/planning/mission-workbench")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "nodes" not in payload
+    assert "edges" not in payload
+    assert payload["root"] is not None
+    assert payload["root"]["type"] == "company_goal"
+    assert set(payload["root"]["stage_statuses"]) == {
+        "opportunity",
+        "candidate",
+        "requirement",
+        "workflow",
+        "pr",
+        "release",
+        "online_record",
+    }
+
+
+def test_mission_workbench_status_helpers_cover_stage_variants():
+    assert _normalize_stage_status("failed") == "blocked"
+    assert _normalize_stage_status("queued") == "running"
+    assert _normalize_stage_status("merged") == "completed"
+    assert _normalize_stage_status("ready") == "active"
+    assert _normalize_stage_status("unknown") == "missing"
+    assert _aggregate_stage_status(["missing", "blocked"]) == "blocked"
+    assert _aggregate_stage_status(["missing", "running"]) == "running"
+    assert _aggregate_stage_status(["missing", "completed"]) == "completed"
+    assert _detail_api_for_item("invalid") is None
+
+
+def test_mission_workbench_returns_empty_tree_without_active_goal(db_session, monkeypatch):
+    manifest = ensure_active_manifest(db_session)
+    monkeypatch.setattr(mission_workbench_module, "_active_goals", lambda _db, _manifest_id: [])
+
+    payload = mission_workbench_snapshot(db_session)
+
+    assert payload["root"] is None
+    assert payload["summary"]["active_goal_count"] == 0
+    assert payload["manifest"]["id"] == manifest.id
+
+
+def test_mission_board_private_helpers_cover_primary_and_dedup(db_session, monkeypatch):
+    company = {"goal_key": "company", "domain": "company"}
+    product = {"goal_key": "product", "domain": "product"}
+    assert _primary_active_goal([]) is None
+    assert _primary_active_goal([product, company]) == company
+
+    def fake_software_items(_db, _manifest_id, goal_key):
+        return [
+            {
+                "id": "candidate:1",
+                "type": "requirement_candidate",
+                "title": f"Shared item {goal_key}",
+                "status": "pending",
+                "risk_level": "normal",
+                "next_action": "Review.",
+                "deep_link": "/planning?tab=engineering",
+                "evidence_label": "",
+                "updated_at": None,
+            }
+        ]
+
+    monkeypatch.setattr(
+        "server.services.planning.mission_board.software_items", fake_software_items
+    )
+    items = _software_items_for_active_goals(
+        db_session,
+        1,
+        [{"goal_key": ""}, {"goal_key": "a"}, {"goal_key": "b"}],
+    )
+    assert [item["id"] for item in items] == ["candidate:1"]
 
 
 def test_mission_board_projects_engineering_work_under_active_goal(db_session):
@@ -75,6 +164,87 @@ def test_mission_board_projects_engineering_work_under_active_goal(db_session):
 
     titles = [item["title"] for item in board["lanes"]["software_engineer"]]
     assert "Implement core loop candidate" in titles
+
+
+def test_mission_board_aggregates_engineering_work_across_active_goals(db_session):
+    manifest = ensure_active_manifest(db_session)
+    db_session.add(
+        PlanningGoalRow(
+            manifest_id=int(manifest.id),
+            goal_key="sdk_developer_quickstart",
+            title="SDK & Developer Experience quickstart",
+            intent_markdown="Ship SDK quickstart proof.",
+            success_metric="SDK demo completes with receipt evidence.",
+            domain="product",
+            status="active",
+            workflow_key="agent_self_repair",
+            project_key="synapse-network-sdk",
+        )
+    )
+    db_session.add(
+        RequirementCandidateRow(
+            manifest_id=int(manifest.id),
+            goal_key="sdk_developer_quickstart",
+            candidate_fingerprint="candidate-sdk-quickstart",
+            title="Create SDK quickstart evidence candidate",
+            workflow_key="agent_self_repair",
+            risk_level="normal",
+            confidence=0.9,
+            status="pending",
+        )
+    )
+    db_session.commit()
+
+    board = mission_board_snapshot(db_session)
+
+    assert len(board["active_goals"]) >= 2
+    titles = [item["title"] for item in board["lanes"]["software_engineer"]]
+    assert "Create SDK quickstart evidence candidate" in titles
+
+
+def test_mission_workbench_nests_goal_lane_and_candidate(db_session):
+    manifest = ensure_active_manifest(db_session)
+    db_session.add(
+        PlanningGoalRow(
+            manifest_id=int(manifest.id),
+            goal_key="sdk_developer_quickstart",
+            title="SDK & Developer Experience quickstart",
+            intent_markdown="Ship SDK quickstart proof.",
+            success_metric="SDK demo completes with receipt evidence.",
+            domain="product",
+            status="active",
+            workflow_key="agent_self_repair",
+            project_key="synapse-network-sdk",
+        )
+    )
+    db_session.add(
+        RequirementCandidateRow(
+            manifest_id=int(manifest.id),
+            goal_key="sdk_developer_quickstart",
+            candidate_fingerprint="candidate-sdk-quickstart-workbench",
+            title="Create SDK quickstart evidence candidate",
+            workflow_key="agent_self_repair",
+            risk_level="normal",
+            confidence=0.9,
+            status="pending",
+        )
+    )
+    db_session.commit()
+
+    workbench = mission_workbench_snapshot(db_session)
+
+    root = workbench["root"]
+    sdk_goal = next(
+        child for child in root["children"] if child["id"] == "goal:sdk_developer_quickstart"
+    )
+    software_lane = next(
+        child for child in sdk_goal["children"] if child["lane"] == "software_engineer"
+    )
+    assert software_lane["stage_statuses"]["candidate"] == "waiting"
+    assert any(
+        child["title"] == "Create SDK quickstart evidence candidate"
+        for child in software_lane["children"]
+    )
 
 
 def test_mission_board_projects_active_goal_traction_proof(db_session):

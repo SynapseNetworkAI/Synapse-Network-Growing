@@ -308,30 +308,7 @@ def test_x_social_helper_branches_are_deterministic(monkeypatch, db_session):
         == "34567"
     )
     assert social_publishing._extract_x_post_id("https://example.com/no-id") == ""
-    assert (
-        "governed access"
-        in social_publishing._reply_generation_for_candidate(
-            SocialRepostCandidateRow(
-                source_text="Agentic APIs and developer infrastructure need reliable tools."
-            )
-        )[0]
-    )
-    assert (
-        "Better models"
-        in social_publishing._reply_generation_for_candidate(
-            SocialRepostCandidateRow(
-                source_text="Frontier model inference and coding agents keep improving."
-            )
-        )[0]
-    )
-    assert (
-        "Useful signal"
-        in social_publishing._reply_generation_for_candidate(
-            SocialRepostCandidateRow(
-                source_text="A broad ecosystem update without obvious keywords."
-            )
-        )[0]
-    )
+    assert not hasattr(social_publishing, "_reply_generation_for_candidate")
 
     watch = SocialWatchlistAccountRow(
         handle="TimezoneAI", last_checked_at=datetime.now(timezone.utc)

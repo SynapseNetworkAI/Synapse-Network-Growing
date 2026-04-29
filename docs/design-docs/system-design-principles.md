@@ -151,7 +151,7 @@
 28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
 29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
 30. X 趋势结果检索属于只读运营情报面。`/publishing/trends` 可以按日期、关键字、来源类型和作者检索 `social_trend_items`，但不得触发抓取、回复、转发或发布；趋势详情必须使用居中 Modal，并用 `source_url` 明确区分真实 X 原帖与本地趋势种子。
-31. X 回帖增长必须先落入 `social_reply_items` 人审队列。`x_social_reply_candidate_sweep` 每 30 分钟最多生成 1 条回复草稿；公开回复必须由 operator 在 `/publishing -> 回帖处理` 确认，且必须使用 X reply payload 绑定 `in_reply_to_tweet_id`，不得发成普通推文或自动刷评论。
+31. X 回帖增长必须先落入 `social_reply_items` 人审队列。`x_social_reply_candidate_sweep` 每 30 分钟最多调用真实 `social_reply_agent_v1` 生成 1 条回复草稿；不得使用 deterministic 模板或 fallback 冒充 Agent。公开回复必须由 operator 在 `/publishing -> 回帖处理` 确认，且必须使用 X reply payload 绑定 `in_reply_to_tweet_id`，不得发成普通推文或自动刷评论。
 
 ## 6.8 Planning Lifecycle 必须数据穿透且 Drop Goal 不自动回滚
 
@@ -176,9 +176,10 @@
 19. `product_planning_sweep` 是 proposal-only recurring workflow；正式 Goal 必须由 operator 在 `/planning` 审核后创建，并保留 opportunity lineage。
 20. 同一时间应优先保持单个 active `code_delivery` 工程执行面，避免 software_engineer lane 与其它代码类 workflow 发生无谓冲突；排队优先于复杂冲突解决。
 21. Goal Mission Board 必须是嵌套树结构：`active_goal -> product_planner / growth_lead / software_engineer -> task cards`。禁止为了 v1 Mission Map 引入 React Flow、D3、G6、canvas 或 graph `nodes[] / edges[]` API。
-22. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
-23. `/planning` 是操作处理态；必须提供 `产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
-24. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
+22. Mission Workbench 是 `/planning` 默认操作态视图，必须使用 TreeGrid + Stage Rail 表达 `Company Goal -> Business/Product Goal -> Mission Lane -> Work Item` 与 `opportunity / candidate / requirement / workflow / pr / release / online_record` 流程状态；不得退化成无层级的平铺列表，也不得升级成复杂画布图。
+23. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
+24. `/planning` 是操作处理态；必须提供 `Mission Workbench`、`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
+25. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
 
@@ -282,7 +283,7 @@ Social Publishing 负责：
 8. 趋势雷达、watchlist、回帖处理、引用转发候选和发布效果 metrics 只能作为 read-only / draft-only 决策输入；它们不能自动点赞、关注、回复、转发或发布。
 9. 第三方增长工具只能作为只读素材源或草稿源接入，必须通过内部 brand refinement、risk evidence gate 和 Human Gate 后才能对外行动。
 10. Trend Radar 的来源必须可解释：真实 X 数据展示 `source_platform=x`、作者、source URL、采集时间和互动摘要；本地趋势种子必须标记为 seed/inspiration，并禁用引用转发。
-11. Reply Inbox / 回帖处理必须强调 “value-add reply”：Agent 生成评论要正向、相关并补充观点，不得只是 `Great point`、硬广链接或碰瓷式互动；每条候选最多生成/发布一次回复。
+11. Reply Inbox / 回帖处理必须强调 “value-add reply”：`social_reply_agent_v1` 生成评论要正向、相关并补充观点，不得只是 `Great point`、硬广链接或碰瓷式互动；Agent 不可用时必须 fail closed 并显示 root cause，不得用模板兜底；每条候选最多公开发布一次回复。
 
 Social Publishing 不得承担：
 

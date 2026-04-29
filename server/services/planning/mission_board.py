@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.services.planning.lifecycle import ensure_active_manifest, goal_to_dict
-from server.services.planning.mission_board_helpers import iso_timestamp
+from server.services.planning.mission_board_helpers import iso_timestamp, sort_mission_items
 from server.services.planning.mission_lane_items import (
     growth_items,
     product_planner_items,
@@ -33,11 +33,39 @@ def _goal_rows(db: Session, manifest_id: int):
     )
 
 
-def _active_goal(db: Session, manifest_id: int) -> dict[str, Any] | None:
-    for row in _goal_rows(db, manifest_id):
-        if str(row.status or "active") == "active":
-            return goal_to_dict(row, include_intent=False)
-    return None
+def _active_goals(db: Session, manifest_id: int) -> list[dict[str, Any]]:
+    return [
+        goal_to_dict(row, include_intent=False)
+        for row in _goal_rows(db, manifest_id)
+        if str(row.status or "active") == "active"
+    ]
+
+
+def _primary_active_goal(goals: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not goals:
+        return None
+    for goal in goals:
+        if str(goal.get("domain") or "") == "company":
+            return goal
+    return goals[0]
+
+
+def _software_items_for_active_goals(
+    db: Session, manifest_id: int, goals: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    items: list[dict[str, Any]] = []
+    for goal in goals:
+        goal_key = str(goal.get("goal_key") or "")
+        if not goal_key:
+            continue
+        for item in software_items(db, manifest_id, goal_key):
+            item_id = str(item.get("id") or "")
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+            items.append(item)
+    return sort_mission_items(items)
 
 
 def _next_actions(
@@ -73,12 +101,15 @@ def mission_board_snapshot(db: Session) -> dict[str, Any]:
     ensure_product_opportunity_table(db)
     manifest = ensure_active_manifest(db)
     manifest_id = int(manifest.id)
-    active_goal = _active_goal(db, manifest_id)
+    active_goals = _active_goals(db, manifest_id)
+    active_goal = _primary_active_goal(active_goals)
     active_goal_key = str(active_goal.get("goal_key") or "") if active_goal else None
     lanes = {
         "product_planner": product_planner_items(db, manifest_id),
         "growth_lead": growth_items(db),
-        "software_engineer": software_items(db, manifest_id, active_goal_key),
+        "software_engineer": _software_items_for_active_goals(
+            db, manifest_id, active_goals
+        ),
     }
     orphaned_items = unassigned_items(db, manifest_id)
     traction_proof = active_goal_traction_proof(
@@ -90,6 +121,7 @@ def mission_board_snapshot(db: Session) -> dict[str, Any]:
     )
     return {
         "active_goal": active_goal,
+        "active_goals": active_goals,
         "lanes": lanes,
         "lane_summary": {key: {"count": len(value)} for key, value in lanes.items()},
         "unassigned": {"count": len(orphaned_items), "items": orphaned_items},

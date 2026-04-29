@@ -65,6 +65,8 @@ from server.schemas import (
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
 from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
+from server.services.social.reply_agent import generate_x_reply_for_candidate
+from server.services.social.reply_records import apply_generated_reply_to_row, reply_agent_failure_summary
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
 
 DEFAULT_X_HANDLE = "SynapseNetworkA"
@@ -1354,41 +1356,12 @@ def _extract_x_post_id(source_url: str | None) -> str:
     return match.group(1) if match else ""
 
 
-def _reply_generation_for_candidate(candidate: SocialRepostCandidateRow) -> tuple[str, str, str]:
-    source = str(candidate.source_text or "").strip()
-    summary = str(candidate.suggested_quote or "").strip()
-    joined = f"{source}\n{summary}".lower()
-    if any(term in joined for term in ("payment", "settlement", "billing", "micropayment", "budget")):
-        reply = (
-            "This is the missing layer for agentic products: not just smarter models, but governed access, budgets, and settlement that work at machine speed. "
-            "Agent builders need payment rails designed for autonomous workflows."
-        )
-    elif any(term in joined for term in ("api", "tool", "mcp", "developer", "infra", "infrastructure")):
-        reply = (
-            "Strong signal for agent builders. As agents use more tools and APIs, the hard part becomes governed access: permissions, budgets, metering, and settlement. "
-            "That infrastructure layer is becoming as important as the model."
-        )
-    elif any(term in joined for term in ("model", "reason", "coding", "inference", "compute")):
-        reply = (
-            "Better models unlock more autonomous workflows, but those workflows still need rails for tool access, spend control, and service usage. "
-            "The next layer is making agent execution accountable and economically programmable."
-        )
-    else:
-        reply = (
-            "Useful signal for the agent ecosystem. The more capable agents become, the more they need reliable rails for accessing services, controlling spend, and settling usage without manual glue."
-        )
-    reason = (
-        "Generated as a positive, value-add reply that connects the source post to Synapse Network's public thesis: "
-        "AI agents need governed API access, budgets, and payment/settlement rails."
-    )
-    return _bounded_excerpt(reply, max_chars=900), "normal", reason
-
-
 def _create_reply_from_repost_candidate(
     db: Session,
     candidate: SocialRepostCandidateRow,
     *,
     actor: str = "x_social_reply_candidate_sweep",
+    force_regenerate: bool = False,
 ) -> SocialReplyItemRow:
     source_url = str(candidate.source_url or "").strip()
     if not source_url:
@@ -1408,39 +1381,31 @@ def _create_reply_from_repost_candidate(
         .order_by(SocialReplyItemRow.id.desc())
         .first()
     )
-    if existing is not None:
+    if existing is not None and (
+        not force_regenerate or existing.status in {"published", "published_manual", "rejected"}
+    ):
         return existing
-    suggested_reply, risk_level, reason = _reply_generation_for_candidate(candidate)
-    policy = run_content_policy_check(suggested_reply)
-    status = "needs_review" if policy["status"] == "passed" else "failed"
-    failure_summary = None if policy["status"] == "passed" else f"Blocked: {', '.join(policy['blocked_reasons'])}"
-    row = SocialReplyItemRow(
-        platform="x",
-        external_reply_id=f"target:{source_post_id}",
-        source_candidate_id=int(candidate.id),
-        source_post_id=source_post_id,
-        source_author_handle=candidate.author_handle,
-        source_text=candidate.source_text,
-        author_handle=candidate.author_handle,
-        incoming_text=candidate.source_text,
-        intent="repost_candidate_reply",
-        suggested_reply=suggested_reply,
-        generation_reason=reason,
-        risk_level=risk_level,
-        status=status,
-        source_url=source_url,
-        failure_summary=failure_summary,
-        metadata_json=_json_dumps(
-            {
-                "generated_by": actor,
-                "source_candidate_id": int(candidate.id),
-                "policy_check": policy,
-                "human_gate_required": True,
-                "auto_publish": False,
-            }
-        ),
-    )
-    db.add(row)
+    row = existing or SocialReplyItemRow(external_reply_id=f"target:{source_post_id}")
+    try:
+        generated = generate_x_reply_for_candidate(candidate)
+        apply_generated_reply_to_row(
+            row,
+            candidate,
+            actor=actor,
+            generated=generated,
+            failure_summary=None,
+            policy=run_content_policy_check(generated.suggested_reply),
+        )
+    except Exception as exc:
+        apply_generated_reply_to_row(
+            row,
+            candidate,
+            actor=actor,
+            generated=None,
+            failure_summary=reply_agent_failure_summary(exc),
+        )
+    if existing is None:
+        db.add(row)
     db.flush()
     return row
 
@@ -3102,10 +3067,56 @@ def generate_social_reply_for_repost_candidate(
         raise ValueError("social repost candidate not found")
     if candidate.status not in {"candidate", "failed"}:
         raise ValueError("only active repost candidates can generate reply drafts")
-    row = _create_reply_from_repost_candidate(db, candidate, actor=getattr(body, "actor", "operator") or "operator")
+    row = _create_reply_from_repost_candidate(
+        db,
+        candidate,
+        actor=getattr(body, "actor", "operator") or "operator",
+        force_regenerate=True,
+    )
     db.commit()
     db.refresh(row)
     return _social_reply_out(row)
+
+
+def regenerate_unpublished_social_replies_with_agent(db: Session, *, actor: str = "operator") -> dict[str, Any]:
+    """Regenerate non-settled reply drafts with the real reply agent.
+
+    Published and rejected records are audit results and are intentionally left
+    untouched. Each row is handled independently so one provider failure does
+    not hide the remaining rows that still need review.
+    """
+
+    rows = (
+        db.query(SocialReplyItemRow)
+        .filter(SocialReplyItemRow.status.in_(["needs_review", "failed", "approved"]))
+        .order_by(SocialReplyItemRow.id.asc())
+        .all()
+    )
+    regenerated_ids: list[int] = []
+    failed_ids: list[int] = []
+    skipped_ids: list[int] = []
+    for row in rows:
+        candidate = db.get(SocialRepostCandidateRow, row.source_candidate_id) if row.source_candidate_id else None
+        if candidate is None:
+            skipped_ids.append(int(row.id))
+            continue
+        updated = _create_reply_from_repost_candidate(
+            db,
+            candidate,
+            actor=actor,
+            force_regenerate=True,
+        )
+        if updated.status == "failed":
+            failed_ids.append(int(updated.id))
+        else:
+            regenerated_ids.append(int(updated.id))
+        db.commit()
+    return {
+        "regenerated_ids": regenerated_ids,
+        "failed_ids": failed_ids,
+        "skipped_ids": skipped_ids,
+        "processed_count": len(regenerated_ids) + len(failed_ids),
+    }
 
 
 def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchRequest) -> SocialReplyItemOut:

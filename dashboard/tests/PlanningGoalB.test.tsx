@@ -73,6 +73,7 @@ const mission = {
     {
       goal_key: 'goalb',
       goal: {
+        id: 1,
         goal_key: 'goalb',
         domain: 'ops',
         status: 'active',
@@ -104,6 +105,7 @@ const mission = {
 const mockApi = {
   getPlanningMissionControl: vi.fn(),
   getPlanningMissionBoard: vi.fn(),
+  getPlanningMissionWorkbench: vi.fn(),
   getPlanningManifestHistory: vi.fn(),
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
@@ -113,12 +115,17 @@ const mockApi = {
   materializeRequirementCandidate: vi.fn(),
   archiveAndStartPlanningCycle: vi.fn(),
   dropPlanningGoal: vi.fn(),
+  getPlanningGoal: vi.fn(),
+  getPlanningGoalTrace: vi.fn(),
+  createPlanningGoal: vi.fn(),
+  updatePlanningGoal: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
   api: {
     getPlanningMissionControl: (...args: unknown[]) => mockApi.getPlanningMissionControl(...args),
     getPlanningMissionBoard: (...args: unknown[]) => mockApi.getPlanningMissionBoard(...args),
+    getPlanningMissionWorkbench: (...args: unknown[]) => mockApi.getPlanningMissionWorkbench(...args),
     getPlanningManifestHistory: (...args: unknown[]) => mockApi.getPlanningManifestHistory(...args),
     saveActivePlanningManifest: (...args: unknown[]) => mockApi.saveActivePlanningManifest(...args),
     runPlannerSweep: (...args: unknown[]) => mockApi.runPlannerSweep(...args),
@@ -128,6 +135,10 @@ vi.mock('../src/api', () => ({
     materializeRequirementCandidate: (...args: unknown[]) => mockApi.materializeRequirementCandidate(...args),
     archiveAndStartPlanningCycle: (...args: unknown[]) => mockApi.archiveAndStartPlanningCycle(...args),
     dropPlanningGoal: (...args: unknown[]) => mockApi.dropPlanningGoal(...args),
+    getPlanningGoal: (...args: unknown[]) => mockApi.getPlanningGoal(...args),
+    getPlanningGoalTrace: (...args: unknown[]) => mockApi.getPlanningGoalTrace(...args),
+    createPlanningGoal: (...args: unknown[]) => mockApi.createPlanningGoal(...args),
+    updatePlanningGoal: (...args: unknown[]) => mockApi.updatePlanningGoal(...args),
   },
 }))
 
@@ -137,6 +148,7 @@ describe('PlanningPage GoalB mission control', () => {
     mockApi.getPlanningMissionControl.mockResolvedValue(mission)
     mockApi.getPlanningMissionBoard.mockResolvedValue({
       active_goal: mission.goal_lanes[0].goal,
+      active_goals: [mission.goal_lanes[0].goal],
       lanes: {
         product_planner: [],
         growth_lead: [],
@@ -149,6 +161,17 @@ describe('PlanningPage GoalB mission control', () => {
       },
       unassigned: { count: 0, items: [] },
       next_actions: [],
+      manifest: {
+        id: mission.manifest.id,
+        version_name: mission.manifest.version_name,
+        cycle_label: mission.manifest.cycle_label,
+        updated_at: mission.manifest.updated_at,
+      },
+    })
+    mockApi.getPlanningMissionWorkbench.mockResolvedValue({
+      root: null,
+      unassigned: { count: 0, items: [] },
+      summary: { active_goal_count: 1, work_item_count: 0 },
       manifest: {
         id: mission.manifest.id,
         version_name: mission.manifest.version_name,

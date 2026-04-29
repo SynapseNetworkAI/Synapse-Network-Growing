@@ -87,7 +87,7 @@ function reply(overrides: Record<string, unknown> = {}) {
     published_external_post_id: null,
     reviewed_by: null,
     failure_summary: null,
-    metadata: { human_gate_required: true, auto_publish: false },
+    metadata: { generated_by: 'social_reply_agent_v1', model: 'test-reply-model', human_gate_required: true, auto_publish: false },
     created_at: '2026-04-25T00:00:00Z',
     updated_at: '2026-04-25T00:00:00Z',
     ...overrides,

@@ -49,6 +49,7 @@ from server.services.planning.lifecycle import (
     update_goal,
 )
 from server.services.planning.mission_board import mission_board_snapshot
+from server.services.planning.mission_workbench import mission_workbench_snapshot
 from server.services.planning.product_opportunities import (
     create_goal_from_product_opportunity,
     defer_product_opportunity,
@@ -74,6 +75,11 @@ def get_mission_control(db: Session = Depends(get_db)):
 @router.get("/mission-board")
 def get_mission_board(db: Session = Depends(get_db)):
     return mission_board_snapshot(db)
+
+
+@router.get("/mission-workbench")
+def get_mission_workbench(db: Session = Depends(get_db)):
+    return mission_workbench_snapshot(db)
 
 
 @router.get("/manifest/active", response_model=PlanningManifestOut)

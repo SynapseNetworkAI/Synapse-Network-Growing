@@ -14,6 +14,7 @@ export interface MissionBoardItem {
 
 export interface MissionBoard {
   active_goal: PlanningGoal | null
+  active_goals?: PlanningGoal[]
   lanes: {
     product_planner: MissionBoardItem[]
     growth_lead: MissionBoardItem[]
@@ -46,6 +47,51 @@ export interface MissionBoard {
     id: number
     version_name: string
     cycle_label: string
+    updated_at: string | null
+  }
+}
+
+export type MissionWorkbenchStage =
+  | 'opportunity'
+  | 'candidate'
+  | 'requirement'
+  | 'workflow'
+  | 'pr'
+  | 'release'
+  | 'online_record'
+
+export interface MissionWorkbenchNode {
+  id: string
+  parent_id: string | null
+  level: number
+  type: string
+  title: string
+  status: string
+  lane: string | null
+  goal_key: string | null
+  stage_statuses: Record<MissionWorkbenchStage, string>
+  next_action: string
+  deep_link: string | null
+  detail_api: string | null
+  updated_at: string | null
+  evidence_label: string
+  children: MissionWorkbenchNode[]
+}
+
+export interface MissionWorkbench {
+  root: MissionWorkbenchNode | null
+  unassigned: {
+    count: number
+    items: MissionBoardItem[]
+  }
+  summary: {
+    active_goal_count: number
+    work_item_count: number
+  }
+  manifest?: {
+    id: number
+    version_name?: string
+    cycle_label?: string
     updated_at: string | null
   }
 }

@@ -60,6 +60,7 @@ export function MissionLaneItem({ item }: Readonly<{ item: MissionBoardItem }>) 
 
 export function MissionBoardPanel({ board, compact = false }: Readonly<{ board: MissionBoard | null; compact?: boolean }>) {
   const goal = board?.active_goal
+  const activeGoals = board?.active_goals?.length ? board.active_goals : goal ? [goal] : []
   return (
     <section className="space-y-5" data-testid="mission-board">
       <div className="rounded-[28px] border border-cyan-300/20 bg-[radial-gradient(circle_at_15%_20%,rgba(34,211,238,0.12),transparent_32%),rgba(255,255,255,0.035)] p-5">
@@ -87,6 +88,42 @@ export function MissionBoardPanel({ board, compact = false }: Readonly<{ board: 
           )}
         </div>
       </div>
+
+      {activeGoals.length > 1 ? (
+        <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid="active-business-goals">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="machine-label text-[color:var(--ops-text-caption)]">Active Business Goals</div>
+              <h3 className="mt-2 text-xl font-semibold text-[color:var(--ops-text-title)]">目标如何挂到三条战线</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">
+                公司级目标负责聚合 traction；产品/工程子目标会进入 software_engineer 队列，增长动作继续进入 Publishing。
+              </p>
+            </div>
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-[color:var(--ops-text-muted)]">{activeGoals.length} active</span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {activeGoals.map((item) => (
+              <Link
+                key={item.goal_key || item.id}
+                to="/planning?tab=goals"
+                className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 transition hover:border-cyan-300/25"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={['rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]', badgeClass(item.status || 'active')].join(' ')}>
+                    {item.status || 'active'}
+                  </span>
+                  <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[color:var(--ops-text-caption)]">{item.domain || 'goal'}</span>
+                  {item.goal_key === goal?.goal_key ? (
+                    <span className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan-100">company focus</span>
+                  ) : null}
+                </div>
+                <div className="mt-3 line-clamp-2 text-sm font-semibold text-[color:var(--ops-text-title)]">{item.title || item.goal_key}</div>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">{item.intent_excerpt || item.success_metric || 'No goal summary yet.'}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {board?.traction_proof?.items?.length ? (
         <section className="rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5" data-testid="mission-traction-proof">

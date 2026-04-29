@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  api,
-  type SocialAccount,
-  type SocialCampaignGoal,
-  type SocialOpsOverview,
-  type SocialPostDraft,
-  type SocialPostMetric,
-  type SocialReplyItem,
-  type SocialRepostCandidate,
-  type SocialTrendItem,
-  type SocialWatchlistAccount,
-} from '../api'
+import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOverview, type SocialPostDraft, type SocialPostMetric, type SocialReplyItem, type SocialRepostCandidate, type SocialTrendItem, type SocialWatchlistAccount } from '../api'
 import { ConfirmDialog, EmptyPane, OverlayModal, SectionFrame, StateBadge, useToast } from '../components/workbench'
+import { RegenerateReplyButton, ReplyGeneratedByCard, ReplyGeneratedByText } from '../components/SocialReplyControls'
 
 const statusTabs = [
   { key: '', label: 'All' },
@@ -34,14 +24,7 @@ const opsTabs = [
 
 type OpsTab = (typeof opsTabs)[number]['key']
 
-type DraftForm = {
-  accountId: string
-  prompt: string
-  styleType: string
-  mediaMode: string
-  title: string
-  bodyText: string
-}
+type DraftForm = { accountId: string; prompt: string; styleType: string; mediaMode: string; title: string; bodyText: string }
 
 const emptyForm: DraftForm = {
   accountId: '',
@@ -659,6 +642,22 @@ export default function PublishingPage() {
     }
   }
 
+  async function regenerateReplyDraft(reply: SocialReplyItem) {
+    if (!reply.source_candidate_id || replyBusyId) return
+    setReplyBusyId(reply.id)
+    try {
+      const updated = await api.generateSocialReplyForRepostCandidate(reply.source_candidate_id, { actor: 'operator' })
+      setReplies((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setReplyDetail((current) => (current?.id === updated.id ? updated : current))
+      setReplyDraftText(updated.suggested_reply || '')
+      toast.success(updated.status === 'failed' ? 'Agent 生成失败，已记录原因' : '已重新生成回帖草稿')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '重新生成回帖失败')
+    } finally {
+      setReplyBusyId(null)
+    }
+  }
+
   async function saveReplyDraft(nextStatus = 'approved') {
     if (!replyDetail || replyBusyId) return
     setReplyBusyId(replyDetail.id)
@@ -1149,6 +1148,7 @@ function openReplyPublish(reply: SocialReplyItem) {
                       <td className="px-5 py-4">
                         <StateBadge tone={signalStatusTone(reply.status)}>{replyStatusLabel(reply.status)}</StateBadge>
                         <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">risk {reply.risk_level}</div>
+                        <ReplyGeneratedByText reply={reply} className="mt-1 max-w-[220px] text-xs leading-5 text-[color:var(--ops-text-caption)]" />
                         {reply.failure_summary ? <div className="mt-2 max-w-[220px] text-xs leading-5 text-rose-200">{reply.failure_summary}</div> : null}
                       </td>
                       <td className="max-w-[360px] px-5 py-4">
@@ -1170,6 +1170,7 @@ function openReplyPublish(reply: SocialReplyItem) {
                             详情
                           </button>
                           {needsReplyReconnect(reply) && !accountAuthorized(activeAccount) && !gcpAdcExpired(activeAccount) ? <button type="button" className="rounded-xl border border-amber-300/35 px-3 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount?.id)}>重新连接 X 官方账号</button> : null}
+                          <RegenerateReplyButton reply={reply} busy={replyBusyId === reply.id} onRegenerate={(target) => void regenerateReplyDraft(target)} />
                           {['approved', 'failed'].includes(reply.status) && accountAuthorized(activeAccount) && canRetryReply(reply) ? <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!reply.suggested_reply?.trim() || replyBusyId === reply.id} onClick={() => openReplyPublish(reply)}>{reply.status === 'failed' ? '重新发送' : '回复到 X'}</button> : null}
                           {reply.source_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={reply.source_url} target="_blank" rel="noreferrer">查看原帖</a> : null}
                         </div>
@@ -1484,6 +1485,7 @@ function openReplyPublish(reply: SocialReplyItem) {
             ) : null}
             {replyDetail && ['approved', 'failed'].includes(replyDetail.status) && accountAuthorized(activeAccount) && canRetryReply(replyDetail) ? <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!replyDraftText.trim() || replyBusyId === replyDetail.id} onClick={() => openReplyPublish({ ...replyDetail, suggested_reply: replyDraftText })}>{replyDetail.status === 'failed' ? '重新发送' : '回复到 X'}</button> : null}
             {replyDetail && !['published', 'published_manual', 'rejected'].includes(replyDetail.status) ? <button type="button" className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" disabled={replyBusyId === replyDetail.id} onClick={() => void saveReplyDraft('published_manual')}>标记为已手动回复</button> : null}
+            <RegenerateReplyButton reply={replyDetail} busy={replyBusyId === replyDetail?.id} className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onRegenerate={(target) => void regenerateReplyDraft(target)} />
             {replyDetail && needsReplyReconnect(replyDetail) && !accountAuthorized(activeAccount) && !gcpAdcExpired(activeAccount) ? <button type="button" className="rounded-xl border border-amber-300/35 px-4 py-2 text-sm font-semibold text-amber-100" onClick={() => void connectXAccount(activeAccount?.id)}>重新连接 X 官方账号</button> : null}
           </>
         }
@@ -1504,6 +1506,7 @@ function openReplyPublish(reply: SocialReplyItem) {
                 <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{replyDetail.risk_level}</div>
               </div>
             </div>
+            <ReplyGeneratedByCard reply={replyDetail} />
             <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
               <div className="text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Source Post</div>
               <p className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Source ID: {replyDetail.source_post_id || 'unknown'}</p>

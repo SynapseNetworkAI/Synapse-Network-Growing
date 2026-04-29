@@ -1,8 +1,7 @@
-import type { MissionBoard } from './apiMissionBoard'
-export type { MissionBoard, MissionBoardItem } from './apiMissionBoard'
+import type { MissionBoard, MissionWorkbench } from './apiMissionBoard'
+export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage } from './apiMissionBoard'
 const BASE = '/api'
 const REQUEST_TIMEOUT_MS = 17000
-
 export interface ApiError extends Error {
   detail?: unknown
 }
@@ -2151,6 +2150,7 @@ export const api = {
   // Planning lifecycle
   getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
   getPlanningMissionBoard: () => request<MissionBoard>('/planning/mission-board'),
+  getPlanningMissionWorkbench: () => request<MissionWorkbench>('/planning/mission-workbench'),
   getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
   saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
     request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),

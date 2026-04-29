@@ -10,6 +10,7 @@ from server.database import (
     SocialRepostCandidateRow,
 )
 from server.services.social import publishing as social_publishing
+from server.services.social.reply_agent import GeneratedXReply
 
 
 class FakeXAccessToken:
@@ -18,7 +19,26 @@ class FakeXAccessToken:
     refresh_token_rotated = False
 
 
-def test_x_social_reply_candidate_sweep_creates_one_human_gated_reply(db_session):
+def _install_fake_reply_agent(monkeypatch, prefix: str = "Agent reply"):
+    def fake_generate(candidate):
+        return GeneratedXReply(
+            suggested_reply=(
+                f"{prefix} for @{candidate.author_handle}: "
+                f"{candidate.source_text[:60]} Synapse angle: governed access, budgets, and settlement rails."
+            ),
+            risk_level="normal",
+            rationale=f"Specific to @{candidate.author_handle} and the source post.",
+            model="test-reply-model",
+            generation_metadata={"provider": "test", "model": "test-reply-model"},
+        )
+
+    monkeypatch.setattr(social_publishing, "generate_x_reply_for_candidate", fake_generate)
+
+
+def test_x_social_reply_candidate_sweep_creates_one_human_gated_reply(
+    db_session, monkeypatch
+):
+    _install_fake_reply_agent(monkeypatch)
     db_session.add_all(
         [
             SocialRepostCandidateRow(
@@ -58,12 +78,18 @@ def test_x_social_reply_candidate_sweep_creates_one_human_gated_reply(db_session
     assert reply.source_post_id in {"249", "250"}
     assert reply.suggested_reply
     assert "Great point" not in reply.suggested_reply
+    assert "Agent reply for @" in reply.suggested_reply
     metadata = social_publishing._json_loads(reply.metadata_json, {})
     assert metadata["human_gate_required"] is True
     assert metadata["auto_publish"] is False
+    assert metadata["generated_by"] == "social_reply_agent_v1"
+    assert metadata["provider"] == "test"
 
 
-def test_x_social_reply_candidate_sweep_skips_local_seed_and_duplicates(db_session):
+def test_x_social_reply_candidate_sweep_skips_local_seed_and_duplicates(
+    db_session, monkeypatch
+):
+    _install_fake_reply_agent(monkeypatch)
     real_candidate = SocialRepostCandidateRow(
         platform="x",
         source_url="https://x.com/AnthropicAI/status/777",
@@ -113,6 +139,7 @@ def test_x_social_reply_candidate_sweep_skips_local_seed_and_duplicates(db_sessi
 def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(
     monkeypatch, synced_client, db_session
 ):
+    _install_fake_reply_agent(monkeypatch)
     captured: dict[str, str] = {}
 
     monkeypatch.setattr(
@@ -145,9 +172,19 @@ def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(
         relevance_score=0.91,
         status="candidate",
     )
-    db_session.add(candidate)
+    published_candidate = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/802",
+        author_handle="OpenAI",
+        source_text="Published source.",
+        suggested_quote="Already published.",
+        relevance_score=0.8,
+        status="candidate",
+    )
+    db_session.add_all([candidate, published_candidate])
     db_session.commit()
     db_session.refresh(candidate)
+    db_session.refresh(published_candidate)
 
     generated = synced_client.post(
         f"/api/social/repost-candidates/{candidate.id}/generate-reply",
@@ -159,6 +196,7 @@ def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(
     assert reply["status"] == "needs_review"
     assert reply["source_post_id"] == "777"
     assert reply["source_candidate_id"] == candidate.id
+    assert reply["metadata"]["generated_by"] == "social_reply_agent_v1"
 
     approved = synced_client.patch(
         f"/api/social/replies/{reply['id']}",
@@ -187,6 +225,7 @@ def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(
 def test_reply_generation_edge_cases_and_api_errors(
     synced_client, db_session, monkeypatch
 ):
+    _install_fake_reply_agent(monkeypatch)
     local_candidate = SocialRepostCandidateRow(
         platform="x",
         source_url=None,
@@ -363,6 +402,102 @@ def test_reply_generation_edge_cases_and_api_errors(
     )
     assert result["created_reply_ids"] == []
     assert result["skipped_candidate_ids"]
+
+
+def test_agent_reply_generation_failure_creates_failed_row(
+    db_session, monkeypatch
+):
+    def fail_generate(_candidate):
+        raise ValueError("agent_reply_generation_failed: invalid JSON")
+
+    monkeypatch.setattr(social_publishing, "generate_x_reply_for_candidate", fail_generate)
+    candidate = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/654",
+        author_handle="OpenAI",
+        source_text="AI agents need reliable tool access.",
+        suggested_quote="Agent-native infrastructure needs payment and access rails.",
+        relevance_score=0.91,
+        status="candidate",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    db_session.refresh(candidate)
+
+    reply = social_publishing._create_reply_from_repost_candidate(
+        db_session, candidate, actor="test"
+    )
+
+    assert reply.status == "failed"
+    assert reply.suggested_reply == ""
+    assert "invalid JSON" in reply.failure_summary
+    metadata = social_publishing._json_loads(reply.metadata_json, {})
+    assert metadata["generated_by"] == "social_reply_agent_v1"
+    assert metadata["template_fallback"] is False
+    assert metadata["generation_failed"] is True
+
+
+def test_regenerate_unpublished_social_replies_only_updates_unsettled(
+    db_session, monkeypatch
+):
+    _install_fake_reply_agent(monkeypatch, prefix="Regenerated")
+    candidate = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/801",
+        author_handle="OpenAI",
+        source_text="AI agents increasingly need reliable tool access.",
+        suggested_quote="Payment rails matter for agent tool access.",
+        relevance_score=0.91,
+        status="candidate",
+    )
+    published_candidate = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/802",
+        author_handle="OpenAI",
+        source_text="Published source.",
+        suggested_quote="Already published.",
+        relevance_score=0.8,
+        status="candidate",
+    )
+    db_session.add_all([candidate, published_candidate])
+    db_session.commit()
+    db_session.refresh(candidate)
+    db_session.refresh(published_candidate)
+    draft = SocialReplyItemRow(
+        external_reply_id="target:801",
+        source_candidate_id=int(candidate.id),
+        source_url=candidate.source_url,
+        source_post_id="801",
+        source_author_handle="OpenAI",
+        source_text=candidate.source_text,
+        incoming_text=candidate.source_text,
+        suggested_reply="This is the old deterministic template.",
+        status="needs_review",
+    )
+    published = SocialReplyItemRow(
+        external_reply_id="target:802",
+        source_candidate_id=int(published_candidate.id),
+        source_url=published_candidate.source_url,
+        source_post_id="802",
+        source_author_handle="OpenAI",
+        source_text=published_candidate.source_text,
+        incoming_text="Published source.",
+        suggested_reply="Published audit text.",
+        status="published",
+    )
+    db_session.add_all([draft, published])
+    db_session.commit()
+
+    result = social_publishing.regenerate_unpublished_social_replies_with_agent(
+        db_session, actor="operator"
+    )
+
+    db_session.refresh(draft)
+    db_session.refresh(published)
+    assert draft.id in result["regenerated_ids"]
+    assert draft.suggested_reply.startswith("Regenerated for @OpenAI")
+    assert draft.status == "needs_review"
+    assert published.suggested_reply == "Published audit text."
 
 
 def test_publish_social_reply_validation_edges(monkeypatch, synced_client, db_session):

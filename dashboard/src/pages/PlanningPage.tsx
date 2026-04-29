@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ProductOpportunitiesPanel } from '../components/ProductOpportunitiesPanel'
 import { EngineeringQueue, MarkdownTabs, UnassignedQueue } from '../components/PlanningQueues'
+import { MissionWorkbenchPanel } from '../components/MissionWorkbenchPanel'
 import {
   api,
   DropGoalResult,
   GoalMissionLane,
   MissionBoard,
+  MissionWorkbench,
   PlanningGoal,
   PlanningManifest,
   PlanningManifestHistory,
@@ -17,7 +19,7 @@ import {
 
 type Goal = PlanningGoal
 
-type ActiveTab = 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
+type ActiveTab = 'workbench' | 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
 type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
 type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
 type SteeringDraft = {
@@ -49,8 +51,9 @@ const overlayStack: string[] = []
 function initialPlanningTab(search = window.location.search): ActiveTab {
   const params = new URLSearchParams(search)
   const value = params.get('tab')
+  if (value === 'workbench') return value
   if (value === 'goals' || value === 'engineering' || value === 'unassigned' || value === 'history' || value === 'debug') return value
-  return 'opportunities'
+  return 'workbench'
 }
 
 function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
@@ -1433,6 +1436,7 @@ export default function PlanningPage() {
   const location = useLocation()
   const [mission, setMission] = useState<PlanningMissionControl | null>(null)
   const [missionBoard, setMissionBoard] = useState<MissionBoard | null>(null)
+  const [missionWorkbench, setMissionWorkbench] = useState<MissionWorkbench | null>(null)
   const [history, setHistory] = useState<PlanningManifestHistory | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState('')
@@ -1480,13 +1484,15 @@ export default function PlanningPage() {
     setLoading(true)
     setError(null)
     try {
-      const [nextMission, nextBoard, nextHistory] = await Promise.all([
+      const [nextMission, nextBoard, nextWorkbench, nextHistory] = await Promise.all([
         api.getPlanningMissionControl(),
         api.getPlanningMissionBoard(),
+        api.getPlanningMissionWorkbench(),
         api.getPlanningManifestHistory({ page: nextPage, page_size: 10, search: historySearch || undefined }),
       ])
       setMission(nextMission)
       setMissionBoard(nextBoard)
+      setMissionWorkbench(nextWorkbench)
       setHistory(nextHistory)
       setSteeringDraft(steeringDraftFrom(nextMission))
       setRawDraft(JSON.stringify(nextMission.manifest.payload, null, 2))
@@ -1814,6 +1820,7 @@ export default function PlanningPage() {
 
       <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="planning-tabs">
         {([
+          ['workbench', 'Mission Workbench'],
           ['opportunities', '产品机会'],
           ['goals', `业务目标 · ${mission?.manifest.active_goal_count || 0} active`],
           ['engineering', `工程队列 · ${missionBoard?.lanes.software_engineer.length || pendingActions}`],
@@ -1840,6 +1847,8 @@ export default function PlanningPage() {
           </div>
         </section>
       )}
+
+      {activeTab === 'workbench' && <MissionWorkbenchPanel workbench={missionWorkbench} />}
 
       {activeTab === 'opportunities' && (
         <main className="space-y-4" data-testid="product-opportunities-tab">
@@ -1892,7 +1901,13 @@ export default function PlanningPage() {
         </main>
       )}
 
-      {activeTab === 'engineering' && <EngineeringQueue board={missionBoard} />}
+      {activeTab === 'engineering' && (
+        <EngineeringQueue
+          board={missionBoard}
+          onRunSweep={() => runSweep(false)}
+          busy={busy === 'sweep'}
+        />
+      )}
 
       {activeTab === 'unassigned' && <UnassignedQueue items={missionBoard?.unassigned.items || []} />}
 

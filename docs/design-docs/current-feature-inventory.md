@@ -32,9 +32,10 @@
 13. Goal Mission Lanes v1.1 保留三条核心战线：`product_planner` 发现产品缺口并提出 Product Opportunity，`growth_lead` 承接增长和 `/publishing`，`software_engineer` 承接 evidence-bound Requirement / Workflow。`content_writer` 是 Social Publishing 内部能力，不作为独立 lane。
 14. `product_planning_sweep` 是轻量 recurring workflow：它只生成 `product_opportunities` / Goal Proposal，不自动创建正式 Goal、Requirement、workflow、X 发布、release、auth 或代码改动。
 15. `/planning` 显示 `产品机会 / Goal Proposals` 审核区。Operator 可将 opportunity 转成 Planning Goal、defer 或 reject；转成 Goal 时保留 `metadata.source=product_opportunity` 与 `product_opportunity_id` lineage。
-16. `/api/planning/mission-board` 提供嵌套 Mission Board：`active_goal`、public-preview traction proof、`product_planner / growth_lead / software_engineer` 三列任务、`lane_summary`、`next_actions`、`unassigned` 红灯，不返回 graph `nodes[] / edges[]`。
-17. `/command-center` 是只读 Mission Dashboard：展示 active goal、三条 lane 摘要、每列最多 3 个最高优先级事项和 Unassigned 红灯；不在这里处理 Create / Reject / Defer。
-18. `/planning` 是处理态 Queues：`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug`。active 但缺失 goal lineage 的数据进入 `未归属`，不能静默藏进 Debug。
+16. `/api/planning/mission-board` 提供嵌套 Mission Board：`active_goal`、`active_goals`、public-preview traction proof、`product_planner / growth_lead / software_engineer` 三列任务、`lane_summary`、`next_actions`、`unassigned` 红灯，不返回 graph `nodes[] / edges[]`。`active_goal` 是公司级主目标，`active_goals` 展示公司目标与产品/工程子目标，`software_engineer` 聚合所有 active goals 的工程候选、Requirement、Workflow 和 Release Task。
+17. `/api/planning/mission-workbench` 提供 TreeGrid 投影：Company Goal -> Business/Product Goal -> Mission Lane -> Work Item，并为每行返回固定 stage rail：`opportunity / candidate / requirement / workflow / pr / release / online_record`。它同样是嵌套树，不返回 graph `nodes[] / edges[]`。
+18. `/command-center` 是只读 Mission Dashboard：展示 active goal、三条 lane 摘要、每列最多 3 个最高优先级事项和 Unassigned 红灯；不在这里处理 Create / Reject / Defer。
+19. `/planning` 是处理态 Queues：默认显示 `Mission Workbench` 树状层级和流程状态轨道，辅助 operator 看清 Goal -> Lane -> Task -> Evidence；其它 Tabs 包括 `产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug`。工程队列为空时给出 `Run Planner Sweep` 操作入口，用于让 operator 将 active business goals 转成 evidence-bound RequirementCandidate；active 但缺失 goal lineage 的数据进入 `未归属`，不能静默藏进 Debug。
 
 ## 2. Requirement Pool
 
@@ -135,13 +136,13 @@
 21. `/publishing` 分面包括 `今日队列`、`趋势雷达`、`回帖处理`、`转发候选`、`已发布效果`、`品牌规则`。趋势采集、watchlist、回复草稿、引用转发候选和 metrics 只辅助 operator 决策；发布、回复、引用转发、删除仍必须 Human Gate。
 22. X 专属 recurring workflows 使用平台前缀命名：`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`、`x_social_reply_candidate_sweep`。公共数据表仍保持 `social_*`，为后续 LinkedIn / Discord / site content 扩展保留平台字段。
 23. X Social Sweep Scheduler 真实自动触发 `x_social_*` workflows；`x_social_daily_content_planner` 每小时 tick，但按 `OPS_OPERATOR_TIMEZONE` 的自然日幂等：同一 X 账号每天最多生成 1 条 `source_type=daily_planner` 草稿；已生成则返回 `already_created=true`，不会制造重复草稿。生成结果必须进入 `needs_review`，不得自动发布。
-24. `x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep` 和 `x_social_reply_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，回帖 sweep 每 30 分钟最多生成 1 条 `needs_review` 回复草稿，不调用 X repost / quote / reply / publish API。
+24. `x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep` 和 `x_social_reply_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，回帖 sweep 每 30 分钟最多调用真实 `social_reply_agent_v1` 生成 1 条 `needs_review` 回复草稿，不调用 X repost / quote / reply / publish API；Agent 失败时 fail closed，不使用模板 fallback。
 25. X 趋势雷达 v1 的真实数据入口是 Watchlist timeline，而不是全网搜索：`social_watchlist_accounts -> GET /2/users/by/username/:username -> GET /2/users/:id/tweets -> social_trend_items`。每个 watchlist account 通过 `last_checked_at` 做 1 小时级节流；X rate limit / auth failure 只能写 diagnostic，不得强制重试或伪造真实趋势。
 26. `social_trend_items.source_url` 是 X 来源真相边界。带 `https://x.com/.../status/...` 的趋势可以进入 `x_social_repost_candidate_sweep`；本地趋势种子或缺少 source URL 的素材只能作为内容灵感，UI 必须禁用转发/引用发布。
 27. `/publishing/trends` 是 `x_social_trend_radar_sweep` 结果检索页。它只读展示 `social_trend_items`，支持 operator-local 日期范围、关键字、来源类型和作者筛选，列表分页，点击行后用居中 Modal 查看完整来源、摘要、采集时间和 `source_kind`。
 28. 趋势详情页继续遵守 Modal-only + `ui-ux-pro-max` SaaS/Ops 约束：真实 X 来源展示 `打开 X 原帖`，本地趋势种子明确标注“仅作内容灵感，不能引用转发”，不提供任何自动互动动作。
 29. `x_social_repost_candidate_sweep` 生成的 `suggested_quote` 必须增加 Synapse 视角或额外观点，不得只是 `Great point` / `Interesting` 这类无价值附和。
-30. `social_reply_items` 是回帖增长的人审队列：来源必须是带 `source_url` 的真实 X 候选，Agent 只生成正向、相关、有额外观点的 `suggested_reply`；`回复到 X` 必须由 operator 在居中 Modal 确认后才调用 X API。
+30. `social_reply_items` 是回帖增长的人审队列：来源必须是带 `source_url` 的真实 X 候选，`social_reply_agent_v1` 必须逐条生成正向、相关、有额外观点的 `suggested_reply`；`回复到 X` 必须由 operator 在居中 Modal 确认后才调用 X API。
 
 ## 5. Error Discovery And Intake Gate
 
