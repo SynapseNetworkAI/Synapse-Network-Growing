@@ -27,6 +27,10 @@ from server.services.planning.mission_board import (
     _software_items_for_active_goals,
     mission_board_snapshot,
 )
+from server.services.planning.mission_process_stages import (
+    _process_key_for_item_type,
+    _process_stages,
+)
 from server.services.planning.mission_workbench import (
     _aggregate_stage_status,
     _detail_api_for_item,
@@ -34,6 +38,7 @@ from server.services.planning.mission_workbench import (
     mission_workbench_snapshot,
 )
 from server.services.planning.product_opportunities import run_product_planning_sweep
+from server.services.planning import social_mission_items
 
 
 def test_mission_board_returns_fixed_nested_lanes(db_session):
@@ -497,3 +502,75 @@ def test_mission_lane_next_actions_cover_status_variants():
     )
     assert "deploy staging" in release_next_action(SimpleNamespace(status="requested"))
     assert "deploy failure" in release_next_action(SimpleNamespace(status="failed"))
+
+
+def test_process_stage_variants_cover_non_engineering_flows():
+    assert _process_key_for_item_type("unknown") == "mission_context"
+    assert _process_stages("unknown", "active", "waiting") == []
+    assert _process_stages("product_opportunity", "rejected", "blocked")[-1] == {
+        "key": "closed",
+        "label": "Deferred/Rejected",
+        "status": "blocked",
+    }
+    assert _process_stages("product_opportunity", "approved", "completed")[2][
+        "status"
+    ] == "completed"
+    assert _process_stages("publishing_draft", "published", "completed")[3][
+        "status"
+    ] == "completed"
+    assert _process_stages("publishing_draft", "approved", "waiting")[2][
+        "status"
+    ] == "waiting"
+    assert _process_stages("social_metrics_loop", "completed", "completed")[-1][
+        "status"
+    ] == "completed"
+    assert _process_stages("release_task", "requested", "waiting")[4][
+        "key"
+    ] == "release"
+
+
+def test_social_mission_item_helper_branches():
+    assert social_mission_items._daily_inventory_status(3, 0) == "needs_review"
+    assert social_mission_items._daily_inventory_status(0, 1) == "blocked"
+    assert social_mission_items._daily_inventory_status(1, 0) == "needs_review"
+    assert social_mission_items._daily_inventory_status(0, 0) == "pending"
+
+    published = SimpleNamespace(
+        status="published",
+        external_post_id="post-1",
+        account=SimpleNamespace(handle="SynapseNetworkA"),
+        published_at=None,
+        body_text="published",
+        failure_summary=None,
+    )
+    approved = SimpleNamespace(
+        status="approved",
+        external_post_id=None,
+        account=None,
+        published_at=None,
+        body_text="approved body",
+        failure_summary=None,
+    )
+    failed = SimpleNamespace(status="failed")
+    generating = SimpleNamespace(status="generating")
+    unknown = SimpleNamespace(status="mystery")
+
+    assert "Published" in social_mission_items._social_draft_next_action(published)
+    assert "Publish to X" in social_mission_items._social_draft_next_action(approved)
+    assert social_mission_items._social_draft_evidence_label(published) == "X post post-1"
+    assert social_mission_items._social_draft_external_url(published).endswith(
+        "/SynapseNetworkA/status/post-1"
+    )
+    assert social_mission_items._social_draft_external_url(approved) is None
+    assert social_mission_items._social_draft_process_stages(failed, False)[0][
+        "status"
+    ] == "blocked"
+    assert social_mission_items._social_draft_process_stages(generating, False)[0][
+        "status"
+    ] == "running"
+    assert social_mission_items._social_draft_process_stages(approved, False)[2][
+        "status"
+    ] == "waiting"
+    assert social_mission_items._social_draft_process_stages(unknown, False)[0][
+        "status"
+    ] == "missing"

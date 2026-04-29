@@ -341,6 +341,35 @@ def test_x_social_post_metrics_auth_fallback_and_rate_limit(monkeypatch):
         raise AssertionError("rate limit should bubble to observer")
 
 
+def test_x_social_post_metrics_public_only_lookup_records_budget(
+    monkeypatch, db_session
+):
+    monkeypatch.setattr(
+        social_publishing.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: FakeXAccessToken(),
+    )
+    monkeypatch.setattr(social_post_metrics, "XApiClient", FakeXReadClient)
+
+    posts, diagnostic, private_available = social_post_metrics._lookup_x_metric_posts(
+        ["tweet-1"],
+        db=db_session,
+        local_date="2026-04-29",
+        allow_owner_metrics=False,
+    )
+
+    assert posts
+    assert private_available is False
+    assert "Owner metrics skipped" in diagnostic
+    assert (
+        social_publishing._x_read_budget_usage(
+            db_session,
+            local_date="2026-04-29",
+        )["request_count"]
+        == 1
+    )
+
+
 def test_x_client_post_lookup_response_shapes(monkeypatch):
     client = XApiClient("token")
     captured: dict[str, object] = {}
