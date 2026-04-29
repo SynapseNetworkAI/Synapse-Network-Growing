@@ -11,8 +11,6 @@ from server.database import (
     ReleaseTaskRow,
     RequirementCandidateRow,
     RequirementRow,
-    SocialPostDraftRow,
-    SocialRepostCandidateRow,
     WorkflowRunRow,
 )
 from server.services.planning.mission_board_helpers import (
@@ -40,16 +38,6 @@ ACTIVE_WORKFLOW_STATUSES = {
     "blocked",
 }
 TERMINAL_RELEASE_TASK_STATUSES = {"completed", "failed", "cancelled"}
-ACTIVE_SOCIAL_DRAFT_STATUSES = {
-    "draft",
-    "generating",
-    "needs_review",
-    "approved",
-    "failed",
-}
-ACTIVE_REPOST_STATUSES = {"candidate", "failed"}
-
-
 def candidate_next_action(row: RequirementCandidateRow) -> str:
     status = str(row.status or "pending")
     if status == "pending":
@@ -124,66 +112,6 @@ def product_planner_items(db: Session, manifest_id: int) -> ServiceListResult:
                 ),
                 deep_link=f"/planning?tab=opportunities&opportunity={int(row.id)}",
                 evidence_label=str(payload.get("success_metric") or ""),
-                updated_at=row.updated_at,
-            )
-        )
-    return items
-
-
-@service_list_result
-def growth_items(db: Session) -> ServiceListResult:
-    return sort_mission_items([*social_draft_items(db), *repost_candidate_items(db)])
-
-
-@service_list_result
-def social_draft_items(db: Session) -> ServiceListResult:
-    items: list[dict[str, Any]] = []
-    for row in (
-        db.query(SocialPostDraftRow)
-        .filter(SocialPostDraftRow.status.in_(sorted(ACTIVE_SOCIAL_DRAFT_STATUSES)))
-        .order_by(SocialPostDraftRow.updated_at.desc(), SocialPostDraftRow.id.desc())
-        .limit(20)
-        .all()
-    ):
-        items.append(
-            mission_item(
-                item_id=f"social_draft:{row.id}",
-                item_type="publishing_draft",
-                title=str(row.title or row.body_text or "X content draft")[:120],
-                status=str(row.status or "needs_review"),
-                risk_level="normal",
-                next_action="Review, edit, publish, or reject the X draft.",
-                deep_link="/publishing",
-                evidence_label=f"{len(str(row.body_text or ''))} chars",
-                updated_at=row.updated_at,
-            )
-        )
-    return items
-
-
-@service_list_result
-def repost_candidate_items(db: Session) -> ServiceListResult:
-    items: list[dict[str, Any]] = []
-    for row in (
-        db.query(SocialRepostCandidateRow)
-        .filter(SocialRepostCandidateRow.status.in_(sorted(ACTIVE_REPOST_STATUSES)))
-        .order_by(
-            SocialRepostCandidateRow.updated_at.desc(),
-            SocialRepostCandidateRow.id.desc(),
-        )
-        .limit(20)
-        .all()
-    ):
-        items.append(
-            mission_item(
-                item_id=f"social_repost:{row.id}",
-                item_type="repost_candidate",
-                title=f"Quote/repost candidate from @{row.author_handle or 'unknown'}",
-                status=str(row.status or "candidate"),
-                risk_level="normal",
-                next_action="Open repost candidate and decide whether to quote or ignore.",
-                deep_link="/publishing?tab=reposts",
-                evidence_label=f"fit {int(row.relevance_score or 0)}",
                 updated_at=row.updated_at,
             )
         )

@@ -25,6 +25,12 @@ const opsTabs = [
 
 type OpsTab = (typeof opsTabs)[number]['key']
 
+function initialOpsTab(search = window.location.search): OpsTab {
+  const value = new URLSearchParams(search).get('tab')
+  if (value === 'drafts') return 'queue'
+  return opsTabs.some((tab) => tab.key === value) ? (value as OpsTab) : 'queue'
+}
+
 type DraftForm = { accountId: string; prompt: string; styleType: string; mediaMode: string; title: string; bodyText: string }
 
 const emptyForm: DraftForm = {
@@ -102,9 +108,9 @@ function postSortRank(post: SocialPostDraft) {
     publishing: 0,
     generating: 1,
     approved: 2,
-    failed: 3,
-    needs_review: 4,
-    draft: 5,
+    needs_review: 3,
+    draft: 4,
+    failed: 5,
     published: 8,
     rejected: 9,
   }
@@ -217,7 +223,7 @@ export default function PublishingPage() {
   const [reposts, setReposts] = useState<SocialRepostCandidate[]>([])
   const [metrics, setMetrics] = useState<SocialPostMetric[]>([])
   const [metricSummary, setMetricSummary] = useState<SocialPostMetricSummary | null>(null)
-  const [opsTab, setOpsTab] = useState<OpsTab>('queue')
+  const [opsTab, setOpsTab] = useState<OpsTab>(() => initialOpsTab())
   const [filter, setFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<number | null>(null)

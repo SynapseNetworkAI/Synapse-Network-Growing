@@ -6,8 +6,13 @@ from server.database import (
     PlanningGoalRow,
     RequirementCandidateRow,
     RequirementRow,
+    SocialAccountRow,
+    SocialPostMetricRow,
+    SocialPostDraftRow,
     SocialReplyItemRow,
+    SocialRepostCandidateRow,
     WorkflowRunRow,
+    utcnow,
 )
 from server.services.planning.lifecycle import ensure_active_manifest
 from server.services.planning.mission_lane_items import (
@@ -124,6 +129,107 @@ def test_reply_drafts_stay_in_publishing_not_mission_tasks(db_session):
         return nodes
 
     assert all(node["type"] != "reply_draft" for node in walk(workbench["root"]))
+
+
+def test_mission_workbench_growth_lane_uses_social_summaries_not_repost_rows(db_session):
+    ensure_active_manifest(db_session)
+    repost = SocialRepostCandidateRow(
+        platform="x",
+        source_url="https://x.com/OpenAI/status/123",
+        source_text="A relevant AI agent signal.",
+        author_handle="OpenAI",
+        suggested_quote="Synapse angle on agent payment rails.",
+        relevance_score=90,
+        status="candidate",
+    )
+    account = SocialAccountRow(
+        platform="x",
+        handle="SynapseNetworkA",
+        display_name="Synapse Network",
+        secret_ref="x-official",
+    )
+    db_session.add(account)
+    db_session.flush()
+    failed_draft = SocialPostDraftRow(
+        platform="x",
+        account_id=int(account.id),
+        source_type="daily_planner",
+        title="X planner draft failed",
+        body_text="",
+        status="failed",
+        generated_by="x_social_daily_content_planner",
+        failure_summary="agent_generation_failed: Codex CLI execution timed out after 180s",
+    )
+    draft = SocialPostDraftRow(
+        platform="x",
+        account_id=int(account.id),
+        source_type="daily_planner",
+        title="X planner draft ready",
+        body_text="Reviewable X draft.",
+        status="needs_review",
+        generated_by="x_social_daily_content_planner",
+    )
+    published_draft = SocialPostDraftRow(
+        platform="x",
+        account_id=int(account.id),
+        source_type="daily_planner",
+        title="X planner draft published",
+        body_text="Published X draft.",
+        status="published",
+        generated_by="x_social_daily_content_planner",
+        external_post_id="2049401935174975542",
+        published_at=utcnow(),
+    )
+    db_session.add_all([repost, failed_draft, draft, published_draft])
+    db_session.flush()
+    metric = SocialPostMetricRow(
+        post_id=int(published_draft.id),
+        external_post_id="2049401935174975542",
+        impressions=100,
+        likes=5,
+        summary="Observed published post metrics.",
+    )
+    db_session.add(metric)
+    db_session.commit()
+
+    workbench = mission_workbench_snapshot(db_session)
+
+    def walk(node):
+        nodes = [node]
+        for child in node["children"]:
+            nodes.extend(walk(child))
+        return nodes
+
+    nodes = walk(workbench["root"])
+    assert all(node["type"] != "repost_candidate" for node in nodes)
+    assert any(node["type"] == "social_daily_inventory" for node in nodes)
+    assert all(node["id"] != f"social_draft:{failed_draft.id}" for node in nodes)
+    summary = next(node for node in nodes if node["type"] == "social_daily_inventory")
+    assert "historical failures" in summary["evidence_label"]
+    draft_node = next(node for node in nodes if node["id"] == f"social_draft:{draft.id}")
+    labels = [stage["label"] for stage in draft_node["process_stages"]]
+    assert labels == ["Generated", "Needs Review", "Approved/Edited", "Published", "Metrics"]
+    assert "Requirement" not in labels
+    assert draft_node["evidence_label"] == "19 chars"
+    published_node = next(
+        node for node in nodes if node["id"] == f"social_draft:{published_draft.id}"
+    )
+    assert published_node["status"] == "published"
+    assert published_node["evidence_label"] == "X post 2049401935174975542"
+    assert published_node["external_post_id"] == "2049401935174975542"
+    assert published_node["external_url"].endswith(
+        "/SynapseNetworkA/status/2049401935174975542"
+    )
+    assert [
+        (stage["label"], stage["status"])
+        for stage in published_node["process_stages"]
+    ] == [
+        ("Generated", "completed"),
+        ("Needs Review", "completed"),
+        ("Approved/Edited", "completed"),
+        ("Published", "completed"),
+        ("Metrics", "completed"),
+    ]
 
 
 def test_mission_workbench_status_helpers_cover_stage_variants():

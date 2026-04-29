@@ -148,9 +148,9 @@
 23. CI status sweep 必须有单次运行时长上限，且 stale-lock recovery 阈值必须显著大于该上限。
 24. CI status sweep 的后台自动 tick 必须显式开启；local/dev 默认不自动消费历史 `awaiting_ci` 记录，避免无意发射 full regression。
 25. `release_pr_status_sweep` 只能只读同步 GitHub PR 外部状态；`MERGED` 可更新本地 release 为 merged，`CLOSED` 或 `404 / Not Found` 必须收敛为 abandoned/review 状态，不能永久保留 `pr_opened` 僵尸记录。
-26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但只能补足同一 operator-local day 的 3 条未发布 human-reviewed draft 库存。库存只计算 `generating / needs_review / approved`，`published / rejected / failed` 不计入。趋势雷达、转发候选和回帖候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
+26. X 社媒运营 recurring workflow 必须使用 `x_social_*` 平台前缀；`x_social_daily_content_planner` 可以每小时 tick，但只是低风险库存补货：同一 operator-local day 目标为 3 条未发布 human-reviewed draft，每次 tick 最多生成 1 条，`generating` 超过超时阈值必须转 `failed` 并停止计入库存。库存只计算 `generating / needs_review / approved`，`published / rejected / failed` 不计入。趋势雷达、转发候选和回帖候选只能产生 read-only summaries 或 draft-only candidates，不得自动 publish、reply、repost、follow、unfollow 或 delete。
 27. X Social Sweep Scheduler 可以真实自动触发 `x_social_*` draft/read-only workflows，但它不是通用 cron，也不得扩展成任意外部平台动作执行器；新增平台必须显式命名、显式 Human Gate、显式观测。`x_social_post_observer_sweep` 只能只读同步已发布 X post metrics，权限不足时写 diagnostic，不得伪造效果数据。
-28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流；X rate limit、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
+28. X 趋势雷达 v1 必须优先从 Watchlist timeline 接入真实 X 数据，而不是默认做全网搜索。每个 watchlist account 必须有同步节流并缓存 `x_user_id`；全局 X read budget 默认每天 20 次外部 read，趋势每日 source-post 处理量默认 20 条。X rate limit、budget exhausted、auth failure 或权限不足只能产生 diagnostic，不能强制重试、不能把本地 seed 冒充真实 X 热点。
 29. X 引用/转发候选必须有真实 `source_url`，且 quote 文案必须提供额外观点或 Synapse angle；缺少来源链接或只表达赞同的候选不得进入可发布动作。
 30. X 趋势结果检索属于只读运营情报面。`/publishing/trends` 可以按日期、关键字、来源类型和作者检索 `social_trend_items`，但不得触发抓取、回复、转发或发布；趋势详情必须使用居中 Modal，并用 `source_url` 明确区分真实 X 原帖与本地趋势种子。
 31. X 回帖增长必须先落入 `social_reply_items` 人审队列。`x_social_reply_candidate_sweep` 每 30 分钟最多调用真实 `social_reply_agent_v1` 生成 1 条回复草稿；不得使用 deterministic 模板或 fallback 冒充 Agent。公开回复必须由 operator 在 `/publishing -> 回帖处理` 确认，且必须使用 X reply payload 绑定 `in_reply_to_tweet_id`，不得发成普通推文或自动刷评论。
@@ -178,10 +178,11 @@
 19. `product_planning_sweep` 是 proposal-only recurring workflow；正式 Goal 必须由 operator 在 `/planning` 审核后创建，并保留 opportunity lineage。
 20. 同一时间应优先保持单个 active `code_delivery` 工程执行面，避免 software_engineer lane 与其它代码类 workflow 发生无谓冲突；排队优先于复杂冲突解决。
 21. Goal Mission Board 必须是嵌套树结构：`active_goal -> product_planner / growth_lead / software_engineer -> task cards`。禁止为了 v1 Mission Map 引入 React Flow、D3、G6、canvas 或 graph `nodes[] / edges[]` API。
-22. Mission Workbench 是 `/planning` 默认操作态视图，必须使用 TreeGrid + Stage Rail 表达 `Company Goal -> Business/Product Goal -> Mission Lane -> Work Item` 与 `opportunity / candidate / requirement / workflow / pr / release / online_record` 流程状态；不得退化成无层级的平铺列表，也不得升级成复杂画布图。
-23. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
-24. `/planning` 是操作处理态；必须提供 `Mission Workbench`、`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
-25. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
+22. Mission Workbench 是 `/planning` 默认操作态视图，必须使用 TreeGrid + Stage Rail 表达 `Company Goal -> Business/Product Goal -> Mission Lane -> Work Item` 与任务自己的流程状态；工程任务使用 `candidate / requirement / workflow / pr / release / online`，内容草稿使用 `generated / needs review / approved / published / metrics`，产品机会使用 `proposed / review / goal-or-requirement / closed`。不得把所有任务强行套进工程上线轨道，也不得升级成复杂画布图。
+23. Mission Workbench 的 `growth_lead` lane 只展示增长摘要和少量内容草稿状态；individual repost candidates、reply drafts、trend items 必须留在 `/publishing` 或 `/publishing/trends` 处理，不能污染 Planning 的 Goal->Lane->Task 主树。
+24. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
+25. `/planning` 是操作处理态；必须提供 `Mission Workbench`、`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
+26. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
 

@@ -50,17 +50,19 @@ function flattenTree(root: MissionWorkbenchNode | null, expanded: Set<string>) {
 }
 
 function StageRail({ node }: Readonly<{ node: MissionWorkbenchNode }>) {
+  const stages = node.process_stages?.length
+    ? node.process_stages
+    : stageLabels.map(([key, label]) => ({ key, label, status: node.stage_statuses[key] || 'missing' }))
   return (
     <div className="flex min-w-[520px] items-center gap-2" aria-label={`stage rail for ${node.title}`}>
-      {stageLabels.map(([key, label], index) => {
-        const status = node.stage_statuses[key] || 'missing'
+      {stages.map(({ key, label, status }, index) => {
         return (
           <div key={key} className="flex flex-1 items-center gap-2">
             <div className="flex min-w-0 flex-col items-center gap-1">
               <span className={['h-3 w-3 rounded-full border transition', stageDotClass(status)].join(' ')} title={`${label}: ${status}`} />
-              <span className="hidden truncate text-[9px] uppercase tracking-[0.12em] text-[color:var(--ops-text-caption)] 2xl:block">{label}</span>
+              <span className="truncate text-[9px] uppercase tracking-[0.12em] text-[color:var(--ops-text-caption)]">{label}</span>
             </div>
-            {index < stageLabels.length - 1 ? <span className="h-px flex-1 bg-white/10" /> : null}
+            {index < stages.length - 1 ? <span className="h-px flex-1 bg-white/10" /> : null}
           </div>
         )
       })}
@@ -92,6 +94,10 @@ function WorkbenchDetailModal({
               <div className={['mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em]', statusBadgeClass(node.status)].join(' ')}>{node.status}</div>
             </div>
             <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+              <div className="machine-label text-[color:var(--ops-text-caption)]">Object ID</div>
+              <div className="mt-2 font-mono text-sm text-[color:var(--ops-text-body)]">{node.id}</div>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
               <div className="machine-label text-[color:var(--ops-text-caption)]">Lane / Goal</div>
               <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{node.lane || '-'} · {node.goal_key || '-'}</div>
             </div>
@@ -107,6 +113,17 @@ function WorkbenchDetailModal({
             <div className="machine-label text-[color:var(--ops-text-caption)]">Next Action</div>
             <p className="mt-2 text-sm leading-6 text-[color:var(--ops-text-body)]">{node.next_action || 'Open the linked surface for the next action.'}</p>
             {node.evidence_label ? <p className="mt-3 font-mono text-xs text-[color:var(--ops-text-caption)]">{node.evidence_label}</p> : null}
+            {node.external_post_id ? (
+              <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-sm text-emerald-100">
+                <div className="font-semibold">X Post ID: {node.external_post_id}</div>
+                <div className="mt-1 text-xs text-emerald-100/75">Published at: {node.published_at || '-'}</div>
+                {node.external_url ? (
+                  <a className="mt-2 inline-flex font-semibold underline" href={node.external_url} target="_blank" rel="noreferrer">
+                    Open on X
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             {node.deep_link ? <Link className="rounded-xl border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm font-semibold text-cyan-100" to={node.deep_link}>打开关联页面</Link> : null}
@@ -151,7 +168,7 @@ export function MissionWorkbenchPanel({ workbench }: Readonly<{ workbench: Missi
             <div className="machine-label text-cyan-200/70">Mission Workbench</div>
             <h2 className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">目标 → 战线 → 任务 → 证据</h2>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[color:var(--ops-text-muted)]">
-              这是操作态树状视图：用层级表达归属，用流程轨道表达每个任务走到 Opportunity / Candidate / Requirement / Workflow / PR / Release / Online 的哪一步。
+              这是操作态树状视图：用层级表达归属，用流程轨道表达每类任务自己的生命周期。Growth Lead 这里只显示增长摘要；具体草稿、回帖、转发候选在 Publishing 处理。
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">

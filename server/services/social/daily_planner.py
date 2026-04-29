@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime
 from typing import Any
 
@@ -17,78 +16,17 @@ from server.database import (
 )
 from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.social import publishing
+from server.services.social.daily_planner_inventory import (
+    DAILY_PLANNER_ACTIVE_STATUSES,
+    daily_planner_inventory,
+    _daily_planner_raw_metadata,
+    _expire_stale_daily_planner_generating_posts,
+    _next_daily_planner_slot,
+)
 
 logger = logging.getLogger("ops-dashboard.social-daily-planner")
 
 DAILY_PLANNER_TARGET_COUNT = 3
-DAILY_PLANNER_ACTIVE_STATUSES = {"generating", "needs_review", "approved"}
-
-
-def _daily_planner_raw_metadata(row: SocialPostDraftRow) -> dict[str, Any]:
-    data = publishing._json_loads(row.raw_agent_output_json, {})
-    return data if isinstance(data, dict) else {}
-
-
-def _daily_planner_posts_for_local_date(
-    db: Session,
-    *,
-    account_id: int,
-    local_date: str,
-) -> list[SocialPostDraftRow]:
-    rows = (
-        db.query(SocialPostDraftRow)
-        .filter(
-            SocialPostDraftRow.platform == "x",
-            SocialPostDraftRow.account_id == account_id,
-            SocialPostDraftRow.source_type == "daily_planner",
-        )
-        .order_by(SocialPostDraftRow.id.desc())
-        .limit(100)
-        .all()
-    )
-    return [
-        row
-        for row in rows
-        if str(_daily_planner_raw_metadata(row).get("planner_local_date") or "")
-        == local_date
-    ]
-
-
-def active_daily_planner_posts(
-    rows: list[SocialPostDraftRow],
-) -> list[SocialPostDraftRow]:
-    return [
-        row for row in rows if str(row.status or "") in DAILY_PLANNER_ACTIVE_STATUSES
-    ]
-
-
-def daily_planner_inventory(
-    db: Session, *, account_id: int, local_date: str
-) -> tuple[list[SocialPostDraftRow], list[SocialPostDraftRow]]:
-    rows = _daily_planner_posts_for_local_date(
-        db, account_id=account_id, local_date=local_date
-    )
-    return rows, active_daily_planner_posts(rows)
-
-
-def _daily_planner_slot(row: SocialPostDraftRow) -> int:
-    raw = _daily_planner_raw_metadata(row)
-    try:
-        slot = int(raw.get("planner_slot") or 0)
-    except (TypeError, ValueError):
-        slot = 0
-    if slot > 0:
-        return slot
-    match = re.search(r":slot-(\d+)$", str(raw.get("planner_run_key") or ""))
-    return int(match.group(1)) if match else 0
-
-
-def _next_daily_planner_slot(rows: list[SocialPostDraftRow]) -> int:
-    used = {_daily_planner_slot(row) for row in rows}
-    slot = 1
-    while slot in used:
-        slot += 1
-    return slot
 
 
 def _daily_planner_angle(slot: int) -> str:
@@ -264,7 +202,9 @@ def _generate_daily_planner_slot(
     local_date: str,
     daily_rows: list[SocialPostDraftRow],
 ) -> tuple[SocialPostDraftRow, str, bool]:
-    planner_slot = _next_daily_planner_slot(daily_rows)
+    planner_slot = _next_daily_planner_slot(
+        daily_rows, target_count=DAILY_PLANNER_TARGET_COUNT
+    )
     planner_run_key = f"x_daily:{account_id}:{local_date}:slot-{planner_slot}"
     prompt, metadata = _build_daily_planner_prompt(
         db,
@@ -383,7 +323,11 @@ def _top_up_daily_planner_slots(
     created_ids: list[int] = []
     failed_ids: list[int] = []
     created_run_keys: list[str] = []
-    for _index in range(DAILY_PLANNER_TARGET_COUNT - len(active_rows)):
+    missing_count = DAILY_PLANNER_TARGET_COUNT - len(active_rows)
+    create_count = min(
+        max(0, missing_count), int(config.X_DAILY_PLANNER_MAX_CREATED_PER_TICK)
+    )
+    for _index in range(create_count):
         row, planner_run_key, is_active = _generate_daily_planner_slot(
             db, account_id=account_id, local_date=local_date, daily_rows=daily_rows
         )
@@ -405,6 +349,7 @@ def _daily_planner_top_up_result(
     created_ids: list[int],
     failed_ids: list[int],
     created_run_keys: list[str],
+    expired_post_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     created_id_set = set(created_ids)
     return {
@@ -417,6 +362,8 @@ def _daily_planner_top_up_result(
             int(row.id) for row in active_rows if int(row.id) not in created_id_set
         ],
         "failed_post_ids": failed_ids,
+        "expired_generating_post_ids": expired_post_ids or [],
+        "max_created_per_tick": int(config.X_DAILY_PLANNER_MAX_CREATED_PER_TICK),
         "created_post_id": created_ids[0] if created_ids else None,
         "existing_post_id": int(active_rows[0].id) if active_rows else None,
         "planner_local_date": local_date,
@@ -440,10 +387,20 @@ def run_x_social_daily_content_planner(
     daily_rows, active_rows = daily_planner_inventory(
         db, account_id=int(account.id), local_date=local_date
     )
+    expired_post_ids = _expire_stale_daily_planner_generating_posts(
+        db, daily_rows, now=now
+    )
+    if expired_post_ids:
+        daily_rows, active_rows = daily_planner_inventory(
+            db, account_id=int(account.id), local_date=local_date
+        )
     if len(active_rows) >= DAILY_PLANNER_TARGET_COUNT:
-        return _daily_planner_satisfied_result(
+        result = _daily_planner_satisfied_result(
             account_id=int(account.id), local_date=local_date, active_rows=active_rows
         )
+        result["expired_generating_post_ids"] = expired_post_ids
+        result["max_created_per_tick"] = int(config.X_DAILY_PLANNER_MAX_CREATED_PER_TICK)
+        return result
 
     created_ids, failed_ids, created_run_keys = _top_up_daily_planner_slots(
         db,
@@ -463,4 +420,5 @@ def run_x_social_daily_content_planner(
         created_ids=created_ids,
         failed_ids=failed_ids,
         created_run_keys=created_run_keys,
+        expired_post_ids=expired_post_ids,
     )

@@ -18,14 +18,18 @@ from server.services.planning.mission_board import (
 )
 from server.services.planning.mission_board_helpers import iso_timestamp
 from server.services.planning.mission_lane_items import (
-    growth_items,
     product_planner_items,
     software_items,
     unassigned_items,
 )
+from server.services.planning.mission_process_stages import (
+    _process_key_for_item_type,
+    _process_stages,
+)
 from server.services.planning.product_opportunities import (
     ensure_product_opportunity_table,
 )
+from server.services.planning.social_mission_items import growth_items
 from server.services.result_objects import ServiceObjectResult, service_object_result
 
 STAGES = (
@@ -52,7 +56,9 @@ def _stage_for_item_type(item_type: str) -> str:
     return {
         "product_opportunity": "opportunity",
         "publishing_draft": "opportunity",
-        "repost_candidate": "opportunity",
+        "social_daily_inventory": "opportunity",
+        "social_review_queue": "opportunity",
+        "social_metrics_loop": "opportunity",
         "requirement_candidate": "candidate",
         "requirement": "requirement",
         "workflow": "workflow",
@@ -139,7 +145,12 @@ def _node(
     detail_api: str | None = None,
     updated_at: Any = None,
     stage_statuses: dict[str, str] | None = None,
+    process_key: str | None = None,
+    process_stages: list[dict[str, str]] | None = None,
     evidence_label: str = "",
+    external_post_id: str | None = None,
+    external_url: str | None = None,
+    published_at: str | None = None,
     children: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -152,11 +163,16 @@ def _node(
         "lane": lane,
         "goal_key": goal_key,
         "stage_statuses": stage_statuses or _blank_stages(),
+        "process_key": process_key,
+        "process_stages": process_stages or [],
         "next_action": next_action,
         "deep_link": deep_link,
         "detail_api": detail_api,
         "updated_at": iso_timestamp(updated_at),
         "evidence_label": evidence_label,
+        "external_post_id": external_post_id,
+        "external_url": external_url,
+        "published_at": published_at,
         "children": children or [],
     }
 
@@ -164,25 +180,31 @@ def _node(
 def _task_node(
     item: dict[str, Any], *, parent_id: str, level: int, lane: str, goal_key: str | None
 ) -> dict[str, Any]:
+    item_type = str(item.get("type") or "work_item")
+    item_status = str(item.get("status") or "unknown")
     stages = _blank_stages()
-    stages[_stage_for_item_type(str(item.get("type") or ""))] = _normalize_stage_status(
-        str(item.get("status") or "")
-    )
+    stages[_stage_for_item_type(item_type)] = _normalize_stage_status(item_status)
     return _node(
         node_id=str(item.get("id") or ""),
         parent_id=parent_id,
         level=level,
-        node_type=str(item.get("type") or "work_item"),
+        node_type=item_type,
         title=str(item.get("title") or "Untitled work item"),
-        status=str(item.get("status") or "unknown"),
+        status=item_status,
         lane=lane,
         goal_key=goal_key,
         stage_statuses=stages,
+        process_key=_process_key_for_item_type(item_type),
+        process_stages=item.get("process_stages")
+        or _process_stages(item_type, item_status, _normalize_stage_status(item_status)),
         next_action=str(item.get("next_action") or ""),
         deep_link=item.get("deep_link"),
         detail_api=_detail_api_for_item(str(item.get("id") or "")),
         updated_at=item.get("updated_at"),
         evidence_label=str(item.get("evidence_label") or ""),
+        external_post_id=item.get("external_post_id"),
+        external_url=item.get("external_url"),
+        published_at=item.get("published_at"),
     )
 
 

@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from server.database import SocialPostDraftRow, utcnow
 from server.services.social import daily_planner as social_daily_planner
+from server.services.social import daily_planner_inventory as social_daily_inventory
 from server.services.social import post_metrics as social_post_metrics
 from server.services.social import publishing as social_publishing
 from server.services.social.x_client import (
@@ -50,11 +53,11 @@ def test_x_social_daily_planner_helper_edges(monkeypatch, db_session):
         body_text="metadata",
         raw_agent_output_json='{"planner_slot": "not-int"}',
     )
-    assert social_daily_planner._daily_planner_slot(bad_metadata) == 0
+    assert social_daily_inventory._daily_planner_slot(bad_metadata) == 0
     bad_metadata.raw_agent_output_json = (
         '{"planner_run_key": "x_daily:1:2026-04-29:slot-7"}'
     )
-    assert social_daily_planner._daily_planner_slot(bad_metadata) == 7
+    assert social_daily_inventory._daily_planner_slot(bad_metadata) == 7
     assert (
         social_daily_planner._campaign_goal_summary(None)[0]
         == "Build trust for Synapse Network official X"
@@ -109,8 +112,111 @@ def test_x_social_daily_planner_records_failed_slot(monkeypatch, db_session):
         )
     )
     assert created_ids == []
-    assert failed_ids == [failed.id, failed.id, failed.id]
+    assert failed_ids == [failed.id]
     assert run_keys == []
+
+
+def test_x_social_daily_planner_reuses_inactive_slots(db_session):
+    account = social_publishing.ensure_default_social_account(db_session)
+    local_date = "2026-04-29"
+    rows = [
+        SocialPostDraftRow(
+            platform="x",
+            account_id=account.id,
+            source_type="daily_planner",
+            title="Published slot 1",
+            body_text="Published.",
+            status="published",
+            raw_agent_output_json=social_publishing._json_dumps(
+                {
+                    "planner_local_date": local_date,
+                    "planner_slot": 1,
+                    "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-1",
+                }
+            ),
+        ),
+        SocialPostDraftRow(
+            platform="x",
+            account_id=account.id,
+            source_type="daily_planner",
+            title="Failed slot 2",
+            body_text="",
+            status="failed",
+            raw_agent_output_json=social_publishing._json_dumps(
+                {
+                    "planner_local_date": local_date,
+                    "planner_slot": 2,
+                    "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-2",
+                }
+            ),
+        ),
+        SocialPostDraftRow(
+            platform="x",
+            account_id=account.id,
+            source_type="daily_planner",
+            title="Active slot 3",
+            body_text="Needs review.",
+            status="needs_review",
+            raw_agent_output_json=social_publishing._json_dumps(
+                {
+                    "planner_local_date": local_date,
+                    "planner_slot": 3,
+                    "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-3",
+                }
+            ),
+        ),
+    ]
+
+    assert social_daily_inventory._next_daily_planner_slot(rows) == 1
+
+
+def test_x_social_daily_planner_expires_stale_generating_drafts(
+    monkeypatch, db_session
+):
+    account = social_publishing.ensure_default_social_account(db_session)
+    local_date = social_publishing._operator_local_date()
+    stale_time = utcnow() - timedelta(minutes=30)
+    stale = SocialPostDraftRow(
+        platform="x",
+        account_id=account.id,
+        source_type="daily_planner",
+        title="Stale generating slot",
+        body_text="",
+        status="generating",
+        generated_by="x_social_daily_content_planner",
+        created_at=stale_time,
+        updated_at=stale_time,
+        raw_agent_output_json=social_publishing._json_dumps(
+            {
+                "planner_local_date": local_date,
+                "planner_slot": 1,
+                "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-1",
+            }
+        ),
+    )
+    db_session.add(stale)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        social_publishing,
+        "_generate_x_post_copy",
+        lambda *args, **kwargs: social_publishing.GeneratedXPost(
+            title="Fresh replacement",
+            body_text="A replacement draft after stale generation timeout. #AIAgents",
+            media_decision="text",
+            model="test-model",
+        ),
+    )
+
+    result = social_daily_planner.run_x_social_daily_content_planner(db_session)
+
+    db_session.refresh(stale)
+    assert stale.status == "failed"
+    assert "daily_planner_generation_timeout" in stale.failure_summary
+    assert result["expired_generating_post_ids"] == [stale.id]
+    assert len(result["created_post_ids"]) == 1
+    replacement = db_session.get(SocialPostDraftRow, result["created_post_ids"][0])
+    assert replacement.status == "needs_review"
 
 
 def test_x_social_post_metrics_empty_and_missing_branches(monkeypatch, db_session):
@@ -155,6 +261,45 @@ def test_x_social_post_metrics_empty_and_missing_branches(monkeypatch, db_sessio
     missing_result = social_post_metrics.run_x_social_post_observer_sweep(db_session)
     assert missing_result["created_metric_ids"] == []
     assert missing_result["missing_external_ids"] == ["missing-x-post"]
+
+
+def test_x_social_post_metrics_observer_respects_daily_read_budget(
+    monkeypatch, db_session
+):
+    account = social_publishing.ensure_default_social_account(db_session)
+    post = SocialPostDraftRow(
+        platform="x",
+        account_id=account.id,
+        source_type="manual_prompt",
+        title="Published post",
+        body_text="Published post with external id.",
+        status="published",
+        generated_by="operator",
+        external_post_id="tweet-budget",
+        published_at=utcnow(),
+    )
+    db_session.add(post)
+    db_session.commit()
+
+    class BudgetShouldNotCallXClient(FakeXReadClient):
+        def __init__(self, access_token: str):
+            raise AssertionError("X metrics client must not run after read budget is exhausted")
+
+    monkeypatch.setattr(social_publishing.config, "X_READ_DAILY_REQUEST_BUDGET", 0)
+    monkeypatch.setattr(
+        social_publishing.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("token refresh must not happen after budget exhaustion")
+        ),
+    )
+    monkeypatch.setattr(social_post_metrics, "XApiClient", BudgetShouldNotCallXClient)
+
+    result = social_post_metrics.run_x_social_post_observer_sweep(db_session)
+
+    assert result["budget_exhausted"] is True
+    assert result["created_metric_ids"] == []
+    assert "budget exhausted" in result["diagnostic"].lower()
 
 
 def test_x_social_post_metrics_auth_fallback_and_rate_limit(monkeypatch):

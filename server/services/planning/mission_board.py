@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 from server.services.planning.lifecycle import ensure_active_manifest, goal_to_dict
 from server.services.planning.mission_board_helpers import iso_timestamp, sort_mission_items
 from server.services.planning.mission_lane_items import (
-    growth_items,
     product_planner_items,
     software_items,
     unassigned_items,
 )
+from server.services.planning.social_mission_items import growth_items
 from server.services.planning.product_opportunities import (
     ensure_product_opportunity_table,
 )

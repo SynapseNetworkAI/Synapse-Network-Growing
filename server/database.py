@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 """Database connection and table setup for Agentic Ops Dashboard."""
 import logging
 from sqlalchemy import (
@@ -19,7 +18,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, timezone
-
 from server.config import (
     DATABASE_URL,
     DB_MAX_OVERFLOW,
@@ -32,6 +30,7 @@ from server.config import (
     DB_SQLITE_SYNCHRONOUS,
 )
 
+from server.database_social_budget import migrate_social_x_read_budget
 logger = logging.getLogger("ops-dashboard.db")
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 _IS_IN_MEMORY = ":memory:" in DATABASE_URL
@@ -754,6 +753,7 @@ class SocialWatchlistAccountRow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(Text, nullable=False, default="x")
     handle = Column(Text, nullable=False)
+    x_user_id = Column(Text)
     display_name = Column(Text)
     category = Column(Text, nullable=False, default="ai_agent_builder")
     rationale = Column(Text)
@@ -1702,19 +1702,12 @@ def _migrate(engine_):
             _rebuild_sqlite_release_tasks_with_current_fks(engine_)
             insp = inspect(engine_)
 
-    social_tables = {
-        "social_campaign_goals": SocialCampaignGoalRow,
-        "social_oauth_sessions": SocialOAuthSessionRow,
-        "social_trend_items": SocialTrendItemRow,
-        "social_watchlist_accounts": SocialWatchlistAccountRow,
-        "social_reply_items": SocialReplyItemRow,
-        "social_repost_candidates": SocialRepostCandidateRow,
-        "social_post_metrics": SocialPostMetricRow,
-    }
+    social_tables = {"social_campaign_goals": SocialCampaignGoalRow, "social_oauth_sessions": SocialOAuthSessionRow, "social_trend_items": SocialTrendItemRow, "social_watchlist_accounts": SocialWatchlistAccountRow, "social_reply_items": SocialReplyItemRow, "social_repost_candidates": SocialRepostCandidateRow, "social_post_metrics": SocialPostMetricRow}
     for table_name, row_class in social_tables.items():
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+    migrate_social_x_read_budget(engine_, tables)
 
     if "social_reply_items" in tables:
         existing = {c["name"] for c in insp.get_columns("social_reply_items")}
@@ -1743,6 +1736,13 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE social_post_drafts ADD COLUMN source_type TEXT DEFAULT 'manual_prompt'"))
                 conn.commit()
+
+    if "social_watchlist_accounts" in tables:
+        existing = {c["name"] for c in insp.get_columns("social_watchlist_accounts")}
+        if "x_user_id" not in existing:
+            logger.info("Migrating: adding 'x_user_id' column to social_watchlist_accounts table")
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE social_watchlist_accounts ADD COLUMN x_user_id TEXT")); conn.commit()
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

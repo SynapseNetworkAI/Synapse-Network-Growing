@@ -70,11 +70,16 @@ export interface MissionWorkbenchNode {
   lane: string | null
   goal_key: string | null
   stage_statuses: Record<MissionWorkbenchStage, string>
+  process_key?: string | null
+  process_stages?: Array<{ key: string; label: string; status: string }>
   next_action: string
   deep_link: string | null
   detail_api: string | null
   updated_at: string | null
   evidence_label: string
+  external_post_id?: string | null
+  external_url?: string | null
+  published_at?: string | null
   children: MissionWorkbenchNode[]
 }
 

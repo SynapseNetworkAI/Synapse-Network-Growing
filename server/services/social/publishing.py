@@ -18,10 +18,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from server import config
+from server.database_social_budget import ensure_social_x_read_budget_table
 from server.database import (
     SessionLocal,
     SocialAccountRow,
@@ -1299,6 +1300,70 @@ def list_social_watchlist(db: Session) -> list[SocialWatchlistAccountOut]:
     ]
 
 
+def _x_read_budget_local_date(now: datetime | None = None) -> str:
+    return _operator_local_date(now)
+
+
+def _x_read_budget_usage(db: Session, *, local_date: str) -> dict[str, int]:
+    ensure_social_x_read_budget_table(db)
+    row = db.execute(
+        text(
+            "SELECT COALESCE(SUM(request_count), 0) AS request_count, "
+            "COALESCE(SUM(source_post_count), 0) AS source_post_count "
+            "FROM social_x_read_budget_events WHERE platform = 'x' AND local_date = :local_date"
+        ),
+        {"local_date": local_date},
+    ).mappings().one()
+    return {
+        "request_count": int(row["request_count"] or 0),
+        "source_post_count": int(row["source_post_count"] or 0),
+    }
+
+
+def _x_read_budget_remaining(db: Session, *, local_date: str) -> dict[str, int]:
+    usage = _x_read_budget_usage(db, local_date=local_date)
+    return {
+        "request_count": max(
+            0, int(config.X_READ_DAILY_REQUEST_BUDGET) - usage["request_count"]
+        ),
+        "source_post_count": max(
+            0,
+            int(config.X_TREND_DAILY_SOURCE_POST_BUDGET)
+            - usage["source_post_count"],
+        ),
+    }
+
+
+def _record_x_read_budget_event(
+    db: Session,
+    *,
+    workflow_key: str,
+    local_date: str,
+    request_count: int = 0,
+    source_post_count: int = 0,
+    detail: str | None = None,
+) -> None:
+    if request_count <= 0 and source_post_count <= 0:
+        return
+    ensure_social_x_read_budget_table(db)
+    db.execute(
+        text(
+            "INSERT INTO social_x_read_budget_events "
+            "(platform, local_date, workflow_key, request_count, source_post_count, detail, created_at) "
+            "VALUES ('x', :local_date, :workflow_key, :request_count, :source_post_count, :detail, :created_at)"
+        ),
+        {
+            "local_date": local_date,
+            "workflow_key": workflow_key,
+            "request_count": max(0, int(request_count)),
+            "source_post_count": max(0, int(source_post_count)),
+            "detail": _bounded_excerpt(detail or "", max_chars=500) or None,
+            "created_at": utcnow(),
+        },
+    )
+    db.flush()
+
+
 def list_social_replies(db: Session) -> list[SocialReplyItemOut]:
     rows = db.query(SocialReplyItemRow).order_by(SocialReplyItemRow.updated_at.desc(), SocialReplyItemRow.id.desc()).limit(100).all()
     return [_social_reply_out(row) for row in rows]
@@ -1564,6 +1629,29 @@ def _is_value_add_quote(quote: str | None, source_text: str) -> bool:
 
 def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float) -> dict[str, Any]:
     now = utcnow()
+    local_date = _x_read_budget_local_date(now)
+    remaining = _x_read_budget_remaining(db, local_date=local_date)
+    if (
+        int(config.X_READ_DAILY_REQUEST_BUDGET) <= 0
+        or int(config.X_TREND_DAILY_SOURCE_POST_BUDGET) <= 0
+        or remaining["request_count"] <= 0
+        or remaining["source_post_count"] < 5
+    ):
+        return {
+            "connector": "x_watchlist_timeline",
+            "x_read_connector_configured": True,
+            "budget_exhausted": True,
+            "budget_local_date": local_date,
+            "budget_remaining_requests": remaining["request_count"],
+            "budget_remaining_source_posts": remaining["source_post_count"],
+            "due_watchlist_count": 0,
+            "created_trend_ids": [],
+            "skipped_short_text_count": 0,
+            "skipped_low_relevance_count": 0,
+            "duplicate_count": 0,
+            "rate_limited": False,
+            "diagnostic": "Daily X read budget exhausted; using cached local trend data only.",
+        }
     due_accounts = (
         db.query(SocialWatchlistAccountRow)
         .filter(SocialWatchlistAccountRow.platform == "x", SocialWatchlistAccountRow.status == "active")
@@ -1591,13 +1679,68 @@ def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float)
     skipped_low = 0
     duplicate_count = 0
     synced_handles: list[str] = []
+    budget_exhausted = False
     diagnostic = "Synced due watchlist accounts from X user timelines."
 
     for account in due_accounts:
         handle = str(account.handle or "").strip().lstrip("@")
+        remaining = _x_read_budget_remaining(db, local_date=local_date)
+        lookup_needed = not str(account.x_user_id or "").strip()
+        needed_requests = 1 + (1 if lookup_needed else 0)
+        if (
+            remaining["request_count"] < needed_requests
+            or remaining["source_post_count"] < 5
+        ):
+            budget_exhausted = True
+            diagnostic = "Daily X read budget exhausted before syncing all due watchlist accounts."
+            break
         try:
-            user = client.get_user_by_username(handle)
-            posts = client.get_user_tweets(user.id, max_results=config.X_WATCHLIST_TWEETS_PER_ACCOUNT)
+            if lookup_needed:
+                try:
+                    user = client.get_user_by_username(handle)
+                finally:
+                    _record_x_read_budget_event(
+                        db,
+                        workflow_key="x_social_trend_radar_sweep",
+                        local_date=local_date,
+                        request_count=1,
+                        detail=f"user_lookup @{handle}",
+                    )
+                    db.commit()
+                account.x_user_id = user.id
+                account.display_name = account.display_name or user.name
+            else:
+                user = type(
+                    "CachedXUser",
+                    (),
+                    {
+                        "id": str(account.x_user_id),
+                        "username": handle,
+                        "name": account.display_name,
+                    },
+                )()
+            remaining = _x_read_budget_remaining(db, local_date=local_date)
+            if remaining["request_count"] <= 0 or remaining["source_post_count"] < 5:
+                budget_exhausted = True
+                diagnostic = "Daily X read budget exhausted before timeline fetch."
+                break
+            max_results = min(
+                int(config.X_WATCHLIST_TWEETS_PER_ACCOUNT),
+                remaining["source_post_count"],
+            )
+            posts: list[XPost] = []
+            try:
+                posts = client.get_user_tweets(user.id, max_results=max_results)
+            finally:
+                _record_x_read_budget_event(
+                    db,
+                    workflow_key="x_social_trend_radar_sweep",
+                    local_date=local_date,
+                    request_count=1,
+                    source_post_count=len(posts),
+                    detail=f"timeline @{handle}",
+                )
+                db.commit()
         except XApiRateLimitError as exc:
             account.last_checked_at = now
             account.latest_summary = "X API rate limit reached; this account will be retried after the watchlist sync interval."
@@ -1612,6 +1755,14 @@ def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float)
                 "skipped_short_text_count": skipped_short,
                 "skipped_low_relevance_count": skipped_low,
                 "duplicate_count": duplicate_count,
+                "budget_exhausted": budget_exhausted,
+                "budget_local_date": local_date,
+                "budget_remaining_requests": _x_read_budget_remaining(
+                    db, local_date=local_date
+                )["request_count"],
+                "budget_remaining_source_posts": _x_read_budget_remaining(
+                    db, local_date=local_date
+                )["source_post_count"],
                 "rate_limited": True,
                 "diagnostic": diagnostic,
             }
@@ -1623,7 +1774,6 @@ def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float)
 
         synced_handles.append(handle)
         account.last_checked_at = now
-        account.display_name = account.display_name or user.name
         if not posts:
             account.latest_summary = "X timeline returned no recent public posts."
             continue
@@ -1668,6 +1818,14 @@ def _sync_x_watchlist_timeline_posts(db: Session, *, min_relevance_score: float)
         "skipped_short_text_count": skipped_short,
         "skipped_low_relevance_count": skipped_low,
         "duplicate_count": duplicate_count,
+        "budget_exhausted": budget_exhausted,
+        "budget_local_date": local_date,
+        "budget_remaining_requests": _x_read_budget_remaining(
+            db, local_date=local_date
+        )["request_count"],
+        "budget_remaining_source_posts": _x_read_budget_remaining(
+            db, local_date=local_date
+        )["source_post_count"],
         "rate_limited": False,
         "diagnostic": diagnostic,
     }
@@ -1719,6 +1877,14 @@ def run_x_social_trend_radar_sweep(db: Session, *, min_relevance_score: float = 
         "skipped_short_text_count": int(watchlist_sync.get("skipped_short_text_count") or 0),
         "skipped_low_relevance_count": int(watchlist_sync.get("skipped_low_relevance_count") or 0),
         "duplicate_count": int(watchlist_sync.get("duplicate_count") or 0),
+        "budget_exhausted": bool(watchlist_sync.get("budget_exhausted")),
+        "budget_local_date": watchlist_sync.get("budget_local_date"),
+        "budget_remaining_requests": int(
+            watchlist_sync.get("budget_remaining_requests") or 0
+        ),
+        "budget_remaining_source_posts": int(
+            watchlist_sync.get("budget_remaining_source_posts") or 0
+        ),
         "rate_limited": bool(watchlist_sync.get("rate_limited")),
         "diagnostic": watchlist_sync.get("diagnostic")
         or "Sweep filtered existing trend rows and watchlist timeline inputs only.",

@@ -17,6 +17,9 @@ from server.services.social.publishing import (
     DEFAULT_X_SECRET_REF,
     SocialPublishError,
     _bounded_excerpt,
+    _record_x_read_budget_event,
+    _x_read_budget_local_date,
+    _x_read_budget_remaining,
     ensure_default_social_account,
     x_oauth_token_provider,
 )
@@ -192,22 +195,60 @@ def _published_posts_for_metrics(
 
 def _lookup_x_metric_posts(
     external_ids: list[str],
+    *,
+    db: Session | None = None,
+    local_date: str | None = None,
+    allow_owner_metrics: bool = True,
 ) -> tuple[list[Any], str | None, bool]:
     token_result = x_oauth_token_provider.get_access_token(DEFAULT_X_SECRET_REF)
     client = XApiClient(token_result.access_token)
+    budget_date = local_date or _x_read_budget_local_date()
+    if not allow_owner_metrics:
+        try:
+            return (
+                client.get_posts_by_ids(external_ids, include_owner_metrics=False),
+                "Owner metrics skipped because the daily X read budget has only one request left.",
+                False,
+            )
+        finally:
+            if db is not None:
+                _record_x_read_budget_event(
+                    db,
+                    workflow_key="x_social_post_observer_sweep",
+                    local_date=budget_date,
+                    request_count=1,
+                    detail="tweet_lookup public metrics",
+                )
+                db.commit()
     try:
-        return (
-            client.get_posts_by_ids(external_ids, include_owner_metrics=True),
-            None,
-            True,
-        )
+        try:
+            posts = client.get_posts_by_ids(external_ids, include_owner_metrics=True)
+        finally:
+            if db is not None:
+                _record_x_read_budget_event(
+                    db,
+                    workflow_key="x_social_post_observer_sweep",
+                    local_date=budget_date,
+                    request_count=1,
+                    detail="tweet_lookup owner metrics",
+                )
+                db.commit()
+        return (posts, None, True)
     except XApiAuthError as exc:
         diagnostic = f"Owner metrics unavailable; falling back to public metrics only: {_bounded_excerpt(str(exc), max_chars=240)}"
-        return (
-            client.get_posts_by_ids(external_ids, include_owner_metrics=False),
-            diagnostic,
-            False,
-        )
+        try:
+            posts = client.get_posts_by_ids(external_ids, include_owner_metrics=False)
+        finally:
+            if db is not None:
+                _record_x_read_budget_event(
+                    db,
+                    workflow_key="x_social_post_observer_sweep",
+                    local_date=budget_date,
+                    request_count=1,
+                    detail="tweet_lookup public metrics fallback",
+                )
+                db.commit()
+        return (posts, diagnostic, False)
 
 
 def _metric_row_from_x_post(
@@ -260,10 +301,26 @@ def run_x_social_post_observer_sweep(
             "created_metric_ids": [],
             "diagnostic": "No published X posts with external_post_id are available for metrics observation.",
         }
+    local_date = _x_read_budget_local_date()
+    remaining = _x_read_budget_remaining(db, local_date=local_date)
+    if remaining["request_count"] <= 0:
+        return {
+            "read_only": True,
+            "workflow_key": "x_social_post_observer_sweep",
+            "observed_count": 0,
+            "created_metric_ids": [],
+            "budget_exhausted": True,
+            "budget_local_date": local_date,
+            "budget_remaining_requests": 0,
+            "diagnostic": "Daily X read budget exhausted; metrics observer skipped external lookup.",
+        }
     external_ids = [str(row.external_post_id) for row in rows if row.external_post_id]
     try:
         x_posts, diagnostic, private_metrics_available = _lookup_x_metric_posts(
-            external_ids
+            external_ids,
+            db=db,
+            local_date=local_date,
+            allow_owner_metrics=remaining["request_count"] >= 2,
         )
     except XApiRateLimitError as exc:
         return {
@@ -311,5 +368,9 @@ def run_x_social_post_observer_sweep(
         "external_post_ids": external_ids,
         "missing_external_ids": missing_external_ids,
         "private_metrics_available": private_metrics_available,
+        "budget_local_date": local_date,
+        "budget_remaining_requests": _x_read_budget_remaining(
+            db, local_date=local_date
+        )["request_count"],
         "diagnostic": diagnostic,
     }

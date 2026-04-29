@@ -673,12 +673,13 @@ describe('PublishingPage', () => {
     openSpy.mockRestore()
   })
 
-  it('sorts unpublished drafts above published and rejected records', async () => {
+  it('sorts reviewable drafts above failed history, published, and rejected records', async () => {
     apiMock.getSocialPosts.mockResolvedValue([
       draft({ id: 1, title: 'Rejected record', status: 'rejected', updated_at: '2026-04-25T04:00:00Z' }),
       draft({ id: 2, title: 'Published record', status: 'published', updated_at: '2026-04-25T05:00:00Z' }),
       draft({ id: 3, title: 'Approved record', status: 'approved', updated_at: '2026-04-25T01:00:00Z' }),
       draft({ id: 4, title: 'Failed record', status: 'failed', updated_at: '2026-04-25T02:00:00Z' }),
+      draft({ id: 5, title: 'Needs review record', status: 'needs_review', updated_at: '2026-04-25T00:00:00Z' }),
     ])
     renderPage()
 
@@ -689,9 +690,10 @@ describe('PublishingPage', () => {
       .filter((text) => text.includes(' record'))
 
     expect(order[0]).toContain('Approved record')
-    expect(order[1]).toContain('Failed record')
-    expect(order[2]).toContain('Published record')
-    expect(order[3]).toContain('Rejected record')
+    expect(order[1]).toContain('Needs review record')
+    expect(order[2]).toContain('Failed record')
+    expect(order[3]).toContain('Published record')
+    expect(order[4]).toContain('Rejected record')
   })
 
   it('shows the backend failure reason when resend still fails', async () => {
