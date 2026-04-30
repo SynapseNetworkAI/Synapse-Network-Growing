@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from server.database import (
     DeploymentRecordRow,
+    ProjectPolicyRow,
     ReleaseTaskRow,
     RequirementRow,
     SocialPostDraftRow,
@@ -321,6 +322,68 @@ def test_x_social_daily_planner_product_change_signals_are_public_safe(db_sessio
     assert "token=" not in joined
     assert "[path]" in joined
     assert "[internal branch]" in joined
+
+
+def test_x_social_product_change_git_signal_edges(monkeypatch, tmp_path, db_session):
+    monkeypatch.setattr(product_change_signals.shutil, "which", lambda _name: None)
+    assert product_change_signals.recent_git_change_signals(db_session) == []
+
+    db_session.add(
+        ProjectPolicyRow(
+            project_key="synapse-network-sdk",
+            display_name="Synapse SDK",
+            root_path=str(tmp_path),
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        product_change_signals.shutil, "which", lambda _name: "/usr/bin/git"
+    )
+    assert product_change_signals.recent_git_change_signals(db_session) == []
+
+    (tmp_path / ".git").mkdir()
+
+    def raise_os_error(*_args, **_kwargs):
+        raise OSError("git unavailable")
+
+    monkeypatch.setattr(product_change_signals.subprocess, "run", raise_os_error)
+    assert product_change_signals.recent_git_change_signals(db_session) == []
+
+    class FailedGitResult:
+        returncode = 1
+        stdout = "ignored"
+
+    monkeypatch.setattr(
+        product_change_signals.subprocess,
+        "run",
+        lambda *_args, **_kwargs: FailedGitResult(),
+    )
+    assert product_change_signals.recent_git_change_signals(db_session) == []
+
+    class SuccessfulGitResult:
+        returncode = 0
+        stdout = "Ship SDK quickstart\n\nFix ops/noisy-branch leak\n"
+
+    monkeypatch.setattr(
+        product_change_signals.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SuccessfulGitResult(),
+    )
+
+    signals = product_change_signals.recent_git_change_signals(db_session, limit=1)
+
+    assert signals == ["Synapse SDK: recent repo change - Ship SDK quickstart"]
+
+
+def test_x_social_product_change_signal_dedupe_and_limit():
+    signals = product_change_signals._dedupe_signals(
+        ["", "Provider deploy shipped", "Provider deploy shipped", "SDK docs shipped"],
+        limit=1,
+    )
+
+    assert signals == ["Provider deploy shipped"]
 
 
 def test_x_social_post_metrics_empty_and_missing_branches(monkeypatch, db_session):
