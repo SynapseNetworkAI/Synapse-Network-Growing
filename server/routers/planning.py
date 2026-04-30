@@ -36,7 +36,6 @@ from server.services.planning.lifecycle import (
     get_goal,
     goal_trace,
     goal_rollup,
-    get_candidate,
     list_candidates,
     list_goals,
     list_manifest_history,
@@ -44,12 +43,12 @@ from server.services.planning.lifecycle import (
     materialize_candidate,
     mission_control_snapshot,
     reject_candidate,
-    retry_candidate_validation,
     run_planner_sweep,
     save_active_manifest,
     sweep_to_dict,
     update_goal,
 )
+from server.services.planning.candidate_retry import get_candidate, retry_candidate_validation
 from server.services.planning.mission_board import mission_board_snapshot
 from server.services.planning.mission_workbench import mission_workbench_snapshot
 from server.services.planning.product_opportunities import (

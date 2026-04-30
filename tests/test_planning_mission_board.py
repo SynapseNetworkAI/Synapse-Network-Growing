@@ -289,6 +289,13 @@ def test_candidate_detail_api_returns_single_candidate(client, db_session):
     assert payload["metadata"]["acceptance_validation_error"] == "safe rg command was not allowlisted"
 
 
+def test_candidate_detail_api_returns_404_for_missing_candidate(client):
+    response = client.get("/api/planning/candidates/999999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "candidate not found"
+
+
 def test_candidate_retry_validation_clones_failed_candidate_when_contract_now_passes(client, db_session):
     manifest = ensure_active_manifest(db_session)
     db_session.add(
@@ -338,6 +345,57 @@ def test_candidate_retry_validation_clones_failed_candidate_when_contract_now_pa
     assert payload["status"] == "pending"
     assert payload["metadata"]["retry_of_candidate_id"] == candidate.id
     assert "acceptance_validation_error" not in payload["metadata"]
+
+
+def test_candidate_retry_validation_reports_retry_errors(client, db_session):
+    manifest = ensure_active_manifest(db_session)
+    invalid_contract = {
+        "acceptance_kind": "business",
+        "execution_acceptance_steps": [
+            {
+                "step_key": "unsafe",
+                "title": "Unsafe evidence is rejected",
+                "expected_result": "Unsafe commands cannot run.",
+                "required_commands": ["deploy production"],
+            }
+        ],
+    }
+    candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="sdk_developer_quickstart",
+        candidate_fingerprint="sdk-candidate-retry-failure",
+        title="Ship SDK quickstart",
+        description_markdown="Build SDK quickstart docs and smoke evidence.",
+        project_key="synapse-network-sdk",
+        workflow_key="agent_self_repair",
+        status="validation_failed",
+        metadata_json='{"acceptance_contract": %s}' % json.dumps(invalid_contract),
+    )
+    pending_candidate = RequirementCandidateRow(
+        manifest_id=int(manifest.id),
+        goal_key="sdk_developer_quickstart",
+        candidate_fingerprint="sdk-candidate-not-retryable",
+        title="Pending SDK quickstart",
+        description_markdown="Pending rows are not retryable.",
+        project_key="synapse-network-sdk",
+        workflow_key="agent_self_repair",
+        status="pending",
+        metadata_json="{}",
+    )
+    db_session.add_all([candidate, pending_candidate])
+    db_session.commit()
+
+    missing = client.post("/api/planning/candidates/999999/retry-validation", json={"operator": "tester"})
+    not_retryable = client.post(f"/api/planning/candidates/{pending_candidate.id}/retry-validation", json={"operator": "tester"})
+    invalid = client.post(f"/api/planning/candidates/{candidate.id}/retry-validation", json={"operator": "tester"})
+
+    assert missing.status_code == 400
+    assert not_retryable.status_code == 400
+    assert invalid.status_code == 400
+    db_session.refresh(candidate)
+    metadata = json.loads(candidate.metadata_json or "{}")
+    assert "deploy" in metadata["last_retry_validation_error"]
+    assert metadata["last_retry_validation_at"]
 
 
 def test_mission_workbench_returns_empty_tree_without_active_goal(

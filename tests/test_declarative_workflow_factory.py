@@ -33,6 +33,7 @@ from server.services.workflows.declarative import (
     _run_acceptance_command_result_artifact,
 )
 from server.services.workflows.acceptance_runtime import acceptance_execution_command
+from server.services.workflows.gate_resume import previous_state_before_gate
 
 
 @pytest.fixture(autouse=True)
@@ -378,8 +379,16 @@ def test_self_repair_verification_skips_ops_compile_for_cross_project_requiremen
 
     assert result.final_state == "awaiting_ci"
     commands = workflow_blackboard(run)["verification"]["command_results"]
-    assert not any("server/services/workflows/declarative.py" in item["command"] for item in commands)
-    assert any(item["command"].startswith("cd /Users/cliff/workspace/agent/Synapse-Network-Growing") for item in commands)
+    assert not any(
+        "server/services/workflows/declarative.py" in item["command"]
+        for item in commands
+    )
+    assert any(
+        item["command"].startswith(
+            "cd /Users/cliff/workspace/agent/Synapse-Network-Growing"
+        )
+        for item in commands
+    )
 
 
 def test_self_repair_verification_cannot_pass_when_acceptance_matrix_command_fails(
@@ -683,7 +692,9 @@ def test_human_gate_continue_retry_preserves_resume_blackboard_updates(
     assert blackboard["human_gate_decisions"][0]["comment"] == "retry"
 
 
-def test_continue_retry_resumes_latest_non_gate_state_after_gate_self_loop(db_session):
+def test_continue_retry_resumes_latest_non_gate_state_after_gate_self_loop(
+    db_session, monkeypatch
+):
     run = _create_workflow_run(db_session)
     run.current_state = "awaiting_operator"
     run.status = "awaiting_operator"
@@ -693,7 +704,7 @@ def test_continue_retry_resumes_latest_non_gate_state_after_gate_self_loop(db_se
                 workflow_run_id=int(run.id),
                 from_state="verify",
                 to_state="awaiting_operator",
-                condition="verification.status == \"failed\"",
+                condition='verification.status == "failed"',
             ),
             WorkflowStateEventRow(
                 workflow_run_id=int(run.id),
@@ -714,4 +725,35 @@ def test_continue_retry_resumes_latest_non_gate_state_after_gate_self_loop(db_se
     db_session.add(gate)
     db_session.flush()
 
-    assert declarative_module._previous_state_before_gate(db_session, run, gate) == "verify"
+    assert (
+        previous_state_before_gate(
+            db_session, run, gate, default_state="awaiting_operator"
+        )
+        == "verify"
+    )
+
+    def fake_run_workflow_state_machine(
+        db, *, workflow_run, spec, registry, initial_blackboard
+    ):
+        workflow_run.status = "pending"
+        workflow_run.current_state = initial_blackboard["current_state"]
+        db.flush()
+        return workflow_run
+
+    monkeypatch.setattr(
+        declarative_module,
+        "run_workflow_state_machine",
+        fake_run_workflow_state_machine,
+    )
+
+    result = declarative_module.resume_workflow_after_gate_decision(
+        db_session,
+        gate=gate,
+        decision="continue_retry",
+        blackboard=workflow_blackboard(run),
+    )
+
+    assert result["resume_status"] == "resumed"
+    assert result["next_state"] == "verify"
+    assert run.current_state == "verify"
+    assert run.status == "pending"

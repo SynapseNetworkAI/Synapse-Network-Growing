@@ -44,6 +44,7 @@ from server.services.requirements.acceptance import (
 )
 from server.services.runtime.alerting import bounded_lark_excerpt, build_ops_url, deliver_policy_notification, notification_service_label
 from server.services.workflows.acceptance_runtime import acceptance_execution_command
+from server.services.workflows.gate_resume import previous_state_before_gate
 
 
 class WorkflowSpecError(ValueError):
@@ -2339,27 +2340,6 @@ def _run_awaiting_business_confirmation(run: WorkflowRunRow) -> bool:
     return bool(acceptance.get("acceptance_override")) and _is_completed_status(run.status) and not outcome_confirmed
 
 
-def _previous_state_before_gate(db: Session, run: WorkflowRunRow, gate: HumanGateRequestRow) -> str:
-    gate_state = str(gate.state_key or "awaiting_operator")
-    event = (
-        db.query(WorkflowStateEventRow)
-        .filter(
-            WorkflowStateEventRow.workflow_run_id == int(run.id),
-            WorkflowStateEventRow.to_state == gate_state,
-            WorkflowStateEventRow.from_state.isnot(None),
-            WorkflowStateEventRow.from_state != gate_state,
-        )
-        .order_by(WorkflowStateEventRow.id.desc())
-        .first()
-    )
-    if event is not None and event.from_state:
-        return str(event.from_state)
-    spec = built_in_workflow_specs().get(str(run.workflow_key or ""))
-    if isinstance(spec, Mapping):
-        return str(spec.get("initial_state") or gate.state_key)
-    return str(gate.state_key)
-
-
 def resume_workflow_after_gate_decision(
     db: Session,
     *,
@@ -2398,7 +2378,12 @@ def resume_workflow_after_gate_decision(
             spec = built_in_workflow_specs().get(str(run.workflow_key or ""))
             if not isinstance(spec, Mapping):
                 raise WorkflowRuntimeError(f"unknown workflow_key: {run.workflow_key}")
-            retry_state = _previous_state_before_gate(db, run, gate)
+            retry_state = previous_state_before_gate(
+                db,
+                run,
+                gate,
+                default_state=str(spec.get("initial_state") or gate.state_key),
+            )
             blackboard["current_state"] = retry_state
             run.current_state = retry_state
             run.status = "pending"

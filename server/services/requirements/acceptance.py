@@ -8,6 +8,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import RequirementRow, WorkflowRunRow
+from server.services.requirements.evidence_support_policy import required_evidence_support_error
+from server.services.requirements.project_command_policy import (
+    ProjectCommandValidationError,
+    escape_unescaped_backticks,
+    validate_project_cd_command,
+)
 
 
 class AcceptanceValidationError(ValueError):
@@ -42,13 +48,6 @@ SAFE_REQUIRED_COMMAND_PREFIXES = (
 
 SAFE_UVX_TOOLS = {"diff-cover"}
 SAFE_ENV_ASSIGNMENT_NAMES = {"PYTHONPATH", "COVERAGE_FILE", "COVERAGE_DIR", "NODE_ENV", "CI"}
-SAFE_EVIDENCE_PROJECT_ROOTS = {
-    "/Users/cliff/workspace/agent/Synapse-Network-Growing",
-    "/Users/cliff/workspace/agent/Synapse-Network",
-    "/Users/cliff/workspace/agent/Synapse-Network-Sdk",
-    "/Users/cliff/workspace/agent/Synapse-Network-Provider",
-    "/Users/cliff/workspace/agent/Agents-Memory",
-}
 ALLOWED_REQUIRED_EVIDENCE_TYPES = {
     "workflow_command_result",
     "project_change_summary",
@@ -117,25 +116,6 @@ def parse_shell_tokens(command: str) -> list[str]:
     except ValueError as exc:
         raise AcceptanceValidationError(f"required command cannot be parsed safely: {exc}.") from exc
     return tokens
-
-
-def _escape_unescaped_backticks(command: str) -> str:
-    """Treat planner-produced Markdown backticks as literal search text.
-
-    The workflow runner executes acceptance commands through a shell. Backticks
-    inside double-quoted rg patterns would otherwise be command substitution, so
-    any accepted rg command is stored with literal backticks escaped.
-    """
-
-    escaped: list[str] = []
-    previous = ""
-    for char in str(command or ""):
-        if char == "`" and previous != "\\":
-            escaped.append("\\`")
-        else:
-            escaped.append(char)
-        previous = char
-    return "".join(escaped)
 
 
 def _unsafe_executable_reason(token: str) -> str | None:
@@ -225,98 +205,6 @@ def _validate_bound_uvx_command(tokens: list[str], normalized: str) -> bool:
     return normalized.startswith("uvx ")
 
 
-def _is_registered_project_path(path: str) -> bool:
-    normalized = str(path or "").rstrip("/")
-    if not normalized.startswith("/"):
-        return False
-    for root in SAFE_EVIDENCE_PROJECT_ROOTS:
-        project_root = root.rstrip("/")
-        if normalized == project_root or normalized.startswith(project_root + "/"):
-            return True
-    return False
-
-
-def _ensure_relative_evidence_paths(tokens: list[str], *, label: str) -> None:
-    for token in tokens:
-        if token.startswith("-"):
-            continue
-        if token.startswith("/"):
-            raise AcceptanceValidationError(f"{label} evidence paths must stay within the project; absolute paths are not allowed.")
-        parts = [part for part in token.split("/") if part]
-        if ".." in parts:
-            raise AcceptanceValidationError(f"{label} evidence paths must stay within the project; parent traversal is not allowed.")
-
-
-def _validate_project_cd_rg_command(tokens: list[str]) -> bool:
-    """Allow read-only ripgrep checks scoped to a registered project root."""
-
-    if len(tokens) < 5 or tokens[0] != "cd":
-        return False
-    if tokens[2:4] != ["&&", "rg"]:
-        return False
-    root = tokens[1].rstrip("/")
-    if not _is_registered_project_path(root):
-        raise AcceptanceValidationError(
-            f"required command uses project root '{tokens[1]}' which is not a registered evidence project root."
-        )
-    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
-        raise AcceptanceValidationError("cd rg evidence commands may not chain after rg.")
-    _ensure_relative_evidence_paths(tokens[4:], label="rg")
-    return True
-
-
-def _validate_project_cd_python_command(tokens: list[str]) -> bool:
-    """Allow local Python compile/pytest checks inside registered project roots."""
-
-    if len(tokens) < 6 or tokens[0] != "cd" or tokens[2] != "&&":
-        return False
-    root = tokens[1].rstrip("/")
-    if not _is_registered_project_path(root):
-        return False
-    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
-        raise AcceptanceValidationError("cd python evidence commands may not chain after the Python command.")
-    command_tokens = _strip_safe_env_assignment_tokens(tokens[3:])
-    if len(command_tokens) < 3:
-        return False
-    executable = command_tokens[0].rsplit("/", 1)[-1]
-    is_python = executable in {"python", "python3"} or command_tokens[0].endswith("/bin/python")
-    if not is_python:
-        return False
-    if command_tokens[1:3] == ["-m", "pytest"]:
-        _validate_pytest_scope(command_tokens, " ".join(tokens))
-        _ensure_relative_evidence_paths([token for token in command_tokens[3:] if not token.startswith("-")], label="pytest")
-        return True
-    if command_tokens[1:3] == ["-m", "py_compile"]:
-        compile_targets = command_tokens[3:]
-        if not compile_targets:
-            raise AcceptanceValidationError("py_compile evidence commands must name explicit Python files.")
-        _ensure_relative_evidence_paths(compile_targets, label="py_compile")
-        if not all(token.endswith(".py") for token in compile_targets):
-            raise AcceptanceValidationError("py_compile evidence commands may only target explicit .py files.")
-        return True
-    return False
-
-
-def _validate_project_cd_npm_command(tokens: list[str]) -> bool:
-    """Allow local npm validation checks inside registered project roots."""
-
-    if len(tokens) < 6 or tokens[0] != "cd" or tokens[2] != "&&":
-        return False
-    root = tokens[1].rstrip("/")
-    if not _is_registered_project_path(root):
-        return False
-    if any(token in SHELL_CONTROL_TOKENS for token in tokens[3:]):
-        raise AcceptanceValidationError("cd npm evidence commands may not chain after the npm command.")
-    command_tokens = tokens[3:]
-    if command_tokens[0] != "npm" or command_tokens[1] != "run":
-        return False
-    script = command_tokens[2] if len(command_tokens) > 2 else ""
-    if script not in {"build", "lint", "test", "test:unit", "test:e2e", "typecheck"}:
-        raise AcceptanceValidationError(f"npm script '{script}' is not in the safe evidence allowlist.")
-    _ensure_relative_evidence_paths([token for token in command_tokens[3:] if token != "--" and not token.startswith("-")], label="npm")
-    return True
-
-
 def _pytest_args(executable_tokens: list[str]) -> list[str] | None:
     if not executable_tokens:
         return None
@@ -348,47 +236,6 @@ def _validate_pytest_scope(executable_tokens: list[str], normalized: str) -> Non
             f"required command '{normalized}' is unsafe: acceptance pytest commands must target explicit test files or selectors. "
             "Use the final regression CI runner for full-suite pytest."
         )
-
-
-def _command_mentions_any(command: str, needles: tuple[str, ...]) -> bool:
-    lowered = str(command or "").lower()
-    return any(needle in lowered for needle in needles)
-
-
-def _required_evidence_support_error(evidence_type: str, commands: list[str], expected_outcome: str) -> str | None:
-    """Reject Planner evidence asks that cannot be produced by the declared commands.
-
-    This is intentionally small and conservative. It does not try to infer every
-    possible artifact path; it only blocks common impossible matrices before they
-    reach the workflow runner.
-    """
-
-    normalized = str(evidence_type or "").strip()
-    if normalized == "workflow_command_result":
-        return None
-    if normalized == "frontend_validation_result":
-        if any(_command_mentions_any(command, ("npm ", "npm --prefix dashboard", "cd dashboard && npm")) for command in commands):
-            return None
-        return "frontend_validation_result requires an npm/dashboard validation command."
-    if normalized == "coverage_report":
-        if any(_command_mentions_any(command, ("diff-cover", "coverage.xml", "--cov")) for command in commands):
-            return None
-        return "coverage_report requires a diff-cover, coverage.xml, or pytest --cov command."
-    if normalized == "docs_sync_review":
-        if any(_command_mentions_any(command, ("agent_guardrails.sh", "docs", "doc_sync", "docs-sync", "docs drift")) for command in commands):
-            return None
-        return "docs_sync_review requires a docs sync, docs drift, rg docs, or agent_guardrails command."
-    if normalized == "project_change_summary":
-        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
-            return None
-        return "project_change_summary requires code_delivery or git diff --check evidence."
-    if normalized == "git_diff_summary":
-        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
-            return None
-        return f"{normalized} requires code_delivery or git diff --check evidence."
-    if normalized == "workflow_agent_raw_output":
-        return None
-    return None
 
 
 def _timeout_payload(tool: str) -> dict[str, int | str]:
@@ -456,7 +303,7 @@ def validate_required_command_safety(command: str) -> str:
 
     raw_command = str(command or "")
     has_backticks = "`" in raw_command
-    command_to_validate = _escape_unescaped_backticks(raw_command) if has_backticks else raw_command
+    command_to_validate = escape_unescaped_backticks(raw_command) if has_backticks else raw_command
     normalized = " ".join(command_to_validate.strip().split())
     if not normalized:
         raise AcceptanceValidationError("required command is empty.")
@@ -468,9 +315,10 @@ def validate_required_command_safety(command: str) -> str:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
     is_bound_uvx = _validate_bound_uvx_command(executable_tokens, executable_normalized)
-    is_project_cd_rg = _validate_project_cd_rg_command(executable_tokens)
-    is_project_cd_python = _validate_project_cd_python_command(executable_tokens)
-    is_project_cd_npm = _validate_project_cd_npm_command(executable_tokens)
+    try:
+        is_project_cd_rg, is_project_cd_python, is_project_cd_npm = validate_project_cd_command(executable_tokens)
+    except ProjectCommandValidationError as exc:
+        raise AcceptanceValidationError(str(exc)) from exc
     is_plain_rg = bool(executable_tokens and executable_tokens[0] == "rg")
     if has_backticks and not (is_plain_rg or is_project_cd_rg):
         raise AcceptanceValidationError(
@@ -653,7 +501,7 @@ def validate_acceptance_contract_for_execution(
                 raise AcceptanceValidationError(
                     f"execution_acceptance_steps[{index}] has unknown required_evidence_type '{evidence_type}'. Allowed evidence types: {allowed}."
                 )
-            support_error = _required_evidence_support_error(str(evidence_type), commands, expected_outcome)
+            support_error = required_evidence_support_error(str(evidence_type), commands, expected_outcome)
             if support_error:
                 raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] evidence '{evidence_type}' is unsupported: {support_error}")
     if str(payload.get("acceptance_kind") or "business") == "system_dogfood":

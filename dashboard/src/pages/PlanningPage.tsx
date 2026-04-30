@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { ProductOpportunitiesPanel } from '../components/ProductOpportunitiesPanel'
 import { EngineeringQueue, MarkdownTabs, UnassignedQueue } from '../components/PlanningQueues'
 import { MissionWorkbenchPanel } from '../components/MissionWorkbenchPanel'
+import { CandidateActions, type CandidateAction, RequirementCandidateDetailModal } from '../components/RequirementCandidateDetailModal'
+import { useRequirementCandidateDetail } from '../hooks/useRequirementCandidateDetail'
 import {
   api,
   DropGoalResult,
@@ -20,7 +22,6 @@ import {
 type Goal = PlanningGoal
 
 type ActiveTab = 'workbench' | 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
-type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize' | 'retry_validation'
 type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
 type SteeringDraft = {
   focusWeights: Record<string, number>
@@ -57,7 +58,6 @@ function initialPlanningTab(search = window.location.search): ActiveTab {
 }
 
 const selectedOpportunityId = (search = window.location.search) => Number(new URLSearchParams(search).get('opportunity') || 0) || null
-const selectedCandidateId = (search = window.location.search) => Number(new URLSearchParams(search).get('candidate') || 0) || null
 
 function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
   const onCloseRef = useRef(onClose)
@@ -126,13 +126,6 @@ function candidateAcceptanceStepCount(candidate: RequirementCandidate) {
   if (!contract || typeof contract !== 'object') return 0
   const steps = (contract as { execution_acceptance_steps?: unknown }).execution_acceptance_steps
   return Array.isArray(steps) ? steps.length : 0
-}
-
-function candidateAcceptanceSteps(candidate: RequirementCandidate) {
-  const contract = candidate.metadata?.acceptance_contract
-  if (!contract || typeof contract !== 'object') return []
-  const steps = (contract as { execution_acceptance_steps?: unknown }).execution_acceptance_steps
-  return Array.isArray(steps) ? steps : []
 }
 
 function candidateTimestamp(candidate: RequirementCandidate) {
@@ -282,40 +275,6 @@ function GoalRollupStrip({ lane }: Readonly<{ lane: GoalMissionLane }>) {
       <StatusCounts title="Requirements" counts={lane.rollup.requirement_status_counts} />
       <StatusCounts title="Workflows" counts={lane.rollup.workflow_status_counts} />
       <StatusCounts title="Releases" counts={lane.rollup.release_status_counts} />
-    </div>
-  )
-}
-
-function CandidateActions({
-  candidate,
-  busy,
-  onAction,
-}: Readonly<{
-  candidate: RequirementCandidate
-  busy: string | null
-  onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
-}>) {
-  const busyForCandidate = busy?.endsWith(`:${candidate.id}`)
-  return (
-    <div className="flex flex-wrap gap-2">
-      {candidate.status === 'pending' && (
-        <button className="rounded-xl border border-blue-300 bg-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_0_18px_rgba(59,130,246,0.25)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Approve & Run</button>
-      )}
-      {candidate.status === 'validation_failed' && (
-        <button className="rounded-xl border border-amber-200 bg-amber-300 px-3 py-2 text-xs font-semibold text-slate-950" disabled={busyForCandidate} onClick={() => onAction(candidate, 'retry_validation')}>Retry validation</button>
-      )}
-      {candidate.status === 'pending' && (
-        <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve')}>Approve only</button>
-      )}
-      {candidate.status === 'approved' && (
-        <button className="rounded-xl border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Materialize & Run</button>
-      )}
-      {['pending', 'approved'].includes(candidate.status) && (
-        <button className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700" disabled={busyForCandidate} onClick={() => onAction(candidate, 'reject')}>Reject</button>
-      )}
-      {candidate.status === 'materialized' && candidate.materialized_requirement_id && (
-        <a className="rounded-xl border px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" href={`/requirements/${candidate.materialized_requirement_id}`}>Requirement #{candidate.materialized_requirement_id}</a>
-      )}
     </div>
   )
 }
@@ -1445,115 +1404,6 @@ function GoalSettingsModal({
   )
 }
 
-function CandidateDetailModal({
-  candidate,
-  loading,
-  error,
-  busy,
-  onClose,
-  onAction,
-}: Readonly<{
-  candidate: RequirementCandidate | null
-  loading: boolean
-  error: string | null
-  busy: string | null
-  onClose: () => void
-  onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
-}>) {
-  const open = Boolean(candidate) || loading || Boolean(error)
-  useTopOverlayEscape(open, 'candidate-detail-modal', onClose)
-  if (!open) return null
-  const steps = candidate ? candidateAcceptanceSteps(candidate) : []
-  const failureReason = candidate ? failClosedReason(candidate) : ''
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/72 p-4 backdrop-blur-sm" data-testid="candidate-detail-modal">
-      <section className="max-h-[90vh] w-full max-w-5xl overflow-auto rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-bg)] p-6 shadow-[0_32px_110px_rgba(0,0,0,0.55)]" role="dialog" aria-modal="true" aria-label="Requirement candidate detail">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="machine-label text-[color:var(--ops-text-caption)]">Requirement Candidate</div>
-            <h3 className="mt-2 max-w-3xl text-2xl font-semibold text-[color:var(--ops-text-title)]">{candidate?.title || 'Loading candidate...'}</h3>
-            {candidate ? (
-              <p className="mt-2 font-mono text-xs text-[color:var(--ops-text-muted)]">
-                #{candidate.id} · {candidate.goal_key || 'goal missing'} · {candidate.project_key || 'project missing'} · {candidate.workflow_key || 'workflow TBD'}
-              </p>
-            ) : null}
-          </div>
-          <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]" onClick={onClose}>关闭</button>
-        </div>
-        {loading ? <div className="mt-6 h-56 animate-pulse rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]" /> : null}
-        {error ? <div className="mt-5 rounded-2xl border border-rose-300/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{error}</div> : null}
-        {candidate ? (
-          <div className="mt-6 space-y-5">
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-                <div className="machine-label text-[color:var(--ops-text-caption)]">Status</div>
-                <div className={['mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em]', badgeTone(candidate.status)].join(' ')}>{candidate.status}</div>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-                <div className="machine-label text-[color:var(--ops-text-caption)]">Project</div>
-                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{candidate.project_key || '-'}</div>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-                <div className="machine-label text-[color:var(--ops-text-caption)]">Workflow</div>
-                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]">{candidate.workflow_key || '-'}</div>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-                <div className="machine-label text-[color:var(--ops-text-caption)]">Updated</div>
-                <div className="mt-2 text-sm text-[color:var(--ops-text-body)]"><LocalTime value={candidate.updated_at} /></div>
-              </div>
-            </div>
-
-            {candidate.status === 'validation_failed' || candidate.suppression_reason ? (
-              <div className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] p-4 text-sm leading-6 text-rose-100">
-                <div className="font-semibold">Fail-Closed 原因</div>
-                <p className="mt-2 whitespace-pre-wrap">{failureReason}</p>
-                <p className="mt-3 text-xs text-rose-100/75">这是候选验证拦截，不是 Human Gate。修复 PRD / 项目归属 / 安全命令后重新运行 Planner Sweep，历史失败记录会保留。</p>
-              </div>
-            ) : null}
-
-            <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-              <div className="machine-label text-[color:var(--ops-text-caption)]">Description</div>
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{candidate.description_markdown || 'No description provided.'}</p>
-              {candidate.rationale ? <p className="mt-4 whitespace-pre-wrap text-xs leading-5 text-[color:var(--ops-text-muted)]">Rationale: {candidate.rationale}</p> : null}
-            </div>
-
-            <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="machine-label text-[color:var(--ops-text-caption)]">Evidence-bound Acceptance</div>
-                  <p className="mt-1 text-xs text-[color:var(--ops-text-muted)]">{steps.length} execution acceptance step(s)</p>
-                </div>
-                <CandidateActions candidate={candidate} busy={busy} onAction={onAction} />
-              </div>
-              <div className="mt-4 space-y-3">
-                {steps.length ? steps.map((step, index) => {
-                  const payload = step && typeof step === 'object' ? step as Record<string, unknown> : {}
-                  const commands = Array.isArray(payload.required_commands) ? payload.required_commands : []
-                  return (
-                    <article key={`${String(payload.step_key || payload.title || index)}:${index}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-slate-950/25 p-4">
-                      <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{index + 1}. {String(payload.title || payload.step_key || 'Acceptance step')}</div>
-                      <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">{String(payload.expected_result || '')}</p>
-                      {commands.length ? (
-                        <div className="mt-3 space-y-2">
-                          {commands.map((command, commandIndex) => (
-                            <code key={`${String(command)}:${commandIndex}`} className="block overflow-auto rounded-xl border border-white/10 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100">{String(command)}</code>
-                          ))}
-                        </div>
-                      ) : null}
-                    </article>
-                  )
-                }) : (
-                  <div className="rounded-xl border border-dashed border-[color:var(--ops-stroke-soft)] px-4 py-5 text-sm text-[color:var(--ops-text-muted)]">No execution acceptance steps recorded.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
-    </div>
-  )
-}
-
 export default function PlanningPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -1591,9 +1441,7 @@ export default function PlanningPage() {
   const [settingsGoal, setSettingsGoal] = useState<PlanningGoal | null>(null)
   const [settingsDraft, setSettingsDraft] = useState<GoalSettingsDraft>(goalSettingsDraftFrom(null))
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [candidateDetail, setCandidateDetail] = useState<RequirementCandidate | null>(null)
-  const [candidateDetailLoading, setCandidateDetailLoading] = useState(false)
-  const [candidateDetailError, setCandidateDetailError] = useState<string | null>(null)
+  const candidateModal = useRequirementCandidateDetail(location, navigate)
 
   const candidateTotals = mission?.candidate_totals || {}
   const pendingActions = numberValue(candidateTotals.pending) + numberValue(candidateTotals.approved)
@@ -1637,35 +1485,6 @@ export default function PlanningPage() {
   useEffect(() => {
     setActiveTab(initialPlanningTab(location.search))
     setFocusedOpportunityId(selectedOpportunityId(location.search))
-  }, [location.search])
-
-  useEffect(() => {
-    const candidateId = selectedCandidateId(location.search)
-    if (!candidateId) {
-      setCandidateDetail(null)
-      setCandidateDetailError(null)
-      setCandidateDetailLoading(false)
-      return undefined
-    }
-    let cancelled = false
-    setCandidateDetailLoading(true)
-    setCandidateDetailError(null)
-    api.getRequirementCandidate(candidateId)
-      .then((candidate) => {
-        if (!cancelled) setCandidateDetail(candidate)
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setCandidateDetail(null)
-          setCandidateDetailError(err instanceof Error ? err.message : '加载 Candidate 详情失败')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setCandidateDetailLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
   }, [location.search])
 
   useEffect(() => () => {
@@ -1870,16 +1689,6 @@ export default function PlanningPage() {
     setSettingsError(null)
   }
 
-  function closeCandidateDetail() {
-    const params = new URLSearchParams(location.search)
-    params.delete('candidate')
-    const nextSearch = params.toString()
-    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true })
-    setCandidateDetail(null)
-    setCandidateDetailError(null)
-    setCandidateDetailLoading(false)
-  }
-
   async function saveGoalSettings() {
     if (!mission) return
     setBusy('save_goal_settings')
@@ -1928,13 +1737,9 @@ export default function PlanningPage() {
       if (action === 'retry_validation') nextCandidate = await api.retryRequirementCandidateValidation(candidate.id, { operator: 'operator' })
       await load(historyPage)
       if (nextCandidate) {
-        setCandidateDetail(nextCandidate)
-        const params = new URLSearchParams(location.search)
-        params.set('tab', 'engineering')
-        params.set('candidate', String(nextCandidate.id))
-        navigate(`/planning?${params.toString()}`, { replace: true })
-      } else if (candidateDetail?.id === candidate.id) {
-        setCandidateDetail(await api.getRequirementCandidate(candidate.id))
+        candidateModal.showCandidateDetail(nextCandidate)
+      } else if (candidateModal.candidateDetail?.id === candidate.id) {
+        await candidateModal.refreshCandidateDetail(candidate.id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : `${action} candidate failed`)
@@ -2119,12 +1924,12 @@ export default function PlanningPage() {
         onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }}
       />
       <GoalSettingsModal open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
-      <CandidateDetailModal
-        candidate={candidateDetail}
-        loading={candidateDetailLoading}
-        error={candidateDetailError}
+      <RequirementCandidateDetailModal
+        candidate={candidateModal.candidateDetail}
+        loading={candidateModal.candidateDetailLoading}
+        error={candidateModal.candidateDetailError}
         busy={busy}
-        onClose={closeCandidateDetail}
+        onClose={candidateModal.closeCandidateDetail}
         onAction={actOnCandidate}
       />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
