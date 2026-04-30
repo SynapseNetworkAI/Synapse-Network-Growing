@@ -218,6 +218,10 @@ dashboard/playwright-report/
 
 # SQLite
 *.db
+
+# macOS metadata and local video build intermediates
+.DS_Store
+content/**/assets/recordings/_build/
 *.db-shm
 *.db-wal
 *.db.bak-*

@@ -1,0 +1,35 @@
+1
+00:00:00,000 --> 00:00:11,413
+Building MCP/provider services with AI-native tooling. Most MCP Server demos show the server. This video shows the workflow around the server: Claude Code, Apidog, SDK end to end tests, staging, and a publishing queue.
+
+2
+00:00:11,413 --> 00:00:25,353
+Each repo owns one part of the system. The gateway is the main product. Provider exposes services. SDK is the agent integration layer. Growing is the ops console. The content pack keeps articles, scripts, recordings, and distribution notes.
+
+3
+00:00:25,353 --> 00:00:37,043
+Search first, patch small, verify fast. When I add a provider service, I do not ask the model to write random code. I ask it to search existing patterns, patch the smallest surface, add tests, and run the closest gate.
+
+4
+00:00:37,043 --> 00:00:49,191
+The wire contract is the truth. Apidog helps inspect request bodies, headers, status codes, and error responses. For paid provider services, direct anonymous calls should fail; agents should call the gateway.
+
+5
+00:00:49,191 --> 00:01:02,841
+The public product test is the SDK path. The test that matters is provider registration, gateway discovery, SDK search, SDK invoke, a gateway signed provider call, and a receipt. If that passes locally and in staging, agents can use it.
+
+6
+00:01:02,841 --> 00:01:15,857
+Local is for speed. Staging is for truth.. Local uses local URLs and local-only credentials. Staging uses protected secrets and public URLs. Provider runtime never gets owner private keys; it only gets runtime secrets and rate limits.
+
+7
+00:01:15,857 --> 00:01:28,090
+AI-native development needs rails. The workflow includes quality gates for typed public returns, file and function size, complexity, duplicate code, coverage, documentation consistency, and secret hygiene.
+
+8
+00:01:28,090 --> 00:01:38,238
+Debugging becomes reusable knowledge. Long articles, scripts, screenshots, and recordings stay in git. Short social drafts go into the publishing queue, where they are reviewed before posting.
+
+9
+00:01:38,238 --> 00:01:50,561
+Design the workflow, not just the server. If you build MCP Servers or agent-facing API infrastructure, design the debug loop, staging proof, SDK end to end test, and publishing loop. That is what makes the system shippable.

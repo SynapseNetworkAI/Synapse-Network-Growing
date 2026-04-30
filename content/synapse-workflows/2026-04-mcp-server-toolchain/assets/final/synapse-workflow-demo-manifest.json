@@ -1,0 +1,10 @@
+{
+  "raw": "assets/recordings/raw/synapse-workflow-demo-raw.mov",
+  "edited": "assets/recordings/edited/synapse-workflow-demo.mp4",
+  "final": "assets/final/synapse-workflow-demo.mp4",
+  "subtitles": "assets/final/synapse-workflow.en.srt",
+  "burned_subtitles": "assets/final/synapse-workflow-demo-subtitled.mp4",
+  "duration_seconds": 105.23,
+  "scene_count": 9,
+  "mode": "safe synthetic screen-demo with TTS narration"
+}
