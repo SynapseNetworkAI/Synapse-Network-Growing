@@ -624,7 +624,7 @@ def test_required_command_safety_allows_project_checks_and_blocks_destructive_co
         ("python -m pytest -q", "must target explicit test files"),
         ("echo $(deploy production)", "Subshells"),
         ("echo $(uvx diff-cover coverage.xml)", "Subshells"),
-        ("echo `deploy production`", "Subshells"),
+        ("echo `deploy production`", "Subshell backticks"),
         ("uvx", "must name an approved tool"),
         ("uvx rm-rf-all", "uvx tool 'rm-rf-all'"),
         ('uvx python -c "print(1)"', "uvx tool 'python'"),

@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from server.database import (
     HumanGateRequestRow,
     OperatingManifestRow,
@@ -44,7 +43,7 @@ def _create_requirement(db_session) -> RequirementRow:
     requirement = RequirementRow(
         title="Repair Ops Dashboard failure",
         description_markdown="Detect, diagnose, patch, verify, and prepare PR for Ops Dashboard failure.",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        target_project_path=str(declarative.config.PROJECT_ROOT),
         status="ready",
         acceptance_contract_json=VALID_ACCEPTANCE_CONTRACT,
     )

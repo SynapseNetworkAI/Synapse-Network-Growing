@@ -218,7 +218,11 @@ export function MissionWorkbenchPanel({ workbench }: Readonly<{ workbench: Missi
                 </div>
                 <StageRail node={node} />
                 <div className="text-right">
-                  <button type="button" className="rounded-xl border border-white/12 px-3 py-2 text-xs text-[color:var(--ops-text-body)] hover:bg-white/[0.06]" onClick={() => setDetailNode(node)}>详情</button>
+                  {node.type === 'requirement_candidate' && node.deep_link ? (
+                    <Link className="rounded-xl border border-white/12 px-3 py-2 text-xs text-[color:var(--ops-text-body)] hover:bg-white/[0.06]" to={node.deep_link}>详情</Link>
+                  ) : (
+                    <button type="button" className="rounded-xl border border-white/12 px-3 py-2 text-xs text-[color:var(--ops-text-body)] hover:bg-white/[0.06]" onClick={() => setDetailNode(node)}>详情</button>
+                  )}
                 </div>
               </div>
             )

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ProductOpportunitiesPanel } from '../components/ProductOpportunitiesPanel'
 import { EngineeringQueue, MarkdownTabs, UnassignedQueue } from '../components/PlanningQueues'
 import { MissionWorkbenchPanel } from '../components/MissionWorkbenchPanel'
+import { CandidateActions, type CandidateAction, RequirementCandidateDetailModal } from '../components/RequirementCandidateDetailModal'
+import { useRequirementCandidateDetail } from '../hooks/useRequirementCandidateDetail'
 import {
   api,
   DropGoalResult,
@@ -20,7 +22,6 @@ import {
 type Goal = PlanningGoal
 
 type ActiveTab = 'workbench' | 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
-type CandidateAction = 'approve' | 'approve_run' | 'reject' | 'materialize'
 type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
 type SteeringDraft = {
   focusWeights: Record<string, number>
@@ -274,37 +275,6 @@ function GoalRollupStrip({ lane }: Readonly<{ lane: GoalMissionLane }>) {
       <StatusCounts title="Requirements" counts={lane.rollup.requirement_status_counts} />
       <StatusCounts title="Workflows" counts={lane.rollup.workflow_status_counts} />
       <StatusCounts title="Releases" counts={lane.rollup.release_status_counts} />
-    </div>
-  )
-}
-
-function CandidateActions({
-  candidate,
-  busy,
-  onAction,
-}: Readonly<{
-  candidate: RequirementCandidate
-  busy: string | null
-  onAction: (candidate: RequirementCandidate, action: CandidateAction) => void
-}>) {
-  const busyForCandidate = busy?.endsWith(`:${candidate.id}`)
-  return (
-    <div className="flex flex-wrap gap-2">
-      {candidate.status === 'pending' && (
-        <button className="rounded-xl border border-blue-300 bg-blue-500 px-3 py-2 text-xs font-semibold text-white shadow-[0_0_18px_rgba(59,130,246,0.25)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Approve & Run</button>
-      )}
-      {candidate.status === 'pending' && (
-        <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve')}>Approve only</button>
-      )}
-      {candidate.status === 'approved' && (
-        <button className="rounded-xl border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950" disabled={busyForCandidate} onClick={() => onAction(candidate, 'approve_run')}>Materialize & Run</button>
-      )}
-      {['pending', 'approved'].includes(candidate.status) && (
-        <button className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-medium text-rose-700" disabled={busyForCandidate} onClick={() => onAction(candidate, 'reject')}>Reject</button>
-      )}
-      {candidate.status === 'materialized' && candidate.materialized_requirement_id && (
-        <a className="rounded-xl border px-3 py-2 text-xs font-medium text-[color:var(--ops-text-body)]" href={`/requirements/${candidate.materialized_requirement_id}`}>Requirement #{candidate.materialized_requirement_id}</a>
-      )}
     </div>
   )
 }
@@ -1436,6 +1406,7 @@ function GoalSettingsModal({
 
 export default function PlanningPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [mission, setMission] = useState<PlanningMissionControl | null>(null)
   const [missionBoard, setMissionBoard] = useState<MissionBoard | null>(null)
   const [missionWorkbench, setMissionWorkbench] = useState<MissionWorkbench | null>(null)
@@ -1470,6 +1441,7 @@ export default function PlanningPage() {
   const [settingsGoal, setSettingsGoal] = useState<PlanningGoal | null>(null)
   const [settingsDraft, setSettingsDraft] = useState<GoalSettingsDraft>(goalSettingsDraftFrom(null))
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const candidateModal = useRequirementCandidateDetail(location, navigate)
 
   const candidateTotals = mission?.candidate_totals || {}
   const pendingActions = numberValue(candidateTotals.pending) + numberValue(candidateTotals.approved)
@@ -1757,11 +1729,18 @@ export default function PlanningPage() {
     setBusy(`${action}:${candidate.id}`)
     setError(null)
     try {
+      let nextCandidate: RequirementCandidate | null = null
       if (action === 'approve') await api.approveRequirementCandidate(candidate.id, { operator: 'operator' })
       if (action === 'approve_run') await api.approveAndRunRequirementCandidate(candidate.id, { operator: 'operator' })
       if (action === 'reject') await api.rejectRequirementCandidate(candidate.id, { operator: 'operator', reason: 'operator_rejected' })
       if (action === 'materialize') await api.materializeRequirementCandidate(candidate.id, { operator: 'operator' })
+      if (action === 'retry_validation') nextCandidate = await api.retryRequirementCandidateValidation(candidate.id, { operator: 'operator' })
       await load(historyPage)
+      if (nextCandidate) {
+        candidateModal.showCandidateDetail(nextCandidate)
+      } else if (candidateModal.candidateDetail?.id === candidate.id) {
+        await candidateModal.refreshCandidateDetail(candidate.id)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : `${action} candidate failed`)
     } finally {
@@ -1945,6 +1924,14 @@ export default function PlanningPage() {
         onClose={() => { setTraceOpen(false); setGoalTrace(null); setTraceError(null) }}
       />
       <GoalSettingsModal open={settingsOpen} goal={settingsGoal} draft={settingsDraft} busy={busy} error={settingsError} setDraft={setSettingsDraft} onClose={closeSettingsEditor} onSave={saveGoalSettings} />
+      <RequirementCandidateDetailModal
+        candidate={candidateModal.candidateDetail}
+        loading={candidateModal.candidateDetailLoading}
+        error={candidateModal.candidateDetailError}
+        busy={busy}
+        onClose={candidateModal.closeCandidateDetail}
+        onAction={actOnCandidate}
+      />
       {loading && <div className="text-sm text-[color:var(--ops-text-muted)]">Loading planning control plane...</div>}
     </div>
   )

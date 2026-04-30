@@ -2175,8 +2175,11 @@ export const api = {
     if (filters?.goal_key) params.set('goal_key', filters.goal_key)
     return request<RequirementCandidatePage>(`/planning/candidates?${params.toString()}`)
   },
+  getRequirementCandidate: (id: number) => request<RequirementCandidate>(`/planning/candidates/${id}`),
   approveRequirementCandidate: (id: number, data?: { operator?: string }) =>
     request<RequirementCandidate>(`/planning/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  retryRequirementCandidateValidation: (id: number, data?: { operator?: string }) =>
+    request<RequirementCandidate>(`/planning/candidates/${id}/retry-validation`, { method: 'POST', body: JSON.stringify(data || {}) }),
   approveAndRunRequirementCandidate: (id: number, data?: { operator?: string }) =>
     request<CandidateApproveRunResult>(`/planning/candidates/${id}/approve-and-run`, { method: 'POST', body: JSON.stringify(data || {}) }),
   rejectRequirementCandidate: (id: number, data: { reason: string; operator?: string; comment?: string | null }) =>

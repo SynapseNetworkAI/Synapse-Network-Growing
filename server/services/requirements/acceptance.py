@@ -8,6 +8,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from server.database import RequirementRow, WorkflowRunRow
+from server.services.requirements.evidence_support_policy import required_evidence_support_error
+from server.services.requirements.project_command_policy import (
+    ProjectCommandValidationError,
+    escape_unescaped_backticks,
+    validate_project_cd_command,
+)
 
 
 class AcceptanceValidationError(ValueError):
@@ -98,9 +104,9 @@ UNSAFE_ARGUMENT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 def parse_shell_tokens(command: str) -> list[str]:
     """Tokenize a simple evidence command while preserving shell control punctuation."""
 
-    if "$(" in command or "`" in command:
+    if "$(" in command:
         raise AcceptanceValidationError(
-            "Subshells '$()' and backticks are forbidden in evidence commands. Use direct allowlisted commands only."
+            "Subshells '$()' are forbidden in evidence commands. Use direct allowlisted commands only."
         )
     command_with_explicit_newlines = command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
     lexer = shlex.shlex(command_with_explicit_newlines, posix=True, punctuation_chars=True)
@@ -232,47 +238,6 @@ def _validate_pytest_scope(executable_tokens: list[str], normalized: str) -> Non
         )
 
 
-def _command_mentions_any(command: str, needles: tuple[str, ...]) -> bool:
-    lowered = str(command or "").lower()
-    return any(needle in lowered for needle in needles)
-
-
-def _required_evidence_support_error(evidence_type: str, commands: list[str], expected_outcome: str) -> str | None:
-    """Reject Planner evidence asks that cannot be produced by the declared commands.
-
-    This is intentionally small and conservative. It does not try to infer every
-    possible artifact path; it only blocks common impossible matrices before they
-    reach the workflow runner.
-    """
-
-    normalized = str(evidence_type or "").strip()
-    if normalized == "workflow_command_result":
-        return None
-    if normalized == "frontend_validation_result":
-        if any(_command_mentions_any(command, ("npm ", "npm --prefix dashboard", "cd dashboard && npm")) for command in commands):
-            return None
-        return "frontend_validation_result requires an npm/dashboard validation command."
-    if normalized == "coverage_report":
-        if any(_command_mentions_any(command, ("diff-cover", "coverage.xml", "--cov")) for command in commands):
-            return None
-        return "coverage_report requires a diff-cover, coverage.xml, or pytest --cov command."
-    if normalized == "docs_sync_review":
-        if any(_command_mentions_any(command, ("agent_guardrails.sh", "docs", "doc_sync", "docs-sync", "docs drift")) for command in commands):
-            return None
-        return "docs_sync_review requires a docs sync, docs drift, rg docs, or agent_guardrails command."
-    if normalized == "project_change_summary":
-        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
-            return None
-        return "project_change_summary requires code_delivery or git diff --check evidence."
-    if normalized == "git_diff_summary":
-        if expected_outcome == "code_delivery" or any(command in {"git diff --check", "git diff --stat"} for command in commands):
-            return None
-        return f"{normalized} requires code_delivery or git diff --check evidence."
-    if normalized == "workflow_agent_raw_output":
-        return None
-    return None
-
-
 def _timeout_payload(tool: str) -> dict[str, int | str]:
     timeout = int(ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS.get(tool, ACCEPTANCE_COMMAND_TIMEOUTS_SECONDS["default"]))
     return {
@@ -316,9 +281,18 @@ def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
     if first_basename == "cd":
         for index, token in enumerate(tokens):
             if token in SHELL_CONTROL_TOKENS and index + 1 < len(tokens):
-                next_basename = tokens[index + 1].rsplit("/", 1)[-1]
+                command_tokens = _strip_safe_env_assignment_tokens(tokens[index + 1 :])
+                if not command_tokens:
+                    continue
+                next_basename = command_tokens[0].rsplit("/", 1)[-1]
                 if next_basename == "npm":
                     return _timeout_payload("npm")
+                if next_basename == "rg":
+                    return _timeout_payload("rg")
+                if next_basename in {"python", "python3"} or command_tokens[0].endswith("/bin/python"):
+                    if command_tokens[1:3] == ["-m", "pytest"]:
+                        return _timeout_payload("pytest")
+                    return _timeout_payload("default")
     if first.endswith("scripts/ci/agent_guardrails.sh") or first_basename == "agent_guardrails.sh":
         return _timeout_payload("agent_guardrails")
     return _timeout_payload("default")
@@ -327,10 +301,13 @@ def classify_acceptance_command_timeout(command: str) -> dict[str, int | str]:
 def validate_required_command_safety(command: str) -> str:
     """Fail closed unless a planner-generated evidence command is explicitly safe."""
 
-    normalized = " ".join(str(command or "").strip().split())
+    raw_command = str(command or "")
+    has_backticks = "`" in raw_command
+    command_to_validate = escape_unescaped_backticks(raw_command) if has_backticks else raw_command
+    normalized = " ".join(command_to_validate.strip().split())
     if not normalized:
         raise AcceptanceValidationError("required command is empty.")
-    tokens = parse_shell_tokens(str(command or ""))
+    tokens = parse_shell_tokens(command_to_validate)
     _validate_shell_tokens(tokens)
     executable_tokens = _strip_safe_env_assignment_tokens(tokens)
     executable_normalized = " ".join(executable_tokens)
@@ -338,8 +315,23 @@ def validate_required_command_safety(command: str) -> str:
         if pattern.search(normalized):
             raise AcceptanceValidationError(f"required command '{normalized}' is unsafe: {reason}.")
     is_bound_uvx = _validate_bound_uvx_command(executable_tokens, executable_normalized)
+    try:
+        is_project_cd_rg, is_project_cd_python, is_project_cd_npm = validate_project_cd_command(executable_tokens)
+    except ProjectCommandValidationError as exc:
+        raise AcceptanceValidationError(str(exc)) from exc
+    is_plain_rg = bool(executable_tokens and executable_tokens[0] == "rg")
+    if has_backticks and not (is_plain_rg or is_project_cd_rg):
+        raise AcceptanceValidationError(
+            "Subshell backticks are forbidden in evidence commands. Backticks are only allowed as escaped literal rg search text."
+        )
     _validate_pytest_scope(executable_tokens, normalized)
-    if not is_bound_uvx and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES):
+    if (
+        not is_bound_uvx
+        and not is_project_cd_rg
+        and not is_project_cd_python
+        and not is_project_cd_npm
+        and not any(executable_normalized.startswith(prefix) for prefix in SAFE_REQUIRED_COMMAND_PREFIXES)
+    ):
         raise AcceptanceValidationError(f"required command '{normalized}' is not in the safe command allowlist.")
     return normalized
 
@@ -509,7 +501,7 @@ def validate_acceptance_contract_for_execution(
                 raise AcceptanceValidationError(
                     f"execution_acceptance_steps[{index}] has unknown required_evidence_type '{evidence_type}'. Allowed evidence types: {allowed}."
                 )
-            support_error = _required_evidence_support_error(str(evidence_type), commands, expected_outcome)
+            support_error = required_evidence_support_error(str(evidence_type), commands, expected_outcome)
             if support_error:
                 raise AcceptanceValidationError(f"execution_acceptance_steps[{index}] evidence '{evidence_type}' is unsupported: {support_error}")
     if str(payload.get("acceptance_kind") or "business") == "system_dogfood":

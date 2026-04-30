@@ -41,6 +41,59 @@ def test_product_opportunity_can_create_goal_with_lineage(db_session):
     assert result["opportunity"]["converted_goal_id"] == result["goal"]["id"]
 
 
+def test_sdk_product_opportunity_creates_sdk_scoped_goal(db_session):
+    run_product_planning_sweep(db_session)
+    opportunity = (
+        db_session.query(ProductOpportunityRow)
+        .filter(ProductOpportunityRow.suggested_goal_key == "sdk_developer_quickstart")
+        .one()
+    )
+
+    result = create_goal_from_product_opportunity(
+        db_session, int(opportunity.id), operator="operator"
+    )
+
+    assert result["goal"]["goal_key"] == "sdk_developer_quickstart"
+    assert result["goal"]["project_key"] == "synapse-network-sdk"
+
+
+def test_product_opportunity_project_key_mapping_for_provider_gateway_and_control_plane(db_session):
+    manifest = ensure_active_manifest(db_session)
+    rows = [
+        ProductOpportunityRow(
+            manifest_id=int(manifest.id),
+            title="Provider Runtime onboarding",
+            problem="Provider service needs public preview readiness.",
+            suggested_goal_key="provider_runtime_onboarding",
+            recommended_lane="software_engineer",
+        ),
+        ProductOpportunityRow(
+            manifest_id=int(manifest.id),
+            title="Core Gateway settlement proof",
+            problem="Gateway and settlement need public-preview evidence.",
+            suggested_goal_key="gateway_settlement_public_preview",
+            recommended_lane="software_engineer",
+        ),
+        ProductOpportunityRow(
+            manifest_id=int(manifest.id),
+            title="Ops Control Plane stability",
+            problem="Mission Board quality gates need stabilization.",
+            suggested_goal_key="ops_control_plane_stability",
+            recommended_lane="software_engineer",
+        ),
+    ]
+    db_session.add_all(rows)
+    db_session.commit()
+
+    provider = create_goal_from_product_opportunity(db_session, int(rows[0].id), operator="operator")
+    gateway = create_goal_from_product_opportunity(db_session, int(rows[1].id), operator="operator")
+    control_plane = create_goal_from_product_opportunity(db_session, int(rows[2].id), operator="operator")
+
+    assert provider["goal"]["project_key"] == "synapse-network-provider"
+    assert gateway["goal"]["project_key"] == "synapse-network"
+    assert control_plane["goal"]["project_key"] == "synapse-network-growing"
+
+
 def test_rejected_and_deferred_opportunities_do_not_create_goals(db_session):
     run_product_planning_sweep(db_session)
     opportunities = (

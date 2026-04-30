@@ -121,7 +121,7 @@ def _detail_api_for_item(item_id: str) -> str | None:
         return None
     return {
         "product_opportunity": f"/api/planning/product-opportunities/{raw_id}",
-        "candidate": f"/api/planning/candidates?candidate_id={raw_id}",
+        "candidate": f"/api/planning/candidates/{raw_id}",
         "requirement": f"/api/requirements/{raw_id}",
         "workflow": f"/api/workflows/runs/{raw_id}",
         "release_task": "/api/releases/tasks",
