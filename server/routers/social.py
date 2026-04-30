@@ -29,7 +29,18 @@ from server.schemas import (
     SocialTrendItemOut,
     SocialWatchlistAccountOut,
 )
-from server.schemas_social_metrics import SocialPostMetricOut, SocialPostMetricSummaryOut
+from server.schemas_social_metrics import (
+    SocialPostMetricDailyQueryOut,
+    SocialPostMetricDetailOut,
+    SocialPostMetricOut,
+    SocialPostMetricQueryOut,
+    SocialPostMetricSummaryOut,
+)
+from server.services.social.post_metric_queries import (
+    get_social_post_metric,
+    query_social_post_metric_daily,
+    query_social_post_metrics,
+)
 from server.services.social.post_metrics import (
     list_social_post_metrics,
     social_post_metrics_summary,
@@ -204,9 +215,55 @@ def list_social_post_metrics_endpoint(db: Session = Depends(get_db)):
     return list_social_post_metrics(db)
 
 
+@router.get("/post-metrics/daily", response_model=SocialPostMetricDailyQueryOut)
+def query_social_post_metric_daily_endpoint(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return query_social_post_metric_daily(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/post-metrics/query", response_model=SocialPostMetricQueryOut)
+def query_social_post_metrics_endpoint(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    post_id: int | None = None,
+    external_post_id: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return query_social_post_metrics(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        post_id=post_id,
+        external_post_id=external_post_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.get("/post-metrics/summary", response_model=SocialPostMetricSummaryOut)
 def social_post_metrics_summary_endpoint(db: Session = Depends(get_db)):
     return social_post_metrics_summary(db)
+
+
+@router.get("/post-metrics/{metric_id}", response_model=SocialPostMetricDetailOut)
+def get_social_post_metric_endpoint(metric_id: int, db: Session = Depends(get_db)):
+    metric = get_social_post_metric(db, metric_id)
+    if metric is None:
+        raise HTTPException(status_code=404, detail="Social post metric not found.")
+    return metric
 
 
 @router.get("/posts", response_model=list[SocialPostDraftOut])

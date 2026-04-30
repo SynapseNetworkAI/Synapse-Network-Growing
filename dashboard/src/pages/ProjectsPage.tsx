@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Project, api } from '../api'
 import { EmptyPane, FieldLabel, OverlayModal, useToast } from '../components/workbench'
+import { PROJECT_DEPLOY_STRATEGIES } from '../projectDeployStrategies'
 
 type ProjectDraft = {
   project_key: string
@@ -68,6 +69,7 @@ function ProjectForm({
         <div>
           <FieldLabel>GitHub 仓库</FieldLabel>
           <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={draft.repo_full_name} onChange={(event) => onChange({ repo_full_name: event.target.value })} />
+          <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">可填 git 地址或 owner/repo，系统会归一化为 owner/repo。</p>
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-3">
@@ -78,14 +80,13 @@ function ProjectForm({
         <div>
           <FieldLabel>部署仓库</FieldLabel>
           <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={draft.deploy_repo_full_name} onChange={(event) => onChange({ deploy_repo_full_name: event.target.value })} />
+          <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">通常与 GitHub 仓库相同；仅部署仓库不同的时候填写。</p>
         </div>
         <div>
           <FieldLabel>部署策略</FieldLabel>
           <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={draft.deploy_strategy} onChange={(event) => onChange({ deploy_strategy: event.target.value })}>
-            <option value="disabled">disabled</option>
-            <option value="github_actions">github_actions</option>
-            <option value="manual">manual</option>
-            <option value="github_actions_ssh">github_actions_ssh</option>
+            {PROJECT_DEPLOY_STRATEGIES.includes(draft.deploy_strategy) ? null : <option value={draft.deploy_strategy}>{draft.deploy_strategy}</option>}
+            {PROJECT_DEPLOY_STRATEGIES.map((strategy) => <option key={strategy} value={strategy}>{strategy}</option>)}
           </select>
         </div>
       </div>
@@ -162,7 +163,7 @@ export default function ProjectsPage() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return projects
-    return projects.filter((project) => [project.project_key, project.display_name, project.root_path, project.repo_full_name || ''].join('\n').toLowerCase().includes(needle))
+    return projects.filter((project) => [project.project_key, project.display_name, project.root_path, project.repo_full_name || '', project.deploy_repo_full_name || ''].join('\n').toLowerCase().includes(needle))
   }, [projects, search])
 
   return (
@@ -206,7 +207,9 @@ export default function ProjectsPage() {
                     <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{project.project_key}</div>
                   </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{project.root_path}</td>
-                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{project.repo_full_name || '-'}</td>
+                  <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
+                    {project.repo_full_name ? <a className="text-cyan-100 hover:underline" href={`https://github.com/${project.repo_full_name}`} target="_blank" rel="noreferrer">{project.repo_full_name}</a> : '-'}
+                  </td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{project.deploy_strategy}</td>
                   <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{project.status}</td>
                   <td className="px-5 py-4">

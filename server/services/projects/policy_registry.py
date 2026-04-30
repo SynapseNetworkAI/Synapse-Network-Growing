@@ -19,7 +19,54 @@ from server.services.projects.policy_defaults import (
     _normalize_globs,
     _normalize_interrupt_policy,
     _normalize_root_path,
+    normalize_github_repo_full_name,
 )
+
+
+LEGACY_DEPLOY_STRATEGIES = {"github_actions_ssh", "github_actions_ssh_gce"}
+
+
+def _default_policy_by_key(project_key: str | None) -> dict[str, Any] | None:
+    key = str(project_key or "").strip()
+    for policy in DEFAULT_PROJECT_POLICIES:
+        if str(policy.get("project_key") or "") == key:
+            return policy
+    return None
+
+
+def _default_deploy_strategy(policy: dict[str, Any]) -> str:
+    return str(policy.get("deploy_strategy") or "disabled").strip() or "disabled"
+
+
+def _sync_default_deploy_fields(row: ProjectPolicyRow) -> bool:
+    policy = _default_policy_by_key(getattr(row, "project_key", None))
+    if policy is None:
+        normalized = normalize_github_repo_full_name(getattr(row, "deploy_repo_full_name", None))
+        if normalized != (str(getattr(row, "deploy_repo_full_name", "") or "").strip() or None):
+            row.deploy_repo_full_name = normalized
+            return True
+        return False
+
+    changed = False
+    expected_repo = normalize_github_repo_full_name(policy.get("deploy_repo_full_name"))
+    current_repo = normalize_github_repo_full_name(getattr(row, "deploy_repo_full_name", None))
+    if expected_repo and not current_repo:
+        row.deploy_repo_full_name = expected_repo
+        changed = True
+    elif current_repo != (str(getattr(row, "deploy_repo_full_name", "") or "").strip() or None):
+        row.deploy_repo_full_name = current_repo
+        changed = True
+
+    expected_strategy = _default_deploy_strategy(policy)
+    current_strategy = str(getattr(row, "deploy_strategy", None) or "").strip()
+    if not current_strategy or current_strategy in LEGACY_DEPLOY_STRATEGIES:
+        row.deploy_strategy = expected_strategy
+        changed = True
+
+    if "deploy_trigger_enabled" in policy and current_strategy in LEGACY_DEPLOY_STRATEGIES:
+        row.deploy_trigger_enabled = bool(policy.get("deploy_trigger_enabled", False))
+        changed = True
+    return changed
 
 
 def ensure_default_project_policies(db: Session) -> None:
@@ -30,6 +77,12 @@ def ensure_default_project_policies(db: Session) -> None:
     for row in legacy_rows:
         if _is_legacy_validation_policy(getattr(row, "project_key", None), getattr(row, "root_path", None)):
             db.delete(row)
+            legacy_changed = True
+    if legacy_changed:
+        db.flush()
+
+    for row in db.query(ProjectPolicyRow).filter(ProjectPolicyRow.status != "deleted").all():
+        if _sync_default_deploy_fields(row):
             legacy_changed = True
     if legacy_changed:
         db.flush()
@@ -70,8 +123,8 @@ def ensure_default_project_policies(db: Session) -> None:
                 scheduler_weight=float(policy.get("scheduler_weight") or 1.0),
                 max_parallel_requirements=int(policy.get("max_parallel_requirements") or 1),
                 portfolio_budget_points=max(20, int(policy.get("portfolio_budget_points") or 100)),
-                deploy_repo_full_name=str(policy.get("deploy_repo_full_name") or "").strip() or None,
-                deploy_strategy=str(policy.get("deploy_strategy") or "github_actions_ssh").strip() or "github_actions_ssh",
+                deploy_repo_full_name=normalize_github_repo_full_name(policy.get("deploy_repo_full_name")),
+                deploy_strategy=_default_deploy_strategy(policy),
                 deploy_trigger_enabled=bool(policy.get("deploy_trigger_enabled", False)),
                 staging_host_label=str(policy.get("staging_host_label") or "").strip() or None,
                 production_host_label=str(policy.get("production_host_label") or "").strip() or None,
@@ -81,7 +134,7 @@ def ensure_default_project_policies(db: Session) -> None:
             )
         )
         changed = True
-    if changed:
+    if changed or legacy_changed:
         db.commit()
 
 
@@ -198,8 +251,8 @@ def create_project_policy(
         scheduler_weight=max(0.2, float(scheduler_weight or 1.0)),
         max_parallel_requirements=max(1, int(max_parallel_requirements or 1)),
         portfolio_budget_points=max(20, int(portfolio_budget_points or 100)),
-        deploy_repo_full_name=(deploy_repo_full_name or "").strip() or None,
-        deploy_strategy=(deploy_strategy or "github_actions_ssh").strip() or "github_actions_ssh",
+        deploy_repo_full_name=normalize_github_repo_full_name(deploy_repo_full_name),
+        deploy_strategy=(deploy_strategy or "disabled").strip() or "disabled",
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=(staging_host_label or "").strip() or None,
         production_host_label=(production_host_label or "").strip() or None,
@@ -287,9 +340,9 @@ def update_project_policy(
     if portfolio_budget_points is not None:
         row.portfolio_budget_points = max(20, int(portfolio_budget_points))
     if deploy_repo_full_name is not None:
-        row.deploy_repo_full_name = deploy_repo_full_name.strip() or None
+        row.deploy_repo_full_name = normalize_github_repo_full_name(deploy_repo_full_name)
     if deploy_strategy is not None:
-        row.deploy_strategy = deploy_strategy.strip() or "github_actions_ssh"
+        row.deploy_strategy = deploy_strategy.strip() or "disabled"
     if deploy_trigger_enabled is not None:
         row.deploy_trigger_enabled = bool(deploy_trigger_enabled)
     if staging_host_label is not None:

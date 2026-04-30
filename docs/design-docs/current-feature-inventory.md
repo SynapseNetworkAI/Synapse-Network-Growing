@@ -140,7 +140,7 @@
 23.1. Daily planner 的内容素材来自 `Campaign Goal + Trend Radar + Watchlist + Recent Metrics + Product Change Signals`。Product Change Signals 只使用 public-safe 摘要：completed requirements、successful releases/deployments、online records、PR/release 标题和 bounded git log 摘要；本地路径、secret、内部分支名、workflow JSON、raw failure stack 必须脱敏。
 23.2. `/publishing -> 今日队列` 默认只展示 operator-local 当天的 active daily planner 库存和当天需要处理的人工草稿；历史 backlog 进入 `全部历史` 视图，避免把昨天的待审草稿误判成今天超额生成。
 24. `x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep` 和 `x_social_reply_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，回帖 sweep 每 30 分钟最多调用真实 `social_reply_agent_v1` 生成 1 条 `needs_review` 回复草稿，不调用 X repost / quote / reply / publish API；Agent 失败时 fail closed，不使用模板 fallback。
-24.1. `x_social_post_observer_sweep` 每小时只读扫描已发布且带 `external_post_id` 的 X post，优先同步 `public_metrics`，并在权限允许时尝试 owner metrics；auth、rate limit 或 metrics 权限不足时只写 diagnostic，不创建假 metrics。`/publishing -> 已发布效果` 展示总览统计、Top posts、最近同步时间和诊断，用于反哺下一轮 planner。
+24.1. `x_social_post_observer_sweep` 每小时只读扫描已发布且带 `external_post_id` 的 X post，优先同步 `public_metrics`，并在权限允许时尝试 owner metrics；auth、rate limit 或 metrics 权限不足时只写 diagnostic，不创建假 metrics。`/publishing -> 已发布效果` 只读本地 `social_post_metrics`，展示日期筛选、按 operator-local 自然日聚合的日报表、明细分页列表和居中详情 Modal；页面切换、分页和详情查看不得触发额外 X read。
 25. X 趋势雷达 v1 的真实数据入口是 Watchlist timeline，而不是全网搜索：`social_watchlist_accounts -> cached x_user_id / GET /2/users/by/username/:username -> GET /2/users/:id/tweets -> social_trend_items`。每个 watchlist account 通过 `last_checked_at` 做 1 小时级节流，并缓存 `x_user_id` 避免重复 lookup；全局 X read budget 默认每天 20 次外部 read，趋势每日 source-post 处理量默认 20 条。X rate limit / budget exhausted / auth failure 只能写 diagnostic，不得强制重试或伪造真实趋势。
 26. `social_trend_items.source_url` 是 X 来源真相边界。带 `https://x.com/.../status/...` 的趋势可以进入 `x_social_repost_candidate_sweep`；本地趋势种子或缺少 source URL 的素材只能作为内容灵感，UI 必须禁用转发/引用发布。
 27. `/publishing/trends` 是 `x_social_trend_radar_sweep` 结果检索页。它只读展示 `social_trend_items`，支持 operator-local 日期范围、关键字、来源类型和作者筛选，列表分页，点击行后用居中 Modal 查看完整来源、摘要、采集时间和 `source_kind`。
@@ -200,6 +200,8 @@
    - environment labels
 4. Project 绑定 policy。
 5. Requirement、workflow、release 按 Project 解析目标仓库与交付策略。
+6. 内置项目包含 `Synapse-Network-Growing`、`Synapse-Network`、`Synapse-Network-Provider`、`Synapse-Network-Sdk`、`Synapse-Network-MCP-Server` 和 `Agents-Memory`；`Synapse-Network-MCP-Server` v1 进入项目治理和工程任务体系，但 deploy strategy 为 `disabled`，不接 `/releases` staging 快捷发布。
+7. Project 的 `repo_full_name` 是 source repository truth，UI 的 `GitHub 仓库` 字段可输入 `owner/repo`、HTTPS git URL 或 SSH git URL，后端统一归一化为 `owner/repo`；`deploy_repo_full_name` 是独立部署仓库字段，只有部署仓库不同或 deploy-enabled 项目需要填写，不能覆盖 source repo。
 
 ## 8. Runtime And Planner Adapter
 

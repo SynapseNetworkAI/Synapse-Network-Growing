@@ -30,7 +30,6 @@ from server.services.social.x_client import (
     XApiTransientError,
 )
 
-
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
     rows = (
         db.query(SocialPostMetricRow)

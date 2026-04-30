@@ -1,6 +1,8 @@
 import type { MissionBoard, MissionWorkbench } from './apiMissionBoard'
 export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage } from './apiMissionBoard'
-import type { SocialOpsOverview, SocialPostMetricSummary } from './types/socialOps'
+import { createSocialMetricApi } from './apiSocialMetrics'
+export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
+import type { SocialOpsOverview } from './types/socialOps'
 export type { SocialOpsOverview, SocialPostMetricSummary, SocialPostMetricTopPost } from './types/socialOps'
 const BASE = '/api'
 const REQUEST_TIMEOUT_MS = 17000
@@ -8,7 +10,7 @@ export interface ApiError extends Error {
   detail?: unknown
 }
 
-async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
@@ -1488,20 +1490,6 @@ export interface SocialRepostCandidate {
   updated_at: string | null
 }
 
-export interface SocialPostMetric {
-  id: number
-  post_id: number | null
-  external_post_id: string | null
-  impressions: number
-  likes: number
-  replies: number
-  reposts: number
-  follows: number
-  link_clicks: number
-  summary: string | null
-  observed_at: string | null
-}
-
 export type DeployScope = 'auto' | 'gateway' | 'gateway-admin' | 'user-front' | 'admin-front' | 'provider-service' | 'all'
 
 export interface ReleaseActionPayload {
@@ -2105,6 +2093,7 @@ export interface PlanningMissionControl {
 
 // API functions
 export const api = {
+  ...createSocialMetricApi(request),
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
@@ -2624,8 +2613,6 @@ export const api = {
     request<SocialReplyItem>(`/social/repost-candidates/${id}/generate-reply`, { method: 'POST', body: JSON.stringify(data) }),
   publishSocialRepostCandidateToX: (id: number, data: { actor?: string; action?: 'quote' | 'repost' | string } = {}) =>
     request<SocialRepostCandidate>(`/social/repost-candidates/${id}/publish-x`, { method: 'POST', body: JSON.stringify(data) }),
-  getSocialPostMetrics: () => request<SocialPostMetric[]>('/social/post-metrics'),
-  getSocialPostMetricSummary: () => request<SocialPostMetricSummary>('/social/post-metrics/summary'),
   getSocialPosts: (filters?: { status?: string }) => {
     const params = new URLSearchParams()
     if (filters?.status) params.set('status', filters.status)

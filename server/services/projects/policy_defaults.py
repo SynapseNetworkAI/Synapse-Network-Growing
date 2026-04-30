@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,30 @@ def default_interrupt_policy() -> dict[str, list[str]]:
     }
 
 
+def normalize_github_repo_full_name(value: str | None) -> str | None:
+    """Normalize GitHub URL/SSH/slug input to owner/repo."""
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    raw = raw.removeprefix("git+")
+    patterns = (
+        r"^git@github\.com:(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?$",
+        r"^https?://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?/?$",
+        r"^github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?/?$",
+        r"^(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+?)(?:\.git)?$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, raw)
+        if not match:
+            continue
+        owner = match.group("owner").strip()
+        repo = match.group("repo").strip().removesuffix(".git")
+        if owner and repo:
+            return f"{owner}/{repo}"
+    return raw.removesuffix(".git")
+
+
 DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
     {
         "project_key": "synapse-network-growing",
@@ -75,6 +100,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.2,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 140,
+        "repo_full_name": "cliff-personal/Synapse-Network-Growing",
         "notes": "Control plane repo. Allow code and docs updates, but keep release decisions manual.",
     },
     {
@@ -94,6 +120,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.4,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 130,
+        "repo_full_name": "cliff-personal/Synapse-Network",
         "deploy_repo_full_name": "cliff-personal/Synapse-Network",
         "deploy_strategy": "github_actions_gcp_cloudrun",
         "deploy_trigger_enabled": True,
@@ -120,6 +147,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.0,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 100,
+        "repo_full_name": "cliff-personal/Synapse-Network-Provider",
         "deploy_repo_full_name": "cliff-personal/Synapse-Network-Provider",
         "deploy_strategy": "github_actions_wif_cloudrun",
         "deploy_trigger_enabled": True,
@@ -146,7 +174,30 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 1.1,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 95,
+        "repo_full_name": "cliff-personal/Synapse-Network-Sdk",
         "notes": "SDK repo. Require package-level verification before release.",
+    },
+    {
+        "project_key": "synapse-network-mcp-server",
+        "display_name": "Synapse-Network-MCP-Server",
+        "root_path": "/Users/cliff/workspace/agent/Synapse-Network-MCP-Server",
+        "allowed_write_globs": ["**"],
+        "forbidden_globs": [".git/**", "node_modules/**", "dist/**", "coverage/**"],
+        "required_checks": ["npm run verify:mcp"],
+        "release_mode": "manual",
+        "requires_manual_approval": True,
+        "autonomy_mode": "execute_autonomously",
+        "allow_rebalance": True,
+        "allow_preemption": False,
+        "capability_matrix": default_capability_matrix(release_mode="manual"),
+        "interrupt_policy": default_interrupt_policy(),
+        "scheduler_weight": 0.95,
+        "max_parallel_requirements": 1,
+        "portfolio_budget_points": 90,
+        "repo_full_name": "cliff-personal/Synapse-Network-MCP-Server",
+        "deploy_strategy": "disabled",
+        "deploy_trigger_enabled": False,
+        "notes": "MCP server repo. Keep code verification active; staging release shortcut is disabled in v1.",
     },
     {
         "project_key": "agents-memory",
@@ -165,6 +216,7 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "scheduler_weight": 0.9,
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 80,
+        "repo_full_name": "haochencheng/Agents-Memory",
         "notes": "Memory and standards repo. Keep profile and standards changes auditable.",
     },
 ]

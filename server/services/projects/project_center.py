@@ -16,13 +16,31 @@ from server.services.projects.policy_defaults import (
     _normalize_root_path,
     default_capability_matrix,
     default_interrupt_policy,
+    normalize_github_repo_full_name,
+    DEFAULT_PROJECT_POLICIES,
 )
-from server.services.projects.policy_registry import project_policy_to_dict, update_project_policy
+from server.services.projects.policy_registry import (
+    ensure_default_project_policies,
+    project_policy_to_dict,
+    update_project_policy,
+)
 
 
 def _clean(value: str | None) -> str | None:
     cleaned = str(value or "").strip()
     return cleaned or None
+
+
+def _clean_repo(value: str | None) -> str | None:
+    return normalize_github_repo_full_name(value)
+
+
+def _default_policy_for_key(project_key: str | None) -> dict[str, Any] | None:
+    key = str(project_key or "").strip()
+    for policy in DEFAULT_PROJECT_POLICIES:
+        if str(policy.get("project_key") or "") == key:
+            return policy
+    return None
 
 
 def _project_policy_row(project: ProjectRow) -> ProjectPolicyRow | None:
@@ -51,9 +69,9 @@ def project_to_dict(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) 
         "display_name": str(row.display_name or ""),
         "root_path": str(row.root_path or ""),
         "status": str(row.status or "active"),
-        "repo_full_name": _clean(getattr(row, "repo_full_name", None)),
+        "repo_full_name": _clean_repo(getattr(row, "repo_full_name", None)),
         "default_branch": str(getattr(row, "default_branch", None) or "main"),
-        "deploy_repo_full_name": _clean(getattr(row, "deploy_repo_full_name", None)),
+        "deploy_repo_full_name": _clean_repo(getattr(row, "deploy_repo_full_name", None)),
         "deploy_strategy": str(getattr(row, "deploy_strategy", None) or "disabled"),
         "deploy_trigger_enabled": bool(getattr(row, "deploy_trigger_enabled", False)),
         "staging_host_label": _clean(getattr(row, "staging_host_label", None)),
@@ -101,6 +119,7 @@ def _find_project_policy_objectless(project: ProjectRow) -> ProjectPolicyRow | N
 
 
 def ensure_projects_materialized(db: Session) -> None:
+    ensure_default_project_policies(db)
     changed = False
     projects = db.query(ProjectRow).all()
     projects_by_key = {str(row.project_key or "").strip(): row for row in projects}
@@ -109,6 +128,13 @@ def ensure_projects_materialized(db: Session) -> None:
     for policy in db.query(ProjectPolicyRow).filter(ProjectPolicyRow.status != "deleted").all():
         key = str(policy.project_key or "").strip()
         root = _normalize_root_path(str(policy.root_path or ""))
+        default_policy = _default_policy_for_key(key)
+        source_repo = _clean_repo(
+            getattr(policy, "repo_full_name", None)
+            or (default_policy or {}).get("repo_full_name")
+            or getattr(policy, "deploy_repo_full_name", None)
+        )
+        deploy_repo = _clean_repo(getattr(policy, "deploy_repo_full_name", None))
         project = None
         if policy.project_id is not None:
             project = db.query(ProjectRow).filter(ProjectRow.id == int(policy.project_id)).first()
@@ -120,9 +146,9 @@ def ensure_projects_materialized(db: Session) -> None:
                 display_name=str(policy.display_name or key),
                 root_path=root,
                 status="archived" if str(policy.status or "") == "disabled" else "active",
-                repo_full_name=_clean(getattr(policy, "deploy_repo_full_name", None)),
+                repo_full_name=source_repo,
                 default_branch="main",
-                deploy_repo_full_name=_clean(getattr(policy, "deploy_repo_full_name", None)),
+                deploy_repo_full_name=deploy_repo,
                 deploy_strategy=str(getattr(policy, "deploy_strategy", None) or "disabled"),
                 deploy_trigger_enabled=bool(getattr(policy, "deploy_trigger_enabled", False)),
                 staging_host_label=_clean(getattr(policy, "staging_host_label", None)),
@@ -141,8 +167,8 @@ def ensure_projects_materialized(db: Session) -> None:
             project.display_name = str(policy.display_name or key)
             project.root_path = root
             project.status = "archived" if str(policy.status or "") == "disabled" else "active"
-            project.repo_full_name = _clean(getattr(policy, "deploy_repo_full_name", None))
-            project.deploy_repo_full_name = _clean(getattr(policy, "deploy_repo_full_name", None))
+            project.repo_full_name = _clean_repo(project.repo_full_name) or source_repo
+            project.deploy_repo_full_name = deploy_repo
             project.deploy_strategy = str(getattr(policy, "deploy_strategy", None) or "disabled")
             project.deploy_trigger_enabled = bool(getattr(policy, "deploy_trigger_enabled", False))
             project.staging_host_label = _clean(getattr(policy, "staging_host_label", None))
@@ -150,6 +176,7 @@ def ensure_projects_materialized(db: Session) -> None:
             project.staging_workflow_file = str(getattr(policy, "staging_workflow_file", None) or "deploy-staging.yml")
             project.production_workflow_file = str(getattr(policy, "production_workflow_file", None) or "deploy-production.yml")
             project.notes = _clean(getattr(policy, "notes", None))
+            changed = True
         if policy.project_id != project.id:
             policy.project_id = int(project.id)
             changed = True
@@ -244,9 +271,9 @@ def create_project(
         display_name=cleaned_name,
         root_path=normalized_root,
         status="active",
-        repo_full_name=_clean(repo_full_name),
+        repo_full_name=_clean_repo(repo_full_name),
         default_branch=str(default_branch or "main").strip() or "main",
-        deploy_repo_full_name=_clean(deploy_repo_full_name),
+        deploy_repo_full_name=_clean_repo(deploy_repo_full_name),
         deploy_strategy=str(deploy_strategy or "disabled").strip() or "disabled",
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=_clean(staging_host_label),
@@ -276,7 +303,7 @@ def create_project(
         scheduler_weight=1.0,
         max_parallel_requirements=1,
         portfolio_budget_points=100,
-        deploy_repo_full_name=_clean(deploy_repo_full_name),
+        deploy_repo_full_name=_clean_repo(deploy_repo_full_name),
         deploy_strategy=str(deploy_strategy or "disabled").strip() or "disabled",
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=_clean(staging_host_label),
@@ -327,11 +354,11 @@ def update_project(
     if status is not None:
         row.status = str(status or "active").strip() or "active"
     if repo_full_name is not None:
-        row.repo_full_name = _clean(repo_full_name)
+        row.repo_full_name = _clean_repo(repo_full_name)
     if default_branch is not None:
         row.default_branch = str(default_branch or "main").strip() or "main"
     if deploy_repo_full_name is not None:
-        row.deploy_repo_full_name = _clean(deploy_repo_full_name)
+        row.deploy_repo_full_name = _clean_repo(deploy_repo_full_name)
     if deploy_strategy is not None:
         row.deploy_strategy = str(deploy_strategy or "disabled").strip() or "disabled"
     if deploy_trigger_enabled is not None:
@@ -425,8 +452,8 @@ def update_project_policy_for_project(db: Session, project_id: int, **patch: Any
         project.display_name = str(updated.display_name or "")
         project.root_path = str(updated.root_path or "")
         project.status = "archived" if str(updated.status or "") == "disabled" else "active"
-        project.deploy_repo_full_name = _clean(getattr(updated, "deploy_repo_full_name", None))
-        project.repo_full_name = _clean(getattr(updated, "deploy_repo_full_name", None))
+        project.deploy_repo_full_name = _clean_repo(getattr(updated, "deploy_repo_full_name", None))
+        project.repo_full_name = _clean_repo(project.repo_full_name)
         project.deploy_strategy = str(getattr(updated, "deploy_strategy", None) or "disabled")
         project.deploy_trigger_enabled = bool(getattr(updated, "deploy_trigger_enabled", False))
         project.staging_host_label = _clean(getattr(updated, "staging_host_label", None))

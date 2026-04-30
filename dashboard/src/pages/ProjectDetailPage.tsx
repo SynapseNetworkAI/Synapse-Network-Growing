@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ProjectPolicy, ProjectWithPolicy, api } from '../api'
 import { FieldLabel, LoadingPane, SectionFrame, useToast } from '../components/workbench'
+import { PROJECT_DEPLOY_STRATEGIES } from '../projectDeployStrategies'
 
 type ProjectFormState = {
   project_key: string
@@ -114,6 +115,7 @@ export default function ProjectDetailPage() {
           <div>
             <FieldLabel>GitHub 仓库</FieldLabel>
             <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.repo_full_name} onChange={(event) => setForm((current) => (current ? { ...current, repo_full_name: event.target.value } : current))} />
+            <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">可填 git 地址或 owner/repo，保存后系统会归一化为 owner/repo。</p>
           </div>
           <div>
             <FieldLabel>默认分支</FieldLabel>
@@ -169,14 +171,13 @@ export default function ProjectDetailPage() {
           <div>
             <FieldLabel>部署仓库</FieldLabel>
             <input className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.deploy_repo_full_name} onChange={(event) => setForm((current) => (current ? { ...current, deploy_repo_full_name: event.target.value } : current))} />
+            <p className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">通常与 GitHub 仓库相同；仅部署仓库不同的时候填写。</p>
           </div>
           <div>
             <FieldLabel>部署策略</FieldLabel>
             <select className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" value={form.deploy_strategy} onChange={(event) => setForm((current) => (current ? { ...current, deploy_strategy: event.target.value } : current))}>
-              <option value="disabled">disabled</option>
-              <option value="github_actions">github_actions</option>
-              <option value="manual">manual</option>
-              <option value="github_actions_ssh">github_actions_ssh</option>
+              {PROJECT_DEPLOY_STRATEGIES.includes(form.deploy_strategy) ? null : <option value={form.deploy_strategy}>{form.deploy_strategy}</option>}
+              {PROJECT_DEPLOY_STRATEGIES.map((strategy) => <option key={strategy} value={strategy}>{strategy}</option>)}
             </select>
           </div>
           <div>

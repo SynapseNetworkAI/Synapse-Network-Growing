@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOverview, type SocialPostDraft, type SocialPostMetric, type SocialPostMetricSummary, type SocialReplyItem, type SocialRepostCandidate, type SocialTrendItem, type SocialWatchlistAccount } from '../api'
+import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOverview, type SocialPostDraft, type SocialReplyItem, type SocialRepostCandidate, type SocialTrendItem, type SocialWatchlistAccount } from '../api'
 import { ConfirmDialog, EmptyPane, OverlayModal, SectionFrame, StateBadge, useToast } from '../components/workbench'
 import { RegenerateReplyButton, ReplyGeneratedByCard, ReplyGeneratedByText } from '../components/SocialReplyControls'
-import { DailyDraftInventoryBanner, SocialMetricsPanel, SocialOpsSummaryCards } from '../components/SocialOpsSummary'
+import { SocialMetricsSection } from '../components/SocialMetricsSection'
+import { DailyDraftInventoryBanner, SocialOpsSummaryCards } from '../components/SocialOpsSummary'
 import { activeMediaAssets, isTodayQueuePost, mediaStatusLabel, plannerLocalDate, plannerSlot, type QueueScope } from '../utils/socialQueue'
 
 const statusTabs = [
@@ -207,8 +208,6 @@ export default function PublishingPage() {
   const [watchlist, setWatchlist] = useState<SocialWatchlistAccount[]>([])
   const [replies, setReplies] = useState<SocialReplyItem[]>([])
   const [reposts, setReposts] = useState<SocialRepostCandidate[]>([])
-  const [metrics, setMetrics] = useState<SocialPostMetric[]>([])
-  const [metricSummary, setMetricSummary] = useState<SocialPostMetricSummary | null>(null)
   const [opsTab, setOpsTab] = useState<OpsTab>(() => initialOpsTab())
   const [filter, setFilter] = useState('')
   const [queueScope, setQueueScope] = useState<QueueScope>('today')
@@ -310,8 +309,6 @@ export default function PublishingPage() {
         watchlistRows,
         replyRows,
         repostRows,
-        metricRows,
-        metricSummaryRow,
       ] = await Promise.all([
         api.getSocialAccounts(),
         api.getSocialPosts(nextFilter ? { status: nextFilter } : undefined),
@@ -321,8 +318,6 @@ export default function PublishingPage() {
         api.getSocialWatchlist(),
         api.getSocialReplies(),
         api.getSocialRepostCandidates(),
-        api.getSocialPostMetrics(),
-        api.getSocialPostMetricSummary(),
       ])
       setAccounts(accountRows)
       setPosts(postRows)
@@ -332,8 +327,6 @@ export default function PublishingPage() {
       setWatchlist(watchlistRows)
       setReplies(replyRows)
       setReposts(repostRows)
-      setMetrics(metricRows)
-      setMetricSummary(metricSummaryRow)
       if (!form.accountId && accountRows[0]) {
         setForm((current) => ({ ...current, accountId: String(accountRows[0].id) }))
       }
@@ -1302,13 +1295,7 @@ function openReplyPublish(reply: SocialReplyItem) {
       ) : null}
 
       {opsTab === 'metrics' ? (
-        <SectionFrame
-          eyebrow="Published & Metrics"
-          title="已发布效果"
-          description="发布后观察 impressions、互动、链接点击和高质量回复，用于反哺下一轮内容 planner。"
-        >
-          <SocialMetricsPanel metrics={metrics} summary={metricSummary} formatDateTime={formatDateTime} />
-        </SectionFrame>
+        <SocialMetricsSection formatDateTime={formatDateTime} />
       ) : null}
 
       {opsTab === 'rules' ? (

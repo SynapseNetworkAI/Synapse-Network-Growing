@@ -20,6 +20,9 @@ const apiMock = vi.hoisted(() => ({
   generateSocialReplyForRepostCandidate: vi.fn(),
   publishSocialRepostCandidateToX: vi.fn(),
   getSocialPostMetrics: vi.fn(),
+  getSocialPostMetricsDaily: vi.fn(),
+  querySocialPostMetrics: vi.fn(),
+  getSocialPostMetric: vi.fn(),
   getSocialPostMetricSummary: vi.fn(),
   getSocialPosts: vi.fn(),
   getSocialPost: vi.fn(),
@@ -185,6 +188,42 @@ describe('PublishingPage', () => {
     apiMock.getSocialRepostCandidates.mockResolvedValue([])
     apiMock.generateSocialReplyForRepostCandidate.mockResolvedValue(reply())
     apiMock.getSocialPostMetrics.mockResolvedValue([])
+    apiMock.getSocialPostMetricsDaily.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 30,
+      offset: 0,
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      diagnostic: 'No X post metrics recorded yet.',
+    })
+    apiMock.querySocialPostMetrics.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+      diagnostic: 'No X post metrics recorded yet.',
+    })
+    apiMock.getSocialPostMetric.mockResolvedValue({
+      id: 1,
+      post_id: 7,
+      platform: 'x',
+      external_post_id: '1801',
+      observed_at: '2026-04-25T00:03:00Z',
+      impressions: 10,
+      likes: 2,
+      replies: 1,
+      reposts: 0,
+      link_clicks: 1,
+      raw_metrics: {},
+      summary: 'Observed public metrics.',
+      created_at: '2026-04-25T00:03:00Z',
+      updated_at: '2026-04-25T00:03:00Z',
+      post_title: 'Build note',
+      post_body_excerpt: 'Synapse Agent Ops now has a human-gated X publishing surface.',
+      post_status: 'published',
+      external_url: 'https://x.com/SynapseNetworkA/status/1801',
+    })
     apiMock.getSocialPostMetricSummary.mockResolvedValue({
       observed_post_count: 0,
       metric_row_count: 0,
