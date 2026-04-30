@@ -261,7 +261,52 @@ describe('PublishingPage', () => {
     expect(screen.queryByText('legacy builders')).not.toBeInTheDocument()
     expect(screen.queryByText('legacy follow')).not.toBeInTheDocument()
     expect(screen.queryByText('legacy rationale')).not.toBeInTheDocument()
-    expect(screen.getByText('第 1 / 1 页 · 共 1 条草稿')).toBeInTheDocument()
+    expect(screen.getByText('第 1 / 1 页 · 共 1 条草稿 · 今日库存视图')).toBeInTheDocument()
+  })
+
+  it('defaults the queue to today active daily planner inventory and keeps history separate', async () => {
+    const user = userEvent.setup()
+    apiMock.getSocialPosts.mockResolvedValue([
+      draft({
+        id: 25,
+        source_type: 'daily_planner',
+        title: 'Today product-change draft',
+        status: 'needs_review',
+        raw_agent_output: {
+          source: 'x_social_daily_content_planner',
+          planner_local_date: '2026-04-25',
+          planner_slot: 1,
+          planner_run_key: 'x_daily:1:2026-04-25:slot-1',
+        },
+        created_at: '2026-04-25T02:00:00Z',
+        updated_at: '2026-04-25T02:00:00Z',
+      }),
+      draft({
+        id: 24,
+        source_type: 'daily_planner',
+        title: 'Historical backlog draft',
+        status: 'needs_review',
+        raw_agent_output: {
+          source: 'x_social_daily_content_planner',
+          planner_local_date: '2026-04-24',
+          planner_slot: 3,
+          planner_run_key: 'x_daily:1:2026-04-24:slot-3',
+        },
+        created_at: '2026-04-24T02:00:00Z',
+        updated_at: '2026-04-24T02:00:00Z',
+      }),
+    ])
+
+    renderPage()
+
+    expect(await screen.findByText('Today product-change draft')).toBeInTheDocument()
+    expect(screen.getByText('Daily planner · 2026-04-25 · slot 1')).toBeInTheDocument()
+    expect(screen.queryByText('Historical backlog draft')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '全部历史' }))
+
+    expect(screen.getByText('Historical backlog draft')).toBeInTheDocument()
+    expect(screen.getByText('Daily planner · 2026-04-24 · slot 3')).toBeInTheDocument()
   })
 
   it('opens a centered detail modal with full process timeline and result data', async () => {
@@ -674,6 +719,7 @@ describe('PublishingPage', () => {
   })
 
   it('sorts reviewable drafts above failed history, published, and rejected records', async () => {
+    const user = userEvent.setup()
     apiMock.getSocialPosts.mockResolvedValue([
       draft({ id: 1, title: 'Rejected record', status: 'rejected', updated_at: '2026-04-25T04:00:00Z' }),
       draft({ id: 2, title: 'Published record', status: 'published', updated_at: '2026-04-25T05:00:00Z' }),
@@ -683,6 +729,7 @@ describe('PublishingPage', () => {
     ])
     renderPage()
 
+    await user.click(await screen.findByRole('button', { name: '全部历史' }))
     await screen.findByText('Approved record')
     const order = screen
       .getAllByRole('row')

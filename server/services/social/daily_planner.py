@@ -23,6 +23,10 @@ from server.services.social.daily_planner_inventory import (
     _expire_stale_daily_planner_generating_posts,
     _next_daily_planner_slot,
 )
+from server.services.social.product_change_signals import (
+    planner_product_change_lines as _planner_product_change_lines,
+    recent_product_change_signals as _recent_product_change_signals,
+)
 
 logger = logging.getLogger("ops-dashboard.social-daily-planner")
 
@@ -151,6 +155,8 @@ def _build_daily_planner_prompt(
     trend_lines = _planner_trend_lines(trends)
     watchlist_lines = _planner_watchlist_lines(watchlist)
     metric_lines = _planner_metric_lines(metrics)
+    product_change_signals = _recent_product_change_signals(db)
+    product_change_lines = _planner_product_change_lines(product_change_signals)
     prompt = "\n".join(
         [
             f"Create today's human-reviewed X official account draft for Synapse Network. Local date: {local_date}.",
@@ -178,6 +184,9 @@ def _build_daily_planner_prompt(
             "# Recent 3 published post performance",
             metric_lines,
             "",
+            "# Verified product change signals",
+            product_change_lines,
+            "",
             "Write a substantial, high-trust X post with a strong hook, concrete product value, and relevant hashtags. Keep it public-facing and useful to AI agent builders, API providers, and developer operators.",
         ]
     )
@@ -190,6 +199,7 @@ def _build_daily_planner_prompt(
         "recent_metric_post_ids": [
             int(row.post_id) for row in metrics if row.post_id is not None
         ],
+        "product_change_signals": product_change_signals,
         "variable_factor": variable_factor,
         "metrics_available": bool(metrics),
     }
@@ -338,6 +348,7 @@ def _top_up_daily_planner_slots(
             created_run_keys.append(planner_run_key)
         else:
             failed_ids.append(int(row.id))
+            break
     return created_ids, failed_ids, created_run_keys
 
 
@@ -399,7 +410,9 @@ def run_x_social_daily_content_planner(
             account_id=int(account.id), local_date=local_date, active_rows=active_rows
         )
         result["expired_generating_post_ids"] = expired_post_ids
-        result["max_created_per_tick"] = int(config.X_DAILY_PLANNER_MAX_CREATED_PER_TICK)
+        result["max_created_per_tick"] = int(
+            config.X_DAILY_PLANNER_MAX_CREATED_PER_TICK
+        )
         return result
 
     created_ids, failed_ids, created_run_keys = _top_up_daily_planner_slots(

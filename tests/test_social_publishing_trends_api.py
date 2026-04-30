@@ -110,23 +110,19 @@ def test_x_social_daily_content_planner_tops_up_three_human_review_drafts_per_lo
     result = social_daily_planner.run_x_social_daily_content_planner(db_session)
 
     assert result["already_created"] is False
-    assert result["already_satisfied"] is False
+    assert result["already_satisfied"] is True
     assert result["target_count"] == 3
-    assert result["active_count"] == 1
-    assert len(result["created_post_ids"]) == 1
-    assert len(calls) == 1
-    assert result["max_created_per_tick"] == 1
+    assert result["active_count"] == 3
+    assert len(result["created_post_ids"]) == 3
+    assert len(calls) == 3
+    assert result["max_created_per_tick"] == 3
     assert calls and calls[0]["media_mode"] == "text_only"
 
     second = social_daily_planner.run_x_social_daily_content_planner(db_session)
-    third = social_daily_planner.run_x_social_daily_content_planner(db_session)
-    fourth = social_daily_planner.run_x_social_daily_content_planner(db_session)
 
-    assert second["already_created"] is False
-    assert third["already_created"] is False
-    assert fourth["already_created"] is True
-    assert fourth["already_satisfied"] is True
-    assert fourth["active_count"] == 3
+    assert second["already_created"] is True
+    assert second["already_satisfied"] is True
+    assert second["active_count"] == 3
     assert len(calls) == 3
     rows = (
         db_session.query(SocialPostDraftRow)
@@ -324,7 +320,10 @@ def test_x_social_trend_radar_syncs_due_watchlist_from_x(monkeypatch, db_session
         .one()
     )
     assert account.x_user_id == "user-1"
-    assert result["budget_remaining_requests"] < social_publishing.config.X_READ_DAILY_REQUEST_BUDGET
+    assert (
+        result["budget_remaining_requests"]
+        < social_publishing.config.X_READ_DAILY_REQUEST_BUDGET
+    )
 
 
 def test_x_social_trend_radar_records_rate_limit_without_retrying(

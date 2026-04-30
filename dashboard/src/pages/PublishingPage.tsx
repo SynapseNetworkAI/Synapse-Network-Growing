@@ -3,6 +3,7 @@ import { api, type SocialAccount, type SocialCampaignGoal, type SocialOpsOvervie
 import { ConfirmDialog, EmptyPane, OverlayModal, SectionFrame, StateBadge, useToast } from '../components/workbench'
 import { RegenerateReplyButton, ReplyGeneratedByCard, ReplyGeneratedByText } from '../components/SocialReplyControls'
 import { DailyDraftInventoryBanner, SocialMetricsPanel, SocialOpsSummaryCards } from '../components/SocialOpsSummary'
+import { activeMediaAssets, isTodayQueuePost, mediaStatusLabel, plannerLocalDate, plannerSlot, type QueueScope } from '../utils/socialQueue'
 
 const statusTabs = [
   { key: '', label: 'All' },
@@ -164,21 +165,6 @@ function publishActionLabel(post: SocialPostDraft | null) {
   return post?.status === 'failed' ? '重新发送' : '发布到 X'
 }
 
-function activeMediaAssets(post: SocialPostDraft | null) {
-  return (post?.media_assets ?? []).filter((asset) => asset.status !== 'removed')
-}
-
-function mediaStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    generating: '图片生成中',
-    ready: '图片已生成',
-    uploaded: '图片已上传',
-    failed: '图片失败',
-    removed: '已移除',
-  }
-  return map[status] ?? status
-}
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '-'
   return new Intl.DateTimeFormat(undefined, {
@@ -225,6 +211,7 @@ export default function PublishingPage() {
   const [metricSummary, setMetricSummary] = useState<SocialPostMetricSummary | null>(null)
   const [opsTab, setOpsTab] = useState<OpsTab>(() => initialOpsTab())
   const [filter, setFilter] = useState('')
+  const [queueScope, setQueueScope] = useState<QueueScope>('today')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -256,14 +243,18 @@ export default function PublishingPage() {
   const activeAccount = useMemo(() => accounts.find((account) => String(account.id) === form.accountId) ?? accounts[0], [accounts, form.accountId])
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts])
   const canSave = editing ? form.bodyText.trim().length > 0 : form.prompt.trim().length > 0
+  const queuePosts = useMemo(
+    () => (queueScope === 'today' ? posts.filter((post) => isTodayQueuePost(post, overview?.daily_planner_local_date)) : posts),
+    [overview?.daily_planner_local_date, posts, queueScope],
+  )
   const sortedPosts = useMemo(
     () =>
-      [...posts].sort((left, right) => {
+      [...queuePosts].sort((left, right) => {
         const rankDelta = postSortRank(left) - postSortRank(right)
         if (rankDelta !== 0) return rankDelta
         return new Date(right.updated_at ?? 0).getTime() - new Date(left.updated_at ?? 0).getTime()
       }),
-    [posts],
+    [queuePosts],
   )
   const totalPages = Math.max(1, Math.ceil(sortedPosts.length / pageSize))
   const pagedPosts = sortedPosts.slice((page - 1) * pageSize, page * pageSize)
@@ -352,6 +343,10 @@ export default function PublishingPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    setPage(1)
+  }, [filter, queueScope])
 
   useEffect(() => {
     setPage(1)
@@ -897,9 +892,32 @@ function openReplyPublish(reply: SocialReplyItem) {
         description="列表只展示标题、状态、字符数和风险检查；详情和调试信息收进编辑或 Debug。"
       >
         <DailyDraftInventoryBanner active={dailyPlannerActive} target={dailyPlannerTarget} />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-white/[0.025] p-3">
+          <div className="text-sm leading-6 text-[color:var(--ops-text-muted)]">
+            默认只看 {overview?.daily_planner_local_date ?? '今日'} 的待发布库存；历史 backlog 切到全部历史处理。
+          </div>
+          <div className="flex rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-1">
+            {([
+              ['today', '今日待审'],
+              ['all', '全部历史'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={[
+                  'rounded-xl px-3 py-2 text-sm font-semibold transition',
+                  queueScope === key ? 'bg-cyan-300/16 text-cyan-100' : 'text-[color:var(--ops-text-muted)] hover:bg-white/[0.04]',
+                ].join(' ')}
+                onClick={() => setQueueScope(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         {loading ? <EmptyPane>正在加载内容草稿...</EmptyPane> : null}
-        {!loading && posts.length === 0 ? <EmptyPane>当前没有内容草稿。可以先新建一条，或让 Agent 在工作流里生成候选内容。</EmptyPane> : null}
-        {!loading && posts.length > 0 ? (
+        {!loading && sortedPosts.length === 0 ? <EmptyPane>{queueScope === 'today' ? '今天没有待发布库存。daily planner 下次 tick 会补足到 3 条。' : '当前没有内容草稿。可以先新建一条，或让 Agent 在工作流里生成候选内容。'}</EmptyPane> : null}
+        {!loading && sortedPosts.length > 0 ? (
           <div className="overflow-hidden rounded-[24px] border border-[color:var(--ops-stroke-soft)]">
             <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead className="bg-[color:var(--ops-panel-subtle)] text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
@@ -922,6 +940,11 @@ function openReplyPublish(reply: SocialReplyItem) {
                     <td className="max-w-[420px] px-5 py-4">
                       <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">X · @{post.account_handle ?? 'SynapseNetworkA'}</div>
                       <div className="mt-1 font-semibold text-[color:var(--ops-text-title)]">{post.title || `X draft #${post.id}`}</div>
+                      {post.source_type === 'daily_planner' ? (
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">
+                          Daily planner · {plannerLocalDate(post) || 'unknown date'}{plannerSlot(post) ? ` · slot ${plannerSlot(post)}` : ''}
+                        </div>
+                      ) : null}
                       <div className="mt-2 line-clamp-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">
                         {post.status === 'generating' && !post.body_text ? 'Agent 正在生成标题和正文...' : post.body_text}
                       </div>
@@ -1008,7 +1031,7 @@ function openReplyPublish(reply: SocialReplyItem) {
               </tbody>
             </table>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
-              <span>第 {page} / {totalPages} 页 · 共 {posts.length} 条草稿</span>
+              <span>第 {page} / {totalPages} 页 · 共 {sortedPosts.length} 条草稿{queueScope === 'today' ? ' · 今日库存视图' : ' · 全部历史视图'}</span>
               <div className="flex gap-2">
                 <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
                   上一页

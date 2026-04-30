@@ -434,7 +434,7 @@ OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS=5
 6. GitHub `404 / Not Found` 是业务终态，不是普通网络失败；必须映射为 `pr_closed / abandoned`，`next_action=review_missing_pr`，并记录 `PR removed from GitHub or no longer accessible`，避免永久僵尸轮询。
 7. Timeout、5xx、auth 或未知 CLI 失败不得覆盖本地 release 状态，只能写本次 recurring run 的失败摘要，等待下次 sweep 或 operator 处理。
 8. 合并 PR 不自动部署；deploy / rollback 仍必须进入 Release surface 与 Human Gate。
-9. X Social recurring workflows 是平台前缀化的运营自动化：`x_social_daily_content_planner` 每小时 tick 且每天最多生成 1 条 human-reviewed draft；`x_social_trend_radar_sweep` 优先从 Watchlist timeline 只读采集真实 X posts，并按 `last_checked_at` 做账号级节流；`x_social_repost_candidate_sweep` 只从带真实 `source_url` 的趋势生成引用转发候选。它们不得自动发布、回复、转发或关注账号。
+9. X Social recurring workflows 是平台前缀化的运营自动化：`x_social_daily_content_planner` 每小时 tick，并把当天 active human-reviewed daily planner 草稿库存补足到 3 条；已有 3 条时不调用 Agent，不足 3 条时可一次补齐缺口，但遇到生成失败立即停止本轮。它的输入包含 public-safe 产品变更信号，不直接改官网。`x_social_trend_radar_sweep` 优先从 Watchlist timeline 只读采集真实 X posts，并按 `last_checked_at` 做账号级节流；`x_social_repost_candidate_sweep` 只从带真实 `source_url` 的趋势生成引用转发候选。它们不得自动发布、回复、转发或关注账号。
 10. `x_social_trend_radar_sweep` 的 Rate Limit 语义必须 fail-soft：X API 429 / auth / 权限问题只写 diagnostic 和 run result，不强制重试、不阻断其它定时任务、不把本地 seed 冒充真实 X 来源。
 11. `x_social_repost_candidate_sweep` 的输出必须 value-add：quote 文案需要提供 Synapse angle、agent/API/payment rails 观点或开发者收益，不得只生成 `Great point` / `Interesting` 这类附和式内容。
 

@@ -1,9 +1,17 @@
 from datetime import timedelta
 
-from server.database import SocialPostDraftRow, utcnow
+from server.database import (
+    DeploymentRecordRow,
+    ReleaseTaskRow,
+    RequirementRow,
+    SocialPostDraftRow,
+    WorkflowRunRow,
+    utcnow,
+)
 from server.services.social import daily_planner as social_daily_planner
 from server.services.social import daily_planner_inventory as social_daily_inventory
 from server.services.social import post_metrics as social_post_metrics
+from server.services.social import product_change_signals
 from server.services.social import publishing as social_publishing
 from server.services.social.x_client import (
     XApiAuthError,
@@ -214,9 +222,105 @@ def test_x_social_daily_planner_expires_stale_generating_drafts(
     assert stale.status == "failed"
     assert "daily_planner_generation_timeout" in stale.failure_summary
     assert result["expired_generating_post_ids"] == [stale.id]
-    assert len(result["created_post_ids"]) == 1
-    replacement = db_session.get(SocialPostDraftRow, result["created_post_ids"][0])
-    assert replacement.status == "needs_review"
+    assert len(result["created_post_ids"]) == 3
+    replacements = [
+        db_session.get(SocialPostDraftRow, post_id)
+        for post_id in result["created_post_ids"]
+    ]
+    assert all(row.status == "needs_review" for row in replacements if row)
+
+
+def test_x_social_daily_planner_stops_when_inventory_is_full(monkeypatch, db_session):
+    account = social_publishing.ensure_default_social_account(db_session)
+    local_date = social_publishing._operator_local_date()
+    db_session.add_all(
+        [
+            SocialPostDraftRow(
+                platform="x",
+                account_id=account.id,
+                source_type="daily_planner",
+                title=f"Active slot {slot}",
+                body_text="Ready for review.",
+                status="needs_review",
+                generated_by="x_social_daily_content_planner",
+                raw_agent_output_json=social_publishing._json_dumps(
+                    {
+                        "planner_local_date": local_date,
+                        "planner_slot": slot,
+                        "planner_run_key": f"x_daily:{account.id}:{local_date}:slot-{slot}",
+                    }
+                ),
+            )
+            for slot in (1, 2, 3)
+        ]
+    )
+    db_session.commit()
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError(
+            "daily planner should not call Agent when 3 active drafts exist"
+        )
+
+    monkeypatch.setattr(
+        social_daily_planner, "_generate_daily_planner_slot", fail_if_called
+    )
+
+    result = social_daily_planner.run_x_social_daily_content_planner(db_session)
+
+    assert result["already_satisfied"] is True
+    assert result["active_count"] == 3
+    assert result["created_post_ids"] == []
+
+
+def test_x_social_daily_planner_product_change_signals_are_public_safe(db_session):
+    requirement = RequirementRow(
+        title="SDK quickstart improved with /Users/cliff/workspace/agent/Synapse-Network-Sdk docs and token=abc",
+        description_markdown="Shipped docs.",
+        status="completed",
+        project_key="synapse-network-sdk",
+        project_display_name="Synapse Network SDK",
+    )
+    db_session.add(requirement)
+    db_session.flush()
+    db_session.add_all(
+        [
+            DeploymentRecordRow(
+                project_key="synapse-network-provider",
+                environment="staging",
+                action="deploy",
+                status="succeeded",
+                notes="Provider Cloud Run deploy succeeded from ops/feature-public-branch with API_KEY=abc",
+            ),
+            ReleaseTaskRow(
+                project_key="synapse-network",
+                project_display_name="Synapse Network",
+                service_key="gateway",
+                branch_name="main",
+                environment="staging",
+                status="completed",
+            ),
+            WorkflowRunRow(
+                requirement_id=requirement.id,
+                goal_key="sdk_developer_quickstart",
+                workflow_key="agent_self_repair",
+                status="completed",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    signals = product_change_signals.recent_product_change_signals(db_session)
+    joined = "\n".join(signals).lower()
+
+    assert any("sdk quickstart improved" in signal.lower() for signal in signals)
+    assert any(
+        "provider cloud run deploy succeeded" in signal.lower() for signal in signals
+    )
+    assert "/users/" not in joined
+    assert "api_key" not in joined
+    assert "token=" not in joined
+    assert "[path]" in joined
+    assert "[internal branch]" in joined
 
 
 def test_x_social_post_metrics_empty_and_missing_branches(monkeypatch, db_session):
@@ -283,7 +387,9 @@ def test_x_social_post_metrics_observer_respects_daily_read_budget(
 
     class BudgetShouldNotCallXClient(FakeXReadClient):
         def __init__(self, access_token: str):
-            raise AssertionError("X metrics client must not run after read budget is exhausted")
+            raise AssertionError(
+                "X metrics client must not run after read budget is exhausted"
+            )
 
     monkeypatch.setattr(social_publishing.config, "X_READ_DAILY_REQUEST_BUDGET", 0)
     monkeypatch.setattr(
