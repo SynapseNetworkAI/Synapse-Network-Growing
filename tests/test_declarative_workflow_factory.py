@@ -5,8 +5,10 @@ import sys
 
 import pytest
 
+from server import config
 import server.services.workflows.declarative as declarative_module
 import server.services.workflows.acceptance_runtime as acceptance_runtime_module
+from server.services.requirements import project_command_policy
 from server.database import (
     AtomInvocationRow,
     BlackboardSnapshotRow,
@@ -53,7 +55,7 @@ def _create_workflow_run(
     requirement = RequirementRow(
         title="Agent Ops self repair",
         description_markdown="Detect Ops Dashboard traceback, repair it, verify, and open PR for human approval.",
-        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Growing",
+        target_project_path=str(config.PROJECT_ROOT),
     )
     db_session.add(requirement)
     db_session.flush()
@@ -345,10 +347,21 @@ def test_self_repair_verification_runs_acceptance_matrix_commands(
 
 
 def test_self_repair_verification_skips_ops_compile_for_cross_project_requirements(
-    db_session, monkeypatch
+    db_session, monkeypatch, tmp_path
 ):
     run = _create_workflow_run(db_session)
-    run.requirement.target_project_path = "/tmp"
+    cross_project_root = tmp_path / "cross-project"
+    cross_project_root.mkdir()
+    (cross_project_root / "ARCHITECTURE.md").write_text(
+        "## 3. Workflow Constraints\n\nCross-project acceptance marker.\n",
+        encoding="utf-8",
+    )
+    run.requirement.target_project_path = str(cross_project_root)
+    monkeypatch.setattr(
+        project_command_policy,
+        "SAFE_EVIDENCE_PROJECT_ROOTS",
+        {*project_command_policy.SAFE_EVIDENCE_PROJECT_ROOTS, str(cross_project_root)},
+    )
     run.requirement.acceptance_contract_json = json.dumps(
         {
             "execution_acceptance_steps": [
@@ -357,7 +370,7 @@ def test_self_repair_verification_skips_ops_compile_for_cross_project_requiremen
                     "title": "Architecture docs are searchable",
                     "expected_result": "The architecture doc contains the workflow constitution.",
                     "required_commands": [
-                        'cd /Users/cliff/workspace/agent/Synapse-Network-Growing && rg -n "Workflow Constraints" ARCHITECTURE.md'
+                        f'cd {cross_project_root} && rg -n "Workflow Constraints" ARCHITECTURE.md'
                     ],
                     "required_evidence_types": ["workflow_command_result"],
                 }
@@ -384,9 +397,7 @@ def test_self_repair_verification_skips_ops_compile_for_cross_project_requiremen
         for item in commands
     )
     assert any(
-        item["command"].startswith(
-            "cd /Users/cliff/workspace/agent/Synapse-Network-Growing"
-        )
+        item["command"].startswith(f"cd {cross_project_root}")
         for item in commands
     )
 
