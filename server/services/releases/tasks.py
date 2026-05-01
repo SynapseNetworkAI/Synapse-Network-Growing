@@ -35,7 +35,7 @@ PROJECT_SERVICE_KEYS = {
 }
 DIRECT_STAGING_BRANCHES = {"main"}
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
-SYNAPSE_NETWORK_REPO = "cliff-personal/Synapse-Network"
+SYNAPSE_NETWORK_REPO = "SynapseNetworkAI/Synapse-Network"
 SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY = "synapse-network-provider"
 STAGING_WORKFLOW_FILE = "deploy-staging.yml"
 E2E_BRANCH_OPTIONS = [

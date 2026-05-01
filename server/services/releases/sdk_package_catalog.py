@@ -1,6 +1,6 @@
 """SDK package release catalog constants."""
 
-SDK_REPO_FULL_NAME = "cliff-personal/Synapse-Network-Sdk"
+SDK_REPO_FULL_NAME = "SynapseNetworkAI/Synapse-Network-Sdk"
 SDK_PUBLISH_WORKFLOW_FILE = "publish-sdk.yml"
 SDK_PUBLISH_REF = "main"
 VALID_CHANNELS = {"preview", "latest", "beta", "next"}
@@ -9,7 +9,7 @@ PACKAGE_CATALOG: dict[str, dict[str, str]] = {
     "python": {"package_name": "synapse-client", "registry": "pypi"},
     "typescript": {"package_name": "@synapse-network/sdk", "registry": "npm"},
     "go": {
-        "package_name": "github.com/cliff-personal/Synapse-Network-Sdk/go",
+        "package_name": "github.com/SynapseNetworkAI/Synapse-Network-Sdk/go",
         "registry": "go-module",
     },
     "java": {

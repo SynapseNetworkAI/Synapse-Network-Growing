@@ -12,7 +12,7 @@ def _successful_pr_gate() -> ReleaseTaskPrGateOut:
     return ReleaseTaskPrGateOut(
         branch_exists=True,
         pr_exists=True,
-        pr_url="https://github.com/cliff-personal/Synapse-Network/pull/99",
+        pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/99",
         pr_number=99,
         pr_state="open",
         checks_status="success",
@@ -118,12 +118,12 @@ def test_release_task_list_caches_pr_gate_by_branch(monkeypatch, synced_client, 
     calls: list[int] = []
 
     def fake_gate(row, repo):
-        assert repo == "cliff-personal/Synapse-Network"
+        assert repo == "SynapseNetworkAI/Synapse-Network"
         calls.append(int(row.id))
         return ReleaseTaskPrGateOut(
             branch_exists=True,
             pr_exists=True,
-            pr_url="https://github.com/cliff-personal/Synapse-Network/pull/27",
+            pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/27",
             pr_number=27,
             pr_state="merged",
             checks_status="success",
@@ -271,7 +271,7 @@ def test_online_release_records_only_include_successful_deployments(synced_clien
         status="succeeded",
         branch_name="codex/staging-ok",
         commit_sha="abc123",
-        external_url="https://github.com/cliff-personal/Synapse-Network/actions/runs/123",
+        external_url="https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123",
         health_status="passed",
         metadata_json=json.dumps({"service_key": "gateway", "revision": {"gateway": "gateway-0001"}}),
     )
@@ -381,7 +381,7 @@ def test_release_task_deployment_status_sync_pulls_github_actions_success(monkey
             {
                 "release_task_id": 77,
                 "service_key": "gateway",
-                "deploy_repo_full_name": "cliff-personal/Synapse-Network",
+                "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network",
             }
         ),
     )
@@ -411,7 +411,7 @@ def test_release_task_deployment_status_sync_pulls_github_actions_success(monkey
                         "status": "completed",
                         "conclusion": "success",
                         "createdAt": "2030-04-25T01:00:00Z",
-                        "url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/249",
+                        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/249",
                         "headSha": "abc123",
                     }
                 ],
@@ -424,7 +424,7 @@ def test_release_task_deployment_status_sync_pulls_github_actions_success(monkey
                     "databaseId": 249,
                     "status": "completed",
                     "conclusion": "success",
-                    "url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/249",
+                    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/249",
                     "headSha": "abc123",
                 },
                 "",
@@ -526,7 +526,7 @@ def test_release_task_update_unknown_id_returns_404(synced_client):
 
 def test_release_task_branch_options_use_github_repo(monkeypatch, synced_client):
     def fake_branch_options(repo_full_name, *, max_records=100):
-        assert repo_full_name == "cliff-personal/Synapse-Network"
+        assert repo_full_name == "SynapseNetworkAI/Synapse-Network"
         assert max_records == 100
         return [
             release_tasks_service.ReleaseBranchOptionOut(
@@ -561,7 +561,7 @@ def test_release_task_branch_options_use_github_repo(monkeypatch, synced_client)
 
 def test_provider_release_task_branch_options_use_provider_repo(monkeypatch, synced_client, db_session):
     def fake_branch_options(repo_full_name, *, max_records=100):
-        assert repo_full_name == "cliff-personal/Synapse-Network-Provider"
+        assert repo_full_name == "SynapseNetworkAI/Synapse-Network-Provider"
         return [
             release_tasks_service.ReleaseBranchOptionOut(
                 name="main",
@@ -719,7 +719,7 @@ def test_release_task_pr_gate_helper_classifies_github_and_checks(monkeypatch):
                 [
                     {
                         "number": 12,
-                        "url": "https://github.com/cliff-personal/Synapse-Network/pull/12",
+                        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/12",
                         "state": "OPEN",
                         "isDraft": False,
                         "statusCheckRollup": [
@@ -740,7 +740,7 @@ def test_release_task_pr_gate_helper_classifies_github_and_checks(monkeypatch):
         status="requested",
     )
 
-    gate = release_tasks_service._release_task_pr_gate_for(row, "cliff-personal/Synapse-Network")
+    gate = release_tasks_service._release_task_pr_gate_for(row, "SynapseNetworkAI/Synapse-Network")
 
     assert gate.branch_exists is True
     assert gate.pr_exists is True
@@ -1317,12 +1317,12 @@ def test_release_task_deployment_status_sync_times_out_running_run(monkeypatch, 
 
 def test_release_task_pr_gate_projects_branch_pr_and_checks(monkeypatch, synced_client, db_session):
     def fake_gate(row, repo):
-        assert repo == "cliff-personal/Synapse-Network"
+        assert repo == "SynapseNetworkAI/Synapse-Network"
         assert row.branch_name == "codex/pr-gated-staging"
         return ReleaseTaskPrGateOut(
             branch_exists=True,
             pr_exists=True,
-            pr_url="https://github.com/cliff-personal/Synapse-Network/pull/88",
+            pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/88",
             pr_number=88,
             pr_state="open",
             checks_status="success",
@@ -1362,7 +1362,7 @@ def test_release_task_create_pr_requires_branch_and_returns_pending_gate(monkeyp
         assert command[:4] == ["gh", "pr", "create", "--repo"]
         assert "--base" in command and "main" in command
         assert "--head" in command and "codex/no-pr-yet" in command
-        return subprocess.CompletedProcess(command, 0, stdout="https://github.com/cliff-personal/Synapse-Network/pull/77\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="https://github.com/SynapseNetworkAI/Synapse-Network/pull/77\n", stderr="")
 
     monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", fake_gate)
     monkeypatch.setattr(release_tasks_service.subprocess, "run", fake_run)
@@ -1389,7 +1389,7 @@ def test_release_task_create_pr_is_idempotent_and_fails_missing_branch(monkeypat
     existing_gate = ReleaseTaskPrGateOut(
         branch_exists=True,
         pr_exists=True,
-        pr_url="https://github.com/cliff-personal/Synapse-Network/pull/78",
+        pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/78",
         pr_number=78,
         pr_state="open",
         checks_status="pending",
@@ -1457,7 +1457,7 @@ def test_release_task_staging_deploy_requires_successful_pr_gate(monkeypatch, sy
         lambda row, repo: ReleaseTaskPrGateOut(
             branch_exists=True,
             pr_exists=True,
-            pr_url="https://github.com/cliff-personal/Synapse-Network/pull/10",
+            pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/10",
             pr_number=10,
             pr_state="open",
             checks_status="failed",
@@ -1487,7 +1487,7 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
 
     def fake_dispatch(**kwargs):
         calls.append(kwargs)
-        return "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml"
 
     monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", fake_dispatch)
     monkeypatch.setattr(release_tasks_service, "_callback_url", lambda record_id: f"https://ops.example/api/deployments/{record_id}/report")
@@ -1516,7 +1516,7 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
     assert payload["operator"] == "ops-lead"
     assert payload["deployment_record_id"] is not None
     assert payload["deployment_status"] == "requested"
-    assert calls[0]["repo_full_name"] == "cliff-personal/Synapse-Network"
+    assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert calls[0]["workflow_file"] == "deploy-staging.yml"
     assert calls[0]["ref"] == "main"
     assert calls[0]["inputs"]["deploy_scope"] == "gateway"
@@ -1529,7 +1529,7 @@ def test_provider_release_task_staging_deploy_dispatches_provider_workflow(monke
 
     def fake_dispatch(**kwargs):
         calls.append(kwargs)
-        return "https://github.com/cliff-personal/Synapse-Network-Provider/actions/workflows/deploy-staging.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network-Provider/actions/workflows/deploy-staging.yml"
 
     def fake_secret_check(repo, **kwargs):
         secret_checks.append((repo, kwargs.get("project_key")))
@@ -1559,8 +1559,8 @@ def test_provider_release_task_staging_deploy_dispatches_provider_workflow(monke
     assert response.status_code == 200
     payload = response.json()
     assert payload["deployment_record_id"] is not None
-    assert secret_checks == [("cliff-personal/Synapse-Network-Provider", "synapse-network-provider")]
-    assert calls[0]["repo_full_name"] == "cliff-personal/Synapse-Network-Provider"
+    assert secret_checks == [("SynapseNetworkAI/Synapse-Network-Provider", "synapse-network-provider")]
+    assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-Provider"
     assert calls[0]["workflow_file"] == "deploy-staging.yml"
     assert calls[0]["inputs"]["deploy_scope"] == "provider-service"
     assert calls[0]["inputs"]["source_ref"] == "codex/provider-staging"
@@ -1651,7 +1651,7 @@ def test_provider_release_task_staging_secret_preflight_uses_wif_secrets(monkeyp
     )
 
     missing, error = release_tasks_service._missing_required_staging_deploy_secrets(
-        "cliff-personal/Synapse-Network-Provider",
+        "SynapseNetworkAI/Synapse-Network-Provider",
         project_key="synapse-network-provider",
     )
 

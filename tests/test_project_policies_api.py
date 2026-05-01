@@ -17,7 +17,7 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert synapse_policy["portfolio_budget_points"] >= 20
     assert synapse_policy["capability_matrix"]["shell_access"] is True
     assert "publish" in synapse_policy["interrupt_policy"]["operator_confirmation_actions"]
-    assert synapse_policy["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
+    assert synapse_policy["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert synapse_policy["deploy_trigger_enabled"] is True
     assert synapse_policy["staging_host_label"] == "cloud-run-staging"
     assert synapse_policy["production_workflow_file"] == "deploy-production.yml"
@@ -76,7 +76,7 @@ def test_project_policy_can_be_updated(synced_client):
             "scheduler_weight": 1.8,
             "max_parallel_requirements": 2,
             "portfolio_budget_points": 160,
-            "deploy_repo_full_name": "cliff-personal/Synapse-Network",
+            "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network",
             "deploy_strategy": "github_actions_ssh",
             "deploy_trigger_enabled": True,
             "staging_host_label": "staging-vm",
@@ -99,7 +99,7 @@ def test_project_policy_can_be_updated(synced_client):
     assert updated["scheduler_weight"] == 1.8
     assert updated["max_parallel_requirements"] == 2
     assert updated["portfolio_budget_points"] == 160
-    assert updated["deploy_repo_full_name"] == "cliff-personal/Synapse-Network"
+    assert updated["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert updated["deploy_trigger_enabled"] is True
     assert updated["notes"] == "Tightened during validation."
 

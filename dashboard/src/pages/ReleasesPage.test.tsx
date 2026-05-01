@@ -50,7 +50,7 @@ function candidate(overrides: Record<string, unknown> = {}) {
     base_branch: 'main',
     commit_sha: 'abc123',
     compare_url: null,
-    pr_url: 'https://github.com/cliff-personal/Synapse-Network-Growing/pull/31',
+    pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network-Growing/pull/31',
     pr_number: 31,
     pr_status: 'merged',
     merged_at: '2026-04-21T11:19:24Z',
@@ -147,7 +147,7 @@ function onlineRecord(overrides: Record<string, unknown> = {}) {
     trigger_source: 'release_task',
     workflow_file: 'deploy-staging.yml',
     external_run_id: '24919553458',
-    external_url: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+    external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
     rollback_target_sha: null,
     health_status: 'passed',
     notes: 'staging deploy succeeded',
@@ -161,7 +161,7 @@ function onlineRecord(overrides: Record<string, unknown> = {}) {
       revision: { gateway: 'synapse-gateway-0008' },
       manifest: 'gs://staging-evidence/release.json',
       imageTag: 'gateway:abc123456789',
-      deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+      deploy_repo_full_name: 'SynapseNetworkAI/Synapse-Network',
       sourceRef: 'codex/staging-release',
     },
     started_at: '2026-04-25T01:40:00Z',
@@ -273,7 +273,7 @@ describe('ReleasesPage', () => {
       pr_gate: {
         branch_exists: true,
         pr_exists: true,
-        pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/77',
+        pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/77',
         pr_number: 77,
         pr_state: 'open',
         checks_status: 'pending',
@@ -363,7 +363,7 @@ describe('ReleasesPage', () => {
         pr_gate: {
           branch_exists: true,
           pr_exists: true,
-          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/91',
+          pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/91',
           pr_number: 91,
           pr_state: 'open',
           checks_status: 'success',
@@ -430,7 +430,7 @@ describe('ReleasesPage', () => {
         pr_gate: {
           branch_exists: true,
           pr_exists: true,
-          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/92',
+          pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/92',
           pr_number: 92,
           pr_state: 'draft',
           checks_status: 'success',
@@ -457,7 +457,7 @@ describe('ReleasesPage', () => {
         deployment_record_id: 88,
         deployment_status: 'requested',
         deployment_external_run_id: '123456',
-        deployment_external_url: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/123456',
+        deployment_external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123456',
         deployment_health_status: 'pending',
         deployment_workflow_file: 'deploy-staging.yml',
         deployment_commit_sha: 'abc123',
@@ -466,7 +466,7 @@ describe('ReleasesPage', () => {
         pr_gate: {
           branch_exists: true,
           pr_exists: true,
-          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/99',
+          pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/99',
           pr_number: 99,
           pr_state: 'open',
           checks_status: 'success',
@@ -488,7 +488,7 @@ describe('ReleasesPage', () => {
     expect(screen.getByText('Workflow：deploy-staging.yml')).toBeTruthy()
     expect(screen.getByRole('link', { name: '打开 GitHub Actions 日志' })).toHaveAttribute(
       'href',
-      'https://github.com/cliff-personal/Synapse-Network/actions/runs/123456',
+      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123456',
     )
   })
 
@@ -504,7 +504,7 @@ describe('ReleasesPage', () => {
     expect(screen.getByText('abc1234567')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Run 24919553458' })).toHaveAttribute(
       'href',
-      'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
     )
   })
 
@@ -525,13 +525,13 @@ describe('ReleasesPage', () => {
     expect(screen.getAllByText(/gs:\/\/staging-evidence\/release.json/).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
     expect(openSpy).toHaveBeenCalledWith(
-      'https://github.com/cliff-personal/Synapse-Network/actions/runs/24919553458',
+      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
       '_blank',
       'noopener,noreferrer',
     )
     await user.click(screen.getAllByRole('button', { name: '打开 PR' }).at(-1)!)
     expect(openSpy).toHaveBeenCalledWith(
-      'https://github.com/cliff-personal/Synapse-Network/pulls?q=is%3Apr+head%3Acodex%2Fstaging-release',
+      'https://github.com/SynapseNetworkAI/Synapse-Network/pulls?q=is%3Apr+head%3Acodex%2Fstaging-release',
       '_blank',
       'noopener,noreferrer',
     )
@@ -543,10 +543,10 @@ describe('ReleasesPage', () => {
       onlineRecord({
         external_run_id: null,
         external_url: null,
-        metadata_summary: { githubRunUrl: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/555' },
+        metadata_summary: { githubRunUrl: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555' },
         metadata: {
-          githubRunUrl: 'https://github.com/cliff-personal/Synapse-Network/actions/runs/555',
-          deploy_repo_full_name: 'cliff-personal/Synapse-Network',
+          githubRunUrl: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555',
+          deploy_repo_full_name: 'SynapseNetworkAI/Synapse-Network',
           sourceRef: 'codex/staging-release',
         },
       }),
@@ -560,7 +560,7 @@ describe('ReleasesPage', () => {
     await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
 
     expect(openSpy).toHaveBeenCalledWith(
-      'https://github.com/cliff-personal/Synapse-Network/actions/runs/555',
+      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555',
       '_blank',
       'noopener,noreferrer',
     )
@@ -684,7 +684,7 @@ describe('ReleasesPage', () => {
         pr_gate: {
           branch_exists: true,
           pr_exists: true,
-          pr_url: 'https://github.com/cliff-personal/Synapse-Network/pull/90',
+          pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/90',
           pr_number: 90,
           pr_state: 'open',
           checks_status: 'success',

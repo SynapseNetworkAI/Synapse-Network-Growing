@@ -125,7 +125,7 @@ def test_sdk_package_publish_dispatches_workflow_and_records_inputs(
 
     def fake_dispatch(**kwargs):
         calls.append(kwargs)
-        return "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
 
     monkeypatch.setattr(sdk_release_service, "_dispatch_github_workflow", fake_dispatch)
     row = synced_client.post(
@@ -151,7 +151,7 @@ def test_sdk_package_publish_dispatches_workflow_and_records_inputs(
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "publishing"
-    assert calls[0]["repo_full_name"] == "cliff-personal/Synapse-Network-Sdk"
+    assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-Sdk"
     assert calls[0]["workflow_file"] == "publish-sdk.yml"
     assert calls[0]["inputs"] == {
         "release_train_version": "0.1.0",
@@ -202,7 +202,7 @@ def test_sdk_package_release_allows_patch_version_before_publish(
         sdk_release_service,
         "_dispatch_github_workflow",
         lambda **kwargs: (
-            "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
+            "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
         ),
     )
     row = synced_client.post(
@@ -332,7 +332,7 @@ def test_sdk_package_retry_allows_patch_after_failure(
         sdk_release_service,
         "_dispatch_github_workflow",
         lambda **kwargs: (
-            "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/123"
+            "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/123"
         ),
     )
     row = synced_client.post(
@@ -383,10 +383,10 @@ def test_sdk_package_sync_statuses_handles_ready_published_failed_and_pending(
     )
     statuses = ["building", "publishing", "publishing", "building", "publishing"]
     urls = [
-        "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/101",
-        "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/102",
-        "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/103",
-        "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/104",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/101",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/102",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/103",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/104",
         None,
     ]
     for row, status, url in zip(db_rows, statuses, urls, strict=True):
@@ -445,7 +445,7 @@ def test_sdk_package_sync_statuses_records_github_lookup_error(
     )
     db_row.status = "building"
     db_row.workflow_run_url = (
-        "https://github.com/cliff-personal/Synapse-Network-Sdk/actions/runs/501"
+        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/501"
     )
     db_session.commit()
 
@@ -475,7 +475,7 @@ def test_sdk_package_urls_cover_all_registries(synced_client, db_session):
     assert urls == {
         "python": "https://pypi.org/project/synapse-client/0.1.0/",
         "typescript": "https://www.npmjs.com/package/@synapse-network/sdk/v/0.1.0",
-        "go": "https://pkg.go.dev/github.com/cliff-personal/Synapse-Network-Sdk/go@v0.1.0",
+        "go": "https://pkg.go.dev/github.com/SynapseNetworkAI/Synapse-Network-Sdk/go@v0.1.0",
         "java": "https://repo1.maven.org/maven2/ai/synapsenetwork/synapse-network-sdk/0.1.0/",
         "dotnet": "https://www.nuget.org/packages/SynapseNetwork.Sdk/0.1.0",
     }

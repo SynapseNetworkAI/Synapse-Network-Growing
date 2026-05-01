@@ -16,7 +16,7 @@ def _seed_release(db_session, *, commit_sha: str | None = None):
         required_checks_json="[]",
         release_mode="manual",
         requires_manual_approval=True,
-        deploy_repo_full_name="cliff-personal/Synapse-Network",
+        deploy_repo_full_name="SynapseNetworkAI/Synapse-Network",
         deploy_strategy="github_actions_gcp_cloudrun",
         deploy_trigger_enabled=True,
         staging_host_label="cloud-run-staging",
@@ -45,7 +45,7 @@ def _seed_release(db_session, *, commit_sha: str | None = None):
         branch_name="codex/branch-deploy-test",
         actual_branch_name="codex/branch-deploy-test",
         commit_sha=commit_sha,
-        pr_url="https://github.com/cliff-personal/Synapse-Network/pull/123",
+        pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/123",
         pr_number=123,
         metadata_json=json.dumps(
             {
@@ -65,7 +65,7 @@ def test_staging_branch_deploy_freezes_source_ref_and_scope(synced_client, db_se
 
     def fake_dispatch(**kwargs):
         dispatched.update(kwargs)
-        return "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml"
 
     monkeypatch.setattr("server.services.delivery.deployment_governance._dispatch_github_workflow", fake_dispatch)
 
@@ -152,7 +152,7 @@ def test_deployment_report_merges_release_manifest_metadata(synced_client, db_se
     requirement = _seed_release(db_session)
     monkeypatch.setattr(
         "server.services.delivery.deployment_governance._dispatch_github_workflow",
-        lambda **_: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml",
+        lambda **_: "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml",
     )
     deploy_response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/staging",
@@ -166,7 +166,7 @@ def test_deployment_report_merges_release_manifest_metadata(synced_client, db_se
         json={
             "status": "succeeded",
             "external_run_id": "123456",
-            "external_url": "https://github.com/cliff-personal/Synapse-Network/actions/runs/123456",
+            "external_url": "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123456",
             "health_status": "passed",
             "branch_name": "codex/branch-deploy-test",
             "commit_sha": "abc123",
@@ -193,7 +193,7 @@ def test_staging_commit_ref_resolves_commit_sha(synced_client, db_session, monke
     requirement = _seed_release(db_session)
     monkeypatch.setattr(
         "server.services.delivery.deployment_governance._dispatch_github_workflow",
-        lambda **_: "https://github.com/cliff-personal/Synapse-Network/actions/workflows/deploy-staging.yml",
+        lambda **_: "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml",
     )
 
     response = synced_client.post(
@@ -241,7 +241,7 @@ def test_deploy_and_no_deploy_require_prepared_release(synced_client, db_session
             allowed_write_globs_json='["**"]',
             forbidden_globs_json="[]",
             required_checks_json="[]",
-            deploy_repo_full_name="cliff-personal/Synapse-Network",
+            deploy_repo_full_name="SynapseNetworkAI/Synapse-Network",
             deploy_strategy="github_actions_gcp_cloudrun",
             deploy_trigger_enabled=True,
         )

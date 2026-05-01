@@ -10,7 +10,7 @@ def test_default_projects_include_mcp_server_with_source_repo(synced_client):
     projects = {item["project_key"]: item for item in response.json()}
     mcp = projects["synapse-network-mcp-server"]
     assert mcp["display_name"] == "Synapse-Network-MCP-Server"
-    assert mcp["repo_full_name"] == "cliff-personal/Synapse-Network-MCP-Server"
+    assert mcp["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
     assert mcp["deploy_strategy"] == "disabled"
 
 
@@ -21,9 +21,9 @@ def test_projects_api_creates_project_with_linked_policy(synced_client, db_sessi
             "project_key": "created-growing-shadow",
             "display_name": "Created Growing Shadow",
             "root_path": "/tmp/created-growing-shadow",
-            "repo_full_name": "cliff-personal/Synapse-Network-Growing",
+            "repo_full_name": "SynapseNetworkAI/Synapse-Network-Growing",
             "deploy_strategy": "github_actions",
-            "deploy_repo_full_name": "cliff-personal/Synapse-Network-Growing",
+            "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network-Growing",
             "deploy_trigger_enabled": True,
         },
     )
@@ -45,16 +45,16 @@ def test_projects_api_normalizes_github_repo_urls(synced_client):
             "project_key": "mcp-url-normalize",
             "display_name": "MCP URL Normalize",
             "root_path": "/tmp/mcp-url-normalize",
-            "repo_full_name": "git@github.com:cliff-personal/Synapse-Network-MCP-Server.git",
-            "deploy_repo_full_name": "https://github.com/cliff-personal/Synapse-Network-MCP-Server.git",
+            "repo_full_name": "git@github.com:SynapseNetworkAI/Synapse-Network-MCP-Server.git",
+            "deploy_repo_full_name": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server.git",
         },
     )
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["repo_full_name"] == "cliff-personal/Synapse-Network-MCP-Server"
-    assert payload["deploy_repo_full_name"] == "cliff-personal/Synapse-Network-MCP-Server"
-    assert payload["policy"]["deploy_repo_full_name"] == "cliff-personal/Synapse-Network-MCP-Server"
+    assert payload["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
+    assert payload["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
+    assert payload["policy"]["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
 
 
 def test_project_policy_deploy_repo_does_not_overwrite_source_repo(synced_client):
@@ -90,7 +90,7 @@ def test_requirement_creation_requires_project_and_resolves_override_path(synced
             "project_key": "requirement-project",
             "display_name": "Requirement Project",
             "root_path": "/tmp/requirement-project",
-            "repo_full_name": "cliff-personal/Synapse-Network-Growing",
+            "repo_full_name": "SynapseNetworkAI/Synapse-Network-Growing",
         },
     ).json()
 

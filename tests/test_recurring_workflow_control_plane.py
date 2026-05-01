@@ -260,7 +260,7 @@ def _create_release_for_pr_sync(
         status=status,
         delivery_state=delivery_state,
         pr_url=pr_url
-        or f"https://github.com/cliff-personal/Synapse-Network-Growing/pull/{pr_number}",
+        or f"https://github.com/SynapseNetworkAI/Synapse-Network-Growing/pull/{pr_number}",
         pr_number=pr_number,
         metadata_json='{"pr_sync_failure_summary":"old failure"}',
     )
