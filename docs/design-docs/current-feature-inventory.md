@@ -147,6 +147,7 @@
 28. 趋势详情页继续遵守 Modal-only + `ui-ux-pro-max` SaaS/Ops 约束：真实 X 来源展示 `打开 X 原帖`，本地趋势种子明确标注“仅作内容灵感，不能引用转发”，不提供任何自动互动动作。
 29. `x_social_repost_candidate_sweep` 生成的 `suggested_quote` 必须增加 Synapse 视角或额外观点，不得只是 `Great point` / `Interesting` 这类无价值附和。
 30. `social_reply_items` 是回帖增长的人审队列：来源必须是带 `source_url` 的真实 X 候选，`social_reply_agent_v1` 必须逐条生成正向、相关、有额外观点的 `suggested_reply`；`回复到 X` 必须由 operator 在居中 Modal 确认后才调用 X API。
+31. `docs/ops/04_Developer_Distribution_Accounts.md` 是 Developer Distribution Account Registry：记录 Hacker News、Reddit、V2EX、DEV、Hashnode、HackerNoon、Product Hunt 等分发账号注册入口、账号治理、内容适配和 Human Gate 边界。它是运营 source of truth，不代表系统可以自动跨社区发帖、评论、投票或提交 launch。
 
 ## 5. Error Discovery And Intake Gate
 
