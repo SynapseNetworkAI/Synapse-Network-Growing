@@ -20,6 +20,12 @@ const apiMock = vi.hoisted(() => ({
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
   syncReleasePrStatuses: vi.fn(),
+  getSdkPackageReleases: vi.fn(),
+  initializeSdkReleaseTrain: vi.fn(),
+  dryRunSdkPackageRelease: vi.fn(),
+  publishSdkPackageRelease: vi.fn(),
+  retrySdkPackageRelease: vi.fn(),
+  syncSdkPackageReleaseStatuses: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -278,6 +284,12 @@ describe('ReleasesPage', () => {
       },
     }))
     apiMock.deployReleaseTaskToStaging.mockResolvedValue(releaseTask({ deployment_record_id: 9, deployment_status: 'requested', operator: 'operator' }))
+    apiMock.getSdkPackageReleases.mockResolvedValue([])
+    apiMock.initializeSdkReleaseTrain.mockResolvedValue([])
+    apiMock.dryRunSdkPackageRelease.mockResolvedValue({})
+    apiMock.publishSdkPackageRelease.mockResolvedValue({})
+    apiMock.retrySdkPackageRelease.mockResolvedValue({})
+    apiMock.syncSdkPackageReleaseStatuses.mockResolvedValue({ processed_count: 0, publishing_ids: [], ready_ids: [], published_ids: [], failed_ids: [], error_ids: [] })
   })
 
   it('shows merged and closed PR sync states', async () => {

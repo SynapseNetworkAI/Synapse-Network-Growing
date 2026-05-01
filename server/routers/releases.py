@@ -27,6 +27,26 @@ from server.services.releases.service import (
     prepare_release,
     rollback_release,
 )
+from server.services.releases.sdk_packages import (
+    dry_run_sdk_package_release,
+    get_sdk_package_release,
+    get_sdk_release_train,
+    initialize_sdk_release_train,
+    list_sdk_package_release_events,
+    list_sdk_package_releases,
+    list_sdk_release_trains,
+    publish_sdk_package_release,
+    retry_sdk_package_release,
+    sync_sdk_package_release_statuses,
+)
+from server.services.releases.sdk_package_schemas import (
+    SdkPackageReleaseActionRequest,
+    SdkPackageReleaseEventOut,
+    SdkPackageReleaseInitializeRequest,
+    SdkPackageReleaseOut,
+    SdkPackageReleaseSyncResult,
+    SdkReleaseTrainOut,
+)
 from server.services.releases.tasks import (
     create_release_task,
     create_release_task_pr,
@@ -95,6 +115,107 @@ def list_online_release_records_endpoint(
 @router.post("/tasks/sync-deployment-statuses")
 def sync_release_task_deployment_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_release_task_deployment_statuses(db, max_records=max_records)
+
+
+@router.get("/sdk-packages", response_model=list[SdkPackageReleaseOut])
+def list_sdk_package_releases_endpoint(
+    release_train_version: str | None = None,
+    sdk_language: str | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return list_sdk_package_releases(
+        db,
+        release_train_version=release_train_version,
+        sdk_language=sdk_language,
+        status=status,
+    )
+
+
+@router.post("/sdk-packages/initialize-train", response_model=list[SdkPackageReleaseOut])
+def initialize_sdk_release_train_endpoint(body: SdkPackageReleaseInitializeRequest, db: Session = Depends(get_db)):
+    try:
+        return initialize_sdk_release_train(db, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/sdk-packages/sync-statuses", response_model=SdkPackageReleaseSyncResult)
+def sync_sdk_package_release_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
+    return sync_sdk_package_release_statuses(db, max_records=max_records)
+
+
+@router.get("/sdk-trains", response_model=list[SdkReleaseTrainOut])
+def list_sdk_release_trains_endpoint(db: Session = Depends(get_db)):
+    return list_sdk_release_trains(db)
+
+
+@router.get("/sdk-trains/{version}", response_model=SdkReleaseTrainOut)
+def get_sdk_release_train_endpoint(version: str, db: Session = Depends(get_db)):
+    try:
+        return get_sdk_release_train(db, version)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.get("/sdk-packages/{release_id}", response_model=SdkPackageReleaseOut)
+def get_sdk_package_release_endpoint(release_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_sdk_package_release(db, release_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/sdk-packages/{release_id}/events", response_model=list[SdkPackageReleaseEventOut])
+def list_sdk_package_release_events_endpoint(release_id: int, db: Session = Depends(get_db)):
+    try:
+        return list_sdk_package_release_events(db, release_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/sdk-packages/{release_id}/dry-run", response_model=SdkPackageReleaseOut)
+def dry_run_sdk_package_release_endpoint(
+    release_id: int,
+    body: SdkPackageReleaseActionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return dry_run_sdk_package_release(db, release_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/sdk-packages/{release_id}/publish", response_model=SdkPackageReleaseOut)
+def publish_sdk_package_release_endpoint(
+    release_id: int,
+    body: SdkPackageReleaseActionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return publish_sdk_package_release(db, release_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/sdk-packages/{release_id}/retry", response_model=SdkPackageReleaseOut)
+def retry_sdk_package_release_endpoint(
+    release_id: int,
+    body: SdkPackageReleaseActionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return retry_sdk_package_release(db, release_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.post("/tasks", response_model=ReleaseTaskOut)

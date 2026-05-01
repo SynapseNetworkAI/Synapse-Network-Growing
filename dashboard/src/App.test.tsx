@@ -20,6 +20,8 @@ vi.mock('./pages/NotificationsPage', () => ({ default: () => <div>Notifications 
 vi.mock('./pages/SchedulesPage', () => ({ default: () => <div>Schedules Page</div> }))
 vi.mock('./pages/ReleasesPage', () => ({ default: () => <div>Releases Page</div> }))
 vi.mock('./pages/ReleaseDetailPage', () => ({ default: () => <div>Release Detail Page</div> }))
+vi.mock('./pages/SdkPackageReleaseDetailPage', () => ({ default: () => <div>SDK Package Release Page</div> }))
+vi.mock('./pages/SdkReleaseTrainDetailPage', () => ({ default: () => <div>SDK Release Train Page</div> }))
 vi.mock('./pages/PublishingPage', () => ({ default: () => <div>Publishing Page</div> }))
 vi.mock('./pages/PublishingTrendResultsPage', () => ({ default: () => <div>Trend Results Page</div> }))
 vi.mock('./pages/ProjectsPage', () => ({ default: () => <div>Projects Page</div> }))

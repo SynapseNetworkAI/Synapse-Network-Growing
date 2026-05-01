@@ -2,32 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
 import { EmptyPane, FieldLabel, OverlayDrawer, StateBadge, useToast } from '../components/workbench'
+import { STATUS_LABEL, releaseTone } from './releaseListUi'
+import SdkPackagesPanel from './SdkPackagesPanel'
 
-type ReleaseTab = 'candidates' | 'tasks' | 'online'
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: '待交付',
-  preparing_branch: '准备分支',
-  pushing: '推送中',
-  opening_pr: '打开 PR',
-  repairing: '交付修复中',
-  blocked: '阻塞',
-  pr_open: 'PR 已打开',
-  pr_opened: 'PR 已打开',
-  pr_closed: 'PR 已关闭',
-  ready_for_merge: '等待合并',
-  merged: '已合并',
-  abandoned: '已废弃',
-  no_deploy: '无需部署',
-  requested: '待执行',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  succeeded: '上线成功',
-  deploy: 'deploy',
-  promote: 'promote',
-  rollback: 'rollback',
-}
+type ReleaseTab = 'candidates' | 'tasks' | 'sdk-packages' | 'online'
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
@@ -42,15 +20,6 @@ const DEFAULT_RELEASE_TARGETS = [
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'user-front', service_label: 'User Front' },
   { project_key: 'synapse-network-provider', project_display_name: 'Synapse-Network-Provider', service_key: 'provider-service', service_label: 'Provider Service' },
 ]
-
-function releaseTone(state: string | null | undefined) {
-  if (state === 'merged' || state === 'completed' || state === 'succeeded' || state === 'passed') return 'delivered'
-  if (state === 'pr_open' || state === 'pr_opened' || state === 'ready_for_merge' || state === 'requested') return 'ready'
-  if (state === 'repairing' || state === 'pushing' || state === 'opening_pr' || state === 'preparing_branch') return 'running'
-  if (state === 'blocked' || state === 'pr_closed' || state === 'abandoned' || state === 'failed') return 'blocked'
-  if (state === 'pending') return 'ready'
-  return 'muted'
-}
 
 function shortSha(value: string | null | undefined) {
   if (!value) return '-'
@@ -395,7 +364,7 @@ export default function ReleasesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <input
               className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
-              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
+              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'sdk-packages' ? '搜索 SDK package / version / registry' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -463,6 +432,13 @@ export default function ReleasesPage() {
           </button>
           <button
             type="button"
+            className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'sdk-packages' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
+            onClick={() => setActiveTab('sdk-packages')}
+          >
+            SDK Packages
+          </button>
+          <button
+            type="button"
             className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'online' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
             onClick={() => setActiveTab('online')}
           >
@@ -515,6 +491,8 @@ export default function ReleasesPage() {
             setTaskDetail(task)
           }}
         />
+      ) : activeTab === 'sdk-packages' ? (
+        <SdkPackagesPanel search={search} />
       ) : (
         <OnlineRecordsTable
           records={filteredOnlineRecords}
