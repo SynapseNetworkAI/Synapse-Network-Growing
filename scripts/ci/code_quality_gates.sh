@@ -21,16 +21,16 @@ echo "[quality] static size/function ratchet"
 echo "[quality] public object return contracts"
 "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/source_quality_checks.py" --base "$DIFF_BASE"
 
-changed_files=()
+declare -a changed_files=()
 while IFS= read -r file; do
   [[ -n "$file" ]] && changed_files+=("$file")
 done < <("$OPS_PYTHON" "$ROOT_DIR/scripts/ci/static_quality_gate.py" --base "$DIFF_BASE" --print-changed)
 
-changed_python=()
-new_python=()
-new_runtime_python=()
-changed_dashboard=()
-for file in "${changed_files[@]}"; do
+declare -a changed_python=()
+declare -a new_python=()
+declare -a new_runtime_python=()
+declare -a changed_dashboard=()
+for file in "${changed_files[@]+"${changed_files[@]}"}"; do
   case "$file" in
     *.py)
       changed_python+=("$file")
