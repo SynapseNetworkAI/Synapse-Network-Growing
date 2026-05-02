@@ -44,6 +44,9 @@ from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
 from server.services.social.daily_planner import run_x_social_daily_content_planner
+from server.services.social.distribution_asset_planner import (
+    run_social_asset_planner_sweep,
+)
 from server.services.social.post_metrics import run_x_social_post_observer_sweep
 from server.services.social.publishing import (
     run_x_social_reply_candidate_sweep,
@@ -228,6 +231,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "processed_count"},
     },
+    {"workflow_key": "social_asset_planner_sweep", "display_name": "Social Asset Planner Sweep", "description": "Sample one high-quality signal type and create at most one human-reviewed content asset.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "hourly", "interval_hours": 1}, "input_query": {"sources": ["product_changes", "trend_radar", "published_metrics"], "max_signals": 5}, "output_action": {"kind": "create_social_content_asset", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "created_asset_id"}},
     {
         "workflow_key": "x_social_daily_content_planner",
         "display_name": "X Social Daily Content Planner",
@@ -291,6 +295,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
 ]
 
 _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
+    "social_asset_planner_sweep": {"cadence": "hourly", "target_count": 3, "max_signals_per_prompt": 5, "auto_publish": False, "human_gate_required": True},
     "x_social_daily_content_planner": {"platform": "x", "cadence": "hourly", "idempotency": "top_up_to_three_active_drafts_per_operator_local_day", "target_count": 3, "auto_publish": False, "human_gate_required": True},
     "x_social_trend_radar_sweep": {"platform": "x", "read_only": True, "min_relevance_score": 0.70, "external_actions": []},
     "x_social_repost_candidate_sweep": {"platform": "x", "auto_repost": False, "human_gate_required": True, "min_relevance_score": 0.75},
@@ -317,6 +322,8 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
     return items
 
 def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
+    if workflow_key == "social_asset_planner_sweep":
+        return run_social_asset_planner_sweep(db)
     if workflow_key == "x_social_daily_content_planner":
         return run_x_social_daily_content_planner(db)
     if workflow_key == "x_social_trend_radar_sweep":

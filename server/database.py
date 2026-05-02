@@ -835,7 +835,7 @@ class SocialPostMetricRow(Base):
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-
+import server.database_social_distribution  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -1744,6 +1744,8 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE social_watchlist_accounts ADD COLUMN x_user_id TEXT")); conn.commit()
 
+    server.database_social_distribution.migrate_social_distribution_schema(engine_, insp, tables)
+
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}
         workflow_run_cols = {
@@ -1911,14 +1913,12 @@ def init_db():
     _migrate(engine)
     from server.services.projects.policy import ensure_default_project_policies
     from server.services.projects.project_center import ensure_projects_materialized
-
     db = SessionLocal()
     try:
         ensure_default_project_policies(db)
         ensure_projects_materialized(db)
     finally:
         db.close()
-
 
 def get_db():
     db = SessionLocal()

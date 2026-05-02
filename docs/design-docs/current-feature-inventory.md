@@ -114,40 +114,27 @@
 
 当前已具备：
 
-1. `/publishing` 官方账号内容发布控制面。
-2. 第一版只支持 X 平台、`@SynapseNetworkA`、单条 Post，并最多附带一张 Agent 生成的图片。
-3. `social_accounts` 保存账号投影和 Secret Manager 引用；不保存账号密码，不把 secret 返回前端。
-4. `social_post_drafts` 保存 Agent / operator 草稿、审核状态、标题、最终正文、风险检查、X post id 和失败摘要；`让 Agent 写草稿` 入口只要求 operator 输入目标 / prompt，系统生成 policy-checked 标题、正文和可选图片决策。policy 通过且 media ready 时可由人类点击发布；policy 阻断或图片失败时必须改写、重新生成图片或移除图片，系统不会直接发布。
-5. `social_post_media_assets` 保存单张图片资产：`media_type=image`、生成 prompt、alt text、预览 URL、本地 runtime 路径、X media id 和失败摘要。
-6. `social_publish_events` 保存草稿生成、图片生成、图片上传、编辑、拒绝、发布请求、发布成功/失败事件；`/publishing` 草稿列表必须显示草稿 ID，详情居中 Modal 通过 `GET /api/social/posts/{id}` 展示草稿内容、媒体资产、事件 timeline、外部发布结果和 bounded debug metadata。
-7. 未批准草稿不能调用 `publish-x`；发布成功后写入 `external_post_id` 和 `published_at`。
-8. X 发布失败会进入 `failed` 并展示 bounded root cause；不会自动重试刷屏。
-9. 有图片时 `publish-x` 必须先上传 X media，拿到 `media_id` 后再创建 Post；media upload 失败不得降级成纯文字发布。
-10. GCP Secret Manager 只保存 X OAuth2 长期凭据：client id、client secret、refresh token；`access_token` 通过 refresh flow 在发布请求内存中短暂生成，不入库、不写日志、不进入事件 payload。token、Authorization header 和 raw API payload 不进入默认 UI、日志或事件 payload。
-11. 社媒文案生成使用专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，默认 `codex / gpt-5-codex`，并提供 `SOCIAL_CONTENT_LLM_FALLBACK_MODEL` 处理本地 Codex CLI/账号兼容性；生成时只给 Codex bounded X brand/operator prompt，避免复用 Planner/workflow runtime 产生验收矩阵或工程计划 JSON。
-12. 图片生成使用 `SOCIAL_IMAGE_PROVIDER=openai_images` / `SOCIAL_IMAGE_MODEL=gpt-image-1.5`，由后端 OpenAI Images provider 生成 runtime 预览资产；Codex 内置 image_gen 只适合人工预览，不作为生产后端能力。
-13. 生成上下文默认注入 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 额外注入 bounded `launch-strategy` guidance。`ad-creative`、`paid-ads`、`community-marketing`、视频、GIF、多图和 thread 不进入 v1 默认链路。
-14. Social Publishing 不做应用层 280 字符硬限制；policy 和 UI 只展示字符数，真实平台限制由 X API 在发布时返回 root cause。
-15. 默认生成 X Premium 风格完整运营内容，不再主动优化为旧 280 字符短帖；短帖只在 operator 明确要求或材料不足时生成。
-16. Playwright E2E 包含真实 Codex 生成路径：不 mock `/api/social/posts/generate-draft`，验证标题/正文非空、正文不复制 prompt、不泄露 `/Users/` 或内部指令、policy passed，并且不点击真实 `publish-x`；图片生成 E2E 默认 mock，避免 CI 外部配额不稳定。
-17. `/publishing` 使用 Modal-only 交互：让 Agent 写草稿、编辑草稿和发布确认都必须是居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。
-18. Social Publishing UI 必须参考 vendored `ui-ux-pro-max` SaaS / Ops Console 设计约束，保持深色 cockpit、清晰状态 badge、低噪声操作和可读表单。
-19. `/publishing` 已升级为 Social Ops Center：默认按 `Campaign Goal -> Content Ideas -> Draft Queue -> Risk Gate -> Human Review -> Publish/Reply/Repost -> Observe Metrics` 展示运营链路。
-20. 新增运营对象投影：`social_campaign_goals`、`social_trend_items`、`social_watchlist_accounts`、`social_reply_items`、`social_repost_candidates`、`social_post_metrics`。这些对象默认只读或 draft-only，不会自动对 X 产生公开动作。
-21. `/publishing` 分面包括 `今日队列`、`趋势雷达`、`回帖处理`、`转发候选`、`已发布效果`、`品牌规则`。趋势采集、watchlist、回复草稿、引用转发候选和 metrics 只辅助 operator 决策；发布、回复、引用转发、删除仍必须 Human Gate。
-22. X 专属 recurring workflows 使用平台前缀命名：`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`、`x_social_reply_candidate_sweep`、`x_social_post_observer_sweep`。公共数据表仍保持 `social_*`，为后续 LinkedIn / Discord / site content 扩展保留平台字段。
-23. X Social Sweep Scheduler 真实自动触发 `x_social_*` workflows；`x_social_daily_content_planner` 每小时 tick，并按 `OPS_OPERATOR_TIMEZONE` 的自然日补足同一 X 账号当天 3 条未发布 `source_type=daily_planner` 草稿库存。当天已有 3 条 `generating / needs_review / approved` 时直接 satisfied，不创建 shell、不调用 Agent；不足 3 条时可在一次 tick 中补齐缺口，若任一生成失败则本轮停止，避免连续制造失败壳。`generating` 超过 `OPS_X_DAILY_PLANNER_GENERATING_TIMEOUT_MINUTES` 后自动转 `failed` 并停止计入库存。库存只计算 `generating / needs_review / approved`，`published / rejected / failed` 不计入；发布掉一条后下一次 tick 会补货。生成结果必须进入 `needs_review`，不得自动发布。
-23.1. Daily planner 的内容素材来自 `Campaign Goal + Trend Radar + Watchlist + Recent Metrics + Product Change Signals`。Product Change Signals 只使用 public-safe 摘要：completed requirements、successful releases/deployments、online records、PR/release 标题和 bounded git log 摘要；本地路径、secret、内部分支名、workflow JSON、raw failure stack 必须脱敏。
-23.2. `/publishing -> 今日队列` 默认只展示 operator-local 当天的 active daily planner 库存和当天需要处理的人工草稿；历史 backlog 进入 `全部历史` 视图，避免把昨天的待审草稿误判成今天超额生成。
-24. `x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep` 和 `x_social_reply_candidate_sweep` 只读/草稿化运行：趋势雷达只保留高相关度素材，转发候选只生成 quote 文案和 candidate row，回帖 sweep 每 30 分钟最多调用真实 `social_reply_agent_v1` 生成 1 条 `needs_review` 回复草稿，不调用 X repost / quote / reply / publish API；Agent 失败时 fail closed，不使用模板 fallback。
-24.1. `x_social_post_observer_sweep` 每小时只读扫描已发布且带 `external_post_id` 的 X post，优先同步 `public_metrics`，并在权限允许时尝试 owner metrics；auth、rate limit 或 metrics 权限不足时只写 diagnostic，不创建假 metrics。`/publishing -> 已发布效果` 只读本地 `social_post_metrics`，展示日期筛选、按 operator-local 自然日聚合的日报表、明细分页列表和居中详情 Modal；页面切换、分页和详情查看不得触发额外 X read。
-25. X 趋势雷达 v1 的真实数据入口是 Watchlist timeline，而不是全网搜索：`social_watchlist_accounts -> cached x_user_id / GET /2/users/by/username/:username -> GET /2/users/:id/tweets -> social_trend_items`。每个 watchlist account 通过 `last_checked_at` 做 1 小时级节流，并缓存 `x_user_id` 避免重复 lookup；全局 X read budget 默认每天 20 次外部 read，趋势每日 source-post 处理量默认 20 条。X rate limit / budget exhausted / auth failure 只能写 diagnostic，不得强制重试或伪造真实趋势。
-26. `social_trend_items.source_url` 是 X 来源真相边界。带 `https://x.com/.../status/...` 的趋势可以进入 `x_social_repost_candidate_sweep`；本地趋势种子或缺少 source URL 的素材只能作为内容灵感，UI 必须禁用转发/引用发布。
-27. `/publishing/trends` 是 `x_social_trend_radar_sweep` 结果检索页。它只读展示 `social_trend_items`，支持 operator-local 日期范围、关键字、来源类型和作者筛选，列表分页，点击行后用居中 Modal 查看完整来源、摘要、采集时间和 `source_kind`。
-28. 趋势详情页继续遵守 Modal-only + `ui-ux-pro-max` SaaS/Ops 约束：真实 X 来源展示 `打开 X 原帖`，本地趋势种子明确标注“仅作内容灵感，不能引用转发”，不提供任何自动互动动作。
-29. `x_social_repost_candidate_sweep` 生成的 `suggested_quote` 必须增加 Synapse 视角或额外观点，不得只是 `Great point` / `Interesting` 这类无价值附和。
-30. `social_reply_items` 是回帖增长的人审队列：来源必须是带 `source_url` 的真实 X 候选，`social_reply_agent_v1` 必须逐条生成正向、相关、有额外观点的 `suggested_reply`；`回复到 X` 必须由 operator 在居中 Modal 确认后才调用 X API。
-31. `docs/ops/04_Developer_Distribution_Accounts.md` 是 Developer Distribution Account Registry：记录 Hacker News、Reddit、V2EX、DEV、Hashnode、HackerNoon、Product Hunt 等分发账号注册入口、账号治理、内容适配和 Human Gate 边界。它是运营 source of truth，不代表系统可以自动跨社区发帖、评论、投票或提交 launch。
+1. `/publishing` 已升级为 **Social Ops + Developer Distribution Center**，主流程只使用 `social_content_assets`、`social_distribution_tasks`、`social_distribution_events` 和 `social_distribution_accounts`。旧 X 主流程表 `social_post_drafts`、`social_post_media_assets`、`social_publish_events`、`social_reply_items`、`social_repost_candidates` 只允许通过一次性迁移脚本读取并落到新表；新 UI / 新 API 不做双写同步。
+2. `/publishing` 顶层只保留 4 个 Tabs：`Tasks`、`Signals & Metrics`、`Assets`、`Settings`。旧 `今日队列`、`回帖处理`、`转发候选`、`分发任务`、`分发渠道`、`已发布效果`、`品牌规则` 不再作为顶层入口，相关能力按职责归入四个新分区。
+3. `Tasks` 默认按 `content_asset_id` 分组展示，一行一个 Content Asset，展开后显示 X / Hacker News / Reddit / V2EX / DEV / Hashnode 等平台任务。`Flat View` 只用于排查失败或批量处理，默认不使用，避免同一篇内容派生出的多平台任务变成视觉噪音。
+4. `Assets` 管理源内容：文章、demo、X post、reply、quote、launch asset。Operator 创建内容资产后选择渠道，后端按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
+5. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
+6. Assets 支持 `批准并生成分发任务` 一键动作：后端先把 Asset 标记为 approved，再串行生成平台 tasks；前端在当前 Asset 详情中直接展开生成结果，不要求 operator 跳转到 Tasks 刷新。
+7. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
+8. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
+9. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
+10. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
+11. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
+12. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
+13. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
+14. Social Content / Distribution Agent 当前支持矩阵：
+   - `codex + gpt-5.4`：当前本机已验证，可作为默认 Social Content / Distribution 生成模型。
+   - `codex + gpt-5-codex`：当前 ChatGPT Codex account 不支持，不作为默认。
+   - `openai + gpt-4o`：代码路径支持，但本机当前 quota 不足时必须 fail closed。
+   - `claude + claude-3-7-sonnet-latest`：代码路径支持，但本机 key 无效时必须 fail closed。
+   - `copilot + gpt-4o`：代码支持 direct API；不能使用 GitHub PAT，必须使用 Copilot OAuth token。
+15. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
+16. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
 
 ## 5. Error Discovery And Intake Gate
 

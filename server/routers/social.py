@@ -36,6 +36,7 @@ from server.schemas_social_metrics import (
     SocialPostMetricQueryOut,
     SocialPostMetricSummaryOut,
 )
+from server.routers import social_distribution
 from server.services.social.post_metric_queries import (
     get_social_post_metric,
     query_social_post_metric_daily,
@@ -77,6 +78,7 @@ from server.services.social.publishing import (
 
 
 router = APIRouter(prefix="/api/social", tags=["social"])
+router.include_router(social_distribution.router)
 
 
 def _http_error(exc: ValueError) -> HTTPException:

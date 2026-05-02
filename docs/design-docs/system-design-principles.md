@@ -205,13 +205,14 @@
 16. Human Gate 决策可能异步唤醒 Runner；没有 WebSocket 时，前端必须在决策后短轮询 workflow detail，确认是否推进、完成或重新阻断，不能只凭 POST 成功显示“已解决”。
 17. Workflow Delivery Summary 必须先验证 `delivery_status` / `release_status` 是可信交付状态，再渲染 PR、branch 或 compare 字段；孤立的历史 branch / PR URL 不得让主视图展示脏交付。
 18. Social Publishing 默认视图必须人审优先：新建入口应优先让 operator 输入目标 / prompt，由 Agent 生成 policy-checked 标题、正文和可选单张图片；policy 通过且所有 active media ready 的草稿可以显示 `发布到 X`，但必须由 operator 显式点击确认；raw prompt、raw agent output、secret ref、API payload 只能放 Debug details。policy blocked 或 image failed 草稿不得显示可用的外部发布动作。
-19. Social Publishing 文案生成必须走专用 X brand/operator copy provider 配置。默认可使用 Codex GPT-5，并允许显式 fallback model 处理本地 Codex CLI/账号兼容性，但只能使用社媒生成 prompt，不能复用 Planner Sweep、workflow acceptance matrix 或工程执行 prompt。若 provider 不可用、返回非 JSON、缺少 `title/body_text/media_decision`、重复复制 prompt、泄露本地路径/secret/workflow JSON 或输出高风险金融承诺，系统必须 fail closed，不创建假草稿。
+19. Social Publishing / Distribution 文案生成必须走专用 `SOCIAL_CONTENT_LLM_PROVIDER` / `SOCIAL_CONTENT_LLM_MODEL` 配置，不能复用 Planner Sweep、workflow acceptance matrix 或工程执行 prompt。当前本机验证默认是 `codex + gpt-5.4`；`gpt-5-codex` 在当前 ChatGPT Codex account 下不支持，不得作为 Social Content 默认值。OpenAI / Claude / Copilot 仅在显式配置有效 key、quota 或 OAuth token 后可用，失败时必须 fail closed。若 provider 不可用、返回非 JSON、缺少必需字段、重复复制 prompt、泄露本地路径/secret/workflow JSON 或输出高风险金融承诺，系统必须 fail closed，不创建假草稿。
 20. Social Publishing 不得在应用层强制 280 字符限制；前端和 policy 只展示 `character_count`，X 会员/平台长度限制由 X API 在真实发布时返回并展示 root cause。
 21. Social Publishing 默认生成 X Premium 风格的完整运营内容：有 hook、有多段解释、有产品价值和可信细节；只有 operator 明确要求短帖或输入材料不足时才生成短内容。
 22. Social Publishing 生成上下文必须优先读取 `.agents/product-marketing-context.md` 和 `.agents/skills/social-content/SKILL.md`；staging / launch / product update 类 prompt 可额外使用 bounded `launch-strategy` skill。图片生成由 `image_prompt` 进入 OpenAI Images provider；视频、GIF、多图、thread、广告投放和跨平台分发不属于 v1 默认生成面。
 23. Social Publishing 图文发布必须保持单图上限：图片 prompt 不得包含本地路径、secret、workflow JSON、内部部署细节或高风险金融承诺；X media upload 失败时必须进入 `failed`，不得悄悄降级成纯文字发布。
 24. Social Publishing 的新建、编辑、查看和发布确认必须使用居中 `Modal` / `Dialog`，并带有深色阻断遮罩；不得使用 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出详情栏。
 25. Social Publishing 的趋势详情同样遵守 Modal-only：真实 X 趋势可以展示 source URL 和打开原帖入口，本地趋势种子只能作为内容灵感，UI 不得给出引用/转发发布动作。
+26. Agent Content Pack 只能从结构化 JSON 和 resolved source context 进入分发管线。LLM 输出允许做极简 code-fence 清理，但不得做 YAML / Markdown 表格 fallback；P0 `@synapse-context:*` 标签缺失时必须 `insufficient_source_context` fail closed。
 
 ## 6.10 Ops Console 页面必须可测试、可截图、可追溯
 

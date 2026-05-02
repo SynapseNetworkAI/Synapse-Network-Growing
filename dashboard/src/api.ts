@@ -1,5 +1,15 @@
 import type { MissionBoard, MissionWorkbench } from './apiMissionBoard'
 export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage } from './apiMissionBoard'
+import { createSocialDistributionApi } from './apiSocialDistribution'
+export type {
+  SocialContentAsset,
+  SocialContentAssetDetail,
+  SocialAssetPlannerRun,
+  SocialDistributionAccount,
+  SocialDistributionTask,
+  SocialDistributionTaskGroup,
+  SocialDistributionTaskList,
+} from './apiSocialDistribution'
 import { createSocialMetricApi } from './apiSocialMetrics'
 export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
 import type { SocialOpsOverview } from './types/socialOps'
@@ -2093,6 +2103,7 @@ export interface PlanningMissionControl {
 
 // API functions
 export const api = {
+  ...createSocialDistributionApi(request),
   ...createSocialMetricApi(request),
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
