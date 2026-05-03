@@ -24,11 +24,11 @@ from server.services.projects.policy_registry import ensure_default_project_poli
 from server.services.result_objects import ServiceObjectResult
 VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
 VALID_ENVIRONMENTS = {"staging", "production"}
-VALID_STATUSES = {"requested", "completed", "failed", "cancelled"}
+VALID_STATUSES = {"requested", "deploying", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 DEPLOYMENT_ACTIVE_STATUSES = {"requested", "running", "pending"}
 DEPLOYMENT_TERMINAL_STATUSES = {"succeeded", "failed", "blocked", "cancelled"}
-SYNAPSE_NETWORK_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front"}
+SYNAPSE_NETWORK_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front", "docs-front"}
 PROJECT_SERVICE_KEYS = {
     "synapse-network": SYNAPSE_NETWORK_SERVICE_KEYS,
     "synapse-network-provider": {"provider-service"},
@@ -47,14 +47,7 @@ SUCCESS_CHECK_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PENDING_CHECK_STATUSES = {"QUEUED", "IN_PROGRESS", "PENDING", "REQUESTED", "WAITING"}
 REQUIRED_GCP_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"}
-REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {
-    "GCP_WORKLOAD_IDENTITY_PROVIDER",
-    "GCP_DEPLOY_SERVICE_ACCOUNT",
-    "STAGING_GCP_PROJECT_ID",
-    "STAGING_GCP_REGION",
-    "STAGING_ARTIFACT_REGISTRY_REPOSITORY",
-    "STAGING_EVIDENCE_BUCKET",
-}
+REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT", "STAGING_GCP_PROJECT_ID", "STAGING_GCP_REGION", "STAGING_ARTIFACT_REGISTRY_REPOSITORY", "STAGING_EVIDENCE_BUCKET"}
 
 
 def _valid_service_keys_for_project(project_key: str) -> set[str]:
@@ -948,11 +941,16 @@ def _apply_github_run_to_deployment(
                 now=now,
             )
         record.status = "running"
+        record.health_status = record.health_status or "checking"
         record.notes = f"GitHub Actions run {status}."
+        if task is not None and not _release_task_is_terminal(task):
+            task.status = "deploying"
+            task.operator = task.operator or "github_actions_sync"
+            task.updated_at = now
         return "running"
     if conclusion == "success":
         record.status = "succeeded"
-        record.health_status = "healthy"
+        record.health_status = "passed"
         record.commit_sha = head_sha or record.commit_sha
         record.notes = "staging deploy succeeded; GitHub Actions run passed."
         record.finished_at = now
@@ -972,7 +970,12 @@ def _apply_github_run_to_deployment(
             task.note = task.note or record.notes
             task.updated_at = now
         return "failed"
+    record.health_status = record.health_status or "checking"
     record.notes = "GitHub Actions run result is not terminal yet."
+    if task is not None and not _release_task_is_terminal(task):
+        task.status = "deploying"
+        task.operator = task.operator or "github_actions_sync"
+        task.updated_at = now
     return "pending"
 
 
@@ -1037,6 +1040,11 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
                 result["timeout_ids"].append(int(record.id))
                 continue
             result["pending_ids"].append(int(record.id))
+            record.health_status = record.health_status or "checking"
+            if task is not None and not _release_task_is_terminal(task):
+                task.status = "deploying"
+                task.operator = task.operator or "github_actions_sync"
+                task.updated_at = now
             _merge_metadata(record, {"lastDeploymentStatusSyncedAt": utcnow().isoformat(), "deploymentSyncPendingReason": "GitHub Actions run id not found yet"})
             continue
         run_payload, error = _github_actions_run_view(repo_full_name, run_id)
@@ -1111,20 +1119,9 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         "controlledSteps": controlled_steps,
     }
     if deploy_strategy in {"github_actions_gcp_cloudrun", "github_actions_wif_cloudrun"}:
-        deployment_metadata.update(
-            {
-                "gcpProject": "engineering-staging-svc-1442",
-                "region": "us-central1",
-            }
-        )
+        deployment_metadata.update({"gcpProject": "engineering-staging-svc-1442", "region": "us-central1"})
     if deploy_strategy == "github_actions_wif_cloudrun":
-        deployment_metadata.update(
-            {
-                "cloud_run_service": "synapse-staging-provider",
-                "artifact_image": None,
-                "health_status": "pending",
-            }
-        )
+        deployment_metadata.update({"cloud_run_service": "synapse-staging-provider", "artifact_image": None, "health_status": "pending"})
     record = DeploymentRecordRow(
         requirement_id=int(row.requirement_id) if row.requirement_id is not None else None,
         project_policy_id=int(policy.id) if policy is not None else None,
@@ -1132,6 +1129,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         environment="staging",
         action="deploy",
         status="requested",
+        health_status="checking",
         branch_name=branch_name,
         workflow_file=workflow_file,
         actor=actor,
@@ -1144,6 +1142,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
     db.commit()
     db.refresh(record)
     row.deployment_record_id = int(record.id)
+    row.status = "deploying"
     row.operator = actor
     row.updated_at = utcnow()
     db.commit()

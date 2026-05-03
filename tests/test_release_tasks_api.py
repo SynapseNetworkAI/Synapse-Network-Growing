@@ -1024,24 +1024,20 @@ def test_apply_github_run_to_deployment_handles_running_failed_and_pending(db_se
     )
     db_session.add_all([running, failed, pending])
     db_session.flush()
-    db_session.add(
-        ReleaseTaskRow(
-            source_type="manual",
-            project_key="synapse-network",
-            branch_name="codex/failed",
-            environment="staging",
-            status="requested",
-            deployment_record_id=int(failed.id),
-        )
-    )
+    running_task = ReleaseTaskRow(source_type="manual", project_key="synapse-network", branch_name="codex/running", environment="staging", status="requested", deployment_record_id=int(running.id))
+    failed_task = ReleaseTaskRow(source_type="manual", project_key="synapse-network", branch_name="codex/failed", environment="staging", status="requested", deployment_record_id=int(failed.id))
+    pending_task = ReleaseTaskRow(source_type="manual", project_key="synapse-network", branch_name="codex/pending", environment="staging", status="requested", deployment_record_id=int(pending.id))
+    db_session.add_all([running_task, failed_task, pending_task])
     db_session.commit()
 
     assert release_tasks_service._apply_github_run_to_deployment(db_session, running, run_payload={"status": "in_progress"}, run_id="1") == "running"
     assert running.status == "running"
+    assert running_task.status == "deploying"
     assert release_tasks_service._apply_github_run_to_deployment(db_session, failed, run_payload={"status": "completed", "conclusion": "failure"}, run_id="2") == "failed"
     assert failed.status == "failed"
     assert release_tasks_service._apply_github_run_to_deployment(db_session, pending, run_payload={"status": "completed", "conclusion": ""}, run_id="3") == "pending"
     assert pending.status == "requested"
+    assert pending_task.status == "deploying"
 
 
 def test_release_task_deployment_status_sync_handles_missing_run_and_view_errors(monkeypatch, db_session):
@@ -1071,6 +1067,9 @@ def test_release_task_deployment_status_sync_handles_missing_run_and_view_errors
         metadata_json=json.dumps({"deploy_repo_full_name": "example/repo"}),
     )
     db_session.add_all([missing_repo, missing_run, view_error])
+    db_session.flush()
+    missing_run_task = ReleaseTaskRow(source_type="manual", project_key="synapse-network", branch_name="main", environment="staging", status="requested", deployment_record_id=int(missing_run.id))
+    db_session.add(missing_run_task)
     db_session.commit()
 
     monkeypatch.setattr(release_tasks_service, "_find_recent_actions_run_id", lambda *args, **kwargs: None)
@@ -1082,6 +1081,7 @@ def test_release_task_deployment_status_sync_handles_missing_run_and_view_errors
     assert int(missing_repo.id) in result["error_ids"]
     assert int(missing_run.id) in result["pending_ids"]
     assert int(view_error.id) in result["error_ids"]
+    assert missing_run_task.status == "deploying"
 
 
 def test_release_task_deployment_status_sync_handles_missing_repo_and_terminal_record(monkeypatch, db_session):
@@ -1512,7 +1512,7 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "requested"
+    assert payload["status"] == "deploying"
     assert payload["operator"] == "ops-lead"
     assert payload["deployment_record_id"] is not None
     assert payload["deployment_status"] == "requested"
