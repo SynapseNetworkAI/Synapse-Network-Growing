@@ -16,6 +16,7 @@ from server.services.projects.policy_defaults import (
     _normalize_root_path,
     default_capability_matrix,
     default_interrupt_policy,
+    is_legacy_default_repo_full_name,
     normalize_github_repo_full_name,
     DEFAULT_PROJECT_POLICIES,
 )
@@ -61,7 +62,7 @@ def _find_project_policy(db: Session, project_id: int) -> ProjectPolicyRow | Non
     )
 
 
-def project_to_dict(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) -> dict[str, Any]:
+def serialize_project(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) -> dict[str, Any]:
     current_policy = policy or _project_policy_row(row) or _find_project_policy_objectless(row)
     payload = {
         "id": int(row.id),
@@ -84,6 +85,9 @@ def project_to_dict(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) 
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
     return payload
+
+
+project_to_dict = serialize_project
 
 
 def _find_project_for_root(db: Session, root_path: str | None) -> ProjectRow | None:
@@ -167,7 +171,12 @@ def ensure_projects_materialized(db: Session) -> None:
             project.display_name = str(policy.display_name or key)
             project.root_path = root
             project.status = "archived" if str(policy.status or "") == "disabled" else "active"
-            project.repo_full_name = _clean_repo(project.repo_full_name) or source_repo
+            current_source_repo = _clean_repo(project.repo_full_name)
+            project.repo_full_name = (
+                source_repo
+                if is_legacy_default_repo_full_name(current_source_repo, source_repo)
+                else (current_source_repo or source_repo)
+            )
             project.deploy_repo_full_name = deploy_repo
             project.deploy_strategy = str(getattr(policy, "deploy_strategy", None) or "disabled")
             project.deploy_trigger_enabled = bool(getattr(policy, "deploy_trigger_enabled", False))
@@ -465,8 +474,11 @@ def update_project_policy_for_project(db: Session, project_id: int, **patch: Any
     return updated
 
 
-def project_with_policy_to_dict(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) -> dict[str, Any]:
+def serialize_project_with_policy(row: ProjectRow, *, policy: ProjectPolicyRow | None = None) -> dict[str, Any]:
     current_policy = policy or _project_policy_row(row) or _find_project_policy_objectless(row)
-    payload = project_to_dict(row, policy=current_policy)
+    payload = serialize_project(row, policy=current_policy)
     payload["policy"] = project_policy_to_dict(current_policy) if current_policy is not None else None
     return payload
+
+
+project_with_policy_to_dict = serialize_project_with_policy

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from server.database import ProjectPolicyRow, ProjectRow, ReleaseRecordRow, RequirementRow
+from server.services.projects.policy_defaults import is_legacy_default_repo_full_name
 
 
 def test_default_projects_include_mcp_server_with_source_repo(synced_client):
@@ -12,6 +13,30 @@ def test_default_projects_include_mcp_server_with_source_repo(synced_client):
     assert mcp["display_name"] == "Synapse-Network-MCP-Server"
     assert mcp["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
     assert mcp["deploy_strategy"] == "disabled"
+
+
+def test_default_projects_repair_legacy_same_name_github_forks(synced_client, db_session):
+    synced_client.get("/api/projects")
+    project = db_session.query(ProjectRow).filter(ProjectRow.project_key == "synapse-network").one()
+    policy = db_session.query(ProjectPolicyRow).filter(ProjectPolicyRow.project_key == "synapse-network").one()
+    project.repo_full_name = "cliff-personal/Synapse-Network"
+    project.deploy_repo_full_name = "cliff-personal/Synapse-Network"
+    policy.deploy_repo_full_name = "cliff-personal/Synapse-Network"
+    db_session.commit()
+
+    response = synced_client.get("/api/projects")
+
+    assert response.status_code == 200
+    projects = {item["project_key"]: item for item in response.json()}
+    repaired = projects["synapse-network"]
+    assert repaired["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
+    assert repaired["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
+    db_session.refresh(policy)
+    assert policy.deploy_repo_full_name == "SynapseNetworkAI/Synapse-Network"
+
+
+def test_legacy_default_repo_helper_rejects_non_repo_slugs():
+    assert not is_legacy_default_repo_full_name("cliff-personal", "SynapseNetworkAI/Synapse-Network")
 
 
 def test_projects_api_creates_project_with_linked_policy(synced_client, db_session):

@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from server import config
@@ -21,7 +21,12 @@ from server.schemas import ReleaseBranchOptionOut, ReleaseTaskOut, ReleaseTaskPr
 from server.services.delivery.deployment_governance import _callback_url, _dispatch_github_workflow, _json_dump
 from server.services.delivery.pull_request import _gh_env
 from server.services.projects.policy_registry import ensure_default_project_policies
+from server.services.releases.github_cli import run_gh_json as _run_gh_json, run_gh_text as _run_gh_text
+from server.services.releases.github_actions_logs import github_failure_log_result
+from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
 from server.services.result_objects import ServiceObjectResult
+from server.services.releases import github_cli as _github_cli
+subprocess = _github_cli.subprocess
 VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
 VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "deploying", "completed", "failed", "cancelled"}
@@ -45,41 +50,35 @@ E2E_BRANCH_OPTIONS = [
 ]
 SUCCESS_CHECK_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+FAILED_GITHUB_RUN_CONCLUSIONS = {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
 PENDING_CHECK_STATUSES = {"QUEUED", "IN_PROGRESS", "PENDING", "REQUESTED", "WAITING"}
 REQUIRED_GCP_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"}
 REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT", "STAGING_GCP_PROJECT_ID", "STAGING_GCP_REGION", "STAGING_ARTIFACT_REGISTRY_REPOSITORY", "STAGING_EVIDENCE_BUCKET"}
 
-
 def _valid_service_keys_for_project(project_key: str) -> set[str]:
     return PROJECT_SERVICE_KEYS.get(_clean(project_key), SYNAPSE_NETWORK_SERVICE_KEYS)
-
 
 def _service_key_error_for_project(project_key: str) -> str:
     allowed = ", ".join(sorted(_valid_service_keys_for_project(project_key)))
     return f"service_key must be one of: {allowed}"
-
 
 def _deploy_strategy_for_project(project_key: str) -> str:
     if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
         return "github_actions_wif_cloudrun"
     return "github_actions_gcp_cloudrun"
 
-
 def _controlled_steps_for_project(project_key: str) -> list[str]:
     if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
         return ["checkout", "resolve_ref", "wif_auth", "cloud_build", "artifact_push", "cloud_run_deploy", "health_check"]
     return ["checkout", "preflight", "build", "push", "cloud_run_deploy", "health_check"]
-
 
 def _required_staging_deploy_secrets_for_project(project_key: str | None) -> set[str]:
     if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
         return REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS
     return REQUIRED_GCP_STAGING_DEPLOY_SECRETS
 
-
 def _clean(value: str | None) -> str:
     return str(value or "").strip()
-
 
 def _json_load(value: str | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
     if not value:
@@ -125,47 +124,12 @@ def _release_task_to_out(row: ReleaseTaskRow, *, db: Session | None = None, pr_g
     )
 
 
-def _copy_pr_gate(gate: ReleaseTaskPrGateOut) -> ReleaseTaskPrGateOut:
-    payload = gate.model_dump() if hasattr(gate, "model_dump") else gate.dict()
-    return ReleaseTaskPrGateOut(**payload)
-
-
 def _release_task_pr_gate_with_row_actions(row: ReleaseTaskRow, gate: ReleaseTaskPrGateOut) -> ReleaseTaskPrGateOut:
-    """Attach row-specific actions to a GitHub PR gate snapshot.
-
-    GitHub branch/PR/check state is shared by branch, but create/deploy actions
-    depend on the local task row. Keeping this split lets list endpoints cache
-    expensive GitHub reads without reusing stale action booleans.
-    """
-
-    gate = _copy_pr_gate(gate)
-    status = _clean(row.status).lower() or "requested"
-    environment = _clean(row.environment).lower()
-    has_deployment = row.deployment_record_id is not None
-    is_open_pr_state = (gate.pr_state or "").lower() in {"open", "merged"}
-    gate.can_create_pr = bool(
-        status == "requested"
-        and environment == "staging"
-        and not has_deployment
-        and gate.branch_exists
-        and _clean(row.branch_name) not in DIRECT_STAGING_BRANCHES
-        and not gate.pr_exists
+    return release_task_pr_gate_with_row_actions(
+        row,
+        gate,
+        direct_staging_branches=DIRECT_STAGING_BRANCHES,
     )
-    gate.can_deploy_staging = bool(
-        status == "requested"
-        and environment == "staging"
-        and not has_deployment
-        and gate.branch_exists
-        and (
-            _clean(row.branch_name) in DIRECT_STAGING_BRANCHES
-            or (
-                gate.pr_exists
-                and is_open_pr_state
-                and gate.checks_status == "success"
-            )
-        )
-    )
-    return gate
 
 
 def _project_display_name(db: Session, project_key: str, explicit: str | None) -> str | None:
@@ -243,53 +207,41 @@ def _manual_completion_deployment_record(row: ReleaseTaskRow, *, operator: str, 
     )
 
 
-def _run_gh_json(args: list[str], *, timeout: int = 30) -> tuple[str, Any | None, str]:
-    """Run gh and classify the result without raising on GitHub domain states."""
+def _deployment_needs_failure_log_enrichment(record: DeploymentRecordRow) -> bool:
+    metadata = _json_load(getattr(record, "metadata_json", None), {})
+    if _clean(metadata.get("githubFailureLogExcerpt")) or _clean(metadata.get("githubFailureLogError")):
+        return False
+    run_id = _clean(getattr(record, "external_run_id", None)) or _github_actions_run_id_from_url(getattr(record, "external_url", None))
+    if not run_id:
+        return False
+    conclusion = _clean(metadata.get("githubRunConclusion")).lower()
+    if conclusion and conclusion not in FAILED_GITHUB_RUN_CONCLUSIONS:
+        return False
+    return _clean(getattr(record, "status", None)).lower() == "failed"
 
-    try:
-        completed = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=_gh_env(),
+
+def _enrich_deployment_failure_log(record: DeploymentRecordRow, *, repo_full_name: str, run_id: str, conclusion: str | None = None) -> bool:
+    failure_log = github_failure_log_result(
+        repo_full_name,
+        run_id,
+        conclusion=_clean(conclusion).lower() or "failure",
+        run_gh_text=lambda args: _run_gh_text(args, timeout=45),
+    )
+    updates = {
+        **failure_log.metadata,
+        "githubFailureLogSyncedAt": utcnow().isoformat(),
+    }
+    _merge_metadata(record, updates)
+    if failure_log.excerpt:
+        record.notes = failure_log.note
+        return True
+    failure_error = _clean(failure_log.metadata.get("githubFailureLogError"))
+    if failure_error and not _clean(getattr(record, "notes", None)):
+        record.notes = _bounded_error_excerpt(
+            f"GitHub Actions staging deploy failed. Unable to read Actions failed logs: {failure_error}",
+            1500,
         )
-    except FileNotFoundError:
-        return "transient_error", None, "GitHub CLI 'gh' is required."
-    except subprocess.TimeoutExpired:
-        return "transient_error", None, "GitHub CLI request timed out."
-    stderr = _bounded_error_excerpt(completed.stderr or completed.stdout or "", 1000)
-    lowered = stderr.lower()
-    if completed.returncode != 0:
-        if any(marker in lowered for marker in ("not found", "no pull requests found", "http 404", "could not resolve")):
-            return "not_found", None, stderr or "GitHub resource was not found."
-        if any(marker in lowered for marker in ("authentication", "not logged in", "permission", "http 401", "http 403")):
-            return "auth_error", None, stderr or "GitHub authentication failed."
-        return "transient_error", None, stderr or "GitHub CLI request failed."
-    try:
-        return "ok", json.loads(completed.stdout or "null"), ""
-    except json.JSONDecodeError as exc:
-        return "transient_error", None, f"GitHub response was not valid JSON: {exc}"
-
-
-def _run_gh_text(args: list[str], *, timeout: int = 30) -> tuple[str, str | None, str]:
-    try:
-        completed = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=_gh_env(),
-        )
-    except FileNotFoundError:
-        return "transient_error", None, "GitHub CLI 'gh' is required."
-    except subprocess.TimeoutExpired:
-        return "transient_error", None, "GitHub CLI request timed out."
-    if completed.returncode != 0:
-        return "transient_error", None, _bounded_error_excerpt(completed.stderr or completed.stdout or "", 1000)
-    return "ok", completed.stdout or "", ""
+    return False
 
 
 def _github_branch_exists(repo_full_name: str, branch_name: str) -> tuple[bool, str | None]:
@@ -911,10 +863,11 @@ def _apply_github_run_to_deployment(
     run_id: str,
 ) -> str:
     now = utcnow()
-    if _deployment_is_terminal(record):
-        return _clean(record.status).lower()
     status = _clean(run_payload.get("status")).lower()
     conclusion = _clean(run_payload.get("conclusion")).lower()
+    is_rerun_success_reconciliation = _clean(record.status).lower() == "failed" and status == "completed" and conclusion == "success"
+    if _deployment_is_terminal(record) and not is_rerun_success_reconciliation:
+        return _clean(record.status).lower()
     run_url = _clean(run_payload.get("url")) or record.external_url
     head_sha = _clean(run_payload.get("headSha")) or None
     record.external_run_id = str(run_id)
@@ -954,7 +907,7 @@ def _apply_github_run_to_deployment(
         record.commit_sha = head_sha or record.commit_sha
         record.notes = "staging deploy succeeded; GitHub Actions run passed."
         record.finished_at = now
-        if not _release_task_is_terminal(task) and task is not None:
+        if task is not None and (not _release_task_is_terminal(task) or _clean(task.status).lower() == "failed"):
             task.status = "completed"
             task.operator = task.operator or "github_actions_sync"
             task.updated_at = now
@@ -962,7 +915,25 @@ def _apply_github_run_to_deployment(
     if conclusion in {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}:
         record.status = "failed"
         record.health_status = "failed"
-        record.notes = f"GitHub Actions staging deploy {conclusion}."
+        metadata = _json_load(getattr(record, "metadata_json", None), {})
+        repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
+        failure_note = f"GitHub Actions staging deploy {conclusion}."
+        if repo_full_name:
+            failure_log = github_failure_log_result(
+                repo_full_name,
+                str(run_id),
+                conclusion=conclusion,
+                run_gh_text=lambda args: _run_gh_text(args, timeout=45),
+            )
+            _merge_metadata(
+                record,
+                {
+                    **failure_log.metadata,
+                    "githubFailureLogSyncedAt": now.isoformat(),
+                },
+            )
+            failure_note = failure_log.note
+        record.notes = failure_note
         record.finished_at = now
         if not _release_task_is_terminal(task) and task is not None:
             task.status = "failed"
@@ -981,11 +952,19 @@ def _apply_github_run_to_deployment(
 
 def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
+    failed_enrichment_cutoff = utcnow() - timedelta(days=7)
     rows = (
         db.query(DeploymentRecordRow)
         .filter(
             DeploymentRecordRow.trigger_source == "release_task",
-            DeploymentRecordRow.status.in_(["requested", "running", "pending"]),
+            or_(
+                DeploymentRecordRow.status.in_(["requested", "running", "pending"]),
+                and_(
+                    DeploymentRecordRow.status == "failed",
+                    DeploymentRecordRow.external_run_id.isnot(None),
+                    DeploymentRecordRow.updated_at >= failed_enrichment_cutoff,
+                ),
+            ),
         )
         .order_by(DeploymentRecordRow.id.asc())
         .limit(bounded_limit)
@@ -1007,6 +986,28 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
         if record is None:
             continue
         if _deployment_is_terminal(record):
+            metadata = _json_load(record.metadata_json, {})
+            repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
+            run_id = _clean(record.external_run_id) or _github_actions_run_id_from_url(record.external_url)
+            if _clean(record.status).lower() == "failed" and repo_full_name and run_id and _task_for_deployment(db, record):
+                run_payload, error = _github_actions_run_view(repo_full_name, run_id)
+                if run_payload is not None:
+                    state = _apply_github_run_to_deployment(db, record, run_payload=run_payload, run_id=run_id)
+                    if state == "succeeded":
+                        result["processed_count"] += 1
+                        result["succeeded_ids"].append(int(record.id))
+                        continue
+                elif error:
+                    _merge_metadata(record, {"lastDeploymentStatusSyncedAt": utcnow().isoformat(), "deploymentSyncError": error})
+            if _deployment_needs_failure_log_enrichment(record):
+                if repo_full_name and run_id:
+                    _enrich_deployment_failure_log(
+                        record,
+                        repo_full_name=repo_full_name,
+                        run_id=run_id,
+                        conclusion=_clean(metadata.get("githubRunConclusion")).lower() or "failure",
+                    )
+                    result.setdefault("enriched_failed_log_ids", []).append(int(record.id))
             result["skipped_terminal_ids"].append(int(record.id))
             continue
         task = _task_for_deployment(db, record)

@@ -1,0 +1,212 @@
+import { ReleaseTask } from '../api'
+import { OverlayDrawer, StateBadge } from '../components/workbench'
+import { STATUS_LABEL, releaseTone } from './releaseListUi'
+
+const SOURCE_LABEL: Record<string, string> = {
+  manual: '人工创建',
+  requirement_flow: '需求流转',
+}
+
+function metadataString(source: Record<string, unknown> | null | undefined, ...keys: string[]) {
+  for (const key of keys) {
+    const value = source?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function formatTime(value: string | null) {
+  if (!value) return '-'
+  return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
+}
+
+export function releaseTaskFailureLogExcerpt(task: ReleaseTask) {
+  return metadataString(task.deployment_metadata, 'githubFailureLogExcerpt')
+}
+
+export function releaseTaskFailureLogError(task: ReleaseTask) {
+  return metadataString(task.deployment_metadata, 'githubFailureLogError')
+}
+
+export function ReleaseTaskFailureSnippet({ task }: Readonly<{ task: ReleaseTask }>) {
+  const excerpt = releaseTaskFailureLogExcerpt(task)
+  const error = releaseTaskFailureLogError(task)
+  if (excerpt) {
+    return (
+      <div className="mt-2 max-w-xs rounded-lg bg-[color:var(--ops-panel)] p-2 font-mono text-[11px] text-[color:var(--ops-state-blocked-text)]">
+        {excerpt}
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="mt-2 max-w-xs rounded-lg bg-[color:var(--ops-panel)] p-2 text-[11px] text-[color:var(--ops-text-caption)]">
+        Actions 日志读取失败：{error}
+      </div>
+    )
+  }
+  return null
+}
+
+export function ReleaseTaskDetailDrawer({
+  task,
+  onClose,
+  onRefresh,
+}: Readonly<{
+  task: ReleaseTask | null
+  onClose: () => void
+  onRefresh: () => void
+}>) {
+  if (!task) return null
+  const hasDeployment = Boolean(task.deployment_record_id)
+  const failureLogExcerpt = releaseTaskFailureLogExcerpt(task)
+  const failureLogError = releaseTaskFailureLogError(task)
+  return (
+    <OverlayDrawer
+      open={Boolean(task)}
+      eyebrow="Release Task Detail"
+      title={`发布任务 #${task.id}`}
+      description="查看 PR gate、DeploymentRecord、GitHub Actions 链接、健康检查和失败摘要。"
+      onClose={onClose}
+    >
+      <div className="space-y-5">
+        <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">
+                {task.project_display_name || task.project_key} · {task.service_key || 'service'}
+              </div>
+              <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-muted)]">{task.branch_name}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StateBadge tone={task.environment === 'production' ? 'blocked' : 'ready'}>{task.environment}</StateBadge>
+              <StateBadge tone={releaseTone(task.status)}>{STATUS_LABEL[task.status] || task.status}</StateBadge>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2">
+            <div>来源：{SOURCE_LABEL[task.source_type] || task.source_type}</div>
+            <div>创建人：{task.actor || '-'}</div>
+            <div>执行人：{task.operator || '-'}</div>
+            <div>更新时间：{formatTime(task.updated_at || task.created_at)}</div>
+          </div>
+          {task.note ? <div className="mt-4 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">{task.note}</div> : null}
+        </section>
+
+        <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">PR Gate</h3>
+            <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-1.5 text-xs" onClick={onRefresh}>
+              刷新状态
+            </button>
+          </div>
+          <ReleaseTaskPrGate task={task} />
+          {task.pr_gate?.pr_url ? (
+            <a className="mt-3 inline-flex rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={task.pr_gate.pr_url} target="_blank" rel="noreferrer">
+              打开 PR #{task.pr_gate.pr_number || ''}
+            </a>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Deployment Record</h3>
+          {hasDeployment ? (
+            <div className="mt-3 space-y-3 text-sm text-[color:var(--ops-text-muted)]">
+              <div className="flex flex-wrap gap-2">
+                <StateBadge tone={releaseTone(task.deployment_status || task.status)}>
+                  Deploy: {STATUS_LABEL[task.deployment_status || ''] || task.deployment_status || '-'}
+                </StateBadge>
+                {task.deployment_health_status ? (
+                  <StateBadge tone={releaseTone(task.deployment_health_status)}>
+                    Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}
+                  </StateBadge>
+                ) : null}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>Record ID：{task.deployment_record_id}</div>
+                <div>Workflow：{task.deployment_workflow_file || '-'}</div>
+                <div>Run ID：{task.deployment_external_run_id || '-'}</div>
+                <div>Commit：{task.deployment_commit_sha || '-'}</div>
+                <div>Started：{formatTime(task.deployment_started_at)}</div>
+                <div>Finished：{formatTime(task.deployment_finished_at)}</div>
+              </div>
+              {task.deployment_external_url ? (
+                <a className="inline-flex rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">
+                  打开 GitHub Actions 日志
+                </a>
+              ) : null}
+              {task.deployment_failure_summary ? (
+                <div className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-3 text-[color:var(--ops-state-blocked-text)]">
+                  {task.deployment_failure_summary}
+                </div>
+              ) : null}
+              {failureLogExcerpt ? (
+                <div className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-panel)] p-3">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-state-blocked-text)]">GitHub Actions failed step</div>
+                  <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">{failureLogExcerpt}</pre>
+                </div>
+              ) : failureLogError ? (
+                <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
+                  无法读取 GitHub Actions 失败日志：{failureLogError}
+                  <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
+                    私有仓库需要后端运行环境的 GitHub token 拥有该 repo 的 Actions read / Contents read 权限；classic PAT 需要 repo + workflow scope。
+                  </div>
+                </div>
+              ) : null}
+              <details className="rounded-xl bg-[color:var(--ops-panel)] p-3">
+                <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Deployment metadata</summary>
+                <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">
+                  {JSON.stringify(task.deployment_metadata || {}, null, 2)}
+                </pre>
+              </details>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
+              还没有 DeploymentRecord。只有点击“发布到 staging”并通过 PR gate 后，系统才会创建部署记录并写入 GitHub Actions 链接、健康检查和结果。
+            </div>
+          )}
+        </section>
+      </div>
+    </OverlayDrawer>
+  )
+}
+
+export function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
+  const gate = task.pr_gate
+  if (!gate) return null
+  let label = gate.blocked_reason || 'PR gate 待同步'
+  let tone: 'ready' | 'running' | 'blocked' | 'muted' | 'delivered' = 'muted'
+  if (!gate.branch_exists) {
+    label = '分支不存在'
+    tone = 'blocked'
+  } else if (task.pr_gate?.can_deploy_staging && !gate.pr_exists && task.branch_name === 'main') {
+    label = 'main 可直接发布 staging'
+    tone = 'delivered'
+  } else if (!gate.pr_exists) {
+    label = '未提交 PR'
+    tone = 'running'
+  } else if (gate.pr_state === 'draft') {
+    label = 'PR 是 Draft'
+    tone = 'blocked'
+  } else if (gate.pr_state === 'merged' && gate.checks_status === 'success') {
+    label = 'PR 已合并 / Checks 通过'
+    tone = 'delivered'
+  } else if (gate.checks_status === 'success') {
+    label = 'Checks 通过'
+    tone = 'delivered'
+  } else if (gate.checks_status === 'failed') {
+    label = 'Checks 失败'
+    tone = 'blocked'
+  } else if (gate.checks_status === 'pending') {
+    label = 'Checks 运行中'
+    tone = 'running'
+  }
+  return (
+    <div className="mt-2 space-y-1">
+      <StateBadge tone={tone}>PR Gate: {label}</StateBadge>
+      {gate.checks_summary ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">{gate.checks_summary}</div> : null}
+      {gate.blocked_reason && label !== gate.blocked_reason ? (
+        <div className="max-w-xs text-xs text-[color:var(--ops-state-blocked-text)]">{gate.blocked_reason}</div>
+      ) : null}
+    </div>
+  )
+}
