@@ -283,7 +283,15 @@ describe('ReleasesPage', () => {
         blocked_reason: 'PR checks 运行中',
       },
     }))
-    apiMock.deployReleaseTaskToStaging.mockResolvedValue(releaseTask({ deployment_record_id: 9, deployment_status: 'requested', operator: 'operator' }))
+    apiMock.deployReleaseTaskToStaging.mockResolvedValue(
+      releaseTask({
+        status: 'deploying',
+        deployment_record_id: 9,
+        deployment_status: 'requested',
+        deployment_health_status: 'checking',
+        operator: 'operator',
+      }),
+    )
     apiMock.getSdkPackageReleases.mockResolvedValue([])
     apiMock.initializeSdkReleaseTrain.mockResolvedValue([])
     apiMock.dryRunSdkPackageRelease.mockResolvedValue({})
@@ -650,6 +658,37 @@ describe('ReleasesPage', () => {
         project_display_name: 'Synapse-Network-Provider',
         service_key: 'provider-service',
         branch_name: 'main',
+        environment: 'staging',
+        actor: 'operator',
+        note: null,
+      })
+    })
+  })
+
+  it('offers Synapse-Network docs front as a staging release target', async () => {
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    await user.click(screen.getByRole('button', { name: '新建发布任务' }))
+    expect(screen.getByRole('option', { name: 'Synapse-Network · Docs Front' })).toBeTruthy()
+
+    await user.selectOptions(screen.getByLabelText('项目 / 服务'), 'synapse-network::docs-front')
+    await waitFor(() => {
+      expect(apiMock.getReleaseTaskBranchOptions).toHaveBeenCalledWith({
+        project_key: 'synapse-network',
+        service_key: 'docs-front',
+      })
+    })
+    await user.selectOptions(screen.getByLabelText('分支'), 'codex/new-release')
+    await user.click(screen.getByRole('button', { name: '创建发布任务' }))
+
+    await waitFor(() => {
+      expect(apiMock.createReleaseTask).toHaveBeenCalledWith({
+        project_key: 'synapse-network',
+        project_display_name: 'Synapse-Network',
+        service_key: 'docs-front',
+        branch_name: 'codex/new-release',
         environment: 'staging',
         actor: 'operator',
         note: null,

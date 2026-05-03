@@ -12,12 +12,13 @@ const SOURCE_LABEL: Record<string, string> = {
   requirement_flow: '需求流转',
 }
 
-const TASK_STATUS_OPTIONS = ['', 'requested', 'completed', 'failed', 'cancelled']
+const TASK_STATUS_OPTIONS = ['', 'requested', 'deploying', 'completed', 'failed', 'cancelled']
 const DEFAULT_RELEASE_TARGETS = [
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'gateway', service_label: 'Gateway API' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'gateway-admin', service_label: 'Gateway Admin API' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'admin-front', service_label: 'Admin Front' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'user-front', service_label: 'User Front' },
+  { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'docs-front', service_label: 'Docs Front' },
   { project_key: 'synapse-network-provider', project_display_name: 'Synapse-Network-Provider', service_key: 'provider-service', service_label: 'Provider Service' },
 ]
 
@@ -806,6 +807,7 @@ function ReleaseTasksTable({
                       Deploy: {STATUS_LABEL[task.deployment_status] || task.deployment_status}
                     </div>
                   ) : null}
+                  {task.deployment_health_status ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}</div> : null}
                   {task.deployment_failure_summary ? (
                     <div className="mt-2 max-w-xs text-xs text-[color:var(--ops-state-blocked-text)]">{task.deployment_failure_summary}</div>
                   ) : null}
@@ -915,7 +917,7 @@ function ReleaseTasksTable({
                       </button>
                     </div>
                   ) : (
-                    <div className="flex justify-end">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <button
                         type="button"
                         className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
@@ -923,6 +925,17 @@ function ReleaseTasksTable({
                       >
                         详情
                       </button>
+                      {task.status === 'deploying' && task.deployment_external_url ? <a className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">GitHub Actions</a> : null}
+                      {task.status === 'deploying' ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
+                          disabled={Boolean(busyAction)}
+                          onClick={onRefresh}
+                        >
+                          同步状态
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </td>
@@ -1099,7 +1112,11 @@ function ReleaseTaskDetailDrawer({
                 <StateBadge tone={releaseTone(task.deployment_status || task.status)}>
                   Deploy: {STATUS_LABEL[task.deployment_status || ''] || task.deployment_status || '-'}
                 </StateBadge>
-                {task.deployment_health_status ? <StateBadge tone={task.deployment_health_status === 'passed' ? 'delivered' : 'blocked'}>Health: {task.deployment_health_status}</StateBadge> : null}
+                {task.deployment_health_status ? (
+                  <StateBadge tone={releaseTone(task.deployment_health_status)}>
+                    Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}
+                  </StateBadge>
+                ) : null}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>Record ID：{task.deployment_record_id}</div>
