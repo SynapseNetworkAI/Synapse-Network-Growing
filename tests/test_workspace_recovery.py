@@ -15,6 +15,7 @@ from server.services.runtime.workspace_recovery import (
     WORKSPACE_TRUST_DIRTY_AFTER_KILL,
     WORKSPACE_TRUST_RECOVERY_FAILED,
     mark_workflow_workspace_killed,
+    record_trusted_workspace_checkpoint,
     recover_workspace_before_retry,
 )
 from server.services.runtime.codex_session_registry import build_session_key
@@ -178,3 +179,62 @@ def test_recovery_does_not_delete_lock_while_git_process_active(db_session, tmp_
     assert result.recovery_status == "failed"
     assert result.root_cause == "git_process_still_running"
     assert lock_path.exists()
+
+
+def test_record_trusted_workspace_checkpoint_marks_clean_workspace(
+    db_session, tmp_path
+):
+    repo = _init_git_repo(
+        tmp_path / "project" / ".runtime" / "worktrees" / "workflow-4"
+    )
+    run, session = _create_run_with_session(db_session, repo)
+
+    result = record_trusted_workspace_checkpoint(
+        db_session,
+        workflow_run_id=int(run.id),
+        project_root=repo,
+        thread_id="thread-checkpoint",
+        artifact_snapshot_path="runtime/snapshots/checkpoint.tar",
+    )
+    db_session.commit()
+    db_session.refresh(session)
+
+    assert result.recovery_status == "not_required"
+    assert result.workspace_trust_state == WORKSPACE_TRUST_CLEAN
+    assert result.status_porcelain == ""
+    assert session.thread_id == "thread-checkpoint"
+    assert session.requires_workspace_recovery is False
+
+
+def test_recovery_without_registered_session_is_noop(db_session, tmp_path):
+    repo = _init_git_repo(
+        tmp_path / "project" / ".runtime" / "worktrees" / "workflow-5"
+    )
+    policy = ProjectPolicyRow(
+        project_key="no-session-project",
+        display_name="No Session Project",
+        root_path=str(repo),
+        status="active",
+    )
+    requirement = RequirementRow(
+        title="No session recovery",
+        description_markdown="No runtime session exists yet.",
+        target_project_path=str(repo),
+        status="blocked",
+    )
+    db_session.add_all([policy, requirement])
+    db_session.flush()
+    run = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="awaiting_operator",
+        status="awaiting_operator",
+        delivery_branch="ops/req-1-agent-work",
+    )
+    db_session.add(run)
+    db_session.commit()
+
+    result = recover_workspace_before_retry(db_session, int(run.id))
+
+    assert result.recovery_status == "not_required"
+    assert result.logs == ["No Codex runtime session requires recovery."]
