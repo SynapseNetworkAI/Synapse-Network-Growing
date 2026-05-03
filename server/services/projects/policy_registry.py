@@ -19,6 +19,7 @@ from server.services.projects.policy_defaults import (
     _normalize_globs,
     _normalize_interrupt_policy,
     _normalize_root_path,
+    is_legacy_default_repo_full_name,
     normalize_github_repo_full_name,
 )
 
@@ -50,7 +51,7 @@ def _sync_default_deploy_fields(row: ProjectPolicyRow) -> bool:
     changed = False
     expected_repo = normalize_github_repo_full_name(policy.get("deploy_repo_full_name"))
     current_repo = normalize_github_repo_full_name(getattr(row, "deploy_repo_full_name", None))
-    if expected_repo and not current_repo:
+    if expected_repo and (not current_repo or is_legacy_default_repo_full_name(current_repo, expected_repo)):
         row.deploy_repo_full_name = expected_repo
         changed = True
     elif current_repo != (str(getattr(row, "deploy_repo_full_name", "") or "").strip() or None):
@@ -142,7 +143,7 @@ def _visible_policy_query(db: Session):
     return db.query(ProjectPolicyRow).filter(ProjectPolicyRow.status != "deleted")
 
 
-def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
+def serialize_project_policy(row: ProjectPolicyRow) -> dict[str, Any]:
     """Serialize a project policy row into the public API shape."""
 
     return {
@@ -181,6 +182,9 @@ def project_policy_to_dict(row: ProjectPolicyRow) -> dict[str, Any]:
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+project_policy_to_dict = serialize_project_policy
 
 
 def list_project_policies(db: Session) -> list[ProjectPolicyRow]:

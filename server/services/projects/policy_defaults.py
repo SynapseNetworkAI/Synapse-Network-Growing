@@ -74,6 +74,25 @@ def normalize_github_repo_full_name(value: str | None) -> str | None:
     return raw.removesuffix(".git")
 
 
+LEGACY_DEFAULT_REPO_OWNERS = {"cliff-personal"}
+
+
+def is_legacy_default_repo_full_name(value: str | None, expected: str | None) -> bool:
+    """Return true when a built-in project still points at an old same-name fork."""
+
+    current = normalize_github_repo_full_name(value)
+    target = normalize_github_repo_full_name(expected)
+    if not current or not target or current == target:
+        return False
+    current_parts = current.split("/", 1)
+    target_parts = target.split("/", 1)
+    if len(current_parts) != 2 or len(target_parts) != 2:
+        return False
+    current_owner, current_repo = current_parts
+    _, target_repo = target_parts
+    return current_owner.lower() in LEGACY_DEFAULT_REPO_OWNERS and current_repo == target_repo
+
+
 DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
     {
         "project_key": "synapse-network-growing",
