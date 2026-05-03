@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   getStats: vi.fn(),
   getWorkflowRunsSummary: vi.fn(),
   getPlanningMissionBoard: vi.fn(),
+  getPlanningTaskBoard: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -127,6 +128,21 @@ const board = {
   },
 }
 
+const taskBoard = {
+  columns: [
+    { key: 'backlog', title: 'Backlog', description: '', hidden: false, count: 2, cards: [] },
+    { key: 'todo', title: 'Todo', description: '', hidden: false, count: 1, cards: [] },
+    { key: 'in_progress', title: 'In Progress', description: '', hidden: false, count: 3, cards: [] },
+    { key: 'human_review', title: 'Human Review', description: '', hidden: false, count: 1, cards: [] },
+    { key: 'rework', title: 'Rework', description: '', hidden: false, count: 1, cards: [] },
+    { key: 'delivery', title: 'Delivery', description: '', hidden: false, count: 0, cards: [] },
+    { key: 'done', title: 'Done', description: '', hidden: false, count: 4, cards: [] },
+    { key: 'canceled', title: 'Canceled', description: '', hidden: true, count: 1, cards: [] },
+  ],
+  summary: { total: 13, visible_total: 12, include_done_days: 7 },
+  generated_at: '2026-04-28T00:00:00Z',
+}
+
 function renderCommandCenter() {
   return render(
     <MemoryRouter>
@@ -152,6 +168,7 @@ describe('CommandCenterPage mission dashboard', () => {
       failed: 0,
     })
     apiMock.getPlanningMissionBoard.mockResolvedValue(board)
+    apiMock.getPlanningTaskBoard.mockResolvedValue(taskBoard)
   })
 
   it('renders a read-only nested mission board with unassigned red light', async () => {
@@ -166,6 +183,7 @@ describe('CommandCenterPage mission dashboard', () => {
     expect(screen.getByTestId('active-business-goals')).toHaveTextContent('SDK & Developer Experience quickstart')
     expect(screen.getByTestId('mission-traction-proof')).toHaveTextContent('Docs / staging visits')
     expect(screen.getByRole('link', { name: 'Unassigned 1' })).toHaveAttribute('href', '/planning?tab=unassigned')
+    expect(screen.getByRole('link', { name: /Rework/i })).toHaveAttribute('href', '/planning?tab=board&column=rework')
   })
 
   it('does not expose product opportunity processing actions on Command Center', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, DashboardStats, MissionBoard, WorkflowRunsSummary } from '../api'
+import { api, DashboardStats, MissionBoard, PlanningTaskBoard, WorkflowRunsSummary } from '../api'
 import { ActionButton, AgentReasoningCard, CockpitPanel, MetricTile } from '../components/controlPlane'
 import { MissionBoardPanel } from '../components/MissionBoardPanel'
 
@@ -7,6 +7,7 @@ type LoadState = {
   stats: DashboardStats | null
   workflows: WorkflowRunsSummary | null
   board: MissionBoard | null
+  taskBoard: PlanningTaskBoard | null
 }
 
 function numberValue(value: number | undefined | null) {
@@ -14,7 +15,7 @@ function numberValue(value: number | undefined | null) {
 }
 
 export default function CommandCenterPage() {
-  const [state, setState] = useState<LoadState>({ stats: null, workflows: null, board: null })
+  const [state, setState] = useState<LoadState>({ stats: null, workflows: null, board: null, taskBoard: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,13 +26,15 @@ export default function CommandCenterPage() {
       api.getStats(),
       api.getWorkflowRunsSummary(),
       api.getPlanningMissionBoard(),
+      api.getPlanningTaskBoard(),
     ]).then((results) => {
       if (cancelled) return
-      const [stats, workflows, board] = results
+      const [stats, workflows, board, taskBoard] = results
       setState({
         stats: stats.status === 'fulfilled' ? stats.value : null,
         workflows: workflows.status === 'fulfilled' ? workflows.value : null,
         board: board.status === 'fulfilled' ? board.value : null,
+        taskBoard: taskBoard.status === 'fulfilled' ? taskBoard.value : null,
       })
       const rejected = results.find((result) => result.status === 'rejected')
       setError(rejected && rejected.status === 'rejected' ? String(rejected.reason?.message || rejected.reason) : null)
@@ -44,6 +47,7 @@ export default function CommandCenterPage() {
 
   const blockers = numberValue(state.workflows?.pending_gate_count ?? state.workflows?.needs_human) + numberValue(state.workflows?.failed_count ?? state.workflows?.failed)
   const board = state.board
+  const taskColumns = (state.taskBoard?.columns || []).filter((column) => !column.hidden)
 
   return (
     <div className="space-y-6">
@@ -82,6 +86,21 @@ export default function CommandCenterPage() {
         <MetricTile label="Failed" value={state.workflows?.failed_count ?? state.workflows?.failed ?? state.stats?.workflow_failed ?? '-'} detail="失败、超预算或证据不足" tone={numberValue(state.workflows?.failed_count ?? state.workflows?.failed) ? 'danger' : 'muted'} />
         <MetricTile label="Unassigned" value={board?.unassigned.count ?? '-'} detail="缺失 goal_key 的 active 数据" tone={board?.unassigned.count ? 'danger' : 'muted'} />
       </div>
+
+      <CockpitPanel eyebrow="Task Board" title="Delivery flow by Requirement status" description="Command Center 只展示列计数；具体卡片和详情统一进入 Planning Task Board。">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
+          {taskColumns.map((column) => (
+            <a
+              key={column.key}
+              href={`/planning?tab=board&column=${column.key}`}
+              className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4 transition hover:border-cyan-300/40 hover:bg-cyan-300/[0.04]"
+            >
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{column.title}</div>
+              <div className="mt-2 text-2xl font-semibold text-[color:var(--ops-text-title)]">{column.count}</div>
+            </a>
+          ))}
+        </div>
+      </CockpitPanel>
 
       {loading ? (
         <CockpitPanel eyebrow="Mission Board" title="Loading mission board" description="正在汇总 active goal、三条 mission lane 和未归属事项。">

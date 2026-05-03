@@ -51,6 +51,7 @@ from server.services.planning.lifecycle import (
 from server.services.planning.candidate_retry import get_candidate, retry_candidate_validation
 from server.services.planning.mission_board import mission_board_snapshot
 from server.services.planning.mission_workbench import mission_workbench_snapshot
+from server.services.planning.task_board import planning_task_board_snapshot
 from server.services.planning.product_opportunities import (
     create_goal_from_product_opportunity,
     defer_product_opportunity,
@@ -81,6 +82,16 @@ def get_mission_board(db: Session = Depends(get_db)):
 @router.get("/mission-workbench")
 def get_mission_workbench(db: Session = Depends(get_db)):
     return mission_workbench_snapshot(db)
+
+
+@router.get("/task-board")
+def get_task_board(
+    include_done_days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db),
+):
+    return planning_task_board_snapshot(
+        db, include_done_days=include_done_days
+    )
 
 
 @router.get("/manifest/active", response_model=PlanningManifestOut)

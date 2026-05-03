@@ -24,6 +24,11 @@ from server.services.workflows.declarative import (
     workflow_definition_detail,
     workflow_run_detail,
 )
+from server.services.runtime.workspace_recovery import (
+    mark_workflow_workspace_killed,
+    recover_workspace_before_retry,
+    workspace_recovery_summary_for_workflow,
+)
 
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -68,6 +73,16 @@ class BusinessOutcomeRequest(BaseModel):
 class WorkflowSupersedeRetryRequest(BaseModel):
     operator: str = "operator"
     comment: str = ""
+
+
+class WorkflowRuntimeKillRequest(BaseModel):
+    kill_signal: str = "SIGKILL"
+
+
+def _detail_with_workspace_recovery(db: Session, workflow_run_id: int):
+    detail = workflow_run_detail(db, workflow_run_id)
+    detail["workspace_recovery"] = workspace_recovery_summary_for_workflow(db, workflow_run_id).model_dump()
+    return detail
 
 
 @router.get("/definitions")
@@ -136,7 +151,7 @@ def create_workflow_run_endpoint(body: WorkflowRunCreateRequest, db: Session = D
             run_immediately=body.run_immediately,
         )
         db.commit()
-        return workflow_run_detail(db, int(run.id))
+        return _detail_with_workspace_recovery(db, int(run.id))
     except (WorkflowRuntimeError, WorkflowSpecError, ValueError) as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -265,8 +280,27 @@ def followup_workflow_business_outcome_endpoint(
 @router.get("/runs/{workflow_run_id}")
 def get_workflow_run_endpoint(workflow_run_id: int, db: Session = Depends(get_db)):
     try:
-        return workflow_run_detail(db, workflow_run_id)
+        return _detail_with_workspace_recovery(db, workflow_run_id)
     except WorkflowRuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/{workflow_run_id}/runtime/mark-killed")
+def mark_workflow_runtime_killed_endpoint(
+    workflow_run_id: int,
+    body: WorkflowRuntimeKillRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        mark_workflow_workspace_killed(
+            db,
+            workflow_run_id,
+            kill_signal=(body.kill_signal if body is not None else "SIGKILL"),
+        )
+        db.commit()
+        return _detail_with_workspace_recovery(db, workflow_run_id)
+    except (WorkflowRuntimeError, ValueError) as exc:
+        db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -286,6 +320,13 @@ def decide_workflow_human_gate_endpoint(
     db: Session = Depends(get_db),
 ):
     try:
+        if str(body.decision or "").strip().lower() == "continue_retry":
+            recovery = recover_workspace_before_retry(db, workflow_run_id)
+            if recovery.recovery_status in {"failed", "human_review"}:
+                db.commit()
+                detail = recovery.model_dump()
+                detail["message"] = recovery.root_cause or "workspace_recovery_failed"
+                raise HTTPException(status_code=409, detail=detail)
         gate = decide_human_gate(
             db,
             gate_id=gate_id,
@@ -297,7 +338,7 @@ def decide_workflow_human_gate_endpoint(
             db.rollback()
             raise HTTPException(status_code=404, detail="human gate does not belong to workflow run")
         db.commit()
-        detail = workflow_run_detail(db, workflow_run_id)
+        detail = _detail_with_workspace_recovery(db, workflow_run_id)
         detail.update(getattr(gate, "_resume_result", {}) or {})
         return detail
     except HTTPException:

@@ -109,6 +109,8 @@ Target execution flow:
 4. Task completion writes `output.md` and `metadata.json`.
 5. Stale detection first attempts `thread_resume(thread_id)`.
 6. If resume fails or max active runtime is exceeded, the workflow enters runtime recovery instead of repeatedly re-dispatching.
+7. If an operator or runner uses `Cancel / Kill`, the workspace is marked `dirty_after_kill`; retry/resume must run Workspace Recovery Preflight before starting a new Codex turn.
+8. For stdio `codex app-server` processes, backend restart is treated as a hard boundary: startup cleanup may terminate orphaned app-server children, and recovery resumes from database state / trusted checkpoint rather than trying to reconnect to an unmanaged stdio child.
 
 Session storage:
 
@@ -118,6 +120,13 @@ Session storage:
 4. `metadata.json` stores turn id, usage, status, model, sandbox, output path, and last event timestamp.
 5. Existing `codex_sessions` remains the role/project/requirement-level thread registry.
 6. Planner sessions should use the same registry with project scope: `role_key="planner"`, `project_root=<canonical target project root>`, `requirement_id=NULL`.
+
+Workspace recovery contract:
+
+1. `codex_sessions.workspace_trust_state` records `clean`, `dirty_after_kill`, `recovery_required`, or `recovery_failed`.
+2. `Retry / Resume` first verifies repo root, branch, project policy, and git locks.
+3. Automatic `git reset --hard HEAD && git clean -fd` is allowed only for workflow-owned isolated worktrees or matching `ops/` / `codex/` workflow branches.
+4. User main workspace, unknown branches, active git processes, missing project policy, or dirty status after recovery route to Human Review and do not start Codex.
 
 Planner provider selection:
 

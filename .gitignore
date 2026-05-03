@@ -263,5 +263,8 @@ server/services/runtime/*
 !server/services/runtime/notification_policy.py
 !server/services/runtime/notification_queue.py
 !server/services/runtime/runtime_guards.py
+!server/services/runtime/workspace_recovery.py
+!server/services/runtime/workspace_recovery_models.py
+!server/services/runtime/workspace_recovery_utils.py
 server/logs/
 tmp/

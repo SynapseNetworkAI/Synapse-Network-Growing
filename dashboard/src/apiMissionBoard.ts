@@ -100,3 +100,55 @@ export interface MissionWorkbench {
     updated_at: string | null
   }
 }
+
+export type PlanningTaskBoardColumnKey =
+  | 'backlog'
+  | 'todo'
+  | 'in_progress'
+  | 'human_review'
+  | 'rework'
+  | 'delivery'
+  | 'done'
+  | 'canceled'
+
+export interface PlanningTaskBoardCard {
+  id: string
+  object_id: number
+  card_kind: 'requirement' | 'intake'
+  intake_type?: 'product_opportunity' | 'requirement_candidate' | string
+  task_key: string
+  title: string
+  status: string
+  column_key: PlanningTaskBoardColumnKey
+  goal_key: string
+  project_key: string
+  lane: string
+  priority: string
+  risk_level: string
+  updated_at: string | null
+  next_action: string
+  deep_link: string | null
+  detail_api: string | null
+  latest_workflow_run_id: number | null
+  delivery_label: string
+  description: string
+}
+
+export interface PlanningTaskBoardColumn {
+  key: PlanningTaskBoardColumnKey
+  title: string
+  description: string
+  hidden: boolean
+  count: number
+  cards: PlanningTaskBoardCard[]
+}
+
+export interface PlanningTaskBoard {
+  columns: PlanningTaskBoardColumn[]
+  summary: {
+    total: number
+    visible_total: number
+    include_done_days: number
+  }
+  generated_at: string | null
+}
