@@ -322,6 +322,46 @@ describe('WorkflowRunDetailPage Human Override evidence', () => {
     await waitFor(() => expect(apiMock.decideWorkflowHumanGate).toHaveBeenCalledTimes(1))
   })
 
+  it('requires confirmation before retrying a killed dirty workspace', async () => {
+    const user = userEvent.setup()
+    apiMock.getWorkflowRun.mockResolvedValue({
+      ...blockedGateDetail,
+      workspace_recovery: {
+        workspace_trust_state: 'dirty_after_kill',
+        requires_workspace_recovery: true,
+        recovery_status: 'human_review',
+        root_cause: 'dirty_after_kill',
+        latest_session_id: 11,
+        killed_at: '2026-04-20T00:00:04Z',
+        kill_signal: 'SIGKILL',
+        repo_root: '/tmp/project/.runtime/worktrees/workflow-1',
+        branch: 'ops/req-1',
+        expected_branch: 'ops/req-1',
+        logs: ['Run workspace recovery before retrying agent.'],
+      },
+    })
+    apiMock.decideWorkflowHumanGate.mockResolvedValue({
+      ...blockedGateDetail,
+      resume_attempted: true,
+      resume_status: 'resumed',
+    })
+
+    renderWorkflow('/workflows/42?tab=gates')
+
+    const actionPanel = await screen.findByTestId('workflow-human-action-panel')
+    await screen.findByTestId('workflow-workspace-recovery')
+    const retryButton = within(actionPanel).getByRole('button', { name: 'Recover Workspace & Retry' })
+    await user.click(retryButton)
+
+    expect(apiMock.decideWorkflowHumanGate).not.toHaveBeenCalled()
+    const dialogTitle = await screen.findByRole('heading', { name: 'Recover Workspace & Retry' })
+    const dialog = dialogTitle.closest('section')
+    expect(dialog).toBeTruthy()
+    await user.click(within(dialog as HTMLElement).getByRole('button', { name: 'Recover Workspace & Retry' }))
+
+    await waitFor(() => expect(apiMock.decideWorkflowHumanGate).toHaveBeenCalledWith(42, 5, expect.objectContaining({ decision: 'continue_retry' })))
+  })
+
   it('short polls after a gate decision and warns when the workflow blocks again', async () => {
     apiMock.getWorkflowRun
       .mockResolvedValueOnce(blockedGateDetail)

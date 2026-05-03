@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   getPlanningMissionControl: vi.fn(),
   getPlanningMissionBoard: vi.fn(),
   getPlanningMissionWorkbench: vi.fn(),
+  getPlanningTaskBoard: vi.fn(),
   getPlanningManifestHistory: vi.fn(),
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
@@ -334,6 +335,51 @@ const workbench = {
   manifest: { id: 1, version_name: 'Mission Control Cycle', cycle_label: '2026-W17', updated_at: '2026-04-19T00:00:00Z' },
 }
 
+const taskBoard = {
+  columns: [
+    {
+      key: 'backlog',
+      title: 'Backlog',
+      description: 'Ideas and early planning items.',
+      hidden: false,
+      count: 1,
+      cards: [
+        {
+          id: 'candidate:10',
+          object_id: 10,
+          card_kind: 'intake',
+          intake_type: 'requirement_candidate',
+          task_key: 'RC-10',
+          title: 'Add mission board API',
+          status: 'pending',
+          column_key: 'backlog',
+          goal_key: activeGoal.goal_key,
+          project_key: 'synapse-network-growing',
+          lane: 'software_engineer',
+          priority: 'normal',
+          risk_level: 'normal',
+          updated_at: '2026-04-19T00:00:00Z',
+          next_action: 'Review, materialize, or repair this intake candidate.',
+          deep_link: '/planning?tab=engineering&candidate=10',
+          detail_api: '/api/planning/candidates/10',
+          latest_workflow_run_id: null,
+          delivery_label: 'agent_self_repair',
+          description: 'Candidate belongs under the active goal.',
+        },
+      ],
+    },
+    { key: 'todo', title: 'Todo', description: 'Ready work.', hidden: false, count: 0, cards: [] },
+    { key: 'in_progress', title: 'In Progress', description: 'Running work.', hidden: false, count: 0, cards: [] },
+    { key: 'human_review', title: 'Human Review', description: 'Needs operator.', hidden: false, count: 0, cards: [] },
+    { key: 'rework', title: 'Rework', description: 'Blocked work.', hidden: false, count: 0, cards: [] },
+    { key: 'delivery', title: 'Delivery', description: 'PR and release handoff.', hidden: false, count: 0, cards: [] },
+    { key: 'done', title: 'Done', description: 'Completed work.', hidden: false, count: 0, cards: [] },
+    { key: 'canceled', title: 'Canceled', description: 'Closed work.', hidden: true, count: 0, cards: [] },
+  ],
+  summary: { total: 1, visible_total: 1, include_done_days: 7 },
+  generated_at: '2026-04-19T00:00:00Z',
+}
+
 function renderPlanning(path = '/planning') {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -366,6 +412,7 @@ describe('PlanningPage queues', () => {
     apiMock.getPlanningMissionControl.mockResolvedValue(mission)
     apiMock.getPlanningMissionBoard.mockResolvedValue(board)
     apiMock.getPlanningMissionWorkbench.mockResolvedValue(workbench)
+    apiMock.getPlanningTaskBoard.mockResolvedValue(taskBoard)
     apiMock.getPlanningManifestHistory.mockResolvedValue({ items: [manifest], total: 1, page: 1, page_size: 10, total_pages: 1 })
     apiMock.getPlanningGoal.mockResolvedValue({ ...activeGoal, intent_markdown: '# Active goal PRD' })
     apiMock.getPlanningGoalTrace.mockResolvedValue({ goal: activeGoal, nodes: [], diagnostics: [], next_actions: [], history: [] })
@@ -390,22 +437,43 @@ describe('PlanningPage queues', () => {
     })
   })
 
-  it('defaults to Mission Workbench with a tree hierarchy and stage rail', async () => {
+  it('defaults to the requirement-first Task Board', async () => {
     renderPlanning()
 
-    await screen.findByText('目标 → 战线 → 任务 → 证据')
+    const tab = await screen.findByTestId('planning-task-board-tab')
+    expect(within(tab).getByText('任务看板')).toBeInTheDocument()
+    expect(within(tab).getByText('Backlog')).toBeInTheDocument()
+    expect(within(tab).getByText('Add mission board API')).toBeInTheDocument()
+    expect(screen.queryByTestId('mission-board')).not.toBeInTheDocument()
+  })
+
+  it('keeps the hierarchy view available as a secondary tab', async () => {
+    const user = userEvent.setup()
+    renderPlanning()
+
+    await screen.findByTestId('planning-task-board-tab')
+    await user.click(screen.getByRole('button', { name: 'Hierarchy' }))
     await screen.findByTestId('mission-workbench-row-candidate:10')
     const tab = screen.getByTestId('mission-workbench-tab')
     expect(within(tab).getByText('目标 → 战线 → 任务 → 证据')).toBeInTheDocument()
-    expect(within(tab).getByText('SDK & Developer Experience quickstart')).toBeInTheDocument()
-    expect(within(tab).getByText('Add mission board API')).toBeInTheDocument()
-    expect(within(tab).getAllByText('Candidate').length).toBeGreaterThan(0)
-    expect(screen.queryByTestId('mission-board')).not.toBeInTheDocument()
+  })
+
+  it('opens a centered task detail modal from the Task Board card', async () => {
+    const user = userEvent.setup()
+    renderPlanning()
+
+    await screen.findByTestId('planning-task-board-tab')
+    await user.click(screen.getByTestId('planning-task-card-candidate:10'))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Planning task detail' })
+    expect(within(dialog).getByText('Add mission board API')).toBeInTheDocument()
+    expect(within(dialog).getByText('Review, materialize, or repair this intake candidate.')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/Drawer/i)).not.toBeInTheDocument()
   })
 
   it('opens centered Candidate detail modal from Mission Workbench detail link', async () => {
     const user = userEvent.setup()
-    renderPlanning()
+    renderPlanning('/planning?tab=hierarchy')
 
     await screen.findByText('目标 → 战线 → 任务 → 证据')
     const row = await screen.findByTestId('mission-workbench-row-candidate:10')
@@ -431,7 +499,7 @@ describe('PlanningPage queues', () => {
     const user = userEvent.setup()
     renderPlanning()
 
-    await screen.findByTestId('mission-workbench-tab')
+    await screen.findByTestId('planning-task-board-tab')
     await user.click(screen.getByRole('button', { name: '产品机会' }))
     expect(await screen.findByTestId('product-opportunities-tab')).toBeInTheDocument()
     expect(screen.getByText('产品机会 / Goal Proposals')).toBeInTheDocument()
@@ -451,7 +519,7 @@ describe('PlanningPage queues', () => {
     const user = userEvent.setup()
     renderPlanning()
 
-    await screen.findByText('目标 → 战线 → 任务 → 证据')
+    await screen.findByTestId('planning-task-board-tab')
     await user.click(screen.getByRole('button', { name: /工程队列/ }))
 
     const queue = await screen.findByTestId('engineering-queue-tab')
@@ -469,7 +537,7 @@ describe('PlanningPage queues', () => {
     apiMock.runPlannerSweep.mockResolvedValue({ created_candidate_ids: [] })
     renderPlanning()
 
-    await screen.findByText('目标 → 战线 → 任务 → 证据')
+    await screen.findByTestId('planning-task-board-tab')
     await user.click(screen.getByRole('button', { name: /工程队列/ }))
     const queue = await screen.findByTestId('engineering-queue-tab')
     expect(within(queue).getByText('工程线还没有 active 任务')).toBeInTheDocument()
@@ -490,7 +558,7 @@ describe('PlanningPage queues', () => {
     const user = userEvent.setup()
     renderPlanning()
 
-    await screen.findByText('目标 → 战线 → 任务 → 证据')
+    await screen.findByTestId('planning-task-board-tab')
     await user.click(screen.getByRole('button', { name: /业务目标/ }))
 
     const goals = await screen.findByTestId('planning-goals-tab')

@@ -1,5 +1,5 @@
-import type { MissionBoard, MissionWorkbench } from './apiMissionBoard'
-export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage } from './apiMissionBoard'
+import type { MissionBoard, MissionWorkbench, PlanningTaskBoard } from './apiMissionBoard'
+export type { MissionBoard, MissionBoardItem, MissionWorkbench, MissionWorkbenchNode, MissionWorkbenchStage, PlanningTaskBoard, PlanningTaskBoardCard, PlanningTaskBoardColumn, PlanningTaskBoardColumnKey } from './apiMissionBoard'
 import { createSocialDistributionApi } from './apiSocialDistribution'
 export type {
   SocialContentAsset,
@@ -942,6 +942,7 @@ export interface DeclarativeWorkflowRunDetail extends DeclarativeWorkflowRunSumm
   workflow_status_after_resume?: string
   next_state?: string
   created_gate_id?: number | null
+  workspace_recovery?: { workspace_trust_state: string; requires_workspace_recovery: boolean; recovery_status: string; root_cause?: string | null; latest_session_id?: number | null; killed_at?: string | null; kill_signal?: string | null; repo_root?: string | null; branch?: string | null; expected_branch?: string | null; logs?: string[] }
   operator_decision_summary?: {
     headline: string
     status_label: string
@@ -2141,6 +2142,12 @@ export const api = {
   getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
   getPlanningMissionBoard: () => request<MissionBoard>('/planning/mission-board'),
   getPlanningMissionWorkbench: () => request<MissionWorkbench>('/planning/mission-workbench'),
+  getPlanningTaskBoard: (filters?: { include_done_days?: number }) => {
+    const params = new URLSearchParams()
+    if (filters?.include_done_days) params.set('include_done_days', String(filters.include_done_days))
+    const query = params.toString()
+    return request<PlanningTaskBoard>(`/planning/task-board${query ? `?${query}` : ''}`)
+  },
   getActivePlanningManifest: () => request<PlanningManifest>('/planning/manifest/active'),
   saveActivePlanningManifest: (data: { version_name?: string; cycle_label?: string; payload: Record<string, unknown>; operator?: string }) =>
     request<PlanningManifest>('/planning/manifest/active', { method: 'PUT', body: JSON.stringify(data) }),

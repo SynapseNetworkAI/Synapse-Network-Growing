@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { ProductOpportunitiesPanel } from '../components/ProductOpportunitiesPanel'
 import { EngineeringQueue, MarkdownTabs, UnassignedQueue } from '../components/PlanningQueues'
 import { MissionWorkbenchPanel } from '../components/MissionWorkbenchPanel'
+import { PlanningTaskBoardPanel } from '../components/PlanningTaskBoardPanel'
 import { CandidateActions, type CandidateAction, RequirementCandidateDetailModal } from '../components/RequirementCandidateDetailModal'
 import { useRequirementCandidateDetail } from '../hooks/useRequirementCandidateDetail'
 import {
@@ -11,6 +12,7 @@ import {
   GoalMissionLane,
   MissionBoard,
   MissionWorkbench,
+  PlanningTaskBoard,
   PlanningGoal,
   PlanningManifest,
   PlanningManifestHistory,
@@ -21,7 +23,7 @@ import {
 
 type Goal = PlanningGoal
 
-type ActiveTab = 'workbench' | 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
+type ActiveTab = 'board' | 'hierarchy' | 'opportunities' | 'goals' | 'engineering' | 'unassigned' | 'history' | 'debug'
 type GoalStatusView = 'active' | 'achieved' | 'dropped' | 'all'
 type SteeringDraft = {
   focusWeights: Record<string, number>
@@ -52,12 +54,14 @@ const overlayStack: string[] = []
 function initialPlanningTab(search = window.location.search): ActiveTab {
   const params = new URLSearchParams(search)
   const value = params.get('tab')
-  if (value === 'workbench') return value
+  if (value === 'workbench' || value === 'hierarchy') return 'hierarchy'
+  if (value === 'board') return 'board'
   if (value === 'opportunities' || value === 'goals' || value === 'engineering' || value === 'unassigned' || value === 'history' || value === 'debug') return value
-  return 'workbench'
+  return 'board'
 }
 
 const selectedOpportunityId = (search = window.location.search) => Number(new URLSearchParams(search).get('opportunity') || 0) || null
+const selectedBoardColumn = (search = window.location.search) => new URLSearchParams(search).get('column')
 
 function useTopOverlayEscape(open: boolean, overlayId: string, onClose: () => void) {
   const onCloseRef = useRef(onClose)
@@ -1410,11 +1414,13 @@ export default function PlanningPage() {
   const [mission, setMission] = useState<PlanningMissionControl | null>(null)
   const [missionBoard, setMissionBoard] = useState<MissionBoard | null>(null)
   const [missionWorkbench, setMissionWorkbench] = useState<MissionWorkbench | null>(null)
+  const [taskBoard, setTaskBoard] = useState<PlanningTaskBoard | null>(null)
   const [history, setHistory] = useState<PlanningManifestHistory | null>(null)
   const [historyPage, setHistoryPage] = useState(1)
   const [historySearch, setHistorySearch] = useState('')
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => initialPlanningTab(location.search))
   const [focusedOpportunityId, setFocusedOpportunityId] = useState<number | null>(() => selectedOpportunityId(location.search))
+  const [focusedColumn, setFocusedColumn] = useState<string | null>(() => selectedBoardColumn(location.search))
   const [goalStatusView, setGoalStatusView] = useState<GoalStatusView>('active')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1459,15 +1465,17 @@ export default function PlanningPage() {
     setLoading(true)
     setError(null)
     try {
-      const [nextMission, nextBoard, nextWorkbench, nextHistory] = await Promise.all([
+      const [nextMission, nextBoard, nextWorkbench, nextTaskBoard, nextHistory] = await Promise.all([
         api.getPlanningMissionControl(),
         api.getPlanningMissionBoard(),
         api.getPlanningMissionWorkbench(),
+        api.getPlanningTaskBoard(),
         api.getPlanningManifestHistory({ page: nextPage, page_size: 10, search: historySearch || undefined }),
       ])
       setMission(nextMission)
       setMissionBoard(nextBoard)
       setMissionWorkbench(nextWorkbench)
+      setTaskBoard(nextTaskBoard)
       setHistory(nextHistory)
       setSteeringDraft(steeringDraftFrom(nextMission))
       setRawDraft(JSON.stringify(nextMission.manifest.payload, null, 2))
@@ -1485,6 +1493,7 @@ export default function PlanningPage() {
   useEffect(() => {
     setActiveTab(initialPlanningTab(location.search))
     setFocusedOpportunityId(selectedOpportunityId(location.search))
+    setFocusedColumn(selectedBoardColumn(location.search))
   }, [location.search])
 
   useEffect(() => () => {
@@ -1803,7 +1812,8 @@ export default function PlanningPage() {
 
       <nav className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="planning-tabs">
         {([
-          ['workbench', 'Mission Workbench'],
+          ['board', 'Task Board'],
+          ['hierarchy', 'Hierarchy'],
           ['opportunities', '产品机会'],
           ['goals', `业务目标 · ${mission?.manifest.active_goal_count || 0} active`],
           ['engineering', `工程队列 · ${missionBoard?.lanes.software_engineer.length || pendingActions}`],
@@ -1831,7 +1841,9 @@ export default function PlanningPage() {
         </section>
       )}
 
-      {activeTab === 'workbench' && <MissionWorkbenchPanel workbench={missionWorkbench} />}
+      {activeTab === 'board' && <PlanningTaskBoardPanel board={taskBoard} focusedColumn={focusedColumn} />}
+
+      {activeTab === 'hierarchy' && <MissionWorkbenchPanel workbench={missionWorkbench} />}
 
       {activeTab === 'opportunities' && (
         <main className="space-y-4" data-testid="product-opportunities-tab">

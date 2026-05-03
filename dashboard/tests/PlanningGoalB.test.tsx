@@ -106,6 +106,7 @@ const mockApi = {
   getPlanningMissionControl: vi.fn(),
   getPlanningMissionBoard: vi.fn(),
   getPlanningMissionWorkbench: vi.fn(),
+  getPlanningTaskBoard: vi.fn(),
   getPlanningManifestHistory: vi.fn(),
   saveActivePlanningManifest: vi.fn(),
   runPlannerSweep: vi.fn(),
@@ -126,6 +127,7 @@ vi.mock('../src/api', () => ({
     getPlanningMissionControl: (...args: unknown[]) => mockApi.getPlanningMissionControl(...args),
     getPlanningMissionBoard: (...args: unknown[]) => mockApi.getPlanningMissionBoard(...args),
     getPlanningMissionWorkbench: (...args: unknown[]) => mockApi.getPlanningMissionWorkbench(...args),
+    getPlanningTaskBoard: (...args: unknown[]) => mockApi.getPlanningTaskBoard(...args),
     getPlanningManifestHistory: (...args: unknown[]) => mockApi.getPlanningManifestHistory(...args),
     saveActivePlanningManifest: (...args: unknown[]) => mockApi.saveActivePlanningManifest(...args),
     runPlannerSweep: (...args: unknown[]) => mockApi.runPlannerSweep(...args),
@@ -178,6 +180,20 @@ describe('PlanningPage GoalB mission control', () => {
         cycle_label: mission.manifest.cycle_label,
         updated_at: mission.manifest.updated_at,
       },
+    })
+    mockApi.getPlanningTaskBoard.mockResolvedValue({
+      columns: [
+        { key: 'backlog', title: 'Backlog', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'todo', title: 'Todo', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'in_progress', title: 'In Progress', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'human_review', title: 'Human Review', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'rework', title: 'Rework', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'delivery', title: 'Delivery', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'done', title: 'Done', description: '', hidden: false, count: 0, cards: [] },
+        { key: 'canceled', title: 'Canceled', description: '', hidden: true, count: 0, cards: [] },
+      ],
+      summary: { total: 0, visible_total: 0, include_done_days: 7 },
+      generated_at: '2026-04-19T00:00:00Z',
     })
     mockApi.getPlanningManifestHistory.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1 })
     mockApi.saveActivePlanningManifest.mockResolvedValue(mission.manifest)

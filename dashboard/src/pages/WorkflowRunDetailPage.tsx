@@ -11,16 +11,8 @@ import {
   hasSimulatedEvidence,
   StepViewModel,
 } from '../workflows/workflowStepExplain'
-
-type WorkflowTab = 'overview' | 'timeline' | 'evidence' | 'gates' | 'debug'
-
-const WORKFLOW_TABS: Array<{ key: WorkflowTab; label: string }> = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'timeline', label: 'Timeline' },
-  { key: 'evidence', label: 'Evidence' },
-  { key: 'gates', label: 'Gates & Delivery' },
-  { key: 'debug', label: 'Debug' },
-]
+import { WORKFLOW_TABS, WorkflowRunTabs, type WorkflowTab } from '../workflows/workflowRunTabs'
+import { WorkspaceRecoveryConfirmDialog, WorkspaceRecoveryPanel, workspaceRetryLabel } from '../workflows/workflowWorkspaceRecovery'
 
 function formatTime(value: string | null) {
   if (!value) return '-'
@@ -76,6 +68,7 @@ function actionClass(tone: 'ready' | 'blocked' | 'running' | 'muted') {
 }
 
 type GateBusyState = { id: number; decision: string } | null
+type RecoveryConfirmState = { gate: DeclarativeHumanGate; decision: string } | null
 type OperatorSummary = NonNullable<DeclarativeWorkflowRunDetail['operator_decision_summary']>
 type DecisionFeedback = { tone: 'info' | 'success' | 'warning' | 'error'; message: string } | null
 type DeliveryView = {
@@ -198,7 +191,7 @@ function hasDeliverySignal(detail: DeclarativeWorkflowRunDetail) {
 }
 
 function gateDecisionLabel(decision: string, summary: OperatorSummary, detail: DeclarativeWorkflowRunDetail) {
-  if (decision === 'continue_retry') return '继续让 Agent 修复'
+  if (decision === 'continue_retry') return workspaceRetryLabel(detail)
   if (decision === 'reject') return '驳回当前结果'
   if (decision === 'approve') {
     if (detail.delivery_summary?.pr_url || detail.pr_url) return '确认已人工处理'
@@ -326,28 +319,6 @@ function WorkflowRunHeader({
         </div>
       </div>
     </section>
-  )
-}
-
-function WorkflowRunTabs({ activeTab, onChange }: Readonly<{ activeTab: WorkflowTab; onChange: (tab: WorkflowTab) => void }>) {
-  return (
-    <div className="flex flex-wrap gap-2 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-2" data-testid="workflow-run-tabs">
-      {WORKFLOW_TABS.map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          className={[
-            'rounded-xl px-4 py-2 text-sm font-medium transition',
-            activeTab === tab.key
-              ? 'bg-cyan-300/15 text-cyan-100 shadow-[0_0_0_1px_rgba(103,232,249,0.32)]'
-              : 'text-[color:var(--ops-text-muted)] hover:bg-[color:var(--ops-panel-subtle)] hover:text-[color:var(--ops-text-title)]',
-          ].join(' ')}
-          onClick={() => onChange(tab.key)}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
   )
 }
 
@@ -946,6 +917,8 @@ function GateDeliveryPanel({
         </div>
       </Panel>
 
+      <WorkspaceRecoveryPanel recovery={detail.workspace_recovery} />
+
       <Panel title="Your Decision" testId="workflow-human-action-panel">
         <div className="space-y-3">
           {decisionFeedback ? (
@@ -1173,6 +1146,7 @@ export default function WorkflowRunDetailPage() {
   const activeWorkflowRunId = useRef(workflowRunId)
   const [businessOutcomeBusy, setBusinessOutcomeBusy] = useState(false)
   const [activeTab, setActiveTab] = useState<WorkflowTab>('overview')
+  const [recoveryConfirm, setRecoveryConfirm] = useState<RecoveryConfirmState>(null)
 
   useEffect(() => {
     activeWorkflowRunId.current = workflowRunId
@@ -1296,6 +1270,14 @@ export default function WorkflowRunDetailPage() {
       inFlightGateDecisions.current.delete(gate.id)
       setBusyGate(null)
     }
+  }
+
+  function requestGateDecision(gate: DeclarativeHumanGate, decision: string) {
+    if (decision === 'continue_retry' && detail?.workspace_recovery?.requires_workspace_recovery) {
+      setRecoveryConfirm({ gate, decision })
+      return
+    }
+    decideGate(gate, decision).catch(() => {})
   }
 
   async function supersedeAndRetryPlanner() {
@@ -1506,13 +1488,25 @@ export default function WorkflowRunDetailPage() {
             detail={detail}
             busyGate={busyGate}
             decisionFeedback={decisionFeedback}
-            onDecide={(gate, decision) => { decideGate(gate, decision).catch(() => {}) }}
+            onDecide={requestGateDecision}
             onSupersede={() => { supersedeAndRetryPlanner().catch(() => {}) }}
           />
         </div>
       ) : null}
 
       {activeTab === 'debug' ? <DebugPanel detail={detail} /> : null}
+
+      <WorkspaceRecoveryConfirmDialog
+        open={Boolean(recoveryConfirm)}
+        loading={Boolean(busyGate)}
+        onClose={() => setRecoveryConfirm(null)}
+        onConfirm={() => {
+          const pending = recoveryConfirm
+          if (!pending) return
+          setRecoveryConfirm(null)
+          decideGate(pending.gate, pending.decision).catch(() => {})
+        }}
+      />
     </div>
   )
 }

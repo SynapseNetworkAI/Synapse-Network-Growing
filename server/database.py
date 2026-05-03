@@ -452,8 +452,6 @@ class RecurringWorkflowRow(Base):
     last_result_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class RecurringWorkflowRunRow(Base):
     __tablename__ = "recurring_workflow_runs"
     __table_args__ = (
@@ -461,7 +459,6 @@ class RecurringWorkflowRunRow(Base):
         Index("recurring_workflow_runs_status_idx", "status"),
         Index("recurring_workflow_runs_started_idx", "started_at"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     workflow_key = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="running")
@@ -475,15 +472,12 @@ class RecurringWorkflowRunRow(Base):
     duration_ms = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class SchedulerLockRow(Base):
     __tablename__ = "scheduler_locks"
     __table_args__ = (
         Index("scheduler_locks_status_idx", "status"),
         Index("scheduler_locks_expires_idx", "expires_at"),
     )
-
     lock_key = Column(Text, primary_key=True)
     owner_id = Column(Text, nullable=False, default="")
     status = Column(Text, nullable=False, default="held")
@@ -493,8 +487,6 @@ class SchedulerLockRow(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class CodexSessionRow(Base):
     __tablename__ = "codex_sessions"
     __table_args__ = (
@@ -503,7 +495,6 @@ class CodexSessionRow(Base):
         Index("codex_sessions_scope_idx", "role_key", "project_root", "requirement_id"),
         Index("codex_sessions_status_idx", "status"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_key = Column(Text, nullable=False)
     role_key = Column(Text, nullable=False)
@@ -513,14 +504,17 @@ class CodexSessionRow(Base):
     current_task_id = Column(Integer)
     thread_id = Column(Text)
     status = Column(Text, nullable=False, default="active")
+    workspace_trust_state = Column(Text, nullable=False, default="clean")
+    requires_workspace_recovery = Column(Boolean, nullable=False, default=False)
+    killed_at = Column(DateTime)
+    kill_signal = Column(Text)
+    trusted_checkpoint_json = Column(Text, nullable=False, default="{}")
     last_used_at = Column(DateTime, nullable=False, default=utcnow)
     last_heartbeat_at = Column(DateTime)
     resume_count = Column(Integer, nullable=False, default=0)
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class DeploymentRecordRow(Base):
     __tablename__ = "deployment_records"
     __table_args__ = (
@@ -528,7 +522,6 @@ class DeploymentRecordRow(Base):
         Index("deployment_records_project_env_idx", "project_key", "environment"),
         Index("deployment_records_status_idx", "status"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     requirement_id = Column(Integer, ForeignKey("requirements.id"), nullable=True)
     project_policy_id = Column(Integer, ForeignKey("project_policies.id"))
@@ -551,11 +544,8 @@ class DeploymentRecordRow(Base):
     finished_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
     requirement = relationship("RequirementRow")
     project_policy = relationship("ProjectPolicyRow")
-
-
 class ReleaseTaskRow(Base):
     __tablename__ = "release_tasks"
     __table_args__ = (
@@ -565,7 +555,6 @@ class ReleaseTaskRow(Base):
         Index("release_tasks_status_idx", "status"),
         Index("release_tasks_source_idx", "source_type"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     source_type = Column(Text, nullable=False, default="manual")
     requirement_id = Column(Integer, ForeignKey("requirements.id"))
@@ -581,11 +570,8 @@ class ReleaseTaskRow(Base):
     note = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
     requirement = relationship("RequirementRow")
     deployment_record = relationship("DeploymentRecordRow")
-
-
 class SocialAccountRow(Base):
     __tablename__ = "social_accounts"
     __table_args__ = (
@@ -593,7 +579,6 @@ class SocialAccountRow(Base):
         Index("social_accounts_platform_idx", "platform"),
         Index("social_accounts_status_idx", "status"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(Text, nullable=False, default="x")
     handle = Column(Text, nullable=False)
@@ -602,8 +587,6 @@ class SocialAccountRow(Base):
     status = Column(Text, nullable=False, default="active")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class SocialOAuthSessionRow(Base):
     __tablename__ = "social_oauth_sessions"
     __table_args__ = (
@@ -1665,6 +1648,15 @@ def _migrate(engine_):
     if "codex_sessions" not in tables:
         logger.info("Migrating: creating 'codex_sessions' table")
         CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
+    else:  # pragma: no cover - startup migration for already-created local DBs
+        existing = {c["name"] for c in insp.get_columns("codex_sessions")}
+        session_cols = (("workspace_trust_state", "TEXT DEFAULT 'clean'"), ("requires_workspace_recovery", "BOOLEAN DEFAULT 0"), ("killed_at", "DATETIME"), ("kill_signal", "TEXT"), ("trusted_checkpoint_json", "TEXT DEFAULT '{}'"))
+        for col, col_type in session_cols:
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to codex_sessions table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE codex_sessions ADD COLUMN {col} {col_type}"))
+                    conn.commit()
 
     if "deployment_records" not in tables:
         logger.info("Migrating: creating 'deployment_records' table")

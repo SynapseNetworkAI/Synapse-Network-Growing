@@ -179,10 +179,11 @@
 19. `product_planning_sweep` 是 proposal-only recurring workflow；正式 Goal 必须由 operator 在 `/planning` 审核后创建，并保留 opportunity lineage。
 20. 同一时间应优先保持单个 active `code_delivery` 工程执行面，避免 software_engineer lane 与其它代码类 workflow 发生无谓冲突；排队优先于复杂冲突解决。
 21. Goal Mission Board 必须是嵌套树结构：`active_goal -> product_planner / growth_lead / software_engineer -> task cards`。禁止为了 v1 Mission Map 引入 React Flow、D3、G6、canvas 或 graph `nodes[] / edges[]` API。
-22. Mission Workbench 是 `/planning` 默认操作态视图，必须使用 TreeGrid + Stage Rail 表达 `Company Goal -> Business/Product Goal -> Mission Lane -> Work Item` 与任务自己的流程状态；工程任务使用 `candidate / requirement / workflow / pr / release / online`，内容草稿使用 `generated / needs review / approved / published / metrics`，产品机会使用 `proposed / review / goal-or-requirement / closed`。不得把所有任务强行套进工程上线轨道，也不得升级成复杂画布图。
+22. `/planning` 默认操作态视图是 Requirement-first `Task Board`。看板主卡片以 `requirements` 为唯一工程交付 Source of Truth，父级 Requirement 的 `status` 决定列位置；WorkflowRun、PR、Release 只作为卡片详情里的运行日志和交付证据，不再作为看板主卡片重复出现。
+22.1. `Mission Workbench` 保留为 `Hierarchy` Tab，用 TreeGrid + Stage Rail 表达 `Company Goal -> Business/Product Goal -> Mission Lane -> Work Item` 与任务自己的流程状态；工程任务使用 `candidate / requirement / workflow / pr / release / online`，内容草稿使用 `generated / needs review / approved / published / metrics`，产品机会使用 `proposed / review / goal-or-requirement / closed`。不得把所有任务强行套进工程上线轨道，也不得升级成复杂画布图。
 23. Mission Workbench 的 `growth_lead` lane 只展示增长摘要和少量内容草稿状态；individual repost candidates、reply drafts、trend items 必须留在 `/publishing` 或 `/publishing/trends` 处理，不能污染 Planning 的 Goal->Lane->Task 主树。
 24. `/command-center` 是只读监控 / 导航态；不得在该页放 Product Opportunity 的 Create / Reject / Defer 等处理动作。
-25. `/planning` 是操作处理态；必须提供 `Mission Workbench`、`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。
+25. `/planning` 是操作处理态；必须提供 `Task Board`、`Hierarchy`、`产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug` 队列。Task Board 不支持拖拽改状态，避免绕过 fail-closed validation、Human Gate 和 deterministic workflow transitions。
 26. active 但缺失 `goal_key` / goal lineage 的 candidate、requirement、workflow 必须进入 `Unassigned / Orphaned` 红灯队列；终态历史可以留在 Debug / History。
 
 ## 6.9 Ops Console 必须按决策路径设计，不按数据库对象平铺
@@ -446,8 +447,12 @@ Social Publishing 不得承担：
 3. 父执行结束时，子资源必须可收口、可复盘。
 4. 当 workflow runtime 失真时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_execution_runtime.py --yes` 直接重置 declarative runtime，不保留旧脏数据兼容逻辑。
 5. 当需要丢弃本地 requirement / workflow 状态重新开始时，使用 `/Users/cliff/workspace/agent/.venv/bin/python /Users/cliff/workspace/agent/Synapse-Network-Growing/scripts/reset_workflow_state.py --yes`。
-6. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
-6. verification passed 后应默认自动推进 commit / push / open PR；PR merge 视为最终人工把关。
+6. `Cancel / Kill` 之后必须默认认为 workspace 不可信；runtime session 必须写入 `workspace_trust_state=dirty_after_kill`、`requires_workspace_recovery=true`、`killed_at` 和 `kill_signal`。
+7. `Retry / Resume` 不得直接唤醒 Codex。Runner 必须先执行 Workspace Recovery Preflight：验证 repo root / branch / project policy，清理 stale `.git/*.lock`，确认无 active git process，并且只在 workflow-owned worktree 或匹配的 `ops/` / `codex/` branch 上执行 `git reset --hard HEAD && git clean -fd`。
+8. 如果目标是用户主工作区、非系统 branch、缺少 trusted checkpoint、存在 human-owned untracked work，或 recovery 后 `git status --porcelain` 仍不干净，必须 fail closed 进入 Human Review；不得让 Agent 在半脏状态下自我解释或自我修复。
+9. recovery 成功必须写入 `workspace_recovered` event；失败必须写入 `workspace_recovery_failed` event，并在 UI 中显示 workspace trust badge 与 recovery preflight 日志摘要。
+10. verification/manual review 不再是正式主链的一部分；execution 完成后应自动派发 verification agent，并以其 verdict 作为 release 前唯一正式验证信号。
+11. verification passed 后应默认自动推进 commit / push / open PR；PR merge 视为最终人工把关。
 
 ## 17. 所有关键自动化都必须可观测
 

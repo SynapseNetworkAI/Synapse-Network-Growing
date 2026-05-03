@@ -35,7 +35,7 @@
 16. `/api/planning/mission-board` 提供嵌套 Mission Board：`active_goal`、`active_goals`、public-preview traction proof、`product_planner / growth_lead / software_engineer` 三列任务、`lane_summary`、`next_actions`、`unassigned` 红灯，不返回 graph `nodes[] / edges[]`。`active_goal` 是公司级主目标，`active_goals` 展示公司目标与产品/工程子目标，`software_engineer` 聚合所有 active goals 的工程候选、Requirement、Workflow 和 Release Task。
 17. `/api/planning/mission-workbench` 提供 TreeGrid 投影：Company Goal -> Business/Product Goal -> Mission Lane -> Work Item，并为每行返回 task-specific `process_stages`。工程交付、产品机会、内容草稿和增长摘要各自展示自己的生命周期，不把 Social Ops 草稿强行套进 PR/Release 轨道。它同样是嵌套树，不返回 graph `nodes[] / edges[]`。
 18. `/command-center` 是只读 Mission Dashboard：展示 active goal、三条 lane 摘要、每列最多 3 个最高优先级事项和 Unassigned 红灯；不在这里处理 Create / Reject / Defer。
-19. `/planning` 是处理态 Queues：默认显示 `Mission Workbench` 树状层级和流程状态轨道，辅助 operator 看清 Goal -> Lane -> Task -> Evidence；Growth Lead 在这里只展示 Daily draft inventory、Publishing review queue、Published-effect metrics loop 等摘要，具体回帖、转发候选和趋势明细在 `/publishing` / `/publishing/trends` 处理。其它 Tabs 包括 `产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug`。工程队列为空时给出 `Run Planner Sweep` 操作入口，用于让 operator 将 active business goals 转成 evidence-bound RequirementCandidate；active 但缺失 goal lineage 的数据进入 `未归属`，不能静默藏进 Debug。
+19. `/planning` 是处理态 Queues：默认显示 Requirement-first `Task Board`，按 `requirements.status` 投影为 Backlog / Todo / In Progress / Human Review / Rework / Delivery / Done / Canceled。WorkflowRun、PR、Release 不再作为看板主卡片，只在 Requirement 卡详情里展示运行日志和交付证据。`Mission Workbench` 保留为 `Hierarchy` Tab，用树状层级和流程状态轨道辅助 operator 看清 Goal -> Lane -> Task -> Evidence；Growth Lead 在这里只展示摘要，具体回帖、转发候选和趋势明细在 `/publishing` / `/publishing/trends` 处理。其它 Tabs 包括 `产品机会`、`业务目标`、`工程队列`、`未归属`、`历史/Debug`。工程队列为空时给出 `Run Planner Sweep` 操作入口，用于让 operator 将 active business goals 转成 evidence-bound RequirementCandidate；active 但缺失 goal lineage 的数据进入 `未归属`，不能静默藏进 Debug。
 
 ## 2. Requirement Pool
 
@@ -200,7 +200,9 @@
 3. Codex CLI / SDK planner adapter 支持项目级 planner session 复用。
 4. 普通 LLM adapter 不写 Codex session registry。
 5. Codex CLI / SDK 与 OpenAI Responses 保留为 planner/runtime provider 能力，通过 adapter 或 declarative atom 使用。
-6. 旧 `/api/tasks`、`/api/approvals`、fixed-step orchestrator 包和 legacy task runner 已退役；新增功能不得重新引入旧 TaskBoard / workflow step 主链。
+6. Workflow runtime session 现在记录 workspace trust：Kill 后写入 `dirty_after_kill` / `requires_workspace_recovery`，`continue_retry` 之前会运行 Workspace Recovery Preflight；只有 workflow-owned worktree 或匹配的 `ops/` / `codex/` branch 才允许自动 `git reset --hard HEAD && git clean -fd`，用户主工作区会进入 Human Review。
+7. Workflow detail 的 Gates & Delivery 会展示 Workspace Recovery badge、repo / branch 和 preflight 日志摘要；需要恢复时按钮文案为 `Recover Workspace & Retry`，并使用居中确认 Modal。
+8. 旧 `/api/tasks`、`/api/approvals`、fixed-step orchestrator 包和 legacy task runner 已退役；新增功能不得重新引入旧 TaskBoard / workflow step 主链。
 
 ## 9. Documentation And Evidence
 
