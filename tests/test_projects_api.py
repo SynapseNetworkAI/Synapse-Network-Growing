@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from server.database import ProjectPolicyRow, ProjectRow, ReleaseRecordRow, RequirementRow
+from server.services.projects.policy_defaults import is_legacy_default_repo_full_name
 
 
 def test_default_projects_include_mcp_server_with_source_repo(synced_client):
@@ -32,6 +33,10 @@ def test_default_projects_repair_legacy_same_name_github_forks(synced_client, db
     assert repaired["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     db_session.refresh(policy)
     assert policy.deploy_repo_full_name == "SynapseNetworkAI/Synapse-Network"
+
+
+def test_legacy_default_repo_helper_rejects_non_repo_slugs():
+    assert not is_legacy_default_repo_full_name("cliff-personal", "SynapseNetworkAI/Synapse-Network")
 
 
 def test_projects_api_creates_project_with_linked_policy(synced_client, db_session):
