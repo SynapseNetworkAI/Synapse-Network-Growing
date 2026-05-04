@@ -24,6 +24,7 @@ from server.services.projects.policy_registry import ensure_default_project_poli
 from server.services.releases.github_cli import run_gh_json as _run_gh_json, run_gh_text as _run_gh_text
 from server.services.releases.github_actions_logs import github_failure_log_result
 from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
+from server.services.releases.deployment_success import _apply_deployment_success_state, _deployment_has_failure_metadata
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
 subprocess = _github_cli.subprocess
@@ -43,11 +44,7 @@ SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 SYNAPSE_NETWORK_REPO = "SynapseNetworkAI/Synapse-Network"
 SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY = "synapse-network-provider"
 STAGING_WORKFLOW_FILE = "deploy-staging.yml"
-E2E_BRANCH_OPTIONS = [
-    "main",
-    "codex/e2e-staging-release-task",
-    "codex/branch-based-staging-deploy",
-]
+E2E_BRANCH_OPTIONS = ["main", "codex/e2e-staging-release-task", "codex/branch-based-staging-deploy"]
 SUCCESS_CHECK_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 FAILED_GITHUB_RUN_CONCLUSIONS = {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
@@ -902,15 +899,7 @@ def _apply_github_run_to_deployment(
             task.updated_at = now
         return "running"
     if conclusion == "success":
-        record.status = "succeeded"
-        record.health_status = "passed"
-        record.commit_sha = head_sha or record.commit_sha
-        record.notes = "staging deploy succeeded; GitHub Actions run passed."
-        record.finished_at = now
-        if task is not None and (not _release_task_is_terminal(task) or _clean(task.status).lower() == "failed"):
-            task.status = "completed"
-            task.operator = task.operator or "github_actions_sync"
-            task.updated_at = now
+        _apply_deployment_success_state(record, task, head_sha=head_sha, now=now)
         return "succeeded"
     if conclusion in {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}:
         record.status = "failed"
@@ -952,7 +941,7 @@ def _apply_github_run_to_deployment(
 
 def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
-    failed_enrichment_cutoff = utcnow() - timedelta(days=7)
+    sync_cutoff = utcnow() - timedelta(days=7)
     rows = (
         db.query(DeploymentRecordRow)
         .filter(
@@ -962,7 +951,12 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
                 and_(
                     DeploymentRecordRow.status == "failed",
                     DeploymentRecordRow.external_run_id.isnot(None),
-                    DeploymentRecordRow.updated_at >= failed_enrichment_cutoff,
+                    DeploymentRecordRow.updated_at >= sync_cutoff,
+                ),
+                and_(
+                    DeploymentRecordRow.status == "succeeded",
+                    DeploymentRecordRow.external_run_id.isnot(None),
+                    DeploymentRecordRow.updated_at >= sync_cutoff,
                 ),
             ),
         )
@@ -986,6 +980,12 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
         if record is None:
             continue
         if _deployment_is_terminal(record):
+            if _clean(record.status).lower() == "succeeded" and _deployment_has_failure_metadata(record):
+                task = _task_for_deployment(db, record)
+                _apply_deployment_success_state(record, task, head_sha=None, now=utcnow())
+                result["processed_count"] += 1
+                result["succeeded_ids"].append(int(record.id))
+                continue
             metadata = _json_load(record.metadata_json, {})
             repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
             run_id = _clean(record.external_run_id) or _github_actions_run_id_from_url(record.external_url)

@@ -104,7 +104,7 @@
 6. Drop Goal 不会自动 rollback；下线已发布功能必须创建 decommission requirement。
 7. `release_pr_status_sweep` 会只读同步 GitHub PR 状态：merged PR 更新为 `merged`，closed / missing PR 收敛为 `pr_closed / abandoned`，但不会自动 deploy 或 rollback。
 8. `/releases` 的 `发布管理` 分面使用独立 Release Task 记录手动和需求流转发布意图；Release Task 不等于 Deployment Record。任务创建不会自动部署，分支选择从目标 GitHub 仓库 branch list 读取；`main` 分支可由 Operator 直接点击 `发布到 staging`，其它分支没有 open/merged PR 时只能提交 PR，PR checks 通过后才允许触发白名单发布 runner，production 仍必须 Human Gate。当前一等发布目标包含 `Synapse-Network` 的 gateway / gateway-admin / admin-front / user-front / docs-front，以及 `Synapse-Network-Provider` 的 provider-service。
-9. Release Task detail drawer 展示 PR gate、DeploymentRecord、GitHub Actions run link、health check、failure summary 和 deployment metadata；Synapse-Network 与 Synapse-Network-Provider staging runner 都使用 GCP Workload Identity Federation + Cloud Build + Cloud Run，不使用长生命周期 GCP service account JSON key 或 SSH deploy secrets；Provider DeploymentRecord 标记 `deploy_strategy=github_actions_wif_cloudrun`。
+9. Release Task detail modal 展示 PR gate、DeploymentRecord、GitHub Actions run link、health check、failure summary 和 deployment metadata；Synapse-Network 与 Synapse-Network-Provider staging runner 都使用 GCP Workload Identity Federation + Cloud Build + Cloud Run，不使用长生命周期 GCP service account JSON key 或 SSH deploy secrets；Provider DeploymentRecord 标记 `deploy_strategy=github_actions_wif_cloudrun`。
 10. `/releases` 的 `上线记录` 分面只读展示成功的 `DeploymentRecord(status=succeeded)`，不混入 pending / failed / cancelled Release Task。手动标记 Release Task 已完成时，后端会创建或绑定一条 `manual_completion` 成功 DeploymentRecord 后再进入上线记录。上线记录用于确认 GitHub Actions、Cloud Run revision / image / manifest、health check 和 rollback target。
 11. 没有 webhook callback 的本地发起 staging 部署，由全局 `release_deployment_status_sweep` 定时拉取 GitHub Actions run 结果，也可通过 `/releases` 的 `同步状态` 人工触发同一幂等同步函数；同步只处理未终态 DeploymentRecord，只读吸收外部事实，不触发 deploy / merge / rollback。点击 `发布到 staging` 后 Release Task 进入 `deploying / 自动检查中`，健康检查事实由 GitHub Actions runner 内的 Cloud Run smoke check 负责，Ops Console 只同步 Actions success/failure 和 smoke metadata。人工 completed / failed / cancelled 终态优先，不会被后台同步回滚。
 12. Staging 发布分两类：`main` 分支可直接由 Operator 点击 `发布到 staging`；非 main 分支不要求先合并 `main`，但必须存在 PR 且 PR checks 通过。Production 默认只允许从 `main` / tag / verified staging manifest 推进，并必须 Human Gate。
@@ -220,7 +220,7 @@
 当前已具备：
 
 1. `/command-center` 作为 Human-Agent Control Plane 首页。
-2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面左侧 sidebar。主导航只保留 `Command Center`、`Planning`、`Publishing`、`Releases` 四个高频业务入口。
+2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面持久次级导航。主导航只保留 `Command Center`、`Planning`、`Publishing`、`Releases` 四个高频业务入口。
 3. 顶栏右侧保留 `Needs Human` badge、`Cmd+K / Search` 低频入口和 `Alerts` 通知入口；`/gates`、`/requirements`、`/workflows`、`/schedules`、`/projects`、`/errors` 等路由继续存在，但不占用主导航。
 4. `/gates` 集中展示 pending human gates、failed / blocked workflow。
 5. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。

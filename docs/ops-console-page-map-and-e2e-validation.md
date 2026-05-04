@@ -29,13 +29,13 @@ The console is not a database object browser. Each page must explain what it is 
 
 ## Navigation Model
 
-The desktop shell uses Top Header Navigation, not a left sidebar. The only primary entries are:
+The desktop shell uses Top Header Navigation, not persistent secondary navigation rails. The only primary entries are:
 
 ```text
 Command Center | Planning | Publishing | Releases
 ```
 
-`Needs Human` is a top-level badge that links to `/gates`. `Cmd+K / Search` is the sanctioned entry for low-frequency pages such as `/requirements`, `/workflows`, `/schedules`, `/projects`, `/errors`, `/factory/workflows`, `/factory/atoms`, and `/knowledge`. These routes remain valid deep links, but they must not reappear as persistent sidebar navigation.
+`Needs Human` is a top-level badge that links to `/gates`. `Cmd+K / Search` is the sanctioned entry for low-frequency pages such as `/requirements`, `/workflows`, `/schedules`, `/projects`, `/errors`, `/factory/workflows`, `/factory/atoms`, and `/knowledge`. These routes remain valid deep links, but they must not reappear as persistent secondary navigation.
 
 ## Page Map
 
@@ -76,7 +76,7 @@ Every page needs three levels of validation:
 | `/command-center` | Active goal card, three mission lanes, blockers, unassigned red light render | Planning/Publishing/Releases/Needs Human links; no Create/Reject/Defer actions | Values come from nested `/api/planning/mission-board` and summary projections |
 | `/intake` | Signal source cards render | Errors/Planning/Schedules links | Concrete queues remain source-specific |
 | `/gates` | Pending gate and failed run cards render | Review Gate opens workflow detail | Pending gates match workflow run summaries |
-| `/requirements` | Requirement list and empty state render | New requirement, edit drawer, refresh, workflow link | Created requirement exists and selected project id persists |
+| `/requirements` | Requirement list and empty state render | New requirement, edit modal, refresh, workflow link | Created requirement exists and selected project id persists |
 | `/requirements/:id` | Workflow readiness panel renders | Generate assets, start workflow, navigate to `/workflows/:id` | Requirement `active_workflow_run_id` is set |
 | `/planning` | Task Board, Hierarchy, Product Opportunities, Business Goals, Engineering Queue, Unassigned, history/debug tabs render | Open Task Board card Modal, follow Requirement / Workflow links, expand/collapse Goal -> Lane -> Task rows in Hierarchy, create Goal from opportunity, defer/reject opportunity, Run Planner Sweep, approve-and-run/reject/stage candidate, centered modal debug, history tab | Task Board comes from `/api/planning/task-board` with Requirement as primary card; Mission Workbench comes from nested `/api/planning/mission-workbench`; Product Opportunity creates a Goal only after operator action; candidate, requirement and workflow inherit `manifest_id` and `goal_key`; active missing lineage appears in Unassigned |
 | `/workflows` | Stats, filters, tabs and definitions render | Active/Needs Human/Failed/Completed/Archived/Definitions tabs | Completed run appears in completed tab and can be archived |

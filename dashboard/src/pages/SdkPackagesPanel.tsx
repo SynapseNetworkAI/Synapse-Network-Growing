@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SdkPackageRelease, sdkPackagesApi } from '../sdkPackagesApi'
-import { EmptyPane, FieldLabel, OverlayDrawer, StateBadge, useToast } from '../components/workbench'
+import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { SDK_STATUS_LABEL, isSemVer, openExternalUrl, sdkReleaseTone } from './sdkPackageUi'
 
 const STATUS_OPTIONS = ['', 'planned', 'building', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
@@ -32,7 +32,7 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
   const [packages, setPackages] = useState<SdkPackageRelease[]>([])
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
   const [draft, setDraft] = useState(defaultTrainDraft())
   const [statusFilter, setStatusFilter] = useState('')
   const [languageFilter, setLanguageFilter] = useState('')
@@ -96,7 +96,7 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
         packages: draft.packages,
       })
       toast.success('SDK release train 已初始化')
-      setDrawerOpen(false)
+      setModalOpen(false)
       setDraft(defaultTrainDraft())
       await load()
       navigate(`/releases/sdk-trains/${encodeURIComponent(nextVersion)}`)
@@ -134,7 +134,7 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
             {STATUS_OPTIONS.map((status) => <option key={status || 'all'} value={status}>{status ? SDK_STATUS_LABEL[status] : '全部状态'}</option>)}
           </select>
         </div>
-        <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" onClick={() => setDrawerOpen(true)}>
+        <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" onClick={() => setModalOpen(true)}>
           Initialize Release Train
         </button>
       </div>
@@ -203,12 +203,12 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
         {!loading && packages.length === 0 ? <div className="p-6"><EmptyPane>暂无 SDK package release。点击 “Initialize Release Train” 批量创建五种语言的 planned records。</EmptyPane></div> : null}
       </section>
 
-      <InitializeTrainDrawer open={drawerOpen} draft={draft} busy={busyAction === 'initialize'} onClose={() => setDrawerOpen(false)} onDraftChange={setDraft} onSubmit={initializeTrain} />
+      <InitializeTrainModal open={modalOpen} draft={draft} busy={busyAction === 'initialize'} onClose={() => setModalOpen(false)} onDraftChange={setDraft} onSubmit={initializeTrain} />
     </div>
   )
 }
 
-function InitializeTrainDrawer({
+function InitializeTrainModal({
   open,
   draft,
   busy,
@@ -225,7 +225,7 @@ function InitializeTrainDrawer({
 }>) {
   const reason = disableReason(draft, busy)
   return (
-    <OverlayDrawer open={open} eyebrow="SDK Release Train" title="Initialize SDK Release Train" description="SDK 是包发布物：这里创建 registry/channel 记录，不创建 staging/prod deployment。" onClose={onClose}>
+    <OverlayModal open={open} eyebrow="SDK Release Train" title="Initialize SDK Release Train" description="SDK 是包发布物：这里创建 registry/channel 记录，不创建 staging/prod deployment。" onClose={onClose}>
       <div className="space-y-5">
         {reason ? <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]">{reason}</div> : null}
         <label className="block space-y-2">
@@ -261,6 +261,6 @@ function InitializeTrainDrawer({
           {busy ? '初始化中…' : 'Initialize Train'}
         </button>
       </div>
-    </OverlayDrawer>
+    </OverlayModal>
   )
 }

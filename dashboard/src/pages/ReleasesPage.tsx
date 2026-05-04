@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
-import { EmptyPane, FieldLabel, OverlayDrawer, StateBadge, useToast } from '../components/workbench'
-import { ReleaseTaskDetailDrawer, ReleaseTaskFailureSnippet, ReleaseTaskPrGate } from './ReleaseTaskDetailPanel'
+import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
 
@@ -133,7 +133,7 @@ export default function ReleasesPage() {
   const [onlineEnvironmentFilter, setOnlineEnvironmentFilter] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [syncBusy, setSyncBusy] = useState(false)
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false)
+  const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [taskDetail, setTaskDetail] = useState<ReleaseTask | null>(null)
   const [onlineDetail, setOnlineDetail] = useState<OnlineReleaseRecord | null>(null)
   const [taskDraft, setTaskDraft] = useState(defaultTaskDraft([]))
@@ -258,7 +258,7 @@ export default function ReleasesPage() {
   }, [branchOptions, branchQuery, taskDraft.branch_name])
 
   useEffect(() => {
-    if (!taskDrawerOpen || !taskDraft.project_key) return
+    if (!taskModalOpen || !taskDraft.project_key) return
     let cancelled = false
     setBranchOptions([])
     setBranchError(null)
@@ -287,7 +287,7 @@ export default function ReleasesPage() {
     return () => {
       cancelled = true
     }
-  }, [taskDrawerOpen, taskDraft.project_key, taskDraft.service_key])
+  }, [taskModalOpen, taskDraft.project_key, taskDraft.service_key])
 
   const createTask = async () => {
     if (taskBusy) return
@@ -303,7 +303,7 @@ export default function ReleasesPage() {
         note: taskDraft.note || null,
       })
       toast.success('发布任务已创建')
-      setTaskDrawerOpen(false)
+      setTaskModalOpen(false)
       setTaskDraft(defaultTaskDraft(policies))
       await load()
       selectReleaseTab('tasks')
@@ -431,7 +431,7 @@ export default function ReleasesPage() {
                 onClick={() => {
                   setTaskDraft(defaultTaskDraft(policies))
                   setBranchQuery('')
-                  setTaskDrawerOpen(true)
+                  setTaskModalOpen(true)
                 }}
               >
                 新建发布任务
@@ -511,7 +511,7 @@ export default function ReleasesPage() {
           onDeployStaging={deployTaskToStaging}
           onRefresh={() => load().catch(() => {})}
           onOpenDetails={(task) => {
-            setTaskDrawerOpen(false)
+            setTaskModalOpen(false)
             setTaskDetail(task)
           }}
         />
@@ -525,12 +525,12 @@ export default function ReleasesPage() {
         />
       )}
 
-      <OverlayDrawer
-        open={taskDrawerOpen}
+      <OverlayModal
+        open={taskModalOpen}
         eyebrow="Release Task"
         title="新建发布任务"
         description="只创建人工发布任务记录，不触发真实部署。"
-        onClose={() => setTaskDrawerOpen(false)}
+        onClose={() => setTaskModalOpen(false)}
       >
         <div className="space-y-5">
           <label className="block space-y-2">
@@ -632,9 +632,9 @@ export default function ReleasesPage() {
             {taskBusy ? '创建中…' : '创建发布任务'}
           </button>
         </div>
-      </OverlayDrawer>
-      <ReleaseTaskDetailDrawer task={taskDetail} onClose={() => setTaskDetail(null)} onRefresh={() => load().catch(() => {})} />
-      <OnlineRecordDetailDrawer record={onlineDetail} onClose={() => setOnlineDetail(null)} />
+      </OverlayModal>
+      <ReleaseTaskDetailModal task={taskDetail} onClose={() => setTaskDetail(null)} onRefresh={() => load().catch(() => {})} />
+      <OnlineRecordDetailModal record={onlineDetail} onClose={() => setOnlineDetail(null)} />
     </div>
   )
 }
@@ -831,7 +831,7 @@ function ReleaseTasksTable({
                     </div>
                   ) : null}
                   {task.deployment_health_status ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}</div> : null}
-                  {task.deployment_failure_summary ? (
+                  {shouldShowReleaseTaskFailure(task) && task.deployment_failure_summary ? (
                     <div className="mt-2 max-w-xs text-xs text-[color:var(--ops-state-blocked-text)]">{task.deployment_failure_summary}</div>
                   ) : null}
                   <ReleaseTaskFailureSnippet task={task} />
@@ -1071,7 +1071,7 @@ function OnlineRecordsTable({
   )
 }
 
-function OnlineRecordDetailDrawer({
+function OnlineRecordDetailModal({
   record,
   onClose,
 }: Readonly<{
@@ -1083,7 +1083,7 @@ function OnlineRecordDetailDrawer({
   const actionsUrl = onlineRecordActionsUrl(record)
   const prUrl = onlineRecordPrUrl(record)
   return (
-    <OverlayDrawer
+    <OverlayModal
       open={Boolean(record)}
       eyebrow="Online Record"
       title={`上线记录 #${record.id}`}
@@ -1171,6 +1171,6 @@ function OnlineRecordDetailDrawer({
           </pre>
         </details>
       </div>
-    </OverlayDrawer>
+    </OverlayModal>
   )
 }

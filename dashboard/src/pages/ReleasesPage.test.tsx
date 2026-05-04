@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -349,6 +349,42 @@ describe('ReleasesPage', () => {
     expect(screen.getAllByRole('button', { name: '详情' }).length).toBeGreaterThanOrEqual(2)
   })
 
+  it('does not show stale GitHub failure logs for a successful release task', async () => {
+    apiMock.getReleaseTasks.mockResolvedValue([
+      releaseTask({
+        id: 42,
+        branch_name: 'main',
+        status: 'completed',
+        deployment_record_id: 40,
+        deployment_status: 'succeeded',
+        deployment_health_status: 'passed',
+        deployment_failure_summary: 'staging deploy succeeded; GitHub Actions run passed.',
+        deployment_external_run_id: '25274187647',
+        deployment_external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/25274187647',
+        deployment_metadata: {
+          githubFailureLogStatus: 'ok',
+          githubFailureLogExcerpt: 'unauthorized_client attribute condition',
+          githubRunConclusion: 'success',
+        },
+      }),
+    ])
+    const user = userEvent.setup()
+    render(<ReleasesPage />, { wrapper: MemoryRouter })
+
+    await user.click(await screen.findByRole('button', { name: '发布管理' }))
+
+    expect(screen.getByText('Deploy: 上线成功')).toBeTruthy()
+    expect(screen.getByText('Health: 通过')).toBeTruthy()
+    expect(screen.queryByText(/unauthorized_client/)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: '详情' }))
+    const dialog = await screen.findByRole('dialog', { name: '发布任务 #42' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(within(dialog).getByText('Run ID：25274187647')).toBeTruthy()
+    expect(within(dialog).queryByText(/GitHub Actions failed step/)).toBeNull()
+    expect(within(dialog).queryByText(/attribute condition/)).toBeNull()
+  })
+
   it('creates a PR for staging tasks before deploy is available', async () => {
     const user = userEvent.setup()
     render(<ReleasesPage />, { wrapper: MemoryRouter })
@@ -602,7 +638,7 @@ describe('ReleasesPage', () => {
     expect(screen.queryByRole('button', { name: '发布到 staging' })).toBeNull()
   })
 
-  it('creates a manual release task from the release management drawer', async () => {
+  it('creates a manual release task from the release management modal', async () => {
     const user = userEvent.setup()
     render(<ReleasesPage />, { wrapper: MemoryRouter })
 
@@ -716,7 +752,7 @@ describe('ReleasesPage', () => {
     })
   })
 
-  it('opens the task drawer without project policies and triggers staging deploy separately', async () => {
+  it('opens the task modal without project policies and triggers staging deploy separately', async () => {
     apiMock.getProjectPolicies.mockResolvedValue([])
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask({

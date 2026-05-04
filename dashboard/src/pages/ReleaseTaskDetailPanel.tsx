@@ -1,11 +1,21 @@
 import { ReleaseTask } from '../api'
-import { OverlayDrawer, StateBadge } from '../components/workbench'
+import { OverlayModal, StateBadge } from '../components/workbench'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
   requirement_flow: '需求流转',
 }
+
+const FAILURE_METADATA_KEYS = new Set([
+  'deploymentSyncError',
+  'deploymentSyncFailureKind',
+  'deploymentSyncPendingReason',
+  'githubFailureLogError',
+  'githubFailureLogExcerpt',
+  'githubFailureLogStatus',
+  'githubFailureLogSyncedAt',
+])
 
 function metadataString(source: Record<string, unknown> | null | undefined, ...keys: string[]) {
   for (const key of keys) {
@@ -28,7 +38,28 @@ export function releaseTaskFailureLogError(task: ReleaseTask) {
   return metadataString(task.deployment_metadata, 'githubFailureLogError')
 }
 
+export function shouldShowReleaseTaskFailure(task: ReleaseTask) {
+  const statusTokens = [
+    task.status,
+    task.deployment_status,
+    task.deployment_health_status,
+  ].map((value) => String(value || '').toLowerCase())
+  if (statusTokens.some((value) => ['completed', 'succeeded', 'passed', 'healthy'].includes(value))) {
+    return false
+  }
+  return statusTokens.some((value) => ['failed', 'blocked', 'cancelled', 'timed_out', 'startup_failure', 'action_required'].includes(value))
+}
+
+function displayDeploymentMetadata(task: ReleaseTask) {
+  const metadata = task.deployment_metadata || {}
+  if (shouldShowReleaseTaskFailure(task)) return metadata
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !FAILURE_METADATA_KEYS.has(key)),
+  )
+}
+
 export function ReleaseTaskFailureSnippet({ task }: Readonly<{ task: ReleaseTask }>) {
+  if (!shouldShowReleaseTaskFailure(task)) return null
   const excerpt = releaseTaskFailureLogExcerpt(task)
   const error = releaseTaskFailureLogError(task)
   if (excerpt) {
@@ -48,7 +79,7 @@ export function ReleaseTaskFailureSnippet({ task }: Readonly<{ task: ReleaseTask
   return null
 }
 
-export function ReleaseTaskDetailDrawer({
+export function ReleaseTaskDetailModal({
   task,
   onClose,
   onRefresh,
@@ -59,10 +90,12 @@ export function ReleaseTaskDetailDrawer({
 }>) {
   if (!task) return null
   const hasDeployment = Boolean(task.deployment_record_id)
-  const failureLogExcerpt = releaseTaskFailureLogExcerpt(task)
-  const failureLogError = releaseTaskFailureLogError(task)
+  const showFailure = shouldShowReleaseTaskFailure(task)
+  const failureLogExcerpt = showFailure ? releaseTaskFailureLogExcerpt(task) : null
+  const failureLogError = showFailure ? releaseTaskFailureLogError(task) : null
+  const safeMetadata = displayDeploymentMetadata(task)
   return (
-    <OverlayDrawer
+    <OverlayModal
       open={Boolean(task)}
       eyebrow="Release Task Detail"
       title={`发布任务 #${task.id}`}
@@ -134,7 +167,7 @@ export function ReleaseTaskDetailDrawer({
                   打开 GitHub Actions 日志
                 </a>
               ) : null}
-              {task.deployment_failure_summary ? (
+              {showFailure && task.deployment_failure_summary ? (
                 <div className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-3 text-[color:var(--ops-state-blocked-text)]">
                   {task.deployment_failure_summary}
                 </div>
@@ -155,7 +188,7 @@ export function ReleaseTaskDetailDrawer({
               <details className="rounded-xl bg-[color:var(--ops-panel)] p-3">
                 <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Deployment metadata</summary>
                 <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">
-                  {JSON.stringify(task.deployment_metadata || {}, null, 2)}
+                  {JSON.stringify(safeMetadata, null, 2)}
                 </pre>
               </details>
             </div>
@@ -166,7 +199,7 @@ export function ReleaseTaskDetailDrawer({
           )}
         </section>
       </div>
-    </OverlayDrawer>
+    </OverlayModal>
   )
 }
 

@@ -58,7 +58,6 @@ vi.mock('../src/api', () => ({
 describe('SchedulesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     mockApi.getRecurringWorkflows.mockResolvedValue([workflow])
     mockApi.getRecurringWorkflowHealth.mockResolvedValue({
       bug_log_scheduler: { enabled: true, running: true, last_tick_at: '2026-04-19T00:00:00Z' },
@@ -99,7 +98,8 @@ describe('SchedulesPage', () => {
 
     const firstCard = screen.getAllByTestId('scheduled-job-card')[0]
     fireEvent.click(within(firstCard).getByText('Run Now'))
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled())
+    expect(await screen.findByRole('dialog', { name: /确认运行高影响任务/i })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '确认运行' }))
     expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
       dry_run: false,
       auto_start: false,

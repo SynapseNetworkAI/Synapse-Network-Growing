@@ -160,6 +160,120 @@ def test_release_task_deployment_status_sync_reconciles_rerun_success(
     assert task.status == "completed"
 
 
+def test_release_task_deployment_success_clears_stale_actions_failure_metadata(
+    db_session,
+):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="failed",
+        health_status="failed",
+        external_run_id="25274187647",
+        trigger_source="release_task",
+        notes="GitHub Actions staging deploy failure.",
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        finished_at=datetime.now(timezone.utc),
+        metadata_json=json.dumps(
+            {
+                "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network",
+                "githubFailureLogStatus": "ok",
+                "githubFailureLogExcerpt": "unauthorized_client attribute condition",
+                "githubFailureLogSyncedAt": "2026-05-03T08:35:09Z",
+                "deploymentSyncError": "old failure",
+            }
+        ),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="docs-front",
+        branch_name="main",
+        environment="staging",
+        status="failed",
+        actor="operator",
+        note="GitHub Actions staging deploy failure.",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    state = release_tasks_service._apply_github_run_to_deployment(
+        db_session,
+        record,
+        run_id="25274187647",
+        run_payload={
+            "status": "completed",
+            "conclusion": "success",
+            "url": "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/25274187647",
+            "headSha": "abc123",
+        },
+    )
+
+    assert state == "succeeded"
+    assert record.status == "succeeded"
+    assert record.health_status == "passed"
+    assert task.status == "completed"
+    assert task.note == "staging deploy succeeded; GitHub Actions run passed."
+    metadata = json.loads(record.metadata_json)
+    assert metadata["githubRunConclusion"] == "success"
+    assert "githubFailureLogExcerpt" not in metadata
+    assert "githubFailureLogStatus" not in metadata
+    assert "deploymentSyncError" not in metadata
+
+
+def test_release_task_deployment_status_sync_cleans_success_with_stale_failure_metadata(
+    db_session,
+):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="succeeded",
+        health_status="passed",
+        external_run_id="25274187647",
+        trigger_source="release_task",
+        notes="staging deploy succeeded; GitHub Actions run passed.",
+        started_at=datetime.now(timezone.utc) - timedelta(minutes=30),
+        finished_at=datetime.now(timezone.utc),
+        metadata_json=json.dumps(
+            {
+                "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network",
+                "githubRunConclusion": "success",
+                "githubFailureLogExcerpt": "unauthorized_client attribute condition",
+                "githubFailureLogStatus": "ok",
+            }
+        ),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="docs-front",
+        branch_name="main",
+        environment="staging",
+        status="completed",
+        actor="operator",
+        note="GitHub Actions staging deploy failure.",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    result = release_tasks_service.sync_release_task_deployment_statuses(db_session)
+
+    assert int(record.id) in result["succeeded_ids"]
+    db_session.refresh(record)
+    db_session.refresh(task)
+    metadata = json.loads(record.metadata_json)
+    assert "githubFailureLogExcerpt" not in metadata
+    assert "githubFailureLogStatus" not in metadata
+    assert task.note == "staging deploy succeeded; GitHub Actions run passed."
+
+
 def test_github_failure_log_result_handles_error_empty_and_truncation():
     error_result = github_actions_logs.github_failure_log_result(
         "owner/repo",

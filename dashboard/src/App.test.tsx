@@ -49,7 +49,7 @@ describe('App top navigation shell', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders only the four primary workflow entries and no sidebar navigation', async () => {
+  it('renders only the four primary workflow entries and no persistent secondary navigation rail', async () => {
     const { container } = renderApp('/command-center')
 
     const primaryNav = screen.getByRole('navigation', { name: 'Primary navigation' })

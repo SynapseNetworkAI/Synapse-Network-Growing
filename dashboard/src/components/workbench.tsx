@@ -179,7 +179,7 @@ export function InspectorRail({
   className?: string
 }>) {
   return (
-    <aside
+    <section
       className={cx(
         'rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] px-5 py-5',
         className,
@@ -188,7 +188,7 @@ export function InspectorRail({
       {eyebrow ? <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">{eyebrow}</div> : null}
       {title ? <h3 className="mt-2 text-lg font-semibold text-[color:var(--ops-text-title)]">{title}</h3> : null}
       <div className={cx(title || eyebrow ? 'mt-4' : '', 'space-y-4 text-sm text-[color:var(--ops-text-body)]')}>{children}</div>
-    </aside>
+    </section>
   )
 }
 
@@ -209,73 +209,6 @@ export function SelectionInspector({
     <InspectorRail eyebrow={eyebrow} title={title} className={className}>
       {active ?? <div className="leading-6 text-[color:var(--ops-text-muted)]">{empty}</div>}
     </InspectorRail>
-  )
-}
-
-export function OverlayDrawer({
-  open,
-  eyebrow,
-  title,
-  description,
-  actions,
-  onClose,
-  children,
-}: Readonly<{
-  open: boolean
-  eyebrow?: string
-  title: string
-  description?: ReactNode
-  actions?: ReactNode
-  onClose: () => void
-  children: ReactNode
-}>) {
-  return (
-    <div
-      className={cx(
-        'pointer-events-none fixed inset-0 z-40 transition-opacity duration-200',
-        open ? 'opacity-100' : 'opacity-0',
-      )}
-      aria-hidden={!open}
-    >
-      <button
-        type="button"
-        aria-label="关闭抽屉"
-        className={cx(
-          'absolute inset-0 bg-slate-950/20 transition-opacity duration-200',
-          open ? 'pointer-events-auto opacity-100' : 'opacity-0',
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cx(
-          'absolute right-0 top-0 flex h-full w-full max-w-[720px] flex-col border-l border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] shadow-[0_20px_60px_rgba(15,23,42,0.18)] backdrop-blur-xl',
-          open ? 'pointer-events-auto' : 'pointer-events-none',
-        )}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-6 py-5">
-          <div className="min-w-0 flex-1">
-            {eyebrow ? <div className="text-[11px] uppercase tracking-[0.24em] text-[color:var(--ops-text-caption)]">{eyebrow}</div> : null}
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">{title}</h2>
-            {description ? <div className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--ops-text-muted)]">{description}</div> : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm text-[color:var(--ops-text-body)]"
-              onClick={onClose}
-            >
-              关闭
-            </button>
-          </div>
-        </div>
-        {actions ? (
-          <div className="flex shrink-0 justify-start gap-2 border-b border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] px-6 py-4">
-            {actions}
-          </div>
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">{children}</div>
-      </aside>
-    </div>
   )
 }
 
@@ -387,6 +320,9 @@ export function ConfirmDialog({
       />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <section
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
           className={cx(
             'w-full max-w-[460px] translate-y-4 rounded-[28px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] px-6 py-6 shadow-[0_28px_90px_rgba(15,23,42,0.18)] transition duration-200',
             open ? 'pointer-events-auto translate-y-0' : '',

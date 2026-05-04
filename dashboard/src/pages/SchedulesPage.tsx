@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, RecurringWorkflow, RecurringWorkflowHealth, RecurringWorkflowRun } from '../api'
 import { ActionButton, CockpitPanel, MetricTile } from '../components/controlPlane'
-import { OverlayDrawer, StateBadge, useToast } from '../components/workbench'
-
-type LaneKey = 'attention' | 'strategy' | 'execution' | 'intake' | 'health' | 'uncategorized'
-
-type Presentation = {
-  lane: Exclude<LaneKey, 'attention'>
-  label: string
-  input: string
-  action: string
-  outputs: string[]
-}
+import { ConfirmDialog, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { hasPresentation, LaneKey, laneDefinitions, presentationFor } from './schedulesPresentation'
 
 type InspectorRun = RecurringWorkflowRun & {
   optimistic?: boolean
@@ -25,89 +16,12 @@ type InspectorAnchor = {
 
 type InspectorTab = 'history' | 'configuration'
 
-const laneDefinitions: Array<{ key: LaneKey; title: string; description: string }> = [
-  { key: 'attention', title: 'Attention Required', description: '失败、到期、锁冲突或最近运行异常会自动置顶，不被业务分组淹没。' },
-  { key: 'strategy', title: 'Strategy & Planning', description: '公司目标、Planner Sweep、周度复盘这些“大脑层”自动化。' },
-  { key: 'execution', title: 'Execution & Dispatch', description: '推进需求队列、审批巡检、收尾压缩这些 COO duty cycle。' },
-  { key: 'intake', title: 'Intake & Support', description: '外部信号、论坛反馈、早间输入这些前台触角。' },
-  { key: 'health', title: 'System Health & Reliability', description: '日志转 bug、重复需求清理和系统免疫。' },
-  { key: 'uncategorized', title: 'New / Uncategorized Initiates', description: '新增任务还没有 presentation metadata，仍可运行和追踪，但需要补齐说明。' },
-]
+type PendingRunConfirmation = {
+  workflow: RecurringWorkflow
+  dryRun: boolean
+} | null
 
-const presentationMap: Record<string, Presentation> = {
-  goal_planner_sweep: {
-    lane: 'strategy',
-    label: '生成候选需求',
-    input: 'Active goals + Operating Manifest',
-    action: 'Planner Agent 拆解目标',
-    outputs: ['Requirement Candidates', 'Fail-Closed Intercepts'],
-  },
-  weekly_operating_review: {
-    lane: 'strategy',
-    label: '生成周报与复盘',
-    input: '上周运行、需求、事故、门禁',
-    action: '刷新 company review',
-    outputs: ['Operating Review', 'Next-cycle bundle'],
-  },
-  dispatcher_loop: {
-    lane: 'execution',
-    label: '推进状态机',
-    input: 'Ready / blocked / paused requirements',
-    action: '扫描队列并提出推进动作',
-    outputs: ['Follow-up actions', 'Stuck work signals'],
-  },
-  approval_sweep: {
-    lane: 'execution',
-    label: '审批巡检',
-    input: 'Pending gates + stale approvals',
-    action: '刷新 human gate backlog',
-    outputs: ['Approval reminders', 'Gate health'],
-  },
-  closeout_and_compact_sweep: {
-    lane: 'execution',
-    label: '上下文归档',
-    input: 'Done / paused / blocked requirements',
-    action: '收尾检查与上下文压缩',
-    outputs: ['Acceptance candidates', 'Compaction snapshots'],
-  },
-  morning_intake_sweep: {
-    lane: 'intake',
-    label: '生成待办',
-    input: 'Signals + review bundle + bug intake',
-    action: '刷新输入源并创建高置信事项',
-    outputs: ['Requirements', 'Operator attention items'],
-  },
-  forum_feedback_sweep: {
-    lane: 'intake',
-    label: '客服回复 / 提 Bug',
-    input: 'Forum unreplied response tasks',
-    action: '分类、提取、生成回复建议',
-    outputs: ['Reply drafts', 'Bug candidates'],
-  },
-  bug_log_sweep: {
-    lane: 'health',
-    label: '日志转 Bug 工单',
-    input: 'Runtime logs + workflow incidents',
-    action: '归一化错误并尝试 materialize',
-    outputs: ['Bug backlog', 'Materialized requirements'],
-  },
-  requirement_family_cleanup_sweep: {
-    lane: 'health',
-    label: '去重归档',
-    input: 'Draft / ready / paused requirement families',
-    action: '清理重复实验需求',
-    outputs: ['Archived requirements', 'Merge recommendations'],
-  },
-  ci_status_sweep: {
-    lane: 'health',
-    label: 'Final Regression 收口',
-    input: 'awaiting_ci workflow runs',
-    action: '读取 marker 文件并推进状态机',
-    outputs: ['CI evidence', 'PR handoff', 'Needs Human reports'],
-  },
-}
-
-function record(value: unknown): Record<string, unknown> {
+function _record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
@@ -198,23 +112,8 @@ function scheduleLabel(workflow: RecurringWorkflow) {
   return cadence
 }
 
-function presentationFor(workflow: RecurringWorkflow): Presentation {
-  const mapped = presentationMap[workflow.workflow_key]
-  if (mapped) return mapped
-  const input = Object.keys(record(workflow.input_query)).slice(0, 3).join(', ') || 'custom input query'
-  const action = String(record(workflow.output_action).kind || workflow.description || 'custom recurring action')
-  const output = String(record(workflow.validation_signal).success_metric || 'custom output')
-  return {
-    lane: 'uncategorized',
-    label: 'Missing Presentation Metadata',
-    input,
-    action,
-    outputs: [output],
-  }
-}
-
 function lastResultStatus(workflow: RecurringWorkflow) {
-  return String(record(workflow.last_result).status || '').toLowerCase()
+  return String(_record(workflow.last_result).status || '').toLowerCase()
 }
 
 function needsAttention(workflow: RecurringWorkflow) {
@@ -225,7 +124,7 @@ function needsAttention(workflow: RecurringWorkflow) {
 function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
   const next = workflow.next_run_at ? new Date(workflow.next_run_at) : null
   const isOverdue = Boolean(workflow.is_due && next && !Number.isNaN(next.getTime()) && next.getTime() < now.getTime())
-  const result = record(workflow.last_result)
+  const result = _record(workflow.last_result)
   const lastStatus = String(result.status || '').toLowerCase()
   const rawReason = result.reason || result.error || (workflow.health_status === 'failed' ? 'Recent run failed' : '')
   const reason = lastStatus === 'skipped_locked'
@@ -240,7 +139,7 @@ function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
 }
 
 function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: Record<string, unknown>) {
-  const result = run ? record(run.result) : record(fallbackResult)
+  const result = run ? _record(run.result) : _record(fallbackResult)
   if (!run && !Object.keys(result).length) return ['No run result recorded yet.']
   const lines: string[] = []
   const knownKeys = [
@@ -270,8 +169,8 @@ function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: Record<
 }
 
 function HealthStrip({ health, stats }: Readonly<{ health: RecurringWorkflowHealth | null; stats: Record<string, number> }>) {
-  const dispatcher = record(health?.notification_dispatcher)
-  const registry = record(health?.recurring_registry)
+  const dispatcher = _record(health?.notification_dispatcher)
+  const registry = _record(health?.recurring_registry)
   return (
     <section className="grid gap-3 md:grid-cols-5" data-testid="schedule-health-overview">
       <MetricTile label="Total Jobs" value={stats.total} detail="registered recurring workflows" tone="info" />
@@ -334,7 +233,7 @@ function ScheduledJobCard({
   onInspect: (workflow: RecurringWorkflow, anchor?: InspectorAnchor) => void
 }>) {
   const presentation = presentationFor(workflow)
-  const missingMetadata = !presentationMap[workflow.workflow_key]
+  const missingMetadata = !hasPresentation(workflow.workflow_key)
   const summary = summarizeRun(latestRun, workflow.last_result)[0]
   const overdue = overdueInfo(workflow)
   return (
@@ -479,7 +378,7 @@ function ScheduleLane({
   )
 }
 
-function RunInspectorDrawer({
+function RunInspectorModal({
   open,
   workflow,
   run,
@@ -512,7 +411,7 @@ function RunInspectorDrawer({
     activeTab === tab ? 'bg-cyan-300/15 text-cyan-50' : 'text-[color:var(--ops-text-muted)] hover:bg-white/[0.06] hover:text-[color:var(--ops-text-body)]',
   ].join(' ')
   return (
-    <OverlayDrawer
+    <OverlayModal
       open={open}
       eyebrow="Run Inspector"
       title={workflow?.display_name || 'Run Inspector'}
@@ -673,7 +572,7 @@ function RunInspectorDrawer({
           )}
         </div>
       ) : <div className="text-sm text-[color:var(--ops-text-muted)]">选择一个任务查看运行战报。</div>}
-    </OverlayDrawer>
+    </OverlayModal>
   )
 }
 
@@ -691,6 +590,7 @@ export default function SchedulesPage() {
   const [loading, setLoading] = useState(true)
   const [runningKey, setRunningKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pendingRunConfirmation, setPendingRunConfirmation] = useState<PendingRunConfirmation>(null)
   const inspectorWorkflowKeyRef = useRef<string | null>(null)
 
   async function load() {
@@ -781,9 +681,13 @@ export default function SchedulesPage() {
   async function runWorkflow(workflow: RecurringWorkflow, dryRun: boolean) {
     const risky = ['bug_log_sweep', 'morning_intake_sweep', 'forum_feedback_sweep'].includes(workflow.workflow_key)
     if (!dryRun && risky) {
-      const confirmed = window.confirm(`${workflow.display_name} 可能创建候选、复用 requirement 或推送审核草稿。默认不会 auto-start，确认现在运行吗？`)
-      if (!confirmed) return
+      setPendingRunConfirmation({ workflow, dryRun })
+      return
     }
+    await executeWorkflow(workflow, dryRun)
+  }
+
+  async function executeWorkflow(workflow: RecurringWorkflow, dryRun: boolean) {
     const optimistic: InspectorRun = {
       id: -Date.now(),
       workflow_key: workflow.workflow_key,
@@ -895,7 +799,7 @@ export default function SchedulesPage() {
 
       {!loading && !items.length ? <CockpitPanel eyebrow="Empty State" title="暂无 recurring workflow" description="后台自动化 registry 还没有同步出任务定义。"><div /></CockpitPanel> : null}
 
-      <RunInspectorDrawer
+      <RunInspectorModal
         open={Boolean(inspectorWorkflow)}
         workflow={inspectorWorkflow}
         run={inspectorRun}
@@ -908,6 +812,19 @@ export default function SchedulesPage() {
         onRefresh={refreshInspector}
         onSelectTab={setInspectorTab}
         onRunWorkflow={runWorkflow}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingRunConfirmation)}
+        title="确认运行高影响任务"
+        description={`${pendingRunConfirmation?.workflow.display_name || '该任务'} 可能创建候选、复用 requirement 或推送审核草稿。默认不会 auto-start。`}
+        confirmLabel="确认运行"
+        cancelLabel="取消"
+        onClose={() => setPendingRunConfirmation(null)}
+        onConfirm={() => {
+          const next = pendingRunConfirmation
+          setPendingRunConfirmation(null)
+          if (next) executeWorkflow(next.workflow, next.dryRun).catch(() => {})
+        }}
       />
     </div>
   )

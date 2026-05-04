@@ -72,6 +72,11 @@ if search_text "OverlayDrawer|Drawer|Offcanvas|SidePanel|Side Panel" dashboard/s
   echo "PublishingPage must use centered Modal/Dialog interactions, not drawers or side panels." >&2
   exit 1
 fi
+echo "[guardrails] active Ops Console modal-only UI"
+if search_text "OverlayDrawer|Drawer|drawer|Sidebar|sidebar|SidePanel|Side Panel|Offcanvas|<aside" dashboard/src; then
+  echo "Active dashboard code must use Top Nav + centered Modal/Dialog interactions; drawers, side panels, sidebars, offcanvas, and <aside> are forbidden." >&2
+  exit 1
+fi
 search_text "ui-ux-pro-max" \
   .cursorrules \
   docs/design-docs/frontend-control-plane-figma-implementation.md \

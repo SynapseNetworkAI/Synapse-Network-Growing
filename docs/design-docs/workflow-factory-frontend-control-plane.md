@@ -385,11 +385,11 @@ Workflow detail 必须回答：
 │ - status / evidence summary    │ - outputs                  │
 │                               │ - validation / artifacts   │
 ├───────────────────────────────┴────────────────────────────┤
-│ Audit Drawer / Raw Evidence / Blackboard JSON              │
+│ Audit Modal / Raw Evidence / Blackboard JSON               │
 └────────────────────────────────────────────────────────────┘
 ```
 
-默认不要把所有 artifacts 全部展开。默认只展示“解释后的摘要”，原始证据进入 drawer / details。
+默认不要把所有 artifacts 全部展开。默认只展示“解释后的摘要”，原始证据进入 centered modal / details。
 
 ##### Module 1: Run Brief
 
@@ -590,7 +590,7 @@ UI 表达：
 
 1. 每个 step card 上展示 evidence count。
 2. Inspector Evidence tab 展示该 step 的 artifacts。
-3. Global Evidence Drawer 才展示全部 artifacts。
+3. Global Evidence Modal 才展示全部 artifacts。
 4. Artifact title 要从机器名变成人话：
    - `workflow_transition_event #1` -> `Transition: detect_ops_failure -> collect_logs`
    - `workflow_agent_raw_output #3` -> `Agent Output: diagnose`
@@ -701,7 +701,7 @@ WorkflowRun.correctness_summary
 2. PR 2：把 Generated Work Items 替换成 Step Explorer。
 3. PR 3：新增 Step Inspector，点击 step 展示 inputs / outputs / evidence / transition。
 4. PR 4：新增 Correctness Panel + Next Action Panel。
-5. PR 5：重命名 Artifact titles，并把 Raw Blackboard 移到 Debug Drawer。
+5. PR 5：重命名 Artifact titles，并把 Raw Blackboard 移到 Debug Modal。
 
 ### 6. Human Gates
 
@@ -893,7 +893,7 @@ flowchart TB
    - renders states, transitions, loops, current state
 3. `NextActionPanel`
    - one primary recommended action
-4. `EvidenceDrawer`
+4. `EvidenceModal`
    - artifacts, command logs, raw output
 5. `BlackboardInspector`
    - summary first, raw JSON expandable
