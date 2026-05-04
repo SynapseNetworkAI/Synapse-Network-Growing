@@ -42,6 +42,7 @@ from server.services.runtime.alerting import build_ops_url, deliver_policy_notif
 from server.services.scheduling.locks import acquire_scheduler_lock, release_scheduler_lock, scheduler_lock_snapshot
 from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
+from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
 from server.services.social.daily_planner import run_x_social_daily_content_planner
 from server.services.social.distribution_asset_planner import (
@@ -1616,7 +1617,8 @@ def _execute_recurring_workflow(
     if workflow_key == "release_pr_status_sweep":
         return sync_release_pr_statuses(db, max_records=50, per_record_sleep_seconds=1.0)
     if workflow_key == "release_deployment_status_sweep":
-        return sync_release_task_deployment_statuses(db, max_records=50)
+        release_payload = dump_service_result(sync_release_task_deployment_statuses(db, max_records=50))
+        return {**release_payload, "release_tasks": release_payload, "scheduled_jobs": dump_service_result(sync_scheduled_job_publish_statuses(db, max_records=50))}
     if workflow_key in _X_SOCIAL_DRY_RUNS:
         return _run_x_social_workflow(db, workflow_key)
     if workflow_key == "weekly_operating_review":

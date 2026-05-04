@@ -819,6 +819,7 @@ class SocialPostMetricRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
 import server.database_social_distribution  # noqa: E402,F401
+import server.database_scheduled_jobs  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
