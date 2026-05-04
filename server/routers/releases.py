@@ -56,6 +56,26 @@ from server.services.releases.tasks import (
     sync_release_task_deployment_statuses,
     update_release_task,
 )
+from server.services.releases.scheduled_jobs import scheduled_job_catalog, scheduled_jobs_status
+from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
+from server.services.releases.scheduled_job_tasks import (
+    cancel_scheduled_job_release_task,
+    create_scheduled_job_release_task,
+    get_scheduled_job_release_task,
+    list_scheduled_job_release_tasks,
+    publish_scheduled_job_release_task,
+)
+from server.services.releases.scheduled_job_schemas import (
+    ScheduledCloudRunJobOut,
+    ScheduledCloudRunJobRecordsOut,
+    ScheduledCloudRunJobRecordOut,
+    ScheduledCloudRunJobTaskCreateRequest,
+    ScheduledCloudRunJobTaskPublishRequest,
+    ScheduledCloudRunJobsPublishOut,
+    ScheduledCloudRunJobsPublishRequest,
+    ScheduledCloudRunJobsStatusOut,
+    ScheduledCloudRunJobsSyncOut,
+)
 
 
 router = APIRouter(prefix="/api/releases", tags=["releases"])
@@ -115,6 +135,92 @@ def list_online_release_records_endpoint(
 @router.post("/tasks/sync-deployment-statuses")
 def sync_release_task_deployment_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_release_task_deployment_statuses(db, max_records=max_records)
+
+
+@router.get("/scheduled-jobs/catalog", response_model=list[ScheduledCloudRunJobOut])
+def scheduled_jobs_catalog_endpoint():
+    return scheduled_job_catalog()
+
+
+@router.get("/scheduled-jobs/status", response_model=ScheduledCloudRunJobsStatusOut)
+def scheduled_jobs_status_endpoint(db: Session = Depends(get_db)):
+    return scheduled_jobs_status(db)
+
+
+@router.get("/scheduled-jobs/tasks", response_model=ScheduledCloudRunJobRecordsOut)
+def scheduled_job_release_tasks_endpoint(
+    environment: str | None = None,
+    job_name: str | None = None,
+    family: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return list_scheduled_job_release_tasks(
+        db,
+        environment=environment,
+        job_name=job_name,
+        family=family,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/scheduled-jobs/tasks", response_model=ScheduledCloudRunJobRecordOut)
+def create_scheduled_job_release_task_endpoint(
+    body: ScheduledCloudRunJobTaskCreateRequest, db: Session = Depends(get_db)
+):
+    try:
+        return create_scheduled_job_release_task(db, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/scheduled-jobs/tasks/{task_id}", response_model=ScheduledCloudRunJobRecordOut)
+def get_scheduled_job_release_task_endpoint(task_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_scheduled_job_release_task(db, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/scheduled-jobs/tasks/{task_id}/publish", response_model=ScheduledCloudRunJobsPublishOut)
+def publish_scheduled_job_release_task_endpoint(
+    task_id: int,
+    body: ScheduledCloudRunJobTaskPublishRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return publish_scheduled_job_release_task(db, task_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/scheduled-jobs/tasks/{task_id}/cancel", response_model=ScheduledCloudRunJobRecordOut)
+def cancel_scheduled_job_release_task_endpoint(task_id: int, db: Session = Depends(get_db)):
+    try:
+        return cancel_scheduled_job_release_task(db, task_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/scheduled-jobs/publish", response_model=ScheduledCloudRunJobsPublishOut)
+def publish_scheduled_jobs_endpoint(_body: ScheduledCloudRunJobsPublishRequest, _db: Session = Depends(get_db)):
+    raise HTTPException(
+        status_code=410,
+        detail="Scheduled job releases are two-step now: create /scheduled-jobs/tasks, then publish /scheduled-jobs/tasks/{id}/publish.",
+    )
+
+
+@router.post("/scheduled-jobs/sync", response_model=ScheduledCloudRunJobsSyncOut)
+def sync_scheduled_job_publish_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
+    return sync_scheduled_job_publish_statuses(db, max_records=max_records)
 
 
 @router.get("/sdk-packages", response_model=list[SdkPackageReleaseOut])

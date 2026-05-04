@@ -5,9 +5,10 @@ import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../co
 import { ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
+import ScheduledJobsPanel from './ScheduledJobsPanel'
 
-type ReleaseTab = 'candidates' | 'tasks' | 'sdk-packages' | 'online'
-const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'sdk-packages', 'online']
+type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'online'
+const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'online']
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
@@ -456,6 +457,13 @@ export default function ReleasesPage() {
           </button>
           <button
             type="button"
+            className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'scheduled-jobs' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
+            onClick={() => selectReleaseTab('scheduled-jobs')}
+          >
+            定时任务发布
+          </button>
+          <button
+            type="button"
             className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'sdk-packages' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
             onClick={() => selectReleaseTab('sdk-packages')}
           >
@@ -515,6 +523,8 @@ export default function ReleasesPage() {
             setTaskDetail(task)
           }}
         />
+      ) : activeTab === 'scheduled-jobs' ? (
+        <ScheduledJobsPanel />
       ) : activeTab === 'sdk-packages' ? (
         <SdkPackagesPanel search={search} />
       ) : (

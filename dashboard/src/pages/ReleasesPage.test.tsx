@@ -26,6 +26,9 @@ const apiMock = vi.hoisted(() => ({
   publishSdkPackageRelease: vi.fn(),
   retrySdkPackageRelease: vi.fn(),
   syncSdkPackageReleaseStatuses: vi.fn(),
+  getScheduledCloudRunJobsStatus: vi.fn(),
+  publishScheduledCloudRunJobs: vi.fn(),
+  syncScheduledCloudRunJobs: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -298,6 +301,77 @@ describe('ReleasesPage', () => {
     apiMock.publishSdkPackageRelease.mockResolvedValue({})
     apiMock.retrySdkPackageRelease.mockResolvedValue({})
     apiMock.syncSdkPackageReleaseStatuses.mockResolvedValue({ processed_count: 0, publishing_ids: [], ready_ids: [], published_ids: [], failed_ids: [], error_ids: [] })
+    apiMock.getScheduledCloudRunJobsStatus.mockResolvedValue({
+      diagnostics: [],
+      updated_at: '2026-05-03T01:00:00Z',
+      items: [
+        {
+          job_name: 'synapse-staging-deposit-indexer',
+          family: 'gateway',
+          job_type: 'periodic',
+          cadence: 'every_minute',
+          command: 'python -m src.worker deposit-indexer --once',
+          purpose: '确认充值入账',
+          scheduler_job: 'synapse-staging-deposit-indexer-schedule',
+          freshness_required: true,
+          migration_execution_required: false,
+          publish_status: 'unknown',
+          scheduler_status: 'configured_from_docs',
+          health_status: 'unknown',
+          image_digest: null,
+          effective_image: null,
+          latest_execution: null,
+          last_published_at: null,
+          last_deployment_record_id: null,
+          external_url: null,
+          failure_summary: null,
+          diagnostic: null,
+          metadata: {},
+        },
+        {
+          job_name: 'synapse-staging-db-migrate',
+          family: 'gateway',
+          job_type: 'migration',
+          cadence: 'release_time',
+          command: 'gateway database migration job',
+          purpose: 'Gateway DB migration',
+          scheduler_job: null,
+          freshness_required: false,
+          migration_execution_required: true,
+          publish_status: 'unknown',
+          scheduler_status: 'manual_job',
+          health_status: 'unknown',
+          image_digest: null,
+          effective_image: null,
+          latest_execution: null,
+          last_published_at: null,
+          last_deployment_record_id: null,
+          external_url: null,
+          failure_summary: null,
+          diagnostic: null,
+          metadata: {},
+        },
+      ],
+    })
+    apiMock.publishScheduledCloudRunJobs.mockResolvedValue({
+      deployment_record_id: 99,
+      family: 'gateway',
+      environment: 'staging',
+      publish_mode: 'single_job',
+      job_name: 'synapse-staging-deposit-indexer',
+      status: 'requested',
+      external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/99',
+      jobs: ['synapse-staging-deposit-indexer'],
+      message: 'ok',
+    })
+    apiMock.syncScheduledCloudRunJobs.mockResolvedValue({
+      processed_count: 1,
+      succeeded_ids: [],
+      failed_ids: [],
+      running_ids: [99],
+      pending_ids: [],
+      error_ids: [],
+    })
   })
 
   it('shows merged and closed PR sync states', async () => {
@@ -790,4 +864,5 @@ describe('ReleasesPage', () => {
       })
     })
   })
+
 })

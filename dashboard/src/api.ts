@@ -12,6 +12,7 @@ export type {
 } from './apiSocialDistribution'
 import { createSocialMetricApi } from './apiSocialMetrics'
 export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
+import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import type { SocialOpsOverview } from './types/socialOps'
 export type { SocialOpsOverview, SocialPostMetricSummary, SocialPostMetricTopPost } from './types/socialOps'
 const BASE = '/api'
@@ -2102,10 +2103,10 @@ export interface PlanningMissionControl {
   last_sweep: PlannerSweep | null
 }
 
-// API functions
 export const api = {
   ...createSocialDistributionApi(request),
   ...createSocialMetricApi(request),
+  ...createReleaseScheduledJobsApi(request),
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
