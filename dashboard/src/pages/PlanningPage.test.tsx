@@ -468,7 +468,7 @@ describe('PlanningPage queues', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Planning task detail' })
     expect(within(dialog).getByText('Add mission board API')).toBeInTheDocument()
     expect(within(dialog).getByText('Review, materialize, or repair this intake candidate.')).toBeInTheDocument()
-    expect(within(dialog).queryByText(/Drawer/i)).not.toBeInTheDocument()
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
   })
 
   it('opens centered Candidate detail modal from Mission Workbench detail link', async () => {
@@ -484,7 +484,7 @@ describe('PlanningPage queues', () => {
     expect(within(dialog).getByText('Fail-Closed 原因')).toBeInTheDocument()
     expect(within(dialog).getByText('required command is not in the safe command allowlist.')).toBeInTheDocument()
     expect(within(dialog).getByText(/cd \/Users\/cliff\/workspace\/agent\/Synapse-Network-Sdk/)).toBeInTheDocument()
-    expect(within(dialog).queryByText(/Drawer/i)).not.toBeInTheDocument()
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
   })
 
   it('opens candidate detail directly from query params', async () => {

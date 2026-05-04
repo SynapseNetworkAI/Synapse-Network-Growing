@@ -309,7 +309,7 @@ It contains:
 1. `/planning` must organize work by `goal_key`; candidates must not appear as a detached global queue in the primary view.
 2. Candidate approval, rejection, approve-and-run and materialization must happen inside the relevant goal lane so the operator sees the business context.
 3. Raw Manifest JSON must not be the default editing surface. Use form controls for `focus_weights`, `global_budget` and `global_constraints`.
-4. Raw JSON is allowed only in a Debug tab or drawer for fields not covered by the structured controls.
+4. Raw JSON is allowed only in a Debug tab, centered modal, or `<details>` block for fields not covered by the structured controls.
 5. Manifest History must be paginated and searchable, and must not crowd the Mission Control primary surface.
 6. Pending candidates should expose `Approve & Run` as the primary action and `Approve only` as an explicit staging action.
 7. `Approve & Run` must not bypass workflow risk policy; high-risk candidates must still stop at Human Gate.
@@ -321,7 +321,7 @@ It contains:
 13. Goal lanes must render as compact battlefront cards: title, domain, weight, success metric, clamped intent excerpt, primary actions, and grouped candidates.
 14. Candidate display order is `Action Required -> Materialized -> Planner Intercepts -> Quiet History`.
 15. `validation_failed` candidates must not be rendered as normal candidate cards. They belong in a collapsed Planner Intercepts section with the Fail-Closed reason first.
-16. Full Goal PRD, Candidate `description_markdown`, Planner raw output and metadata dumps must be behind drawers or `<details>` progressive disclosure.
+16. Full Goal PRD, Candidate `description_markdown`, Planner raw output and metadata dumps must be behind centered modals or `<details>` progressive disclosure.
 17. Goal lanes must be grouped as `Active / Achieved / Dropped`: Active goals stay expanded at the top, while historical Achieved and Dropped goals stay collapsed by default.
 18. Historical goal groups must support local filtering and virtualized history when the group grows large; do not use table-style pagination for the primary mission control surface.
 19. Planner Intercepts must use deduped planner intercepts by Fail-Closed reason signature. Repeated identical failures should render as one diagnostic group with an attempt count, not as a wall of duplicate drafts.

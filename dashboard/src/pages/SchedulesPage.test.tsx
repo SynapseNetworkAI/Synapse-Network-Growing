@@ -67,7 +67,6 @@ const runs = [
 describe('SchedulesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     apiMock.getRecurringWorkflows.mockResolvedValue([
       workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z' }),
       workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent' }),
@@ -135,7 +134,7 @@ describe('SchedulesPage', () => {
     expect(within(inspector).getByText(/#12/)).toBeTruthy()
   })
 
-  it('opens history drawer immediately while run action is still pending', async () => {
+  it('opens history modal immediately while run action is still pending', async () => {
     const user = userEvent.setup()
     let resolveRun: (value: unknown) => void = () => {}
     apiMock.runRecurringWorkflow.mockReturnValue(new Promise((resolve) => { resolveRun = resolve }))
@@ -220,11 +219,15 @@ describe('SchedulesPage', () => {
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
-    const runNowButtons = screen.getAllByRole('button', { name: 'Run Now' })
-    await user.click(runNowButtons[0])
+    const bugLogCard = screen.getAllByTestId('scheduled-job-card').find((card) => card.textContent?.includes('Bug Log Sweep'))
+    expect(bugLogCard).toBeTruthy()
+    const runNowButton = within(bugLogCard as HTMLElement).getByRole('button', { name: 'Run Now' })
+    await user.click(runNowButton)
+    expect(await screen.findByRole('dialog', { name: /确认运行高影响任务/i })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '确认运行' }))
 
     expect((await screen.findAllByText('Running...')).length).toBeGreaterThan(0)
-    expect(runNowButtons[0]).toBeDisabled()
+    expect(runNowButton).toBeDisabled()
     resolveRun({
       workflow_key: 'goal_planner_sweep',
       status: 'completed',

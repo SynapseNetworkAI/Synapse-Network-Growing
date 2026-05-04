@@ -1,9 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AgentRequirement, Project, RequirementAttachmentInput, api } from '../api'
-import { ConfirmDialog, EmptyPane, FieldLabel, OverlayDrawer, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { ConfirmDialog, EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
 
-type DrawerMode = 'closed' | 'create' | 'edit'
+type ComposerMode = 'closed' | 'create' | 'edit'
 
 type RequirementDraft = {
   title: string
@@ -446,7 +446,7 @@ function RequirementComposer({
   onSubmit,
   onUploadError,
 }: Readonly<{
-  mode: DrawerMode
+  mode: ComposerMode
   open: boolean
   draft: RequirementDraft
   projects: Project[]
@@ -458,12 +458,11 @@ function RequirementComposer({
   onUploadError: (message: string) => void
 }>) {
   const editing = mode === 'edit'
-  const Container = editing ? OverlayDrawer : OverlayModal
 
   return (
-    <Container open={open} title={editing ? '编辑需求' : '新建需求'} eyebrow={editing ? `Requirement #${selected?.id ?? '-'}` : 'New Requirement'} onClose={onClose}>
+    <OverlayModal open={open} title={editing ? '编辑需求' : '新建需求'} eyebrow={editing ? `Requirement #${selected?.id ?? '-'}` : 'New Requirement'} onClose={onClose}>
       <RequirementForm draft={draft} projects={projects} saving={saving} onChange={onChange} onClose={onClose} onSubmit={onSubmit} onUploadError={onUploadError} />
-    </Container>
+    </OverlayModal>
   )
 }
 
@@ -482,7 +481,7 @@ export default function RequirementPool() {
   const [confirmingRequirement, setConfirmingRequirement] = useState<AgentRequirement | null>(null)
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete'>('delete')
   const [selectedRequirementId, setSelectedRequirementId] = useState<number | null>(null)
-  const [drawerMode, setDrawerMode] = useState<DrawerMode>('closed')
+  const [composerMode, setComposerMode] = useState<ComposerMode>('closed')
   const [draft, setDraft] = useState<RequirementDraft>({ ...EMPTY_DRAFT })
   const toast = useToast()
 
@@ -531,21 +530,21 @@ export default function RequirementPool() {
 
   const openCreate = () => {
     setDraft({ ...EMPTY_DRAFT })
-    setDrawerMode('create')
+    setComposerMode('create')
   }
 
   const openEdit = (requirement: AgentRequirement) => {
     if (!canEditRequirement(requirement)) return
     setSelectedRequirementId(requirement.id)
     setDraft(buildDraft(requirement))
-    setDrawerMode('edit')
+    setComposerMode('edit')
   }
 
   const closeComposer = () => {
     draft.attachments.forEach((item) => {
       if (item.preview_url) URL.revokeObjectURL(item.preview_url)
     })
-    setDrawerMode('closed')
+    setComposerMode('closed')
     setDraft({ ...EMPTY_DRAFT })
   }
 
@@ -559,20 +558,20 @@ export default function RequirementPool() {
         project_id: draft.project_id ?? undefined,
         target_project_path_override: draft.target_project_path_override || undefined,
       }
-      if (drawerMode === 'create') {
+      if (composerMode === 'create') {
         await api.createRequirement({
           ...basePayload,
           attachments: draft.attachments.map(({ local_id: _localId, attachment_kind: _attachmentKind, size_bytes: _sizeBytes, preview_url: _previewUrl, ...attachment }) => attachment),
         })
         toast.success('需求已创建')
-      } else if (drawerMode === 'edit' && selectedRequirement) {
+      } else if (composerMode === 'edit' && selectedRequirement) {
         await api.updateRequirement(selectedRequirement.id, basePayload)
         toast.success('需求已更新')
       }
       await load()
       closeComposer()
     } catch {
-      toast.error(drawerMode === 'create' ? '创建失败，请重试' : '保存失败，请重试')
+      toast.error(composerMode === 'create' ? '创建失败，请重试' : '保存失败，请重试')
     } finally {
       setSaving(false)
     }
@@ -857,8 +856,8 @@ export default function RequirementPool() {
       </section>
 
       <RequirementComposer
-        mode={drawerMode}
-        open={drawerMode !== 'closed'}
+        mode={composerMode}
+        open={composerMode !== 'closed'}
         draft={draft}
         projects={projects}
         saving={saving}

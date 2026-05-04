@@ -28,7 +28,7 @@ Human Intent
 
 ## Navigation Model
 
-主导航必须按 operator 决策路径组织，并采用 Top Header Navigation。不要再新增桌面左侧 sidebar / offcanvas / tree menu。主导航只保留高频业务流水线入口：
+主导航必须按 operator 决策路径组织，并采用 Top Header Navigation。不要再新增桌面持久次级导航、offcanvas 或 tree menu。主导航只保留高频业务流水线入口：
 
 ```text
 Synapse Agent Ops | Command Center | Planning | Publishing | Releases | Needs Human | Cmd+K / Search | Alerts
@@ -76,7 +76,7 @@ python3 .agents/skills/ui-ux-pro-max/scripts/search.py "SaaS ops console dark co
 
 Use the resulting SaaS / Ops Console guidance as a constraint, not a wholesale theme replacement: preserve the dark cockpit shell, prefer clear hierarchy, concise status badges, low-noise actions, strong focus states, and readable modal forms.
 
-For new create, edit, view, form, and confirmation interactions, the approved popup primitive is a centered `Modal` / `Dialog` with a dark blocking overlay. Do not introduce Drawer, Slide-out, Offcanvas, Side Panel, or right-side sheet interactions for new UI work. Existing drawers are legacy debt and should not be copied.
+For create, edit, view, form, detail, and confirmation interactions, the approved primitive is a centered `Modal` / `Dialog` with a dark blocking overlay. Do not introduce Drawer, Slide-out, Offcanvas, Side Panel, right-side sheet, or semantic `<aside>` interactions in active dashboard code. Historical Stitch prototypes under `docs/front/stitch_declarative_agent_factory/` are archive-only references and must not be copied as implementation source.
 
 ## Readability Contract
 

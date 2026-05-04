@@ -221,7 +221,7 @@ Output: Reply drafts | Bug candidates
 3. `View History` 或点击卡片标题 / Last Run 打开 Run Inspector。
 4. `Dry Run` 属于调试动作，默认放入 Run Inspector 的 Configuration / Run Controls 区，不占据主视图最高层级。
 
-主视图不得把完整 I-P-O 三块大卡、长 description 和三个大按钮平铺在每个任务卡中。完整定义必须通过 `Show definition` 或 Drawer 渐进披露。
+主视图不得把完整 I-P-O 三块大卡、长 description 和三个大按钮平铺在每个任务卡中。完整定义必须通过 `Show definition`、居中 Modal 或 `<details>` 渐进披露。
 
 逾期展示：
 
@@ -254,7 +254,7 @@ Raw `params` / `result` 只能放在 Debug details 中，避免页面变成日�
 
 Run Inspector 约束：
 
-1. Drawer 必须包含 `Run History` 与 `Configuration` 两个 tab。
+1. Run Inspector Modal 必须包含 `Run History` 与 `Configuration` 两个 tab。
 2. 历史查询必须显式限制为最近 50 条，避免高频任务历史拖垮浏览器。
 3. `Last Run` 入口应传递明确锚点；刷新后优先保留当前选中 run。如果该 run 已不在最近 50 条中，平滑回退到最新 run 并提示。
 4. 抽屉必须支持局部 `Refresh`，无需关闭重开。
