@@ -14,7 +14,7 @@ type PublishDraft = {
   runMigrations: boolean
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
 
 function statusTone(status: string): 'ready' | 'running' | 'blocked' | 'muted' {
   const normalized = status.toLowerCase()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from server.database import DeploymentRecordRow, utcnow
@@ -92,7 +93,7 @@ def list_scheduled_job_release_tasks(
     offset: int = 0,
 ) -> ScheduledCloudRunJobRecordsOut:
     _backfill_legacy_deployment_records(db)
-    bounded_limit = max(1, min(int(limit or 20), 100))
+    bounded_limit = max(1, min(int(limit or 10), 100))
     bounded_offset = max(0, int(offset or 0))
     query = db.query(ScheduledJobReleaseTaskRow)
     if _clean(environment):
@@ -110,8 +111,21 @@ def list_scheduled_job_release_tasks(
             ScheduledJobReleaseTaskRow.status == _clean(status).lower()
         )
     total = query.count()
+    status_priority = case(
+        (
+            ScheduledJobReleaseTaskRow.status.in_(
+                ["requested", "deploying", "running", "pending", "publishing"]
+            ),
+            0,
+        ),
+        (ScheduledJobReleaseTaskRow.status.in_(["completed", "succeeded"]), 1),
+        (ScheduledJobReleaseTaskRow.status.in_(["failed", "blocked"]), 2),
+        (ScheduledJobReleaseTaskRow.status.in_(["cancelled", "canceled"]), 3),
+        else_=0,
+    )
     rows = (
         query.order_by(
+            status_priority.asc(),
             ScheduledJobReleaseTaskRow.updated_at.desc(),
             ScheduledJobReleaseTaskRow.id.desc(),
         )

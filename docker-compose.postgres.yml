@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: synapse-growing-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse_growing
+      POSTGRES_USER: synapse_growing
+      POSTGRES_PASSWORD: synapse_growing_dev
+    ports:
+      - "54329:5432"
+    volumes:
+      - synapse-growing-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse_growing -d synapse_growing"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  synapse-growing-postgres-data:

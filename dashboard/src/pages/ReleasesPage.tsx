@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
+import { getReleaseTasksPage } from '../apiReleaseTasks'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
-import { ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
+import { ReleaseTaskCompactFailure, ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, releaseTaskFailureSummary, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
 import ScheduledJobsPanel from './ScheduledJobsPanel'
 
 type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'online'
 const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'online']
+const RELEASE_TASK_PAGE_SIZE = 10
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
@@ -84,6 +86,17 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+function CompactListText({ value }: Readonly<{ value: string | null | undefined }>) {
+  const summary = releaseTaskFailureSummary(value, 180)
+  if (!summary.text) return <span>-</span>
+  return (
+    <div>
+      <div className="line-clamp-2">{summary.text}</div>
+      {summary.truncated ? <div className="mt-1 text-[11px] text-[color:var(--ops-text-caption)]">详情查看完整内容</div> : null}
+    </div>
+  )
+}
+
 function releaseAction(item: ReleaseCandidate): { key: 'prepare' | 'open-pr' | 'repair-gate' | null; label: string } {
   const release = item.release
   if (!release) return { key: 'prepare', label: '准备分支' }
@@ -125,6 +138,8 @@ export default function ReleasesPage() {
   const [activeTab, setActiveTab] = useState<ReleaseTab>(() => releaseTabFromQuery(searchParams.get('tab')))
   const [candidates, setCandidates] = useState<ReleaseCandidate[]>([])
   const [tasks, setTasks] = useState<ReleaseTask[]>([])
+  const [taskTotal, setTaskTotal] = useState(0)
+  const [taskOffset, setTaskOffset] = useState(0)
   const [onlineRecords, setOnlineRecords] = useState<OnlineReleaseRecord[]>([])
   const [policies, setPolicies] = useState<ProjectPolicy[]>([])
   const [loading, setLoading] = useState(true)
@@ -156,17 +171,37 @@ export default function ReleasesPage() {
     setSearchParams(nextParams, { replace: true })
   }
 
+  const releaseTaskPageFilters = () => ({
+    environment: taskEnvironmentFilter || undefined,
+    status: taskStatusFilter || undefined,
+    q: search.trim() || undefined,
+    limit: RELEASE_TASK_PAGE_SIZE,
+    offset: taskOffset,
+  })
+
+  const fetchReleaseTaskPage = async () => {
+    const filters = releaseTaskPageFilters()
+    return getReleaseTasksPage(filters)
+  }
+
+  const loadReleaseTasksPage = async () => {
+    const page = await fetchReleaseTaskPage()
+    setTasks(page.items)
+    setTaskTotal(page.total)
+  }
+
   const load = async () => {
     setLoading(true)
     try {
       const [nextCandidates, nextTasks, nextPolicies] = await Promise.all([
         api.getReleaseCandidates(),
-        api.getReleaseTasks(),
+        fetchReleaseTaskPage(),
         api.getProjectPolicies(),
       ])
       const nextOnlineRecords = await api.getOnlineReleaseRecords({ limit: 100 }).catch(() => [])
       setCandidates(nextCandidates)
-      setTasks(nextTasks)
+      setTasks(nextTasks.items)
+      setTaskTotal(nextTasks.total)
       setOnlineRecords(nextOnlineRecords)
       setPolicies(nextPolicies)
       if (!taskDraft.project_key) {
@@ -187,6 +222,12 @@ export default function ReleasesPage() {
     setActiveTab((current) => (current === nextTab ? current : nextTab))
   }, [searchParams])
 
+  useEffect(() => {
+    if (activeTab !== 'tasks') return
+    loadReleaseTasksPage().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, search, taskEnvironmentFilter, taskStatusFilter, taskOffset])
+
   const filteredCandidates = useMemo(() => {
     const needle = search.trim().toLowerCase()
     if (!needle) return candidates
@@ -205,25 +246,7 @@ export default function ReleasesPage() {
     )
   }, [candidates, search])
 
-  const filteredTasks = useMemo(() => {
-    const needle = search.trim().toLowerCase()
-    return tasks.filter((task) => {
-      if (taskStatusFilter && task.status !== taskStatusFilter) return false
-      if (taskEnvironmentFilter && task.environment !== taskEnvironmentFilter) return false
-      if (!needle) return true
-      return [
-        task.project_key,
-        task.project_display_name || '',
-        task.service_key || '',
-        task.branch_name,
-        task.environment,
-        task.status,
-        task.actor || '',
-        task.operator || '',
-        task.note || '',
-      ].join('\n').toLowerCase().includes(needle)
-    })
-  }, [tasks, search, taskStatusFilter, taskEnvironmentFilter])
+  const filteredTasks = tasks
 
   const filteredOnlineRecords = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -391,7 +414,10 @@ export default function ReleasesPage() {
               className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
               placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'sdk-packages' ? '搜索 SDK package / version / registry' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setTaskOffset(0)
+              }}
             />
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
               刷新
@@ -478,12 +504,18 @@ export default function ReleasesPage() {
           </button>
           {activeTab === 'tasks' ? (
             <>
-              <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={taskEnvironmentFilter} onChange={(event) => setTaskEnvironmentFilter(event.target.value)}>
+              <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={taskEnvironmentFilter} onChange={(event) => {
+                setTaskEnvironmentFilter(event.target.value)
+                setTaskOffset(0)
+              }}>
                 <option value="">全部环境</option>
                 <option value="staging">staging</option>
                 <option value="production">production</option>
               </select>
-              <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)}>
+              <select className="rounded-full border border-[color:var(--ops-stroke-soft)] px-4 py-2 text-sm" value={taskStatusFilter} onChange={(event) => {
+                setTaskStatusFilter(event.target.value)
+                setTaskOffset(0)
+              }}>
                 {TASK_STATUS_OPTIONS.map((status) => (
                   <option key={status || 'all'} value={status}>{status ? STATUS_LABEL[status] : '全部状态'}</option>
                 ))}
@@ -512,6 +544,9 @@ export default function ReleasesPage() {
       ) : activeTab === 'tasks' ? (
         <ReleaseTasksTable
           tasks={filteredTasks}
+          total={taskTotal}
+          limit={RELEASE_TASK_PAGE_SIZE}
+          offset={taskOffset}
           loading={loading}
           busyAction={busyAction}
           onUpdateStatus={updateTaskStatus}
@@ -522,6 +557,7 @@ export default function ReleasesPage() {
             setTaskModalOpen(false)
             setTaskDetail(task)
           }}
+          onPage={(nextOffset) => setTaskOffset(Math.max(0, nextOffset))}
         />
       ) : activeTab === 'scheduled-jobs' ? (
         <ScheduledJobsPanel />
@@ -783,6 +819,9 @@ function ReleaseCandidatesTable({
 
 function ReleaseTasksTable({
   tasks,
+  total,
+  limit,
+  offset,
   loading,
   busyAction,
   onUpdateStatus,
@@ -790,8 +829,12 @@ function ReleaseTasksTable({
   onDeployStaging,
   onRefresh,
   onOpenDetails,
+  onPage,
 }: Readonly<{
   tasks: ReleaseTask[]
+  total: number
+  limit: number
+  offset: number
   loading: boolean
   busyAction: string | null
   onUpdateStatus: (task: ReleaseTask, status: 'completed' | 'failed' | 'cancelled') => void
@@ -799,7 +842,11 @@ function ReleaseTasksTable({
   onDeployStaging: (task: ReleaseTask) => void
   onRefresh: () => void
   onOpenDetails: (task: ReleaseTask) => void
+  onPage: (offset: number) => void
 }>) {
+  const pageNumber = Math.floor(offset / limit) + 1
+  const canPrev = offset > 0
+  const canNext = offset + limit < total
   return (
     <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
       <div className="overflow-x-auto">
@@ -842,7 +889,7 @@ function ReleaseTasksTable({
                   ) : null}
                   {task.deployment_health_status ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}</div> : null}
                   {shouldShowReleaseTaskFailure(task) && task.deployment_failure_summary ? (
-                    <div className="mt-2 max-w-xs text-xs text-[color:var(--ops-state-blocked-text)]">{task.deployment_failure_summary}</div>
+                    <ReleaseTaskCompactFailure value={task.deployment_failure_summary} />
                   ) : null}
                   <ReleaseTaskFailureSnippet task={task} />
                   {task.environment === 'staging' ? <ReleaseTaskPrGate task={task} /> : null}
@@ -852,7 +899,7 @@ function ReleaseTasksTable({
                   <div className="mt-1">执行：{task.operator || '-'}</div>
                 </td>
                 <td className="max-w-xs px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                  <div className="line-clamp-2">{task.note || '-'}</div>
+                  <CompactListText value={task.note} />
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(task.updated_at || task.created_at)}</td>
                 <td className="px-5 py-4">
@@ -984,6 +1031,27 @@ function ReleaseTasksTable({
           <EmptyPane>暂无发布任务。点击“新建发布任务”记录一次人工分支发布。</EmptyPane>
         </div>
       )}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
+        <span>第 {pageNumber} 页 · 共 {total} 条发布任务</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40"
+            disabled={!canPrev || loading}
+            onClick={() => onPage(Math.max(0, offset - limit))}
+          >
+            上一页
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40"
+            disabled={!canNext || loading}
+            onClick={() => onPage(offset + limit)}
+          >
+            下一页
+          </button>
+        </div>
+      </div>
     </section>
   )
 }

@@ -17,6 +17,7 @@ const mockApi = {
   regenerateRequirementAssets: vi.fn(),
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
+  getReleaseTasksPage: vi.fn(),
   getOnlineReleaseRecords: vi.fn(),
   getProjectPolicies: vi.fn(),
   getErrors: vi.fn(),
@@ -37,6 +38,10 @@ vi.mock('../src/api', () => ({
     getProjectPolicies: (...args: unknown[]) => mockApi.getProjectPolicies(...args),
     getErrors: (...args: unknown[]) => mockApi.getErrors(...args),
   },
+}))
+
+vi.mock('../src/apiReleaseTasks', () => ({
+  getReleaseTasksPage: (...args: unknown[]) => mockApi.getReleaseTasksPage(...args),
 }))
 
 describe('agent-first pages smoke', () => {
@@ -91,6 +96,10 @@ describe('agent-first pages smoke', () => {
       },
     ])
     mockApi.getReleaseTasks.mockResolvedValue([])
+    mockApi.getReleaseTasksPage.mockImplementation(async () => {
+      const items = await mockApi.getReleaseTasks()
+      return { items, total: items.length, limit: 10, offset: 0 }
+    })
     mockApi.getOnlineReleaseRecords.mockResolvedValue([])
     mockApi.getProjectPolicies.mockResolvedValue([])
     mockApi.getReleaseCandidates.mockResolvedValue([
@@ -552,7 +561,7 @@ describe('agent-first pages smoke', () => {
     )
     await waitFor(() => expect(mockApi.getReleaseCandidates).toHaveBeenCalled())
     expect(screen.getByText('发布列表')).toBeInTheDocument()
-    expect(screen.getByText(/Launch FAQ/)).toBeInTheDocument()
+    expect(screen.getByText('需求交付')).toBeInTheDocument()
   })
 
   it('renders project surface', async () => {

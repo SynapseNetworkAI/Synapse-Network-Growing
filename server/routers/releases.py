@@ -56,6 +56,8 @@ from server.services.releases.tasks import (
     sync_release_task_deployment_statuses,
     update_release_task,
 )
+from server.services.releases.task_query import query_release_tasks
+from server.services.releases.task_query_schemas import ReleaseTaskPageOut
 from server.services.releases.scheduled_jobs import scheduled_job_catalog, scheduled_jobs_status
 from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
 from server.services.releases.scheduled_job_tasks import (
@@ -100,6 +102,29 @@ def list_release_tasks_endpoint(
         environment=environment,
         status=status,
         source_type=source_type,
+    )
+
+
+@router.get("/tasks/query", response_model=ReleaseTaskPageOut)
+def query_release_tasks_endpoint(
+    project_key: str | None = None,
+    environment: str | None = None,
+    status: str | None = None,
+    source_type: str | None = None,
+    q: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return query_release_tasks(
+        db,
+        project_key=project_key,
+        environment=environment,
+        status=status,
+        source_type=source_type,
+        q=q,
+        limit=limit,
+        offset=offset,
     )
 
 

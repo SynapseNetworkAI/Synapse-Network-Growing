@@ -72,7 +72,7 @@ class ScheduledCloudRunJobRecordOut(BaseModel):
 class ScheduledCloudRunJobRecordsOut(BaseModel):
     items: list[ScheduledCloudRunJobRecordOut] = []
     total: int = 0
-    limit: int = 20
+    limit: int = 10
     offset: int = 0
 
 
