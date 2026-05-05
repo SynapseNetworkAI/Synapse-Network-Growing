@@ -69,7 +69,7 @@ describe('ScheduledJobsPanel', () => {
     })
     apiMock.getScheduledCloudRunJobRecords.mockResolvedValue({
       total: 1,
-      limit: 20,
+      limit: 10,
       offset: 0,
       items: [
         {

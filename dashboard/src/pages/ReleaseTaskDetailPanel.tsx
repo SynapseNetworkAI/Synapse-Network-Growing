@@ -17,12 +17,31 @@ const FAILURE_METADATA_KEYS = new Set([
   'githubFailureLogSyncedAt',
 ])
 
+const COMPACT_FAILURE_LIMIT = 220
+
 function metadataString(source: Record<string, unknown> | null | undefined, ...keys: string[]) {
   for (const key of keys) {
     const value = source?.[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
   return null
+}
+
+function compactWhitespace(value: string) {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function releaseTaskFailureSummary(value: string | null | undefined, maxLength = COMPACT_FAILURE_LIMIT) {
+  const text = compactWhitespace(value || '')
+  if (!text) return { text: '', truncated: false }
+  if (text.length <= maxLength) return { text, truncated: false }
+  return { text: `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`, truncated: true }
 }
 
 function formatTime(value: string | null) {
@@ -58,6 +77,27 @@ function displayDeploymentMetadata(task: ReleaseTask) {
   )
 }
 
+export function ReleaseTaskCompactFailure({
+  value,
+  mono = false,
+}: Readonly<{
+  value: string | null | undefined
+  mono?: boolean
+}>) {
+  const summary = releaseTaskFailureSummary(value)
+  if (!summary.text) return null
+  return (
+    <div className="mt-2 max-w-xs">
+      <div className={`line-clamp-2 text-xs text-[color:var(--ops-state-blocked-text)] ${mono ? 'font-mono text-[11px]' : ''}`}>
+        {summary.text}
+      </div>
+      {summary.truncated ? (
+        <div className="mt-1 text-[11px] text-[color:var(--ops-text-caption)]">详情查看完整失败日志</div>
+      ) : null}
+    </div>
+  )
+}
+
 export function ReleaseTaskFailureSnippet({ task }: Readonly<{ task: ReleaseTask }>) {
   if (!shouldShowReleaseTaskFailure(task)) return null
   const excerpt = releaseTaskFailureLogExcerpt(task)
@@ -65,14 +105,15 @@ export function ReleaseTaskFailureSnippet({ task }: Readonly<{ task: ReleaseTask
   if (excerpt) {
     return (
       <div className="mt-2 max-w-xs rounded-lg bg-[color:var(--ops-panel)] p-2 font-mono text-[11px] text-[color:var(--ops-state-blocked-text)]">
-        {excerpt}
+        <ReleaseTaskCompactFailure value={excerpt} mono />
       </div>
     )
   }
   if (error) {
     return (
       <div className="mt-2 max-w-xs rounded-lg bg-[color:var(--ops-panel)] p-2 text-[11px] text-[color:var(--ops-text-caption)]">
-        Actions 日志读取失败：{error}
+        Actions 日志读取失败：
+        <ReleaseTaskCompactFailure value={error} />
       </div>
     )
   }

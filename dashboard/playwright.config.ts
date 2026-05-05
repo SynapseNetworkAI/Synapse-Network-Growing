@@ -10,7 +10,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'cd .. && mkdir -p .playwright && rm -f .playwright/ops-e2e.sqlite && OPS_ENV=local OPS_PORT=19600 OPS_DATABASE_URL=sqlite:///$PWD/.playwright/ops-e2e.sqlite OPS_E2E_MODE=1 OPS_E2E_SYNC_DISPATCH=0 COPILOT_SDK_MONITOR_ENABLED=0 SOCIAL_CONTENT_LLM_PROVIDER=codex SOCIAL_CONTENT_LLM_MODEL=gpt-5-codex ../.venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 19600 --log-level warning',
+      command: 'cd .. && mkdir -p .playwright && if [ -z "$OPS_E2E_DATABASE_URL" ]; then rm -f .playwright/ops-e2e.sqlite && export OPS_DATABASE_URL=sqlite:///$PWD/.playwright/ops-e2e.sqlite; else export OPS_DATABASE_URL="$OPS_E2E_DATABASE_URL"; fi && OPS_ENV=local OPS_PORT=19600 OPS_E2E_MODE=1 OPS_E2E_SYNC_DISPATCH=0 COPILOT_SDK_MONITOR_ENABLED=0 SOCIAL_CONTENT_LLM_PROVIDER=codex SOCIAL_CONTENT_LLM_MODEL=gpt-5.4 ../.venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 19600 --log-level warning',
       url: 'http://127.0.0.1:19600/health',
       reuseExistingServer: false,
       timeout: 120_000,

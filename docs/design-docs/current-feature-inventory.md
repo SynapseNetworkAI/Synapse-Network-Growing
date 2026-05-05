@@ -111,6 +111,7 @@
 13. Rollback 不由 Drop Goal、普通 Release Task PATCH 或 staging 快捷按钮触发。Runtime rollback 以历史成功上线记录的 commit / image / manifest 为 target 并进入 Human Gate；代码级 revert 必须走新分支、PR、checks、merge 和正常发布链路。
 14. `/releases` 的 `定时任务发布` 分面管理 Synapse-Network 部署在 Google 上的 Cloud Run Jobs：gateway 周期任务 `deposit-indexer`、`provider-withdraw-reaper`、`consumer-withdraw-processor`、`notification-outbox-drain`、`in-app-cleanup`，以及 gateway / gateway-admin migration jobs。Operator 先通过 `创建定时任务发布` 选择 staging 环境、GitHub 分支和具体 job 名称，系统只创建 `scheduled_job_release_tasks(status=requested)`，不会 dispatch；只有在列表中点击 `发布到 staging` 才创建 `DeploymentRecord(trigger_source=scheduled_job_release)` 并 dispatch `deploy-staging-jobs.yml`。
 15. 定时任务发布状态以 `scheduled_job_release_tasks` 为 UI source of truth；物理执行结果来自关联 DeploymentRecord、GitHub Actions callback / sync 和 `jobsManifest`。全局 `release_deployment_status_sweep` 与手动 `同步状态` 都会同步普通 Release Task 和定时任务发布任务。Google 写操作、单 job image 更新、可选 smoke / migration execution 全部在 GitHub Actions + WIF 中完成，本机 API 不调用 `gcloud`。Scheduler freshness 是健康信号，不等同发布失败；migration jobs 是发布时手动/受控执行任务，不做 freshness 警报。
+16. 本地主库支持 Docker Postgres。`OPS_DATABASE_URL=postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing` 可将应用切到 Postgres；`scripts/db/migrate_sqlite_to_postgres.py` 负责从 `server/ops.db` 全量迁移所有现有表和数据，`scripts/db/validate_postgres_migration.py` 校验每表 row count，`scripts/db/run_sql_migrations.py` 通过 `schema_migrations` 幂等执行后续 SQL。完整操作记录见 `docs/ops/05_Postgres_Migration_and_E2E_Runbook.md`。
 
 ## 4.5 Social Publishing
 

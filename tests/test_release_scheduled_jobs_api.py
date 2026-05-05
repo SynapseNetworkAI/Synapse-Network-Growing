@@ -1,6 +1,7 @@
 import json
+from datetime import timedelta
 
-from server.database import DeploymentRecordRow
+from server.database import DeploymentRecordRow, utcnow
 from server.database_scheduled_jobs import ScheduledJobReleaseTaskRow
 from server.services.releases.github_actions_logs import GitHubFailureLogResult
 from server.services.releases import scheduled_jobs as scheduled_jobs_service
@@ -66,7 +67,7 @@ def test_scheduled_jobs_records_returns_paginated_publish_records(
             "job_name": "synapse-staging-deposit-indexer",
             "family": "gateway",
             "status": "completed",
-            "limit": 20,
+            "limit": 10,
             "offset": 0,
         },
     )
@@ -74,12 +75,48 @@ def test_scheduled_jobs_records_returns_paginated_publish_records(
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 1
-    assert payload["limit"] == 20
+    assert payload["limit"] == 10
     assert payload["offset"] == 0
     assert payload["items"][0]["job_name"] == "synapse-staging-deposit-indexer"
     assert payload["items"][0]["family"] == "gateway"
     assert payload["items"][0]["status"] == "completed"
     assert payload["items"][0]["external_run_id"] == "123"
+
+
+def test_scheduled_jobs_records_prioritize_unpublished_before_terminal(
+    synced_client, db_session
+):
+    now = utcnow()
+    for status, updated_at in [
+        ("completed", now),
+        ("failed", now - timedelta(minutes=1)),
+        ("requested", now - timedelta(days=1)),
+    ]:
+        db_session.add(
+            ScheduledJobReleaseTaskRow(
+                project_key="synapse-network",
+                job_name=f"synapse-staging-{status}-job",
+                job_family="gateway",
+                job_type="periodic",
+                environment="staging",
+                source_ref_type="branch",
+                source_ref="main",
+                status=status,
+                health_status="pending",
+                created_by="operator",
+                updated_at=updated_at,
+            )
+        )
+    db_session.commit()
+
+    response = synced_client.get(
+        "/api/releases/scheduled-jobs/tasks",
+        params={"environment": "staging", "limit": 10},
+    )
+
+    assert response.status_code == 200
+    statuses = [item["status"] for item in response.json()["items"][:3]]
+    assert statuses == ["requested", "completed", "failed"]
 
 
 def test_create_scheduled_job_task_does_not_dispatch(synced_client, db_session):

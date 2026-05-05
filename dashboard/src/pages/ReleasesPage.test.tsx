@@ -9,6 +9,7 @@ import ReleasesPage from './ReleasesPage'
 const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
+  getReleaseTasksPage: vi.fn(),
   getOnlineReleaseRecords: vi.fn(),
   createReleaseTask: vi.fn(),
   getReleaseTaskBranchOptions: vi.fn(),
@@ -33,6 +34,10 @@ const apiMock = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({
   api: apiMock,
+}))
+
+vi.mock('../apiReleaseTasks', () => ({
+  getReleaseTasksPage: apiMock.getReleaseTasksPage,
 }))
 
 function candidate(overrides: Record<string, unknown> = {}) {
@@ -230,6 +235,10 @@ describe('ReleasesPage', () => {
         note: 'Production release manually completed',
       }),
     ])
+    apiMock.getReleaseTasksPage.mockImplementation(async () => {
+      const items = await apiMock.getReleaseTasks()
+      return { items, total: items.length, limit: 10, offset: 0 }
+    })
     apiMock.getOnlineReleaseRecords.mockResolvedValue([
       onlineRecord(),
     ])

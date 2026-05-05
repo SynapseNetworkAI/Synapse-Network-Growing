@@ -95,6 +95,27 @@ Every page needs three levels of validation:
 | `/knowledge` | Knowledge entry point renders | Workflow evidence link works | Artifacts remain attached to workflow runs |
 | `/system/notifications` | Dispatcher cards render | Refresh works | Values come from recurring workflow health |
 
+## Postgres Migration And Full-Service Release Validation
+
+The local E2E path now supports a Postgres-backed run:
+
+```bash
+export OPS_DATABASE_URL="postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing"
+docker-compose -f docker-compose.postgres.yml up -d
+PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python scripts/db/migrate_sqlite_to_postgres.py --postgres-url "$OPS_DATABASE_URL" --reset-postgres --confirm MIGRATE_SQLITE_TO_POSTGRES
+PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python scripts/db/validate_postgres_migration.py --sqlite server/ops.db --postgres-url "$OPS_DATABASE_URL"
+```
+
+Frontend E2E should then run with `OPS_E2E_DATABASE_URL="$OPS_DATABASE_URL"` so the API and UI read migrated Postgres data. The required smoke scope covers `/command-center`, `/planning`, `/publishing`, `/publishing/trends`, `/releases`, and `/projects`.
+
+Staging release proof is intentionally a real external E2E. It creates and immediately publishes every canonical staging service one at a time, then publishes one non-migration Cloud Run scheduled job:
+
+```bash
+PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python scripts/e2e/release_all_staging_targets.py --base-url http://127.0.0.1:9700 --branch main --confirm RELEASE_ALL_STAGING_TARGETS
+```
+
+Success requires completed Release Tasks, succeeded DeploymentRecords, passed health, GitHub Actions URLs, online records for services, and a completed scheduled-job release task. Failures must stay failed with Actions evidence until the root cause is fixed; do not manually mark success.
+
 ## Requirement Lifecycle Guardrails
 
 Requirement states are intentionally separate from workflow and release states. The current canonical states are:

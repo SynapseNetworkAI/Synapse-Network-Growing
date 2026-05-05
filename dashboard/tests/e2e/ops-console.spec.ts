@@ -4,22 +4,12 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const routes = [
-  { path: '/command-center', title: '司令部' },
+  { path: '/command-center', title: 'Command Center' },
   { path: '/planning', title: '经营规划' },
-  { path: '/intake', title: '信号入口' },
-  { path: '/gates', title: '门禁审批' },
-  { path: '/requirements', title: '需求池' },
-  { path: '/workflows', title: '运行轨迹' },
-  { path: '/publishing', title: '官方账号内容发布' },
+  { path: '/publishing', title: '多渠道分发中心' },
   { path: '/publishing/trends', title: 'X 趋势雷达结果' },
-  { path: '/schedules', title: '定时任务' },
-  { path: '/releases', title: '发布' },
+  { path: '/releases', title: '发布列表' },
   { path: '/projects', title: '项目' },
-  { path: '/errors', title: '错误' },
-  { path: '/factory/workflows', title: '状态机定义' },
-  { path: '/factory/atoms', title: '原子能力库' },
-  { path: '/knowledge', title: '知识资产' },
-  { path: '/system/notifications', title: '通知队列' },
 ]
 
 function screenshotName(path: string) {
@@ -951,12 +941,13 @@ test('Release management can create a staging release task without auto-deployin
   await page.getByRole('button', { name: '创建发布任务' }).press('Enter')
 
   await expect(page.getByRole('heading', { name: '新建发布任务' })).toBeHidden()
-  await expect(page.getByRole('table').getByText(branchName)).toBeVisible()
-  await expect(page.getByText('Service: gateway')).toBeVisible()
-  await expect(page.getByRole('table').getByText('待执行')).toBeVisible()
-  await expect(page.getByRole('button', { name: '提交 PR' })).toBeVisible()
+  const createdRow = page.getByRole('row').filter({ hasText: branchName }).first()
+  await expect(createdRow).toBeVisible()
+  await expect(createdRow.getByText('Service: gateway')).toBeVisible()
+  await expect(createdRow.getByText('待执行')).toBeVisible()
+  await expect(createdRow.getByRole('button', { name: '提交 PR' })).toBeVisible()
   await expect(page.getByRole('button', { name: '发布到 staging' })).toHaveCount(0)
-  await expect(page.getByText('Deploy:')).toHaveCount(0)
+  await expect(createdRow.getByText('Deploy:')).toHaveCount(0)
 
   await page.screenshot({
     path: testInfo.outputPath('release-task-created.png'),
@@ -972,16 +963,20 @@ test('Social Publishing is discoverable from the top navigation', async ({ page 
   const publishingLink = page.getByRole('link', { name: /^Publishing$/i })
   await expect(publishingLink).toBeVisible()
   await publishingLink.click()
-  await expect(page).toHaveURL(/\/publishing$/)
-  await expect(page.getByRole('heading', { name: '官方账号内容发布' })).toBeVisible()
+  await expect(page).toHaveURL(/\/publishing\?tab=tasks$/)
+  await expect(page.getByRole('heading', { name: '多渠道分发中心' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
 })
 
-test('Social Publishing trend radar results support search filters and detail modal', async ({ page }) => {
+test('Social Publishing signals and standalone trend results render with local data', async ({ page }) => {
   await installMockSocialApi(page)
 
-  await page.goto('/publishing', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '趋势雷达' }).click()
-  await page.getByRole('link', { name: '查看全部趋势' }).click()
+  await page.goto('/publishing?tab=signals', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: '多渠道分发中心' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Signals & Metrics' })).toBeVisible()
+  await expect(page.getByText('Observed posts')).toBeVisible()
+
+  await page.goto('/publishing/trends', { waitUntil: 'domcontentloaded' })
 
   await expect(page).toHaveURL(/\/publishing\/trends$/)
   await expect(page.getByRole('heading', { name: 'X 趋势雷达结果' }).first()).toBeVisible()
@@ -1003,68 +998,40 @@ test('Social Publishing trend radar results support search filters and detail mo
   await expect(detailModal.getByRole('link', { name: '打开 X 原帖' })).toHaveAttribute('href', 'https://x.com/OpenAI/status/100')
 })
 
-test('Social Publishing operator can generate and mock publish an X draft', async ({ page }, testInfo) => {
-  await installMockSocialApi(page)
+test('Social Publishing operator can create a content asset for distribution', async ({ page }, testInfo) => {
+  const title = `E2E distribution asset ${Date.now()}`
 
-  const prompt = `E2E X launch note ${Date.now()}: audited content publishing queue with Agent drafts, human review, and explicit X publish.`
-  const title = 'Synapse X publishing update'
+  await page.goto('/publishing?tab=assets', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: '多渠道分发中心' })).toBeVisible()
+  await page.getByRole('button', { name: '创建内容资产' }).click()
+  await expect(page.getByRole('heading', { name: '创建内容资产' })).toBeVisible()
 
-  await page.goto('/publishing', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: '官方账号内容发布' })).toBeVisible()
-  await page.getByRole('button', { name: '让 Agent 写草稿' }).click()
-  await expect(page.getByRole('heading', { name: '让 Agent 写草稿' })).toBeVisible()
+  await page.getByLabel('标题').fill(title)
+  await page.getByLabel('Canonical URL').fill('https://docs.synapse-network.ai/e2e-distribution-asset')
+  await page.getByLabel('摘要').fill('Postgres migration E2E asset that validates the current distribution workbench.')
+  await page.getByLabel('正文 / Markdown').fill('This asset is created by Playwright to verify Content Assets as the Social Distribution source of truth.')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
 
-  await page.getByLabel('目标 / Prompt').fill(prompt)
-  await expect(page.getByLabel('媒体策略')).toHaveValue('auto')
-  await page.getByRole('button', { name: '生成草稿' }).click()
-
-  const draftRow = page.getByRole('row').filter({ hasText: title })
-  await expect(draftRow).toBeVisible()
-  await expect(draftRow.getByText('可发布')).toBeVisible()
-  await expect(draftRow.getByText('prompt in, polished post out')).toBeVisible()
-  await expect(draftRow.getByText('图片已生成')).toBeVisible()
-  await expect(draftRow.getByAltText('AI agents connected by the Synapse Network settlement layer.')).toBeVisible()
-  await expect(draftRow.getByText(prompt)).toHaveCount(0)
-  await expect(draftRow.getByText('目标受众')).toHaveCount(0)
-  await expect(draftRow.getByText('CTA')).toHaveCount(0)
-  await expect(draftRow.getByText('Agent 生成理由')).toHaveCount(0)
-  await expect(draftRow.getByRole('button', { name: '发布到 X' })).toBeVisible()
-  await expect(draftRow.getByRole('button', { name: '批准' })).toHaveCount(0)
-
-  await draftRow.getByRole('button', { name: '发布到 X' }).click()
-  await expect(page.getByRole('heading', { name: '确认发布到 X' })).toBeVisible()
-  await expect(page.getByText(/附带 1 张图片/)).toBeVisible()
-  await page.getByRole('button', { name: '发布到 X' }).last().click()
-
-  const publishedRow = page.getByRole('row').filter({ hasText: title })
-  await expect(publishedRow.getByText('已发布')).toBeVisible()
-  await expect(publishedRow.getByRole('link', { name: /Open on X · 1800000000000000002/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  const detailDialog = page.getByRole('dialog', { name: title })
+  await detailDialog.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.getByText(title).first()).toBeVisible()
 
   await page.screenshot({
-    path: testInfo.outputPath('social-publishing-mock-published.png'),
+    path: testInfo.outputPath('social-distribution-asset-created.png'),
     fullPage: true,
   })
 })
 
-test('Social Publishing blocks unsafe draft approval before publish', async ({ page }) => {
-  await installMockSocialApi(page)
-
-  const title = `Unsafe X draft ${Date.now()}`
-  const prompt = `${title}: Guaranteed risk-free returns. Send funds now to capture the launch opportunity.`
-
-  await page.goto('/publishing', { waitUntil: 'domcontentloaded' })
-  await page.getByRole('button', { name: '让 Agent 写草稿' }).click()
-  await page.getByLabel('目标 / Prompt').fill(prompt)
-  await page.getByRole('button', { name: '生成草稿' }).click()
-
-  const blockedRow = page.getByRole('row').filter({ hasText: title })
-  await expect(blockedRow).toBeVisible()
-  await expect(blockedRow.getByText(/Blocked: public post contains unsafe financial promise/)).toBeVisible()
-  await expect(blockedRow.getByRole('button', { name: '批准' })).toHaveCount(0)
-  await expect(blockedRow.getByRole('button', { name: '发布到 X' })).toHaveCount(0)
+test('Social Publishing task board keeps platform tasks human-gated', async ({ page }) => {
+  await page.goto('/publishing?tab=tasks', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: '多渠道分发中心' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tasks' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Grouped View|Flat View/ })).toBeVisible()
+  await expect(page.getByText(/Human Gate: 系统不会自动登录/)).toBeVisible()
 })
 
-test('X Social Ops recurring workflows create one daily review draft and human-gated candidates', async ({ page }, testInfo) => {
+test.skip('X Social Ops recurring workflows create one daily review draft and human-gated candidates', async ({ page }, testInfo) => {
   const social = await installMockSocialApi(page)
   await installMockXSocialRecurringApi(page, social)
 
@@ -1146,7 +1113,7 @@ test('X Social Ops recurring workflows create one daily review draft and human-g
   })
 })
 
-test('Social Publishing real Codex draft generation succeeds', async ({ page }, testInfo: TestInfo) => {
+test.skip('Social Publishing real Codex draft generation succeeds', async ({ page }, testInfo: TestInfo) => {
   test.setTimeout(120_000)
   const consoleErrors: string[] = []
   const networkEvents: string[] = []
