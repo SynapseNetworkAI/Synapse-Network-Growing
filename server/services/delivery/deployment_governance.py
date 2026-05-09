@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -446,8 +445,8 @@ def trigger_requirement_deployment(
     effective_source_ref = (source_ref or "").strip() or branch_name
     if source_ref_type not in {"branch", "tag", "commit"}:
         raise ValueError("source_ref_type must be branch, tag, or commit")
-    if deploy_scope not in {"auto", "gateway", "gateway-admin", "user-front", "admin-front", "all"}:
-        raise ValueError("deploy_scope must be auto, gateway, gateway-admin, user-front, admin-front, or all")
+    if deploy_scope not in {"auto", "gateway", "gateway-admin", "user-front", "admin-front", "docs-front", "all"}:
+        raise ValueError("deploy_scope must be auto, gateway, gateway-admin, user-front, admin-front, docs-front, or all")
     if env_name == "production" and source_ref_type == "branch" and effective_source_ref not in {"main", "master"}:
         raise ValueError("Production deploy cannot target a feature branch; promote a verified main/tag/staging manifest instead.")
     effective_commit_sha = ""
