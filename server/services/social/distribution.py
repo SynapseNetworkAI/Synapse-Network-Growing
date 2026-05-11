@@ -20,6 +20,7 @@ from server.services.social.distribution_core import (
     _validate_asset_status,
 )
 from server.services.social.distribution_content import DEFAULT_DISTRIBUTION_ACCOUNTS
+from server.services.social.distribution_documents import ensure_platform_documents_for_asset
 from server.services.social.distribution_projection import (
     account_out,
     _asset_detail_out,
@@ -173,6 +174,7 @@ def get_content_asset(
     row = db.get(SocialContentAssetRow, asset_id)
     if row is None:
         raise ValueError("Content asset not found.")
+    ensure_platform_documents_for_asset(db, row)
     return _asset_detail_out(row)
 
 

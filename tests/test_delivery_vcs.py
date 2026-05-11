@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 from server.services.delivery.vcs import execute_requirement_delivery_vcs, prepare_requirement_delivery_branch
 
 
+def _git_env() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
+
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         ["git", *args],
         cwd=str(cwd),
+        env=_git_env(),
         capture_output=True,
         text=True,
     )
@@ -22,7 +32,7 @@ def _init_repo(repo_path: Path, remote_path: Path) -> None:
     _git(repo_path, "init")
     _git(repo_path, "config", "user.name", "Test User")
     _git(repo_path, "config", "user.email", "test@example.com")
-    _git(repo_path, "checkout", "-b", "main")
+    _checkout_or_create_branch(repo_path, "main")
     (repo_path / "README.md").write_text("base\n", encoding="utf-8")
     _git(repo_path, "add", "README.md")
     _git(repo_path, "commit", "-m", "initial")
@@ -34,6 +44,16 @@ def _init_repo(repo_path: Path, remote_path: Path) -> None:
 def _configure_user(repo_path: Path) -> None:
     _git(repo_path, "config", "user.name", "Test User")
     _git(repo_path, "config", "user.email", "test@example.com")
+
+
+def _checkout_or_create_branch(repo_path: Path, branch: str) -> None:
+    exists = _git(
+        repo_path, "show-ref", "--verify", f"refs/heads/{branch}", check=False
+    )
+    if exists.returncode == 0:
+        _git(repo_path, "checkout", branch)
+        return
+    _git(repo_path, "checkout", "-b", branch)
 
 
 def test_execute_requirement_delivery_vcs_commits_and_pushes(tmp_path):
@@ -82,7 +102,7 @@ def test_execute_requirement_delivery_vcs_blocks_when_push_capability_disabled(t
     _git(repo_path, "init")
     _git(repo_path, "config", "user.name", "Test User")
     _git(repo_path, "config", "user.email", "test@example.com")
-    _git(repo_path, "checkout", "-b", "main")
+    _checkout_or_create_branch(repo_path, "main")
 
     result = execute_requirement_delivery_vcs(
         requirement_id=9,

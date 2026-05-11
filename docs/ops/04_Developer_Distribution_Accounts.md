@@ -93,17 +93,17 @@ target_repo: Synapse-Network-Growing
 
 `/publishing` 现在把 X 官方账号运营和开发者社区分发放在同一个 Social Ops 工作台里，但只有新的 asset/task 表是主流程 Source of Truth。
 
-1. `Tasks` Tab 默认展示 Symphony / Linear 风格内容任务看板：一张卡代表一篇 `social_content_assets` 源内容，列位置由 `/api/social/distribution/board` 后端投影决定，不支持拖拽改状态。
+1. `Tasks` Tab 默认展示简化的 Symphony / Linear 风格内容任务看板：一张卡代表一篇 `social_content_assets` 源内容，列为 `待计划 / 待审核 / 待发布 / 已发布 / 异常`，列位置由 `/api/social/distribution/board` 后端投影决定，不支持拖拽改状态。
 2. `Assets` Tab 管理 `social_content_assets`：一篇文章、demo、Show HN、launch asset、X post、reply 或 quote 的源标题、正文、摘要、canonical URL 和 goal lineage。
 3. `Settings` Tab 管理 `social_distribution_accounts`：平台、频道、注册入口、profile URL、账号状态、2FA 状态、备注、是否允许 read-only 自动化、是否必须人工发布。
 4. `Signals & Metrics` Tab 只读展示趋势、watchlist 和已发布效果；页面浏览不触发外部平台 read。
-5. `创建内容任务` 会创建 `social_content_assets(source_type=manual_task)`，并写入 `social_distribution_documents(document_kind=source_plan)`，让“源任务 -> 实现计划 -> 平台文档”成为一等流程。
+5. `创建内容任务` 会创建 `social_content_assets(source_type=manual_task)`，并写入 `social_distribution_documents(document_kind=source_plan)`，让“源任务 -> 实现计划 -> 平台文档”成为一等流程。v1 默认采用计划审核优先：创建后自动生成方案，operator 审核后点击 `审核通过，生成平台文档`。
 6. `运行 Asset Planner` 会执行 `social_asset_planner_sweep`：每次只选择一种核心信号类型（`shipping_proof`、`developer_education`、`market_commentary`、`launch_asset`），最多采样 5 条 public-safe signals，并且每天最多保持 3 个 active Assets。没有足够信号时返回 `no_asset_created=true`，不生成空洞内容。
 7. Asset Planner 只创建 `status=proposed` 的源资产，不自动生成平台 task，也不自动公开发布。
-8. Operator 审核 Asset 后点击 `批准并生成分发任务`。后端先把 Asset 标记为 `approved`，再按固定平台顺序串行生成 `social_distribution_tasks` 和对应 `social_distribution_documents(document_kind=platform_draft)`。某个平台生成失败只标记该 task failed，不回滚已经成功的平台。
+8. Operator 审核 Asset / 内容任务方案后点击生成按钮。后端先把 Asset 标记为 `approved`，再按固定平台顺序串行生成 `social_distribution_tasks` 和对应 `social_distribution_documents(document_kind=platform_draft)`。某个平台生成失败只标记该 task failed，不回滚已经成功的平台。
 9. 生成完成后，前端会在当前 Asset 卡片 / 详情 Modal 中展开已生成 Platform Tasks，operator 不需要跳转到 `Tasks` Tab 刷新才能看到结果。
-10. Operator 在外部平台人工登录、粘贴、发布；完成后回到系统手动 `标记已发布` 并填写 `published_url`。
-11. 如果帖子被管理员删除、shadowban、不可见或链接失效，operator 手动 `标记 removed` 并填写原因；v1 不自动探活，避免误判和额外平台请求。
+10. Operator 在外部平台人工登录、粘贴、发布；完成后回到系统手动 `标记已发布` 并填写 `published_url`。系统会同步把对应 platform document 标为 `published`。
+11. 如果帖子被管理员删除、shadowban、不可见或链接失效，operator 手动 `标记 removed` 并填写原因；v1 不自动探活，避免误判和额外平台请求。`removed` 在简化看板中进入 `异常`，但不会自动重发。
 12. 旧 X 主流程表只允许通过一次性迁移脚本转换为 `social_content_assets + social_distribution_tasks + social_distribution_events`；迁移后不做双写同步。
 
 这不是自动发布器。它是一个减少复制粘贴疲劳、统一记录发布状态的 Human-Gated Distribution Center。
@@ -157,6 +157,8 @@ DEV 和 Hashnode 对镜像文章提供 Canonical URL 设置。为了避免重复
 |---|---|---|
 | `planned` | Task 已计划但未生成平台草稿 | System / operator |
 | `draft_ready` | 平台标题、正文和 checklist 已生成 | System |
+| `needs_review` | X 或敏感平台草稿等待 Human Gate | System |
+| `approved` | Operator 已审核平台草稿，等待提交 | Operator |
 | `submitted` | Operator 已提交但还没有确认公开链接 | Operator |
 | `live` | Operator 已回填公开 `published_url` | Operator |
 | `removed` | 帖子被删、不可见、shadowban 或链接失效 | Operator |

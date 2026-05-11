@@ -148,10 +148,11 @@ describe('SocialDistributionPanels v2', () => {
     vi.clearAllMocks()
     apiMock.getSocialDistributionBoard.mockResolvedValue({
       columns: [
-        { key: 'backlog', title: 'Backlog', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'backlog', title: '待计划', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'needs_review', title: '待审核', description: 'Plan.', count: 0, cards: [] },
         {
           key: 'ready_to_publish',
-          title: 'Ready to Publish',
+          title: '待发布',
           description: 'Ready.',
           count: 1,
           cards: [{
@@ -170,11 +171,8 @@ describe('SocialDistributionPanels v2', () => {
             updated_at: '2026-05-01T00:00:00Z',
           }],
         },
-        { key: 'plan_ready', title: 'Plan Ready', description: 'Plan.', count: 0, cards: [] },
-        { key: 'drafting', title: 'Drafting', description: 'Draft.', count: 0, cards: [] },
-        { key: 'human_review', title: 'Human Review', description: 'Review.', count: 0, cards: [] },
-        { key: 'live', title: 'Live', description: 'Live.', count: 0, cards: [] },
-        { key: 'blocked', title: 'Blocked', description: 'Blocked.', count: 0, cards: [] },
+        { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
       ],
       summary: { total_assets: 1, total_tasks: 1, total_documents: 2 },
       generated_at: '2026-05-01T00:00:00Z',
@@ -255,7 +253,7 @@ describe('SocialDistributionPanels v2', () => {
     await waitFor(() => {
       expect(apiMock.createSocialContentTask).toHaveBeenCalledWith(expect.objectContaining({
         title: '第 1 篇：一人公司最大的问题',
-        target_platforms: ['x', 'v2ex', 'hacker_news', 'devto'],
+        target_platforms: ['x', 'v2ex', 'hacker_news', 'devto', 'hashnode', 'reddit'],
       }))
     })
   })

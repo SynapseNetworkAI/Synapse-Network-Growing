@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,14 @@ from server.database import (
     WorkflowRunRow,
 )
 from server.services.runtime.codex_session_registry import build_session_key
+
+
+def _git_env() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GIT_")
+    }
 
 
 VALID_ACCEPTANCE_CONTRACT = (
@@ -29,6 +38,7 @@ def _init_test_git_repo(path: Path, *, branch: str = "main") -> Path:
     subprocess.run(
         ["git", "init", "-b", branch],
         cwd=path,
+        env=_git_env(),
         text=True,
         capture_output=True,
         check=True,
@@ -36,6 +46,7 @@ def _init_test_git_repo(path: Path, *, branch: str = "main") -> Path:
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
         cwd=path,
+        env=_git_env(),
         text=True,
         capture_output=True,
         check=True,
@@ -43,6 +54,7 @@ def _init_test_git_repo(path: Path, *, branch: str = "main") -> Path:
     subprocess.run(
         ["git", "config", "user.name", "Test Operator"],
         cwd=path,
+        env=_git_env(),
         text=True,
         capture_output=True,
         check=True,
@@ -51,6 +63,7 @@ def _init_test_git_repo(path: Path, *, branch: str = "main") -> Path:
     subprocess.run(
         ["git", "add", "README.md"],
         cwd=path,
+        env=_git_env(),
         text=True,
         capture_output=True,
         check=True,
@@ -58,6 +71,7 @@ def _init_test_git_repo(path: Path, *, branch: str = "main") -> Path:
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=path,
+        env=_git_env(),
         text=True,
         capture_output=True,
         check=True,

@@ -45,7 +45,6 @@ def generate_distribution_tasks(
         if index:
             jitter_seconds = 0.1 + (time.monotonic_ns() % 151) / 1000
             time.sleep(jitter_seconds)
-        task = _find_or_create_task(db, asset, account, body.action)
         try:
             draft = generate_platform_task_draft(
                 asset_title=asset.title,
@@ -57,6 +56,7 @@ def generate_distribution_tasks(
                 channel_key=account.channel_key,
                 display_name=account.display_name,
             )
+            task = _find_or_create_task(db, asset, account, body.action)
             task.status = "needs_review" if account.platform == "x" else "draft_ready"
             task.platform_title = draft.title
             task.platform_body = draft.body
@@ -91,6 +91,7 @@ def generate_distribution_tasks(
                 {"platform": account.platform, "channel_key": account.channel_key},
             )
         except Exception as exc:  # pragma: no cover - exercised by monkeypatch tests.
+            task = _find_or_create_task(db, asset, account, body.action)
             task.status = "failed"
             task.failure_summary = f"task_generation_failed: {str(exc)[:240]}"
             task.updated_at = utcnow()
@@ -109,7 +110,8 @@ def generate_distribution_tasks(
                 task.failure_summary,
                 {"platform": account.platform},
             )
-        db.flush()
+        db.commit()
+        db.refresh(asset)
     asset.status = "ready"
     asset.updated_at = utcnow()
     db.commit()
@@ -143,7 +145,7 @@ def approve_and_generate_distribution_tasks(
         "Operator approved asset and requested serial task generation.",
         {"account_ids": account_ids},
     )
-    db.flush()
+    db.commit()
     return generate_distribution_tasks(
         db,
         asset_id,

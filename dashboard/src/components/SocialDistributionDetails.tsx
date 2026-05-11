@@ -138,10 +138,10 @@ export function ContentTaskDetailModal({
       actions={
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" disabled={!asset || busy} className="rounded-2xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={onGeneratePlan}>
-            {busy ? '生成中…' : '生成实现计划'}
+            {busy ? '生成中…' : '重新生成方案'}
           </button>
           <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onApproveGenerate}>
-            {busy ? '生成中…' : '批准并生成平台文档'}
+            {busy ? '生成中…' : '审核通过，生成平台文档'}
           </button>
         </div>
       }
