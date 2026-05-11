@@ -1,14 +1,15 @@
 """Shared test fixtures for the Ops Dashboard API tests."""
 import json
+import os
 from pathlib import Path
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from server.database import Base, get_db, SessionLocal as _ProdSession
+from server.database import Base, get_db
 from server.main import app
 from server.config import PROJECT_ROOT
 from server.services.agents.loader import ensure_agents_loaded
@@ -30,6 +31,13 @@ def _enable_fk(dbapi_conn, _):
 
 
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
+
+
+@pytest.fixture(autouse=True)
+def clean_inherited_git_env(monkeypatch):
+    for key in tuple(os.environ):
+        if key.startswith("GIT_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def _fake_vcs_delivery(db, requirement, workflow_run, step):
