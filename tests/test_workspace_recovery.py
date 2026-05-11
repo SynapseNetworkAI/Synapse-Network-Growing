@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -21,9 +22,20 @@ from server.services.runtime.workspace_recovery import (
 from server.services.runtime.codex_session_registry import build_session_key
 
 
+def _git_env() -> dict[str, str]:
+    return {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+
+
 def _git(args: list[str], cwd: Path) -> str:
     completed = subprocess.run(
-        ["git", *args], cwd=str(cwd), text=True, capture_output=True, check=True
+        ["git", *args],
+        cwd=str(cwd),
+        env=_git_env(),
+        text=True,
+        capture_output=True,
+        check=True,
     )
     return str(completed.stdout or "").strip()
 

@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
-from server.services.delivery.vcs import execute_requirement_delivery_vcs, prepare_requirement_delivery_branch
+from server.services.delivery.vcs import (
+    execute_requirement_delivery_vcs,
+    prepare_requirement_delivery_branch,
+)
+
+
+def _git_env() -> dict[str, str]:
+    return {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         ["git", *args],
         cwd=str(cwd),
+        env=_git_env(),
         capture_output=True,
         text=True,
     )
@@ -71,12 +82,19 @@ def test_execute_requirement_delivery_vcs_commits_and_pushes(tmp_path):
     assert repo_result["pushed"] is True
     assert repo_result["commit_sha"]
     assert repo_result["remote_sha"]
-    assert _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "ops/req-17-incident-recovery"
-    remote_head = _git(repo_path, "ls-remote", "--heads", "origin", "ops/req-17-incident-recovery").stdout.strip()
+    assert (
+        _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        == "ops/req-17-incident-recovery"
+    )
+    remote_head = _git(
+        repo_path, "ls-remote", "--heads", "origin", "ops/req-17-incident-recovery"
+    ).stdout.strip()
     assert repo_result["remote_sha"] in remote_head
 
 
-def test_execute_requirement_delivery_vcs_blocks_when_push_capability_disabled(tmp_path):
+def test_execute_requirement_delivery_vcs_blocks_when_push_capability_disabled(
+    tmp_path,
+):
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
     _git(repo_path, "init")
@@ -98,11 +116,16 @@ def test_execute_requirement_delivery_vcs_blocks_when_push_capability_disabled(t
     )
 
     assert result["status"] == "blocked"
-    assert "branch push required but git_push is disabled by project policy" in result["blockers"]
+    assert (
+        "branch push required but git_push is disabled by project policy"
+        in result["blockers"]
+    )
     assert result["repositories"] == []
 
 
-def test_execute_requirement_delivery_vcs_supports_multiline_fallback_target_paths(tmp_path):
+def test_execute_requirement_delivery_vcs_supports_multiline_fallback_target_paths(
+    tmp_path,
+):
     remote_a = tmp_path / "remote-a.git"
     remote_b = tmp_path / "remote-b.git"
     repo_a = tmp_path / "repo-a"
@@ -141,7 +164,9 @@ def test_execute_requirement_delivery_vcs_supports_multiline_fallback_target_pat
     assert all(item["committed"] for item in result["repositories"])
 
 
-def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failure(tmp_path):
+def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failure(
+    tmp_path,
+):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
     remote_path.mkdir()
@@ -182,7 +207,9 @@ def test_execute_requirement_delivery_vcs_classifies_local_repo_gate_push_failur
     assert "documentation validation failed" in str(result["delivery_failure_excerpt"])
 
 
-def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_base_moved(tmp_path):
+def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_base_moved(
+    tmp_path,
+):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
     remote_path.mkdir()
@@ -190,7 +217,9 @@ def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_
     _git(remote_path, "init", "--bare")
     _init_repo(repo_path, remote_path)
     _git(repo_path, "checkout", "-b", "ops/req-19-precommitted")
-    (repo_path / "README.md").write_text("base\nagent committed change\n", encoding="utf-8")
+    (repo_path / "README.md").write_text(
+        "base\nagent committed change\n", encoding="utf-8"
+    )
     _git(repo_path, "add", "README.md")
     _git(repo_path, "commit", "-m", "agent committed change")
     head_sha = _git(repo_path, "rev-parse", "HEAD").stdout.strip()
@@ -217,11 +246,15 @@ def test_execute_requirement_delivery_vcs_pushes_precommitted_branch_when_local_
     assert repo_result["commit_sha"] == head_sha
     assert repo_result["ahead_of_base"] == 1
     assert repo_result["pushed"] is True
-    remote_head = _git(repo_path, "ls-remote", "--heads", "origin", "ops/req-19-precommitted").stdout.strip()
+    remote_head = _git(
+        repo_path, "ls-remote", "--heads", "origin", "ops/req-19-precommitted"
+    ).stdout.strip()
     assert head_sha in remote_head
 
 
-def test_execute_requirement_delivery_vcs_rebases_remote_human_commit_before_push(tmp_path):
+def test_execute_requirement_delivery_vcs_rebases_remote_human_commit_before_push(
+    tmp_path,
+):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
     human_path = tmp_path / "human"
@@ -268,8 +301,15 @@ def test_execute_requirement_delivery_vcs_rebases_remote_human_commit_before_pus
     assert repo_result["human_commits_detected"] is True
     assert repo_result["rebase_status"] == "succeeded"
     assert repo_result["push_mode"] == "normal"
-    assert _git(repo_path, "merge-base", "--is-ancestor", human_sha, "HEAD", check=False).returncode == 0
-    remote_head = _git(repo_path, "ls-remote", "--heads", "origin", branch).stdout.strip()
+    assert (
+        _git(
+            repo_path, "merge-base", "--is-ancestor", human_sha, "HEAD", check=False
+        ).returncode
+        == 0
+    )
+    remote_head = _git(
+        repo_path, "ls-remote", "--heads", "origin", branch
+    ).stdout.strip()
     assert result["latest_remote_sha"] in remote_head
 
 
@@ -320,15 +360,21 @@ def test_execute_requirement_delivery_vcs_blocks_on_rebase_conflict(tmp_path):
     assert repo_result["push_mode"] == "blocked"
 
 
-def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(tmp_path):
+def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(
+    tmp_path,
+):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
     remote_path.mkdir()
     repo_path.mkdir()
     _git(remote_path, "init", "--bare")
     _init_repo(repo_path, remote_path)
-    _git(repo_path, "checkout", "-b", "ops/req-1-use-attachment-context-during-execution")
-    (repo_path / "README.md").write_text("base\nleftover dirty change\n", encoding="utf-8")
+    _git(
+        repo_path, "checkout", "-b", "ops/req-1-use-attachment-context-during-execution"
+    )
+    (repo_path / "README.md").write_text(
+        "base\nleftover dirty change\n", encoding="utf-8"
+    )
 
     result = prepare_requirement_delivery_branch(
         delivery_contract={
@@ -348,7 +394,10 @@ def test_prepare_requirement_delivery_branch_classifies_dirty_workspace_blocker(
     assert result["base_branch"] == "main"
     assert result["delivery_blocker_type"] == "workspace_blocked"
     assert result["repairable"] is False
-    assert "ops/req-1-use-attachment-context-during-execution" in result["delivery_failure_excerpt"]
+    assert (
+        "ops/req-1-use-attachment-context-during-execution"
+        in result["delivery_failure_excerpt"]
+    )
     assert "dirty worktree" in result["blockers"][0]
 
 
@@ -376,10 +425,15 @@ def test_prepare_requirement_delivery_branch_reuses_existing_clean_branch(tmp_pa
     assert result["planned_branch_name"] == "ops/req-3-requirement"
     assert result["actual_branch_name"] == "ops/req-3-requirement"
     assert result["branch_reuse_status"] == "reused"
-    assert _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "ops/req-3-requirement"
+    assert (
+        _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        == "ops/req-3-requirement"
+    )
 
 
-def test_prepare_requirement_delivery_branch_creates_replacement_for_unsafe_existing_branch(tmp_path):
+def test_prepare_requirement_delivery_branch_creates_replacement_for_unsafe_existing_branch(
+    tmp_path,
+):
     remote_path = tmp_path / "remote.git"
     repo_path = tmp_path / "repo"
     remote_path.mkdir()
@@ -407,4 +461,7 @@ def test_prepare_requirement_delivery_branch_creates_replacement_for_unsafe_exis
     assert result["planned_branch_name"] == "ops/req-3-requirement"
     assert result["actual_branch_name"] == "ops/req-3-requirement-r2"
     assert result["branch_reuse_status"] == "replacement_created"
-    assert _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "ops/req-3-requirement-r2"
+    assert (
+        _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        == "ops/req-3-requirement-r2"
+    )
