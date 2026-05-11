@@ -43,6 +43,15 @@ ACCOUNT_STATUSES = {
     "needs_setup",
     "retired",
 }
+DOCUMENT_KINDS = {"source_plan", "canonical_article", "platform_draft"}
+DOCUMENT_STATUSES = {
+    "draft",
+    "generated",
+    "needs_review",
+    "approved",
+    "published",
+    "failed",
+}
 PLATFORM_ORDER = (
     "x",
     "hacker_news",
@@ -94,6 +103,16 @@ def _validate_asset_status(status: str) -> None:
 def _validate_account_status(status: str) -> None:
     if status.strip() not in ACCOUNT_STATUSES:
         raise ValueError(f"unknown distribution account status: {status}")
+
+
+def _validate_document_kind(kind: str) -> None:
+    if kind.strip() not in DOCUMENT_KINDS:
+        raise ValueError(f"unknown distribution document kind: {kind}")
+
+
+def _validate_document_status(status: str) -> None:
+    if status.strip() not in DOCUMENT_STATUSES:
+        raise ValueError(f"unknown distribution document status: {status}")
 
 
 def _normalize_platform(platform: str) -> str:

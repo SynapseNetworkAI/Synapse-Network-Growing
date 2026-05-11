@@ -8,6 +8,7 @@ from server import schemas_social_distribution as dist_schema
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionAccountRow,
+    SocialDistributionDocumentRow,
     SocialDistributionEventRow,
     SocialDistributionTaskRow,
 )
@@ -44,6 +45,7 @@ def _asset_detail_out(
         **base.model_dump(),
         tasks=[_task_out(task) for task in row.tasks],
         events=[_event_out(event) for event in row.events],
+        documents=[_document_out(document) for document in row.documents],
     )
 
 
@@ -114,6 +116,26 @@ def _event_out(
         summary=row.summary,
         payload=_json_object(row.payload_json),
         created_at=row.created_at,
+    )
+
+
+def _document_out(
+    row: SocialDistributionDocumentRow,
+) -> dist_schema.SocialDistributionDocumentOut:
+    return dist_schema.SocialDistributionDocumentOut(
+        id=int(row.id),
+        asset_id=int(row.asset_id),
+        task_id=int(row.task_id) if row.task_id is not None else None,
+        document_kind=row.document_kind,
+        platform=row.platform,
+        channel_key=row.channel_key,
+        title=row.title,
+        body_markdown=row.body_markdown,
+        status=row.status,
+        version=int(row.version or 1),
+        metadata=_json_object(row.metadata_json),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

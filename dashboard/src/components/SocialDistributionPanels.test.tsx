@@ -8,15 +8,19 @@ import { DistributionAssetsPanel, DistributionSettingsPanel, DistributionTasksPa
 import { ToastProvider } from './workbench'
 
 const apiMock = vi.hoisted(() => ({
+  getSocialDistributionBoard: vi.fn(),
   getSocialDistributionTasks: vi.fn(),
   markSocialDistributionTaskLive: vi.fn(),
   markSocialDistributionTaskRemoved: vi.fn(),
   updateSocialDistributionTask: vi.fn(),
   getSocialContentAssets: vi.fn(),
   getSocialContentAsset: vi.fn(),
+  createSocialContentTask: vi.fn(),
   createSocialContentAsset: vi.fn(),
+  generateSocialDistributionContentPlan: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
+  publishSocialDistributionTaskToX: vi.fn(),
   runSocialAssetPlanner: vi.fn(),
   getDistributionAccounts: vi.fn(),
   updateDistributionAccount: vi.fn(),
@@ -96,7 +100,39 @@ function asset(overrides: Record<string, unknown> = {}) {
     task_count: 1,
     status_counts: { draft_ready: 1 },
     tasks: [task()],
-    events: [],
+    events: [{ id: 1, asset_id: 301, task_id: null, event_type: 'content_task_created', actor: 'operator', summary: 'Created.', payload: {}, created_at: '2026-05-01T00:00:00Z' }],
+    documents: [
+      {
+        id: 401,
+        asset_id: 301,
+        task_id: null,
+        document_kind: 'source_plan',
+        platform: null,
+        channel_key: null,
+        title: 'Plan: How AI agents should pay for APIs',
+        body_markdown: 'Core angle: AI agents should pay for APIs',
+        status: 'generated',
+        version: 1,
+        metadata: {},
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+      },
+      {
+        id: 402,
+        asset_id: 301,
+        task_id: 201,
+        document_kind: 'platform_draft',
+        platform: 'devto',
+        channel_key: 'dev.to',
+        title: 'How AI agents should pay for APIs',
+        body_markdown: 'A practical developer guide to agent-native payment rails.',
+        status: 'generated',
+        version: 1,
+        metadata: {},
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+      },
+    ],
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',
     ...overrides,
@@ -110,6 +146,39 @@ function renderWithToast(node: ReactNode) {
 describe('SocialDistributionPanels v2', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.getSocialDistributionBoard.mockResolvedValue({
+      columns: [
+        { key: 'backlog', title: 'Backlog', description: 'Needs plan.', count: 0, cards: [] },
+        {
+          key: 'ready_to_publish',
+          title: 'Ready to Publish',
+          description: 'Ready.',
+          count: 1,
+          cards: [{
+            id: 'asset:301',
+            asset: asset(),
+            column_key: 'ready_to_publish',
+            task_count: 1,
+            document_count: 2,
+            platform_count: 1,
+            failed_count: 0,
+            ready_to_publish_count: 1,
+            live_count: 0,
+            status_counts: { draft_ready: 1 },
+            document_status_counts: { generated: 2 },
+            next_action: 'Publish manually.',
+            updated_at: '2026-05-01T00:00:00Z',
+          }],
+        },
+        { key: 'plan_ready', title: 'Plan Ready', description: 'Plan.', count: 0, cards: [] },
+        { key: 'drafting', title: 'Drafting', description: 'Draft.', count: 0, cards: [] },
+        { key: 'human_review', title: 'Human Review', description: 'Review.', count: 0, cards: [] },
+        { key: 'live', title: 'Live', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: 'Blocked', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 2 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
     apiMock.getSocialDistributionTasks.mockResolvedValue({
       groups: [{ asset: asset(), tasks: [task()] }],
       flat: [task()],
@@ -121,7 +190,9 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.updateSocialDistributionTask.mockResolvedValue(task({ status: 'skipped' }))
     apiMock.getSocialContentAssets.mockResolvedValue([asset()])
     apiMock.getSocialContentAsset.mockResolvedValue(asset())
+    apiMock.createSocialContentTask.mockResolvedValue(asset({ source_type: 'manual_task' }))
     apiMock.createSocialContentAsset.mockResolvedValue(asset())
+    apiMock.generateSocialDistributionContentPlan.mockResolvedValue(asset())
     apiMock.generateSocialDistributionTasks.mockResolvedValue({
       asset: asset(),
       results: [{ account_id: 101, platform: 'devto', channel_key: 'dev.to', status: 'generated', task_id: 201, error: null }],
@@ -152,19 +223,40 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.updateDistributionAccount.mockResolvedValue(account({ profile_url: 'https://dev.to/synapsenetwork' }))
   })
 
-  it('groups tasks by content asset and supports copy/live workflow', async () => {
+  it('renders a Symphony-style task board and supports copy workflow from the card modal', async () => {
     const user = userEvent.setup()
     const clipboardWrite = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboardWrite } })
     renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
 
     expect(await screen.findByText('How AI agents should pay for APIs')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '详情' }))
+    expect(screen.getByTestId('distribution-board-column-ready_to_publish')).toBeInTheDocument()
+    await user.click(screen.getByTestId('distribution-board-card-301'))
+    expect(screen.getByRole('dialog', { name: 'How AI agents should pay for APIs' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '复制并打开平台' }))
     expect(screen.getByRole('dialog', { name: 'DEV Community' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '一键复制标题和正文' }))
 
     await waitFor(() => {
       expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining('Title:\nHow AI agents should pay for APIs'))
+    })
+  })
+
+  it('creates a content task from the Tasks board', async () => {
+    const user = userEvent.setup()
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await screen.findByText('How AI agents should pay for APIs')
+    await user.click(screen.getByRole('button', { name: '创建内容任务' }))
+    await user.type(screen.getByLabelText('任务标题'), '第 1 篇：一人公司最大的问题')
+    await user.type(screen.getByLabelText('来源材料 / Markdown'), '核心问题：上下文切换、流程断裂和质量失控。')
+    await user.click(screen.getByRole('button', { name: '创建' }))
+
+    await waitFor(() => {
+      expect(apiMock.createSocialContentTask).toHaveBeenCalledWith(expect.objectContaining({
+        title: '第 1 篇：一人公司最大的问题',
+        target_platforms: ['x', 'v2ex', 'hacker_news', 'devto'],
+      }))
     })
   })
 

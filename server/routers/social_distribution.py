@@ -12,8 +12,11 @@ from server.schemas_social_distribution import (
     SocialContentAssetDetailOut,
     SocialContentAssetOut,
     SocialContentAssetPatchRequest,
+    SocialContentTaskCreateRequest,
+    SocialDistributionBoardOut,
     SocialDistributionAccountOut,
     SocialDistributionAccountPatchRequest,
+    SocialDistributionGenerateContentPlanRequest,
     SocialDistributionApproveGenerateRequest,
     SocialDistributionGenerateTasksOut,
     SocialDistributionGenerateTasksRequest,
@@ -35,6 +38,11 @@ from server.services.social.distribution import (
 )
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
+)
+from server.services.social.distribution_documents import (
+    create_content_task,
+    generate_content_plan,
+    social_distribution_board,
 )
 from server.services.social.distribution_generation import (
     approve_and_generate_distribution_tasks,
@@ -73,6 +81,11 @@ def update_distribution_account_endpoint(
         raise _http_error(exc) from exc
 
 
+@router.get("/board", response_model=SocialDistributionBoardOut)
+def social_distribution_board_endpoint(db: Session = Depends(get_db)):
+    return social_distribution_board(db)
+
+
 @router.post("/assets", response_model=SocialContentAssetDetailOut)
 def create_content_asset_endpoint(
     body: SocialContentAssetCreateRequest,
@@ -80,6 +93,17 @@ def create_content_asset_endpoint(
 ):
     try:
         return create_content_asset(db, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/content-tasks", response_model=SocialContentAssetDetailOut)
+def create_content_task_endpoint(
+    body: SocialContentTaskCreateRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return create_content_task(db, body)
     except ValueError as exc:
         raise _http_error(exc) from exc
 
@@ -110,6 +134,21 @@ def update_content_asset_endpoint(
 ):
     try:
         return update_content_asset(db, asset_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/assets/{asset_id}/generate-content-plan",
+    response_model=SocialContentAssetDetailOut,
+)
+def generate_content_plan_endpoint(
+    asset_id: int,
+    body: SocialDistributionGenerateContentPlanRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_content_plan(db, asset_id, body)
     except ValueError as exc:
         raise _http_error(exc) from exc
 

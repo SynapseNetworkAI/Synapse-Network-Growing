@@ -106,6 +106,43 @@ export function AssetForm({
   )
 }
 
+export function ContentTaskForm({
+  form,
+  onChange,
+}: {
+  form: {
+    title: string
+    source_material: string
+    target_audience: string
+    target_platforms: string
+    canonical_url: string
+    source_doc_path: string
+  }
+  onChange: (value: {
+    title: string
+    source_material: string
+    target_audience: string
+    target_platforms: string
+    canonical_url: string
+    source_doc_path: string
+  }) => void
+}) {
+  return (
+    <div className="grid gap-4">
+      <Field label="任务标题"><input className={inputClass} value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} placeholder="第 1 篇：我为什么要做一人公司的系统" /></Field>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="目标受众"><input className={inputClass} value={form.target_audience} onChange={(event) => onChange({ ...form, target_audience: event.target.value })} placeholder="独立开发者 / solo founder / agent workflow builders" /></Field>
+        <Field label="目标平台"><input className={inputClass} value={form.target_platforms} onChange={(event) => onChange({ ...form, target_platforms: event.target.value })} placeholder="x, v2ex, hacker_news, devto" /></Field>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Canonical URL"><input className={inputClass} value={form.canonical_url} onChange={(event) => onChange({ ...form, canonical_url: event.target.value })} /></Field>
+        <Field label="Source doc path"><input className={inputClass} value={form.source_doc_path} onChange={(event) => onChange({ ...form, source_doc_path: event.target.value })} /></Field>
+      </div>
+      <Field label="来源材料 / Markdown"><textarea className={`${textareaClass} min-h-[260px]`} value={form.source_material} onChange={(event) => onChange({ ...form, source_material: event.target.value })} /></Field>
+    </div>
+  )
+}
+
 export function AccountForm({
   form,
   onChange,

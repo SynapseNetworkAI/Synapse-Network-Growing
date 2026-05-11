@@ -55,6 +55,17 @@ class SocialContentAssetCreateRequest(BaseModel):
     created_by: str = "operator"
 
 
+class SocialContentTaskCreateRequest(BaseModel):
+    title: str
+    source_material: str | None = None
+    target_audience: str | None = None
+    target_platforms: list[str] = Field(default_factory=list)
+    canonical_url: str | None = None
+    source_doc_path: str | None = None
+    goal_key: str | None = None
+    created_by: str = "operator"
+
+
 class SocialContentAssetPatchRequest(BaseModel):
     title: str | None = None
     body: str | None = None
@@ -101,6 +112,22 @@ class SocialDistributionTaskOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class SocialDistributionDocumentOut(BaseModel):
+    id: int
+    asset_id: int
+    task_id: int | None = None
+    document_kind: str
+    platform: str | None = None
+    channel_key: str | None = None
+    title: str
+    body_markdown: str
+    status: str = "generated"
+    version: int = 1
+    metadata: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class SocialContentAssetOut(BaseModel):
     id: int
     asset_type: str
@@ -124,6 +151,7 @@ class SocialContentAssetOut(BaseModel):
 class SocialContentAssetDetailOut(SocialContentAssetOut):
     tasks: list[SocialDistributionTaskOut] = Field(default_factory=list)
     events: list[SocialDistributionEventOut] = Field(default_factory=list)
+    documents: list[SocialDistributionDocumentOut] = Field(default_factory=list)
 
 
 class SocialDistributionTaskGroupOut(BaseModel):
@@ -138,6 +166,40 @@ class SocialDistributionTaskListOut(BaseModel):
     total_tasks: int = 0
     limit: int = 100
     offset: int = 0
+
+
+class SocialDistributionBoardCardOut(BaseModel):
+    id: str
+    asset: SocialContentAssetOut
+    column_key: str
+    task_count: int = 0
+    document_count: int = 0
+    platform_count: int = 0
+    failed_count: int = 0
+    ready_to_publish_count: int = 0
+    live_count: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    document_status_counts: dict[str, int] = Field(default_factory=dict)
+    next_action: str
+    updated_at: datetime | None = None
+
+
+class SocialDistributionBoardColumnOut(BaseModel):
+    key: str
+    title: str
+    description: str
+    count: int = 0
+    cards: list[SocialDistributionBoardCardOut] = Field(default_factory=list)
+
+
+class SocialDistributionBoardOut(BaseModel):
+    columns: list[SocialDistributionBoardColumnOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    generated_at: datetime | None = None
+
+
+class SocialDistributionGenerateContentPlanRequest(BaseModel):
+    actor: str = "operator"
 
 
 class SocialDistributionGenerateTasksRequest(BaseModel):

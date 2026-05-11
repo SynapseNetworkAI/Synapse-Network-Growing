@@ -20,6 +20,7 @@ from server.services.social.distribution_core import (
     _normalize_platform,
     _record_event,
 )
+from server.services.social.distribution_documents import create_platform_draft_document
 from server.services.social.agent_content_pack import generate_platform_task_draft
 
 
@@ -70,6 +71,12 @@ def generate_distribution_tasks(
                 },
                 ensure_ascii=False,
                 sort_keys=True,
+            )
+            create_platform_draft_document(
+                db,
+                asset=asset,
+                task=task,
+                metadata={"generation_order": index + 1},
             )
             task.updated_at = utcnow()
             generated_ids.append(int(task.id))

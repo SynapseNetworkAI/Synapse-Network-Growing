@@ -117,27 +117,29 @@
 
 当前已具备：
 
-1. `/publishing` 已升级为 **Social Ops + Developer Distribution Center**，主流程只使用 `social_content_assets`、`social_distribution_tasks`、`social_distribution_events` 和 `social_distribution_accounts`。旧 X 主流程表 `social_post_drafts`、`social_post_media_assets`、`social_publish_events`、`social_reply_items`、`social_repost_candidates` 只允许通过一次性迁移脚本读取并落到新表；新 UI / 新 API 不做双写同步。
+1. `/publishing` 已升级为 **Social Ops + Developer Distribution Center**，主流程只使用 `social_content_assets`、`social_distribution_tasks`、`social_distribution_documents`、`social_distribution_events` 和 `social_distribution_accounts`。旧 X 主流程表 `social_post_drafts`、`social_post_media_assets`、`social_publish_events`、`social_reply_items`、`social_repost_candidates` 只允许通过一次性迁移脚本读取并落到新表；新 UI / 新 API 不做双写同步。
 2. `/publishing` 顶层只保留 4 个 Tabs：`Tasks`、`Signals & Metrics`、`Assets`、`Settings`。旧 `今日队列`、`回帖处理`、`转发候选`、`分发任务`、`分发渠道`、`已发布效果`、`品牌规则` 不再作为顶层入口，相关能力按职责归入四个新分区。
-3. `Tasks` 默认按 `content_asset_id` 分组展示，一行一个 Content Asset，展开后显示 X / Hacker News / Reddit / V2EX / DEV / Hashnode 等平台任务。`Flat View` 只用于排查失败或批量处理，默认不使用，避免同一篇内容派生出的多平台任务变成视觉噪音。
-4. `Assets` 管理源内容：文章、demo、X post、reply、quote、launch asset。Operator 创建内容资产后选择渠道，后端按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
-5. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
-6. Assets 支持 `批准并生成分发任务` 一键动作：后端先把 Asset 标记为 approved，再串行生成平台 tasks；前端在当前 Asset 详情中直接展开生成结果，不要求 operator 跳转到 Tasks 刷新。
-7. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
-8. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
-9. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
-10. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
-11. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
-12. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
-13. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
-14. Social Content / Distribution Agent 当前支持矩阵：
+3. `Tasks` 默认是 Symphony / Linear 风格内容任务看板，列为 `Backlog / Plan Ready / Drafting / Human Review / Ready to Publish / Live / Blocked`。一张卡代表一个 Content Asset，卡内聚合平台 task、document、event 和发布证据；列位置由后端 `/api/social/distribution/board` 投影，不允许拖拽直接改状态。
+4. `Tasks` 支持 `创建内容任务`：operator 输入主题、来源材料、目标受众、目标平台、source doc path 和 canonical URL 后，系统创建 `social_content_assets(source_type=manual_task)` 并同步写入 `social_distribution_documents(document_kind=source_plan)`。
+5. `Assets` 管理源内容：文章、demo、X post、reply、quote、launch asset。Operator 创建内容资产后选择渠道，后端按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
+6. 平台草稿是一等文档：每次成功生成 `social_distribution_tasks` 时，同步写入 / 更新 `social_distribution_documents(document_kind=platform_draft)`；`platform_title/platform_body` 继续作为最新文档投影，保证列表和旧调用方兼容。
+7. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
+8. Assets 支持 `批准并生成分发任务` 一键动作：后端先把 Asset 标记为 approved，再串行生成平台 tasks；前端在当前 Asset 详情中直接展开生成结果，不要求 operator 跳转到 Tasks 刷新。
+9. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
+10. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
+11. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
+12. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
+13. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
+14. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
+15. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
+16. Social Content / Distribution Agent 当前支持矩阵：
    - `codex + gpt-5.4`：当前本机已验证，可作为默认 Social Content / Distribution 生成模型。
    - `codex + gpt-5-codex`：当前 ChatGPT Codex account 不支持，不作为默认。
    - `openai + gpt-4o`：代码路径支持，但本机当前 quota 不足时必须 fail closed。
    - `claude + claude-3-7-sonnet-latest`：代码路径支持，但本机 key 无效时必须 fail closed。
    - `copilot + gpt-4o`：代码支持 direct API；不能使用 GitHub PAT，必须使用 Copilot OAuth token。
-15. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
-16. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
+17. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
+18. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
 
 ## 5. Error Discovery And Intake Gate
 

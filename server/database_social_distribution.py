@@ -113,6 +113,11 @@ class SocialContentAssetRow(Base):
         order_by="SocialDistributionEventRow.id",
         back_populates="asset",
     )
+    documents = relationship(
+        "SocialDistributionDocumentRow",
+        order_by="SocialDistributionDocumentRow.id",
+        back_populates="asset",
+    )
 
 
 class SocialDistributionTaskRow(Base):
@@ -159,6 +164,11 @@ class SocialDistributionTaskRow(Base):
         order_by="SocialDistributionEventRow.id",
         back_populates="task",
     )
+    documents = relationship(
+        "SocialDistributionDocumentRow",
+        order_by="SocialDistributionDocumentRow.id",
+        back_populates="task",
+    )
 
 
 class SocialDistributionEventRow(Base):
@@ -180,3 +190,37 @@ class SocialDistributionEventRow(Base):
 
     asset = relationship("SocialContentAssetRow", back_populates="events")
     task = relationship("SocialDistributionTaskRow", back_populates="events")
+
+
+class SocialDistributionDocumentRow(Base):
+    __tablename__ = "social_distribution_documents"
+    __table_args__ = (
+        Index("social_distribution_documents_asset_idx", "asset_id"),
+        Index("social_distribution_documents_task_idx", "task_id"),
+        Index("social_distribution_documents_kind_idx", "document_kind"),
+        Index("social_distribution_documents_status_idx", "status"),
+        Index(
+            "social_distribution_documents_asset_kind_platform_idx",
+            "asset_id",
+            "document_kind",
+            "platform",
+            "channel_key",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    asset_id = Column(Integer, ForeignKey("social_content_assets.id"), nullable=False)
+    task_id = Column(Integer, ForeignKey("social_distribution_tasks.id"))
+    document_kind = Column(Text, nullable=False)
+    platform = Column(Text)
+    channel_key = Column(Text)
+    title = Column(Text, nullable=False)
+    body_markdown = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="generated")
+    version = Column(Integer, nullable=False, default=1)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    asset = relationship("SocialContentAssetRow", back_populates="documents")
+    task = relationship("SocialDistributionTaskRow", back_populates="documents")
