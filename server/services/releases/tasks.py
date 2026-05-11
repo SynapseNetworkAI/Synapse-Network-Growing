@@ -1,8 +1,4 @@
-"""Manual release task surface.
-
-Release tasks represent release intent and human closure. Staging tasks may be
-explicitly deployed only after an operator clicks the staging deploy action.
-"""
+"""Manual release task surface."""
 
 from __future__ import annotations
 
@@ -25,6 +21,7 @@ from server.services.releases.github_cli import run_gh_json as _run_gh_json, run
 from server.services.releases.github_actions_logs import github_failure_log_result
 from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
 from server.services.releases.deployment_success import _apply_deployment_success_state, _deployment_has_failure_metadata
+from server.services.releases.staging_workflows import staging_workflow_file_for_service
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
 subprocess = _github_cli.subprocess
@@ -158,10 +155,6 @@ def _release_task_deploy_repo(policy: ProjectPolicyRow | None, project_key: str)
     if project_key == SYNAPSE_NETWORK_PROJECT_KEY:
         return SYNAPSE_NETWORK_REPO
     raise ValueError("Release task project is missing deploy_repo_full_name.")
-
-
-def _release_task_workflow_file(policy: ProjectPolicyRow | None) -> str:
-    return _clean(getattr(policy, "staging_workflow_file", None)) or STAGING_WORKFLOW_FILE
 
 
 def _bounded_error_excerpt(value: str, limit: int = 500) -> str:
@@ -1104,7 +1097,11 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         detail = ", ".join(missing_secrets)
         suffix = f" ({secret_error})" if secret_error else ""
         raise ValueError(f"Staging deploy is blocked: missing GitHub secrets {detail}.{suffix}")
-    workflow_file = _release_task_workflow_file(policy)
+    workflow_file = staging_workflow_file_for_service(
+        configured_workflow_file=getattr(policy, "staging_workflow_file", None),
+        project_key=project_key,
+        service_key=service_key,
+    )
     actor = _clean(getattr(body, "actor", "operator")) or "operator"
     note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
     deploy_strategy = _deploy_strategy_for_project(project_key)
