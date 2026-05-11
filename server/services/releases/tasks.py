@@ -1155,6 +1155,8 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         "actor": actor,
         "trigger_source": "release_task",
     }
+    if workflow_file == "deploy-staging-gateway.yml":
+        inputs.pop("deploy_scope", None)
     callback_url = _callback_url(int(record.id))
     if callback_url:
         inputs["callback_url"] = callback_url
