@@ -18,6 +18,7 @@ from server.services.social.distribution_core import (
     _record_event,
     _validate_task_status,
 )
+from server.services.social.distribution_documents import update_task_document_status
 from server.services.social.distribution_projection import _task_out
 
 
@@ -44,6 +45,12 @@ def update_distribution_task(
         if value is not None:
             setattr(row, field, value.strip() if isinstance(value, str) else value)
     row.updated_at = utcnow()
+    update_task_document_status(
+        db,
+        task=row,
+        status="published",
+        metadata={"published_url": row.published_url},
+    )
     _record_event(
         db,
         row.asset,
@@ -70,6 +77,12 @@ def mark_distribution_task_live(
     row.published_url = body.published_url.strip()
     row.manual_result_note = _clean_optional(body.manual_result_note)
     row.updated_at = utcnow()
+    update_task_document_status(
+        db,
+        task=row,
+        status="failed",
+        metadata={"removed_reason": row.manual_result_note},
+    )
     _record_event(
         db,
         row.asset,
@@ -129,6 +142,12 @@ def publish_distribution_task_to_x(
             str(item) for item in policy.get("blocked_reasons", [])
         )
         row.updated_at = utcnow()
+        update_task_document_status(
+            db,
+            task=row,
+            status="failed",
+            metadata={"failure_summary": row.failure_summary},
+        )
         _record_event(
             db,
             row.asset,
@@ -152,6 +171,12 @@ def publish_distribution_task_to_x(
         row.status = "failed"
         row.failure_summary = exc.summary
         row.updated_at = utcnow()
+        update_task_document_status(
+            db,
+            task=row,
+            status="failed",
+            metadata={"failure_summary": row.failure_summary},
+        )
         _record_event(
             db,
             row.asset,
@@ -170,6 +195,12 @@ def publish_distribution_task_to_x(
     row.published_url = f"https://x.com/SynapseNetworkA/status/{result.post_id}"
     row.failure_summary = None
     row.updated_at = utcnow()
+    update_task_document_status(
+        db,
+        task=row,
+        status="published",
+        metadata={"external_post_id": result.post_id, "published_url": row.published_url},
+    )
     _record_event(
         db,
         row.asset,

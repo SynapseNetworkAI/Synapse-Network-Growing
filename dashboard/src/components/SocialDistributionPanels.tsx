@@ -1,64 +1,140 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   api,
   type SocialContentAsset,
   type SocialContentAssetDetail,
   type SocialDistributionAccount,
   type SocialDistributionTask,
-  type SocialDistributionTaskGroup,
 } from '../api'
+import type { SocialDistributionBoard } from '../apiSocialDistribution'
 import { EmptyPane, OverlayModal, SectionFrame, useToast } from './workbench'
-import { AssetDetail, TaskDetailModal } from './SocialDistributionDetails'
+import { AssetSummary, DistributionBoard } from './SocialDistributionBoard'
+import { AssetDetail, ContentTaskDetailModal, TaskDetailModal } from './SocialDistributionDetails'
 import {
   AccountForm,
   AssetForm,
+  ContentTaskForm,
   MetricCard,
   Pager,
   StateBadge,
   TaskLikeTable,
-  inputClass,
   pageSlice,
   statusTone,
 } from './SocialDistributionWidgets'
 
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
-  const [groups, setGroups] = useState<SocialDistributionTaskGroup[]>([])
-  const [flatView, setFlatView] = useState(false)
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+  const [board, setBoard] = useState<SocialDistributionBoard | null>(null)
+  const [accounts, setAccounts] = useState<SocialDistributionAccount[]>([])
+  const [detail, setDetail] = useState<SocialContentAssetDetail | null>(null)
   const [taskDetail, setTaskDetail] = useState<SocialDistributionTask | null>(null)
+  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
   const [manualUrl, setManualUrl] = useState('')
   const [manualNote, setManualNote] = useState('')
-  const [platformFilter, setPlatformFilter] = useState<string | null>(() => new URLSearchParams(window.location.search).get('platform'))
-  const [channelFilter, setChannelFilter] = useState<string | null>(() => new URLSearchParams(window.location.search).get('channel_key'))
-  const [statusFilter, setStatusFilter] = useState<string>(() => new URLSearchParams(window.location.search).get('status') ?? 'all')
+  const [showCreate, setShowCreate] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState({
+    title: '',
+    source_material: '',
+    target_audience: '',
+    target_platforms: 'x, v2ex, hacker_news, devto',
+    canonical_url: '',
+    source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md',
+  })
 
   async function loadTasks() {
     try {
-      const result = await api.getSocialDistributionTasks({
-        platform: platformFilter,
-        channel_key: channelFilter,
-        status: statusFilter,
-      })
-      setGroups(result.groups)
-      setExpandedIds((current) => current.size ? current : new Set(result.groups.slice(0, 1).map((group) => group.asset.id)))
+      const [nextBoard, accountRows] = await Promise.all([
+        api.getSocialDistributionBoard(),
+        api.getDistributionAccounts(),
+      ])
+      setBoard(nextBoard)
+      setAccounts(accountRows)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载分发任务失败')
+      toast.error(error instanceof Error ? error.message : '加载分发看板失败')
     }
   }
 
   useEffect(() => {
     void loadTasks()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platformFilter, channelFilter, statusFilter])
+  }, [])
 
-  const flatTasks = useMemo(() => groups.flatMap((group) => group.tasks), [groups])
-  const visibleGroups = groups
+  async function openAsset(assetId: number) {
+    try {
+      const row = await api.getSocialContentAsset(assetId)
+      setDetail(row)
+      setSelectedAccountIds(row.tasks.map((task) => task.account_id))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载内容任务失败')
+    }
+  }
+
+  async function createTask() {
+    try {
+      setBusy(true)
+      const created = await api.createSocialContentTask({
+        title: form.title,
+        source_material: form.source_material,
+        target_audience: form.target_audience,
+        target_platforms: form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean),
+        canonical_url: form.canonical_url,
+        source_doc_path: form.source_doc_path,
+        created_by: 'operator',
+      })
+      setShowCreate(false)
+      setDetail(created)
+      setSelectedAccountIds([])
+      setForm({ title: '', source_material: '', target_audience: '', target_platforms: 'x, v2ex, hacker_news, devto', canonical_url: '', source_doc_path: form.source_doc_path })
+      await loadTasks()
+      toast.success('内容任务已创建')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建内容任务失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function generatePlan() {
+    if (!detail) return
+    try {
+      setBusy(true)
+      const updated = await api.generateSocialDistributionContentPlan(detail.id, { actor: 'operator' })
+      setDetail(updated)
+      await loadTasks()
+      toast.success('实现计划已生成')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成实现计划失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function approveAndGenerate() {
+    if (!detail) return
+    try {
+      setBusy(true)
+      const result = await api.approveAndGenerateSocialDistributionTasks(detail.id, {
+        account_ids: selectedAccountIds,
+        action: 'post',
+        actor: 'operator',
+      })
+      setDetail(result.asset)
+      setSelectedAccountIds(result.asset.tasks.map((task) => task.account_id))
+      await loadTasks()
+      toast.success(`平台文档生成完成：${result.generated_task_ids.length} 成功，${result.failed_task_ids.length} 失败`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成平台文档失败')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function markLive(task: SocialDistributionTask) {
     try {
       const updated = await api.markSocialDistributionTaskLive(task.id, { published_url: manualUrl, manual_result_note: manualNote, actor: 'operator' })
       setTaskDetail(updated)
+      if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
       toast.success('已记录 live 链接')
     } catch (error) {
@@ -70,6 +146,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     try {
       const updated = await api.markSocialDistributionTaskRemoved(task.id, { manual_result_note: manualNote, actor: 'operator' })
       setTaskDetail(updated)
+      if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
       toast.success('已标记 removed')
     } catch (error) {
@@ -81,6 +158,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     try {
       const updated = await api.updateSocialDistributionTask(task.id, { status: 'skipped', manual_result_note: manualNote })
       setTaskDetail(updated)
+      if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
       toast.success('已跳过该任务')
     } catch (error) {
@@ -92,6 +170,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     try {
       const updated = await api.publishSocialDistributionTaskToX(task.id, { actor: 'operator' })
       setTaskDetail(updated)
+      if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
       toast.success('已发布到 X')
     } catch (error) {
@@ -103,64 +182,36 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     <SectionFrame
       eyebrow="Distribution Tasks"
       title="Tasks"
-      description="默认按内容资产分组，避免同一篇文章派生出的 X、HN、Reddit、V2EX、DEV 任务变成噪音列表。"
+      description="Symphony 式内容任务看板：一张卡是一篇源内容，平台文档、发布动作和事件证据都挂在卡片下。状态由后端投影，不支持拖拽改状态。"
       actions={
         <div className="flex flex-wrap gap-2">
-          {platformFilter ? <span className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100">平台：{platformFilter} / {channelFilter ?? 'all'}</span> : null}
-          <select className={`${inputClass} w-auto py-2`} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="all">全部</option>
-            <option value="needs_review">待审核</option>
-            <option value="draft_ready">草稿就绪</option>
-            <option value="live">已发布</option>
-            <option value="failed">失败</option>
-            <option value="removed">removed</option>
-          </select>
-          {(platformFilter || channelFilter || statusFilter !== 'all') ? <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => { setPlatformFilter(null); setChannelFilter(null); setStatusFilter('all') }}>清除筛选</button> : null}
-          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => setFlatView((value) => !value)}>{flatView ? 'Grouped View' : 'Flat View'}</button>
+          <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>创建内容任务</button>
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => void loadTasks()}>刷新</button>
         </div>
       }
     >
-      {groups.length === 0 ? <EmptyPane>暂无内容资产任务。先到 Assets 创建一份源内容，再串行生成渠道任务。</EmptyPane> : null}
-      {flatView ? (
-        <TaskTable tasks={flatTasks} formatDateTime={formatDateTime} onOpen={(task) => {
+      {!board ? <EmptyPane>分发看板加载中。</EmptyPane> : null}
+      {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容任务。点击“创建内容任务”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
+      {board ? <DistributionBoard board={board} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
+      <OverlayModal open={showCreate} eyebrow="Content Task" title="创建内容任务" description="输入一篇源内容或大纲，系统会先生成 source plan，再派生平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
+        <ContentTaskForm form={form} onChange={setForm} />
+      </OverlayModal>
+      <ContentTaskDetailModal
+        asset={detail}
+        accounts={accounts}
+        selectedAccountIds={selectedAccountIds}
+        formatDateTime={formatDateTime}
+        busy={busy}
+        onToggleAccount={(id) => setSelectedAccountIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
+        onClose={() => setDetail(null)}
+        onGeneratePlan={() => void generatePlan()}
+        onApproveGenerate={() => void approveAndGenerate()}
+        onOpenTask={(task) => {
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')
           setManualNote(task.manual_result_note ?? '')
-        }} />
-      ) : (
-        <div className="space-y-4">
-          {visibleGroups.map((group) => {
-            const expanded = expandedIds.has(group.asset.id)
-            return (
-              <article key={group.asset.id} className="rounded-[24px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)]">
-                <button
-                  type="button"
-                  className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left"
-                  onClick={() => setExpandedIds((current) => {
-                    const next = new Set(current)
-                    if (next.has(group.asset.id)) next.delete(group.asset.id)
-                    else next.add(group.asset.id)
-                    return next
-                  })}
-                >
-                  <AssetSummary asset={group.asset} taskCount={group.tasks.length} />
-                  <span className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm">{expanded ? '收起' : '展开'}</span>
-                </button>
-                {expanded ? (
-                  <div className="border-t border-[color:var(--ops-stroke-soft)] px-5 py-4">
-                    <TaskTable tasks={group.tasks} formatDateTime={formatDateTime} onOpen={(task) => {
-                      setTaskDetail(task)
-                      setManualUrl(task.published_url ?? '')
-                      setManualNote(task.manual_result_note ?? '')
-                    }} />
-                  </div>
-                ) : null}
-              </article>
-            )
-          })}
-        </div>
-      )}
+        }}
+      />
       <TaskDetailModal
         task={taskDetail}
         manualUrl={manualUrl}
@@ -441,31 +492,5 @@ export function DistributionSignalsMetricsPanel({ formatDateTime }: { formatDate
         ))}
       </div>
     </SectionFrame>
-  )
-}
-
-function AssetSummary({ asset, taskCount }: { asset: SocialContentAsset; taskCount: number }) {
-  const counts = Object.entries(asset.status_counts ?? {}).map(([status, count]) => `${count} ${status}`).join(' / ')
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2"><b className="text-[color:var(--ops-text-title)]">{asset.title}</b><StateBadge tone={statusTone(asset.status)}>{asset.status}</StateBadge></div>
-      <div className="mt-2 line-clamp-2 text-sm text-[color:var(--ops-text-muted)]">{asset.summary || asset.body || 'No summary yet.'}</div>
-      <div className="mt-3 font-mono text-xs text-[color:var(--ops-text-caption)]">{asset.asset_type} · {asset.source_type} · {taskCount} tasks{counts ? ` · ${counts}` : ''}</div>
-    </div>
-  )
-}
-
-function TaskTable({ tasks, formatDateTime, onOpen }: { tasks: SocialDistributionTask[]; formatDateTime: (value: string | null | undefined) => string; onOpen: (task: SocialDistributionTask) => void }) {
-  return (
-    <TaskLikeTable
-      headers={['平台任务', '状态', '正文摘要', '更新', '操作']}
-      rows={tasks.map((task) => [
-        <div key="name"><b>{task.account_display_name ?? task.channel_key}</b><div className="font-mono text-xs text-[color:var(--ops-text-caption)]">{task.platform} · {task.action}</div></div>,
-        <StateBadge key="status" tone={statusTone(task.status)}>{task.status}</StateBadge>,
-        <div key="body" className="line-clamp-3 max-w-[520px] text-xs leading-5 text-[color:var(--ops-text-muted)]">{task.platform_body || task.failure_summary || 'No draft yet.'}</div>,
-        <span key="time" className="text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(task.updated_at)}</span>,
-        <button key="open" type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpen(task)}>详情</button>,
-      ])}
-    />
   )
 }

@@ -1,6 +1,7 @@
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionAccountRow,
+    SocialDistributionDocumentRow,
     SocialDistributionEventRow,
     SocialDistributionTaskRow,
 )
@@ -82,6 +83,66 @@ def test_distribution_accounts_seed_idempotently(synced_client, db_session):
     assert second.status_code == 200
     assert len(first.json()) >= 10
     assert db_session.query(SocialDistributionAccountRow).count() == len(first.json())
+
+
+def test_create_content_task_creates_source_plan_document(synced_client, db_session):
+    response = synced_client.post(
+        "/api/social/distribution/content-tasks",
+        json={
+            "title": "第 1 篇：一人公司最大的问题，不是没人，是没有系统",
+            "source_material": "核心问题：上下文切换、流程断裂和质量失控。",
+            "target_audience": "solo founders and developers",
+            "target_platforms": ["x", "v2ex", "hacker_news", "devto"],
+            "source_doc_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_type"] == "manual_task"
+    assert payload["documents"][0]["document_kind"] == "source_plan"
+    assert "Content Implementation Plan" in payload["documents"][0]["body_markdown"]
+    doc = db_session.query(SocialDistributionDocumentRow).one()
+    metadata = _json_object(doc.metadata_json)
+    assert metadata["generated_by"] == "distribution_content_plan_v1"
+    assert metadata["structured_plan"]["target_platforms"] == [
+        "x",
+        "v2ex",
+        "hacker_news",
+        "devto",
+    ]
+
+
+def test_create_content_task_fails_closed_without_title(synced_client, db_session):
+    response = synced_client.post(
+        "/api/social/distribution/content-tasks",
+        json={"title": "   ", "source_material": "body"},
+    )
+
+    assert response.status_code == 400
+    assert db_session.query(SocialDistributionDocumentRow).count() == 0
+
+
+def test_generate_content_plan_and_board_projection(synced_client):
+    created = synced_client.post(
+        "/api/social/distribution/content-tasks",
+        json={"title": "Solo company control plane", "source_material": "Build system before product."},
+    ).json()
+
+    generated = synced_client.post(
+        f"/api/social/distribution/assets/{created['id']}/generate-content-plan",
+        json={"actor": "operator"},
+    )
+    board = synced_client.get("/api/social/distribution/board")
+
+    assert generated.status_code == 200
+    assert len(generated.json()["documents"]) == 1
+    assert board.status_code == 200
+    columns = {column["key"]: column for column in board.json()["columns"]}
+    assert columns["plan_ready"]["count"] == 1
+    card = columns["plan_ready"]["cards"][0]
+    assert card["document_count"] == 1
+    assert card["next_action"].startswith("Select channels")
 
 
 def test_content_asset_generates_grouped_platform_tasks_serially(
@@ -648,6 +709,11 @@ def test_approve_and_generate_marks_asset_approved_before_serial_tasks(
     ]
     assert "asset_approved" in event_types
     assert "task_generated" in event_types
+    docs = db_session.query(SocialDistributionDocumentRow).all()
+    assert len(docs) == 1
+    assert docs[0].document_kind == "platform_draft"
+    assert docs[0].task_id == response.json()["generated_task_ids"][0]
+    assert "devto/dev.to agent-generated body" in docs[0].body_markdown
 
 
 def test_distribution_task_generation_missing_asset_returns_404(synced_client):

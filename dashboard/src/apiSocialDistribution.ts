@@ -77,9 +77,26 @@ export interface SocialDistributionEvent {
   created_at: string | null
 }
 
+export interface SocialDistributionDocument {
+  id: number
+  asset_id: number
+  task_id: number | null
+  document_kind: 'source_plan' | 'canonical_article' | 'platform_draft' | string
+  platform: string | null
+  channel_key: string | null
+  title: string
+  body_markdown: string
+  status: string
+  version: number
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface SocialContentAssetDetail extends SocialContentAsset {
   tasks: SocialDistributionTask[]
   events: SocialDistributionEvent[]
+  documents: SocialDistributionDocument[]
 }
 
 export interface SocialDistributionTaskGroup {
@@ -94,6 +111,36 @@ export interface SocialDistributionTaskList {
   total_tasks: number
   limit: number
   offset: number
+}
+
+export interface SocialDistributionBoardCard {
+  id: string
+  asset: SocialContentAsset
+  column_key: string
+  task_count: number
+  document_count: number
+  platform_count: number
+  failed_count: number
+  ready_to_publish_count: number
+  live_count: number
+  status_counts: Record<string, number>
+  document_status_counts: Record<string, number>
+  next_action: string
+  updated_at: string | null
+}
+
+export interface SocialDistributionBoardColumn {
+  key: string
+  title: string
+  description: string
+  count: number
+  cards: SocialDistributionBoardCard[]
+}
+
+export interface SocialDistributionBoard {
+  columns: SocialDistributionBoardColumn[]
+  summary: Record<string, number>
+  generated_at: string | null
 }
 
 export interface SocialDistributionGenerateTasksResult {
@@ -135,6 +182,7 @@ type RequestFn = <T>(path: string, options?: RequestInit, timeoutMs?: number) =>
 
 export function createSocialDistributionApi(request: RequestFn) {
   return {
+    getSocialDistributionBoard: () => request<SocialDistributionBoard>('/social/distribution/board'),
     getDistributionAccounts: () => request<SocialDistributionAccount[]>('/social/distribution/accounts'),
     updateDistributionAccount: (
       id: number,
@@ -174,6 +222,20 @@ export function createSocialDistributionApi(request: RequestFn) {
       created_by?: string
     }) =>
       request<SocialContentAssetDetail>('/social/distribution/assets', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    createSocialContentTask: (data: {
+      title: string
+      source_material?: string | null
+      target_audience?: string | null
+      target_platforms?: string[]
+      canonical_url?: string | null
+      source_doc_path?: string | null
+      goal_key?: string | null
+      created_by?: string
+    }) =>
+      request<SocialContentAssetDetail>('/social/distribution/content-tasks', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -228,6 +290,15 @@ export function createSocialDistributionApi(request: RequestFn) {
           body: JSON.stringify(data),
         },
         90_000,
+      ),
+    generateSocialDistributionContentPlan: (assetId: number, data: { actor?: string } = {}) =>
+      request<SocialContentAssetDetail>(
+        `/social/distribution/assets/${assetId}/generate-content-plan`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+        60_000,
       ),
     updateSocialDistributionTask: (
       id: number,

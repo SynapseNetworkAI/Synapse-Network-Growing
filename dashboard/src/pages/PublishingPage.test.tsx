@@ -6,11 +6,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PublishingPage from './PublishingPage'
 
 const apiMock = vi.hoisted(() => ({
+  getSocialDistributionBoard: vi.fn(),
   getSocialDistributionTasks: vi.fn(),
   getSocialContentAssets: vi.fn(),
   getSocialContentAsset: vi.fn(),
+  createSocialContentTask: vi.fn(),
   createSocialContentAsset: vi.fn(),
+  generateSocialDistributionContentPlan: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
+  approveAndGenerateSocialDistributionTasks: vi.fn(),
+  publishSocialDistributionTaskToX: vi.fn(),
+  markSocialDistributionTaskLive: vi.fn(),
+  markSocialDistributionTaskRemoved: vi.fn(),
+  updateSocialDistributionTask: vi.fn(),
   getDistributionAccounts: vi.fn(),
   updateDistributionAccount: vi.fn(),
   getSocialTrends: vi.fn(),
@@ -86,6 +94,9 @@ function asset(overrides: Record<string, unknown> = {}) {
     created_by: 'operator',
     task_count: 1,
     status_counts: { draft_ready: 1 },
+    documents: [],
+    tasks: [],
+    events: [],
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',
     ...overrides,
@@ -95,6 +106,39 @@ function asset(overrides: Record<string, unknown> = {}) {
 describe('PublishingPage v2 distribution workbench', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMock.getSocialDistributionBoard.mockResolvedValue({
+      columns: [
+        { key: 'backlog', title: 'Backlog', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'plan_ready', title: 'Plan Ready', description: 'Plan ready.', count: 0, cards: [] },
+        { key: 'drafting', title: 'Drafting', description: 'Drafting.', count: 0, cards: [] },
+        { key: 'human_review', title: 'Human Review', description: 'Review.', count: 0, cards: [] },
+        {
+          key: 'ready_to_publish',
+          title: 'Ready to Publish',
+          description: 'Ready.',
+          count: 1,
+          cards: [{
+            id: 'asset:31',
+            asset: asset(),
+            column_key: 'ready_to_publish',
+            task_count: 1,
+            document_count: 2,
+            platform_count: 1,
+            failed_count: 0,
+            ready_to_publish_count: 1,
+            live_count: 0,
+            status_counts: { draft_ready: 1 },
+            document_status_counts: { generated: 2 },
+            next_action: 'Publish manually.',
+            updated_at: '2026-05-01T00:00:00Z',
+          }],
+        },
+        { key: 'live', title: 'Live', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: 'Blocked', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 2 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
     apiMock.getSocialDistributionTasks.mockResolvedValue({
       groups: [{ asset: asset(), tasks: [task()] }],
       flat: [task()],
@@ -102,10 +146,12 @@ describe('PublishingPage v2 distribution workbench', () => {
       total_tasks: 1,
     })
     apiMock.getSocialContentAssets.mockResolvedValue([asset()])
-    apiMock.getSocialContentAsset.mockResolvedValue({ ...asset(), tasks: [task()], events: [] })
-    apiMock.createSocialContentAsset.mockResolvedValue({ ...asset(), tasks: [], events: [] })
+    apiMock.getSocialContentAsset.mockResolvedValue({ ...asset(), tasks: [task()], events: [], documents: [] })
+    apiMock.createSocialContentTask.mockResolvedValue({ ...asset(), source_type: 'manual_task', tasks: [], events: [], documents: [] })
+    apiMock.createSocialContentAsset.mockResolvedValue({ ...asset(), tasks: [], events: [], documents: [] })
+    apiMock.generateSocialDistributionContentPlan.mockResolvedValue({ ...asset(), tasks: [], events: [], documents: [] })
     apiMock.generateSocialDistributionTasks.mockResolvedValue({
-      asset: { ...asset(), tasks: [task()], events: [] },
+      asset: { ...asset(), tasks: [task()], events: [], documents: [] },
       results: [{ account_id: 11, platform: 'devto', channel_key: 'dev.to', status: 'generated', task_id: 21, error: null }],
       generated_task_ids: [21],
       failed_task_ids: [],
@@ -125,7 +171,7 @@ describe('PublishingPage v2 distribution workbench', () => {
     })
   })
 
-  it('renders only the four v2 tabs and grouped tasks by asset', async () => {
+  it('renders only the four v2 tabs and task board by asset', async () => {
     render(<PublishingPage />)
 
     expect(await screen.findByText('多渠道分发中心')).toBeInTheDocument()
@@ -135,7 +181,7 @@ describe('PublishingPage v2 distribution workbench', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '今日队列' })).not.toBeInTheDocument()
     expect(await screen.findByText('How AI agents should pay for APIs')).toBeInTheDocument()
-    expect(screen.getByText(/1 tasks/)).toBeInTheDocument()
+    expect(screen.getByTestId('distribution-board-column-ready_to_publish')).toBeInTheDocument()
   })
 
   it('switches to assets and creates the source asset before task generation', async () => {
