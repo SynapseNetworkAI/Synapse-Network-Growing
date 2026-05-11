@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import case, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server.database import ReleaseTaskRow
@@ -104,21 +104,8 @@ def query_release_tasks(
     total = int(query.count())
     safe_limit = min(max(1, int(limit)), 100)
     safe_offset = max(0, int(offset))
-    status_priority = case(
-        (
-            ReleaseTaskRow.status.in_(
-                ["requested", "deploying", "running", "pending", "publishing"]
-            ),
-            0,
-        ),
-        (ReleaseTaskRow.status.in_(["completed", "succeeded", "published"]), 1),
-        (ReleaseTaskRow.status.in_(["failed", "blocked", "validation_failed"]), 2),
-        (ReleaseTaskRow.status.in_(["cancelled", "canceled", "rejected"]), 3),
-        else_=0,
-    )
     rows = (
         query.order_by(
-            status_priority.asc(),
             ReleaseTaskRow.updated_at.desc(),
             ReleaseTaskRow.id.desc(),
         )

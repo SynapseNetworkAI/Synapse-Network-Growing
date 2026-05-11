@@ -1519,7 +1519,7 @@ def test_release_task_staging_deploy_dispatches_workflow_and_links_deployment(mo
     assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert calls[0]["workflow_file"] == "deploy-staging-gateway.yml"
     assert calls[0]["ref"] == "main"
-    assert calls[0]["inputs"]["deploy_scope"] == "gateway"
+    assert "deploy_scope" not in calls[0]["inputs"]
     assert calls[0]["inputs"]["source_ref"] == "codex/staging-gateway"
 
 

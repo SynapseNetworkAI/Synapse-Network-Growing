@@ -60,7 +60,7 @@ def test_release_task_query_returns_paginated_filtered_results(
     assert payload["items"][0]["status"] == "requested"
 
 
-def test_release_task_query_prioritizes_unpublished_before_terminal(
+def test_release_task_query_sorts_by_updated_time_desc(
     monkeypatch, synced_client, db_session
 ):
     monkeypatch.setattr(
@@ -96,4 +96,4 @@ def test_release_task_query_prioritizes_unpublished_before_terminal(
 
     assert response.status_code == 200
     statuses = [item["status"] for item in response.json()["items"][:3]]
-    assert statuses == ["requested", "completed", "failed"]
+    assert statuses == ["completed", "failed", "requested"]
