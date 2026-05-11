@@ -33,7 +33,7 @@ author: engineering-ops
 ### 目标仓库负责
 
 1. `pr-ci.yml`
-2. `deploy-staging.yml`
+2. Staging family workflows: `deploy-staging-gateway.yml`, `deploy-staging-admin.yml`, `deploy-staging-frontends.yml`, plus reusable core `deploy-staging.yml`
 3. `deploy-production.yml`
 4. Cloud Build image build scripts
 5. Cloud Run migration/deploy/smoke scripts
@@ -43,8 +43,14 @@ author: engineering-ops
 
 | Project | Service key | Staging runner | Required GitHub secrets |
 |---|---|---|---|
-| `Synapse-Network` | `gateway`, `gateway-admin`, `admin-front`, `user-front` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network` | `gateway` | `deploy-staging-gateway.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network` | `gateway-admin`, `admin-front` | `deploy-staging-admin.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network` | `user-front`, `docs-front` | `deploy-staging-frontends.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
 | `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
+
+Growing 的 `/releases` 仍然是一个统一发布入口，但后端会按 `service_key`
+选择对应 staging family workflow。不要让 operator 手工维护这张映射，也不要把所有
+服务继续塞进一个只靠条件分支区分的 mega workflow。
 
 ## 3. Promotion Rule
 
@@ -73,6 +79,19 @@ GitHub Actions 必须在执行开始时将 branch HEAD 解析成不可变 commit
 - `imageDigest`
 - `cloudRunRevision`
 - `evidenceUri`
+
+`Synapse-Network` staging 的服务到 workflow 映射固定为：
+
+| Service key | Workflow file |
+|---|---|
+| `gateway` | `deploy-staging-gateway.yml` |
+| `gateway-admin` | `deploy-staging-admin.yml` |
+| `admin-front` | `deploy-staging-admin.yml` |
+| `user-front` | `deploy-staging-frontends.yml` |
+| `docs-front` | `deploy-staging-frontends.yml` |
+
+目标仓库的 `deploy-staging.yml` 保留为 reusable core / compatibility runner；
+新 dispatch 默认进入 family workflow，减少错误 migration guard 和不必要的服务条件分支。
 
 部署记录不能只保存分支名。分支后续继续 push 时，必须形成新的 deployment record。
 

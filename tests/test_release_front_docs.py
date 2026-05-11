@@ -27,7 +27,7 @@ def test_front_docs_release_task_staging_deploy_dispatches_synapse_workflow(
 
     def fake_dispatch(**kwargs):
         calls.append(kwargs)
-        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging-frontends.yml"
 
     monkeypatch.setattr(
         release_tasks_service, "_dispatch_github_workflow", fake_dispatch
@@ -70,7 +70,7 @@ def test_front_docs_release_task_staging_deploy_dispatches_synapse_workflow(
     assert payload["deployment_record_id"] is not None
     assert payload["deployment_health_status"] == "checking"
     assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
-    assert calls[0]["workflow_file"] == "deploy-staging.yml"
+    assert calls[0]["workflow_file"] == "deploy-staging-frontends.yml"
     assert calls[0]["inputs"]["deploy_scope"] == "docs-front"
     assert calls[0]["inputs"]["source_ref"] == "codex/staging-docs-front"
 
