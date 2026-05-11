@@ -139,10 +139,17 @@ def test_generate_content_plan_and_board_projection(synced_client):
     assert len(generated.json()["documents"]) == 1
     assert board.status_code == 200
     columns = {column["key"]: column for column in board.json()["columns"]}
-    assert columns["plan_ready"]["count"] == 1
-    card = columns["plan_ready"]["cards"][0]
+    assert list(columns) == [
+        "backlog",
+        "needs_review",
+        "ready_to_publish",
+        "live",
+        "blocked",
+    ]
+    assert columns["needs_review"]["count"] == 1
+    card = columns["needs_review"]["cards"][0]
     assert card["document_count"] == 1
-    assert card["next_action"].startswith("Select channels")
+    assert card["next_action"].startswith("审核方案")
 
 
 def test_content_asset_generates_grouped_platform_tasks_serially(
@@ -234,7 +241,7 @@ def test_distribution_long_form_targets_include_canonical_warning_when_missing(
 
 
 def test_distribution_task_manual_live_removed_and_status_validation(
-    synced_client, monkeypatch
+    synced_client, db_session, monkeypatch
 ):
     _patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
@@ -267,6 +274,8 @@ def test_distribution_task_manual_live_removed_and_status_validation(
     )
     assert live.status_code == 200
     assert live.json()["status"] == "live"
+    document = db_session.query(SocialDistributionDocumentRow).one()
+    assert document.status == "published"
 
     removed = synced_client.post(
         f"/api/social/distribution/tasks/{task_id}/mark-removed",
@@ -275,6 +284,11 @@ def test_distribution_task_manual_live_removed_and_status_validation(
     assert removed.status_code == 200
     assert removed.json()["status"] == "removed"
     assert removed.json()["manual_result_note"] == "Moderator removed duplicate post."
+    db_session.refresh(document)
+    assert document.status == "failed"
+    board = synced_client.get("/api/social/distribution/board").json()
+    columns = {column["key"]: column for column in board["columns"]}
+    assert columns["blocked"]["count"] == 1
 
 
 def test_x_distribution_task_can_publish_after_human_gate(

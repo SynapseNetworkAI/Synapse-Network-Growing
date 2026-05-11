@@ -14,6 +14,11 @@ from server.database_social_distribution import (
     SocialDistributionDocumentRow,
     SocialDistributionTaskRow,
 )
+from server.services.social.distribution_board_contract import (
+    BOARD_COLUMNS,
+    board_next_action,
+    document_status_for_task,
+)
 from server.services.social.distribution_core import (
     _clean_optional,
     _normalize_platform,
@@ -32,36 +37,6 @@ from server.services.social.distribution_document_content import (
     validate_source_plan_payload,
 )
 from server.services.social.distribution_projection import _asset_out
-
-BOARD_COLUMNS = (
-    (
-        "backlog",
-        "Backlog",
-        "Content tasks that still need a plan or channel selection.",
-    ),
-    (
-        "plan_ready",
-        "Plan Ready",
-        "A source plan exists and platform drafts can be generated.",
-    ),
-    ("drafting", "Drafting", "Platform documents or tasks are being prepared."),
-    (
-        "human_review",
-        "Human Review",
-        "Drafts need operator review before public action.",
-    ),
-    (
-        "ready_to_publish",
-        "Ready to Publish",
-        "Platform drafts are ready for human-gated publish or manual posting.",
-    ),
-    ("live", "Live", "Content has at least one live distribution record."),
-    (
-        "blocked",
-        "Blocked",
-        "Generation, policy, or publishing failure needs attention.",
-    ),
-)
 
 
 def create_content_task(
@@ -131,6 +106,48 @@ def create_content_task(
     db.commit()
     db.refresh(asset)
     return get_content_asset(db, int(asset.id))
+
+
+def ensure_platform_documents_for_asset(
+    db: Session,
+    asset: SocialContentAssetRow,
+    *,
+    actor: str = "system",
+) -> bool:
+    existing_task_ids = {
+        int(document.task_id)
+        for document in list(asset.documents or [])
+        if document.document_kind == "platform_draft" and document.task_id is not None
+    }
+    changed = False
+    for task in list(asset.tasks or []):
+        if int(task.id) in existing_task_ids:
+            continue
+        if not str(task.platform_title or "").strip() and not str(
+            task.platform_body or ""
+        ).strip():
+            continue
+        create_platform_draft_document(
+            db,
+            asset=asset,
+            task=task,
+            metadata={"backfilled": True},
+        )
+        _record_event(
+            db,
+            asset,
+            task,
+            "document_backfilled",
+            actor,
+            "Backfilled platform_draft document from existing distribution task.",
+            {"platform": task.platform, "channel_key": task.channel_key},
+        )
+        changed = True
+    if changed:
+        asset.updated_at = utcnow()
+        db.commit()
+        db.refresh(asset)
+    return changed
 
 
 def generate_content_plan(
@@ -203,7 +220,7 @@ def create_platform_draft_document(
         channel_key=task.channel_key,
         title=title,
         body_markdown=body,
-        status="needs_review" if task.status == "needs_review" else "generated",
+        status=document_status_for_task(task.status),
         metadata={
             "generated_by": "distribution_task_generation_v1",
             "task_status": task.status,
@@ -239,6 +256,27 @@ def update_task_document_status(
         row.updated_at = utcnow()
 
 
+def sync_task_document_from_task(
+    db: Session,
+    *,
+    task: SocialDistributionTaskRow,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    if task.asset is not None:
+        create_platform_draft_document(
+            db,
+            asset=task.asset,
+            task=task,
+            metadata=metadata,
+        )
+    update_task_document_status(
+        db,
+        task=task,
+        status=document_status_for_task(task.status),
+        metadata=metadata,
+    )
+
+
 def social_distribution_board(
     db: Session,
 ) -> dist_schema.SocialDistributionBoardOut:
@@ -254,6 +292,7 @@ def social_distribution_board(
         key: [] for key, _, _ in BOARD_COLUMNS
     }
     for asset in rows:
+        ensure_platform_documents_for_asset(db, asset)
         card = _board_card(asset)
         grouped.setdefault(card.column_key, []).append(card)
     columns = [
@@ -294,8 +333,9 @@ def _board_card(
         platform_count=len({(task.platform, task.channel_key) for task in tasks}),
         failed_count=status_counts.get("failed", 0)
         + doc_status_counts.get("failed", 0),
-        ready_to_publish_count=status_counts.get("draft_ready", 0)
-        + status_counts.get("approved", 0),
+        ready_to_publish_count=_ready_to_publish_count(
+            status_counts, doc_status_counts
+        ),
         live_count=status_counts.get("live", 0),
         status_counts=dict(status_counts),
         document_status_counts=dict(doc_status_counts),
@@ -314,9 +354,7 @@ def _asset_column(
         ("blocked", _asset_is_blocked(asset, status_counts, doc_status_counts)),
         ("live", _asset_is_live(asset, status_counts)),
         ("ready_to_publish", _asset_is_ready_to_publish(status_counts)),
-        ("human_review", bool(status_counts.get("needs_review", 0))),
-        ("drafting", _asset_is_drafting(status_counts, docs)),
-        ("plan_ready", _asset_has_plan(asset, docs)),
+        ("needs_review", _asset_needs_review(asset, docs)),
     )
     for column_key, matched in column_checks:
         if matched:
@@ -331,6 +369,8 @@ def _asset_is_blocked(
 ) -> bool:
     return (
         bool(status_counts.get("failed", 0))
+        or bool(status_counts.get("removed", 0))
+        or bool(status_counts.get("skipped", 0))
         or bool(doc_status_counts.get("failed", 0))
         or asset.status == "failed"
     )
@@ -347,29 +387,34 @@ def _asset_is_live(
 
 
 def _asset_is_ready_to_publish(status_counts: Counter[str]) -> bool:
-    return bool(status_counts.get("draft_ready", 0)) or bool(
-        status_counts.get("approved", 0)
-    )
+    return _ready_to_publish_count(status_counts, Counter()) > 0
 
 
-def _asset_is_drafting(
-    status_counts: Counter[str],
-    docs: list[SocialDistributionDocumentRow],
-) -> bool:
-    return _has_document_kind(docs, "platform_draft") or _tasks_are_planned_only(
-        status_counts
-    )
-
-
-def _asset_has_plan(
+def _asset_needs_review(
     asset: SocialContentAssetRow,
     docs: list[SocialDistributionDocumentRow],
 ) -> bool:
     return _has_document_kind(docs, "source_plan") or asset.status in {
+        "draft",
         "active",
         "approved",
         "ready",
     }
+
+
+def _ready_to_publish_count(
+    status_counts: Counter[str],
+    doc_status_counts: Counter[str],
+) -> int:
+    return (
+        status_counts.get("draft_ready", 0)
+        + status_counts.get("needs_review", 0)
+        + status_counts.get("approved", 0)
+        + status_counts.get("submitted", 0)
+        + doc_status_counts.get("generated", 0)
+        + doc_status_counts.get("needs_review", 0)
+        + doc_status_counts.get("approved", 0)
+    )
 
 
 def _has_document_kind(
@@ -379,20 +424,8 @@ def _has_document_kind(
     return any(doc.document_kind == document_kind for doc in docs)
 
 
-def _tasks_are_planned_only(status_counts: Counter[str]) -> bool:
-    return bool(status_counts) and set(status_counts.keys()) <= {"planned", "submitted"}
-
-
 def _next_action(column_key: str) -> str:
-    return {
-        "backlog": "Create or regenerate the content plan before channel drafting.",
-        "plan_ready": "Select channels and generate platform documents.",
-        "drafting": "Review generated platform documents and fix failed drafts.",
-        "human_review": "Review X or sensitive drafts before public action.",
-        "ready_to_publish": "Publish X through Human Gate or manually post non-X drafts.",
-        "live": "Inspect links, events, and observed metrics.",
-        "blocked": "Open the task detail and repair the failed generation or publish attempt.",
-    }.get(column_key, "Inspect task history.")
+    return board_next_action(column_key)
 
 
 def _upsert_document(

@@ -12,7 +12,7 @@ export function DistributionBoard({
 }) {
   return (
     <section className="overflow-x-auto pb-3">
-      <div className="grid min-w-[1560px] grid-cols-7 gap-3">
+      <div className="grid min-w-[1120px] grid-cols-5 gap-3">
         {board.columns.map((column) => (
           <div key={column.key} className="min-h-[520px] rounded-[24px] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)]" data-testid={`distribution-board-column-${column.key}`}>
             <div className="sticky top-0 z-10 rounded-t-[24px] border-b border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-3">

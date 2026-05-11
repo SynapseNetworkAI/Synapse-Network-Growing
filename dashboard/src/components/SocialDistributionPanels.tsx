@@ -22,6 +22,15 @@ import {
   statusTone,
 } from './SocialDistributionWidgets'
 
+const DEFAULT_CONTENT_FORM = {
+  title: '',
+  source_material: '',
+  target_audience: '一人公司创业者、独立开发者、AI agent builder',
+  target_platforms: 'x, v2ex, hacker_news, devto, hashnode, reddit',
+  canonical_url: '',
+  source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md',
+}
+
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
   const [board, setBoard] = useState<SocialDistributionBoard | null>(null)
@@ -33,14 +42,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [manualNote, setManualNote] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState({
-    title: '',
-    source_material: '',
-    target_audience: '',
-    target_platforms: 'x, v2ex, hacker_news, devto',
-    canonical_url: '',
-    source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md',
-  })
+  const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
 
   async function loadTasks() {
     try {
@@ -85,7 +87,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setShowCreate(false)
       setDetail(created)
       setSelectedAccountIds([])
-      setForm({ title: '', source_material: '', target_audience: '', target_platforms: 'x, v2ex, hacker_news, devto', canonical_url: '', source_doc_path: form.source_doc_path })
+      setForm({ ...DEFAULT_CONTENT_FORM, source_doc_path: form.source_doc_path })
       await loadTasks()
       toast.success('内容任务已创建')
     } catch (error) {
@@ -102,7 +104,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       const updated = await api.generateSocialDistributionContentPlan(detail.id, { actor: 'operator' })
       setDetail(updated)
       await loadTasks()
-      toast.success('实现计划已生成')
+      toast.success('方案已重新生成')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '生成实现计划失败')
     } finally {
@@ -193,7 +195,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       {!board ? <EmptyPane>分发看板加载中。</EmptyPane> : null}
       {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容任务。点击“创建内容任务”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
       {board ? <DistributionBoard board={board} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
-      <OverlayModal open={showCreate} eyebrow="Content Task" title="创建内容任务" description="输入一篇源内容或大纲，系统会先生成 source plan，再派生平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
+      <OverlayModal open={showCreate} eyebrow="Content Task" title="创建内容任务" description="输入一篇源内容或大纲；创建后自动生成方案，审核通过后再生成平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
         <ContentTaskForm form={form} onChange={setForm} />
       </OverlayModal>
       <ContentTaskDetailModal
