@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from typing import Any
-
-from pydantic import BaseModel, Field
 
 from server import config
 from server.services.agents.llm_adapter import get_provider
@@ -35,6 +32,17 @@ from server.services.social.agent_content_pack_models import (
     CanonicalCodeBlock,
 )
 from server.services.social.agent_content_pack_safety import validate_public_safe_text
+from server.services.social.agent_json_output import (
+    AgentJsonParseError,
+    bounded_excerpt,
+    parse_agent_json_output,
+)
+from server.services.social.distribution_content_strategy import (
+    normalize_x_payload,
+    platform_format_kind,
+    platform_target_length,
+    text_length_metadata,
+)
 from server.services.social.distribution_asset_signals import AssetSignal, _public_safe
 
 
@@ -102,9 +110,12 @@ def generate_platform_task_draft(
         artifact_prefix=f"platform-{platform}-{channel_key}",
     )
     parsed = parse_agent_json_output(raw_text)
-    draft = _platform_draft_from_payload(parsed.data)
+    draft = _platform_draft_from_payload(
+        parsed.data, platform=platform, asset_title=asset_title
+    )
     draft.metadata = {
         **metadata,
+        **draft.metadata,
         "generated_by": "agent_content_pack_v1",
         "platform": platform,
         "channel_key": channel_key,
@@ -120,84 +131,6 @@ def generate_platform_task_draft(
         draft.metadata["warning"] = "canonical_url_missing"
     validate_public_safe_text(f"{draft.title}\n{draft.body}\n{draft.checklist}")
     return draft
-
-
-class AgentJsonOutput(BaseModel):
-    data: dict[str, Any] = Field(default_factory=dict)
-    cleaned_text: str
-    excerpt: str
-
-
-class AgentJsonParseError(ValueError):
-    code = "agent_json_parse_failed"
-
-    def __init__(self, message: str, *, excerpt: str) -> None:
-        super().__init__(f"{self.code}: {message}")
-        self.excerpt = excerpt
-
-
-def parse_agent_json_output(raw_text: str) -> AgentJsonOutput:
-    cleaned = _strip_json_wrapping(raw_text)
-    try:
-        loaded = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        json_object = _extract_first_json_object(cleaned)
-        if not json_object:
-            raise AgentJsonParseError(
-                "Agent returned invalid or missing JSON object.",
-                excerpt=_bounded_excerpt(cleaned),
-            ) from exc
-        try:
-            loaded = json.loads(json_object)
-        except json.JSONDecodeError as nested_exc:
-            raise AgentJsonParseError(
-                "Agent returned a partial or malformed JSON object.",
-                excerpt=_bounded_excerpt(json_object),
-            ) from nested_exc
-        cleaned = json_object
-    if not isinstance(loaded, dict):
-        raise AgentJsonParseError(
-            "Agent JSON must be an object.",
-            excerpt=_bounded_excerpt(cleaned),
-        )
-    return AgentJsonOutput(
-        data=loaded,
-        cleaned_text=cleaned,
-        excerpt=_bounded_excerpt(cleaned),
-    )
-
-
-def _strip_json_wrapping(raw_text: str) -> str:
-    text = str(raw_text or "").strip()
-    fenced = re.fullmatch(r"```(?:json|JSON)?\s*(.*?)\s*```", text, flags=re.DOTALL)
-    if fenced:
-        text = fenced.group(1).strip()
-    if text.lower().startswith("json"):
-        candidate = text[4:].lstrip()
-        if candidate.startswith("{"):
-            text = candidate
-    return text
-
-
-def _extract_first_json_object(raw_text: str) -> str | None:
-    text = str(raw_text or "")
-    decoder = json.JSONDecoder()
-    for match in re.finditer(r"{", text):
-        start = match.start()
-        try:
-            loaded, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(loaded, dict):
-            return text[start : start + end]
-    return None
-
-
-def _bounded_excerpt(value: str, *, max_chars: int = 900) -> str:
-    text = str(value or "").strip()
-    if len(text) <= max_chars:
-        return text
-    return f"{text[:max_chars].rstrip()}... [Truncated]"
 
 
 def _required_context_refs_for_asset(
@@ -434,8 +367,8 @@ def _codex_failure_detail(result: CodexExecResult, *, model: str | None) -> str:
         "agent_content_generation_failed: codex_cli_failed "
         f"model={model or '(default)'} exit_code={result.exit_code} "
         f"artifact={str(result.output_path) if result.output_path else '-'} "
-        f"stderr={_bounded_excerpt(stderr or '-', max_chars=520)} "
-        f"stdout={_bounded_excerpt(stdout or '-', max_chars=360)}"
+        f"stderr={bounded_excerpt(stderr or '-', max_chars=520)} "
+        f"stdout={bounded_excerpt(stdout or '-', max_chars=360)}"
     )
 
 
@@ -463,13 +396,28 @@ def _canonical_pack_from_payload(payload: dict[str, Any]) -> CanonicalAssetPack:
     )
 
 
-def _platform_draft_from_payload(payload: dict[str, Any]) -> AgentDistributionDraft:
+def _platform_draft_from_payload(
+    payload: dict[str, Any], *, platform: str = "", asset_title: str = ""
+) -> AgentDistributionDraft:
+    if platform == "x" and (payload.get("x_format") or payload.get("tweets")):
+        title, body, metadata = normalize_x_payload(payload, fallback_title=asset_title)
+    else:
+        title = _required_text(payload, "platform_title")
+        body = _required_text(payload, "platform_body")
+        metadata = {
+            "format_kind": str(payload.get("format_kind") or "").strip()
+            or platform_format_kind(platform),
+            "target_length": str(payload.get("target_length") or "").strip()
+            or platform_target_length(platform),
+            **text_length_metadata(platform, body),
+        }
     return AgentDistributionDraft(
-        title=_required_text(payload, "platform_title"),
-        body=_required_text(payload, "platform_body"),
-        checklist=_required_text(payload, "operator_checklist"),
+        title=title,
+        body=body,
+        checklist=_platform_checklist(payload, platform),
         risk_level=str(payload.get("risk_level") or "normal"),
         rationale=str(payload.get("rationale") or ""),
+        metadata=metadata,
     )
 
 
@@ -480,6 +428,17 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
             f"agent_content_generation_failed: {key}_empty"
         )
     return _public_safe(value)
+
+
+def _platform_checklist(payload: dict[str, Any], platform: str) -> str:
+    value = str(payload.get("operator_checklist") or "").strip()
+    if value:
+        return _public_safe(value)
+    if platform == "x" and (payload.get("x_format") or payload.get("tweets")):
+        return "Human Gate required. Verify every tweet is under 280 weighted chars before publishing."
+    raise AgentContentGenerationError(
+        "agent_content_generation_failed: operator_checklist_empty"
+    )
 
 
 def _optional_text(value: object) -> str | None:

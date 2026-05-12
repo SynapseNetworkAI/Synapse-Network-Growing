@@ -14,7 +14,6 @@ import {
   AccountForm,
   AssetForm,
   ContentTaskForm,
-  MetricCard,
   Pager,
   StateBadge,
   TaskLikeTable,
@@ -42,6 +41,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [manualNote, setManualNote] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [plannerBusy, setPlannerBusy] = useState(false)
   const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
 
   async function loadTasks() {
@@ -89,9 +89,9 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setSelectedAccountIds([])
       setForm({ ...DEFAULT_CONTENT_FORM, source_doc_path: form.source_doc_path })
       await loadTasks()
-      toast.success('内容任务已创建')
+      toast.success('内容计划已创建')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建内容任务失败')
+      toast.error(error instanceof Error ? error.message : '创建内容计划失败')
     } finally {
       setBusy(false)
     }
@@ -180,6 +180,25 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
+  async function runAssetPlanner() {
+    try {
+      setPlannerBusy(true)
+      const result = await api.runSocialAssetPlanner()
+      if (result.asset) {
+        setDetail(result.asset)
+        setSelectedAccountIds(result.asset.tasks.map((task) => task.account_id))
+        toast.success(`已从信号生成内容计划：${result.asset.title}`)
+      } else {
+        toast.success(result.already_satisfied ? '今日内容计划库存已满足' : `未生成内容计划：${result.reason ?? 'no qualified signal'}`)
+      }
+      await loadTasks()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '从信号生成内容计划失败')
+    } finally {
+      setPlannerBusy(false)
+    }
+  }
+
   return (
     <SectionFrame
       eyebrow="Distribution Tasks"
@@ -187,15 +206,18 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       description="Symphony 式内容任务看板：一张卡是一篇源内容，平台文档、发布动作和事件证据都挂在卡片下。状态由后端投影，不支持拖拽改状态。"
       actions={
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>创建内容任务</button>
+          <button type="button" disabled={plannerBusy} className="rounded-xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={() => void runAssetPlanner()}>
+            {plannerBusy ? '生成中…' : '从信号生成内容计划'}
+          </button>
+          <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>创建内容计划</button>
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => void loadTasks()}>刷新</button>
         </div>
       }
     >
       {!board ? <EmptyPane>分发看板加载中。</EmptyPane> : null}
-      {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容任务。点击“创建内容任务”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
+      {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容计划。点击“创建内容计划”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
       {board ? <DistributionBoard board={board} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
-      <OverlayModal open={showCreate} eyebrow="Content Task" title="创建内容任务" description="输入一篇源内容或大纲；创建后自动生成方案，审核通过后再生成平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
+      <OverlayModal open={showCreate} eyebrow="Content Plan" title="创建内容计划" description="输入一篇源内容或大纲；创建后自动生成方案，审核通过后再生成平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
         <ContentTaskForm form={form} onChange={setForm} />
       </OverlayModal>
       <ContentTaskDetailModal
@@ -448,51 +470,6 @@ export function DistributionSettingsPanel({ formatDateTime }: { formatDateTime: 
       <OverlayModal open={Boolean(editing)} eyebrow="Distribution Account" title={editing ? `编辑 ${editing.display_name}` : '编辑渠道'} actions={<button type="button" className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => void saveAccount()}>保存</button>} onClose={() => setEditing(null)}>
         <AccountForm form={form} onChange={setForm} />
       </OverlayModal>
-    </SectionFrame>
-  )
-}
-
-export function DistributionSignalsMetricsPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
-  const toast = useToast()
-  const [trends, setTrends] = useState<Array<{ id: number; topic: string; summary: string; source_url: string | null; author_handle: string | null; relevance_score: number; collected_at: string | null }>>([])
-  const [summary, setSummary] = useState<{ observed_post_count: number; total_impressions: number; total_likes: number; total_replies: number; total_reposts: number; total_link_clicks: number; last_observed_at: string | null; diagnostic?: string | null } | null>(null)
-
-  async function load() {
-    try {
-      const [trendRows, metricSummary] = await Promise.all([api.getSocialTrends(), api.getSocialPostMetricSummary()])
-      setTrends(trendRows.slice(0, 20))
-      setSummary(metricSummary)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载 Signals & Metrics 失败')
-    }
-  }
-  useEffect(() => {
-    void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return (
-    <SectionFrame eyebrow="Signals & Metrics" title="Signals & Metrics" description="这里只读本地 DB：趋势、watchlist 信号、已发布效果摘要，不在页面刷新时触发 X read。">
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Observed posts" value={summary?.observed_post_count ?? 0} />
-        <MetricCard label="Impressions" value={summary?.total_impressions ?? 0} />
-        <MetricCard label="Engagement" value={(summary?.total_likes ?? 0) + (summary?.total_replies ?? 0) + (summary?.total_reposts ?? 0)} />
-      </div>
-      {summary?.diagnostic ? <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4 text-sm text-[color:var(--ops-text-muted)]">{summary.diagnostic}</div> : null}
-      <div className="mt-5 space-y-3">
-        {trends.map((trend) => (
-          <div key={trend.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold text-[color:var(--ops-text-title)]">{trend.topic}</div>
-                <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{trend.summary}</div>
-              </div>
-              <StateBadge tone={trend.source_url ? 'ready' : 'muted'}>{trend.source_url ? 'X source' : 'local seed'}</StateBadge>
-            </div>
-            <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">{trend.author_handle ?? '@unknown'} · score {Math.round(trend.relevance_score * 100)} · {formatDateTime(trend.collected_at)}</div>
-          </div>
-        ))}
-      </div>
     </SectionFrame>
   )
 }

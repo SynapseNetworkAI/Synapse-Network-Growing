@@ -15,7 +15,7 @@ def test_distribution_generation_commits_each_platform_result(
         if len(calls) == 2:
             db_session.expire_all()
             assert db_session.query(SocialDistributionTaskRow).count() == 1
-            assert db_session.query(SocialDistributionDocumentRow).count() == 1
+            assert db_session.query(SocialDistributionDocumentRow).count() == 2
         return AgentDistributionDraft(
             title=f"{kwargs['platform']} title",
             body=f"{kwargs['platform']} body",
@@ -49,4 +49,4 @@ def test_distribution_generation_commits_each_platform_result(
     assert response.status_code == 200
     assert len(response.json()["generated_task_ids"]) == 2
     assert db_session.query(SocialDistributionTaskRow).count() == 2
-    assert db_session.query(SocialDistributionDocumentRow).count() == 2
+    assert db_session.query(SocialDistributionDocumentRow).count() == 3
