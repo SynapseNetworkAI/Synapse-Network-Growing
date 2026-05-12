@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from typing import Any
-
-from pydantic import BaseModel, Field
 
 from server import config
 from server.services.agents.llm_adapter import get_provider
@@ -23,18 +20,27 @@ from server.services.social.context_tags import (
 )
 from server.services.social.agent_content_pack_contracts import (
     CANONICAL_ASSET_OUTPUT_SCHEMA,
+    CANONICAL_ARTICLE_EXPANSION_OUTPUT_SCHEMA,
     PLATFORM_DRAFT_OUTPUT_SCHEMA,
+    CanonicalArticleExpansionPromptInput,
     PlatformTaskPromptInput,
     canonical_asset_prompt,
+    canonical_article_expansion_prompt,
     platform_task_prompt,
 )
 from server.services.social.agent_content_pack_models import (
     AgentContentGenerationError,
     AgentDistributionDraft,
+    CanonicalArticleExpansion,
     CanonicalAssetPack,
     CanonicalCodeBlock,
 )
 from server.services.social.agent_content_pack_safety import validate_public_safe_text
+from server.services.social.agent_json_output import (
+    AgentJsonParseError,
+    bounded_excerpt,
+    parse_agent_json_output,
+)
 from server.services.social.distribution_asset_signals import AssetSignal, _public_safe
 
 
@@ -119,85 +125,50 @@ def generate_platform_task_draft(
     ):
         draft.metadata["warning"] = "canonical_url_missing"
     validate_public_safe_text(f"{draft.title}\n{draft.body}\n{draft.checklist}")
+    _validate_platform_body_density(platform, draft.body)
     return draft
 
 
-class AgentJsonOutput(BaseModel):
-    data: dict[str, Any] = Field(default_factory=dict)
-    cleaned_text: str
-    excerpt: str
-
-
-class AgentJsonParseError(ValueError):
-    code = "agent_json_parse_failed"
-
-    def __init__(self, message: str, *, excerpt: str) -> None:
-        super().__init__(f"{self.code}: {message}")
-        self.excerpt = excerpt
-
-
-def parse_agent_json_output(raw_text: str) -> AgentJsonOutput:
-    cleaned = _strip_json_wrapping(raw_text)
-    try:
-        loaded = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        json_object = _extract_first_json_object(cleaned)
-        if not json_object:
-            raise AgentJsonParseError(
-                "Agent returned invalid or missing JSON object.",
-                excerpt=_bounded_excerpt(cleaned),
-            ) from exc
-        try:
-            loaded = json.loads(json_object)
-        except json.JSONDecodeError as nested_exc:
-            raise AgentJsonParseError(
-                "Agent returned a partial or malformed JSON object.",
-                excerpt=_bounded_excerpt(json_object),
-            ) from nested_exc
-        cleaned = json_object
-    if not isinstance(loaded, dict):
-        raise AgentJsonParseError(
-            "Agent JSON must be an object.",
-            excerpt=_bounded_excerpt(cleaned),
+def generate_canonical_article_expansion(
+    *,
+    asset_title: str,
+    asset_summary: str | None,
+    source_material: str | None,
+    source_plan: str | None,
+    canonical_url: str | None,
+    skill_context: dict[str, str],
+) -> CanonicalArticleExpansion:
+    system_prompt, user_prompt = canonical_article_expansion_prompt(
+        CanonicalArticleExpansionPromptInput(
+            asset_title=asset_title,
+            asset_summary=asset_summary,
+            source_material=source_material,
+            source_plan=source_plan,
+            canonical_url=canonical_url,
+            skill_context=skill_context,
         )
-    return AgentJsonOutput(
-        data=loaded,
-        cleaned_text=cleaned,
-        excerpt=_bounded_excerpt(cleaned),
     )
-
-
-def _strip_json_wrapping(raw_text: str) -> str:
-    text = str(raw_text or "").strip()
-    fenced = re.fullmatch(r"```(?:json|JSON)?\s*(.*?)\s*```", text, flags=re.DOTALL)
-    if fenced:
-        text = fenced.group(1).strip()
-    if text.lower().startswith("json"):
-        candidate = text[4:].lstrip()
-        if candidate.startswith("{"):
-            text = candidate
-    return text
-
-
-def _extract_first_json_object(raw_text: str) -> str | None:
-    text = str(raw_text or "")
-    decoder = json.JSONDecoder()
-    for match in re.finditer(r"{", text):
-        start = match.start()
-        try:
-            loaded, end = decoder.raw_decode(text[start:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(loaded, dict):
-            return text[start : start + end]
-    return None
-
-
-def _bounded_excerpt(value: str, *, max_chars: int = 900) -> str:
-    text = str(value or "").strip()
-    if len(text) <= max_chars:
-        return text
-    return f"{text[:max_chars].rstrip()}... [Truncated]"
+    raw_text, metadata, model = _call_content_agent(
+        system_prompt,
+        user_prompt,
+        output_schema=CANONICAL_ARTICLE_EXPANSION_OUTPUT_SCHEMA,
+        artifact_prefix="canonical-article-expansion",
+    )
+    parsed = parse_agent_json_output(raw_text)
+    article = _canonical_article_expansion_from_payload(parsed.data)
+    article.metadata = {
+        **metadata,
+        "generated_by": "asset_expansion_agent_v1",
+        "model": model,
+        "parser_excerpt": parsed.excerpt,
+        "skill_context": sorted(skill_context),
+        "human_gate_required": True,
+        "auto_publish": False,
+    }
+    validate_public_safe_text(
+        f"{article.title}\n{article.summary}\n{article.body_markdown}"
+    )
+    return article
 
 
 def _required_context_refs_for_asset(
@@ -434,8 +405,8 @@ def _codex_failure_detail(result: CodexExecResult, *, model: str | None) -> str:
         "agent_content_generation_failed: codex_cli_failed "
         f"model={model or '(default)'} exit_code={result.exit_code} "
         f"artifact={str(result.output_path) if result.output_path else '-'} "
-        f"stderr={_bounded_excerpt(stderr or '-', max_chars=520)} "
-        f"stdout={_bounded_excerpt(stdout or '-', max_chars=360)}"
+        f"stderr={bounded_excerpt(stderr or '-', max_chars=520)} "
+        f"stdout={bounded_excerpt(stdout or '-', max_chars=360)}"
     )
 
 
@@ -471,6 +442,31 @@ def _platform_draft_from_payload(payload: dict[str, Any]) -> AgentDistributionDr
         risk_level=str(payload.get("risk_level") or "normal"),
         rationale=str(payload.get("rationale") or ""),
     )
+
+
+def _canonical_article_expansion_from_payload(
+    payload: dict[str, Any],
+) -> CanonicalArticleExpansion:
+    return CanonicalArticleExpansion(
+        title=_required_text(payload, "title"),
+        summary=_required_text(payload, "summary"),
+        body_markdown=_required_text(payload, "body_markdown"),
+        key_facts=_string_list(payload.get("key_facts")),
+        generation_reason=str(payload.get("generation_reason") or ""),
+    )
+
+
+def _validate_platform_body_density(platform: str, body: str) -> None:
+    max_chars = 0
+    if platform == "x":
+        max_chars = 4000
+    elif platform in {"reddit", "v2ex"}:
+        max_chars = 2000
+    if max_chars and len(body) > max_chars:
+        raise AgentContentGenerationError(
+            "agent_content_generation_failed: "
+            f"{platform}_body_exceeds_density_limit max_chars={max_chars}"
+        )
 
 
 def _required_text(payload: dict[str, Any], key: str) -> str:

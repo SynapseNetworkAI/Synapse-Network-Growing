@@ -300,6 +300,27 @@ export function createSocialDistributionApi(request: RequestFn) {
         },
         60_000,
       ),
+    expandSocialDistributionCanonicalArticle: (assetId: number, data: { actor?: string } = {}) =>
+      request<SocialContentAssetDetail>(
+        `/social/distribution/assets/${assetId}/expand-canonical-article`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+        120_000,
+      ),
+    approveSocialDistributionCanonicalArticle: (
+      assetId: number,
+      data: { actor?: string; document_id?: number | null } = {},
+    ) =>
+      request<SocialContentAssetDetail>(
+        `/social/distribution/assets/${assetId}/approve-canonical-article`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+        60_000,
+      ),
     updateSocialDistributionTask: (
       id: number,
       data: {

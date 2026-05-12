@@ -37,5 +37,14 @@ class AgentDistributionDraft(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class CanonicalArticleExpansion(BaseModel):
+    title: str
+    summary: str
+    body_markdown: str
+    key_facts: list[str] = Field(default_factory=list)
+    generation_reason: str = ""
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class AgentContentGenerationError(ValueError):
     code = "agent_content_generation_failed"

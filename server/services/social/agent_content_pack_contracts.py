@@ -22,6 +22,15 @@ class PlatformTaskPromptInput(BaseModel):
     display_name: str
 
 
+class CanonicalArticleExpansionPromptInput(BaseModel):
+    asset_title: str
+    asset_summary: str | None = None
+    source_material: str | None = None
+    source_plan: str | None = None
+    canonical_url: str | None = None
+    skill_context: dict[str, str] = Field(default_factory=dict)
+
+
 def _code_block_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -82,6 +91,25 @@ PLATFORM_DRAFT_OUTPUT_SCHEMA: dict[str, Any] = {
         "operator_checklist",
         "risk_level",
         "rationale",
+    ],
+}
+
+CANONICAL_ARTICLE_EXPANSION_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string", "minLength": 1},
+        "summary": {"type": "string", "minLength": 1},
+        "body_markdown": {"type": "string", "minLength": 1},
+        "key_facts": {"type": "array", "items": {"type": "string"}},
+        "generation_reason": {"type": "string"},
+    },
+    "required": [
+        "title",
+        "summary",
+        "body_markdown",
+        "key_facts",
+        "generation_reason",
     ],
 }
 
@@ -150,7 +178,47 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
         "Return platform_title, platform_body, operator_checklist, risk_level, "
         "rationale. The operator_checklist must include Human Gate and "
         "platform-specific reminders. For DEV/Hashnode, include the canonical "
-        "URL paste reminder when available."
+        "URL paste reminder when available. Respect platform length limits as "
+        "soft maximums; never pad, repeat, or invent details to reach length."
+    )
+    return system_prompt, user_prompt
+
+
+def canonical_article_expansion_prompt(
+    payload: CanonicalArticleExpansionPromptInput,
+) -> tuple[str, str]:
+    system_prompt = (
+        "You are the Synapse Network build-in-public canonical article editor. "
+        "Expand a short outline into one complete, true, reusable article for "
+        "developer distribution. Use only the provided source material and skill "
+        "context as facts. Do not invent technical details, metrics, customers, "
+        "APIs, shipped features, or private implementation paths. Write with a "
+        "pragmatic solo-founder engineering voice: concrete tradeoffs, real "
+        "constraints, and useful detail. No marketing hype, success-guru tone, "
+        "padding, or filler. Return JSON only."
+    )
+    skills_block = "\n\n".join(
+        f"## {name}\n{_compact_text(content, max_chars=650)}"
+        for name, content in payload.skill_context.items()
+        if str(content or "").strip()
+    )
+    user_prompt = (
+        f"# Asset title\n{payload.asset_title}\n\n"
+        f"# Asset summary\n{_compact_text(payload.asset_summary, max_chars=420)}\n\n"
+        f"# Source material / outline\n{_compact_text(payload.source_material, max_chars=2400)}\n\n"
+        f"# Source plan\n{_compact_text(payload.source_plan, max_chars=900)}\n\n"
+        f"# Canonical URL\n{payload.canonical_url or 'none'}\n\n"
+        "# Skill context\n"
+        f"{skills_block or 'No additional skill context provided.'}\n\n"
+        "# Expansion rules\n"
+        "- Write a canonical_article mother draft in Markdown.\n"
+        "- Natural length only: if the facts support 1200 Chinese characters, stop there; if they support more, write more.\n"
+        "- Prefer concise high-density output; a complete 700-1400 Chinese-character article is better than a padded long one.\n"
+        "- No minimum length. No padding. Stop when the useful content is complete.\n"
+        "- Include concrete engineering decisions, tradeoffs, costs, workflow details, and what was deliberately not built.\n"
+        "- If source material is too thin, write a concise but complete article instead of inventing details.\n\n"
+        "# Output contract\n"
+        "Return title, summary, body_markdown, key_facts, generation_reason."
     )
     return system_prompt, user_prompt
 
@@ -158,15 +226,38 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
 def _platform_guidance(platform: str, channel_key: str) -> str:
     normalized = platform.strip()
     if normalized == "x":
-        return "Write an X Premium post with a strong hook and natural hashtags."
+        return (
+            "Adapt the canonical article into an X Premium long post. MAX_LENGTH=4000 "
+            "characters, no minimum length. Use a strong hook, clear whitespace, "
+            "and 2-4 concrete technical points only if supported by the article. "
+            "End when useful content is complete. No padding, no generic hashtags, "
+            "no empty summary, and at most 3 emoji."
+        )
     if normalized == "hacker_news":
-        return "Use factual HN language. Avoid marketing words, emojis, and hype."
+        return (
+            "Use factual Hacker News language. Keep title and submission note "
+            "restrained, technical, and evidence-based. Avoid marketing words, "
+            "emojis, launch hype, and vague claims."
+        )
     if normalized == "reddit":
-        return f"Write for {channel_key}; make it a discussion, not a link drop."
+        return (
+            f"Write for {channel_key}; make it a discussion, not a link drop. "
+            "MAX_LENGTH=2000 characters, no minimum. Extract only the 1-2 most "
+            "counterintuitive or debatable technical decisions from the article. "
+            "Do not cover everything if that would dilute the post."
+        )
     if normalized == "v2ex":
-        return "Use natural Chinese engineering-retrospective style."
+        return (
+            "Use natural Chinese engineering-retrospective style. MAX_LENGTH=2000 "
+            "characters, no minimum. Pick the 1-2 details most likely to trigger "
+            "developer discussion. Avoid product-announcement tone and AI-sounding filler."
+        )
     if normalized in {"dev", "devto", "hashnode"}:
-        return "Write a tutorial/blog teaser or article intro. Include canonical URL checklist."
+        return (
+            "Use the complete canonical article or a close Markdown adaptation. "
+            "Do not make it longer. Keep structure, code, and facts intact. Include "
+            "canonical URL checklist."
+        )
     if normalized == "product_hunt":
         return "Launch-only copy. Do not imply it is ready for daily submission."
     return "Use a developer-community tone and keep all claims bounded."
@@ -180,3 +271,10 @@ def _context_block(snippets: list[ContextTagSnippet]) -> str:
             f"```{snippet.language or ''}\n{snippet.excerpt}\n```"
         )
     return "\n\n".join(blocks)
+
+
+def _compact_text(value: str | None, *, max_chars: int) -> str:
+    text = "\n".join(line.rstrip() for line in str(value or "").strip().splitlines())
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}\n...[truncated for focused generation]"

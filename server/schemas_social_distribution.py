@@ -202,6 +202,15 @@ class SocialDistributionGenerateContentPlanRequest(BaseModel):
     actor: str = "operator"
 
 
+class SocialDistributionExpandCanonicalArticleRequest(BaseModel):
+    actor: str = "operator"
+
+
+class SocialDistributionApproveCanonicalArticleRequest(BaseModel):
+    actor: str = "operator"
+    document_id: int | None = None
+
+
 class SocialDistributionGenerateTasksRequest(BaseModel):
     account_ids: list[int] = Field(default_factory=list)
     action: str = "post"

@@ -15,7 +15,7 @@ def test_distribution_generation_commits_each_platform_result(
         if len(calls) == 2:
             db_session.expire_all()
             assert db_session.query(SocialDistributionTaskRow).count() == 1
-            assert db_session.query(SocialDistributionDocumentRow).count() == 1
+            assert db_session.query(SocialDistributionDocumentRow).count() == 2
         return AgentDistributionDraft(
             title=f"{kwargs['platform']} title",
             body=f"{kwargs['platform']} body",
@@ -40,6 +40,17 @@ def test_distribution_generation_commits_each_platform_result(
         "/api/social/distribution/assets",
         json={"title": "Incremental generation", "summary": "Persist each channel."},
     ).json()
+    db_session.add(
+        SocialDistributionDocumentRow(
+            asset_id=asset["id"],
+            document_kind="canonical_article",
+            title="Approved canonical article",
+            body_markdown="Approved mother draft.",
+            status="approved",
+            metadata_json='{"generated_by":"asset_expansion_agent_v1","summary":"Approved"}',
+        )
+    )
+    db_session.commit()
 
     response = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
@@ -49,4 +60,4 @@ def test_distribution_generation_commits_each_platform_result(
     assert response.status_code == 200
     assert len(response.json()["generated_task_ids"]) == 2
     assert db_session.query(SocialDistributionTaskRow).count() == 2
-    assert db_session.query(SocialDistributionDocumentRow).count() == 2
+    assert db_session.query(SocialDistributionDocumentRow).count() == 3

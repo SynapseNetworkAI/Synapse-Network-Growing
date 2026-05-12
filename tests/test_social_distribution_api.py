@@ -8,6 +8,7 @@ from server.database_social_distribution import (
 from server.database import SocialTrendItemRow
 from server.services.social.agent_content_pack import (
     AgentDistributionDraft,
+    CanonicalArticleExpansion,
     CanonicalAssetPack,
 )
 from server.services.social.distribution_projection import _json_object
@@ -65,6 +66,22 @@ def _patch_agent_distribution(monkeypatch):
             },
         )
 
+    def fake_canonical_article_expansion(**kwargs):
+        return CanonicalArticleExpansion(
+            title=f"Canonical article: {kwargs['asset_title']}",
+            summary=f"Expanded summary for {kwargs['asset_title']}",
+            body_markdown=(
+                f"# {kwargs['asset_title']}\n\n"
+                "This is a density-driven canonical article with concrete details."
+            ),
+            key_facts=["density-driven canonical article"],
+            generation_reason="fake expansion for tests",
+            metadata={
+                "provider": "test",
+                "generated_by": "asset_expansion_agent_v1",
+            },
+        )
+
     monkeypatch.setattr(
         "server.services.social.distribution_generation.generate_platform_task_draft",
         fake_platform_draft,
@@ -73,6 +90,26 @@ def _patch_agent_distribution(monkeypatch):
         "server.services.social.distribution_asset_planner.generate_canonical_asset_pack",
         fake_asset_pack,
     )
+    monkeypatch.setattr(
+        "server.services.social.distribution_documents.generate_canonical_article_expansion",
+        fake_canonical_article_expansion,
+    )
+
+
+def _add_approved_canonical_article(db_session, asset_id: int, body: str | None = None):
+    doc = SocialDistributionDocumentRow(
+        asset_id=asset_id,
+        document_kind="canonical_article",
+        title="Approved canonical article",
+        body_markdown=body
+        or "# Approved canonical article\n\nA complete mother draft for platform adaptation.",
+        status="approved",
+        version=1,
+        metadata_json='{"generated_by":"asset_expansion_agent_v1","summary":"Approved canonical summary","key_facts":["fact"]}',
+    )
+    db_session.add(doc)
+    db_session.commit()
+    return doc
 
 
 def test_distribution_accounts_seed_idempotently(synced_client, db_session):
@@ -178,6 +215,7 @@ def test_content_asset_generates_grouped_platform_tasks_serially(
     )
     assert created.status_code == 200
     asset_id = created.json()["id"]
+    _add_approved_canonical_article(db_session, asset_id)
 
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset_id}/generate-tasks",
@@ -215,7 +253,7 @@ def test_content_asset_generates_grouped_platform_tasks_serially(
 
 
 def test_distribution_long_form_targets_include_canonical_warning_when_missing(
-    synced_client, monkeypatch
+    synced_client, db_session, monkeypatch
 ):
     _patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
@@ -227,6 +265,7 @@ def test_distribution_long_form_targets_include_canonical_warning_when_missing(
             "summary": "A developer tutorial without canonical URL.",
         },
     ).json()
+    _add_approved_canonical_article(db_session, created["id"])
 
     response = synced_client.post(
         f"/api/social/distribution/assets/{created['id']}/generate-tasks",
@@ -253,6 +292,7 @@ def test_distribution_task_manual_live_removed_and_status_validation(
             "summary": "A practical developer guide.",
         },
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [devto["id"]]},
@@ -274,7 +314,11 @@ def test_distribution_task_manual_live_removed_and_status_validation(
     )
     assert live.status_code == 200
     assert live.json()["status"] == "live"
-    document = db_session.query(SocialDistributionDocumentRow).one()
+    document = (
+        db_session.query(SocialDistributionDocumentRow)
+        .filter(SocialDistributionDocumentRow.document_kind == "platform_draft")
+        .one()
+    )
     assert document.status == "published"
 
     removed = synced_client.post(
@@ -315,6 +359,7 @@ def test_x_distribution_task_can_publish_after_human_gate(
         "/api/social/distribution/assets",
         json={"title": "X publish asset", "summary": "Official X update."},
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [x_account["id"]]},
@@ -340,7 +385,7 @@ def test_x_distribution_task_can_publish_after_human_gate(
 
 
 def test_distribution_routes_return_diagnostic_errors_and_update_records(
-    synced_client, monkeypatch
+    synced_client, db_session, monkeypatch
 ):
     _patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
@@ -412,6 +457,7 @@ def test_distribution_routes_return_diagnostic_errors_and_update_records(
     )
     assert missing_channel.status_code == 404
 
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [devto["id"]]},
@@ -470,7 +516,7 @@ def test_distribution_routes_return_diagnostic_errors_and_update_records(
 
 
 def test_distribution_platform_adapters_cover_channel_specific_guidance(
-    synced_client, monkeypatch
+    synced_client, db_session, monkeypatch
 ):
     _patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
@@ -494,6 +540,7 @@ def test_distribution_platform_adapters_cover_channel_specific_guidance(
             "canonical_url": "https://docs.synapse-network.ai/payment-rails",
         },
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
 
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
@@ -530,6 +577,7 @@ def test_distribution_reuses_existing_task_and_handles_invalid_metadata(
         "/api/social/distribution/assets",
         json={"title": "Reuse task", "summary": "Do not duplicate generated rows."},
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     first = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [devto["id"]]},
@@ -691,45 +739,6 @@ def test_social_asset_planner_sanitizes_local_paths_before_asset_creation(
     assert "token=secret" not in combined
 
 
-def test_approve_and_generate_marks_asset_approved_before_serial_tasks(
-    synced_client, db_session, monkeypatch
-):
-    _patch_agent_distribution(monkeypatch)
-    accounts = synced_client.get("/api/social/distribution/accounts").json()
-    devto = next(row for row in accounts if row["platform"] == "devto")
-    created = synced_client.post(
-        "/api/social/distribution/assets",
-        json={
-            "title": "Approve and generate",
-            "summary": "One click should approve asset and generate tasks.",
-            "status": "proposed",
-        },
-    ).json()
-
-    response = synced_client.post(
-        f"/api/social/distribution/assets/{created['id']}/approve-and-generate-tasks",
-        json={"account_ids": [devto["id"]], "actor": "operator"},
-    )
-
-    assert response.status_code == 200
-    asset = db_session.get(SocialContentAssetRow, created["id"])
-    assert asset is not None
-    assert asset.status == "ready"
-    event_types = [
-        row.event_type
-        for row in db_session.query(SocialDistributionEventRow)
-        .order_by(SocialDistributionEventRow.id)
-        .all()
-    ]
-    assert "asset_approved" in event_types
-    assert "task_generated" in event_types
-    docs = db_session.query(SocialDistributionDocumentRow).all()
-    assert len(docs) == 1
-    assert docs[0].document_kind == "platform_draft"
-    assert docs[0].task_id == response.json()["generated_task_ids"][0]
-    assert "devto/dev.to agent-generated body" in docs[0].body_markdown
-
-
 def test_distribution_task_generation_missing_asset_returns_404(synced_client):
     response = synced_client.post(
         "/api/social/distribution/assets/404/generate-tasks",
@@ -740,7 +749,9 @@ def test_distribution_task_generation_missing_asset_returns_404(synced_client):
     assert response.json()["detail"] == "Content asset not found."
 
 
-def test_non_x_distribution_task_cannot_publish_via_api(synced_client, monkeypatch):
+def test_non_x_distribution_task_cannot_publish_via_api(
+    synced_client, db_session, monkeypatch
+):
     _patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     devto = next(row for row in accounts if row["platform"] == "devto")
@@ -748,6 +759,7 @@ def test_non_x_distribution_task_cannot_publish_via_api(synced_client, monkeypat
         "/api/social/distribution/assets",
         json={"title": "Manual-only platform", "summary": "DEV stays manual in v1."},
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [devto["id"]]},
@@ -776,6 +788,7 @@ def test_x_distribution_publish_policy_blocked_records_failure(
         "/api/social/distribution/assets",
         json={"title": "Blocked X task", "summary": "Should fail policy."},
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [x_account["id"]]},
@@ -804,7 +817,7 @@ def test_x_distribution_publish_policy_blocked_records_failure(
 
 
 def test_x_distribution_publish_error_records_bounded_failure(
-    synced_client, monkeypatch
+    synced_client, db_session, monkeypatch
 ):
     _patch_agent_distribution(monkeypatch)
     monkeypatch.setattr(
@@ -832,6 +845,7 @@ def test_x_distribution_publish_error_records_bounded_failure(
         "/api/social/distribution/assets",
         json={"title": "X auth failure", "summary": "Publish should fail clearly."},
     ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
     generated = synced_client.post(
         f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
         json={"account_ids": [x_account["id"]]},

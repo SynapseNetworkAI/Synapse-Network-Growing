@@ -8,6 +8,7 @@ from server.services.social.agent_content_pack import (
     _call_content_agent,
     _call_content_codex,
     _content_codex_fallback_models,
+    generate_canonical_article_expansion,
     generate_canonical_asset_pack,
     generate_platform_task_draft,
     parse_agent_json_output,
@@ -276,6 +277,97 @@ def test_generate_platform_task_draft_adds_canonical_warning(monkeypatch):
     assert draft.title == "DEV title"
     assert draft.metadata["warning"] == "canonical_url_missing"
     assert draft.metadata["generated_by"] == "agent_content_pack_v1"
+
+
+def test_generate_canonical_article_expansion_records_asset_expansion_metadata(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        agent_content_pack,
+        "_call_content_agent",
+        lambda *_args, **_kwargs: (
+            (
+                '{"title":"Mother draft","summary":"A dense summary",'
+                '"body_markdown":"# Mother draft\\n\\nConcrete tradeoff, no padding.",'
+                '"key_facts":["fact"],'
+                '"generation_reason":"Expanded from source outline"}'
+            ),
+            {"provider": "codex"},
+            "gpt-5.4",
+        ),
+    )
+
+    article = generate_canonical_article_expansion(
+        asset_title="Outline",
+        asset_summary="Short summary",
+        source_material="Short outline",
+        source_plan="Plan",
+        canonical_url="https://docs.synapse-network.ai/article",
+        skill_context={"build-in-public": "write real details"},
+    )
+
+    assert article.title == "Mother draft"
+    assert article.metadata["generated_by"] == "asset_expansion_agent_v1"
+    assert article.metadata["human_gate_required"] is True
+    assert article.key_facts == ["fact"]
+
+
+def test_platform_density_limits_fail_closed(monkeypatch):
+    monkeypatch.setattr(
+        agent_content_pack,
+        "_call_content_agent",
+        lambda *_args, **_kwargs: (
+            (
+                '{"platform_title":"X title","platform_body":"'
+                + ("x" * 4001)
+                + '","operator_checklist":"Human Gate.",'
+                '"risk_level":"normal","rationale":"too long"}'
+            ),
+            {"provider": "codex"},
+            "gpt-5.4",
+        ),
+    )
+
+    with pytest.raises(AgentContentGenerationError, match="x_body_exceeds"):
+        generate_platform_task_draft(
+            asset_title="Asset",
+            asset_summary="Summary",
+            asset_body="Body",
+            asset_metadata={},
+            canonical_url=None,
+            platform="x",
+            channel_key="official",
+            display_name="X",
+        )
+
+
+def test_platform_prompt_uses_density_driven_rules():
+    _, x_prompt = agent_content_pack.platform_task_prompt(
+        agent_content_pack.PlatformTaskPromptInput(
+            asset_title="Asset",
+            asset_summary="Summary",
+            asset_body="Body",
+            platform="x",
+            channel_key="official",
+            display_name="X",
+        )
+    )
+    _, reddit_prompt = agent_content_pack.platform_task_prompt(
+        agent_content_pack.PlatformTaskPromptInput(
+            asset_title="Asset",
+            asset_summary="Summary",
+            asset_body="Body",
+            platform="reddit",
+            channel_key="r/LocalLLaMA",
+            display_name="Reddit",
+        )
+    )
+
+    assert "MAX_LENGTH=4000" in x_prompt
+    assert "no minimum" in x_prompt
+    assert "No padding" in x_prompt
+    assert "MAX_LENGTH=2000" in reddit_prompt
+    assert "1-2 most" in reddit_prompt
 
 
 def test_required_context_resolution_wraps_missing_tag():

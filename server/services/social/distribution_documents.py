@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server import schemas_social_distribution as dist_schema
 from server.database import utcnow
 from server.database_social_distribution import (
@@ -14,11 +15,7 @@ from server.database_social_distribution import (
     SocialDistributionDocumentRow,
     SocialDistributionTaskRow,
 )
-from server.services.social.distribution_board_contract import (
-    BOARD_COLUMNS,
-    board_next_action,
-    document_status_for_task,
-)
+from server.services.social.distribution_board_contract import document_status_for_task
 from server.services.social.distribution_core import (
     _clean_optional,
     _normalize_platform,
@@ -36,7 +33,15 @@ from server.services.social.distribution_document_content import (
     summary_from_text,
     validate_source_plan_payload,
 )
-from server.services.social.distribution_projection import _asset_out
+from server.services.social.agent_content_pack import generate_canonical_article_expansion
+
+
+CANONICAL_ARTICLE_SKILL_PATHS: tuple[tuple[str, str], ...] = (
+    ("product-marketing-context", ".agents/product-marketing-context.md"),
+    ("social-content", ".agents/skills/social-content/SKILL.md"),
+    ("build-in-public", ".agents/skills/build-in-public/SKILL.md"),
+    ("solo-founder-narrative", ".agents/skills/solo-founder-narrative/SKILL.md"),
+)
 
 
 def create_content_task(
@@ -202,6 +207,99 @@ def generate_content_plan(
     return get_content_asset(db, int(asset.id))
 
 
+def expand_canonical_article(
+    db: Session,
+    asset_id: int,
+    body: dist_schema.SocialDistributionExpandCanonicalArticleRequest,
+) -> dist_schema.SocialContentAssetDetailOut:
+    from server.services.social.distribution import get_content_asset
+
+    asset = db.get(SocialContentAssetRow, asset_id)
+    if asset is None:
+        raise ValueError("Content asset not found.")
+    source_plan = _latest_document(asset, "source_plan")
+    article = generate_canonical_article_expansion(
+        asset_title=asset.title,
+        asset_summary=asset.summary,
+        source_material=asset.body,
+        source_plan=source_plan.body_markdown if source_plan else None,
+        canonical_url=asset.canonical_url,
+        skill_context=_canonical_article_skill_context(),
+    )
+    document = _upsert_document(
+        db,
+        asset=asset,
+        task=None,
+        document_kind="canonical_article",
+        platform=None,
+        channel_key=None,
+        title=article.title,
+        body_markdown=article.body_markdown,
+        status="needs_review",
+        metadata={
+            **article.metadata,
+            "summary": article.summary,
+            "key_facts": article.key_facts,
+            "generation_reason": article.generation_reason,
+            "source_document_id": int(source_plan.id) if source_plan else None,
+        },
+    )
+    asset.status = "needs_review"
+    asset.updated_at = utcnow()
+    _record_event(
+        db,
+        asset,
+        None,
+        "canonical_article_generated",
+        body.actor,
+        "Expanded source outline into canonical_article for human review.",
+        {
+            "document_id": int(document.id),
+            "generated_by": "asset_expansion_agent_v1",
+        },
+    )
+    db.commit()
+    db.refresh(asset)
+    return get_content_asset(db, int(asset.id))
+
+
+def approve_canonical_article(
+    db: Session,
+    asset_id: int,
+    body: dist_schema.SocialDistributionApproveCanonicalArticleRequest,
+) -> dist_schema.SocialContentAssetDetailOut:
+    from server.services.social.distribution import get_content_asset
+
+    asset = db.get(SocialContentAssetRow, asset_id)
+    if asset is None:
+        raise ValueError("Content asset not found.")
+    document = (
+        db.get(SocialDistributionDocumentRow, int(body.document_id))
+        if body.document_id
+        else _latest_document(asset, "canonical_article")
+    )
+    if document is None or int(document.asset_id) != int(asset.id):
+        raise ValueError("canonical_article not found.")
+    if document.document_kind != "canonical_article":
+        raise ValueError("document is not a canonical_article.")
+    document.status = "approved"
+    document.updated_at = utcnow()
+    asset.status = "approved"
+    asset.updated_at = utcnow()
+    _record_event(
+        db,
+        asset,
+        None,
+        "canonical_article_approved",
+        body.actor,
+        "Operator approved canonical_article for platform adaptation.",
+        {"document_id": int(document.id), "document_version": int(document.version or 1)},
+    )
+    db.commit()
+    db.refresh(asset)
+    return get_content_asset(db, int(asset.id))
+
+
 def create_platform_draft_document(
     db: Session,
     *,
@@ -211,6 +309,7 @@ def create_platform_draft_document(
 ) -> SocialDistributionDocumentRow:
     title = task.platform_title or f"{task.platform} draft for {asset.title}"
     body = platform_document_markdown(asset, task)
+    task_metadata = parse_json_object(task.metadata_json)
     return _upsert_document(
         db,
         asset=asset,
@@ -224,9 +323,63 @@ def create_platform_draft_document(
         metadata={
             "generated_by": "distribution_task_generation_v1",
             "task_status": task.status,
+            "source_document_id": task_metadata.get("source_document_id"),
+            "source_document_version": task_metadata.get("source_document_version"),
             **(metadata or {}),
         },
     )
+
+
+def approved_canonical_article_document(
+    db: Session,
+    asset: SocialContentAssetRow,
+) -> SocialDistributionDocumentRow | None:
+    return (
+        db.query(SocialDistributionDocumentRow)
+        .filter(
+            SocialDistributionDocumentRow.asset_id == int(asset.id),
+            SocialDistributionDocumentRow.document_kind == "canonical_article",
+            SocialDistributionDocumentRow.status == "approved",
+        )
+        .order_by(
+            SocialDistributionDocumentRow.version.desc(),
+            SocialDistributionDocumentRow.updated_at.desc(),
+            SocialDistributionDocumentRow.id.desc(),
+        )
+        .first()
+    )
+
+
+def _latest_document(
+    asset: SocialContentAssetRow,
+    document_kind: str,
+) -> SocialDistributionDocumentRow | None:
+    return max(
+        (
+            document
+            for document in list(asset.documents or [])
+            if document.document_kind == document_kind
+        ),
+        key=lambda document: (
+            int(document.version or 1),
+            document.updated_at or document.created_at or utcnow(),
+            int(document.id),
+        ),
+        default=None,
+    )
+
+
+def _canonical_article_skill_context() -> dict[str, str]:
+    context: dict[str, str] = {}
+    for name, relative_path in CANONICAL_ARTICLE_SKILL_PATHS:
+        path = Path(config.PROJECT_ROOT) / relative_path
+        try:
+            content = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            content = ""
+        if content.strip():
+            context[name] = content
+    return context
 
 
 def update_task_document_status(
@@ -275,157 +428,6 @@ def sync_task_document_from_task(
         status=document_status_for_task(task.status),
         metadata=metadata,
     )
-
-
-def social_distribution_board(
-    db: Session,
-) -> dist_schema.SocialDistributionBoardOut:
-    rows = (
-        db.query(SocialContentAssetRow)
-        .order_by(
-            SocialContentAssetRow.updated_at.desc(), SocialContentAssetRow.id.desc()
-        )
-        .limit(200)
-        .all()
-    )
-    grouped: dict[str, list[dist_schema.SocialDistributionBoardCardOut]] = {
-        key: [] for key, _, _ in BOARD_COLUMNS
-    }
-    for asset in rows:
-        ensure_platform_documents_for_asset(db, asset)
-        card = _board_card(asset)
-        grouped.setdefault(card.column_key, []).append(card)
-    columns = [
-        dist_schema.SocialDistributionBoardColumnOut(
-            key=key,
-            title=title,
-            description=description,
-            count=len(grouped.get(key, [])),
-            cards=grouped.get(key, []),
-        )
-        for key, title, description in BOARD_COLUMNS
-    ]
-    return dist_schema.SocialDistributionBoardOut(
-        columns=columns,
-        summary={
-            "total_assets": len(rows),
-            "total_tasks": sum(len(asset.tasks or []) for asset in rows),
-            "total_documents": sum(len(asset.documents or []) for asset in rows),
-        },
-        generated_at=utcnow(),
-    )
-
-
-def _board_card(
-    asset: SocialContentAssetRow,
-) -> dist_schema.SocialDistributionBoardCardOut:
-    tasks = list(asset.tasks or [])
-    docs = list(asset.documents or [])
-    status_counts = Counter(str(task.status or "planned") for task in tasks)
-    doc_status_counts = Counter(str(doc.status or "generated") for doc in docs)
-    column_key = _asset_column(asset, status_counts, doc_status_counts, docs)
-    return dist_schema.SocialDistributionBoardCardOut(
-        id=f"asset:{int(asset.id)}",
-        asset=_asset_out(asset),
-        column_key=column_key,
-        task_count=len(tasks),
-        document_count=len(docs),
-        platform_count=len({(task.platform, task.channel_key) for task in tasks}),
-        failed_count=status_counts.get("failed", 0)
-        + doc_status_counts.get("failed", 0),
-        ready_to_publish_count=_ready_to_publish_count(
-            status_counts, doc_status_counts
-        ),
-        live_count=status_counts.get("live", 0),
-        status_counts=dict(status_counts),
-        document_status_counts=dict(doc_status_counts),
-        next_action=_next_action(column_key),
-        updated_at=asset.updated_at,
-    )
-
-
-def _asset_column(
-    asset: SocialContentAssetRow,
-    status_counts: Counter[str],
-    doc_status_counts: Counter[str],
-    docs: list[SocialDistributionDocumentRow],
-) -> str:
-    column_checks = (
-        ("blocked", _asset_is_blocked(asset, status_counts, doc_status_counts)),
-        ("live", _asset_is_live(asset, status_counts)),
-        ("ready_to_publish", _asset_is_ready_to_publish(status_counts)),
-        ("needs_review", _asset_needs_review(asset, docs)),
-    )
-    for column_key, matched in column_checks:
-        if matched:
-            return column_key
-    return "backlog"
-
-
-def _asset_is_blocked(
-    asset: SocialContentAssetRow,
-    status_counts: Counter[str],
-    doc_status_counts: Counter[str],
-) -> bool:
-    return (
-        bool(status_counts.get("failed", 0))
-        or bool(status_counts.get("removed", 0))
-        or bool(status_counts.get("skipped", 0))
-        or bool(doc_status_counts.get("failed", 0))
-        or asset.status == "failed"
-    )
-
-
-def _asset_is_live(
-    asset: SocialContentAssetRow,
-    status_counts: Counter[str],
-) -> bool:
-    return bool(status_counts.get("live", 0)) or asset.status in {
-        "distributed",
-        "archived",
-    }
-
-
-def _asset_is_ready_to_publish(status_counts: Counter[str]) -> bool:
-    return _ready_to_publish_count(status_counts, Counter()) > 0
-
-
-def _asset_needs_review(
-    asset: SocialContentAssetRow,
-    docs: list[SocialDistributionDocumentRow],
-) -> bool:
-    return _has_document_kind(docs, "source_plan") or asset.status in {
-        "draft",
-        "active",
-        "approved",
-        "ready",
-    }
-
-
-def _ready_to_publish_count(
-    status_counts: Counter[str],
-    doc_status_counts: Counter[str],
-) -> int:
-    return (
-        status_counts.get("draft_ready", 0)
-        + status_counts.get("needs_review", 0)
-        + status_counts.get("approved", 0)
-        + status_counts.get("submitted", 0)
-        + doc_status_counts.get("generated", 0)
-        + doc_status_counts.get("needs_review", 0)
-        + doc_status_counts.get("approved", 0)
-    )
-
-
-def _has_document_kind(
-    docs: list[SocialDistributionDocumentRow],
-    document_kind: str,
-) -> bool:
-    return any(doc.document_kind == document_kind for doc in docs)
-
-
-def _next_action(column_key: str) -> str:
-    return board_next_action(column_key)
 
 
 def _upsert_document(

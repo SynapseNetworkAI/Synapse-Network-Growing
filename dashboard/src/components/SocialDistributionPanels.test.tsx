@@ -18,6 +18,8 @@ const apiMock = vi.hoisted(() => ({
   createSocialContentTask: vi.fn(),
   createSocialContentAsset: vi.fn(),
   generateSocialDistributionContentPlan: vi.fn(),
+  expandSocialDistributionCanonicalArticle: vi.fn(),
+  approveSocialDistributionCanonicalArticle: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
@@ -118,6 +120,21 @@ function asset(overrides: Record<string, unknown> = {}) {
         updated_at: '2026-05-01T00:00:00Z',
       },
       {
+        id: 403,
+        asset_id: 301,
+        task_id: null,
+        document_kind: 'canonical_article',
+        platform: null,
+        channel_key: null,
+        title: 'Canonical article: How AI agents should pay for APIs',
+        body_markdown: '# How AI agents should pay for APIs\n\nA complete mother draft.',
+        status: 'approved',
+        version: 1,
+        metadata: { generated_by: 'asset_expansion_agent_v1' },
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+      },
+      {
         id: 402,
         asset_id: 301,
         task_id: 201,
@@ -160,13 +177,13 @@ describe('SocialDistributionPanels v2', () => {
             asset: asset(),
             column_key: 'ready_to_publish',
             task_count: 1,
-            document_count: 2,
+            document_count: 3,
             platform_count: 1,
             failed_count: 0,
             ready_to_publish_count: 1,
             live_count: 0,
             status_counts: { draft_ready: 1 },
-            document_status_counts: { generated: 2 },
+            document_status_counts: { generated: 2, approved: 1 },
             next_action: 'Publish manually.',
             updated_at: '2026-05-01T00:00:00Z',
           }],
@@ -174,7 +191,7 @@ describe('SocialDistributionPanels v2', () => {
         { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
         { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
       ],
-      summary: { total_assets: 1, total_tasks: 1, total_documents: 2 },
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 3 },
       generated_at: '2026-05-01T00:00:00Z',
     })
     apiMock.getSocialDistributionTasks.mockResolvedValue({
@@ -191,6 +208,13 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.createSocialContentTask.mockResolvedValue(asset({ source_type: 'manual_task' }))
     apiMock.createSocialContentAsset.mockResolvedValue(asset())
     apiMock.generateSocialDistributionContentPlan.mockResolvedValue(asset())
+    apiMock.expandSocialDistributionCanonicalArticle.mockResolvedValue(asset({
+      status: 'needs_review',
+      documents: asset().documents.map((doc) =>
+        doc.document_kind === 'canonical_article' ? { ...doc, status: 'needs_review' } : doc,
+      ),
+    }))
+    apiMock.approveSocialDistributionCanonicalArticle.mockResolvedValue(asset())
     apiMock.generateSocialDistributionTasks.mockResolvedValue({
       asset: asset(),
       results: [{ account_id: 101, platform: 'devto', channel_key: 'dev.to', status: 'generated', task_id: 201, error: null }],
@@ -266,7 +290,7 @@ describe('SocialDistributionPanels v2', () => {
     await user.click(screen.getByText('How AI agents should pay for APIs'))
     const dialog = screen.getByRole('dialog', { name: 'How AI agents should pay for APIs' })
     expect(dialog).toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: '批准并生成分发任务' }))
+    await user.click(within(dialog).getByRole('button', { name: '批准并生成平台任务' }))
 
     await waitFor(() => {
       expect(apiMock.approveAndGenerateSocialDistributionTasks).toHaveBeenCalledWith(301, {
