@@ -20,7 +20,10 @@ from server.services.social.distribution_core import (
     _normalize_platform,
     _record_event,
 )
-from server.services.social.distribution_documents import create_platform_draft_document
+from server.services.social.distribution_documents import (
+    create_platform_draft_document,
+    ensure_canonical_article_document,
+)
 from server.services.social.agent_content_pack import generate_platform_task_draft
 
 
@@ -37,6 +40,10 @@ def generate_distribution_tasks(
     accounts = _ordered_accounts(db, body.account_ids)
     if len(accounts) != len(set(body.account_ids)):
         raise ValueError("one or more distribution accounts were not found.")
+    canonical_document = ensure_canonical_article_document(
+        db, asset, actor=body.actor
+    )
+    canonical_body = str(canonical_document.body_markdown or asset.body or "")
 
     results: list[dist_schema.SocialDistributionPlatformGenerationOut] = []
     generated_ids: list[int] = []
@@ -49,8 +56,11 @@ def generate_distribution_tasks(
             draft = generate_platform_task_draft(
                 asset_title=asset.title,
                 asset_summary=asset.summary,
-                asset_body=asset.body,
-                asset_metadata=_asset_metadata(asset),
+                asset_body=canonical_body,
+                asset_metadata={
+                    **_asset_metadata(asset),
+                    "canonical_article_document_id": int(canonical_document.id),
+                },
                 canonical_url=asset.canonical_url,
                 platform=account.platform,
                 channel_key=account.channel_key,
@@ -66,6 +76,7 @@ def generate_distribution_tasks(
             task.metadata_json = json.dumps(
                 {
                     **draft.metadata,
+                    "canonical_article_document_id": int(canonical_document.id),
                     "generation_order": index + 1,
                     "serial_generation": True,
                 },
@@ -136,6 +147,7 @@ def approve_and_generate_distribution_tasks(
         raise ValueError("no distribution channels are configured for this asset.")
     asset.status = "approved"
     asset.updated_at = utcnow()
+    ensure_canonical_article_document(db, asset, actor=body.actor)
     _record_event(
         db,
         asset,

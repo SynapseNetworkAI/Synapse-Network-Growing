@@ -169,31 +169,16 @@ describe('PublishingPage v2 distribution workbench', () => {
     })
   })
 
-  it('renders only the four v2 tabs and task board by asset', async () => {
+  it('renders only the v2 operator tabs and task board by asset', async () => {
     render(<PublishingPage />)
 
     expect(await screen.findByText('多渠道分发中心')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tasks' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Signals & Metrics' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Assets' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assets' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '今日队列' })).not.toBeInTheDocument()
     expect(await screen.findByText('How AI agents should pay for APIs')).toBeInTheDocument()
     expect(screen.getByTestId('distribution-board-column-ready_to_publish')).toBeInTheDocument()
-  })
-
-  it('switches to assets and creates the source asset before task generation', async () => {
-    const user = userEvent.setup()
-    render(<PublishingPage />)
-
-    await user.click(screen.getByRole('button', { name: 'Assets' }))
-    expect(await screen.findByRole('button', { name: '创建内容资产' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '创建内容资产' }))
-    await user.type(screen.getByLabelText('标题'), 'Agent payment rails launch note')
-    await user.click(screen.getByRole('button', { name: '创建' }))
-
-    expect(apiMock.createSocialContentAsset).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Agent payment rails launch note', source_type: 'manual' }),
-    )
   })
 })

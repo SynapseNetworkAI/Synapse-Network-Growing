@@ -13,6 +13,13 @@ from server.services.social.distribution_core import (
     _clean_optional,
     _normalize_platform,
 )
+from server.services.social.distribution_content_strategy import (
+    platform_format_kind,
+    platform_target_length,
+    x_format_from_metadata,
+    x_tweets_from_metadata,
+    x_weighted_character_count,
+)
 
 
 def build_source_plan_payload(
@@ -106,10 +113,18 @@ def source_plan_markdown(plan: dict[str, object]) -> str:
 def platform_document_markdown(
     asset: SocialContentAssetRow, task: SocialDistributionTaskRow
 ) -> str:
+    metadata = parse_json_object(task.metadata_json)
+    normalized = _normalize_platform(task.platform)
+    if normalized == "x":
+        return x_platform_document_markdown(asset, task, metadata)
+    if normalized == "hacker_news":
+        return hn_platform_document_markdown(asset, task, metadata)
     parts = [
         f"# {task.platform_title or asset.title}",
         "",
         f"Platform: {task.platform} / {task.channel_key}",
+        f"Format: {metadata.get('format_kind') or platform_format_kind(task.platform)}",
+        f"Target length: {metadata.get('target_length') or platform_target_length(task.platform)}",
         "",
         "## Draft",
         task.platform_body or "",
@@ -118,6 +133,112 @@ def platform_document_markdown(
         parts.extend(["", "## Operator Checklist", task.operator_checklist])
     if asset.canonical_url:
         parts.extend(["", f"Canonical URL: {asset.canonical_url}"])
+    return "\n".join(parts).strip()
+
+
+def canonical_article_markdown(
+    asset: SocialContentAssetRow, source_plan: dict[str, Any] | None = None
+) -> str:
+    plan = source_plan or {}
+    core_points = plan.get("core_points") if isinstance(plan.get("core_points"), list) else []
+    matrix = plan.get("platform_matrix") if isinstance(plan.get("platform_matrix"), list) else []
+    audience = str(plan.get("target_audience") or "").strip()
+    body = str(asset.body or asset.summary or "").strip()
+    lines = [
+        f"# {asset.title}",
+        "",
+        "## Thesis",
+        asset.summary
+        or "A source content task should become one complete canonical article before platform adaptation.",
+    ]
+    if audience:
+        lines.extend(["", "## Audience", audience])
+    if core_points:
+        lines.extend(["", "## Core Points"])
+        lines.extend(f"- {point}" for point in core_points if point)
+    if body:
+        lines.extend(["", "## Source Material", body])
+    lines.extend(
+        [
+            "",
+            "## Narrative Draft",
+            "This article starts from the source task, expands the main argument, "
+            "and gives each platform enough substance to adapt without shrinking "
+            "the idea into a teaser.",
+            "",
+            "A solo-company operating system is valuable because it reduces context "
+            "switching, keeps workflow evidence attached to the work, and lets a "
+            "human operator review direction before public distribution.",
+            "",
+            "The practical pattern is: write one canonical article, derive platform "
+            "documents from that article, and keep publishing actions human-gated. "
+            "That preserves both leverage and accountability.",
+        ]
+    )
+    if matrix:
+        lines.extend(["", "## Platform Adaptation Plan"])
+        for item in matrix:
+            if isinstance(item, dict):
+                lines.append(
+                    f"- {item.get('platform')}: {item.get('angle')} ({item.get('operator_action')})"
+                )
+    if asset.canonical_url:
+        lines.extend(["", f"Canonical URL: {asset.canonical_url}"])
+    return "\n".join(lines).strip()
+
+
+def x_platform_document_markdown(
+    asset: SocialContentAssetRow,
+    task: SocialDistributionTaskRow,
+    metadata: dict[str, Any],
+) -> str:
+    tweets = x_tweets_from_metadata(metadata, task.platform_body)
+    x_format = x_format_from_metadata(metadata, tweets)
+    parts = [
+        f"# {task.platform_title or asset.title}",
+        "",
+        f"Platform: {task.platform} / {task.channel_key}",
+        f"Format: {'X Thread' if x_format == 'thread' else 'Single X Post'}",
+        "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2",
+        "",
+    ]
+    if x_format == "thread":
+        parts.append("## Thread")
+        for index, tweet in enumerate(tweets):
+            parts.extend(
+                [
+                    "",
+                    f"### Tweet {index + 1}/{len(tweets)} ({x_weighted_character_count(tweet)}/280)",
+                    tweet,
+                ]
+            )
+    else:
+        tweet = tweets[0] if tweets else str(task.platform_body or "")
+        parts.extend(["## Tweet", f"Weighted count: {x_weighted_character_count(tweet)}/280", "", tweet])
+    if task.operator_checklist:
+        parts.extend(["", "## Operator Checklist", task.operator_checklist])
+    return "\n".join(parts).strip()
+
+
+def hn_platform_document_markdown(
+    asset: SocialContentAssetRow,
+    task: SocialDistributionTaskRow,
+    metadata: dict[str, Any],
+) -> str:
+    parts = [
+        f"# {task.platform_title or asset.title}",
+        "",
+        f"Platform: {task.platform} / {task.channel_key}",
+        f"Format: {metadata.get('format_kind') or 'hn_submission'}",
+        f"Target length: {metadata.get('target_length') or platform_target_length(task.platform)}",
+        "",
+        "## Submission",
+        task.platform_body or "",
+    ]
+    if asset.canonical_url:
+        parts.extend(["", f"Canonical URL: {asset.canonical_url}"])
+    if task.operator_checklist:
+        parts.extend(["", "## Operator Checklist", task.operator_checklist])
     return "\n".join(parts).strip()
 
 
