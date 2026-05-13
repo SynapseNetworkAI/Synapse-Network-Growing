@@ -24,3 +24,4 @@
 - [ ] I did not add new flat service modules or bypass facade boundaries.
 - [ ] I documented any new public entrypoint or design token.
 - [ ] If any file crossed the complexity threshold, I called it out explicitly in the PR description.
+- [ ] PR description and GitHub comments use real Markdown line breaks; I did not paste literal `\n` escape sequences into `gh pr create/edit`, issue comments, release notes, or review summaries.
