@@ -107,19 +107,21 @@
 
 ## 6.6.2 Push / PR Quality Gates
 
-1. 本地 `pre-push` 和 GitHub PR CI 必须复用同一个 `scripts/ci/pr_checks.sh`，不得维护两套不同门禁。
-2. Push / PR 门禁必须至少覆盖：repo guardrails、backend full pytest、Python diff coverage、dashboard Vitest、dashboard build、`git diff --check`。
-3. Python runtime 必须通过脚本动态探测；不得把单台机器的虚拟环境路径写死成唯一可用路径。
-4. diff coverage 必须基于可解析的 merge-base；本地 `origin/main` 过旧时应先尝试 fetch，不能用陈旧 diff 误判覆盖率。
-5. `--no-verify` 只能绕过本地 hook，不能被视为合格交付；远端 GitHub CI 仍是最终兜底。
-6. Push Quality Gates v2 必须通过 `scripts/ci/code_quality_gates.sh` 补齐 typecheck、lint、复杂度、行数、重复代码、secret scan、SAST 和 dependency audit。
-7. 行数门禁采用 baseline + ratchet：新生产文件 `<= 500` 行，新测试文件 `<= 900` 行；历史超限文件不得继续增长，除非同 PR 中先拆分或净减少。
-8. Python 复杂度门禁使用 changed/new-code ratchet：新生产 Python 文件必须满足 Xenon `--max-absolute B`，大函数必须拆分，测试文件不作为复杂度 hard gate。
-9. 重复代码门禁必须防止新生产代码引入大块重复；已有重复可以被 baseline 暂时容忍，但不能作为继续复制粘贴的借口。
-10. 安全门禁必须 fail closed：新增 secret、Bandit 高风险问题、Python 依赖漏洞、前端 high/critical audit 都不得通过；输出必须 redacted，不能把 token 原文打印到 CI。
-11. Branch protection 检查是事实吸收，不是口头保证。GitHub plan 不支持 private repo ruleset 时必须明确显示 diagnostic-only，不能伪装成已强制 required checks。
-12. Public service return contracts 必须对象化：Planning / Social / Releases 等核心模块的 public 函数或方法不得返回裸 `dict`、`Dict[str, Any]`、`dict[str, Any]`、`Mapping[str, Any]` 或前端 `Promise<Record<string, unknown>>`。API-facing Python code 应返回 Pydantic result/response object，并在 FastAPI/API 边界显式 `.model_dump()` 或由 response model 序列化保持 wire JSON 兼容。
-13. Raw map 只允许作为 request body、patch 入参、schema/payload 字段、metadata/blackboard 字段、第三方 API payload、测试 fixture 或 private helper 的中间序列化结构。Private helper 必须以 `_` 开头；如果一个 helper 已经成为跨模块 public surface，应先提升为 typed object contract，再暴露给调用方。
+1. `scripts/ci/pr_checks.sh` 是 full gate source of truth；`main`、nightly 和手动 full CI 必须执行完整门禁。
+2. PR CI 默认使用 `scripts/ci/ci_scope.py` 做 scoped checks：docs-only 不安装 dashboard 依赖、不跑 backend pytest；dashboard-only 不跑 backend pytest；backend-only 不跑 dashboard tests/build。分类不确定或触碰 CI/security/dependency/schema/migration 文件时必须升级为 full gate。
+3. 本地 `pre-push` 默认运行 `scripts/ci/local_pr_checks.sh --scope auto`，大改动或发布前可用 `SYNAPSE_CI_SCOPE=full` 强制完整 `pr_checks.sh`。
+4. GitHub 分支保护应只 require 聚合检查 `pr-checks`；被 scope 跳过的 job 不得成为合并阻塞，聚合检查负责汇总实际运行的 jobs。
+5. Python runtime 必须通过脚本动态探测；不得把单台机器的虚拟环境路径写死成唯一可用路径。
+6. diff coverage 必须基于可解析的 merge-base；本地 `origin/main` 过旧时应先尝试 fetch，不能用陈旧 diff 误判覆盖率。
+7. `--no-verify` 只能绕过本地 hook，不能被视为合格交付；远端 GitHub CI 仍是最终兜底。
+8. Push Quality Gates v2 必须通过 `scripts/ci/code_quality_gates.sh` 补齐 typecheck、lint、复杂度、行数、重复代码、secret scan、SAST 和 dependency audit；dependency audit 可在 scoped PR 中按风险跳过，但 full gate 必须执行。
+9. 行数门禁采用 baseline + ratchet：新生产文件 `<= 500` 行，新测试文件 `<= 900` 行；历史超限文件不得继续增长，除非同 PR 中先拆分或净减少。
+10. Python 复杂度门禁使用 changed/new-code ratchet：新生产 Python 文件必须满足 Xenon `--max-absolute B`，大函数必须拆分，测试文件不作为复杂度 hard gate。
+11. 重复代码门禁必须防止新生产代码引入大块重复；已有重复可以被 baseline 暂时容忍，但不能作为继续复制粘贴的借口。
+12. 安全门禁必须 fail closed：新增 secret、Bandit 高风险问题、Python 依赖漏洞、前端 high/critical audit 都不得通过；输出必须 redacted，不能把 token 原文打印到 CI。
+13. Branch protection 检查是事实吸收，不是口头保证。GitHub plan 不支持 private repo ruleset 时必须明确显示 diagnostic-only，不能伪装成已强制 required checks。
+14. Public service return contracts 必须对象化：Planning / Social / Releases 等核心模块的 public 函数或方法不得返回裸 `dict`、`Dict[str, Any]`、`dict[str, Any]`、`Mapping[str, Any]` 或前端 `Promise<Record<string, unknown>>`。API-facing Python code 应返回 Pydantic result/response object，并在 FastAPI/API 边界显式 `.model_dump()` 或由 response model 序列化保持 wire JSON 兼容。
+15. Raw map 只允许作为 request body、patch 入参、schema/payload 字段、metadata/blackboard 字段、第三方 API payload、测试 fixture 或 private helper 的中间序列化结构。Private helper 必须以 `_` 开头；如果一个 helper 已经成为跨模块 public surface，应先提升为 typed object contract，再暴露给调用方。
 
 ## 6.7 后台任务必须一等可观测
 
