@@ -88,7 +88,7 @@ if [[ "$QUALITY_RUN_DASHBOARD" == "1" ]]; then
   echo "[quality] dashboard lint"
   QUALITY_DIFF_BASE="$DIFF_BASE" npm --prefix dashboard run lint
 else
-  echo "[quality] dashboard checks disabled for scoped backend run"
+  echo "[quality] dashboard checks disabled for this CI phase"
 fi
 
 echo "[quality] duplicate code ratchet"

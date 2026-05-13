@@ -64,6 +64,18 @@ run_backend_phase() {
 }
 
 run_dashboard_phase() {
+  echo "[ci:pr] dashboard typecheck"
+  (
+    cd "$ROOT_DIR/dashboard"
+    npm run typecheck
+  )
+
+  echo "[ci:pr] dashboard lint"
+  (
+    cd "$ROOT_DIR/dashboard"
+    QUALITY_DIFF_BASE="$DIFF_BASE" npm run lint
+  )
+
   echo "[ci:pr] dashboard tests"
   (
     cd "$ROOT_DIR/dashboard"
