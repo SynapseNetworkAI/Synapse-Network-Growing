@@ -10,6 +10,10 @@ from server.services.social.agent_content_pack import (
     generate_platform_task_draft,
     parse_agent_json_output,
 )
+from server.services.social.agent_content_pack_contracts import (
+    PlatformTaskPromptInput,
+    platform_task_prompt,
+)
 from server.services.social.agent_content_pack_runtime import (
     _call_content_agent,
     _call_content_codex,
@@ -329,8 +333,8 @@ def test_platform_density_limits_fail_closed(monkeypatch):
         "_call_content_agent",
         lambda *_args, **_kwargs: (
             (
-                '{"platform_title":"X title","platform_body":"'
-                + ("x" * 4001)
+                '{"platform_title":"Reddit title","platform_body":"'
+                + ("x" * 2001)
                 + '","operator_checklist":"Human Gate.",'
                 '"risk_level":"normal","rationale":"too long"}'
             ),
@@ -339,30 +343,39 @@ def test_platform_density_limits_fail_closed(monkeypatch):
         ),
     )
 
-    with pytest.raises(AgentContentGenerationError, match="x_body_exceeds"):
+    with pytest.raises(AgentContentGenerationError, match="reddit_body_exceeds"):
         generate_platform_task_draft(
             asset_title="Asset",
             asset_summary="Summary",
             asset_body="Body",
             asset_metadata={},
             canonical_url=None,
+            platform="reddit",
+            channel_key="r/LocalLLaMA",
+            display_name="Reddit",
+        )
+
+
+def test_x_platform_prompt_requires_english_official_account():
+    _system_prompt, user_prompt = platform_task_prompt(
+        PlatformTaskPromptInput(
+            asset_title="第 1 篇：我为什么要做一人公司的系统",
+            asset_summary="一人公司的系统化故事",
+            asset_body="中文母稿",
+            asset_metadata={},
+            canonical_url=None,
             platform="x",
             channel_key="official",
-            display_name="X",
+            display_name="X Official Account",
         )
+    )
+
+    assert "English" in user_prompt
+    assert "X Official Account" in user_prompt
+    assert "tweets" in user_prompt
 
 
 def test_platform_prompt_uses_density_driven_rules():
-    _, x_prompt = agent_content_pack.platform_task_prompt(
-        agent_content_pack.PlatformTaskPromptInput(
-            asset_title="Asset",
-            asset_summary="Summary",
-            asset_body="Body",
-            platform="x",
-            channel_key="official",
-            display_name="X",
-        )
-    )
     _, reddit_prompt = agent_content_pack.platform_task_prompt(
         agent_content_pack.PlatformTaskPromptInput(
             asset_title="Asset",
@@ -374,11 +387,21 @@ def test_platform_prompt_uses_density_driven_rules():
         )
     )
 
-    assert "MAX_LENGTH=4000" in x_prompt
-    assert "no minimum" in x_prompt
-    assert "No padding" in x_prompt
     assert "MAX_LENGTH=2000" in reddit_prompt
     assert "1-2 most" in reddit_prompt
+
+
+def test_x_platform_draft_requires_structured_tweets():
+    with pytest.raises(ValueError, match="x_format"):
+        agent_content_pack._platform_draft_from_payload(
+            {
+                "platform_title": "Premium long post",
+                "platform_body": "This fallback must not be accepted for X.",
+                "operator_checklist": "Human Gate.",
+            },
+            platform="x",
+            asset_title="Asset",
+        )
 
 
 def test_required_context_resolution_wraps_missing_tag():

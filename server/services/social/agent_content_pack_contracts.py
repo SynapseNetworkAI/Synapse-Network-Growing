@@ -199,8 +199,14 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
         "canonical article without making it longer. For Reddit/V2EX, write a "
         "substantive community discussion draft focused on 1-2 concrete "
         "decisions. For Hacker News, keep the submission factual and restrained. "
-        "For X, prefer a density-driven Premium long post in platform_body with "
-        "MAX_LENGTH=4000 and no minimum length; x_format/tweets may be null."
+        "For X, write the X Official Account draft in English even when the "
+        "canonical source material is Chinese. Strictly choose exactly one "
+        "Dynamic X Variant and include x_format plus tweets: "
+        "{\"x_format\":\"single|thread\",\"tweets\":[\"...\"],\"rationale\":\"...\"}. "
+        "Use single only for short updates. Use thread for deep reasoning, "
+        "tutorials, founder stories, or architecture posts. Each tweet must be "
+        "under 280 weighted characters; URLs count as 23 and CJK characters count as 2. "
+        "Do not output a Premium long post in v1."
     )
     return system_prompt, user_prompt
 
@@ -248,11 +254,10 @@ def _platform_guidance(platform: str, channel_key: str) -> str:
     normalized = platform.strip()
     if normalized == "x":
         return (
-            "Adapt the canonical article into an X Premium long post. MAX_LENGTH=4000 "
-            "characters, no minimum length. Use a strong hook, clear whitespace, "
-            "and 2-4 concrete technical points only if supported by the article. "
-            "End when useful content is complete. No padding, no generic hashtags, "
-            "no empty summary, and at most 3 emoji."
+            "Dynamic X Variant: output either one normal tweet or a thread. "
+            "Do not output a Premium long post in v1. Write the X Official "
+            "Account draft in English, even when the canonical source material "
+            "is Chinese."
         )
     if normalized == "hacker_news":
         return (

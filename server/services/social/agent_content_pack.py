@@ -249,7 +249,7 @@ def _canonical_pack_from_payload(payload: dict[str, Any]) -> CanonicalAssetPack:
 def _platform_draft_from_payload(
     payload: dict[str, Any], *, platform: str = "", asset_title: str = ""
 ) -> AgentDistributionDraft:
-    if platform == "x" and (payload.get("x_format") or payload.get("tweets")):
+    if platform == "x":
         title, body, metadata = normalize_x_payload(payload, fallback_title=asset_title)
     else:
         title = _required_text(payload, "platform_title")
