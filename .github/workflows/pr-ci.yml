@@ -2,12 +2,64 @@ name: PR CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  schedule:
+    - cron: "17 19 * * *"
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "CI scope to run"
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - full
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  pr-checks:
+  scope:
+    name: Classify CI scope
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+      run_full: ${{ steps.scope.outputs.run_full }}
+      run_backend: ${{ steps.scope.outputs.run_backend }}
+      run_dashboard: ${{ steps.scope.outputs.run_dashboard }}
+      run_docs: ${{ steps.scope.outputs.run_docs }}
+      run_security: ${{ steps.scope.outputs.run_security }}
+      run_scope_self_test: ${{ steps.scope.outputs.run_scope_self_test }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Classify changed files
+        id: scope
+        run: |
+          set -euo pipefail
+          event_name="${{ github.event_name }}"
+          requested_scope="${{ inputs.scope || 'auto' }}"
+          if [[ "$event_name" == "push" || "$event_name" == "schedule" || "$requested_scope" == "full" ]]; then
+            python scripts/ci/ci_scope.py --force-full --github-output --json pr-ci-scope.json
+          else
+            git fetch --quiet origin main
+            python scripts/ci/ci_scope.py --base origin/main --github-output --json pr-ci-scope.json
+          fi
+      - name: Print scope
+        run: cat pr-ci-scope.json
+
+  full-quality:
+    name: Full quality gate
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,13 +69,15 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install system quality tools
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Install backend dependencies
-        run: python -m pip install -r requirements.txt
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
+      - name: Verify system tools
+        run: bash scripts/ci/verify_system_tools.sh
       - name: Enable package managers
         run: |
           corepack enable
@@ -31,5 +85,231 @@ jobs:
       - name: Install dashboard dependencies
         run: yarn install --frozen-lockfile
         working-directory: dashboard
-      - name: Run PR checks
+      - name: Run full quality checks
+        env:
+          SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
+          SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: quality
         run: bash scripts/ci/pr_checks.sh
+
+  full-backend:
+    name: Full backend gate
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run full backend checks
+        env:
+          SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
+          SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: backend
+        run: bash scripts/ci/pr_checks.sh
+
+  full-dashboard:
+    name: Full dashboard gate
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
+      - name: Enable package managers
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+      - name: Install dashboard dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: dashboard
+      - name: Run full dashboard checks
+        env:
+          SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
+          SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: dashboard
+        run: bash scripts/ci/pr_checks.sh
+
+  guardrails:
+    name: Guardrails
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify system tools
+        run: bash scripts/ci/verify_system_tools.sh
+      - name: Run agent guardrails
+        run: bash scripts/ci/agent_guardrails.sh
+
+  backend-checks:
+    name: Backend scoped checks
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Verify system tools
+        run: bash scripts/ci/verify_system_tools.sh
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run backend scoped checks
+        run: |
+          git fetch --quiet origin main
+          bash scripts/ci/backend_checks.sh origin/main
+
+  dashboard-checks:
+    name: Dashboard scoped checks
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_dashboard == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Verify system tools
+        run: bash scripts/ci/verify_system_tools.sh
+      - name: Enable package managers
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+      - name: Install dashboard dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: dashboard
+      - name: Run dashboard scoped checks
+        run: |
+          git fetch --quiet origin main
+          bash scripts/ci/dashboard_checks.sh origin/main
+
+  docs-checks:
+    name: Docs scoped checks
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Whitespace check
+        run: |
+          git fetch --quiet origin main
+          git diff --check origin/main
+
+  security-lite:
+    name: Security lite
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_security == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Run changed-file secret scan
+        run: |
+          git fetch --quiet origin main
+          python scripts/ci/secret_diff_scan.py --base origin/main
+
+  scope-self-test:
+    name: Scope classifier self-test
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_scope_self_test == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run classifier tests
+        run: python -m pytest -q tests/test_ci_scope.py
+
+  pr-required:
+    name: pr-checks
+    needs:
+      - scope
+      - full-quality
+      - full-backend
+      - full-dashboard
+      - guardrails
+      - backend-checks
+      - dashboard-checks
+      - docs-checks
+      - security-lite
+      - scope-self-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate scoped CI result
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = []
+          for name, payload in needs.items():
+              result = payload.get("result")
+              print(f"{name}: {result}")
+              if result in {"failure", "cancelled"}:
+                  failed.append(f"{name}={result}")
+          if failed:
+              print("Scoped CI failed: " + ", ".join(failed), file=sys.stderr)
+              raise SystemExit(1)
+          print("Scoped CI passed.")
+          PY

@@ -79,10 +79,12 @@
 10. 首批 workflow 包含 `agent_self_repair` 与 `gateway_reliability_repair`。
 11. `agent_self_repair` verify 阶段会执行 Planner-generated acceptance commands，并用硬超时、command artifacts 与 `acceptance_matrix` blackboard 状态暴露运行进度和失败原因。
 12. Acceptance matrix evidence 当前按同一 `workflow_run_id` 归属校验；timestamp-level evidence scoping 是 v2，不属于当前实现。
-13. Push / PR 质量门禁通过 `.githooks/pre-push` 与 GitHub PR CI 复用 `scripts/ci/pr_checks.sh`，覆盖 repo guardrails、`scripts/ci/code_quality_gates.sh`、backend pytest、Python diff coverage、dashboard tests/build 与 whitespace。
-14. Push Quality Gates v2 已加入 typecheck/lint、复杂度、行数 ratchet、重复代码、secret scan、Bandit、dependency audit 与 branch protection diagnostic；现有 >500 行 legacy 文件通过 `quality/quality_baseline.json` 固定基线，后续变更不得继续膨胀。
-15. `scripts/ci/source_quality_checks.py` 是 Push Quality Gates 的 source API shape 门禁：核心 Planning / Social / Releases public service surface 不允许返回裸 `dict` / `Dict[str, Any]` / `Mapping[str, Any]` 或前端 `Promise<Record<string, unknown>>`，必须返回 typed result object；raw maps 仅允许保留在 request/payload/metadata/blackboard 字段和 private helper 中；历史债务进入 `scripts/ci/source_quality_baseline.json`，普通 PR 不新增 baseline。
-16. 新增内置 workflow definition `x_official_account_content_ops`：Agent 只生成 X 官方账号内容草稿并运行内容风险检查，随后停在人类审核边界；外部发布不由 workflow 自动触发。
+13. Push / PR 质量门禁采用 scoped PR CI + full gate 分层：`scripts/ci/pr_checks.sh` 仍是 main/nightly/manual full 的 source of truth，并支持 `PR_CHECKS_PHASE=quality|backend|dashboard|all` 供远端 CI 并行拆分；PR 默认由 `scripts/ci/ci_scope.py` 分类后只运行相关 checks；`.githooks/pre-push` 默认运行 `scripts/ci/local_pr_checks.sh --scope auto`。
+14. GitHub PR CI 暴露单一聚合 required check `pr-checks`，内部按 scope 运行 `guardrails`、`backend-checks`、`dashboard-checks`、`docs-checks`、`security-lite`、`scope-self-test`，或在 full gate 中并行运行 `full-quality` / `full-backend` / `full-dashboard`，避免 skipped job 阻塞合并并减少 Actions minutes。
+15. PR CI 使用 pip / yarn / uv cache，且只验证 GitHub-hosted Ubuntu runner 应内置的 `rg`，不在常规 PR 路径中运行 `apt-get update` 安装 ripgrep；classifier-only 和 prompt/content-only 改动有更细 scope，避免误触发完整 backend + dashboard gate。
+16. Push Quality Gates v2 已加入 typecheck/lint、复杂度、行数 ratchet、重复代码、secret scan、Bandit、dependency audit 与 branch protection diagnostic；现有 >500 行 legacy 文件通过 `quality/quality_baseline.json` 固定基线，后续变更不得继续膨胀；dependency audit 在 scoped PR 中按风险运行，full gate 必须执行。
+17. `scripts/ci/source_quality_checks.py` 是 Push Quality Gates 的 source API shape 门禁：核心 Planning / Social / Releases public service surface 不允许返回裸 `dict` / `Dict[str, Any]` / `Mapping[str, Any]` 或前端 `Promise<Record<string, unknown>>`，必须返回 typed result object；raw maps 仅允许保留在 request/payload/metadata/blackboard 字段和 private helper 中；历史债务进入 `scripts/ci/source_quality_baseline.json`，普通 PR 不新增 baseline。
+18. 新增内置 workflow definition `x_official_account_content_ops`：Agent 只生成 X 官方账号内容草稿并运行内容风险检查，随后停在人类审核边界；外部发布不由 workflow 自动触发。
 
 ## 4. Human Gate And Release
 

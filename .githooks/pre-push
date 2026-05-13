@@ -7,4 +7,5 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 echo "[pre-push] running Synapse-Network-Growing quality gates"
 
-bash "$ROOT_DIR/scripts/ci/pr_checks.sh"
+SCOPE="${SYNAPSE_CI_SCOPE:-auto}"
+bash "$ROOT_DIR/scripts/ci/local_pr_checks.sh" --scope "$SCOPE"
