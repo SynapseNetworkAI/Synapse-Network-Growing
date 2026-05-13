@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 FULL_REQUIRED_PREFIXES = (
     ".github/workflows/",
-    "scripts/ci/",
     "server/migrations/",
     "migrations/",
     "quality/",
@@ -31,6 +30,12 @@ FULL_REQUIRED_FILES = {
 BACKEND_PREFIXES = ("server/", "scripts/", "tests/")
 DASHBOARD_PREFIXES = ("dashboard/",)
 DOCS_PREFIXES = ("docs/", "content/", "roles/", ".agents/")
+PROMPT_CONTENT_PREFIXES = ("content/", "roles/", ".agents/skills/")
+SCOPE_SELF_TEST_FILES = {
+    "scripts/ci/ci_scope.py",
+    "tests/test_ci_scope.py",
+}
+FULL_REQUIRED_CI_PREFIXES = ("scripts/ci/",)
 DOCS_FILES = {
     "README.md",
     "AGENTS.md",
@@ -55,12 +60,15 @@ class ScopeResult:
     backend: bool = False
     dashboard: bool = False
     security: bool = False
+    prompt_content: bool = False
+    scope_self_test: bool = False
     full_required: bool = False
     run_guardrails: bool = True
     run_docs: bool = True
     run_backend: bool = False
     run_dashboard: bool = False
     run_security: bool = False
+    run_scope_self_test: bool = False
     run_full: bool = False
     reason: str = ""
 
@@ -97,6 +105,10 @@ def _matches_prefix(path: str, prefixes: Iterable[str]) -> bool:
 def _is_full_required(path: str) -> bool:
     if path in FULL_REQUIRED_FILES:
         return True
+    if path in SCOPE_SELF_TEST_FILES:
+        return False
+    if _matches_prefix(path, FULL_REQUIRED_CI_PREFIXES):
+        return True
     if _matches_prefix(path, FULL_REQUIRED_PREFIXES):
         return True
     return "schema" in path.lower() or "migration" in path.lower()
@@ -106,7 +118,17 @@ def _is_docs(path: str) -> bool:
     return path in DOCS_FILES or _matches_prefix(path, DOCS_PREFIXES)
 
 
+def _is_prompt_content(path: str) -> bool:
+    return _matches_prefix(path, PROMPT_CONTENT_PREFIXES)
+
+
+def _is_scope_self_test(path: str) -> bool:
+    return path in SCOPE_SELF_TEST_FILES
+
+
 def _is_backend(path: str) -> bool:
+    if _is_scope_self_test(path):
+        return False
     return _matches_prefix(path, BACKEND_PREFIXES)
 
 
@@ -144,6 +166,8 @@ def _empty_scope() -> ScopeResult:
 def _all_paths_known(paths: list[str]) -> bool:
     return all(
         _is_docs(path)
+        or _is_prompt_content(path)
+        or _is_scope_self_test(path)
         or _is_backend(path)
         or _is_dashboard(path)
         or _is_security(path)
@@ -152,7 +176,16 @@ def _all_paths_known(paths: list[str]) -> bool:
     )
 
 
-def _scope_name(*, backend: bool, dashboard: bool, security: bool) -> str:
+def _scope_name(
+    *,
+    backend: bool,
+    dashboard: bool,
+    prompt_content: bool,
+    scope_self_test: bool,
+    security: bool,
+) -> str:
+    if scope_self_test and not (backend or dashboard or security):
+        return "scope_self_test"
     if backend and dashboard:
         return "backend_dashboard"
     if backend:
@@ -161,6 +194,8 @@ def _scope_name(*, backend: bool, dashboard: bool, security: bool) -> str:
         return "dashboard"
     if security:
         return "security"
+    if prompt_content:
+        return "prompt_content"
     return "docs_only"
 
 
@@ -171,6 +206,8 @@ def _path_flags(paths: list[str]) -> dict[str, bool]:
         "docs": any(_is_docs(path) for path in paths),
         "full_required": any(_is_full_required(path) for path in paths),
         "known": _all_paths_known(paths),
+        "prompt_content": any(_is_prompt_content(path) for path in paths),
+        "scope_self_test": any(_is_scope_self_test(path) for path in paths),
         "security": any(_is_security(path) for path in paths),
     }
 
@@ -181,6 +218,8 @@ def _full_required_scope(paths: list[str], flags: dict[str, bool]) -> ScopeResul
         scope="full",
         backend=flags["backend"],
         dashboard=flags["dashboard"],
+        prompt_content=flags["prompt_content"],
+        scope_self_test=flags["scope_self_test"],
         security=flags["security"],
         full_required=True,
         run_backend=True,
@@ -192,7 +231,12 @@ def _full_required_scope(paths: list[str], flags: dict[str, bool]) -> ScopeResul
 
 
 def _has_code_scope(flags: dict[str, bool]) -> bool:
-    return flags["backend"] or flags["dashboard"] or flags["security"]
+    return (
+        flags["backend"]
+        or flags["dashboard"]
+        or flags["security"]
+        or flags["scope_self_test"]
+    )
 
 
 def _docs_only(flags: dict[str, bool]) -> bool:
@@ -206,16 +250,21 @@ def _scoped_result(paths: list[str], flags: dict[str, bool]) -> ScopeResult:
         scope=_scope_name(
             backend=flags["backend"],
             dashboard=flags["dashboard"],
+            prompt_content=flags["prompt_content"],
+            scope_self_test=flags["scope_self_test"],
             security=flags["security"],
         ),
         docs_only=docs_only,
         backend=flags["backend"],
         dashboard=flags["dashboard"],
+        prompt_content=flags["prompt_content"],
+        scope_self_test=flags["scope_self_test"],
         security=flags["security"],
-        run_docs=flags["docs"] or docs_only,
+        run_docs=flags["docs"] or flags["prompt_content"] or docs_only,
         run_backend=flags["backend"],
         run_dashboard=flags["dashboard"],
         run_security=flags["security"],
+        run_scope_self_test=flags["scope_self_test"],
         reason="classified",
     )
 

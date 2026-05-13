@@ -82,6 +82,30 @@ def test_ci_script_change_requires_full_gate():
     assert result.run_full is True
 
 
+def test_scope_classifier_change_runs_self_test_not_full_dashboard_backend():
+    result = ci_scope.classify_paths(
+        ["scripts/ci/ci_scope.py", "tests/test_ci_scope.py"]
+    )
+
+    assert result.scope == "scope_self_test"
+    assert result.full_required is False
+    assert result.run_full is False
+    assert result.run_scope_self_test is True
+    assert result.run_backend is False
+    assert result.run_dashboard is False
+
+
+def test_prompt_content_scope_uses_docs_style_checks():
+    result = ci_scope.classify_paths([".agents/skills/social-content/SKILL.md"])
+
+    assert result.scope == "prompt_content"
+    assert result.prompt_content is True
+    assert result.run_docs is True
+    assert result.run_backend is False
+    assert result.run_dashboard is False
+    assert result.run_full is False
+
+
 def test_dependency_changes_require_full_gate():
     result = ci_scope.classify_paths(["requirements.txt", "dashboard/yarn.lock"])
 
