@@ -3,7 +3,7 @@ id: ops-ci-release-gates
 title: "CI/CD and Release Gates"
 status: draft
 created_at: 2026-04-13
-updated_at: 2026-04-13
+updated_at: 2026-05-13
 author: engineering-ops
 ---
 
@@ -43,3 +43,14 @@ CI_FORCE_EXPENSIVE_BRANCH=1 scripts/ci/approval_automation.sh
 ## 3. 验证与故障切换
 
 运行 gate 时会自动调用目标仓库的虚拟环境安装脚本（`Synapse-Network/scripts/ci/run_pytest_checks.sh`）。若目标仓库路径不同，可设置 `TARGET_SYNAPSE_REPO=/path/to/Synapse-Network`。任何失败都会直接体现在脚本退出码中，供上层 CI 捕获。
+
+## 4. PR Metadata Hygiene
+
+PR descriptions, GitHub comments, release notes, and review summaries are operator-facing evidence. They must render as readable Markdown in GitHub.
+
+Rules:
+
+1. Write multiline PR bodies and comments to a temporary Markdown file and pass them with `gh pr create --body-file`, `gh pr edit --body-file`, or the equivalent API field containing real newline characters.
+2. Do not pass inline strings that contain literal `\n` escape sequences to GitHub CLI or API calls.
+3. After creating or editing a PR body, re-read it with `gh pr view --json body` or the GitHub UI and confirm the body contains real line breaks, not escaped `\\n` text.
+4. If a PR body or comment renders as one dense block, fix it immediately by replacing the body from a Markdown file.
