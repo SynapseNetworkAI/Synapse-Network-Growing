@@ -325,6 +325,7 @@ def create_platform_draft_document(
             "task_status": task.status,
             "source_document_id": task_metadata.get("source_document_id"),
             "source_document_version": task_metadata.get("source_document_version"),
+            **task_metadata,
             **(metadata or {}),
         },
     )
@@ -428,6 +429,16 @@ def sync_task_document_from_task(
         status=document_status_for_task(task.status),
         metadata=metadata,
     )
+
+
+def _source_plan_metadata(asset: SocialContentAssetRow) -> dict[str, object]:
+    for document in asset.documents or []:
+        if document.document_kind != "source_plan":
+            continue
+        metadata = parse_json_object(document.metadata_json)
+        structured = metadata.get("structured_plan")
+        return structured if isinstance(structured, dict) else {}
+    return {}
 
 
 def _upsert_document(

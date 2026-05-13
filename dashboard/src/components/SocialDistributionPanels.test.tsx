@@ -203,6 +203,7 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.markSocialDistributionTaskLive.mockResolvedValue(task({ status: 'live', published_url: 'https://dev.to/synapsenetwork/agent-payments' }))
     apiMock.markSocialDistributionTaskRemoved.mockResolvedValue(task({ status: 'removed', manual_result_note: 'Moderator removed duplicate post.' }))
     apiMock.updateSocialDistributionTask.mockResolvedValue(task({ status: 'skipped' }))
+    apiMock.publishSocialDistributionTaskToX.mockResolvedValue(task({ platform: 'x', channel_key: 'official', status: 'live', external_post_id: '1234567890' }))
     apiMock.getSocialContentAssets.mockResolvedValue([asset()])
     apiMock.getSocialContentAsset.mockResolvedValue(asset())
     apiMock.createSocialContentTask.mockResolvedValue(asset({ source_type: 'manual_task' }))
@@ -269,7 +270,7 @@ describe('SocialDistributionPanels v2', () => {
     renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
 
     await screen.findByText('How AI agents should pay for APIs')
-    await user.click(screen.getByRole('button', { name: '创建内容任务' }))
+    await user.click(screen.getByRole('button', { name: '创建内容计划' }))
     await user.type(screen.getByLabelText('任务标题'), '第 1 篇：一人公司最大的问题')
     await user.type(screen.getByLabelText('来源材料 / Markdown'), '核心问题：上下文切换、流程断裂和质量失控。')
     await user.click(screen.getByRole('button', { name: '创建' }))
@@ -279,6 +280,105 @@ describe('SocialDistributionPanels v2', () => {
         title: '第 1 篇：一人公司最大的问题',
         target_platforms: ['x', 'v2ex', 'hacker_news', 'devto', 'hashnode', 'reddit'],
       }))
+    })
+  })
+
+  it('renders X thread drafts with weighted counts and thread publish action', async () => {
+    const user = userEvent.setup()
+    const xTask = task({
+      id: 202,
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      account_display_name: 'X Official Account',
+      publish_mode: 'api_human_gated',
+      api_capability: 'write_post',
+      status: 'needs_review',
+      platform_title: 'X thread: Solo company operating system',
+      platform_body: '1/2\nSolo company bottleneck is not code speed.\n\n2/2\nThe fix is a control plane plus human-gated distribution.',
+      metadata: {
+        format_kind: 'x_thread',
+        target_length: 'thread of tweets under 280 weighted chars',
+        x_format: 'thread',
+        tweets: [
+          'Solo company bottleneck is not code speed.',
+          'The fix is a control plane plus human-gated distribution.',
+        ],
+        weighted_counts: [43, 62],
+      },
+    })
+    const xAsset = asset({
+      tasks: [xTask],
+      documents: [
+        {
+          id: 403,
+          asset_id: 301,
+          task_id: 202,
+          document_kind: 'platform_draft',
+          platform: 'x',
+          channel_key: 'official',
+          title: 'X thread: Solo company operating system',
+          body_markdown: '## Thread',
+          status: 'needs_review',
+          version: 1,
+          metadata: xTask.metadata,
+          created_at: '2026-05-01T00:00:00Z',
+          updated_at: '2026-05-01T00:00:00Z',
+        },
+      ],
+    })
+    apiMock.getSocialContentAsset.mockResolvedValue(xAsset)
+    apiMock.getSocialDistributionBoard.mockResolvedValueOnce({
+      columns: [
+        { key: 'backlog', title: '待计划', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'needs_review', title: '待审核', description: 'Plan.', count: 0, cards: [] },
+        {
+          key: 'ready_to_publish',
+          title: '待发布',
+          description: 'Ready.',
+          count: 1,
+          cards: [{
+            id: 'asset:301',
+            asset: xAsset,
+            column_key: 'ready_to_publish',
+            task_count: 1,
+            document_count: 1,
+            platform_count: 1,
+            failed_count: 0,
+            ready_to_publish_count: 1,
+            live_count: 0,
+            status_counts: { needs_review: 1 },
+            document_status_counts: { needs_review: 1 },
+            next_action: 'Publish X thread.',
+            updated_at: '2026-05-01T00:00:00Z',
+          }],
+        },
+        { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 1 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '发布到 X / 详情' }))
+
+    expect(screen.getByRole('dialog', { name: 'X Official Account' })).toBeInTheDocument()
+    expect(screen.getByText('推文 1/2')).toBeInTheDocument()
+    expect(screen.getByText('43/280')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '一键发布 Thread' })).toBeEnabled()
+  })
+
+  it('runs the Asset Planner from the Tasks board', async () => {
+    const user = userEvent.setup()
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await screen.findByText('How AI agents should pay for APIs')
+    await user.click(screen.getByRole('button', { name: '从信号生成内容计划' }))
+
+    await waitFor(() => {
+      expect(apiMock.runSocialAssetPlanner).toHaveBeenCalled()
     })
   })
 

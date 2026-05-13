@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 
 from server.services.social.context_tags import ContextTagSnippet
 from server.services.social.distribution_asset_signals import AssetSignal
+from server.services.social.distribution_content_strategy import (
+    platform_format_kind,
+    platform_target_length,
+)
 
 
 class PlatformTaskPromptInput(BaseModel):
@@ -79,15 +83,23 @@ PLATFORM_DRAFT_OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "platform_title": {"type": "string", "minLength": 1},
-        "platform_body": {"type": "string", "minLength": 1},
-        "operator_checklist": {"type": "string", "minLength": 1},
+        "platform_title": {"type": ["string", "null"]},
+        "platform_body": {"type": ["string", "null"]},
+        "x_format": {"type": ["string", "null"]},
+        "tweets": {"type": "array", "items": {"type": "string"}},
+        "format_kind": {"type": ["string", "null"]},
+        "target_length": {"type": ["string", "null"]},
+        "operator_checklist": {"type": ["string", "null"]},
         "risk_level": {"type": "string"},
         "rationale": {"type": "string"},
     },
     "required": [
         "platform_title",
         "platform_body",
+        "x_format",
+        "tweets",
+        "format_kind",
+        "target_length",
         "operator_checklist",
         "risk_level",
         "rationale",
@@ -144,9 +156,10 @@ def canonical_asset_prompt(
         "# Output contract\n"
         "Create a structured canonical Asset JSON with title, summary, body, "
         "key_facts, code_blocks, recommended_channels, source_signal_refs, and "
-        "generation_reason. The body should be substantial enough to adapt into "
-        "platform-specific posts. For tutorials, include accurate code_blocks "
-        "only from resolved context."
+        "generation_reason. The body must be a complete long-form mother draft: "
+        "clear thesis, narrative sections, concrete examples, objections, and "
+        "conclusion. For tutorials, include accurate code_blocks only from "
+        "resolved context."
     )
     return system_prompt, user_prompt
 
@@ -167,6 +180,8 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
     user_prompt = (
         f"# Platform\n{payload.display_name} ({payload.platform} / {payload.channel_key})\n\n"
         f"# Platform guidance\n{_platform_guidance(payload.platform, payload.channel_key)}\n\n"
+        f"# Target format\nformat_kind={platform_format_kind(payload.platform)}\n"
+        f"target_length={platform_target_length(payload.platform)}\n\n"
         "# Canonical Asset\n"
         f"Title: {payload.asset_title}\n"
         f"Summary: {payload.asset_summary or ''}\n"
@@ -176,10 +191,16 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
         f"# Canonical policy\n{canonical_warning}\n\n"
         "# Output contract\n"
         "Return platform_title, platform_body, operator_checklist, risk_level, "
-        "rationale. The operator_checklist must include Human Gate and "
-        "platform-specific reminders. For DEV/Hashnode, include the canonical "
-        "URL paste reminder when available. Respect platform length limits as "
-        "soft maximums; never pad, repeat, or invent details to reach length."
+        "rationale, format_kind, and target_length. The operator_checklist must "
+        "include Human Gate and platform-specific reminders. For DEV/Hashnode, "
+        "include the canonical URL paste reminder when available. Respect "
+        "platform length limits as soft maximums; never pad, repeat, or invent "
+        "details to reach length. For DEV/Hashnode, adapt the complete Markdown "
+        "canonical article without making it longer. For Reddit/V2EX, write a "
+        "substantive community discussion draft focused on 1-2 concrete "
+        "decisions. For Hacker News, keep the submission factual and restrained. "
+        "For X, prefer a density-driven Premium long post in platform_body with "
+        "MAX_LENGTH=4000 and no minimum length; x_format/tweets may be null."
     )
     return system_prompt, user_prompt
 

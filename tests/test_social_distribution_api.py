@@ -7,64 +7,15 @@ from server.database_social_distribution import (
 )
 from server.database import SocialTrendItemRow
 from server.services.social.agent_content_pack import (
-    AgentDistributionDraft,
     CanonicalArticleExpansion,
-    CanonicalAssetPack,
 )
 from server.services.social.distribution_projection import _json_object
 from server.services.social.publishing import XPublishResult
+from tests.social_distribution_helpers import patch_agent_distribution
 
 
 def _patch_agent_distribution(monkeypatch):
-    def fake_platform_draft(**kwargs):
-        platform = kwargs["platform"]
-        channel = kwargs["channel_key"]
-        canonical = kwargs.get("canonical_url")
-        metadata = {
-            "generated_by": "agent_content_pack_v1",
-            "platform": platform,
-            "channel_key": channel,
-            "human_gate_required": True,
-            "auto_publish": False,
-        }
-        if platform in {"dev", "devto", "hashnode"} and not canonical:
-            metadata["warning"] = "canonical_url_missing"
-        checklist = f"Human Gate required for {platform}/{channel}."
-        if platform in {"dev", "devto", "hashnode"}:
-            checklist += (
-                f" Canonical URL 字段填写 {canonical}."
-                if canonical
-                else " Canonical URL missing."
-            )
-        return AgentDistributionDraft(
-            title=f"{platform} draft: {kwargs['asset_title']}",
-            body=f"{platform}/{channel} agent-generated body for {kwargs['asset_title']}",
-            checklist=checklist,
-            risk_level="normal",
-            rationale=f"Adapted for {platform}",
-            metadata=metadata,
-        )
-
-    def fake_asset_pack(**kwargs):
-        asset_type = kwargs["asset_type"]
-        signals = kwargs["signals"]
-        lead = signals[0]
-        return CanonicalAssetPack(
-            title=f"Agent asset: {lead.title}",
-            summary=f"Agent summary for {lead.summary}",
-            body=f"Agent body for {asset_type}: {lead.title}",
-            asset_type=asset_type,
-            source_type="asset_planner",
-            goal_key="synapse_public_preview_traction",
-            key_facts=[lead.title],
-            recommended_channels=["x", "hacker_news", "devto", "hashnode"],
-            source_signal_refs=[signal.source_ref for signal in signals],
-            generation_reason="fake agent generation for tests",
-            generation_metadata={
-                "provider": "test",
-                "generated_by": "agent_content_pack_v1",
-            },
-        )
+    patch_agent_distribution(monkeypatch)
 
     def fake_canonical_article_expansion(**kwargs):
         return CanonicalArticleExpansion(
@@ -82,14 +33,6 @@ def _patch_agent_distribution(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(
-        "server.services.social.distribution_generation.generate_platform_task_draft",
-        fake_platform_draft,
-    )
-    monkeypatch.setattr(
-        "server.services.social.distribution_asset_planner.generate_canonical_asset_pack",
-        fake_asset_pack,
-    )
     monkeypatch.setattr(
         "server.services.social.distribution_documents.generate_canonical_article_expansion",
         fake_canonical_article_expansion,
@@ -192,7 +135,7 @@ def test_generate_content_plan_and_board_projection(synced_client):
 def test_content_asset_generates_grouped_platform_tasks_serially(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     selected = [
         row["id"]
@@ -239,6 +182,12 @@ def test_content_asset_generates_grouped_platform_tasks_serially(
     assert all(task.status == "draft_ready" for task in tasks)
     assert all("serial_generation" in task.metadata_json for task in tasks)
     assert all("agent_content_pack_v1" in task.metadata_json for task in tasks)
+    documents = db_session.query(SocialDistributionDocumentRow).all()
+    assert {document.document_kind for document in documents} == {
+        "canonical_article",
+        "platform_draft",
+    }
+    assert sum(document.document_kind == "canonical_article" for document in documents) == 1
     assert db_session.query(SocialDistributionEventRow).filter(
         SocialDistributionEventRow.event_type == "task_generated"
     ).count() == len(selected)
@@ -255,7 +204,7 @@ def test_content_asset_generates_grouped_platform_tasks_serially(
 def test_distribution_long_form_targets_include_canonical_warning_when_missing(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     devto = next(row for row in accounts if row["platform"] == "devto")
     created = synced_client.post(
@@ -276,13 +225,14 @@ def test_distribution_long_form_targets_include_canonical_warning_when_missing(
     task = response.json()["asset"]["tasks"][0]
     assert task["status"] == "draft_ready"
     assert task["metadata"]["warning"] == "canonical_url_missing"
+    assert task["metadata"]["format_kind"] == "long_article"
     assert "Canonical URL missing" in task["operator_checklist"]
 
 
 def test_distribution_task_manual_live_removed_and_status_validation(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     devto = next(row for row in accounts if row["platform"] == "devto")
     asset = synced_client.post(
@@ -341,16 +291,29 @@ def test_x_distribution_task_can_publish_after_human_gate(
     _patch_agent_distribution(monkeypatch)
 
     class FakeXPublisher:
+        def __init__(self):
+            self.calls = []
+
         def publish_text(self, account, body_text, media_ids=None):
+            self.calls.append(("root", body_text, None))
             assert body_text
             return XPublishResult(
                 post_id="1234567890",
                 response_summary={"data": {"id": "1234567890"}},
             )
 
+        def publish_reply(self, account, body_text, *, in_reply_to_tweet_id):
+            self.calls.append(("reply", body_text, in_reply_to_tweet_id))
+            post_id = str(1234567890 + len(self.calls) - 1)
+            return XPublishResult(
+                post_id=post_id,
+                response_summary={"data": {"id": post_id}},
+            )
+
+    fake_publisher = FakeXPublisher()
     monkeypatch.setattr(
         "server.services.social.distribution_tasks.x_publisher",
-        FakeXPublisher(),
+        fake_publisher,
     )
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     x_account = next(row for row in accounts if row["platform"] == "x")
@@ -376,9 +339,10 @@ def test_x_distribution_task_can_publish_after_human_gate(
     assert payload["status"] == "live"
     assert payload["external_post_id"] == "1234567890"
     assert payload["published_url"].endswith("/1234567890")
+    assert [call[0] for call in fake_publisher.calls] == ["root", "reply", "reply"]
     assert (
         db_session.query(SocialDistributionEventRow)
-        .filter(SocialDistributionEventRow.event_type == "task_published_x")
+        .filter(SocialDistributionEventRow.event_type == "task_published_x_thread")
         .count()
         == 1
     )
@@ -387,7 +351,7 @@ def test_x_distribution_task_can_publish_after_human_gate(
 def test_distribution_routes_return_diagnostic_errors_and_update_records(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     devto = next(row for row in accounts if row["platform"] == "devto")
 
@@ -518,7 +482,7 @@ def test_distribution_routes_return_diagnostic_errors_and_update_records(
 def test_distribution_platform_adapters_cover_channel_specific_guidance(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     wanted = [
         row["id"]
@@ -570,7 +534,7 @@ def test_distribution_reuses_existing_task_and_handles_invalid_metadata(
     db_session,
     monkeypatch,
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     devto = next(row for row in accounts if row["platform"] == "devto")
     asset = synced_client.post(
@@ -613,7 +577,7 @@ def test_distribution_uses_new_asset_task_tables_not_campaign_targets(
 def test_social_asset_planner_samples_one_signal_type_and_creates_one_asset(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     db_session.add(
         SocialTrendItemRow(
             topic="AI agents need payment rails",
@@ -718,7 +682,7 @@ def test_social_asset_planner_returns_no_signal_when_inputs_are_empty(synced_cli
 def test_social_asset_planner_sanitizes_local_paths_before_asset_creation(
     synced_client, db_session, monkeypatch
 ):
-    _patch_agent_distribution(monkeypatch)
+    patch_agent_distribution(monkeypatch)
     db_session.add(
         SocialTrendItemRow(
             topic="SDK docs update /Users/cliff/workspace/private",
@@ -737,6 +701,46 @@ def test_social_asset_planner_sanitizes_local_paths_before_asset_creation(
     combined = f"{asset.title}\n{asset.summary}\n{asset.body}"
     assert "/Users/" not in combined
     assert "token=secret" not in combined
+
+
+def test_approve_and_generate_marks_asset_approved_before_serial_tasks(
+    synced_client, db_session, monkeypatch
+):
+    _patch_agent_distribution(monkeypatch)
+    accounts = synced_client.get("/api/social/distribution/accounts").json()
+    devto = next(row for row in accounts if row["platform"] == "devto")
+    created = synced_client.post(
+        "/api/social/distribution/assets",
+        json={
+            "title": "Approve and generate",
+            "summary": "One click should approve asset and generate tasks.",
+            "status": "proposed",
+        },
+    ).json()
+    _add_approved_canonical_article(db_session, created["id"])
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{created['id']}/approve-and-generate-tasks",
+        json={"account_ids": [devto["id"]], "actor": "operator"},
+    )
+
+    assert response.status_code == 200
+    asset = db_session.get(SocialContentAssetRow, created["id"])
+    assert asset is not None
+    assert asset.status == "ready"
+    event_types = [
+        row.event_type
+        for row in db_session.query(SocialDistributionEventRow)
+        .order_by(SocialDistributionEventRow.id)
+        .all()
+    ]
+    assert "asset_approved" in event_types
+    assert "task_generated" in event_types
+    docs = db_session.query(SocialDistributionDocumentRow).all()
+    assert {doc.document_kind for doc in docs} == {"canonical_article", "platform_draft"}
+    platform_doc = next(doc for doc in docs if doc.document_kind == "platform_draft")
+    assert platform_doc.task_id == response.json()["generated_task_ids"][0]
+    assert "devto/dev.to agent-generated body" in platform_doc.body_markdown
 
 
 def test_distribution_task_generation_missing_asset_returns_404(synced_client):

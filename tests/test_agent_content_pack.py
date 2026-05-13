@@ -2,21 +2,24 @@ import pytest
 
 from server.services.runtime.codex_cli import CodexExecResult
 from server.services.social import agent_content_pack
+from server.services.social import agent_content_pack_runtime
 from server.services.social.agent_content_pack import (
     AgentContentGenerationError,
-    AgentJsonParseError,
-    _call_content_agent,
-    _call_content_codex,
-    _content_codex_fallback_models,
     generate_canonical_article_expansion,
     generate_canonical_asset_pack,
     generate_platform_task_draft,
     parse_agent_json_output,
 )
+from server.services.social.agent_content_pack_runtime import (
+    _call_content_agent,
+    _call_content_codex,
+    _content_codex_fallback_models,
+)
 from server.services.social.context_tags import (
     ContextTagSnippet,
 )
 from server.services.social.distribution_asset_signals import AssetSignal
+from server.services.social.agent_json_output import AgentJsonParseError
 
 
 def _codex_result(
@@ -66,7 +69,9 @@ def test_parse_agent_json_output_fails_closed_for_invalid_shapes(raw):
 
 def test_content_codex_fallback_models_use_configured_models_only(monkeypatch):
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4"
+        agent_content_pack_runtime.config,
+        "SOCIAL_CONTENT_LLM_FALLBACK_MODEL",
+        "gpt-5.4",
     )
 
     assert _content_codex_fallback_models("gpt-5-codex") == ["gpt-5.4"]
@@ -79,10 +84,10 @@ def test_content_codex_unsupported_model_reports_root_cause(monkeypatch, tmp_pat
         'supported when using Codex with a ChatGPT account."}}'
     )
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", ""
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", ""
     )
     monkeypatch.setattr(
-        agent_content_pack,
+        agent_content_pack_runtime,
         "run_codex_exec",
         lambda **kwargs: _codex_result(
             text=unsupported_payload,
@@ -119,7 +124,9 @@ def test_content_codex_falls_back_to_gpt54_and_records_attempts(monkeypatch, tmp
     calls: list[str] = []
 
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4"
+        agent_content_pack_runtime.config,
+        "SOCIAL_CONTENT_LLM_FALLBACK_MODEL",
+        "gpt-5.4",
     )
 
     def fake_run_codex_exec(**kwargs):
@@ -139,7 +146,9 @@ def test_content_codex_falls_back_to_gpt54_and_records_attempts(monkeypatch, tmp
             tmp_path=tmp_path,
         )
 
-    monkeypatch.setattr(agent_content_pack, "run_codex_exec", fake_run_codex_exec)
+    monkeypatch.setattr(
+        agent_content_pack_runtime, "run_codex_exec", fake_run_codex_exec
+    )
 
     raw_text, metadata, model = _call_content_codex(
         "system",
@@ -176,11 +185,13 @@ def test_content_agent_provider_failures_remain_fail_closed(
             raise RuntimeError(failure)
 
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_PROVIDER", provider_name
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_PROVIDER", provider_name
     )
-    monkeypatch.setattr(agent_content_pack.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-4o")
     monkeypatch.setattr(
-        agent_content_pack, "get_provider", lambda _name: FailingProvider()
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-4o"
+    )
+    monkeypatch.setattr(
+        agent_content_pack_runtime, "get_provider", lambda _name: FailingProvider()
     )
 
     with pytest.raises(RuntimeError, match=failure.split(":", 1)[0]):
