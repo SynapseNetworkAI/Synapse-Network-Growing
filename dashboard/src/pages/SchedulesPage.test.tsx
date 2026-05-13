@@ -71,6 +71,7 @@ describe('SchedulesPage', () => {
       workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z' }),
       workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent' }),
       workflow({ workflow_key: 'ci_status_sweep', display_name: 'CI Status Sweep', owner_role: 'runtime_reliability_engineer' }),
+      workflow({ workflow_key: 'weekly_repo_hygiene_review', display_name: 'Weekly Repo Hygiene Review', owner_role: 'runtime_reliability_engineer', schedule: { cadence: 'weekly', day: 'SUN', suggested_local_time: '10:00' } }),
       workflow({ workflow_key: 'bug_log_sweep', display_name: 'Bug Log Sweep', owner_role: 'runtime_reliability_engineer', health_status: 'failed', last_result: { status: 'failed', reason: 'log parser failed' } }),
       workflow({ workflow_key: 'new_unknown_sweep', display_name: 'New Unknown Sweep', owner_role: 'operator', input_query: { source: 'custom' }, output_action: { kind: 'custom_output' }, validation_signal: { success_metric: 'custom_metric' } }),
     ])
@@ -107,6 +108,8 @@ describe('SchedulesPage', () => {
     expect(screen.getAllByText('Show definition').length).toBeGreaterThan(0)
     expect(screen.getByText('Final Regression 收口')).toBeTruthy()
     expect(screen.getAllByText('awaiting_ci workflow runs').length).toBeGreaterThan(0)
+    expect(screen.getByText('周日仓库清理')).toBeTruthy()
+    expect(screen.getAllByText('Repo quality gates + docs metadata + Ops stale state').length).toBeGreaterThan(0)
   })
 
   it('marks overdue jobs with delayed duration and likely reason', async () => {

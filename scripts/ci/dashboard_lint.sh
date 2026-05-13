@@ -4,9 +4,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+OPS_PYTHON="${OPS_PYTHON:-$(bash "$ROOT_DIR/scripts/ci/detect_python.sh")}"
 BASE="${QUALITY_DIFF_BASE:-}"
 if [[ -z "$BASE" ]]; then
   BASE="$("$ROOT_DIR/scripts/ci/resolve_diff_base.sh")"
 fi
 
-python3 "$ROOT_DIR/scripts/ci/dashboard_lint.py" --base "$BASE"
+"$OPS_PYTHON" "$ROOT_DIR/scripts/ci/dashboard_lint.py" --base "$BASE"

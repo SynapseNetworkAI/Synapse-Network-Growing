@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OPS_PYTHON="${OPS_PYTHON:-$("$ROOT_DIR/scripts/ci/detect_python.sh")}"
+OPS_PYTHON="${OPS_PYTHON:-$(bash "$ROOT_DIR/scripts/ci/detect_python.sh")}"
 
 cd "$ROOT_DIR"
 

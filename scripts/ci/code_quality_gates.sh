@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIFF_BASE="${1:-}"
-OPS_PYTHON="${OPS_PYTHON:-$("$ROOT_DIR/scripts/ci/detect_python.sh")}"
+OPS_PYTHON="${OPS_PYTHON:-$(bash "$ROOT_DIR/scripts/ci/detect_python.sh")}"
 QUALITY_RUN_DASHBOARD="${QUALITY_RUN_DASHBOARD:-1}"
 QUALITY_RUN_DEP_AUDIT="${QUALITY_RUN_DEP_AUDIT:-1}"
 QUALITY_RUN_BRANCH_PROTECTION="${QUALITY_RUN_BRANCH_PROTECTION:-1}"

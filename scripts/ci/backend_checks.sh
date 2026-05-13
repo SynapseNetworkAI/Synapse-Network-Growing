@@ -14,6 +14,9 @@ export OPS_PYTHON="$PYTHON"
 export QUALITY_RUN_DASHBOARD=0
 export QUALITY_RUN_DEP_AUDIT=0
 export QUALITY_RUN_BRANCH_PROTECTION=0
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1
+export CLOUDSDK_PYTHON="$PYTHON"
+PYTEST_CMD=(uv run --python "$PYTHON" --with-requirements requirements.txt --isolated python -m pytest)
 
 echo "[ci:backend] static quality gates"
 bash "$ROOT_DIR/scripts/ci/code_quality_gates.sh" "$DIFF_BASE"
@@ -37,7 +40,7 @@ else
     echo "Install uv/uvx locally or use GitHub Actions, which installs uv before backend_checks." >&2
     exit 1
   fi
-  PYTHONPATH=. "$PYTHON" -m pytest -q \
+  PYTHONPATH=. "${PYTEST_CMD[@]}" -q \
     --cov=server \
     --cov=scripts \
     --cov-report=xml:coverage.xml
