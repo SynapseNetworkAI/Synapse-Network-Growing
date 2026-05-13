@@ -112,7 +112,7 @@
 3. 本地 `pre-push` 默认运行 `scripts/ci/local_pr_checks.sh --scope auto`，大改动或发布前可用 `SYNAPSE_CI_SCOPE=full` 强制完整 `pr_checks.sh`。
 4. GitHub 分支保护应只 require 聚合检查 `pr-checks`；被 scope 跳过的 job 不得成为合并阻塞，聚合检查负责汇总实际运行的 jobs。
 5. PR CI 应使用 GitHub Actions dependency caches：Python jobs 使用 pip cache，Node jobs 使用 yarn cache，uv/uvx jobs 使用 setup-uv cache。不得缓存 `dashboard/node_modules` 作为默认策略。
-6. GitHub-hosted Ubuntu runner tools such as `rg` must be verified before use；PR CI 应先检查工具是否存在，只在 runner image 缺失时执行条件式 apt fallback，避免常规路径无脑安装。
+6. GitHub-hosted runner tools such as `rg` must be pinned and cached before use；PR CI 应通过 `bootstrap_ci_tools.sh` 下载固定版本静态 ripgrep 并用 `actions/cache` 复用 `.ci-tools/ripgrep/<version>`，不得在常规 job 中用 `apt-get update` 支付重复安装税。轻量 scope / docs / aggregate job 可使用 `ubuntu-slim`，重型 backend / dashboard / full gate 继续使用标准 Ubuntu runner。
 7. Python runtime 必须通过脚本动态探测；不得把单台机器的虚拟环境路径写死成唯一可用路径。
 8. diff coverage 必须基于可解析的 merge-base；本地 `origin/main` 过旧时应先尝试 fetch，不能用陈旧 diff 误判覆盖率。
 9. `--no-verify` 只能绕过本地 hook，不能被视为合格交付；远端 GitHub CI 仍是最终兜底。

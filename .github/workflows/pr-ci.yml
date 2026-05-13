@@ -22,10 +22,13 @@ concurrency:
   group: pr-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  RIPGREP_VERSION: "15.1.0"
+
 jobs:
   scope:
     name: Classify CI scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       run_full: ${{ steps.scope.outputs.run_full }}
@@ -71,25 +74,19 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - uses: actions/setup-node@v4
+      - name: Cache ripgrep
+        uses: actions/cache@v4
         with:
-          node-version: "22"
-          cache: yarn
-          cache-dependency-path: dashboard/yarn.lock
-      - name: Verify system tools
-        run: bash scripts/ci/verify_system_tools.sh
-      - name: Enable package managers
-        run: |
-          corepack enable
-          corepack prepare yarn@1.22.22 --activate
-      - name: Install dashboard dependencies
-        run: yarn install --frozen-lockfile
-        working-directory: dashboard
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Run full quality checks
         env:
           SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
           SYNAPSE_CI_SCOPE: full
           PR_CHECKS_PHASE: quality
+          QUALITY_RUN_DASHBOARD: "0"
         run: bash scripts/ci/pr_checks.sh
 
   full-backend:
@@ -109,8 +106,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Verify system tools
-        run: scripts/ci/verify_system_tools.sh
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Install backend dependencies
         run: python -m pip install -r requirements.txt
       - name: Run full backend checks
@@ -160,8 +162,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify system tools
-        run: bash scripts/ci/verify_system_tools.sh
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Run agent guardrails
         run: bash scripts/ci/agent_guardrails.sh
 
@@ -182,8 +189,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Verify system tools
-        run: bash scripts/ci/verify_system_tools.sh
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Install backend dependencies
         run: python -m pip install -r requirements.txt
       - name: Run backend scoped checks
@@ -211,8 +223,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Verify system tools
-        run: bash scripts/ci/verify_system_tools.sh
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Enable package managers
         run: |
           corepack enable
@@ -229,7 +246,7 @@ jobs:
     name: Docs scoped checks
     needs: scope
     if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v4
         with:
@@ -292,8 +309,11 @@ jobs:
       - security-lite
       - scope-self-test
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Aggregate scoped CI result
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
