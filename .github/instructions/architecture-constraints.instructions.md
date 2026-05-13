@@ -12,8 +12,9 @@ Before substantial edits in this repository, read:
 
 1. `ARCHITECTURE.md`
 2. `docs/design-docs/system-design-principles.md`
+3. `docs/design-docs/context-loading-map.md`
 
-If the task touches workflow factory, planning lifecycle, recurring jobs, notifications, release/deploy, auth, finance, settlement, runtime, or production safety, also read the relevant design doc linked from `ARCHITECTURE.md`.
+`system-design-principles.md` is the short always-load entrypoint. Use `context-loading-map.md` to load only the matching detailed principle docs. If the task touches workflow factory, planning lifecycle, recurring jobs, notifications, release/deploy, auth, finance, settlement, runtime, or production safety, also read the relevant design doc linked from `ARCHITECTURE.md`.
 
 Hard rules:
 

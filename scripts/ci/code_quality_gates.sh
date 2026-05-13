@@ -76,7 +76,10 @@ fi
 
 echo "[quality] python complexity ratchet"
 if [[ ${#new_runtime_python[@]} -gt 0 ]]; then
-  uvx xenon --max-absolute B --max-modules B --max-average A "${new_runtime_python[@]}"
+  if ! uvx xenon --max-absolute B --max-modules B --max-average A "${new_runtime_python[@]}"; then
+    echo "[quality] Xenon complexity gate failed. Split by responsibility: extract private helpers first; create modules only for clear scanner/runner/serializer/adapter/client/policy boundaries." >&2
+    exit 1
+  fi
 else
   echo "[quality] no new runtime Python files; legacy/test complexity is protected by size/function ratchet"
 fi
@@ -111,7 +114,7 @@ fi
 
 if [[ "$QUALITY_RUN_DEP_AUDIT" == "1" ]]; then
   echo "[quality] python dependency audit"
-  uvx pip-audit -r requirements.txt
+  uvx pip-audit --no-deps --disable-pip -r requirements.txt
 
   if [[ -f "$ROOT_DIR/dashboard/yarn.lock" ]]; then
     echo "[quality] dashboard dependency audit"

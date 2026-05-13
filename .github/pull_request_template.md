@@ -23,5 +23,6 @@
 
 - [ ] I did not add new flat service modules or bypass facade boundaries.
 - [ ] I documented any new public entrypoint or design token.
-- [ ] If any file crossed the complexity threshold, I called it out explicitly in the PR description.
+- [ ] If any file/function crossed a line-count or complexity threshold, I explained why it was split and where the responsibility boundary moved in the PR description.
+- [ ] Any new helper/module has a clear responsibility boundary such as scanner, runner, serializer, adapter, client, or policy; it was not created only to satisfy a line-count gate.
 - [ ] PR description and GitHub comments use real Markdown line breaks; I did not paste literal `\n` escape sequences into `gh pr create/edit`, issue comments, release notes, or review summaries.

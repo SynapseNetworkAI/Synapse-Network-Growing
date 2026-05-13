@@ -8,12 +8,15 @@ Canonical sources:
 
 1. `AGENTS.md`
 2. `docs/design-docs/system-design-principles.md`
-3. `docs/design-docs/declarative-agent-workflow-factory.md`
-4. `docs/design-docs/planning-lifecycle-operating-manifest.md`
-5. `docs/design-docs/recurring-workflow-control-plane.md`
-6. `docs/design-docs/workflow-factory-frontend-control-plane.md`
-7. `docs/design-docs/frontend-control-plane-figma-implementation.md`
-8. `docs/design-docs/current-feature-inventory.md`
+3. `docs/design-docs/context-loading-map.md`
+4. `docs/design-docs/declarative-agent-workflow-factory.md`
+5. `docs/design-docs/planning-lifecycle-operating-manifest.md`
+6. `docs/design-docs/recurring-workflow-control-plane.md`
+7. `docs/design-docs/workflow-factory-frontend-control-plane.md`
+8. `docs/design-docs/frontend-control-plane-figma-implementation.md`
+9. `docs/design-docs/current-feature-inventory.md`
+
+`system-design-principles.md` is intentionally short. Load detailed principle docs from `docs/design-docs/principles/` through `context-loading-map.md` instead of reading the whole principle tree by default.
 
 Historical plans, validation notes, and retired design drafts live under `docs/archive/`. Archived files are evidence, not active requirements.
 

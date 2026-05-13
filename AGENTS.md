@@ -35,8 +35,11 @@ Before substantial analysis or edits, read in this order:
 4. `.github/instructions/architecture-constraints.instructions.md`
 5. `ARCHITECTURE.md`
 6. `docs/design-docs/system-design-principles.md`
+7. `docs/design-docs/context-loading-map.md`
 
-If the task touches workflow, planning lifecycle, scheduler, release, notification, runtime, auth, finance, settlement, or production safety, also read the relevant design doc linked from `ARCHITECTURE.md`.
+`system-design-principles.md` is a short always-load entrypoint. Do not load every file under `docs/design-docs/principles/` by default. Use `context-loading-map.md` to load only the matching principle docs for the current task.
+
+If the task touches workflow, planning lifecycle, scheduler, release, notification, runtime, auth, finance, settlement, or production safety, also read the matching principle docs and the relevant design doc linked from `ARCHITECTURE.md`.
 
 If the task touches Ops Console frontend, also read:
 
@@ -71,6 +74,13 @@ Rules:
 6. Production deploy, funds, settlement, contract, auth, external paid spend, and self-modifying deployment require human gate.
 7. Legacy `/api/tasks` and `/api/approvals` public routes are retired. Remaining fixed-step execution internals are deletion candidates, not valid extension points.
 8. Frontend must remain a Human-Agent Control Plane. Do not reintroduce flat CRUD navigation, detached candidate queues, or raw JSON as the primary operator surface.
+
+## Code Shape Guardrails
+
+1. New runtime files should stay under `500` lines; new test files should stay under `900` lines.
+2. Complex logic should first be split into private helpers. Split into a new module only when there is a clear responsibility boundary.
+3. Good module boundaries include `scanner`, `runner`, `serializer`, `adapter`, `client`, and `policy`.
+4. Do not slice tightly coupled code into low-meaning fragments just to satisfy line-count gates. If a file or function crosses a quality threshold, explain the responsibility split in the PR description.
 
 ## Capability Profiles
 
