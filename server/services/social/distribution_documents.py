@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from server import config
 from server import schemas_social_distribution as dist_schema
 from server.database import utcnow
 from server.database_social_distribution import (
@@ -23,7 +25,6 @@ from server.services.social.distribution_core import (
 )
 from server.services.social.distribution_document_content import (
     build_source_plan_payload,
-    canonical_article_markdown,
     clean_platform_list,
     list_from_metadata,
     parse_json_object,
@@ -31,6 +32,15 @@ from server.services.social.distribution_document_content import (
     source_plan_markdown,
     summary_from_text,
     validate_source_plan_payload,
+)
+from server.services.social.agent_content_pack import generate_canonical_article_expansion
+
+
+CANONICAL_ARTICLE_SKILL_PATHS: tuple[tuple[str, str], ...] = (
+    ("product-marketing-context", ".agents/product-marketing-context.md"),
+    ("social-content", ".agents/skills/social-content/SKILL.md"),
+    ("build-in-public", ".agents/skills/build-in-public/SKILL.md"),
+    ("solo-founder-narrative", ".agents/skills/solo-founder-narrative/SKILL.md"),
 )
 
 
@@ -197,6 +207,99 @@ def generate_content_plan(
     return get_content_asset(db, int(asset.id))
 
 
+def expand_canonical_article(
+    db: Session,
+    asset_id: int,
+    body: dist_schema.SocialDistributionExpandCanonicalArticleRequest,
+) -> dist_schema.SocialContentAssetDetailOut:
+    from server.services.social.distribution import get_content_asset
+
+    asset = db.get(SocialContentAssetRow, asset_id)
+    if asset is None:
+        raise ValueError("Content asset not found.")
+    source_plan = _latest_document(asset, "source_plan")
+    article = generate_canonical_article_expansion(
+        asset_title=asset.title,
+        asset_summary=asset.summary,
+        source_material=asset.body,
+        source_plan=source_plan.body_markdown if source_plan else None,
+        canonical_url=asset.canonical_url,
+        skill_context=_canonical_article_skill_context(),
+    )
+    document = _upsert_document(
+        db,
+        asset=asset,
+        task=None,
+        document_kind="canonical_article",
+        platform=None,
+        channel_key=None,
+        title=article.title,
+        body_markdown=article.body_markdown,
+        status="needs_review",
+        metadata={
+            **article.metadata,
+            "summary": article.summary,
+            "key_facts": article.key_facts,
+            "generation_reason": article.generation_reason,
+            "source_document_id": int(source_plan.id) if source_plan else None,
+        },
+    )
+    asset.status = "needs_review"
+    asset.updated_at = utcnow()
+    _record_event(
+        db,
+        asset,
+        None,
+        "canonical_article_generated",
+        body.actor,
+        "Expanded source outline into canonical_article for human review.",
+        {
+            "document_id": int(document.id),
+            "generated_by": "asset_expansion_agent_v1",
+        },
+    )
+    db.commit()
+    db.refresh(asset)
+    return get_content_asset(db, int(asset.id))
+
+
+def approve_canonical_article(
+    db: Session,
+    asset_id: int,
+    body: dist_schema.SocialDistributionApproveCanonicalArticleRequest,
+) -> dist_schema.SocialContentAssetDetailOut:
+    from server.services.social.distribution import get_content_asset
+
+    asset = db.get(SocialContentAssetRow, asset_id)
+    if asset is None:
+        raise ValueError("Content asset not found.")
+    document = (
+        db.get(SocialDistributionDocumentRow, int(body.document_id))
+        if body.document_id
+        else _latest_document(asset, "canonical_article")
+    )
+    if document is None or int(document.asset_id) != int(asset.id):
+        raise ValueError("canonical_article not found.")
+    if document.document_kind != "canonical_article":
+        raise ValueError("document is not a canonical_article.")
+    document.status = "approved"
+    document.updated_at = utcnow()
+    asset.status = "approved"
+    asset.updated_at = utcnow()
+    _record_event(
+        db,
+        asset,
+        None,
+        "canonical_article_approved",
+        body.actor,
+        "Operator approved canonical_article for platform adaptation.",
+        {"document_id": int(document.id), "document_version": int(document.version or 1)},
+    )
+    db.commit()
+    db.refresh(asset)
+    return get_content_asset(db, int(asset.id))
+
+
 def create_platform_draft_document(
     db: Session,
     *,
@@ -220,58 +323,64 @@ def create_platform_draft_document(
         metadata={
             "generated_by": "distribution_task_generation_v1",
             "task_status": task.status,
+            "source_document_id": task_metadata.get("source_document_id"),
+            "source_document_version": task_metadata.get("source_document_version"),
             **task_metadata,
             **(metadata or {}),
         },
     )
 
 
-def ensure_canonical_article_document(
+def approved_canonical_article_document(
     db: Session,
     asset: SocialContentAssetRow,
-    *,
-    actor: str = "system",
-) -> SocialDistributionDocumentRow:
-    existing = (
+) -> SocialDistributionDocumentRow | None:
+    return (
         db.query(SocialDistributionDocumentRow)
         .filter(
             SocialDistributionDocumentRow.asset_id == int(asset.id),
-            SocialDistributionDocumentRow.task_id.is_(None),
             SocialDistributionDocumentRow.document_kind == "canonical_article",
+            SocialDistributionDocumentRow.status == "approved",
         )
-        .one_or_none()
+        .order_by(
+            SocialDistributionDocumentRow.version.desc(),
+            SocialDistributionDocumentRow.updated_at.desc(),
+            SocialDistributionDocumentRow.id.desc(),
+        )
+        .first()
     )
-    if existing and str(existing.body_markdown or "").strip():
-        return existing
-    source_plan = _source_plan_metadata(asset)
-    body_markdown = canonical_article_markdown(asset, source_plan)
-    document = _upsert_document(
-        db,
-        asset=asset,
-        task=None,
-        document_kind="canonical_article",
-        platform=None,
-        channel_key=None,
-        title=f"Canonical Article: {asset.title}",
-        body_markdown=body_markdown,
-        status="generated",
-        metadata={
-            "generated_by": "canonical_article_from_content_plan_v1",
-            "format_kind": "long_article",
-            "target_length": "canonical long article for platform adaptation",
-            "source_plan_present": bool(source_plan),
-        },
+
+
+def _latest_document(
+    asset: SocialContentAssetRow,
+    document_kind: str,
+) -> SocialDistributionDocumentRow | None:
+    return max(
+        (
+            document
+            for document in list(asset.documents or [])
+            if document.document_kind == document_kind
+        ),
+        key=lambda document: (
+            int(document.version or 1),
+            document.updated_at or document.created_at or utcnow(),
+            int(document.id),
+        ),
+        default=None,
     )
-    _record_event(
-        db,
-        asset,
-        None,
-        "canonical_article_generated",
-        actor,
-        "Generated canonical long article before platform drafts.",
-        {"document_kind": "canonical_article"},
-    )
-    return document
+
+
+def _canonical_article_skill_context() -> dict[str, str]:
+    context: dict[str, str] = {}
+    for name, relative_path in CANONICAL_ARTICLE_SKILL_PATHS:
+        path = Path(config.PROJECT_ROOT) / relative_path
+        try:
+            content = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            content = ""
+        if content.strip():
+            context[name] = content
+    return context
 
 
 def update_task_document_status(

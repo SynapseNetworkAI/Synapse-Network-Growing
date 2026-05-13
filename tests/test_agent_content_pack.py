@@ -2,12 +2,10 @@ import pytest
 
 from server.services.runtime.codex_cli import CodexExecResult
 from server.services.social import agent_content_pack
+from server.services.social import agent_content_pack_runtime
 from server.services.social.agent_content_pack import (
     AgentContentGenerationError,
-    AgentJsonParseError,
-    _call_content_agent,
-    _call_content_codex,
-    _content_codex_fallback_models,
+    generate_canonical_article_expansion,
     generate_canonical_asset_pack,
     generate_platform_task_draft,
     parse_agent_json_output,
@@ -16,10 +14,16 @@ from server.services.social.agent_content_pack_contracts import (
     PlatformTaskPromptInput,
     platform_task_prompt,
 )
+from server.services.social.agent_content_pack_runtime import (
+    _call_content_agent,
+    _call_content_codex,
+    _content_codex_fallback_models,
+)
 from server.services.social.context_tags import (
     ContextTagSnippet,
 )
 from server.services.social.distribution_asset_signals import AssetSignal
+from server.services.social.agent_json_output import AgentJsonParseError
 
 
 def _codex_result(
@@ -69,7 +73,9 @@ def test_parse_agent_json_output_fails_closed_for_invalid_shapes(raw):
 
 def test_content_codex_fallback_models_use_configured_models_only(monkeypatch):
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4"
+        agent_content_pack_runtime.config,
+        "SOCIAL_CONTENT_LLM_FALLBACK_MODEL",
+        "gpt-5.4",
     )
 
     assert _content_codex_fallback_models("gpt-5-codex") == ["gpt-5.4"]
@@ -82,10 +88,10 @@ def test_content_codex_unsupported_model_reports_root_cause(monkeypatch, tmp_pat
         'supported when using Codex with a ChatGPT account."}}'
     )
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", ""
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", ""
     )
     monkeypatch.setattr(
-        agent_content_pack,
+        agent_content_pack_runtime,
         "run_codex_exec",
         lambda **kwargs: _codex_result(
             text=unsupported_payload,
@@ -122,7 +128,9 @@ def test_content_codex_falls_back_to_gpt54_and_records_attempts(monkeypatch, tmp
     calls: list[str] = []
 
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_FALLBACK_MODEL", "gpt-5.4"
+        agent_content_pack_runtime.config,
+        "SOCIAL_CONTENT_LLM_FALLBACK_MODEL",
+        "gpt-5.4",
     )
 
     def fake_run_codex_exec(**kwargs):
@@ -142,7 +150,9 @@ def test_content_codex_falls_back_to_gpt54_and_records_attempts(monkeypatch, tmp
             tmp_path=tmp_path,
         )
 
-    monkeypatch.setattr(agent_content_pack, "run_codex_exec", fake_run_codex_exec)
+    monkeypatch.setattr(
+        agent_content_pack_runtime, "run_codex_exec", fake_run_codex_exec
+    )
 
     raw_text, metadata, model = _call_content_codex(
         "system",
@@ -179,11 +189,13 @@ def test_content_agent_provider_failures_remain_fail_closed(
             raise RuntimeError(failure)
 
     monkeypatch.setattr(
-        agent_content_pack.config, "SOCIAL_CONTENT_LLM_PROVIDER", provider_name
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_PROVIDER", provider_name
     )
-    monkeypatch.setattr(agent_content_pack.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-4o")
     monkeypatch.setattr(
-        agent_content_pack, "get_provider", lambda _name: FailingProvider()
+        agent_content_pack_runtime.config, "SOCIAL_CONTENT_LLM_MODEL", "gpt-4o"
+    )
+    monkeypatch.setattr(
+        agent_content_pack_runtime, "get_provider", lambda _name: FailingProvider()
     )
 
     with pytest.raises(RuntimeError, match=failure.split(":", 1)[0]):
@@ -282,6 +294,68 @@ def test_generate_platform_task_draft_adds_canonical_warning(monkeypatch):
     assert draft.metadata["generated_by"] == "agent_content_pack_v1"
 
 
+def test_generate_canonical_article_expansion_records_asset_expansion_metadata(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        agent_content_pack,
+        "_call_content_agent",
+        lambda *_args, **_kwargs: (
+            (
+                '{"title":"Mother draft","summary":"A dense summary",'
+                '"body_markdown":"# Mother draft\\n\\nConcrete tradeoff, no padding.",'
+                '"key_facts":["fact"],'
+                '"generation_reason":"Expanded from source outline"}'
+            ),
+            {"provider": "codex"},
+            "gpt-5.4",
+        ),
+    )
+
+    article = generate_canonical_article_expansion(
+        asset_title="Outline",
+        asset_summary="Short summary",
+        source_material="Short outline",
+        source_plan="Plan",
+        canonical_url="https://docs.synapse-network.ai/article",
+        skill_context={"build-in-public": "write real details"},
+    )
+
+    assert article.title == "Mother draft"
+    assert article.metadata["generated_by"] == "asset_expansion_agent_v1"
+    assert article.metadata["human_gate_required"] is True
+    assert article.key_facts == ["fact"]
+
+
+def test_platform_density_limits_fail_closed(monkeypatch):
+    monkeypatch.setattr(
+        agent_content_pack,
+        "_call_content_agent",
+        lambda *_args, **_kwargs: (
+            (
+                '{"platform_title":"Reddit title","platform_body":"'
+                + ("x" * 2001)
+                + '","operator_checklist":"Human Gate.",'
+                '"risk_level":"normal","rationale":"too long"}'
+            ),
+            {"provider": "codex"},
+            "gpt-5.4",
+        ),
+    )
+
+    with pytest.raises(AgentContentGenerationError, match="reddit_body_exceeds"):
+        generate_platform_task_draft(
+            asset_title="Asset",
+            asset_summary="Summary",
+            asset_body="Body",
+            asset_metadata={},
+            canonical_url=None,
+            platform="reddit",
+            channel_key="r/LocalLLaMA",
+            display_name="Reddit",
+        )
+
+
 def test_x_platform_prompt_requires_english_official_account():
     _system_prompt, user_prompt = platform_task_prompt(
         PlatformTaskPromptInput(
@@ -299,6 +373,22 @@ def test_x_platform_prompt_requires_english_official_account():
     assert "English" in user_prompt
     assert "X Official Account" in user_prompt
     assert "tweets" in user_prompt
+
+
+def test_platform_prompt_uses_density_driven_rules():
+    _, reddit_prompt = agent_content_pack.platform_task_prompt(
+        agent_content_pack.PlatformTaskPromptInput(
+            asset_title="Asset",
+            asset_summary="Summary",
+            asset_body="Body",
+            platform="reddit",
+            channel_key="r/LocalLLaMA",
+            display_name="Reddit",
+        )
+    )
+
+    assert "MAX_LENGTH=2000" in reddit_prompt
+    assert "1-2 most" in reddit_prompt
 
 
 def test_x_platform_draft_requires_structured_tweets():

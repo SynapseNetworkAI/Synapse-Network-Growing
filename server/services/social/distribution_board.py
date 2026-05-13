@@ -1,4 +1,4 @@
-"""Board projection for social distribution content tasks."""
+"""Board projection for social distribution content assets."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def _asset_column(
     column_checks = (
         ("blocked", _asset_is_blocked(asset, status_counts, doc_status_counts)),
         ("live", _asset_is_live(asset, status_counts)),
-        ("ready_to_publish", _ready_to_publish_count(status_counts, Counter()) > 0),
+        ("ready_to_publish", _asset_is_ready_to_publish(status_counts)),
         ("needs_review", _asset_needs_review(asset, docs)),
     )
     for column_key, matched in column_checks:
@@ -121,11 +121,18 @@ def _asset_is_blocked(
     )
 
 
-def _asset_is_live(asset: SocialContentAssetRow, status_counts: Counter[str]) -> bool:
+def _asset_is_live(
+    asset: SocialContentAssetRow,
+    status_counts: Counter[str],
+) -> bool:
     return bool(status_counts.get("live", 0)) or asset.status in {
         "distributed",
         "archived",
     }
+
+
+def _asset_is_ready_to_publish(status_counts: Counter[str]) -> bool:
+    return _ready_to_publish_count(status_counts, Counter()) > 0
 
 
 def _asset_needs_review(

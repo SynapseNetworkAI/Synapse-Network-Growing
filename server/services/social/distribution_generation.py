@@ -21,8 +21,8 @@ from server.services.social.distribution_core import (
     _record_event,
 )
 from server.services.social.distribution_documents import (
+    approved_canonical_article_document,
     create_platform_draft_document,
-    ensure_canonical_article_document,
 )
 from server.services.social.agent_content_pack import generate_platform_task_draft
 
@@ -40,10 +40,14 @@ def generate_distribution_tasks(
     accounts = _ordered_accounts(db, body.account_ids)
     if len(accounts) != len(set(body.account_ids)):
         raise ValueError("one or more distribution accounts were not found.")
-    canonical_document = ensure_canonical_article_document(
-        db, asset, actor=body.actor
-    )
-    canonical_body = str(canonical_document.body_markdown or asset.body or "")
+    canonical_article = approved_canonical_article_document(db, asset)
+    if canonical_article is None:
+        raise ValueError(
+            "canonical_article_required: expand and approve canonical article "
+            "before generating platform tasks."
+        )
+    canonical_metadata = _document_metadata(canonical_article)
+    canonical_body = canonical_article.body_markdown
 
     results: list[dist_schema.SocialDistributionPlatformGenerationOut] = []
     generated_ids: list[int] = []
@@ -54,12 +58,19 @@ def generate_distribution_tasks(
             time.sleep(jitter_seconds)
         try:
             draft = generate_platform_task_draft(
-                asset_title=asset.title,
-                asset_summary=asset.summary,
+                asset_title=canonical_article.title or asset.title,
+                asset_summary=str(canonical_metadata.get("summary") or asset.summary or ""),
                 asset_body=canonical_body,
                 asset_metadata={
                     **_asset_metadata(asset),
-                    "canonical_article_document_id": int(canonical_document.id),
+                    "canonical_article_id": int(canonical_article.id),
+                    "canonical_article_version": int(canonical_article.version or 1),
+                    "canonical_article_status": canonical_article.status,
+                    "canonical_article_generated_by": canonical_metadata.get(
+                        "generated_by"
+                    ),
+                    "key_facts": canonical_metadata.get("key_facts", []),
+                    "density_driven_adaptation": True,
                 },
                 canonical_url=asset.canonical_url,
                 platform=account.platform,
@@ -76,7 +87,8 @@ def generate_distribution_tasks(
             task.metadata_json = json.dumps(
                 {
                     **draft.metadata,
-                    "canonical_article_document_id": int(canonical_document.id),
+                    "source_document_id": int(canonical_article.id),
+                    "source_document_version": int(canonical_article.version or 1),
                     "generation_order": index + 1,
                     "serial_generation": True,
                 },
@@ -147,7 +159,6 @@ def approve_and_generate_distribution_tasks(
         raise ValueError("no distribution channels are configured for this asset.")
     asset.status = "approved"
     asset.updated_at = utcnow()
-    ensure_canonical_article_document(db, asset, actor=body.actor)
     _record_event(
         db,
         asset,
@@ -216,6 +227,14 @@ def _recommended_channels_for_asset(asset: SocialContentAssetRow) -> set[str]:
 def _asset_metadata(asset: SocialContentAssetRow) -> dict[str, object]:
     try:
         payload = json.loads(asset.agent_metadata_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _document_metadata(document) -> dict[str, object]:
+    try:
+        payload = json.loads(document.metadata_json or "{}")
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}

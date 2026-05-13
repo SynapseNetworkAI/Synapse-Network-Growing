@@ -1,4 +1,4 @@
-"""JSON parsing helpers for content-agent structured output."""
+"""Robust JSON parsing for agent structured-output calls."""
 
 from __future__ import annotations
 

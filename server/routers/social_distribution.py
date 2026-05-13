@@ -16,7 +16,9 @@ from server.schemas_social_distribution import (
     SocialDistributionBoardOut,
     SocialDistributionAccountOut,
     SocialDistributionAccountPatchRequest,
+    SocialDistributionApproveCanonicalArticleRequest,
     SocialDistributionGenerateContentPlanRequest,
+    SocialDistributionExpandCanonicalArticleRequest,
     SocialDistributionApproveGenerateRequest,
     SocialDistributionGenerateTasksOut,
     SocialDistributionGenerateTasksRequest,
@@ -39,12 +41,12 @@ from server.services.social.distribution import (
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
 )
+from server.services.social.distribution_board import social_distribution_board
 from server.services.social.distribution_documents import (
+    approve_canonical_article,
     create_content_task,
+    expand_canonical_article,
     generate_content_plan,
-)
-from server.services.social.distribution_board import (
-    social_distribution_board,
 )
 from server.services.social.distribution_generation import (
     approve_and_generate_distribution_tasks,
@@ -151,6 +153,36 @@ def generate_content_plan_endpoint(
 ):
     try:
         return generate_content_plan(db, asset_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/assets/{asset_id}/expand-canonical-article",
+    response_model=SocialContentAssetDetailOut,
+)
+def expand_canonical_article_endpoint(
+    asset_id: int,
+    body: SocialDistributionExpandCanonicalArticleRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return expand_canonical_article(db, asset_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/assets/{asset_id}/approve-canonical-article",
+    response_model=SocialContentAssetDetailOut,
+)
+def approve_canonical_article_endpoint(
+    asset_id: int,
+    body: SocialDistributionApproveCanonicalArticleRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return approve_canonical_article(db, asset_id, body)
     except ValueError as exc:
         raise _http_error(exc) from exc
 

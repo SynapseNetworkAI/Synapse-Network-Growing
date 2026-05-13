@@ -120,23 +120,19 @@
 1. `/publishing` 已升级为 **Social Ops + Developer Distribution Center**，主流程只使用 `social_content_assets`、`social_distribution_tasks`、`social_distribution_documents`、`social_distribution_events` 和 `social_distribution_accounts`。旧 X 主流程表 `social_post_drafts`、`social_post_media_assets`、`social_publish_events`、`social_reply_items`、`social_repost_candidates` 只允许通过一次性迁移脚本读取并落到新表；新 UI / 新 API 不做双写同步。
 2. `/publishing` 顶层只保留 3 个 Tabs：`Tasks`、`Signals & Metrics`、`Settings`。旧 `Assets`、`今日队列`、`回帖处理`、`转发候选`、`分发任务`、`分发渠道`、`已发布效果`、`品牌规则` 不再作为顶层入口，相关能力按职责归入三个新分区。
 3. `Tasks` 默认是简化的 Symphony / Linear 风格内容任务看板，列为 `待计划 / 待审核 / 待发布 / 已发布 / 异常`。一张卡代表一个 Content Asset，卡内聚合平台 task、document、event 和发布证据；列位置由后端 `/api/social/distribution/board` 投影，不允许拖拽直接改状态，内部细状态只在详情 Modal 展示。
-4. `Tasks` 支持 `创建内容计划`：operator 输入主题、来源材料、目标受众、目标平台、source doc path 和 canonical URL 后，系统创建 `social_content_assets(source_type=manual_task)` 并同步写入 `social_distribution_documents(document_kind=source_plan)`。v1 采用计划审核优先流程：创建后自动生成方案，operator 审核方案后点击 `审核通过，生成平台文档`。
-5. 源内容资产仍由 `social_content_assets` 承载，但不再作为顶层 `Assets` Tab 暴露给 operator。文章、demo、X post、reply、quote、launch asset 都通过 `Tasks` 看板卡片和详情 Modal 进入操作流；后端按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
+4. `Tasks` 支持 `创建内容任务`：operator 输入主题、来源材料、目标受众、目标平台、source doc path 和 canonical URL 后，系统创建 `social_content_assets(source_type=manual_task)` 并同步写入 `social_distribution_documents(document_kind=source_plan)`。正式平台任务必须先经过 `source_plan -> canonical_article 母稿扩写 -> 人工审核母稿`，缺少已审核母稿时生成任务会 fail closed 为 `canonical_article_required`。
+5. 源内容资产由 `social_content_assets` 承载，但不再作为顶层 `Assets` Tab 暴露给 operator。文章、demo、X post、reply、quote、launch asset 都通过 `Tasks` 看板卡片和详情 Modal 进入操作流；Operator 创建内容资产后先点击 `扩写母稿`，后端调用 Asset Expansion Agent 生成 `social_distribution_documents(document_kind=canonical_article,status=needs_review,generated_by=asset_expansion_agent_v1)`；母稿审核通过后，后端才按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
 6. 平台草稿是一等文档：每次成功生成 `social_distribution_tasks` 时，同步写入 / 更新 `social_distribution_documents(document_kind=platform_draft)`；`platform_title/platform_body` 继续作为最新文档投影，保证列表和旧调用方兼容。历史 task 若已有 `platform_title/platform_body` 但缺少 `platform_draft`，board/detail 读取会幂等 backfill。
-7. `审核通过，生成平台文档` 会先确保存在 `social_distribution_documents(document_kind=canonical_article)`，再按平台生成文档。`canonical_article` 是长文母稿，承载主叙事、观点、例子、结论和平台适配计划；平台 task metadata 记录 `canonical_article_document_id`、`format_kind`、`target_length` 与长度计数。
-8. 平台长度策略由 `.agents/skills/social-distribution-content-pack/SKILL.md` 和后端策略共同约束：DEV / Hashnode 生成完整 Markdown 长文；Reddit / V2EX 生成中长社区讨论稿；HN 只生成提交标题、URL / canonical URL 提醒和可选首评草稿，不伪装成长文平台。
-9. X 使用 Dynamic X Variant：模型只能输出 `single` 或 `thread`，V1 不生成 Premium long post。后端按 conservative weighted count 预检每条 tweet，URL 计 23，CJK / wide chars 计 2；任一 tweet 超过 280 weighted chars 时 fail closed，不创建假 X 草稿。
-10. X Human Gate 发布支持 single 和 thread：single 复用 `publish_text`；thread 先发根 tweet，再用 `publish_reply(..., in_reply_to_tweet_id=previous_id)` 串接。全成功后 task `live`，`external_post_id` 存首条 tweet，metadata 存 `published_tweet_ids`；部分失败时 task `failed`，metadata 记录已发 tweet ids 和 `partial_publish_failure_index`，避免盲目重发。
-11. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
-12. `Tasks` 支持从信号生成内容计划和 `审核通过，生成平台文档` 一键动作：后端先把 Asset 标记为 approved，再串行生成平台 tasks；前端在当前卡片详情中直接展开生成结果，不要求 operator 跳转到其它 Tab。
-13. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
-14. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
-15. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
-16. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
-17. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
-18. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
-19. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
-20. Social Content / Distribution Agent 当前支持矩阵：
+7. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
+8. 平台适配使用信息密度驱动 prompt：X 为 Premium 长帖软上限 4000 字符且无下限，Reddit / V2EX 软上限 2000 字符且只提取 1-2 个最适合讨论的技术决策，DEV / Hashnode 基于完整母稿做 Markdown/canonical URL 适配，不额外拉长，HN 保持克制的提交标题 / URL / 首评提示。所有平台禁止为了凑字数重复观点、写空话或编造细节。
+9. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
+10. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
+11. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
+12. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
+13. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
+14. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
+15. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
+16. Social Content / Distribution Agent 当前支持矩阵：
    - `codex + gpt-5.4`：当前本机已验证，可作为默认 Social Content / Distribution 生成模型。
    - `codex + gpt-5-codex`：当前 ChatGPT Codex account 不支持，不作为默认。
    - `openai + gpt-4o`：代码路径支持，但本机当前 quota 不足时必须 fail closed。
