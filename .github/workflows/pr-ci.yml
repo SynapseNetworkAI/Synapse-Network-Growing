@@ -22,10 +22,13 @@ concurrency:
   group: pr-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  RIPGREP_VERSION: "15.1.0"
+
 jobs:
   scope:
     name: Classify CI scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       run_full: ${{ steps.scope.outputs.run_full }}
@@ -33,6 +36,7 @@ jobs:
       run_dashboard: ${{ steps.scope.outputs.run_dashboard }}
       run_docs: ${{ steps.scope.outputs.run_docs }}
       run_security: ${{ steps.scope.outputs.run_security }}
+      run_scope_self_test: ${{ steps.scope.outputs.run_scope_self_test }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,8 +59,8 @@ jobs:
       - name: Print scope
         run: cat pr-ci-scope.json
 
-  full-checks:
-    name: Full PR gate
+  full-quality:
+    name: Full quality gate
     needs: scope
     if: needs.scope.outputs.run_full == 'true'
     runs-on: ubuntu-latest
@@ -68,19 +72,73 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
+      - name: Run full quality checks
+        env:
+          SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
+          SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: quality
+          QUALITY_RUN_DASHBOARD: "0"
+        run: bash scripts/ci/pr_checks.sh
+
+  full-backend:
+    name: Full backend gate
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run full backend checks
+        env:
+          SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
+          SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: backend
+        run: bash scripts/ci/pr_checks.sh
+
+  full-dashboard:
+    name: Full dashboard gate
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install system quality tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
-      - name: Install backend dependencies
-        run: python -m pip install -r requirements.txt
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
       - name: Enable package managers
         run: |
           corepack enable
@@ -88,10 +146,11 @@ jobs:
       - name: Install dashboard dependencies
         run: yarn install --frozen-lockfile
         working-directory: dashboard
-      - name: Run full PR checks
+      - name: Run full dashboard checks
         env:
           SYNAPSE_CI_SCOPE_FILE: pr-ci-scope.json
           SYNAPSE_CI_SCOPE: full
+          PR_CHECKS_PHASE: dashboard
         run: bash scripts/ci/pr_checks.sh
 
   guardrails:
@@ -103,14 +162,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Install ripgrep
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Run agent guardrails
         run: bash scripts/ci/agent_guardrails.sh
 
@@ -126,15 +184,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - uses: astral-sh/setup-uv@v5
-      - name: Install system quality tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
+        with:
+          enable-cache: true
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Install backend dependencies
         run: python -m pip install -r requirements.txt
       - name: Run backend scoped checks
@@ -157,15 +218,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: yarn
+          cache-dependency-path: dashboard/yarn.lock
       - uses: astral-sh/setup-uv@v5
-      - name: Install system quality tools
-        run: |
-          if command -v rg >/dev/null 2>&1; then
-            rg --version
-          else
-            sudo apt-get update
-            sudo apt-get install -y ripgrep
-          fi
+        with:
+          enable-cache: true
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: .ci-tools/ripgrep/${{ env.RIPGREP_VERSION }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}
+      - name: Bootstrap CI tools
+        run: bash scripts/ci/bootstrap_ci_tools.sh
       - name: Enable package managers
         run: |
           corepack enable
@@ -182,7 +246,7 @@ jobs:
     name: Docs scoped checks
     needs: scope
     if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_docs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v4
         with:
@@ -205,24 +269,51 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Run changed-file secret scan
         run: |
           git fetch --quiet origin main
           python scripts/ci/secret_diff_scan.py --base origin/main
 
+  scope-self-test:
+    name: Scope classifier self-test
+    needs: scope
+    if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_scope_self_test == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run classifier tests
+        run: python -m pytest -q tests/test_ci_scope.py
+
   pr-required:
     name: pr-checks
     needs:
       - scope
-      - full-checks
+      - full-quality
+      - full-backend
+      - full-dashboard
       - guardrails
       - backend-checks
       - dashboard-checks
       - docs-checks
       - security-lite
+      - scope-self-test
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Aggregate scoped CI result
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
