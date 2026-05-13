@@ -22,9 +22,6 @@ bash "$ROOT_DIR/scripts/ci/agent_guardrails.sh"
 echo "[ci:pr] static quality gates"
 bash "$ROOT_DIR/scripts/ci/code_quality_gates.sh" "$DIFF_BASE"
 
-echo "[ci:pr] backend tests"
-PYTHONPATH=. "$PYTHON" -m pytest -q
-
 changed_python_files=()
 while IFS= read -r file; do
   [[ -n "$file" ]] && changed_python_files+=("$file")
@@ -36,7 +33,7 @@ done < <(
 )
 
 if [[ ${#changed_python_files[@]} -gt 0 ]]; then
-  echo "[ci:pr] backend diff coverage for ${#changed_python_files[@]} changed Python file(s)"
+  echo "[ci:pr] backend tests with diff coverage for ${#changed_python_files[@]} changed Python file(s)"
   if ! command -v uvx >/dev/null 2>&1; then
     echo "FATAL DIFF-COVERAGE-TOOL-001: uvx is required to run diff-cover." >&2
     echo "Install uv/uvx locally or use GitHub Actions, which installs uv before pr_checks." >&2
@@ -52,6 +49,8 @@ if [[ ${#changed_python_files[@]} -gt 0 ]]; then
     --include-untracked \
     --src-roots "$ROOT_DIR"
 else
+  echo "[ci:pr] backend tests"
+  PYTHONPATH=. "$PYTHON" -m pytest -q
   echo "[ci:pr] no backend/script/test Python changes; skipping diff coverage"
 fi
 

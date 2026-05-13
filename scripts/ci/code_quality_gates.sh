@@ -6,6 +6,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIFF_BASE="${1:-}"
 OPS_PYTHON="${OPS_PYTHON:-$("$ROOT_DIR/scripts/ci/detect_python.sh")}"
+QUALITY_RUN_DASHBOARD="${QUALITY_RUN_DASHBOARD:-1}"
+QUALITY_RUN_DEP_AUDIT="${QUALITY_RUN_DEP_AUDIT:-1}"
+QUALITY_RUN_BRANCH_PROTECTION="${QUALITY_RUN_BRANCH_PROTECTION:-1}"
 
 if [[ -z "$DIFF_BASE" ]]; then
   DIFF_BASE="$("$ROOT_DIR/scripts/ci/resolve_diff_base.sh")"
@@ -78,11 +81,15 @@ else
   echo "[quality] no new runtime Python files; legacy/test complexity is protected by size/function ratchet"
 fi
 
-echo "[quality] dashboard typecheck"
-npm --prefix dashboard run typecheck
+if [[ "$QUALITY_RUN_DASHBOARD" == "1" ]]; then
+  echo "[quality] dashboard typecheck"
+  npm --prefix dashboard run typecheck
 
-echo "[quality] dashboard lint"
-QUALITY_DIFF_BASE="$DIFF_BASE" npm --prefix dashboard run lint
+  echo "[quality] dashboard lint"
+  QUALITY_DIFF_BASE="$DIFF_BASE" npm --prefix dashboard run lint
+else
+  echo "[quality] dashboard checks disabled for scoped backend run"
+fi
 
 echo "[quality] duplicate code ratchet"
 "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/duplicate_code_gate.py" --base "$DIFF_BASE"
@@ -102,15 +109,23 @@ else
   echo "[quality] no new Python files; legacy security debt is tracked separately"
 fi
 
-echo "[quality] python dependency audit"
-uvx pip-audit -r requirements.txt
+if [[ "$QUALITY_RUN_DEP_AUDIT" == "1" ]]; then
+  echo "[quality] python dependency audit"
+  uvx pip-audit -r requirements.txt
 
-if [[ -f "$ROOT_DIR/dashboard/yarn.lock" ]]; then
-  echo "[quality] dashboard dependency audit"
-  "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/yarn_audit_gate.py"
+  if [[ -f "$ROOT_DIR/dashboard/yarn.lock" ]]; then
+    echo "[quality] dashboard dependency audit"
+    "$OPS_PYTHON" "$ROOT_DIR/scripts/ci/yarn_audit_gate.py"
+  fi
+else
+  echo "[quality] dependency audits disabled for scoped PR run"
 fi
 
-echo "[quality] branch protection diagnostic"
-bash "$ROOT_DIR/scripts/ci/check_branch_protection.sh"
+if [[ "$QUALITY_RUN_BRANCH_PROTECTION" == "1" ]]; then
+  echo "[quality] branch protection diagnostic"
+  bash "$ROOT_DIR/scripts/ci/check_branch_protection.sh"
+else
+  echo "[quality] branch protection diagnostic disabled for scoped PR run"
+fi
 
 echo "[quality] ok"
