@@ -168,15 +168,16 @@
 5. Bug Log Sweep Scheduler 状态快照。
 6. Release PR Status Sweep，用于吸收 GitHub PR merged / closed / missing 外部事实。
 7. Release Deployment Status Sweep，用于吸收 GitHub Actions staging deploy success / failure / running / missing-run 外部事实；它是全局固定 sweep，不是每个发布任务动态 cron。
-8. Notification Dispatcher 后台 loop。
-9. Notification queue / fingerprint / delivery 记录。
-10. Lark channel routing：
+8. Weekly Repo Hygiene Review：每周日扫描 repo/docs/CI review hygiene 与 Ops stale state；低风险 mechanical cleanup 通过 `agent_self_repair` 自动开 PR，但不自动 merge，不清理 Docker、本机缓存、外部平台或生产资源。
+9. Notification Dispatcher 后台 loop。
+10. Notification queue / fingerprint / delivery 记录。
+11. Lark channel routing：
    - alert
    - approval
    - workflow notification
    - release
-10. Cooldown、suppression、rollup、retry、dead letter。
-11. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
+12. Cooldown、suppression、rollup、retry、dead letter。
+13. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
 
 ## 7. Project And Policy
 

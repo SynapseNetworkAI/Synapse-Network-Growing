@@ -83,6 +83,13 @@ const presentationMap: Record<string, Presentation> = {
     action: '清理重复实验需求',
     outputs: ['Archived requirements', 'Merge recommendations'],
   },
+  weekly_repo_hygiene_review: {
+    lane: 'health',
+    label: '周日仓库清理',
+    input: 'Repo quality gates + docs metadata + Ops stale state',
+    action: '生成清理计划并开低风险 PR',
+    outputs: ['Cleanup PR', 'No-op evidence', 'Operator review items'],
+  },
   ci_status_sweep: {
     lane: 'health',
     label: 'Final Regression 收口',

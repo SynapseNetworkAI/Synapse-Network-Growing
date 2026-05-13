@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PYTHON="$("$ROOT_DIR/scripts/ci/detect_python.sh")"
+PYTHON="$(bash "$ROOT_DIR/scripts/ci/detect_python.sh")"
 DIFF_BASE="$("$ROOT_DIR/scripts/ci/resolve_diff_base.sh")"
 QUALITY_BASE_REF="${QUALITY_BASE_REF:-origin/main}"
 
@@ -15,6 +15,9 @@ echo "[ci:pr] python: $PYTHON"
 echo "[ci:pr] diff base: $DIFF_BASE"
 
 export OPS_PYTHON="$PYTHON"
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1
+export CLOUDSDK_PYTHON="$PYTHON"
+PYTEST_CMD=(uv run --python "$PYTHON" --with-requirements requirements.txt --isolated python -m pytest)
 
 echo "[ci:pr] guardrails"
 bash "$ROOT_DIR/scripts/ci/agent_guardrails.sh"
@@ -39,7 +42,7 @@ if [[ ${#changed_python_files[@]} -gt 0 ]]; then
     echo "Install uv/uvx locally or use GitHub Actions, which installs uv before pr_checks." >&2
     exit 1
   fi
-  PYTHONPATH=. "$PYTHON" -m pytest -q \
+  PYTHONPATH=. "${PYTEST_CMD[@]}" -q \
     --cov=server \
     --cov=scripts \
     --cov-report=xml:coverage.xml
@@ -50,7 +53,7 @@ if [[ ${#changed_python_files[@]} -gt 0 ]]; then
     --src-roots "$ROOT_DIR"
 else
   echo "[ci:pr] backend tests"
-  PYTHONPATH=. "$PYTHON" -m pytest -q
+  PYTHONPATH=. "${PYTEST_CMD[@]}" -q
   echo "[ci:pr] no backend/script/test Python changes; skipping diff coverage"
 fi
 

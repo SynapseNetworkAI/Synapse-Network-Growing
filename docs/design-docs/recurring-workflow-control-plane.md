@@ -33,7 +33,7 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 2. **Recurring Workflows Registry**
    - 内置 recurring workflow 定义清单。
-   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`ci_status_sweep`、`release_pr_status_sweep`、`release_deployment_status_sweep`、`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。
+   - 当前包括 `bug_log_sweep`、`morning_intake_sweep`、`dispatcher_loop`、`closeout_and_compact_sweep`、`weekly_operating_review`、`approval_sweep`、`requirement_family_cleanup_sweep`、`weekly_repo_hygiene_review`、`ci_status_sweep`、`release_pr_status_sweep`、`release_deployment_status_sweep`、`x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。
    - v1 支持手动 `Dry Run` 与 `Run Now`，但不自动按 schedule 执行全部 registry。
 
 3. **Notification Dispatcher**
@@ -196,7 +196,7 @@ lock
 2. **Strategy & Planning**：`goal_planner_sweep`、`weekly_operating_review`。
 3. **Execution & Dispatch**：`dispatcher_loop`、`approval_sweep`、`closeout_and_compact_sweep`。
 4. **Intake & Support**：`morning_intake_sweep`、`forum_feedback_sweep`。
-5. **System Health & Reliability**：`bug_log_sweep`、`requirement_family_cleanup_sweep`。
+5. **System Health & Reliability**：`bug_log_sweep`、`requirement_family_cleanup_sweep`、`weekly_repo_hygiene_review`。
 6. **New / Uncategorized Initiates**：所有缺少 presentation metadata 的新 workflow，必须显示 `Missing Presentation Metadata`，但仍允许查看历史、Dry Run 和 Run Now。
 
 每个 workflow card 必须展示 I-P-O：

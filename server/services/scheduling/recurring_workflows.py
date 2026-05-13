@@ -1,6 +1,5 @@
 """Recurring COO workflow registry and runnable skeletons."""
 from __future__ import annotations
-
 import json
 import os
 import socket
@@ -9,10 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-
 from server import config
 from server.database import (
     BlackboardSnapshotRow,
@@ -196,6 +193,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_duplicate_growth": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "archived_requirement_ids"},
     },
+    {"workflow_key": "weekly_repo_hygiene_review", "display_name": "Weekly Repo Hygiene Review", "description": "Sunday Harness hygiene review that scans repo and Ops entropy, then starts one low-risk cleanup PR through agent_self_repair.", "trigger_type": "scheduled", "owner_role": "runtime_reliability_engineer", "schedule": {"cadence": "weekly", "day": "SUN", "suggested_local_time": "10:00"}, "input_query": {"sources": ["repo_quality_gates", "docs_metadata", "ops_stale_state"]}, "output_action": {"kind": "create_cleanup_pr", "auto_open_pr": True, "auto_merge": False, "human_gate_required": True}, "escalation_rule": {"on_high_risk": "operator_review", "on_duplicate": "no_op"}, "validation_signal": {"success_metric": "cleanup_pr_or_noop_evidence"}},
     {
         "workflow_key": "ci_status_sweep",
         "display_name": "CI Status Sweep",
@@ -1550,6 +1548,8 @@ def _execute_recurring_workflow(
             }
         if workflow_key in _X_SOCIAL_DRY_RUNS:
             return {"dry_run": True, "workflow_key": workflow_key, **_X_SOCIAL_DRY_RUNS[workflow_key]}
+        if workflow_key == "weekly_repo_hygiene_review":
+            from server.services.scheduling.repo_hygiene import run_weekly_repo_hygiene_review_payload; return run_weekly_repo_hygiene_review_payload(db, dry_run=True)
         return {
             "dry_run": True,
             "workflow_key": workflow_key,
@@ -1612,6 +1612,8 @@ def _execute_recurring_workflow(
         return _approval_sweep(db)
     if workflow_key == "requirement_family_cleanup_sweep":
         return _requirement_family_cleanup_sweep(db)
+    if workflow_key == "weekly_repo_hygiene_review":
+        from server.services.scheduling.repo_hygiene import run_weekly_repo_hygiene_review_payload; return run_weekly_repo_hygiene_review_payload(db, dry_run=False)
     if workflow_key == "ci_status_sweep":
         return _ci_status_sweep(db)
     if workflow_key == "release_pr_status_sweep":
