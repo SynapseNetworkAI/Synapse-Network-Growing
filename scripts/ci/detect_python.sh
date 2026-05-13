@@ -12,9 +12,10 @@ probe_python() {
   local python_bin="$1"
   [[ -n "$python_bin" && -x "$python_bin" ]] || return 1
 
-  local probe_file output_file pid elapsed exit_code output
-  probe_file="$(mktemp -t synapse-python-probe)"
-  output_file="$(mktemp -t synapse-python-probe)"
+  local tmp_dir probe_file output_file pid elapsed exit_code output
+  tmp_dir="${TMPDIR:-/tmp}"
+  probe_file="$(mktemp "${tmp_dir%/}/synapse-python-probe.XXXXXX")"
+  output_file="$(mktemp "${tmp_dir%/}/synapse-python-probe.XXXXXX")"
   cat >"$probe_file" <<'PY'
 import sys
 import json

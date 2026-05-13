@@ -13,9 +13,10 @@ require_ops_python_runtime() {
     return 1
   fi
 
-  local probe_file output_file pid elapsed exit_code output
-  probe_file="$(mktemp -t synapse-python-guard)"
-  output_file="$(mktemp -t synapse-python-guard)"
+  local tmp_dir probe_file output_file pid elapsed exit_code output
+  tmp_dir="${TMPDIR:-/tmp}"
+  probe_file="$(mktemp "${tmp_dir%/}/synapse-python-guard.XXXXXX")"
+  output_file="$(mktemp "${tmp_dir%/}/synapse-python-guard.XXXXXX")"
   cat >"$probe_file" <<'PY'
 import sys
 import json
