@@ -53,8 +53,8 @@ jobs:
           if [[ "$event_name" == "push" || "$event_name" == "schedule" || "$requested_scope" == "full" ]]; then
             python scripts/ci/ci_scope.py --force-full --github-output --json pr-ci-scope.json
           else
-            git fetch --quiet origin main
-            python scripts/ci/ci_scope.py --base origin/main --github-output --json pr-ci-scope.json
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            python scripts/ci/ci_scope.py --base "$base_sha" --github-output --json pr-ci-scope.json
           fi
       - name: Print scope
         run: cat pr-ci-scope.json
