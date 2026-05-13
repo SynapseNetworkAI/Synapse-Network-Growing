@@ -99,7 +99,7 @@ def test_load_baseline_and_filter_check_paths(tmp_path, monkeypatch):
         "print('skip')\n", encoding="utf-8"
     )
 
-    baseline = static_quality_gate.load_baseline(baseline_path)
+    baseline = static_quality_gate._load_baseline(baseline_path)
     filtered = static_quality_gate._filter_check_paths(
         {"server/keep.py", "server/skip.txt", "server/__pycache__/skip.py"}
     )

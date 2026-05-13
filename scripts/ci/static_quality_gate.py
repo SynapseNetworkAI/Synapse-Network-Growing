@@ -21,6 +21,10 @@ DEFAULT_BASELINE = ROOT / "quality" / "quality_baseline.json"
 PRODUCTION_LIMIT = 500
 TEST_LIMIT = 900
 FUNCTION_LIMIT = 120
+SPLIT_GUIDANCE = (
+    "Split by responsibility: extract private helpers first; create modules only "
+    "for clear scanner/runner/serializer/adapter/client/policy boundaries."
+)
 CHECK_SUFFIXES = {".py", ".ts", ".tsx"}
 CHECK_ROOTS = ("server/", "scripts/", "dashboard/src/", "tests/", "dashboard/tests/")
 EXCLUDED_PARTS = {
@@ -71,7 +75,7 @@ def line_count(path: Path) -> int:
         return sum(1 for _ in handle)
 
 
-def load_baseline(path: Path) -> dict[str, int]:
+def _load_baseline(path: Path) -> dict[str, int]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
         str(key): int(value) for key, value in payload.get("legacy_files", {}).items()
@@ -134,7 +138,7 @@ def _python_function_failures(path: Path) -> list[QualityFailure]:
                 QualityFailure(
                     "FUNCTION_TOO_LONG",
                     path.as_posix(),
-                    f"{node.name} is {length} lines; max is {FUNCTION_LIMIT}. Extract helpers before adding large functions.",
+                    f"{node.name} is {length} lines; max is {FUNCTION_LIMIT}. {SPLIT_GUIDANCE}",
                 )
             )
     return failures
@@ -153,7 +157,7 @@ def evaluate_path(path: Path, baseline: dict[str, int]) -> list[QualityFailure]:
                 QualityFailure(
                     "LEGACY_FILE_GREW",
                     normalized,
-                    f"{current} lines exceeds legacy baseline {baseline_lines}. Split code or reduce this file before adding more.",
+                    f"{current} lines exceeds legacy baseline {baseline_lines}. {SPLIT_GUIDANCE}",
                 )
             )
     elif current > limit:
@@ -162,7 +166,7 @@ def evaluate_path(path: Path, baseline: dict[str, int]) -> list[QualityFailure]:
             QualityFailure(
                 code,
                 normalized,
-                f"{current} lines exceeds limit {limit}. New or previously-small files must be split.",
+                f"{current} lines exceeds limit {limit}. {SPLIT_GUIDANCE}",
             )
         )
 
@@ -187,7 +191,7 @@ def main(argv: list[str]) -> int:
     baseline_path = Path(args.baseline)
     if not baseline_path.is_absolute():
         baseline_path = ROOT / baseline_path
-    baseline = load_baseline(baseline_path)
+    baseline = _load_baseline(baseline_path)
     paths = changed_paths(args.base)
 
     if args.print_changed:

@@ -61,10 +61,12 @@ search_text "awaiting_ci|ci_status_sweep|runtime cap|流式写日志" \
   ARCHITECTURE.md \
   docs/design-docs/declarative-agent-workflow-factory.md \
   docs/design-docs/recurring-workflow-control-plane.md \
-  docs/design-docs/system-design-principles.md >/dev/null
+  docs/design-docs/system-design-principles.md \
+  docs/design-docs/principles/runtime-observability.md >/dev/null
 search_text "Acceptance Matrix Is Executable Contract|liveness diagnostic only|required_db_lineage.*informational|workflow_run_id" \
   ARCHITECTURE.md \
   docs/design-docs/system-design-principles.md \
+  docs/design-docs/principles/planning-lifecycle.md \
   docs/design-docs/current-feature-inventory.md >/dev/null
 
 echo "[guardrails] social publishing modal-only UI"
@@ -92,14 +94,17 @@ search_text "NEVER USE DRAWERS" \
 search_text "应用层强制 280|character_count" \
   ARCHITECTURE.md \
   docs/design-docs/system-design-principles.md \
+  docs/design-docs/principles/social-publishing.md \
   docs/design-docs/current-feature-inventory.md >/dev/null
 search_text "social_post_media_assets|SOCIAL_IMAGE_PROVIDER|media_ids" \
   ARCHITECTURE.md \
   docs/design-docs/system-design-principles.md \
+  docs/design-docs/principles/social-publishing.md \
   docs/design-docs/current-feature-inventory.md >/dev/null
 search_text "Social Ops Center|Trend Radar|Reply Inbox|Repost Candidates|Observe Metrics" \
   ARCHITECTURE.md \
   docs/design-docs/system-design-principles.md \
+  docs/design-docs/principles/social-publishing.md \
   docs/design-docs/current-feature-inventory.md >/dev/null
 if search_text "under 280 characters|x_post_exceeds_280_characters|/280" server/services/social/publishing.py dashboard/src/pages/PublishingPage.tsx dashboard/src/api.ts; then
   echo "Social Publishing must not reintroduce app-level 280-character hard limits." >&2
