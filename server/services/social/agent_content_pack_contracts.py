@@ -184,7 +184,9 @@ def _platform_guidance(platform: str, channel_key: str) -> str:
     if normalized == "x":
         return (
             "Dynamic X Variant: output either one normal tweet or a thread. "
-            "Do not output a Premium long post in v1."
+            "Do not output a Premium long post in v1. Write the X Official "
+            "Account draft in English, even when the canonical source material "
+            "is Chinese."
         )
     if normalized == "hacker_news":
         return (

@@ -12,6 +12,10 @@ from server.services.social.agent_content_pack import (
     generate_platform_task_draft,
     parse_agent_json_output,
 )
+from server.services.social.agent_content_pack_contracts import (
+    PlatformTaskPromptInput,
+    platform_task_prompt,
+)
 from server.services.social.context_tags import (
     ContextTagSnippet,
 )
@@ -276,6 +280,38 @@ def test_generate_platform_task_draft_adds_canonical_warning(monkeypatch):
     assert draft.title == "DEV title"
     assert draft.metadata["warning"] == "canonical_url_missing"
     assert draft.metadata["generated_by"] == "agent_content_pack_v1"
+
+
+def test_x_platform_prompt_requires_english_official_account():
+    _system_prompt, user_prompt = platform_task_prompt(
+        PlatformTaskPromptInput(
+            asset_title="第 1 篇：我为什么要做一人公司的系统",
+            asset_summary="一人公司的系统化故事",
+            asset_body="中文母稿",
+            asset_metadata={},
+            canonical_url=None,
+            platform="x",
+            channel_key="official",
+            display_name="X Official Account",
+        )
+    )
+
+    assert "English" in user_prompt
+    assert "X Official Account" in user_prompt
+    assert "tweets" in user_prompt
+
+
+def test_x_platform_draft_requires_structured_tweets():
+    with pytest.raises(ValueError, match="x_format"):
+        agent_content_pack._platform_draft_from_payload(
+            {
+                "platform_title": "Premium long post",
+                "platform_body": "This fallback must not be accepted for X.",
+                "operator_checklist": "Human Gate.",
+            },
+            platform="x",
+            asset_title="Asset",
+        )
 
 
 def test_required_context_resolution_wraps_missing_tag():

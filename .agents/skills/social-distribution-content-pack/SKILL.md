@@ -20,7 +20,7 @@ Use this playbook when a source content task is approved for `/publishing` distr
 
 | Platform | Format | Target |
 | --- | --- | --- |
-| X | `single_x_post` or `x_thread` | Single tweet under 280 weighted chars, or a thread where every tweet is under 280 weighted chars. |
+| X | `single_x_post` or `x_thread` | English-only for the official account. Single tweet under 280 weighted chars, or a thread where every tweet is under 280 weighted chars. |
 | Hacker News | `hn_submission` | Plain title, canonical/source URL, optional first comment draft only. |
 | Reddit | `discussion_post` | Title <= 300 chars; body around 1200-3000 chars, community discussion style. |
 | V2EX | `discussion_post` | Chinese title around 20-60 chars; body around 800-2000 Chinese chars. |
