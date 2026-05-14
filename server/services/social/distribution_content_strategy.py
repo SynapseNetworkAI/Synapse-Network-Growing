@@ -9,6 +9,7 @@ from typing import Any
 from server.services.social.distribution_core import _normalize_platform
 
 X_WEIGHTED_CHAR_LIMIT = 280
+X_LONG_POST_CHAR_LIMIT = 4000
 
 _URL_RE = re.compile(r"https?://[^\s]+", flags=re.IGNORECASE)
 
@@ -42,7 +43,7 @@ def platform_format_kind(platform: str) -> str:
 def platform_target_length(platform: str) -> str:
     normalized = _normalize_platform(platform)
     if normalized == "x":
-        return "single tweet under 280 weighted chars or thread of 4-10 tweets"
+        return "single tweet/thread under 280 weighted chars each or X Premium long post under 4000 chars"
     if normalized == "hacker_news":
         return "title 40-80 chars plus optional first comment draft"
     if normalized == "reddit":
@@ -94,6 +95,11 @@ def x_tweets_from_metadata(
 
 def x_format_from_metadata(metadata: dict[str, Any], tweets: list[str]) -> str:
     x_format = str(metadata.get("x_format") or "").strip().lower()
+    format_kind = str(metadata.get("format_kind") or "").strip().lower()
+    if x_format in {"long_post", "x_long_post", "premium_long_post"}:
+        return "long_post"
+    if format_kind in {"long_post", "x_long_post", "premium_long_post"}:
+        return "long_post"
     if x_format in {"single", "thread"}:
         return x_format
     return "single" if len(tweets) <= 1 else "thread"

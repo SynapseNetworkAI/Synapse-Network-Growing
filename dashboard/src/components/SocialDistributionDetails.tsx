@@ -14,6 +14,13 @@ import {
   statusTone,
   textareaClass,
 } from './SocialDistributionWidgets'
+import {
+  PlatformFormatSummary,
+  XDraftPreview,
+  buildXDraftView,
+  copyCombinedLabel,
+  xPublishButtonLabel,
+} from './SocialDistributionXDraft'
 
 export function TaskDetailModal({
   task,
@@ -27,6 +34,8 @@ export function TaskDetailModal({
   onMarkRemoved,
   onSkip,
   onPublishX,
+  publishBusy = false,
+  xAuthNotice,
 }: {
   task: SocialDistributionTask | null
   manualUrl: string
@@ -39,25 +48,17 @@ export function TaskDetailModal({
   onMarkRemoved: () => void
   onSkip: () => void
   onPublishX: () => void
+  publishBusy?: boolean
+  xAuthNotice?: string | null
 }) {
-  const metadata = task?.metadata ?? {}
-  const xTweets = task?.platform === 'x' ? stringArray(metadata.tweets) : []
-  const xFormat = task?.platform === 'x' ? xFormatFromMetadata(metadata, xTweets) : null
-  const xWeightedCounts = numberArray(metadata.weighted_counts)
-  const xRows = xTweets.map((tweet, index) => ({
-    tweet,
-    count: xWeightedCounts[index] ?? conservativeXCount(tweet),
-  }))
-  const xHasOverLimit = xRows.some((row) => row.count > 280)
-  const combined =
-    task?.platform === 'x' && xRows.length
-      ? xRows.map((row, index) => `Tweet ${index + 1}/${xRows.length}\n${row.tweet}`).join('\n\n')
-      : `Title:\n${task?.platform_title ?? ''}\n\nBody:\n${task?.platform_body ?? ''}`
+  const { xFormat, xRows, xHasOverLimit, combined } = buildXDraftView(task)
   const canPublishX =
     task?.platform === 'x' &&
     task.publish_mode === 'api_human_gated' &&
     ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
     !xHasOverLimit &&
+    !publishBusy &&
+    (xFormat !== 'long_post' || xRows.length === 1) &&
     (xFormat !== 'thread' || xRows.length >= 2)
   return (
     <OverlayModal
@@ -106,10 +107,15 @@ export function TaskDetailModal({
             ) : null}
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_title ?? '', toast)}>复制标题</button>
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_body ?? '', toast)}>复制正文</button>
-            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(combined, toast)}>{task.platform === 'x' && xRows.length ? '复制整条 Thread' : '一键复制标题和正文'}</button>
+            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(combined, toast)}>{copyCombinedLabel(task.platform, xFormat, xRows.length)}</button>
           </div>
           {xHasOverLimit ? (
-            <InfoBlock title="X 超限">有推文超过 280 weighted chars，发布按钮已禁用。</InfoBlock>
+            <InfoBlock title="X 超限">
+              {xFormat === 'long_post' ? 'X 长文超过 4000 chars，发布按钮已禁用。' : '有推文超过 280 weighted chars，发布按钮已禁用。'}
+            </InfoBlock>
+          ) : null}
+          {xAuthNotice ? (
+            <InfoBlock title="X 授权状态">{xAuthNotice}</InfoBlock>
           ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Published URL"><input className={inputClass} value={manualUrl} onChange={(event) => onManualUrlChange(event.target.value)} /></Field>
@@ -118,7 +124,7 @@ export function TaskDetailModal({
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={onSkip}>跳过</button>
             <button type="button" className="rounded-xl border border-rose-300/40 px-3 py-2 text-sm text-rose-100" onClick={onMarkRemoved}>标记 removed</button>
-            {task.platform === 'x' ? <button type="button" disabled={!canPublishX} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{xFormat === 'thread' ? '一键发布 Thread' : '发布到 X'}</button> : null}
+            {task.platform === 'x' ? <button type="button" disabled={!canPublishX} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
             <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={onMarkLive}>标记已发布</button>
           </div>
         </div>
@@ -322,70 +328,6 @@ function DocumentRow({ doc, formatDateTime }: { doc: SocialDistributionDocument;
   )
 }
 
-function PlatformFormatSummary({
-  task,
-  xFormat,
-  xRows,
-}: {
-  task: SocialDistributionTask
-  xFormat: string | null
-  xRows: { tweet: string; count: number }[]
-}) {
-  const formatKind = stringValue(task.metadata.format_kind)
-  const targetLength = stringValue(task.metadata.target_length)
-  const countLabel =
-    task.platform === 'x' && xRows.length
-      ? xRows.map((row) => `${row.count}/280`).join(' · ')
-      : stringValue(task.metadata.word_count)
-        ? `${task.metadata.word_count} words`
-        : stringValue(task.metadata.character_count)
-          ? `${task.metadata.character_count} chars`
-          : 'not measured'
-  return (
-    <section className="grid gap-3 md:grid-cols-3">
-      <InfoBlock title="发布方式">{task.platform === 'x' ? (xFormat === 'thread' ? 'X Thread' : 'X Single') : 'Manual human publish'}</InfoBlock>
-      <InfoBlock title="格式类型">{formatKind || 'platform draft'}</InfoBlock>
-      <InfoBlock title="目标 / 当前">{targetLength ? `${targetLength} · ${countLabel}` : countLabel}</InfoBlock>
-    </section>
-  )
-}
-
-function XDraftPreview({
-  xFormat,
-  rows,
-}: {
-  xFormat: string | null
-  rows: { tweet: string; count: number }[]
-}) {
-  if (xFormat !== 'thread') {
-    const row = rows[0]
-    return (
-      <Field label={`Tweet (${row.count}/280)`}>
-        <textarea readOnly className={`${textareaClass} min-h-[150px]`} value={row.tweet} />
-      </Field>
-    )
-  }
-  return (
-    <div className="grid gap-3">
-      {rows.map((row, index) => (
-        <div key={`${index}-${row.count}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3">
-          <div className="mb-2 flex items-center justify-between text-xs text-[color:var(--ops-text-caption)]">
-            <span>推文 {index + 1}/{rows.length}</span>
-            <span className={row.count > 280 ? 'text-rose-200' : 'text-emerald-200'}>{row.count}/280</span>
-          </div>
-          <textarea readOnly className={`${textareaClass} min-h-[120px]`} value={row.tweet} />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map((item) => String(item).trim()).filter(Boolean)
-    : []
-}
-
 function numberArray(value: unknown): number[] {
   return Array.isArray(value)
     ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item))
@@ -395,27 +337,6 @@ function numberArray(value: unknown): number[] {
 function stringValue(value: unknown): string {
   if (typeof value === 'number') return String(value)
   return typeof value === 'string' ? value : ''
-}
-
-function xFormatFromMetadata(metadata: Record<string, unknown>, tweets: string[]): string {
-  const explicit = stringValue(metadata.x_format)
-  if (explicit === 'single' || explicit === 'thread') return explicit
-  return tweets.length > 1 ? 'thread' : 'single'
-}
-
-function conservativeXCount(value: string): number {
-  let total = 0
-  const parts = value.split(/(https?:\/\/\S+)/)
-  for (const part of parts) {
-    if (/^https?:\/\//.test(part)) {
-      total += 23
-      continue
-    }
-    for (const char of Array.from(part)) {
-      total += /[^\u0000-\u10ff]/.test(char) ? 2 : 1
-    }
-  }
-  return total
 }
 
 export function AssetDetail({

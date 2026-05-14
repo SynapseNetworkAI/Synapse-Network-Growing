@@ -14,6 +14,7 @@ from server.services.social.distribution_core import (
     _normalize_platform,
 )
 from server.services.social.distribution_content_strategy import (
+    X_LONG_POST_CHAR_LIMIT,
     platform_format_kind,
     platform_target_length,
     x_format_from_metadata,
@@ -198,8 +199,12 @@ def x_platform_document_markdown(
         f"# {task.platform_title or asset.title}",
         "",
         f"Platform: {task.platform} / {task.channel_key}",
-        f"Format: {'X Thread' if x_format == 'thread' else 'Single X Post'}",
-        "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2",
+        f"Format: {_x_format_label(x_format)}",
+        (
+            "Counting: plain chars for X Premium long post"
+            if x_format == "long_post"
+            else "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2"
+        ),
         "",
     ]
     if x_format == "thread":
@@ -212,12 +217,30 @@ def x_platform_document_markdown(
                     tweet,
                 ]
             )
+    elif x_format == "long_post":
+        post = tweets[0] if tweets else str(task.platform_body or "")
+        parts.extend(
+            [
+                "## X Premium Long Post",
+                f"Character count: {len(post)}/{X_LONG_POST_CHAR_LIMIT}",
+                "",
+                post,
+            ]
+        )
     else:
         tweet = tweets[0] if tweets else str(task.platform_body or "")
         parts.extend(["## Tweet", f"Weighted count: {x_weighted_character_count(tweet)}/280", "", tweet])
     if task.operator_checklist:
         parts.extend(["", "## Operator Checklist", task.operator_checklist])
     return "\n".join(parts).strip()
+
+
+def _x_format_label(x_format: str) -> str:
+    if x_format == "thread":
+        return "X Thread"
+    if x_format == "long_post":
+        return "X Premium Long Post"
+    return "Single X Post"
 
 
 def hn_platform_document_markdown(

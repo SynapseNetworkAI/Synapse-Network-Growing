@@ -25,6 +25,7 @@ from server.schemas_social_distribution import (
     SocialDistributionMarkLiveRequest,
     SocialDistributionMarkRemovedRequest,
     SocialDistributionPublishXRequest,
+    SocialDistributionXAuthStatusOut,
     SocialDistributionTaskListOut,
     SocialDistributionTaskOut,
     SocialDistributionTaskPatchRequest,
@@ -56,6 +57,7 @@ from server.services.social.distribution_tasks import (
     mark_distribution_task_live,
     mark_distribution_task_removed,
     publish_distribution_task_to_x,
+    validate_distribution_task_x_auth,
     update_distribution_task,
 )
 
@@ -268,6 +270,20 @@ def mark_distribution_task_removed_endpoint(
 ):
     try:
         return mark_distribution_task_removed(db, task_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/tasks/{task_id}/x-auth-status",
+    response_model=SocialDistributionXAuthStatusOut,
+)
+def validate_distribution_task_x_auth_endpoint(
+    task_id: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        return validate_distribution_task_x_auth(db, task_id)
     except ValueError as exc:
         raise _http_error(exc) from exc
 

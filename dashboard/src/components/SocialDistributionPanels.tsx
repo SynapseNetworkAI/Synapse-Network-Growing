@@ -40,6 +40,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [manualNote, setManualNote] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [xAuthNotice, setXAuthNotice] = useState<string | null>(null)
   const [plannerBusy, setPlannerBusy] = useState(false)
   const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
 
@@ -202,6 +203,24 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
 
   async function publishX(task: SocialDistributionTask) {
     try {
+      setBusy(true)
+      setXAuthNotice(null)
+      const auth = await api.getSocialDistributionTaskXAuthStatus(task.id)
+      if (!auth.can_publish) {
+        const message = auth.auth_message || 'X 授权不可用，请重新授权后再点击发送。'
+        if (auth.requires_authorization) {
+          const start = await api.startSocialXOAuth(auth.account_id)
+          const opened = window.open(start.auth_url, '_blank', 'noopener,noreferrer')
+          if (!opened) window.location.href = start.auth_url
+          const notice = 'X 授权页已打开。完成授权后回到这里，再点击发送。'
+          setXAuthNotice(notice)
+          toast.success(notice)
+          return
+        }
+        setXAuthNotice(message)
+        toast.error(message)
+        return
+      }
       const updated = await api.publishSocialDistributionTaskToX(task.id, { actor: 'operator' })
       setTaskDetail(updated)
       if (detail) setDetail(await api.getSocialContentAsset(detail.id))
@@ -209,6 +228,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       toast.success('已发布到 X')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '发布到 X 失败')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -268,6 +289,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')
           setManualNote(task.manual_result_note ?? '')
+          setXAuthNotice(null)
         }}
       />
       <TaskDetailModal
@@ -282,6 +304,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         onMarkRemoved={() => taskDetail ? void markRemoved(taskDetail) : undefined}
         onSkip={() => taskDetail ? void skipTask(taskDetail) : undefined}
         onPublishX={() => taskDetail ? void publishX(taskDetail) : undefined}
+        publishBusy={busy}
+        xAuthNotice={xAuthNotice}
       />
     </SectionFrame>
   )
