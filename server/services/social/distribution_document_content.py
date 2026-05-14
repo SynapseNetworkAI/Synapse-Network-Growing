@@ -17,6 +17,7 @@ from server.services.social.distribution_content_strategy import (
     platform_format_kind,
     platform_target_length,
     x_format_from_metadata,
+    x_long_post_text_from_metadata,
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
@@ -198,11 +199,18 @@ def x_platform_document_markdown(
         f"# {task.platform_title or asset.title}",
         "",
         f"Platform: {task.platform} / {task.channel_key}",
-        f"Format: {'X Thread' if x_format == 'thread' else 'Single X Post'}",
-        "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2",
+        f"Format: {_x_format_label(x_format)}",
+        (
+            "Counting: plain character count; Premium long post soft max=4000"
+            if x_format == "long_post"
+            else "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2"
+        ),
         "",
     ]
-    if x_format == "thread":
+    if x_format == "long_post":
+        post_text = x_long_post_text_from_metadata(metadata, task.platform_body)
+        parts.extend(["## X Long Post", f"Character count: {len(post_text)}/4000", "", post_text])
+    elif x_format == "thread":
         parts.append("## Thread")
         for index, tweet in enumerate(tweets):
             parts.extend(
@@ -218,6 +226,14 @@ def x_platform_document_markdown(
     if task.operator_checklist:
         parts.extend(["", "## Operator Checklist", task.operator_checklist])
     return "\n".join(parts).strip()
+
+
+def _x_format_label(x_format: str) -> str:
+    if x_format == "long_post":
+        return "X Premium Long Post"
+    if x_format == "thread":
+        return "X Thread"
+    return "Single X Post"
 
 
 def hn_platform_document_markdown(

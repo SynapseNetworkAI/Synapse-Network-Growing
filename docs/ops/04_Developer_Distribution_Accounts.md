@@ -114,16 +114,16 @@ target_repo: Synapse-Network-Growing
 
 | Platform | Document kind | Target shape |
 |---|---|---|
-| X | `single_x_post` or `x_thread` | Dynamic X Variant。简单更新生成单条 tweet；深度内容生成 thread。V1 不生成 Premium long post。 |
+| X | `x_long_post`, `single_x_post`, or `x_thread` | Dynamic X Variant。官方账号已开通 Premium；深度技术文章、founder story、架构复盘默认生成 `x_long_post`，简单更新才生成单条 tweet，显式要求 thread 时才生成 thread。 |
 | Hacker News | `hn_submission` | 提交标题、URL / canonical URL 提醒、可选首评草稿。HN 不是长文平台。 |
 | Reddit | `discussion_post` | 中长社区讨论稿，标题不超过 300 chars，正文目标约 1200-3000 chars。 |
 | V2EX | `discussion_post` | 中文工程讨论稿，标题约 20-60 字，正文目标约 800-2000 中文字。 |
 | DEV | `long_article` | 完整 Markdown 长文，标题、导语、分节、例子、结论和 canonical URL checklist。 |
 | Hashnode | `long_article` | 完整 Markdown 长文，适合官方 blog mirror 和 SEO-friendly developer article。 |
 
-X 计数使用 conservative weighted count：URL 计 23，CJK / wide chars 计 2，每条 tweet 必须小于 280。UI 会展示每条 tweet 的 weighted count；超限时禁用 `发布到 X` / `一键发布 Thread`。
+X long post 使用普通字符数计数，默认 soft max 为 4000 chars，不设最小长度，禁止为了凑字数注水。X single/thread 仍使用 conservative weighted count：URL 计 23，CJK / wide chars 计 2，每条 tweet 必须小于 280。UI 会按 `x_format` 切换展示：长文只显示一个长文编辑区，thread 才显示每条 tweet 的 weighted count。
 
-X thread 发布仍必须 Human Gate。全成功后 `external_post_id` 存首条 tweet id，metadata 存 `published_tweet_ids`；如果中途失败，task 进入 `failed`，metadata 记录已发布 ids 和 `partial_publish_failure_index`，operator 必须人工判断是否补发或停止。
+X 发布仍必须 Human Gate。`x_long_post` 通过 X API 优先发布；如果 API 拒绝长文或账号能力异常，task 进入 `failed` 并保留完整 root cause，operator 可复制全文到 X Web 手动发布并回填 URL，不自动降级拆成 thread。Thread 全成功后 `external_post_id` 存首条 tweet id，metadata 存 `published_tweet_ids`；如果中途失败，task 进入 `failed`，metadata 记录已发布 ids 和 `partial_publish_failure_index`，operator 必须人工判断是否补发或停止。
 
 ## 7.2 Agent Content Pack Contracts
 

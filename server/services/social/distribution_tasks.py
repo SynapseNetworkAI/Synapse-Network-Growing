@@ -24,8 +24,10 @@ from server.services.social.distribution_documents import (
     sync_task_document_from_task,
 )
 from server.services.social.distribution_content_strategy import (
+    X_LONG_POST_SOFT_LIMIT,
     X_WEIGHTED_CHAR_LIMIT,
     x_format_from_metadata,
+    x_long_post_text_from_metadata,
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
@@ -150,8 +152,21 @@ def publish_distribution_task_to_x(
     metadata = _task_metadata(row)
     tweets = x_tweets_from_metadata(metadata, row.platform_body)
     x_format = x_format_from_metadata(metadata, tweets)
-    _validate_x_publish_payload(x_format, tweets)
-    policy_text = "\n\n".join(tweets)
+    if x_format == "long_post" and row.account:
+        capabilities = {
+            item.strip()
+            for item in str(row.account.api_capability or "").split(",")
+            if item.strip()
+        }
+        if "long_post" not in capabilities:
+            raise ValueError("this X channel is not configured for long-post API publishing.")
+    post_text = (
+        x_long_post_text_from_metadata(metadata, row.platform_body)
+        if x_format == "long_post"
+        else "\n\n".join(tweets)
+    )
+    _validate_x_publish_payload(x_format, tweets, post_text)
+    policy_text = post_text
     policy = run_content_policy_check(policy_text)
     if policy.get("status") == "blocked":
         return _mark_x_policy_blocked(db, row, actor, policy)
@@ -163,6 +178,8 @@ def publish_distribution_task_to_x(
     try:
         if x_format == "thread":
             result = _publish_x_thread(db, row, social_account, tweets)
+        elif x_format == "long_post":
+            result = x_publisher.publish_text(social_account, post_text)
         else:
             result = x_publisher.publish_text(social_account, tweets[0])
     except SocialPublishError as exc:
@@ -207,6 +224,9 @@ def _mark_x_publish_failed(
     actor: str,
     exc: SocialPublishError,
 ) -> dist_schema.SocialDistributionTaskOut:
+    if exc.kind == "x_refresh_failed" and row.account is not None:
+        social_account = ensure_default_social_account(db)
+        social_account.status = "needs_authorization"
     row.status = "failed"
     row.failure_summary = exc.summary
     row.updated_at = utcnow()
@@ -268,7 +288,7 @@ def _mark_x_publish_success(
         db,
         row.asset,
         row,
-        "task_published_x_thread" if x_format == "thread" else "task_published_x",
+        _x_publish_event_type(x_format),
         actor,
         _x_publish_success_message(x_format),
         {
@@ -325,7 +345,17 @@ def _published_tweet_ids(
 def _x_publish_success_message(x_format: str) -> str:
     if x_format == "thread":
         return "Distribution task published to X thread after Human Gate."
+    if x_format == "long_post":
+        return "Distribution task published to X long post after Human Gate."
     return "Distribution task published to X after Human Gate."
+
+
+def _x_publish_event_type(x_format: str) -> str:
+    if x_format == "thread":
+        return "task_published_x_thread"
+    if x_format == "long_post":
+        return "task_published_x_long_post"
+    return "task_published_x"
 
 
 def _persist_x_thread_progress(
@@ -366,7 +396,17 @@ def _mark_x_thread_partial_failure(
     )
 
 
-def _validate_x_publish_payload(x_format: str, tweets: list[str]) -> None:
+def _validate_x_publish_payload(
+    x_format: str, tweets: list[str], post_text: str
+) -> None:
+    if x_format == "long_post":
+        if not post_text:
+            raise ValueError("X long post publish payload is empty.")
+        if len(post_text) > X_LONG_POST_SOFT_LIMIT:
+            raise ValueError(
+                f"X long post exceeds {X_LONG_POST_SOFT_LIMIT} characters."
+            )
+        return
     if not tweets:
         raise ValueError("X publish payload is empty.")
     if x_format == "single" and len(tweets) != 1:

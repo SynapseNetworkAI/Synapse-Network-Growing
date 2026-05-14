@@ -11,6 +11,7 @@ from server.services.social.agent_content_pack import (
     parse_agent_json_output,
 )
 from server.services.social.agent_content_pack_contracts import (
+    PLATFORM_DRAFT_OUTPUT_SCHEMA,
     PlatformTaskPromptInput,
     platform_task_prompt,
 )
@@ -69,6 +70,12 @@ def test_parse_agent_json_output_extracts_first_embedded_object():
 def test_parse_agent_json_output_fails_closed_for_invalid_shapes(raw):
     with pytest.raises(AgentJsonParseError, match="agent_json_parse_failed"):
         parse_agent_json_output(raw)
+
+
+def test_platform_draft_schema_requires_all_strict_properties():
+    assert set(PLATFORM_DRAFT_OUTPUT_SCHEMA["required"]) == set(
+        PLATFORM_DRAFT_OUTPUT_SCHEMA["properties"]
+    )
 
 
 def test_content_codex_fallback_models_use_configured_models_only(monkeypatch):
@@ -372,7 +379,10 @@ def test_x_platform_prompt_requires_english_official_account():
 
     assert "English" in user_prompt
     assert "X Official Account" in user_prompt
-    assert "tweets" in user_prompt
+    assert "x_format\":\"long_post" in user_prompt
+    assert "post_text" in user_prompt
+    assert "2200-3200" in user_prompt
+    assert "rewrite it shorter" in user_prompt
 
 
 def test_platform_prompt_uses_density_driven_rules():

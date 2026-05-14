@@ -20,7 +20,7 @@ Use this playbook when a source content task is approved for `/publishing` distr
 
 | Platform | Format | Target |
 | --- | --- | --- |
-| X | `single_x_post` or `x_thread` | English-only for the official account. Single tweet under 280 weighted chars, or a thread where every tweet is under 280 weighted chars. |
+| X | `x_long_post`, `single_x_post`, or `x_thread` | English-only for the official account. Default deep technical articles and founder stories to Premium long posts under 4000 chars; use single/thread only for short updates or explicit thread requests. |
 | Hacker News | `hn_submission` | Plain title, canonical/source URL, optional first comment draft only. |
 | Reddit | `discussion_post` | Title <= 300 chars; body around 1200-3000 chars, community discussion style. |
 | V2EX | `discussion_post` | Chinese title around 20-60 chars; body around 800-2000 Chinese chars. |
@@ -29,7 +29,17 @@ Use this playbook when a source content task is approved for `/publishing` distr
 
 ## Dynamic X Variant
 
-Return only one X shape:
+Return only one X shape. Default to Premium long post for substantial content:
+
+```json
+{
+  "x_format": "long_post",
+  "post_text": "...",
+  "rationale": "..."
+}
+```
+
+Legacy short update/thread shape:
 
 ```json
 {
@@ -39,4 +49,5 @@ Return only one X shape:
 }
 ```
 
-Use `single` only for simple short updates. Use `thread` for deep founder stories, tutorials, architecture explanations, and multi-step reasoning. Do not generate X Premium long posts in v1.
+Use `single` only for simple short updates. Use `thread` only when the operator explicitly asks for a thread. Long posts must be density-driven, max 4000 chars, and must not pad, repeat, or invent details.
+For long posts, target 2200-3200 chars, set `platform_body` and `post_text` to the same final X text, and rewrite shorter before returning JSON if the draft is over 3900 chars.
