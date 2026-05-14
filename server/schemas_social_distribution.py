@@ -285,3 +285,13 @@ class SocialDistributionMarkRemovedRequest(BaseModel):
 
 class SocialDistributionPublishXRequest(BaseModel):
     actor: str = "operator"
+
+
+class SocialDistributionXAuthStatusOut(BaseModel):
+    status: str
+    can_publish: bool
+    account_id: int | None = None
+    account_handle: str | None = None
+    auth_message: str | None = None
+    requires_authorization: bool = False
+    refresh_token_rotated: bool = False

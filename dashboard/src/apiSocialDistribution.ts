@@ -46,6 +46,16 @@ export interface SocialDistributionTask {
   updated_at: string | null
 }
 
+export interface SocialDistributionXAuthStatus {
+  status: string
+  can_publish: boolean
+  account_id: number | null
+  account_handle: string | null
+  auth_message: string | null
+  requires_authorization: boolean
+  refresh_token_rotated: boolean
+}
+
 export interface SocialContentAsset {
   id: number
   asset_type: string
@@ -360,5 +370,11 @@ export function createSocialDistributionApi(request: RequestFn) {
         method: 'POST',
         body: JSON.stringify(data),
       }, 60_000),
+    getSocialDistributionTaskXAuthStatus: (id: number) =>
+      request<SocialDistributionXAuthStatus>(
+        `/social/distribution/tasks/${id}/x-auth-status`,
+        undefined,
+        60_000,
+      ),
   }
 }
