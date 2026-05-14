@@ -16,6 +16,8 @@ const apiMock = vi.hoisted(() => ({
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
+  getSocialDistributionTaskXAuthStatus: vi.fn(),
+  startSocialXOAuth: vi.fn(),
   markSocialDistributionTaskLive: vi.fn(),
   markSocialDistributionTaskRemoved: vi.fn(),
   updateSocialDistributionTask: vi.fn(),

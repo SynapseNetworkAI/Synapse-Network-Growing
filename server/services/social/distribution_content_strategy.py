@@ -105,7 +105,12 @@ def x_tweets_from_metadata(
 
 def x_format_from_metadata(metadata: dict[str, Any], tweets: list[str]) -> str:
     x_format = str(metadata.get("x_format") or "").strip().lower()
-    if x_format in {"single", "thread", "long_post"}:
+    format_kind = str(metadata.get("format_kind") or "").strip().lower()
+    if x_format in {"long_post", "x_long_post", "premium_long_post"}:
+        return "long_post"
+    if format_kind in {"long_post", "x_long_post", "premium_long_post"}:
+        return "long_post"
+    if x_format in {"single", "thread"}:
         return x_format
     return "single" if len(tweets) <= 1 else "thread"
 

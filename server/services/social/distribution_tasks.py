@@ -14,6 +14,7 @@ from server.services.social.publishing import (
     ensure_default_social_account,
     run_content_policy_check,
     x_publisher,
+    x_oauth_token_provider,
 )
 from server.services.social.distribution_core import (
     _clean_optional,
@@ -186,6 +187,38 @@ def publish_distribution_task_to_x(
         return _mark_x_publish_failed(db, row, actor, exc)
 
     return _mark_x_publish_success(db, row, actor, metadata, x_format, result)
+
+
+def validate_distribution_task_x_auth(
+    db: Session, task_id: int
+) -> dist_schema.SocialDistributionXAuthStatusOut:
+    row = db.get(SocialDistributionTaskRow, task_id)
+    if row is None:
+        raise ValueError("Distribution task not found.")
+    if row.platform != "x":
+        raise ValueError("only X distribution tasks can use X publish auth.")
+    if row.account and row.account.publish_mode != "api_human_gated":
+        raise ValueError("this X channel is not configured for API publishing.")
+    social_account = ensure_default_social_account(db)
+    try:
+        token_result = x_oauth_token_provider.get_access_token(social_account.secret_ref)
+    except SocialPublishError as exc:
+        return dist_schema.SocialDistributionXAuthStatusOut(
+            status=_x_auth_status_from_error(exc),
+            can_publish=False,
+            account_id=int(social_account.id),
+            account_handle=social_account.handle,
+            auth_message=exc.summary,
+            requires_authorization=_x_error_requires_authorization(exc),
+        )
+    return dist_schema.SocialDistributionXAuthStatusOut(
+        status="authorized",
+        can_publish=True,
+        account_id=int(social_account.id),
+        account_handle=social_account.handle,
+        auth_message="X OAuth refresh token is valid for this publish attempt.",
+        refresh_token_rotated=bool(token_result.refresh_token_rotated),
+    )
 
 
 def _mark_x_policy_blocked(
@@ -419,6 +452,16 @@ def _validate_x_publish_payload(
             raise ValueError(
                 f"X tweet {index + 1} exceeds {X_WEIGHTED_CHAR_LIMIT} weighted chars."
             )
+
+
+def _x_auth_status_from_error(exc: SocialPublishError) -> str:
+    if exc.kind == "gcp_adc_expired":
+        return "gcp_adc_expired"
+    return "needs_authorization"
+
+
+def _x_error_requires_authorization(exc: SocialPublishError) -> bool:
+    return exc.kind in {"x_auth_failed", "x_refresh_failed"}
 
 
 def _task_metadata(row: SocialDistributionTaskRow) -> dict[str, object]:

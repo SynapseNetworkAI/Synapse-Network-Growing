@@ -64,6 +64,11 @@ def test_normalize_x_payload_infers_single_and_thread_shapes():
     assert "1/2" in thread_body
     assert thread_metadata["format_kind"] == "x_thread"
 
+    assert (
+        strategy.x_format_from_metadata({"format_kind": "x_long_post"}, ["body"])
+        == "long_post"
+    )
+
 
 @pytest.mark.parametrize(
     ("payload", "message"),

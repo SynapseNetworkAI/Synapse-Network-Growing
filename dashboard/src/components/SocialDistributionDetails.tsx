@@ -17,7 +17,9 @@ import {
 import {
   PlatformFormatSummary,
   XDraftPreview,
-  getXDraftState,
+  buildXDraftView,
+  copyCombinedLabel,
+  xPublishButtonLabel,
 } from './SocialDistributionXDraft'
 
 export function TaskDetailModal({
@@ -32,6 +34,8 @@ export function TaskDetailModal({
   onMarkRemoved,
   onSkip,
   onPublishX,
+  publishBusy = false,
+  xAuthNotice,
 }: {
   task: SocialDistributionTask | null
   manualUrl: string
@@ -44,8 +48,10 @@ export function TaskDetailModal({
   onMarkRemoved: () => void
   onSkip: () => void
   onPublishX: () => void
+  publishBusy?: boolean
+  xAuthNotice?: string | null
 }) {
-  const xDraft = getXDraftState(task)
+  const { xFormat, xRows, xLimit, xHasOverLimit, combined, canPublishX } = buildXDraftView(task)
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -59,9 +65,9 @@ export function TaskDetailModal({
           <InfoBlock title="平台规则提醒">
             {task.operator_checklist || 'Human Gate required.'}
           </InfoBlock>
-          <PlatformFormatSummary task={task} xFormat={xDraft.xFormat} xRows={xDraft.xRows} xLongPostText={xDraft.xLongPostText} />
-          {task.platform === 'x' && (xDraft.xRows.length || xDraft.xLongPostText) ? (
-            <XDraftPreview xFormat={xDraft.xFormat} rows={xDraft.xRows} longPostText={xDraft.xLongPostText} longPostLimit={xDraft.xLongPostLimit} />
+          <PlatformFormatSummary task={task} xFormat={xFormat} xRows={xRows} />
+          {task.platform === 'x' && xRows.length ? (
+            <XDraftPreview xFormat={xFormat} rows={xRows} />
           ) : (
             <>
               <Field label="标题">
@@ -93,13 +99,15 @@ export function TaskDetailModal({
             ) : null}
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_title ?? '', toast)}>复制标题</button>
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_body ?? '', toast)}>复制正文</button>
-            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(xDraft.combined, toast)}>{task.platform === 'x' && xDraft.xFormat === 'long_post' ? '复制长文' : task.platform === 'x' && xDraft.xRows.length ? '复制整条 Thread' : '一键复制标题和正文'}</button>
+            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(combined, toast)}>{copyCombinedLabel(task.platform, xFormat, xRows.length)}</button>
           </div>
-          {xDraft.xHasOverLimit ? (
-            <InfoBlock title="X 超限">有推文超过 280 weighted chars，发布按钮已禁用。</InfoBlock>
+          {xHasOverLimit ? (
+            <InfoBlock title="X 超限">
+              {xFormat === 'long_post' ? `X 长文超过 ${xLimit} chars，发布按钮已禁用。` : '有推文超过 280 weighted chars，发布按钮已禁用。'}
+            </InfoBlock>
           ) : null}
-          {xDraft.xLongPostOverLimit ? (
-            <InfoBlock title="X 长文超限">长文超过 {xDraft.xLongPostLimit} 字符软上限，发布按钮已禁用。</InfoBlock>
+          {xAuthNotice ? (
+            <InfoBlock title="X 授权状态">{xAuthNotice}</InfoBlock>
           ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Published URL"><input className={inputClass} value={manualUrl} onChange={(event) => onManualUrlChange(event.target.value)} /></Field>
@@ -108,7 +116,7 @@ export function TaskDetailModal({
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={onSkip}>跳过</button>
             <button type="button" className="rounded-xl border border-rose-300/40 px-3 py-2 text-sm text-rose-100" onClick={onMarkRemoved}>标记 removed</button>
-            {task.platform === 'x' ? <button type="button" disabled={!xDraft.canPublishX} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{xDraft.xFormat === 'long_post' ? '发布长文到 X' : xDraft.xFormat === 'thread' ? '一键发布 Thread' : '发布到 X'}</button> : null}
+            {task.platform === 'x' ? <button type="button" disabled={!canPublishX || publishBusy} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
             <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={onMarkLive}>标记已发布</button>
           </div>
         </div>

@@ -1,61 +1,59 @@
 import type { SocialDistributionTask } from '../api'
 import { Field, InfoBlock, textareaClass } from './SocialDistributionWidgets'
 
-export type XDraftRow = {
+export interface XDraftRow {
   tweet: string
   count: number
 }
 
-export type XDraftState = {
+export interface XDraftView {
   xFormat: string | null
   xRows: XDraftRow[]
-  xLongPostText: string
-  xLongPostLimit: number
+  xLimit: number
   xHasOverLimit: boolean
-  xLongPostOverLimit: boolean
   combined: string
   canPublishX: boolean
 }
 
-export function getXDraftState(task: SocialDistributionTask | null): XDraftState {
-  const metadata = task?.metadata ?? {}
-  const xTweets = task?.platform === 'x' ? stringArray(metadata.tweets) : []
-  const xFormat = task?.platform === 'x' ? xFormatFromMetadata(metadata, xTweets) : null
-  const xLongPostText = task?.platform === 'x' && xFormat === 'long_post'
-    ? stringValue(metadata.long_post_text) || stringValue(metadata.post_text) || task.platform_body || ''
-    : ''
+export function buildXDraftView(task: SocialDistributionTask | null): XDraftView {
+  if (!task || task.platform !== 'x') {
+    return {
+      xFormat: null,
+      xRows: [],
+      xLimit: 280,
+      xHasOverLimit: false,
+      combined: `Title:\n${task?.platform_title ?? ''}\n\nBody:\n${task?.platform_body ?? ''}`,
+      canPublishX: false,
+    }
+  }
+  const metadata = task.metadata ?? {}
+  const xTweets = stringArray(metadata.tweets)
+  const xFormat = xFormatFromMetadata(metadata, xTweets)
   const xWeightedCounts = numberArray(metadata.weighted_counts)
-  const xRows = xTweets.map((tweet, index) => ({
+  const xPostRows = xRowsFromTask(xTweets, task.platform_body, xFormat, metadata)
+  const xRows = xPostRows.map((tweet, index) => ({
     tweet,
-    count: xWeightedCounts[index] ?? conservativeXCount(tweet),
+    count: xFormat === 'long_post'
+      ? Number(metadata.character_count) || tweet.length
+      : xWeightedCounts[index] ?? conservativeXCount(tweet),
   }))
-  const xHasOverLimit = xRows.some((row) => row.count > 280)
-  const xLongPostLimit = Number(metadata.soft_max_chars) || 4000
-  const xLongPostOverLimit = Boolean(xLongPostText) && xLongPostText.length > xLongPostLimit
-  const combined =
-    task?.platform === 'x' && xFormat === 'long_post'
-      ? xLongPostText
-      : task?.platform === 'x' && xRows.length
-        ? xRows.map((row, index) => `Tweet ${index + 1}/${xRows.length}\n${row.tweet}`).join('\n\n')
-        : `Title:\n${task?.platform_title ?? ''}\n\nBody:\n${task?.platform_body ?? ''}`
-  const canPublishX =
-    task?.platform === 'x' &&
-    task.publish_mode === 'api_human_gated' &&
-    ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
-    !xHasOverLimit &&
-    !xLongPostOverLimit &&
-    (xFormat !== 'long_post' || hasCapability(task.api_capability, 'long_post')) &&
-    (xFormat !== 'long_post' || Boolean(xLongPostText)) &&
-    (xFormat !== 'thread' || xRows.length >= 2)
+  const xLimit = xFormat === 'long_post' ? Number(metadata.soft_max_chars) || 4000 : 280
+  const xHasOverLimit = xRows.some((row) => row.count > xLimit)
   return {
     xFormat,
     xRows,
-    xLongPostText,
-    xLongPostLimit,
+    xLimit,
     xHasOverLimit,
-    xLongPostOverLimit,
-    combined,
-    canPublishX,
+    combined: xRows.length
+      ? xCombinedCopy(xFormat, xRows)
+      : `Title:\n${task.platform_title ?? ''}\n\nBody:\n${task.platform_body ?? ''}`,
+    canPublishX:
+      task.publish_mode === 'api_human_gated' &&
+      ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
+      !xHasOverLimit &&
+      (xFormat !== 'long_post' || hasCapability(task.api_capability, 'long_post')) &&
+      (xFormat !== 'long_post' || xRows.length === 1) &&
+      (xFormat !== 'thread' || xRows.length >= 2),
   }
 }
 
@@ -63,28 +61,25 @@ export function PlatformFormatSummary({
   task,
   xFormat,
   xRows,
-  xLongPostText,
 }: {
   task: SocialDistributionTask
   xFormat: string | null
   xRows: XDraftRow[]
-  xLongPostText: string
 }) {
   const formatKind = stringValue(task.metadata.format_kind)
   const targetLength = stringValue(task.metadata.target_length)
+  const xLimit = xFormat === 'long_post' ? Number(task.metadata.soft_max_chars) || 4000 : 280
   const countLabel =
     task.platform === 'x' && xRows.length
-      ? xRows.map((row) => `${row.count}/280`).join(' · ')
-      : task.platform === 'x' && xFormat === 'long_post'
-        ? `${xLongPostText.length}/${Number(task.metadata.soft_max_chars) || 4000} chars`
-        : stringValue(task.metadata.word_count)
-          ? `${task.metadata.word_count} words`
-          : stringValue(task.metadata.character_count)
-            ? `${task.metadata.character_count} chars`
-            : 'not measured'
+      ? xRows.map((row) => `${row.count}/${xLimit}`).join(' · ')
+      : stringValue(task.metadata.word_count)
+        ? `${task.metadata.word_count} words`
+        : stringValue(task.metadata.character_count)
+          ? `${task.metadata.character_count} chars`
+          : 'not measured'
   return (
     <section className="grid gap-3 md:grid-cols-3">
-      <InfoBlock title="发布方式">{task.platform === 'x' ? xPublishLabel(xFormat) : 'Manual human publish'}</InfoBlock>
+      <InfoBlock title="发布方式">{task.platform === 'x' ? xFormatLabel(xFormat) : 'Manual human publish'}</InfoBlock>
       <InfoBlock title="格式类型">{formatKind || 'platform draft'}</InfoBlock>
       <InfoBlock title="目标 / 当前">{targetLength ? `${targetLength} · ${countLabel}` : countLabel}</InfoBlock>
     </section>
@@ -94,18 +89,15 @@ export function PlatformFormatSummary({
 export function XDraftPreview({
   xFormat,
   rows,
-  longPostText,
-  longPostLimit,
 }: {
   xFormat: string | null
   rows: XDraftRow[]
-  longPostText: string
-  longPostLimit: number
 }) {
   if (xFormat === 'long_post') {
+    const row = rows[0]
     return (
-      <Field label={`X 长文 (${longPostText.length}/${longPostLimit} chars)`}>
-        <textarea readOnly className={`${textareaClass} min-h-[360px]`} value={longPostText} />
+      <Field label={`X 长文 (${row.count}/4000 chars)`}>
+        <textarea readOnly className={`${textareaClass} min-h-[360px]`} value={row.tweet} />
       </Field>
     )
   }
@@ -132,9 +124,53 @@ export function XDraftPreview({
   )
 }
 
-function xPublishLabel(xFormat: string | null): string {
-  if (xFormat === 'long_post') return 'X Premium Long Post'
+export function xPublishButtonLabel(xFormat: string | null): string {
+  if (xFormat === 'thread') return '一键发布 Thread'
+  if (xFormat === 'long_post') return '发布长文到 X'
+  return '发布到 X'
+}
+
+export function copyCombinedLabel(platform: string, xFormat: string | null, rowCount: number): string {
+  if (platform !== 'x' || rowCount === 0) return '一键复制标题和正文'
+  if (xFormat === 'long_post') return '复制长文'
+  if (xFormat === 'thread') return '复制整条 Thread'
+  return '复制推文'
+}
+
+function xFormatFromMetadata(metadata: Record<string, unknown>, tweets: string[]): string {
+  const explicit = stringValue(metadata.x_format).toLowerCase()
+  const formatKind = stringValue(metadata.format_kind).toLowerCase()
+  if (['long_post', 'x_long_post', 'premium_long_post'].includes(explicit)) return 'long_post'
+  if (['long_post', 'x_long_post', 'premium_long_post'].includes(formatKind)) return 'long_post'
+  if (explicit === 'single' || explicit === 'thread') return explicit
+  return tweets.length > 1 ? 'thread' : 'single'
+}
+
+function xRowsFromTask(
+  tweets: string[],
+  body: string | null | undefined,
+  xFormat: string | null,
+  metadata: Record<string, unknown>,
+): string[] {
+  if (tweets.length) return tweets
+  if (xFormat === 'long_post') {
+    const longPost = stringValue(metadata.long_post_text) || stringValue(metadata.post_text) || String(body ?? '').trim()
+    return longPost ? [longPost] : []
+  }
+  const bodyText = String(body ?? '').trim()
+  if (bodyText) return [bodyText]
+  const metadataBody = stringValue(metadata.body_text)
+  return metadataBody ? [metadataBody] : []
+}
+
+function xCombinedCopy(xFormat: string | null, rows: XDraftRow[]): string {
+  if (xFormat === 'long_post') return rows[0]?.tweet ?? ''
+  return rows.map((row, index) => `Tweet ${index + 1}/${rows.length}\n${row.tweet}`).join('\n\n')
+}
+
+function xFormatLabel(xFormat: string | null): string {
   if (xFormat === 'thread') return 'X Thread'
+  if (xFormat === 'long_post') return 'X Premium Long Post'
   return 'X Single'
 }
 
@@ -157,12 +193,6 @@ function numberArray(value: unknown): number[] {
 function stringValue(value: unknown): string {
   if (typeof value === 'number') return String(value)
   return typeof value === 'string' ? value : ''
-}
-
-function xFormatFromMetadata(metadata: Record<string, unknown>, tweets: string[]): string {
-  const explicit = stringValue(metadata.x_format)
-  if (explicit === 'single' || explicit === 'thread' || explicit === 'long_post') return explicit
-  return tweets.length > 1 ? 'thread' : 'single'
 }
 
 function conservativeXCount(value: string): number {

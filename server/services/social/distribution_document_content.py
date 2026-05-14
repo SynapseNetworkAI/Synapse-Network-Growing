@@ -14,6 +14,7 @@ from server.services.social.distribution_core import (
     _normalize_platform,
 )
 from server.services.social.distribution_content_strategy import (
+    X_LONG_POST_SOFT_LIMIT,
     platform_format_kind,
     platform_target_length,
     x_format_from_metadata,
@@ -209,7 +210,7 @@ def x_platform_document_markdown(
     ]
     if x_format == "long_post":
         post_text = x_long_post_text_from_metadata(metadata, task.platform_body)
-        parts.extend(["## X Long Post", f"Character count: {len(post_text)}/4000", "", post_text])
+        parts.extend(["## X Long Post", f"Character count: {len(post_text)}/{X_LONG_POST_SOFT_LIMIT}", "", post_text])
     elif x_format == "thread":
         parts.append("## Thread")
         for index, tweet in enumerate(tweets):

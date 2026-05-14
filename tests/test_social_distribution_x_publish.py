@@ -8,7 +8,8 @@ from server.database_social_distribution import (
     SocialDistributionTaskRow,
 )
 from server.services.social.agent_content_pack import generate_platform_task_draft
-from server.services.social.publishing import XPublishResult
+from server.services.social.publishing import SocialPublishError, XPublishResult
+from server.services.social.distribution_tasks import _validate_x_publish_payload
 from tests.social_distribution_helpers import patch_agent_distribution
 
 
@@ -256,7 +257,127 @@ def test_x_distribution_task_can_publish_after_human_gate(
     )
 
 
-def test_x_distribution_long_post_can_publish_after_human_gate(
+def test_x_distribution_auth_status_validates_refresh_before_publish(
+    synced_client, db_session, monkeypatch
+):
+    patch_agent_distribution(monkeypatch)
+
+    class TokenResult:
+        access_token = "access-token"
+        refresh_token_rotated = True
+
+    monkeypatch.setattr(
+        "server.services.social.distribution_tasks.x_oauth_token_provider.get_access_token",
+        lambda _secret_ref: TokenResult(),
+    )
+    task_id = _generated_x_task_id(synced_client, db_session)
+
+    response = synced_client.get(
+        f"/api/social/distribution/tasks/{task_id}/x-auth-status"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "authorized"
+    assert payload["can_publish"] is True
+    assert payload["requires_authorization"] is False
+    assert payload["refresh_token_rotated"] is True
+
+
+def test_x_distribution_auth_status_expired_requests_oauth(
+    synced_client, db_session, monkeypatch
+):
+    patch_agent_distribution(monkeypatch)
+
+    def raise_expired(_secret_ref):
+        raise SocialPublishError("x_refresh_failed", "refresh token expired")
+
+    monkeypatch.setattr(
+        "server.services.social.distribution_tasks.x_oauth_token_provider.get_access_token",
+        raise_expired,
+    )
+    task_id = _generated_x_task_id(synced_client, db_session)
+
+    response = synced_client.get(
+        f"/api/social/distribution/tasks/{task_id}/x-auth-status"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "needs_authorization"
+    assert payload["can_publish"] is False
+    assert payload["requires_authorization"] is True
+    assert payload["auth_message"] == "refresh token expired"
+
+
+def test_x_distribution_auth_status_gcp_adc_failure_is_diagnostic(
+    synced_client, db_session, monkeypatch
+):
+    patch_agent_distribution(monkeypatch)
+
+    def raise_gcp(_secret_ref):
+        raise SocialPublishError("gcp_adc_expired", "Run gcloud auth")
+
+    monkeypatch.setattr(
+        "server.services.social.distribution_tasks.x_oauth_token_provider.get_access_token",
+        raise_gcp,
+    )
+    task_id = _generated_x_task_id(synced_client, db_session)
+
+    response = synced_client.get(
+        f"/api/social/distribution/tasks/{task_id}/x-auth-status"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "gcp_adc_expired"
+    assert payload["can_publish"] is False
+    assert payload["requires_authorization"] is False
+
+
+def test_x_distribution_auth_status_rejects_invalid_task_shapes(
+    synced_client, db_session, monkeypatch
+):
+    patch_agent_distribution(monkeypatch)
+
+    missing = synced_client.get("/api/social/distribution/tasks/999/x-auth-status")
+    assert missing.status_code == 404
+    assert "not found" in missing.json()["detail"].lower()
+
+    accounts = synced_client.get("/api/social/distribution/accounts").json()
+    devto = next(row for row in accounts if row["platform"] == "devto")
+    asset = synced_client.post(
+        "/api/social/distribution/assets",
+        json={"title": "Manual platform", "summary": "DEV is not X."},
+    ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
+    generated = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-tasks",
+        json={"account_ids": [devto["id"]]},
+    ).json()
+
+    non_x = synced_client.get(
+        f"/api/social/distribution/tasks/{generated['generated_task_ids'][0]}/x-auth-status"
+    )
+    assert non_x.status_code == 400
+    assert "only X distribution tasks" in non_x.json()["detail"]
+
+    x_task = db_session.get(
+        SocialDistributionTaskRow,
+        _generated_x_task_id(synced_client, db_session),
+    )
+    assert x_task is not None and x_task.account is not None
+    x_task.account.publish_mode = "manual_only"
+    db_session.commit()
+
+    manual_x = synced_client.get(
+        f"/api/social/distribution/tasks/{x_task.id}/x-auth-status"
+    )
+    assert manual_x.status_code == 400
+    assert "not configured for API publishing" in manual_x.json()["detail"]
+
+
+def test_x_distribution_long_post_publish_uses_single_x_call(
     synced_client, db_session, monkeypatch
 ):
     monkeypatch.setattr(
@@ -275,6 +396,9 @@ def test_x_distribution_long_post_can_publish_after_human_gate(
                 response_summary={"data": {"id": "long-123"}},
             )
 
+        def publish_reply(self, account, body_text, *, in_reply_to_tweet_id):
+            raise AssertionError("long post must not publish thread replies")
+
     fake_publisher = FakeXPublisher()
     monkeypatch.setattr(
         "server.services.social.distribution_tasks.x_publisher",
@@ -291,6 +415,7 @@ def test_x_distribution_long_post_can_publish_after_human_gate(
     payload = response.json()
     assert payload["status"] == "live"
     assert payload["external_post_id"] == "long-123"
+    assert payload["metadata"]["x_format"] == "long_post"
     assert fake_publisher.calls == [payload["metadata"]["long_post_text"]]
     assert (
         db_session.query(SocialDistributionEventRow)
@@ -332,6 +457,13 @@ def test_x_distribution_long_post_api_failure_records_bounded_failure(
     payload = response.json()
     assert payload["status"] == "failed"
     assert payload["failure_summary"] == "X API rejected long-form text for this account."
+
+
+def test_x_distribution_long_post_publish_payload_validation():
+    with pytest.raises(ValueError, match="empty"):
+        _validate_x_publish_payload("long_post", [], "")
+    with pytest.raises(ValueError, match="exceeds 4000"):
+        _validate_x_publish_payload("long_post", [], "x" * 4001)
 
 
 def test_x_distribution_thread_partial_failure_records_progress(

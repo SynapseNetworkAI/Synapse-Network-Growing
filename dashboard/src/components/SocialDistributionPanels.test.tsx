@@ -23,6 +23,8 @@ const apiMock = vi.hoisted(() => ({
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
+  getSocialDistributionTaskXAuthStatus: vi.fn(),
+  startSocialXOAuth: vi.fn(),
   runSocialAssetPlanner: vi.fn(),
   getDistributionAccounts: vi.fn(),
   updateDistributionAccount: vi.fn(),
@@ -204,6 +206,20 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.markSocialDistributionTaskRemoved.mockResolvedValue(task({ status: 'removed', manual_result_note: 'Moderator removed duplicate post.' }))
     apiMock.updateSocialDistributionTask.mockResolvedValue(task({ status: 'skipped' }))
     apiMock.publishSocialDistributionTaskToX.mockResolvedValue(task({ platform: 'x', channel_key: 'official', status: 'live', external_post_id: '1234567890' }))
+    apiMock.getSocialDistributionTaskXAuthStatus.mockResolvedValue({
+      status: 'authorized',
+      can_publish: true,
+      account_id: 1,
+      account_handle: 'SynapseNetworkA',
+      auth_message: 'authorized',
+      requires_authorization: false,
+      refresh_token_rotated: false,
+    })
+    apiMock.startSocialXOAuth.mockResolvedValue({
+      auth_url: 'https://twitter.com/i/oauth2/authorize?state=test',
+      state: 'test',
+      expires_at: '2026-05-01T00:10:00Z',
+    })
     apiMock.getSocialContentAssets.mockResolvedValue([asset()])
     apiMock.getSocialContentAsset.mockResolvedValue(asset())
     apiMock.createSocialContentTask.mockResolvedValue(asset({ source_type: 'manual_task' }))
@@ -431,6 +447,90 @@ describe('SocialDistributionPanels v2', () => {
 
     expect(await screen.findByText('X OAuth token exchange failed.')).toBeInTheDocument()
     expect(screen.queryByText('已发布到 X')).not.toBeInTheDocument()
+  })
+
+  it('opens X OAuth authorization instead of publishing when login expired', async () => {
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    const xTask = task({
+      id: 203,
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      account_display_name: 'X Official Account',
+      publish_mode: 'api_human_gated',
+      api_capability: 'post,long_post',
+      status: 'needs_review',
+      platform_title: 'X Premium long post',
+      platform_body: 'A substantial X long post about solo-company operating systems.',
+      metadata: {
+        format_kind: 'x_long_post',
+        target_length: 'X Premium long post, max 4000 chars',
+        x_format: 'x_long_post',
+        character_count: 62,
+      },
+    })
+    const xAsset = asset({ tasks: [xTask] })
+    apiMock.getSocialContentAsset.mockResolvedValue(xAsset)
+    apiMock.getSocialDistributionTaskXAuthStatus.mockResolvedValueOnce({
+      status: 'needs_authorization',
+      can_publish: false,
+      account_id: 1,
+      account_handle: 'SynapseNetworkA',
+      auth_message: 'refresh token expired',
+      requires_authorization: true,
+      refresh_token_rotated: false,
+    })
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '发布到 X / 详情' }))
+    await user.click(screen.getByRole('button', { name: '发布长文到 X' }))
+
+    await waitFor(() => {
+      expect(apiMock.getSocialDistributionTaskXAuthStatus).toHaveBeenCalledWith(203)
+      expect(apiMock.startSocialXOAuth).toHaveBeenCalledWith(1)
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://twitter.com/i/oauth2/authorize?state=test',
+        '_blank',
+        'noopener,noreferrer',
+      )
+    })
+    expect(apiMock.publishSocialDistributionTaskToX).not.toHaveBeenCalled()
+    expect(screen.getAllByText('X 授权页已打开。完成授权后回到这里，再点击发送。').length).toBeGreaterThan(0)
+  })
+
+  it('publishes X long post after auth preflight succeeds', async () => {
+    const user = userEvent.setup()
+    const xTask = task({
+      id: 204,
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      account_display_name: 'X Official Account',
+      publish_mode: 'api_human_gated',
+      api_capability: 'post,long_post',
+      status: 'needs_review',
+      platform_title: 'X Premium long post',
+      platform_body: 'A substantial X long post about solo-company operating systems.',
+      metadata: {
+        format_kind: 'x_long_post',
+        target_length: 'X Premium long post, max 4000 chars',
+        x_format: 'x_long_post',
+        character_count: 62,
+      },
+    })
+    apiMock.getSocialContentAsset.mockResolvedValue(asset({ tasks: [xTask] }))
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '发布到 X / 详情' }))
+    await user.click(screen.getByRole('button', { name: '发布长文到 X' }))
+
+    await waitFor(() => {
+      expect(apiMock.getSocialDistributionTaskXAuthStatus).toHaveBeenCalledWith(204)
+      expect(apiMock.publishSocialDistributionTaskToX).toHaveBeenCalledWith(204, { actor: 'operator' })
+    })
   })
 
   it('runs the Asset Planner from the Tasks board', async () => {
