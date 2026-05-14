@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="$("$ROOT_DIR/scripts/ci/detect_python.sh")"
 DIFF_BASE="${1:-$("$ROOT_DIR/scripts/ci/resolve_diff_base.sh")}"
 QUALITY_BASE_REF="${QUALITY_BASE_REF:-origin/main}"
+BACKEND_CHECK_MODE="${BACKEND_CHECK_MODE:-targeted}"
 
 cd "$ROOT_DIR"
 
@@ -33,8 +34,35 @@ done < <(
 
 if [[ ${#changed_python_files[@]} -eq 0 ]]; then
   echo "[ci:backend] no Python changes; skipping backend pytest"
-else
-  echo "[ci:backend] pytest with diff coverage"
+elif [[ "$BACKEND_CHECK_MODE" == "targeted" ]]; then
+  echo "[ci:backend] targeted mode"
+  echo "[ci:backend] compiling changed Python files"
+  "$PYTHON" -m py_compile "${changed_python_files[@]}"
+
+  targeted_plan="$(mktemp)"
+  "$PYTHON" "$ROOT_DIR/scripts/ci/backend_targeted_tests.py" \
+    --json "$targeted_plan" \
+    "${changed_python_files[@]}"
+  echo "[ci:backend] targeted test plan"
+  cat "$targeted_plan"
+
+  targeted_tests=()
+  while IFS= read -r test_file; do
+    [[ -n "$test_file" ]] && targeted_tests+=("$test_file")
+  done < <(
+    "$PYTHON" "$ROOT_DIR/scripts/ci/backend_targeted_tests.py" \
+      --print-tests \
+      "${changed_python_files[@]}"
+  )
+
+  if [[ ${#targeted_tests[@]} -eq 0 ]]; then
+    echo "[ci:backend] no mapped pytest targets; static quality + py_compile completed"
+  else
+    echo "[ci:backend] targeted pytest: ${targeted_tests[*]}"
+    PYTHONPATH=. "${PYTEST_CMD[@]}" -q "${targeted_tests[@]}"
+  fi
+elif [[ "$BACKEND_CHECK_MODE" == "full" ]]; then
+  echo "[ci:backend] full mode pytest with diff coverage"
   if ! command -v uvx >/dev/null 2>&1; then
     echo "FATAL DIFF-COVERAGE-TOOL-001: uvx is required to run diff-cover." >&2
     echo "Install uv/uvx locally or use GitHub Actions, which installs uv before backend_checks." >&2
@@ -49,6 +77,9 @@ else
     --fail-under=90 \
     --include-untracked \
     --src-roots "$ROOT_DIR"
+else
+  echo "Unsupported BACKEND_CHECK_MODE: $BACKEND_CHECK_MODE" >&2
+  exit 2
 fi
 
 echo "[ci:backend] whitespace"
