@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from server.services.social.context_tags import (
@@ -106,8 +107,13 @@ def generate_platform_task_draft(
         artifact_prefix=f"platform-{platform}-{channel_key}",
     )
     parsed = parse_agent_json_output(raw_text)
-    draft = _platform_draft_from_payload(
-        parsed.data, platform=platform, asset_title=asset_title
+    draft, metadata, model, parsed = _draft_with_optional_x_long_post_repair(
+        parsed=parsed,
+        metadata=metadata,
+        model=model,
+        platform=platform,
+        channel_key=channel_key,
+        asset_title=asset_title,
     )
     draft.metadata = {
         **metadata,
@@ -128,6 +134,84 @@ def generate_platform_task_draft(
     validate_public_safe_text(f"{draft.title}\n{draft.body}\n{draft.checklist}")
     _validate_platform_body_density(platform, draft.body)
     return draft
+
+
+def _draft_with_optional_x_long_post_repair(
+    *,
+    parsed,
+    metadata: dict[str, object],
+    model: str,
+    platform: str,
+    channel_key: str,
+    asset_title: str,
+):
+    try:
+        return (
+            _platform_draft_from_payload(
+                parsed.data, platform=platform, asset_title=asset_title
+            ),
+            metadata,
+            model,
+            parsed,
+        )
+    except ValueError as exc:
+        if not _should_repair_x_long_post(platform, exc):
+            raise
+        system_prompt, user_prompt = _x_long_post_repair_prompt(
+            asset_title=asset_title,
+            failed_payload=parsed.data,
+            failure=str(exc),
+        )
+        raw_text, repair_metadata, repair_model = _call_content_agent(
+            system_prompt,
+            user_prompt,
+            output_schema=PLATFORM_DRAFT_OUTPUT_SCHEMA,
+            artifact_prefix=f"platform-{platform}-{channel_key}-repair",
+        )
+        repaired = parse_agent_json_output(raw_text)
+        draft = _platform_draft_from_payload(
+            repaired.data, platform=platform, asset_title=asset_title
+        )
+        return (
+            draft,
+            {
+                **repair_metadata,
+                "initial_attempt": metadata,
+                "x_long_post_repair_attempted": True,
+                "x_long_post_repair_reason": str(exc),
+            },
+            repair_model,
+            repaired,
+        )
+
+
+def _should_repair_x_long_post(platform: str, exc: ValueError) -> bool:
+    return platform == "x" and "long post exceeds" in str(exc)
+
+
+def _x_long_post_repair_prompt(
+    *, asset_title: str, failed_payload: dict[str, Any], failure: str
+) -> tuple[str, str]:
+    failed_text = json.dumps(failed_payload, ensure_ascii=False)
+    return (
+        "You rewrite over-limit X Premium long posts into valid structured JSON. "
+        "You never add facts, never pad, and never return markdown.",
+        (
+            "# Failed X long-post draft\n"
+            f"Title: {asset_title}\n"
+            f"Failure: {failure}\n\n"
+            "# Draft JSON to compress\n"
+            f"{failed_text[:9000]}\n\n"
+            "# Required repair\n"
+            "Return the same platform draft schema. Use x_format=long_post. "
+            "Set platform_body and post_text to the same repaired English X text. "
+            "Compress to 2200-3200 characters if possible and always stay under "
+            "3900 characters. Preserve concrete technical decisions and the "
+            "solo-founder build-in-public voice. Remove repetition, background "
+            "setup, and generic conclusions before removing useful details. "
+            "No thread fallback. No markdown fences."
+        ),
+    )
 
 
 def generate_canonical_article_expansion(
@@ -309,7 +393,16 @@ def _platform_checklist(payload: dict[str, Any], platform: str) -> str:
     value = str(payload.get("operator_checklist") or "").strip()
     if value:
         return _public_safe(value)
-    if platform == "x" and (payload.get("x_format") or payload.get("tweets")):
+    if platform == "x" and (
+        payload.get("x_format") or payload.get("tweets") or payload.get("post_text")
+    ):
+        x_format = str(payload.get("x_format") or "").strip().lower()
+        if x_format == "long_post" or payload.get("post_text"):
+            return (
+                "Human Gate required. X Premium long post: verify the account "
+                "can publish long posts, review the full text, and use manual "
+                "X Web publish + URL backfill if the API rejects long-form text."
+            )
         return "Human Gate required. Verify every tweet is under 280 weighted chars before publishing."
     raise AgentContentGenerationError(
         "agent_content_generation_failed: operator_checklist_empty"

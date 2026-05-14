@@ -51,15 +51,7 @@ export function TaskDetailModal({
   publishBusy?: boolean
   xAuthNotice?: string | null
 }) {
-  const { xFormat, xRows, xHasOverLimit, combined } = buildXDraftView(task)
-  const canPublishX =
-    task?.platform === 'x' &&
-    task.publish_mode === 'api_human_gated' &&
-    ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
-    !xHasOverLimit &&
-    !publishBusy &&
-    (xFormat !== 'long_post' || xRows.length === 1) &&
-    (xFormat !== 'thread' || xRows.length >= 2)
+  const { xFormat, xRows, xLimit, xHasOverLimit, combined, canPublishX } = buildXDraftView(task)
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -111,7 +103,7 @@ export function TaskDetailModal({
           </div>
           {xHasOverLimit ? (
             <InfoBlock title="X 超限">
-              {xFormat === 'long_post' ? 'X 长文超过 4000 chars，发布按钮已禁用。' : '有推文超过 280 weighted chars，发布按钮已禁用。'}
+              {xFormat === 'long_post' ? `X 长文超过 ${xLimit} chars，发布按钮已禁用。` : '有推文超过 280 weighted chars，发布按钮已禁用。'}
             </InfoBlock>
           ) : null}
           {xAuthNotice ? (
@@ -124,7 +116,7 @@ export function TaskDetailModal({
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={onSkip}>跳过</button>
             <button type="button" className="rounded-xl border border-rose-300/40 px-3 py-2 text-sm text-rose-100" onClick={onMarkRemoved}>标记 removed</button>
-            {task.platform === 'x' ? <button type="button" disabled={!canPublishX} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
+            {task.platform === 'x' ? <button type="button" disabled={!canPublishX || publishBusy} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
             <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={onMarkLive}>标记已发布</button>
           </div>
         </div>

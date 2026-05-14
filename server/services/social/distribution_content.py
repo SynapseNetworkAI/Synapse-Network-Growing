@@ -26,9 +26,9 @@ DEFAULT_DISTRIBUTION_ACCOUNTS = (
         "https://x.com/SynapseNetworkA",
         "official",
         "P0",
-        "Official X account. API posting is allowed only after Human Gate confirmation.",
+        "Official X Premium account. API posting is allowed only after Human Gate confirmation; long-post publish falls back to manual X Web posting if the API rejects long-form text.",
         "api_human_gated",
-        "post",
+        "post,long_post",
     ),
     DistributionSeedAccount(
         "hacker_news",

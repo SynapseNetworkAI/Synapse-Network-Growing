@@ -225,7 +225,12 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setTaskDetail(updated)
       if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
-      toast.success('已发布到 X')
+      if (updated.status === 'live') {
+        toast.success('已发布到 X')
+        return
+      }
+      const reason = updated.failure_summary || updated.manual_result_note || 'X 发布未完成'
+      toast.error(reason)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '发布到 X 失败')
     } finally {

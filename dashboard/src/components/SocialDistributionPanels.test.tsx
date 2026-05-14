@@ -386,6 +386,69 @@ describe('SocialDistributionPanels v2', () => {
     expect(screen.getByRole('button', { name: '一键发布 Thread' })).toBeEnabled()
   })
 
+  it('does not show a success toast when X publish returns failed state', async () => {
+    const user = userEvent.setup()
+    const xTask = task({
+      id: 202,
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      account_display_name: 'X Official Account',
+      publish_mode: 'api_human_gated',
+      api_capability: 'post,long_post',
+      status: 'needs_review',
+      platform_title: 'Long post',
+      platform_body: 'A technical long post.',
+      metadata: {
+        format_kind: 'x_long_post',
+        x_format: 'long_post',
+        long_post_text: 'A technical long post.',
+        character_count: 22,
+        soft_max_chars: 4000,
+      },
+    })
+    const xAsset = asset({ tasks: [xTask], status_counts: { needs_review: 1 } })
+    apiMock.getSocialContentAsset.mockResolvedValue(xAsset)
+    apiMock.publishSocialDistributionTaskToX.mockResolvedValue(task({
+      ...xTask,
+      status: 'failed',
+      failure_summary: 'X OAuth token exchange failed.',
+    }))
+    apiMock.getSocialDistributionBoard.mockResolvedValueOnce({
+      columns: [
+        { key: 'backlog', title: '待计划', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'needs_review', title: '待审核', description: 'Plan.', count: 1, cards: [{
+          id: 'asset:301',
+          asset: xAsset,
+          column_key: 'needs_review',
+          task_count: 1,
+          document_count: 1,
+          platform_count: 1,
+          failed_count: 0,
+          ready_to_publish_count: 1,
+          live_count: 0,
+          status_counts: { needs_review: 1 },
+          document_status_counts: {},
+          next_action: 'Publish X long post.',
+          updated_at: '2026-05-01T00:00:00Z',
+        }] },
+        { key: 'ready_to_publish', title: '待发布', description: 'Ready.', count: 0, cards: [] },
+        { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 1 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '发布到 X / 详情' }))
+    await user.click(screen.getByRole('button', { name: '发布长文到 X' }))
+
+    expect(await screen.findByText('X OAuth token exchange failed.')).toBeInTheDocument()
+    expect(screen.queryByText('已发布到 X')).not.toBeInTheDocument()
+  })
+
   it('opens X OAuth authorization instead of publishing when login expired', async () => {
     const user = userEvent.setup()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
@@ -396,7 +459,7 @@ describe('SocialDistributionPanels v2', () => {
       channel_key: 'official',
       account_display_name: 'X Official Account',
       publish_mode: 'api_human_gated',
-      api_capability: 'write_post',
+      api_capability: 'post,long_post',
       status: 'needs_review',
       platform_title: 'X Premium long post',
       platform_body: 'A substantial X long post about solo-company operating systems.',
@@ -446,7 +509,7 @@ describe('SocialDistributionPanels v2', () => {
       channel_key: 'official',
       account_display_name: 'X Official Account',
       publish_mode: 'api_human_gated',
-      api_capability: 'write_post',
+      api_capability: 'post,long_post',
       status: 'needs_review',
       platform_title: 'X Premium long post',
       platform_body: 'A substantial X long post about solo-company operating systems.',

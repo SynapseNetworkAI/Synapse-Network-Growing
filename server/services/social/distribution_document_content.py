@@ -14,10 +14,11 @@ from server.services.social.distribution_core import (
     _normalize_platform,
 )
 from server.services.social.distribution_content_strategy import (
-    X_LONG_POST_CHAR_LIMIT,
+    X_LONG_POST_SOFT_LIMIT,
     platform_format_kind,
     platform_target_length,
     x_format_from_metadata,
+    x_long_post_text_from_metadata,
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
@@ -201,13 +202,16 @@ def x_platform_document_markdown(
         f"Platform: {task.platform} / {task.channel_key}",
         f"Format: {_x_format_label(x_format)}",
         (
-            "Counting: plain chars for X Premium long post"
+            "Counting: plain character count; Premium long post soft max=4000"
             if x_format == "long_post"
             else "Counting: conservative weighted chars; URLs=23, CJK/wide chars=2"
         ),
         "",
     ]
-    if x_format == "thread":
+    if x_format == "long_post":
+        post_text = x_long_post_text_from_metadata(metadata, task.platform_body)
+        parts.extend(["## X Long Post", f"Character count: {len(post_text)}/{X_LONG_POST_SOFT_LIMIT}", "", post_text])
+    elif x_format == "thread":
         parts.append("## Thread")
         for index, tweet in enumerate(tweets):
             parts.extend(
@@ -217,16 +221,6 @@ def x_platform_document_markdown(
                     tweet,
                 ]
             )
-    elif x_format == "long_post":
-        post = tweets[0] if tweets else str(task.platform_body or "")
-        parts.extend(
-            [
-                "## X Premium Long Post",
-                f"Character count: {len(post)}/{X_LONG_POST_CHAR_LIMIT}",
-                "",
-                post,
-            ]
-        )
     else:
         tweet = tweets[0] if tweets else str(task.platform_body or "")
         parts.extend(["## Tweet", f"Weighted count: {x_weighted_character_count(tweet)}/280", "", tweet])
@@ -236,10 +230,10 @@ def x_platform_document_markdown(
 
 
 def _x_format_label(x_format: str) -> str:
-    if x_format == "thread":
-        return "X Thread"
     if x_format == "long_post":
         return "X Premium Long Post"
+    if x_format == "thread":
+        return "X Thread"
     return "Single X Post"
 
 

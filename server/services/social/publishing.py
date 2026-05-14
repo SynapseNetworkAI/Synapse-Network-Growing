@@ -806,7 +806,13 @@ image_generator: SocialImageGenerator = SocialImageGenerator()
 
 
 def _account_out(row: SocialAccountRow) -> dict[str, Any]:
-    auth_status, auth_message = x_oauth_token_provider.auth_status()
+    if row.status == "needs_authorization":
+        auth_status, auth_message = (
+            "needs_authorization",
+            "Previous X OAuth refresh failed. Start OAuth authorization again.",
+        )
+    else:
+        auth_status, auth_message = x_oauth_token_provider.auth_status()
     return {
         "id": int(row.id),
         "platform": row.platform,
