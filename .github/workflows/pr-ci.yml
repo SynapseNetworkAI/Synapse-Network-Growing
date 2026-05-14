@@ -37,6 +37,7 @@ jobs:
       run_docs: ${{ steps.scope.outputs.run_docs }}
       run_security: ${{ steps.scope.outputs.run_security }}
       run_scope_self_test: ${{ steps.scope.outputs.run_scope_self_test }}
+      backend_mode: ${{ steps.scope.outputs.backend_mode }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -199,6 +200,8 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -r requirements.txt
       - name: Run backend scoped checks
+        env:
+          BACKEND_CHECK_MODE: ${{ needs.scope.outputs.backend_mode || 'targeted' }}
         run: |
           git fetch --quiet origin main
           bash scripts/ci/backend_checks.sh origin/main

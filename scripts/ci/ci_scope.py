@@ -50,6 +50,17 @@ SECURITY_PATTERNS = (
     "auth",
     "secret",
 )
+BACKEND_FULL_REQUIRED_KEYWORDS = (
+    "auth",
+    "finance",
+    "release",
+    "security",
+    "settlement",
+    "workflow",
+)
+SCOPED_BACKEND_MODE = "targeted"
+FULL_BACKEND_MODE = "full"
+NO_BACKEND_MODE = "none"
 
 
 @dataclass(frozen=True)
@@ -70,6 +81,9 @@ class ScopeResult:
     run_security: bool = False
     run_scope_self_test: bool = False
     run_full: bool = False
+    backend_mode: str = NO_BACKEND_MODE
+    run_backend_targeted: bool = False
+    run_backend_full: bool = False
     reason: str = ""
 
     def to_json(self) -> str:
@@ -111,7 +125,20 @@ def _is_full_required(path: str) -> bool:
         return True
     if _matches_prefix(path, FULL_REQUIRED_PREFIXES):
         return True
-    return "schema" in path.lower() or "migration" in path.lower()
+    lower = path.lower()
+    if "schema" in lower or "migration" in lower:
+        return True
+    return _is_backend_full_required(path)
+
+
+def _is_backend_full_required(path: str) -> bool:
+    """Return true for backend changes that need full backend regression."""
+    if path in SCOPE_SELF_TEST_FILES:
+        return False
+    if not _matches_prefix(path, BACKEND_PREFIXES):
+        return False
+    lower = path.lower()
+    return any(keyword in lower for keyword in BACKEND_FULL_REQUIRED_KEYWORDS)
 
 
 def _is_docs(path: str) -> bool:
@@ -150,6 +177,8 @@ def _forced_full(paths: list[str], reason: str) -> ScopeResult:
         run_dashboard=True,
         run_security=True,
         run_full=True,
+        backend_mode=FULL_BACKEND_MODE,
+        run_backend_full=True,
         reason=reason,
     )
 
@@ -226,6 +255,8 @@ def _full_required_scope(paths: list[str], flags: dict[str, bool]) -> ScopeResul
         run_dashboard=True,
         run_security=True,
         run_full=True,
+        backend_mode=FULL_BACKEND_MODE,
+        run_backend_full=True,
         reason="full_required_path",
     )
 
@@ -245,6 +276,7 @@ def _docs_only(flags: dict[str, bool]) -> bool:
 
 def _scoped_result(paths: list[str], flags: dict[str, bool]) -> ScopeResult:
     docs_only = _docs_only(flags)
+    backend_mode = SCOPED_BACKEND_MODE if flags["backend"] else NO_BACKEND_MODE
     return ScopeResult(
         changed_files=paths,
         scope=_scope_name(
@@ -265,6 +297,9 @@ def _scoped_result(paths: list[str], flags: dict[str, bool]) -> ScopeResult:
         run_dashboard=flags["dashboard"],
         run_security=flags["security"],
         run_scope_self_test=flags["scope_self_test"],
+        backend_mode=backend_mode,
+        run_backend_targeted=flags["backend"],
+        run_backend_full=False,
         reason="classified",
     )
 

@@ -7,7 +7,7 @@ Load this when touching CI, PRs, tests, coverage, linting, code quality, line co
 1. `scripts/ci/pr_checks.sh` is the full gate source of truth for main, nightly, manual full CI, and large/high-risk local validation.
 2. Full gate can be split in CI with `PR_CHECKS_PHASE=quality|backend|dashboard|all`, but the combined phases must equal `all`.
 3. PR CI uses `scripts/ci/ci_scope.py` for scoped checks. Unclear scope or workflow/dependency/schema/migration/non-classifier CI gate changes upgrade to full gate.
-4. Docs-only scope does not install dashboard dependencies or run backend pytest. Dashboard-only scope skips backend pytest. Backend-only scope skips dashboard tests/build.
+4. Docs-only scope does not install dashboard dependencies or run backend pytest. Dashboard-only scope skips backend pytest. Backend-only scope skips dashboard tests/build. Backend-only scope defaults to `backend-targeted`: run static quality, compile changed Python files, and execute mapped tests from `scripts/ci/backend_targeted_tests.py`; `backend-full` is reserved for main, nightly, manual full, migrations/schema, release/workflow/security/finance, and CI gate changes.
 5. Local pre-push defaults to `scripts/ci/local_pr_checks.sh --scope auto`; use `SYNAPSE_CI_SCOPE=full` for major changes or release prep.
 6. GitHub branch protection should require aggregate `pr-checks`; skipped scoped jobs must not become merge blockers.
 7. GitHub Actions dependency caches are required: Python jobs use pip cache, Node jobs use yarn cache, and uv/uvx jobs use setup-uv cache. Do not cache `dashboard/node_modules` by default.

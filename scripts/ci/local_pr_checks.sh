@@ -48,6 +48,7 @@ run_full="$("$PYTHON" -c 'import json,sys; print(str(json.load(open(sys.argv[1])
 run_backend="$("$PYTHON" -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["run_backend"]).lower())' "$SCOPE_JSON")"
 run_dashboard="$("$PYTHON" -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["run_dashboard"]).lower())' "$SCOPE_JSON")"
 scope_name="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["scope"])' "$SCOPE_JSON")"
+backend_mode="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("backend_mode", "targeted"))' "$SCOPE_JSON")"
 
 echo "[ci:local] scope: $scope_name"
 
@@ -60,7 +61,7 @@ echo "[ci:local] guardrails"
 bash "$ROOT_DIR/scripts/ci/agent_guardrails.sh"
 
 if [[ "$run_backend" == "true" ]]; then
-  bash "$ROOT_DIR/scripts/ci/backend_checks.sh" "$DIFF_BASE"
+  BACKEND_CHECK_MODE="$backend_mode" bash "$ROOT_DIR/scripts/ci/backend_checks.sh" "$DIFF_BASE"
 fi
 
 if [[ "$run_dashboard" == "true" ]]; then

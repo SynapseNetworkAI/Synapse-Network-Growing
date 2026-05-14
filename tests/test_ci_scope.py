@@ -43,7 +43,20 @@ def test_backend_scope():
 
     assert result.scope == "backend"
     assert result.run_backend is True
+    assert result.backend_mode == "targeted"
+    assert result.run_backend_targeted is True
+    assert result.run_backend_full is False
     assert result.run_dashboard is False
+    assert result.run_full is False
+
+
+def test_scheduling_backend_scope_uses_targeted_mode():
+    result = ci_scope.classify_paths(["server/services/scheduling/repo_hygiene.py"])
+
+    assert result.scope == "backend"
+    assert result.run_backend is True
+    assert result.backend_mode == "targeted"
+    assert result.run_backend_targeted is True
     assert result.run_full is False
 
 
@@ -54,8 +67,26 @@ def test_backend_and_dashboard_scope():
 
     assert result.scope == "backend_dashboard"
     assert result.run_backend is True
+    assert result.backend_mode == "targeted"
     assert result.run_dashboard is True
     assert result.run_full is False
+
+
+def test_backend_release_workflow_security_finance_changes_require_full_backend():
+    for path in [
+        "server/services/releases/example.py",
+        "server/services/workflows/example.py",
+        "server/services/security/example.py",
+        "server/services/finance/example.py",
+    ]:
+        result = ci_scope.classify_paths([path])
+
+        assert result.full_required is True
+        assert result.run_full is True
+        assert result.run_backend is True
+        assert result.backend_mode == "full"
+        assert result.run_backend_full is True
+        assert result.run_backend_targeted is False
 
 
 def test_security_scope():
@@ -73,6 +104,7 @@ def test_ci_workflow_change_requires_full_gate():
     assert result.run_full is True
     assert result.run_backend is True
     assert result.run_dashboard is True
+    assert result.backend_mode == "full"
 
 
 def test_ci_script_change_requires_full_gate():
@@ -80,6 +112,7 @@ def test_ci_script_change_requires_full_gate():
 
     assert result.full_required is True
     assert result.run_full is True
+    assert result.backend_mode == "full"
 
 
 def test_scope_classifier_change_runs_self_test_not_full_dashboard_backend():
@@ -93,6 +126,7 @@ def test_scope_classifier_change_runs_self_test_not_full_dashboard_backend():
     assert result.run_scope_self_test is True
     assert result.run_backend is False
     assert result.run_dashboard is False
+    assert result.backend_mode == "none"
 
 
 def test_prompt_content_scope_uses_docs_style_checks():
@@ -111,6 +145,7 @@ def test_dependency_changes_require_full_gate():
 
     assert result.full_required is True
     assert result.run_full is True
+    assert result.backend_mode == "full"
 
 
 def test_unknown_root_requires_full_gate():
@@ -125,6 +160,7 @@ def test_force_full():
 
     assert result.scope == "full"
     assert result.run_full is True
+    assert result.backend_mode == "full"
     assert result.reason == "forced_full"
 
 
