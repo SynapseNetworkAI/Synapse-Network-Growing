@@ -6,17 +6,11 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server.database import ReleaseTaskRow
-from server.schemas import ReleaseTaskPrGateOut
 from server.services.releases.task_query_schemas import ReleaseTaskPageOut
 from server.services.releases.tasks import (
     _clean,
-    _policy_for_project,
-    _release_task_deploy_repo,
-    _release_task_pr_gate_for,
-    _release_task_pr_gate_with_row_actions,
     _release_task_to_out,
 )
-from server.services.releases.production_tasks import release_task_production_gate
 
 
 def _filtered_query(
@@ -56,36 +50,6 @@ def _filtered_query(
     )
 
 
-def _pr_gate_for_row(
-    db: Session,
-    row: ReleaseTaskRow,
-    *,
-    repo_cache: dict[str, str],
-    gate_cache: dict[tuple[str, str], ReleaseTaskPrGateOut],
-) -> ReleaseTaskPrGateOut | None:
-    project_key_value = _clean(row.project_key)
-    branch_name = _clean(row.branch_name)
-    environment = _clean(row.environment).lower()
-    if environment not in {"staging", "production"} or not branch_name:
-        return None
-    try:
-        repo_full_name = repo_cache.get(project_key_value)
-        if repo_full_name is None:
-            policy = _policy_for_project(db, project_key_value)
-            repo_full_name = _release_task_deploy_repo(policy, project_key_value)
-            repo_cache[project_key_value] = repo_full_name
-        if environment == "production":
-            return release_task_production_gate(db, row, repo_full_name)
-        cache_key = (repo_full_name, branch_name)
-        pr_gate = gate_cache.get(cache_key)
-        if pr_gate is None:
-            pr_gate = _release_task_pr_gate_for(row, repo_full_name)
-            gate_cache[cache_key] = pr_gate
-        return _release_task_pr_gate_with_row_actions(row, pr_gate)
-    except ValueError as exc:
-        return ReleaseTaskPrGateOut(blocked_reason=str(exc))
-
-
 def query_release_tasks(
     db: Session,
     *,
@@ -117,14 +81,7 @@ def query_release_tasks(
         .offset(safe_offset)
         .all()
     )
-    repo_cache: dict[str, str] = {}
-    gate_cache: dict[tuple[str, str], ReleaseTaskPrGateOut] = {}
-    items = []
-    for row in rows:
-        pr_gate = _pr_gate_for_row(
-            db, row, repo_cache=repo_cache, gate_cache=gate_cache
-        )
-        items.append(_release_task_to_out(row, pr_gate=pr_gate))
+    items = [_release_task_to_out(row) for row in rows]
     return ReleaseTaskPageOut(
         items=items, total=total, limit=safe_limit, offset=safe_offset
     )

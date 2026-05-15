@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, case, or_
 from sqlalchemy.orm import Session
 
 from server import config
@@ -21,6 +21,9 @@ from server.services.releases.github_cli import run_gh_json as _run_gh_json, run
 from server.services.releases.github_actions_logs import github_failure_log_result
 from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
 from server.services.releases.deployment_success import _apply_deployment_success_state, _deployment_has_failure_metadata
+from server.services.releases.prebuilt_images import (
+    prebuilt_deploy_plan,
+)
 from server.services.releases.staging_workflows import staging_workflow_file_for_service
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
@@ -112,6 +115,7 @@ def _release_task_to_out(row: ReleaseTaskRow, *, db: Session | None = None, pr_g
         deployment_started_at=getattr(deployment, "started_at", None),
         deployment_finished_at=getattr(deployment, "finished_at", None),
         deployment_metadata=_json_load(getattr(deployment, "metadata_json", None), {}),
+        task_metadata=_json_load(getattr(row, "metadata_json", None), {}),
         pr_gate=pr_gate or ReleaseTaskPrGateOut(),
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -168,6 +172,8 @@ def _merge_metadata(row: DeploymentRecordRow, updates: dict[str, Any]) -> None:
     metadata = _json_load(getattr(row, "metadata_json", None), {})
     metadata.update({key: value for key, value in updates.items() if value is not None})
     row.metadata_json = _json_dump(metadata)
+
+
 
 
 def _manual_completion_deployment_record(row: ReleaseTaskRow, *, operator: str, note: str | None) -> DeploymentRecordRow:
@@ -466,31 +472,7 @@ def list_release_tasks(
     if _clean(source_type):
         query = query.filter(ReleaseTaskRow.source_type == _clean(source_type).lower())
     rows = query.order_by(ReleaseTaskRow.updated_at.desc(), ReleaseTaskRow.id.desc()).all()
-    repo_cache: dict[str, str] = {}
-    gate_cache: dict[tuple[str, str], ReleaseTaskPrGateOut] = {}
-    results: list[ReleaseTaskOut] = []
-    for row in rows:
-        pr_gate: ReleaseTaskPrGateOut | None = None
-        project_key_value = _clean(row.project_key)
-        branch_name = _clean(row.branch_name)
-        environment = _clean(row.environment).lower()
-        if environment == "staging" and branch_name:
-            try:
-                repo_full_name = repo_cache.get(project_key_value)
-                if repo_full_name is None:
-                    policy = _policy_for_project(db, project_key_value)
-                    repo_full_name = _release_task_deploy_repo(policy, project_key_value)
-                    repo_cache[project_key_value] = repo_full_name
-                cache_key = (repo_full_name, branch_name)
-                cached_gate = gate_cache.get(cache_key)
-                if cached_gate is None:
-                    cached_gate = _release_task_pr_gate_for(row, repo_full_name)
-                    gate_cache[cache_key] = cached_gate
-                pr_gate = _release_task_pr_gate_with_row_actions(row, cached_gate)
-            except ValueError as exc:
-                pr_gate = ReleaseTaskPrGateOut(blocked_reason=str(exc))
-        results.append(_release_task_to_out(row, pr_gate=pr_gate))
-    return results
+    return [_release_task_to_out(row) for row in rows]
 
 
 def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
@@ -533,7 +515,7 @@ def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _release_task_to_out(row, db=db)
+    return _release_task_to_out(row)
 
 
 def update_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
@@ -721,7 +703,7 @@ def _find_recent_actions_run_id(repo_full_name: str, record: DeploymentRecordRow
             "--limit",
             "20",
             "--json",
-            "databaseId,status,conclusion,createdAt,updatedAt,url,headSha",
+            "databaseId,status,conclusion,createdAt,updatedAt,url,headSha,displayTitle",
         ],
         timeout=30,
     )
@@ -733,12 +715,19 @@ def _find_recent_actions_run_id(repo_full_name: str, record: DeploymentRecordRow
     # previous release task to a brand-new DeploymentRecord.
     earliest = started_at - timedelta(seconds=30)
     branch = _clean(record.branch_name)
+    record_token = f"record {int(record.id)}"
+    plausible_items: list[dict[str, Any]] = []
     for item in payload:
         if not isinstance(item, dict):
             continue
         created_at = _parse_github_timestamp(item.get("createdAt"))
         if created_at is not None and created_at < earliest:
             continue
+        plausible_items.append(item)
+        title = _clean(item.get("displayTitle")).lower()
+        if record_token in title and item.get("databaseId") is not None:
+            return str(item.get("databaseId"))
+    for item in plausible_items:
         run_id = item.get("databaseId")
         if run_id is None:
             continue
@@ -936,6 +925,10 @@ def _apply_github_run_to_deployment(
 def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
     sync_cutoff = utcnow() - timedelta(days=7)
+    active_status_rank = case(
+        (DeploymentRecordRow.status.in_(["requested", "running", "pending"]), 0),
+        else_=1,
+    )
     rows = (
         db.query(DeploymentRecordRow)
         .filter(
@@ -954,7 +947,7 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
                 ),
             ),
         )
-        .order_by(DeploymentRecordRow.id.asc())
+        .order_by(active_status_rank.asc(), DeploymentRecordRow.updated_at.desc(), DeploymentRecordRow.id.desc())
         .limit(bounded_limit)
         .all()
     )
@@ -1107,16 +1100,18 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
     note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
     deploy_strategy = _deploy_strategy_for_project(project_key)
     controlled_steps = _controlled_steps_for_project(project_key)
+    prebuilt_plan = prebuilt_deploy_plan(row, service_key=service_key, workflow_file=workflow_file)
     deployment_metadata = {
         "release_task_id": int(row.id),
         "service_key": service_key,
         "deploy_repo_full_name": repo_full_name,
         "deploy_strategy": deploy_strategy,
-        "sourceRefType": "branch",
-        "sourceRef": branch_name,
+        "sourceRefType": "commit" if prebuilt_plan.enabled else "branch",
+        "sourceRef": prebuilt_plan.commit if prebuilt_plan.enabled else branch_name,
         "deployScope": service_key,
         "controlledSteps": controlled_steps,
     }
+    deployment_metadata.update(prebuilt_plan.metadata)
     if deploy_strategy in {"github_actions_gcp_cloudrun", "github_actions_wif_cloudrun"}:
         deployment_metadata.update({"gcpProject": "fabled-archive-494108-k5", "region": "us-central1"})
     if deploy_strategy == "github_actions_wif_cloudrun":
@@ -1156,6 +1151,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         "actor": actor,
         "trigger_source": "release_task",
     }
+    inputs.update(prebuilt_plan.inputs)
     if workflow_file == "deploy-staging-gateway.yml":
         inputs.pop("deploy_scope", None)
     callback_url = _callback_url(int(record.id))

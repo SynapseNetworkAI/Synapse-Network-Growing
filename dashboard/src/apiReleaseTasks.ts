@@ -28,6 +28,23 @@ export function getReleaseTasksPage(filters?: {
   return request<ReleaseTaskPage>(`/releases/tasks/query${q}`)
 }
 
+export function getReleaseTaskGateStatus(id: number) {
+  return request<ReleaseTask['pr_gate']>(`/releases/tasks/${id}/gate-status`)
+}
+
 export function deployReleaseTask(id: number, data?: { actor?: string; note?: string | null; confirm_phrase?: string | null }) {
   return request<ReleaseTask>(`/releases/tasks/${id}/deploy`, { method: 'POST', body: JSON.stringify(data || {}) })
+}
+
+export function attachReleaseTaskPrebuiltImage(
+  id: number,
+  data: {
+    service_key: string
+    image_digest: string
+    source_commit_sha: string
+    image_source?: string
+    build_evidence?: Record<string, unknown>
+  },
+) {
+  return request<ReleaseTask>(`/releases/tasks/${id}/attach-prebuilt-image`, { method: 'POST', body: JSON.stringify(data) })
 }

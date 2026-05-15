@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
-import { deployReleaseTask, getReleaseTasksPage } from '../apiReleaseTasks'
+import { attachReleaseTaskPrebuiltImage, deployReleaseTask, getReleaseTaskGateStatus, getReleaseTasksPage } from '../apiReleaseTasks'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
-import { ReleaseTaskCompactFailure, ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, releaseTaskFailureSummary, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
+import { ReleaseTaskDetailModal } from './ReleaseTaskDetailPanel'
+import { ReleaseTasksTable, type GateRequestState } from './ReleaseTasksTable'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
 import ScheduledJobsPanel from './ScheduledJobsPanel'
@@ -12,10 +13,6 @@ import ProductionDeployModal from './ProductionDeployModal'
 type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'online'
 const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'online']
 const RELEASE_TASK_PAGE_SIZE = 10
-const SOURCE_LABEL: Record<string, string> = {
-  manual: '人工创建',
-  requirement_flow: '需求流转',
-}
 
 const TASK_STATUS_OPTIONS = ['', 'requested', 'deploying', 'completed', 'failed', 'cancelled']
 const DEFAULT_RELEASE_TARGETS = [
@@ -86,17 +83,6 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
-function CompactListText({ value }: Readonly<{ value: string | null | undefined }>) {
-  const summary = releaseTaskFailureSummary(value, 180)
-  if (!summary.text) return <span>-</span>
-  return (
-    <div>
-      <div className="line-clamp-2">{summary.text}</div>
-      {summary.truncated ? <div className="mt-1 text-[11px] text-[color:var(--ops-text-caption)]">详情查看完整内容</div> : null}
-    </div>
-  )
-}
-
 function releaseAction(item: ReleaseCandidate): { key: 'prepare' | 'open-pr' | 'repair-gate' | null; label: string } {
   const release = item.release
   if (!release) return { key: 'prepare', label: '准备分支' }
@@ -109,6 +95,24 @@ function releaseAction(item: ReleaseCandidate): { key: 'prepare' | 'open-pr' | '
 
 function workflowRunIdFor(item: ReleaseCandidate) {
   return item.requirement.active_workflow_run_id ?? item.requirement.active_workflow_run_summary?.id ?? null
+}
+
+function releaseTaskMatchesFilters(task: ReleaseTask, filters: { environment?: string; status?: string; q?: string }) {
+  if (filters.environment && task.environment !== filters.environment) return false
+  if (filters.status && task.status !== filters.status) return false
+  const needle = (filters.q || '').trim().toLowerCase()
+  if (!needle) return true
+  return [
+    task.project_key,
+    task.project_display_name || '',
+    task.service_key || '',
+    task.branch_name,
+    task.environment,
+    task.status,
+    task.actor || '',
+    task.operator || '',
+    task.note || '',
+  ].join('\n').toLowerCase().includes(needle)
 }
 
 function defaultTaskDraft(policies: ProjectPolicy[]) {
@@ -140,6 +144,7 @@ export default function ReleasesPage() {
   const [tasks, setTasks] = useState<ReleaseTask[]>([])
   const [taskTotal, setTaskTotal] = useState(0)
   const [taskOffset, setTaskOffset] = useState(0)
+  const [gateStatusByTaskId, setGateStatusByTaskId] = useState<Record<number, GateRequestState>>({})
   const [onlineRecords, setOnlineRecords] = useState<OnlineReleaseRecord[]>([])
   const [policies, setPolicies] = useState<ProjectPolicy[]>([])
   const [loading, setLoading] = useState(true)
@@ -192,6 +197,26 @@ export default function ReleasesPage() {
     setTaskTotal(page.total)
   }
 
+  const refreshTaskGateStatus = async (task: ReleaseTask) => {
+    setGateStatusByTaskId((current) => ({
+      ...current,
+      [task.id]: { status: 'loading', gate: current[task.id]?.gate },
+    }))
+    try {
+      const gate = await getReleaseTaskGateStatus(task.id)
+      setGateStatusByTaskId((current) => ({
+        ...current,
+        [task.id]: { status: 'ready', gate },
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Gate 检查失败'
+      setGateStatusByTaskId((current) => ({
+        ...current,
+        [task.id]: { status: 'error', gate: current[task.id]?.gate, error: message },
+      }))
+    }
+  }
+
   const load = async () => {
     setLoading(true)
     try {
@@ -229,6 +254,20 @@ export default function ReleasesPage() {
     loadReleaseTasksPage().catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, search, taskEnvironmentFilter, taskStatusFilter, taskOffset])
+
+  useEffect(() => {
+    if (activeTab !== 'tasks') return
+    const pendingTasks = tasks
+      .filter((task) => task.status === 'requested' && ['staging', 'production'].includes(task.environment))
+      .slice(0, 5)
+    pendingTasks.forEach((task) => {
+      const current = gateStatusByTaskId[task.id]
+      if (!current || current.status === 'idle') {
+        refreshTaskGateStatus(task).catch(() => {})
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, tasks.map((task) => `${task.id}:${task.status}:${task.environment}`).join('|')])
 
   const filteredCandidates = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -319,7 +358,7 @@ export default function ReleasesPage() {
     if (taskBusy) return
     setTaskBusy(true)
     try {
-      await api.createReleaseTask({
+      const created = await api.createReleaseTask({
         project_key: taskDraft.project_key,
         project_display_name: selectedTarget?.project_display_name || taskDraft.project_display_name || null,
         service_key: taskDraft.service_key,
@@ -331,8 +370,16 @@ export default function ReleasesPage() {
       toast.success('发布任务已创建')
       setTaskModalOpen(false)
       setTaskDraft(defaultTaskDraft(policies))
-      await load()
       selectReleaseTab('tasks')
+      setGateStatusByTaskId((current) => ({
+        ...current,
+        [created.id]: { status: 'idle' },
+      }))
+      const filters = releaseTaskPageFilters()
+      if (taskOffset === 0 && releaseTaskMatchesFilters(created, filters)) {
+        setTasks((current) => [created, ...current].slice(0, RELEASE_TASK_PAGE_SIZE))
+        setTaskTotal((current) => current + 1)
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '创建发布任务失败'
       toast.error(message)
@@ -381,6 +428,22 @@ export default function ReleasesPage() {
     } finally {
       setBusyAction(null)
     }
+  }
+
+  const attachPrebuiltImage = async (
+    task: ReleaseTask,
+    payload: { image_digest: string; source_commit_sha: string },
+  ) => {
+    const updated = await attachReleaseTaskPrebuiltImage(task.id, {
+      service_key: task.service_key || '',
+      image_digest: payload.image_digest,
+      source_commit_sha: payload.source_commit_sha,
+      image_source: 'ephemeral_worktree_local_build',
+      build_evidence: { attached_from: 'ops_console_release_task_detail' },
+    })
+    setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setTaskDetail(updated)
+    toast.success('Prebuilt image 已绑定到发布任务')
   }
 
   const deployTaskToProduction = async () => {
@@ -573,6 +636,7 @@ export default function ReleasesPage() {
           offset={taskOffset}
           loading={loading}
           busyAction={busyAction}
+          gateStatusByTaskId={gateStatusByTaskId}
           onUpdateStatus={updateTaskStatus}
           onCreatePr={createTaskPr}
           onDeployStaging={deployTaskToStaging}
@@ -580,6 +644,7 @@ export default function ReleasesPage() {
             setProductionConfirmPhrase('')
             setProductionDeployTask(task)
           }}
+          onRefreshGate={(task) => refreshTaskGateStatus(task)}
           onRefresh={() => load().catch(() => {})}
           onOpenDetails={(task) => {
             setTaskModalOpen(false)
@@ -719,7 +784,12 @@ export default function ReleasesPage() {
           </button>
         </div>
       </OverlayModal>
-      <ReleaseTaskDetailModal task={taskDetail} onClose={() => setTaskDetail(null)} onRefresh={() => load().catch(() => {})} />
+      <ReleaseTaskDetailModal
+        task={taskDetail}
+        onClose={() => setTaskDetail(null)}
+        onRefresh={() => load().catch(() => {})}
+        onAttachPrebuiltImage={attachPrebuiltImage}
+      />
       <OnlineRecordDetailModal record={onlineDetail} onClose={() => setOnlineDetail(null)} />
     </div>
   )
@@ -853,256 +923,6 @@ function ReleaseCandidatesTable({
           <EmptyPane>暂无发布候选。</EmptyPane>
         </div>
       )}
-    </section>
-  )
-}
-
-function ReleaseTasksTable({
-  tasks,
-  total,
-  limit,
-  offset,
-  loading,
-  busyAction,
-  onUpdateStatus,
-  onCreatePr,
-  onDeployStaging,
-  onDeployProduction,
-  onRefresh,
-  onOpenDetails,
-  onPage,
-}: Readonly<{
-  tasks: ReleaseTask[]
-  total: number
-  limit: number
-  offset: number
-  loading: boolean
-  busyAction: string | null
-  onUpdateStatus: (task: ReleaseTask, status: 'completed' | 'failed' | 'cancelled') => void
-  onCreatePr: (task: ReleaseTask) => void
-  onDeployStaging: (task: ReleaseTask) => void
-  onDeployProduction: (task: ReleaseTask) => void
-  onRefresh: () => void
-  onOpenDetails: (task: ReleaseTask) => void
-  onPage: (offset: number) => void
-}>) {
-  const pageNumber = Math.floor(offset / limit) + 1
-  const canPrev = offset > 0
-  const canNext = offset + limit < total
-  return (
-    <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse">
-          <thead className="bg-[color:var(--ops-panel-subtle)]">
-            <tr className="text-left text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
-              <th className="px-5 py-4 font-medium">来源</th>
-              <th className="px-4 py-4 font-medium">项目 / 分支</th>
-              <th className="px-4 py-4 font-medium">环境</th>
-              <th className="px-4 py-4 font-medium">状态</th>
-              <th className="px-4 py-4 font-medium">创建 / 执行</th>
-              <th className="px-4 py-4 font-medium">备注</th>
-              <th className="px-4 py-4 font-medium">更新时间</th>
-              <th className="px-5 py-4 text-right font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => (
-              <tr key={task.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
-                <td className="px-5 py-4">
-                  <StateBadge tone={task.source_type === 'requirement_flow' ? 'running' : 'muted'}>
-                    {SOURCE_LABEL[task.source_type] || task.source_type}
-                  </StateBadge>
-                  {task.requirement_id ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Requirement #{task.requirement_id}</div> : null}
-                </td>
-                <td className="px-4 py-4">
-                  <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{task.project_display_name || task.project_key}</div>
-                  {task.service_key ? <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">Service: {task.service_key}</div> : null}
-                  <div className="mt-1 font-mono text-xs text-[color:var(--ops-text-muted)]">{task.branch_name}</div>
-                </td>
-                <td className="px-4 py-4">
-                  <StateBadge tone={task.environment === 'production' ? 'blocked' : 'ready'}>{task.environment}</StateBadge>
-                </td>
-                <td className="px-4 py-4">
-                  <StateBadge tone={releaseTone(task.status)}>{STATUS_LABEL[task.status] || task.status}</StateBadge>
-                  {task.deployment_status ? (
-                    <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-                      Deploy: {STATUS_LABEL[task.deployment_status] || task.deployment_status}
-                    </div>
-                  ) : null}
-                  {task.deployment_health_status ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}</div> : null}
-                  {shouldShowReleaseTaskFailure(task) && task.deployment_failure_summary ? (
-                    <ReleaseTaskCompactFailure value={task.deployment_failure_summary} />
-                  ) : null}
-                  <ReleaseTaskFailureSnippet task={task} />
-                  {task.environment === 'staging' || task.environment === 'production' ? <ReleaseTaskPrGate task={task} /> : null}
-                </td>
-                <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                  <div>创建：{task.actor || '-'}</div>
-                  <div className="mt-1">执行：{task.operator || '-'}</div>
-                </td>
-                <td className="max-w-xs px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
-                  <CompactListText value={task.note} />
-                </td>
-                <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">{formatTime(task.updated_at || task.created_at)}</td>
-                <td className="px-5 py-4">
-                  {busyAction?.startsWith(`release-task-${task.id}-`) ? (
-                    <div className="mb-2 rounded-lg border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] px-3 py-2 text-xs font-semibold text-[color:var(--ops-state-running-text)]">
-                      正在更新发布任务…
-                    </div>
-                  ) : null}
-                  {task.status === 'requested' ? (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                        onClick={() => onOpenDetails(task)}
-                      >
-                        详情
-                      </button>
-                      {task.environment === 'staging' && task.pr_gate?.can_create_pr ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-running-text)] disabled:opacity-50"
-                          disabled={Boolean(busyAction)}
-                          onClick={() => onCreatePr(task)}
-                        >
-                          {busyAction === `release-task-${task.id}-create-pr` ? '提交中…' : '提交 PR'}
-                        </button>
-                      ) : null}
-                      {task.environment === 'staging' && task.pr_gate?.pr_url ? (
-                        <a
-                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                          href={task.pr_gate.pr_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          查看 PR
-                        </a>
-                      ) : null}
-                      {task.environment === 'staging' && task.pr_gate?.checks_status === 'unknown' ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                          disabled={Boolean(busyAction)}
-                          onClick={onRefresh}
-                        >
-                          同步 PR 状态
-                        </button>
-                      ) : null}
-                      {task.environment === 'staging' && !task.deployment_record_id && task.pr_gate?.can_deploy_staging ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-running-text)] disabled:opacity-50"
-                          disabled={Boolean(busyAction)}
-                          onClick={() => onDeployStaging(task)}
-                        >
-                          {busyAction === `release-task-${task.id}-deploy-staging` ? '发布中…' : '发布到 staging'}
-                        </button>
-                      ) : null}
-                      {task.environment === 'staging' && task.pr_gate?.pr_exists && task.pr_gate?.checks_status === 'success' && !task.pr_gate?.can_deploy_staging ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm text-[color:var(--ops-text-caption)] opacity-70"
-                          disabled
-                          title={task.pr_gate.blocked_reason || 'PR gate 尚未允许 staging 发布'}
-                        >
-                          发布到 staging
-                        </button>
-                      ) : null}
-                      {task.environment === 'production' && task.pr_gate?.can_deploy_production && !task.deployment_record_id ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-                          disabled={Boolean(busyAction)}
-                          onClick={() => onDeployProduction(task)}
-                        >
-                          {busyAction === `release-task-${task.id}-deploy-production` ? '发布中…' : '发布到 production'}
-                        </button>
-                      ) : task.environment === 'production' ? (
-                        <span className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)]" title={task.pr_gate?.blocked_reason || undefined}>
-                          {task.pr_gate?.blocked_reason || 'Production 需 Human Gate'}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50"
-                        disabled={Boolean(busyAction)}
-                        onClick={() => onUpdateStatus(task, 'completed')}
-                      >
-                        {busyAction === `release-task-${task.id}-completed` ? '处理中…' : '标记为已完成'}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-                        disabled={Boolean(busyAction)}
-                        onClick={() => onUpdateStatus(task, 'failed')}
-                      >
-                        {busyAction === `release-task-${task.id}-failed` ? '处理中…' : '标记为失败'}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-50"
-                        disabled={Boolean(busyAction)}
-                        onClick={() => onUpdateStatus(task, 'cancelled')}
-                      >
-                        {busyAction === `release-task-${task.id}-cancelled` ? '处理中…' : '取消'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                        onClick={() => onOpenDetails(task)}
-                      >
-                        详情
-                      </button>
-                      {task.status === 'deploying' && task.deployment_external_url ? <a className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">GitHub Actions</a> : null}
-                      {task.status === 'deploying' ? (
-                        <button
-                          type="button"
-                          className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                          disabled={Boolean(busyAction)}
-                          onClick={onRefresh}
-                        >
-                          同步状态
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {!loading && tasks.length === 0 && (
-        <div className="p-6">
-          <EmptyPane>暂无发布任务。点击“新建发布任务”记录一次人工分支发布。</EmptyPane>
-        </div>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-5 py-4 text-sm text-[color:var(--ops-text-muted)]">
-        <span>第 {pageNumber} 页 · 共 {total} 条发布任务</span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40"
-            disabled={!canPrev || loading}
-            onClick={() => onPage(Math.max(0, offset - limit))}
-          >
-            上一页
-          </button>
-          <button
-            type="button"
-            className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40"
-            disabled={!canNext || loading}
-            onClick={() => onPage(offset + limit)}
-          >
-            下一页
-          </button>
-        </div>
-      </div>
     </section>
   )
 }

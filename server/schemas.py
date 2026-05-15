@@ -1301,6 +1301,7 @@ class ReleaseTaskOut(BaseModel):
     deployment_started_at: Optional[datetime] = None
     deployment_finished_at: Optional[datetime] = None
     deployment_metadata: dict[str, object] = {}
+    task_metadata: dict[str, object] = {}
     pr_gate: ReleaseTaskPrGateOut = Field(default_factory=ReleaseTaskPrGateOut)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

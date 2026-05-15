@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from server.database import DeploymentRecordRow, ReleaseTaskRow, RequirementRow
 from server.schemas import ProjectPolicyCreate, ReleaseTaskPrGateOut
 from server.services.projects.policy import create_project_policy
+from server.services.releases import gate_status as release_gate_status_service
 from server.services.releases import tasks as release_tasks_service
 
 
@@ -112,48 +113,6 @@ def test_manual_release_task_terminal_status_updates_linked_deployment(monkeypat
     assert payload["deployment_health_status"] == "failed"
     assert payload["deployment_finished_at"] is not None
     assert payload["deployment_failure_summary"] == "manual deploy failed"
-
-
-def test_release_task_list_caches_pr_gate_by_branch(monkeypatch, synced_client, db_session):
-    calls: list[int] = []
-
-    def fake_gate(row, repo):
-        assert repo == "SynapseNetworkAI/Synapse-Network"
-        calls.append(int(row.id))
-        return ReleaseTaskPrGateOut(
-            branch_exists=True,
-            pr_exists=True,
-            pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/27",
-            pr_number=27,
-            pr_state="merged",
-            checks_status="success",
-            checks_summary="1 checks passed",
-        )
-
-    monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", fake_gate)
-    for note in ("first", "second"):
-        db_session.add(
-            ReleaseTaskRow(
-                source_type="manual",
-                project_key="synapse-network",
-                service_key="gateway",
-                branch_name="codex/shared-release-branch",
-                environment="staging",
-                status="requested",
-                actor="operator",
-                note=note,
-            )
-        )
-    db_session.commit()
-
-    response = synced_client.get("/api/releases/tasks")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert len(payload) == 2
-    assert len(calls) == 1
-    assert {item["pr_gate"]["pr_number"] for item in payload} == {27}
-    assert all(item["pr_gate"]["can_deploy_staging"] for item in payload)
 
 
 def test_requirement_flow_release_task_keeps_requirement_and_null_deployment_anchor(synced_client, db_session):
@@ -996,6 +955,28 @@ def test_github_actions_sync_helpers_cover_edges(monkeypatch, db_session):
     monkeypatch.setattr(release_tasks_service, "_run_gh_text", lambda *args, **kwargs: ("ok", "SOURCE codex/match gateway", ""))
     assert release_tasks_service._find_recent_actions_run_id("example/repo", record, {"service_key": "gateway"}) == "2"
 
+    def list_with_record_title(args, *, timeout=30):
+        return (
+            "ok",
+            [
+                {
+                    "createdAt": "2026-04-25T01:03:00Z",
+                    "databaseId": 4,
+                    "displayTitle": "Deploy Staging Admin - admin-front - main - record 999",
+                },
+                {
+                    "createdAt": "2026-04-25T01:02:00Z",
+                    "databaseId": 3,
+                    "displayTitle": f"Deploy Staging Admin - gateway-admin - main - record {record.id}",
+                },
+            ],
+            "",
+        )
+
+    monkeypatch.setattr(release_tasks_service, "_run_gh_json", list_with_record_title)
+    monkeypatch.setattr(release_tasks_service, "_run_gh_text", lambda *args, **kwargs: ("ok", "gateway-admin", ""))
+    assert release_tasks_service._find_recent_actions_run_id("example/repo", record, {"service_key": "gateway-admin"}) == "3"
+
     monkeypatch.setattr(release_tasks_service, "_run_gh_json", lambda *args, **kwargs: ("auth_error", None, "no auth"))
     assert release_tasks_service._github_actions_run_view("example/repo", "2") == (None, "no auth")
 
@@ -1330,7 +1311,7 @@ def test_release_task_pr_gate_projects_branch_pr_and_checks(monkeypatch, synced_
             can_deploy_staging=True,
         )
 
-    monkeypatch.setattr(release_tasks_service, "_release_task_pr_gate_for", fake_gate)
+    monkeypatch.setattr(release_gate_status_service, "_release_task_pr_gate_for", fake_gate)
     synced_client.post(
         "/api/releases/tasks",
         json={
@@ -1341,12 +1322,15 @@ def test_release_task_pr_gate_projects_branch_pr_and_checks(monkeypatch, synced_
         },
     )
 
-    payload = synced_client.get("/api/releases/tasks").json()[0]
+    list_payload = synced_client.get("/api/releases/tasks").json()[0]
+    assert list_payload["pr_gate"]["checks_status"] == "unknown"
 
-    assert payload["pr_gate"]["branch_exists"] is True
-    assert payload["pr_gate"]["pr_exists"] is True
-    assert payload["pr_gate"]["checks_status"] == "success"
-    assert payload["pr_gate"]["can_deploy_staging"] is True
+    payload = synced_client.get(f"/api/releases/tasks/{list_payload['id']}/gate-status").json()
+
+    assert payload["branch_exists"] is True
+    assert payload["pr_exists"] is True
+    assert payload["checks_status"] == "success"
+    assert payload["can_deploy_staging"] is True
 
 
 def test_release_task_create_pr_requires_branch_and_returns_pending_gate(monkeypatch, synced_client, db_session):
