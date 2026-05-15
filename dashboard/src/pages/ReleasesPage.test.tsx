@@ -823,9 +823,17 @@ describe('ReleasesPage', () => {
 
   it('shows production safety copy and marks requested task failed', async () => {
     const user = userEvent.setup()
+    apiMock.updateReleaseTask.mockResolvedValueOnce(releaseTask({
+      status: 'failed',
+      operator: 'operator',
+      deployment_status: 'failed',
+      deployment_health_status: 'failed',
+      deployment_failure_summary: 'Manually marked failed.',
+    }))
     render(<ReleasesPage />, { wrapper: MemoryRouter })
 
     await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    const initialTaskPageCalls = apiMock.getReleaseTasksPage.mock.calls.length
     await user.click(screen.getByRole('button', { name: '新建发布任务' }))
     await user.selectOptions(screen.getByLabelText('发布环境'), 'production')
     expect(screen.getByText(/不会自动部署生产/)).toBeTruthy()
@@ -839,6 +847,9 @@ describe('ReleasesPage', () => {
         note: 'Manual staging release',
       })
     })
+    expect(apiMock.getReleaseTasksPage).toHaveBeenCalledTimes(initialTaskPageCalls)
+    expect(screen.queryByText('正在更新发布任务...')).toBeNull()
+    expect(screen.getByText('Deploy: 失败')).toBeTruthy()
   })
 
   it('opens the task modal without project policies and triggers staging deploy separately', async () => {

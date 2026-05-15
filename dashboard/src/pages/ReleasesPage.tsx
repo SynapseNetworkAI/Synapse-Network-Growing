@@ -396,13 +396,29 @@ export default function ReleasesPage() {
     }
     setBusyAction(busyKey)
     try {
-      await api.updateReleaseTask(task.id, {
+      const updated = await api.updateReleaseTask(task.id, {
         status,
         operator: 'operator',
         note: task.note,
       })
       toast.success(`发布任务已标记为${STATUS_LABEL[status]}`)
-      await load()
+      const filters = releaseTaskPageFilters()
+      setTasks((current) => {
+        if (!releaseTaskMatchesFilters(updated, filters)) {
+          return current.filter((item) => item.id !== updated.id)
+        }
+        return current.map((item) => (item.id === updated.id ? updated : item))
+      })
+      if (!releaseTaskMatchesFilters(updated, filters)) {
+        setTaskTotal((current) => Math.max(0, current - 1))
+      }
+      setTaskDetail((current) => (current?.id === updated.id ? updated : current))
+      setGateStatusByTaskId((current) => {
+        if (!(updated.id in current)) return current
+        const next = { ...current }
+        delete next[updated.id]
+        return next
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : '更新发布任务失败'
       toast.error(message)
