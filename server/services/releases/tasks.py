@@ -96,7 +96,7 @@ def _release_task_to_out(row: ReleaseTaskRow, *, db: Session | None = None, pr_g
         project_key=str(row.project_key or ""),
         project_display_name=_clean(row.project_display_name) or None,
         service_key=_clean(getattr(row, "service_key", None)) or None,
-        branch_name=str(row.branch_name or ""),
+        branch_name=str(row.branch_name or ""), target_commit_sha=_clean(getattr(row, "target_commit_sha", None)) or None,
         environment=str(row.environment or ""),
         status=str(row.status or "requested"),
         actor=_clean(row.actor) or None,

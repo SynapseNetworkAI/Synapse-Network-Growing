@@ -169,6 +169,83 @@ def test_release_task_production_deploy_blocks_without_matching_staging(
     assert "staging deployment" in response.json()["detail"]
 
 
+def test_release_task_production_gate_uses_pinned_staging_commit(
+    monkeypatch, db_session
+):
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_github_branch_commit_sha",
+        lambda repo, branch: ("new-main-head", None),
+    )
+    staging_record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="staging",
+        action="deploy",
+        status="succeeded",
+        health_status="passed",
+        branch_name="main",
+        commit_sha="staged-main-sha",
+        metadata_json=json.dumps({"deployScope": "gateway"}),
+    )
+    db_session.add(staging_record)
+    db_session.commit()
+    row = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        target_commit_sha="staged-main-sha",
+        environment="production",
+        status="requested",
+    )
+
+    gate = release_production_tasks_service.release_task_production_gate(
+        db_session, row, "SynapseNetworkAI/Synapse-Network"
+    )
+
+    assert gate.can_deploy_production
+    assert gate.resolved_commit_sha == "staged-main-sha"
+    assert gate.staging_deployment_record_id == int(staging_record.id)
+
+
+def test_release_task_production_gate_recovers_legacy_unpinned_task_from_latest_staging(
+    monkeypatch, db_session
+):
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_github_branch_commit_sha",
+        lambda repo, branch: ("new-main-head", None),
+    )
+    db_session.add(
+        DeploymentRecordRow(
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            health_status="passed",
+            branch_name="main",
+            metadata_json=json.dumps(
+                {"serviceKey": "gateway", "commitSha": "legacy-staged-sha"}
+            ),
+        )
+    )
+    db_session.commit()
+    row = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="production",
+        status="requested",
+    )
+
+    gate = release_production_tasks_service.release_task_production_gate(
+        db_session, row, "SynapseNetworkAI/Synapse-Network"
+    )
+
+    assert gate.can_deploy_production
+    assert gate.resolved_commit_sha == "legacy-staged-sha"
+    assert "passed staging" in gate.environment_gate_summary
+
+
 def test_release_task_production_gate_blocks_invalid_inputs(monkeypatch, db_session):
     row = ReleaseTaskRow(
         project_key="synapse-network",

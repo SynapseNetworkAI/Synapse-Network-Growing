@@ -1285,6 +1285,7 @@ class ReleaseTaskOut(BaseModel):
     project_display_name: Optional[str] = None
     service_key: Optional[str] = None
     branch_name: str
+    target_commit_sha: Optional[str] = None
     environment: str
     status: str = "requested"
     actor: Optional[str] = None

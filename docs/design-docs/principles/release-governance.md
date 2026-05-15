@@ -17,6 +17,7 @@ Load this when touching release tasks, delivery, PR handoff, deploy, staging, pr
 2. PR body is reviewer-first: business summary, safety review reason, and human merge checklist at top.
 3. Evidence, logs, and retry history should be folded or linked to artifacts.
 4. After execution approval, system prepares requirement branch from latest target repository `main` before starting execution; do not defer all branch/PR work to the end.
+5. GitHub PR bodies and comments must be written with real newlines via `--body-file`, heredoc, or an equivalent multiline file. Do not pass escaped `\n` sequences in shell arguments; GitHub renders them as garbled literal text.
 
 ## Release Tasks And Deployment Records
 
@@ -37,7 +38,7 @@ Load this when touching release tasks, delivery, PR handoff, deploy, staging, pr
 5. Do not store GCP JSON keys or SSH deploy secrets in GitHub.
 6. Production deploy and rollback require Human Gate.
 7. Production cannot reuse staging API or ordinary PATCH to bypass release governance.
-8. Staging and production conditions differ: production normally requires main/tag/verified staging manifest plus Human Gate.
+8. Staging and production conditions differ: production normally requires a task-pinned main/tag/verified staging manifest plus Human Gate. Production tasks must promote the staged commit they selected; they must not silently drift to a newer moving branch head.
 9. Successful staging does not auto-promote production.
 
 ## Online Records And Reconciliation
