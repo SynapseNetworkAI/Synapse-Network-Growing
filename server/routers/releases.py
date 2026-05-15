@@ -15,6 +15,7 @@ from server.schemas import (
     ReleaseTaskDeployRequest,
     ReleaseTaskOut,
     ReleaseTaskPatchRequest,
+    ReleaseTaskPrGateOut,
     OnlineReleaseRecordOut,
 )
 from server.services.delivery.deployment_governance import list_online_release_records
@@ -57,6 +58,7 @@ from server.services.releases.tasks import (
     update_release_task,
 )
 from server.services.releases.production_tasks import deploy_release_task
+from server.services.releases.gate_status import release_task_gate_status
 from server.services.releases.task_query import query_release_tasks
 from server.services.releases.task_query_schemas import ReleaseTaskPageOut
 from server.services.releases.scheduled_jobs import scheduled_job_catalog, scheduled_jobs_status
@@ -127,6 +129,16 @@ def query_release_tasks_endpoint(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/tasks/{task_id}/gate-status", response_model=ReleaseTaskPrGateOut)
+def release_task_gate_status_endpoint(task_id: int, db: Session = Depends(get_db)):
+    try:
+        return release_task_gate_status(db, task_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get("/branch-options", response_model=list[ReleaseBranchOptionOut])

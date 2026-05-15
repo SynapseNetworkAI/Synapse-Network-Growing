@@ -569,6 +569,7 @@ class ReleaseTaskRow(Base):
     actor = Column(Text)
     operator = Column(Text)
     note = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
     requirement = relationship("RequirementRow")
@@ -1684,6 +1685,7 @@ def _migrate(engine_):
         release_task_cols = {
             "service_key": "TEXT",
             "target_commit_sha": "TEXT",
+            "metadata_json": "TEXT DEFAULT '{}'",
         }
         for col, col_type in release_task_cols.items():
             if col not in existing:

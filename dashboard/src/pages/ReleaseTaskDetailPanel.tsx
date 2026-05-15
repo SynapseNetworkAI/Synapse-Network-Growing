@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ReleaseTask } from '../api'
 import { OverlayModal, StateBadge } from '../components/workbench'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
@@ -124,17 +125,48 @@ export function ReleaseTaskDetailModal({
   task,
   onClose,
   onRefresh,
+  onAttachPrebuiltImage,
 }: Readonly<{
   task: ReleaseTask | null
   onClose: () => void
   onRefresh: () => void
+  onAttachPrebuiltImage?: (
+    task: ReleaseTask,
+    payload: { image_digest: string; source_commit_sha: string },
+  ) => Promise<void>
 }>) {
+  const [prebuiltDigest, setPrebuiltDigest] = useState('')
+  const [prebuiltCommit, setPrebuiltCommit] = useState('')
+  const [prebuiltBusy, setPrebuiltBusy] = useState(false)
   if (!task) return null
   const hasDeployment = Boolean(task.deployment_record_id)
   const showFailure = shouldShowReleaseTaskFailure(task)
   const failureLogExcerpt = showFailure ? releaseTaskFailureLogExcerpt(task) : null
   const failureLogError = showFailure ? releaseTaskFailureLogError(task) : null
   const safeMetadata = displayDeploymentMetadata(task)
+  const taskMetadata = (task as ReleaseTask & { task_metadata?: Record<string, unknown> }).task_metadata || {}
+  const attachedPrebuiltImage = metadataString(taskMetadata, 'prebuiltImageDigest')
+  const attachedPrebuiltCommit = metadataString(taskMetadata, 'sourceCommitSha')
+  const canAttachPrebuiltImage = task.environment === 'staging'
+    && task.project_key === 'synapse-network'
+    && ['user-front', 'docs-front'].includes(task.service_key || '')
+    && task.status === 'requested'
+    && !task.deployment_record_id
+    && Boolean(onAttachPrebuiltImage)
+  const submitPrebuiltImage = async () => {
+    if (!task || !onAttachPrebuiltImage) return
+    setPrebuiltBusy(true)
+    try {
+      await onAttachPrebuiltImage(task, {
+        image_digest: prebuiltDigest.trim(),
+        source_commit_sha: prebuiltCommit.trim(),
+      })
+      setPrebuiltDigest('')
+      setPrebuiltCommit('')
+    } finally {
+      setPrebuiltBusy(false)
+    }
+  }
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -165,6 +197,53 @@ export function ReleaseTaskDetailModal({
           </div>
           {task.note ? <div className="mt-4 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">{task.note}</div> : null}
         </section>
+
+        {task.environment === 'staging' && ['user-front', 'docs-front'].includes(task.service_key || '') ? (
+          <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Prebuilt Image</h3>
+            {attachedPrebuiltImage ? (
+              <div className="mt-3 space-y-2 rounded-xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] p-3 text-sm text-[color:var(--ops-state-ready-text)]">
+                <div>Prebuilt image attached. Staging frontend workflow will deploy by immutable digest and skip Cloud Build.</div>
+                <div className="break-all font-mono text-xs">{attachedPrebuiltImage}</div>
+                {attachedPrebuiltCommit ? <div className="font-mono text-xs">commit {attachedPrebuiltCommit}</div> : null}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
+                可选：先用本地 ephemeral worktree 构建并推送镜像，再把 immutable digest 绑定到此任务。发布时 Actions 会校验 digest 并直接部署。
+              </div>
+            )}
+            {canAttachPrebuiltImage ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-[1.5fr_1fr_auto]">
+                <label className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                  image@sha256 digest
+                  <input
+                    className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-3 py-2 font-mono text-xs text-[color:var(--ops-text-title)]"
+                    value={prebuiltDigest}
+                    onChange={(event) => setPrebuiltDigest(event.target.value)}
+                    placeholder={`us-central1-docker.pkg.dev/.../${task.service_key}@sha256:...`}
+                  />
+                </label>
+                <label className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
+                  source commit
+                  <input
+                    className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-3 py-2 font-mono text-xs text-[color:var(--ops-text-title)]"
+                    value={prebuiltCommit}
+                    onChange={(event) => setPrebuiltCommit(event.target.value)}
+                    placeholder="40-char sha"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="self-end rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50"
+                  disabled={prebuiltBusy || !prebuiltDigest.trim() || !prebuiltCommit.trim()}
+                  onClick={submitPrebuiltImage}
+                >
+                  {prebuiltBusy ? '绑定中…' : '绑定镜像'}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
           <div className="mb-3 flex items-center justify-between gap-3">

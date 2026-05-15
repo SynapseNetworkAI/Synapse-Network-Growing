@@ -125,6 +125,14 @@ def release_task_production_gate(
         gate.blocked_reason = commit_error or "Unable to resolve main commit sha."
         gate.environment_gate_summary = gate.blocked_reason
         return gate
+    if target_commit_sha != current_main_sha:
+        gate.blocked_reason = (
+            "Production target commit is no longer the current origin/main commit."
+        )
+        gate.environment_gate_summary = (
+            "Redeploy the current main commit to staging before production."
+        )
+        return gate
     staging_record = _successful_staging_deployment_for_task(
         db,
         project_key=project_key,
@@ -137,9 +145,14 @@ def release_task_production_gate(
             project_key=project_key,
             service_key=service_key,
         )
-        if staging_record is not None:
+        if (
+            staging_record is not None
+            and _deployment_commit_sha(staging_record) == current_main_sha
+        ):
             target_commit_sha = _deployment_commit_sha(staging_record)
             gate.resolved_commit_sha = target_commit_sha
+        else:
+            staging_record = None
     if staging_record is None:
         gate.blocked_reason = (
             "No successful staging deployment exists for this service and main commit."
@@ -230,8 +243,11 @@ def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow
     row = db.get(ReleaseTaskRow, int(task_id))
     if row is None:
         raise ValueError("Release task not found.")
-    if _clean(row.status).lower() != "requested":
-        raise ValueError("Only requested release tasks can be deployed to production.")
+    task_status = _clean(row.status).lower()
+    if task_status not in {"requested", "failed"}:
+        raise ValueError(
+            "Only requested or failed release tasks can be deployed to production."
+        )
     if _clean(row.environment).lower() != "production":
         raise ValueError("Only production release tasks can use production deploy.")
     if _clean(getattr(body, "confirm_phrase", None)) != PRODUCTION_CONFIRM_PHRASE:
@@ -242,8 +258,14 @@ def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow
     project_key = _clean(row.project_key)
     if service_key not in _valid_service_keys_for_project(project_key):
         raise ValueError(_service_key_error_for_project(project_key))
-    if row.deployment_record_id is not None:
+    if task_status == "requested" and row.deployment_record_id is not None:
         raise ValueError("Release task already has a deployment record.")
+    if task_status == "failed" and row.deployment_record_id is not None:
+        record = db.get(DeploymentRecordRow, int(row.deployment_record_id))
+        if record is not None and _clean(record.status).lower() != "failed":
+            raise ValueError(
+                "Failed release task can only retry after a failed deployment record."
+            )
     return row
 
 
@@ -338,6 +360,7 @@ def _create_production_deployment_record(
     row.target_commit_sha = gate.resolved_commit_sha
     row.status = "deploying"
     row.operator = actor
+    row.note = note
     row.updated_at = utcnow()
     db.commit()
     db.refresh(row)
@@ -358,10 +381,11 @@ def _production_dispatch_inputs(
         "commit_sha": commit_sha,
         "source_ref_type": "branch",
         "source_ref": "main",
-        "deploy_scope": service_key,
         "actor": actor,
         "trigger_source": "release_task",
     }
+    if _clean(getattr(record, "workflow_file", None)) == "deploy-production-frontends.yml":
+        inputs["deploy_scope"] = service_key
     callback_url = _callback_url(int(record.id))
     if callback_url:
         inputs["callback_url"] = callback_url

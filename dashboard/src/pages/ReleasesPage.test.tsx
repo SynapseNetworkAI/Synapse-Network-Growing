@@ -10,6 +10,7 @@ const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
   getReleaseTasksPage: vi.fn(),
+  getReleaseTaskGateStatus: vi.fn(),
   getOnlineReleaseRecords: vi.fn(),
   createReleaseTask: vi.fn(),
   getReleaseTaskBranchOptions: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('../api', () => ({
 
 vi.mock('../apiReleaseTasks', () => ({
   getReleaseTasksPage: apiMock.getReleaseTasksPage,
+  getReleaseTaskGateStatus: apiMock.getReleaseTaskGateStatus,
 }))
 
 function candidate(overrides: Record<string, unknown> = {}) {
@@ -238,6 +240,10 @@ describe('ReleasesPage', () => {
     apiMock.getReleaseTasksPage.mockImplementation(async () => {
       const items = await apiMock.getReleaseTasks()
       return { items, total: items.length, limit: 10, offset: 0 }
+    })
+    apiMock.getReleaseTaskGateStatus.mockImplementation(async (id: number) => {
+      const items = await apiMock.getReleaseTasks()
+      return (items.find((item: { id: number }) => item.id === id) || items[0] || releaseTask()).pr_gate
     })
     apiMock.getOnlineReleaseRecords.mockResolvedValue([
       onlineRecord(),
