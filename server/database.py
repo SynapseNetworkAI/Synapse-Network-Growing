@@ -563,6 +563,7 @@ class ReleaseTaskRow(Base):
     project_display_name = Column(Text)
     service_key = Column(Text)
     branch_name = Column(Text, nullable=False)
+    target_commit_sha = Column(Text)
     environment = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="requested")
     actor = Column(Text)
@@ -1682,6 +1683,7 @@ def _migrate(engine_):
         existing = {c["name"] for c in insp.get_columns("release_tasks")}
         release_task_cols = {
             "service_key": "TEXT",
+            "target_commit_sha": "TEXT",
         }
         for col, col_type in release_task_cols.items():
             if col not in existing:

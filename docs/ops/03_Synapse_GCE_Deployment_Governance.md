@@ -72,7 +72,7 @@ Growing 的 `/releases` 仍然是一个统一发布入口，但后端会按 `ser
 
 ## 3. Promotion Rule
 
-`production` promotion 前，必须已经存在同一 project / service / commit SHA 的 `staging success` 记录。
+`production` promotion 前，必须已经存在同一 project / service / commit SHA 的 `staging success` 记录。Production Release Task 必须绑定一个确定的 `target_commit_sha`；如果是旧任务没有该字段，Growing 只能用最近一次同服务 `main` staging success 作为兼容 evidence，并在 dispatch 前把该 commit 写回任务。Production gate 不允许每次刷新时无声追随最新 moving `main`。
 
 这条规则由 Growing 在 dispatch GitHub Actions 前先阻断。
 
@@ -81,7 +81,7 @@ Production 只允许 `main`。Growing 的 Release Task production deploy endpoin
 1. task environment 是 `production`。
 2. branch 是 `main`。
 3. operator 输入 `DEPLOY_PRODUCTION`。
-4. 同一 `project_key + service_key + main commit` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
+4. 同一 `project_key + service_key + target_commit_sha` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
 5. 目标仓库具备 production WIF secrets。
 
 Production DeploymentRecord metadata 必须写入 `gcpProject=synapse-network-prod`、`sourceStagingDeploymentRecordId`、`deployScope`、`environmentIsolationVersion=v1`、`deploy_repo_full_name` 和 `service_key`。

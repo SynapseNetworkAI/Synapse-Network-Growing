@@ -19,7 +19,6 @@ from server.services.releases.github_cli import run_gh_json as _run_gh_json
 from server.services.releases.tasks import (
     E2E_BRANCH_OPTIONS,
     _clean,
-    _json_load,
     _policy_for_project,
     _release_task_deploy_repo,
     _release_task_to_out,
@@ -29,6 +28,11 @@ from server.services.releases.tasks import (
 )
 from server.services.releases.production_workflows import (
     production_workflow_file_for_service,
+)
+from server.services.releases.production_staging_evidence import (
+    deployment_commit_sha as _deployment_commit_sha,
+    latest_successful_staging_deployment as _latest_successful_staging_deployment,
+    successful_staging_deployment_for_commit as _successful_staging_deployment_for_task,
 )
 
 PRODUCTION_GCP_PROJECT_ID = "synapse-network-prod"
@@ -89,47 +93,8 @@ def _github_branch_commit_sha(
     ), None if sha else "GitHub branch response did not include commit sha."
 
 
-def _deployment_commit_sha(row: DeploymentRecordRow) -> str:
-    metadata = _json_load(getattr(row, "metadata_json", None), {})
-    return (
-        _clean(getattr(row, "commit_sha", None))
-        or _clean(metadata.get("resolvedCommitSha"))
-        or _clean(metadata.get("githubHeadSha"))
-    )
-
-
-def _deployment_service_key(row: DeploymentRecordRow) -> str:
-    metadata = _json_load(getattr(row, "metadata_json", None), {})
-    return _clean(metadata.get("service_key") or metadata.get("deployScope"))
-
-
-def _successful_staging_deployment_for_task(
-    db: Session,
-    *,
-    project_key: str,
-    service_key: str,
-    commit_sha: str,
-) -> DeploymentRecordRow | None:
-    rows = (
-        db.query(DeploymentRecordRow)
-        .filter(
-            DeploymentRecordRow.project_key == project_key,
-            DeploymentRecordRow.environment == "staging",
-            DeploymentRecordRow.status == "succeeded",
-            DeploymentRecordRow.health_status.in_(
-                ["passed", "healthy", "manual_verified"]
-            ),
-        )
-        .order_by(DeploymentRecordRow.id.desc())
-        .limit(50)
-        .all()
-    )
-    for row in rows:
-        if _deployment_service_key(row) != service_key:
-            continue
-        if _deployment_commit_sha(row) == commit_sha:
-            return row
-    return None
+def _task_target_commit_sha(row: ReleaseTaskRow) -> str:
+    return _clean(getattr(row, "target_commit_sha", None))
 
 
 def release_task_production_gate(
@@ -152,10 +117,11 @@ def release_task_production_gate(
     if service_key not in _valid_service_keys_for_project(project_key):
         gate.blocked_reason = _service_key_error_for_project(project_key)
         return gate
-    commit_sha, commit_error = _github_branch_commit_sha(repo_full_name, branch_name)
-    gate.branch_exists = bool(commit_sha)
-    gate.resolved_commit_sha = commit_sha
-    if not commit_sha:
+    current_main_sha, commit_error = _github_branch_commit_sha(repo_full_name, branch_name)
+    gate.branch_exists = bool(current_main_sha)
+    target_commit_sha = _task_target_commit_sha(row) or current_main_sha
+    gate.resolved_commit_sha = target_commit_sha
+    if not current_main_sha:
         gate.blocked_reason = commit_error or "Unable to resolve main commit sha."
         gate.environment_gate_summary = gate.blocked_reason
         return gate
@@ -163,8 +129,17 @@ def release_task_production_gate(
         db,
         project_key=project_key,
         service_key=service_key,
-        commit_sha=commit_sha,
+        commit_sha=target_commit_sha,
     )
+    if staging_record is None and not _task_target_commit_sha(row):
+        staging_record = _latest_successful_staging_deployment(
+            db,
+            project_key=project_key,
+            service_key=service_key,
+        )
+        if staging_record is not None:
+            target_commit_sha = _deployment_commit_sha(staging_record)
+            gate.resolved_commit_sha = target_commit_sha
     if staging_record is None:
         gate.blocked_reason = (
             "No successful staging deployment exists for this service and main commit."
@@ -176,10 +151,10 @@ def release_task_production_gate(
     gate.staging_deployment_record_id = int(staging_record.id)
     gate.checks_status = "success"
     gate.checks_summary = (
-        f"Staging deployment #{int(staging_record.id)} passed for {commit_sha[:12]}."
+        f"Staging deployment #{int(staging_record.id)} passed for {target_commit_sha[:12]}."
     )
     gate.environment_gate_summary = (
-        "Production gate ready: main commit has passed staging."
+        "Production gate ready: selected main commit has passed staging."
     )
     gate.can_deploy_production = True
     gate.blocked_reason = None
@@ -360,6 +335,7 @@ def _create_production_deployment_record(
     db.commit()
     db.refresh(record)
     row.deployment_record_id = int(record.id)
+    row.target_commit_sha = gate.resolved_commit_sha
     row.status = "deploying"
     row.operator = actor
     row.updated_at = utcnow()
