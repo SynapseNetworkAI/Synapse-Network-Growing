@@ -924,6 +924,20 @@ def _apply_github_run_to_deployment(
 
 def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
+    result: dict[str, Any] = {
+        "processed_count": 0,
+        "succeeded_ids": [],
+        "failed_ids": [],
+        "running_ids": [],
+        "pending_ids": [],
+        "error_ids": [],
+        "skipped_terminal_ids": [],
+        "timeout_ids": [],
+        "removed_run_ids": [],
+    }
+    from server.services.releases.production_dispatch import append_pending_production_dispatches
+
+    append_pending_production_dispatches(db, result, max_records=min(5, bounded_limit))
     sync_cutoff = utcnow() - timedelta(days=7)
     active_status_rank = case(
         (DeploymentRecordRow.status.in_(["requested", "running", "pending"]), 0),
@@ -951,17 +965,6 @@ def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50)
         .limit(bounded_limit)
         .all()
     )
-    result: dict[str, Any] = {
-        "processed_count": 0,
-        "succeeded_ids": [],
-        "failed_ids": [],
-        "running_ids": [],
-        "pending_ids": [],
-        "error_ids": [],
-        "skipped_terminal_ids": [],
-        "timeout_ids": [],
-        "removed_run_ids": [],
-    }
     for record in rows:
         record = db.get(DeploymentRecordRow, int(record.id))
         if record is None:

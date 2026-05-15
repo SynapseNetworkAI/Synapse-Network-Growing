@@ -12,7 +12,6 @@ from server.database import DeploymentRecordRow, ReleaseTaskRow, utcnow
 from server.schemas import ReleaseTaskOut, ReleaseTaskPrGateOut
 from server.services.delivery.deployment_governance import (
     _callback_url,
-    _dispatch_github_workflow,
     _json_dump,
 )
 from server.services.releases.github_cli import run_gh_json as _run_gh_json
@@ -217,26 +216,26 @@ def _production_deployment_metadata(
     }
 
 
-def _mark_release_task_dispatch_failed(
-    db: Session,
+def _pending_production_deployment_metadata(
     *,
     row: ReleaseTaskRow,
-    record: DeploymentRecordRow,
-    actor: str,
-    error: Exception,
-) -> ReleaseTaskOut:
-    message = str(error)[:1000]
-    record.status = "failed"
-    record.health_status = "failed"
-    record.notes = message
-    record.finished_at = utcnow()
-    row.status = "failed"
-    row.operator = actor
-    row.note = message
-    row.updated_at = utcnow()
-    db.commit()
-    db.refresh(row)
-    return _release_task_to_out(row, db=db)
+    repo_full_name: str,
+    service_key: str,
+) -> dict[str, Any]:
+    return {
+        "release_task_id": int(row.id),
+        "service_key": service_key,
+        "deploy_repo_full_name": repo_full_name,
+        "deploy_strategy": "github_actions_wif_cloudrun",
+        "sourceRefType": "branch",
+        "sourceRef": "main",
+        "deployScope": service_key,
+        "gcpProject": PRODUCTION_GCP_PROJECT_ID,
+        "region": "us-central1",
+        "environmentIsolationVersion": "v1",
+        "dispatchPending": True,
+        "dispatchStatus": "pending",
+    }
 
 
 def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow:
@@ -296,28 +295,12 @@ def _assert_production_deploy_secrets(repo_full_name: str) -> None:
         )
 
 
-def _production_gate_context(
-    db: Session, task_id: int, body: Any
-) -> tuple[ReleaseTaskRow, Any, str, ReleaseTaskPrGateOut, DeploymentRecordRow, str]:
-    row = _production_task_row(db, task_id, body)
-    project_key = _clean(row.project_key)
-    policy = _policy_for_project(db, project_key)
-    repo_full_name = _release_task_deploy_repo(policy, project_key)
-    gate = release_task_production_gate(db, row, repo_full_name)
-    staging_record = _production_staging_evidence(db, gate)
-    _assert_production_deploy_secrets(repo_full_name)
-    actor = _clean(getattr(body, "actor", "operator")) or "operator"
-    return row, policy, repo_full_name, gate, staging_record, actor
-
-
-def _create_production_deployment_record(
+def _create_pending_production_deployment_record(
     db: Session,
     *,
     row: ReleaseTaskRow,
     policy: Any,
     repo_full_name: str,
-    gate: ReleaseTaskPrGateOut,
-    staging_record: DeploymentRecordRow,
     actor: str,
     note: str | None,
 ) -> DeploymentRecordRow:
@@ -337,18 +320,15 @@ def _create_production_deployment_record(
         status="requested",
         health_status="checking",
         branch_name="main",
-        commit_sha=gate.resolved_commit_sha,
         workflow_file=workflow_file,
         actor=actor,
         trigger_source="release_task",
-        notes=note,
+        notes=note or "Production dispatch pending; sync will verify gate before dispatch.",
         metadata_json=_json_dump(
-            _production_deployment_metadata(
+            _pending_production_deployment_metadata(
                 row=row,
                 repo_full_name=repo_full_name,
                 service_key=service_key,
-                commit_sha=gate.resolved_commit_sha,
-                staging_record=staging_record,
             )
         ),
         started_at=utcnow(),
@@ -357,7 +337,6 @@ def _create_production_deployment_record(
     db.commit()
     db.refresh(record)
     row.deployment_record_id = int(record.id)
-    row.target_commit_sha = gate.resolved_commit_sha
     row.status = "deploying"
     row.operator = actor
     row.note = note
@@ -397,51 +376,29 @@ def _production_dispatch_inputs(
 def _deploy_release_task_to_production(
     db: Session, task_id: int, body: Any
 ) -> ReleaseTaskOut:
-    row, policy, repo_full_name, gate, staging_record, actor = _production_gate_context(
-        db, task_id, body
-    )
+    row = _production_task_row(db, task_id, body)
+    project_key = _clean(row.project_key)
+    policy = _policy_for_project(db, project_key)
+    repo_full_name = _release_task_deploy_repo(policy, project_key)
+    actor = _clean(getattr(body, "actor", "operator")) or "operator"
     note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
-    service_key = _clean(getattr(row, "service_key", None)).lower()
-    record = _create_production_deployment_record(
+    _create_pending_production_deployment_record(
         db,
         row=row,
         policy=policy,
         repo_full_name=repo_full_name,
-        gate=gate,
-        staging_record=staging_record,
         actor=actor,
         note=note,
     )
-    workflow_file = _production_workflow_file(
-        policy, project_key=_clean(row.project_key), service_key=service_key
+    queued_gate = ReleaseTaskPrGateOut(
+        branch_exists=True,
+        pr_state="production",
+        checks_status="pending",
+        checks_summary="Production dispatch queued.",
+        environment_gate_summary="Production dispatch queued; sync will verify gate before dispatch.",
+        blocked_reason=None,
     )
-    inputs = _production_dispatch_inputs(
-        row=row,
-        record=record,
-        commit_sha=gate.resolved_commit_sha or "",
-        service_key=service_key,
-        actor=actor,
-    )
-    try:
-        record.external_url = _dispatch_github_workflow(
-            repo_full_name=repo_full_name,
-            workflow_file=workflow_file,
-            ref="main",
-            inputs=inputs,
-        )
-        db.commit()
-        db.refresh(row)
-        return _release_task_to_out(row, db=db, pr_gate=gate)
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        record = (
-            db.get(DeploymentRecordRow, int(row.deployment_record_id))
-            if row.deployment_record_id
-            else record
-        )
-        return _mark_release_task_dispatch_failed(
-            db, row=row, record=record, actor=actor, error=exc
-        )
+    return _release_task_to_out(row, db=db, pr_gate=queued_gate)
 
 
 def deploy_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
