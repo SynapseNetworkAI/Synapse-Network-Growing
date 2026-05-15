@@ -1269,6 +1269,10 @@ class ReleaseTaskPrGateOut(BaseModel):
     checks_summary: Optional[str] = None
     can_create_pr: bool = False
     can_deploy_staging: bool = False
+    can_deploy_production: bool = False
+    resolved_commit_sha: Optional[str] = None
+    staging_deployment_record_id: Optional[int] = None
+    environment_gate_summary: Optional[str] = None
     blocked_reason: Optional[str] = None
 
 
@@ -1330,6 +1334,7 @@ class ReleaseTaskPatchRequest(BaseModel):
 class ReleaseTaskDeployRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None
+    confirm_phrase: Optional[str] = None
 
 
 class ReleaseRollbackRequest(BaseModel):

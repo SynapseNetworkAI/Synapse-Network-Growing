@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
-import { getReleaseTasksPage } from '../apiReleaseTasks'
+import { deployReleaseTask, getReleaseTasksPage } from '../apiReleaseTasks'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { ReleaseTaskCompactFailure, ReleaseTaskDetailModal, ReleaseTaskFailureSnippet, ReleaseTaskPrGate, releaseTaskFailureSummary, shouldShowReleaseTaskFailure } from './ReleaseTaskDetailPanel'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
 import ScheduledJobsPanel from './ScheduledJobsPanel'
+import ProductionDeployModal from './ProductionDeployModal'
 
 type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'online'
 const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'online']
 const RELEASE_TASK_PAGE_SIZE = 10
-
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
   requirement_flow: '需求流转',
@@ -154,6 +154,8 @@ export default function ReleasesPage() {
   const [onlineDetail, setOnlineDetail] = useState<OnlineReleaseRecord | null>(null)
   const [taskDraft, setTaskDraft] = useState(defaultTaskDraft([]))
   const [taskBusy, setTaskBusy] = useState(false)
+  const [productionDeployTask, setProductionDeployTask] = useState<ReleaseTask | null>(null)
+  const [productionConfirmPhrase, setProductionConfirmPhrase] = useState('')
   const [branchOptions, setBranchOptions] = useState<ReleaseBranchOption[]>([])
   const [branchQuery, setBranchQuery] = useState('')
   const [branchLoading, setBranchLoading] = useState(false)
@@ -381,6 +383,28 @@ export default function ReleasesPage() {
     }
   }
 
+  const deployTaskToProduction = async () => {
+    if (!productionDeployTask || busyAction) return
+    const busyKey = `release-task-${productionDeployTask.id}-deploy-production`
+    setBusyAction(busyKey)
+    try {
+      await deployReleaseTask(productionDeployTask.id, {
+        actor: 'operator',
+        note: productionDeployTask.note,
+        confirm_phrase: productionConfirmPhrase,
+      })
+      toast.success('Production 发布已触发')
+      setProductionDeployTask(null)
+      setProductionConfirmPhrase('')
+      await load()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '触发 production 发布失败'
+      toast.error(message)
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   const createTaskPr = async (task: ReleaseTask) => {
     const busyKey = `release-task-${task.id}-create-pr`
     if (busyAction) return
@@ -552,6 +576,10 @@ export default function ReleasesPage() {
           onUpdateStatus={updateTaskStatus}
           onCreatePr={createTaskPr}
           onDeployStaging={deployTaskToStaging}
+          onDeployProduction={(task) => {
+            setProductionConfirmPhrase('')
+            setProductionDeployTask(task)
+          }}
           onRefresh={() => load().catch(() => {})}
           onOpenDetails={(task) => {
             setTaskModalOpen(false)
@@ -570,6 +598,18 @@ export default function ReleasesPage() {
           onOpenDetails={setOnlineDetail}
         />
       )}
+
+      <ProductionDeployModal
+        task={productionDeployTask}
+        confirmPhrase={productionConfirmPhrase}
+        busyAction={busyAction}
+        onConfirmPhraseChange={setProductionConfirmPhrase}
+        onClose={() => {
+          setProductionDeployTask(null)
+          setProductionConfirmPhrase('')
+        }}
+        onDeploy={deployTaskToProduction}
+      />
 
       <OverlayModal
         open={taskModalOpen}
@@ -827,6 +867,7 @@ function ReleaseTasksTable({
   onUpdateStatus,
   onCreatePr,
   onDeployStaging,
+  onDeployProduction,
   onRefresh,
   onOpenDetails,
   onPage,
@@ -840,6 +881,7 @@ function ReleaseTasksTable({
   onUpdateStatus: (task: ReleaseTask, status: 'completed' | 'failed' | 'cancelled') => void
   onCreatePr: (task: ReleaseTask) => void
   onDeployStaging: (task: ReleaseTask) => void
+  onDeployProduction: (task: ReleaseTask) => void
   onRefresh: () => void
   onOpenDetails: (task: ReleaseTask) => void
   onPage: (offset: number) => void
@@ -892,7 +934,7 @@ function ReleaseTasksTable({
                     <ReleaseTaskCompactFailure value={task.deployment_failure_summary} />
                   ) : null}
                   <ReleaseTaskFailureSnippet task={task} />
-                  {task.environment === 'staging' ? <ReleaseTaskPrGate task={task} /> : null}
+                  {task.environment === 'staging' || task.environment === 'production' ? <ReleaseTaskPrGate task={task} /> : null}
                 </td>
                 <td className="px-4 py-4 text-sm text-[color:var(--ops-text-muted)]">
                   <div>创建：{task.actor || '-'}</div>
@@ -967,9 +1009,18 @@ function ReleaseTasksTable({
                           发布到 staging
                         </button>
                       ) : null}
-                      {task.environment === 'production' ? (
-                        <span className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)]">
-                          Production 需 Human Gate
+                      {task.environment === 'production' && task.pr_gate?.can_deploy_production && !task.deployment_record_id ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
+                          disabled={Boolean(busyAction)}
+                          onClick={() => onDeployProduction(task)}
+                        >
+                          {busyAction === `release-task-${task.id}-deploy-production` ? '发布中…' : '发布到 production'}
+                        </button>
+                      ) : task.environment === 'production' ? (
+                        <span className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)]" title={task.pr_gate?.blocked_reason || undefined}>
+                          {task.pr_gate?.blocked_reason || 'Production 需 Human Gate'}
                         </span>
                       ) : null}
                       <button

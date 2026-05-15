@@ -27,3 +27,7 @@ export function getReleaseTasksPage(filters?: {
   const q = params.toString() ? `?${params.toString()}` : ''
   return request<ReleaseTaskPage>(`/releases/tasks/query${q}`)
 }
+
+export function deployReleaseTask(id: number, data?: { actor?: string; note?: string | null; confirm_phrase?: string | null }) {
+  return request<ReleaseTask>(`/releases/tasks/${id}/deploy`, { method: 'POST', body: JSON.stringify(data || {}) })
+}

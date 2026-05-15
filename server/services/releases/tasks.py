@@ -473,7 +473,8 @@ def list_release_tasks(
         pr_gate: ReleaseTaskPrGateOut | None = None
         project_key_value = _clean(row.project_key)
         branch_name = _clean(row.branch_name)
-        if _clean(row.environment).lower() == "staging" and branch_name:
+        environment = _clean(row.environment).lower()
+        if environment == "staging" and branch_name:
             try:
                 repo_full_name = repo_cache.get(project_key_value)
                 if repo_full_name is None:
@@ -1117,7 +1118,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         "controlledSteps": controlled_steps,
     }
     if deploy_strategy in {"github_actions_gcp_cloudrun", "github_actions_wif_cloudrun"}:
-        deployment_metadata.update({"gcpProject": "engineering-staging-svc-1442", "region": "us-central1"})
+        deployment_metadata.update({"gcpProject": "fabled-archive-494108-k5", "region": "us-central1"})
     if deploy_strategy == "github_actions_wif_cloudrun":
         deployment_metadata.update({"cloud_run_service": "synapse-staging-provider", "artifact_image": None, "health_status": "pending"})
     record = DeploymentRecordRow(

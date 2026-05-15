@@ -20,7 +20,6 @@ const REQUEST_TIMEOUT_MS = 17000
 export interface ApiError extends Error {
   detail?: unknown
 }
-
 export async function request<T>(path: string, options?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
@@ -1290,6 +1289,7 @@ export interface ReleaseTask {
     checks_summary: string | null
     can_create_pr: boolean
     can_deploy_staging: boolean
+    can_deploy_production?: boolean; resolved_commit_sha?: string | null; staging_deployment_record_id?: number | null; environment_gate_summary?: string | null
     blocked_reason: string | null
   }
   created_at: string | null
