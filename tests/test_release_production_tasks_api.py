@@ -6,6 +6,9 @@ from server.database import ReleaseTaskRow
 from server.services.releases import (
     production_tasks as release_production_tasks_service,
 )
+from server.services.releases.production_workflows import (
+    production_workflow_file_for_service,
+)
 
 
 def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
@@ -30,7 +33,7 @@ def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
 
     def fake_dispatch(**kwargs):
         calls.append(kwargs)
-        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-production.yml"
+        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-production-frontends.yml"
 
     monkeypatch.setattr(
         release_production_tasks_service, "_dispatch_github_workflow", fake_dispatch
@@ -81,10 +84,10 @@ def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
     payload = response.json()
     assert payload["status"] == "deploying"
     assert payload["deployment_record_id"] is not None
-    assert payload["deployment_workflow_file"] == "deploy-production.yml"
+    assert payload["deployment_workflow_file"] == "deploy-production-frontends.yml"
     assert payload["deployment_commit_sha"] == "abc123prod"
     assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
-    assert calls[0]["workflow_file"] == "deploy-production.yml"
+    assert calls[0]["workflow_file"] == "deploy-production-frontends.yml"
     assert calls[0]["inputs"]["deploy_scope"] == "docs-front"
     assert calls[0]["inputs"]["source_ref"] == "main"
     assert calls[0]["inputs"]["commit_sha"] == "abc123prod"
@@ -94,6 +97,49 @@ def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
     assert metadata["gcpProject"] == "synapse-network-prod"
     assert metadata["sourceStagingDeploymentRecordId"] == int(staging_record.id)
     assert metadata["environmentIsolationVersion"] == "v1"
+
+
+def test_production_workflow_resolver_uses_modular_defaults():
+    assert (
+        production_workflow_file_for_service(
+            configured_workflow_file="deploy-production.yml",
+            project_key="synapse-network",
+            service_key="gateway",
+        )
+        == "deploy-production-gateway.yml"
+    )
+    assert (
+        production_workflow_file_for_service(
+            configured_workflow_file="deploy-production.yml",
+            project_key="synapse-network",
+            service_key="gateway-admin",
+        )
+        == "deploy-production-admin.yml"
+    )
+    assert (
+        production_workflow_file_for_service(
+            configured_workflow_file="deploy-production.yml",
+            project_key="synapse-network",
+            service_key="docs-front",
+        )
+        == "deploy-production-frontends.yml"
+    )
+    assert (
+        production_workflow_file_for_service(
+            configured_workflow_file="deploy-production.yml",
+            project_key="synapse-network-provider",
+            service_key="provider-service",
+        )
+        == "deploy-production-provider.yml"
+    )
+    assert (
+        production_workflow_file_for_service(
+            configured_workflow_file="custom-prod.yml",
+            project_key="synapse-network",
+            service_key="gateway",
+        )
+        == "custom-prod.yml"
+    )
 
 
 def test_release_task_production_deploy_blocks_without_matching_staging(

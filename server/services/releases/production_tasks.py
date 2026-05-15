@@ -27,10 +27,12 @@ from server.services.releases.tasks import (
     _valid_service_keys_for_project,
     deploy_release_task_to_staging,
 )
+from server.services.releases.production_workflows import (
+    production_workflow_file_for_service,
+)
 
 PRODUCTION_GCP_PROJECT_ID = "synapse-network-prod"
 PRODUCTION_CONFIRM_PHRASE = "DEPLOY_PRODUCTION"
-PRODUCTION_WORKFLOW_FILE = "deploy-production.yml"
 REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS = {
     "PROD_GCP_WORKLOAD_IDENTITY_PROVIDER",
     "PROD_GCP_DEPLOY_SERVICE_ACCOUNT",
@@ -184,10 +186,13 @@ def release_task_production_gate(
     return gate
 
 
-def _production_workflow_file(policy: Any) -> str:
-    return (
-        _clean(getattr(policy, "production_workflow_file", None))
-        or PRODUCTION_WORKFLOW_FILE
+def _production_workflow_file(
+    policy: Any, *, project_key: str, service_key: str
+) -> str:
+    return production_workflow_file_for_service(
+        configured_workflow_file=getattr(policy, "production_workflow_file", None),
+        project_key=project_key,
+        service_key=service_key,
     )
 
 
@@ -321,7 +326,9 @@ def _create_production_deployment_record(
 ) -> DeploymentRecordRow:
     service_key = _clean(getattr(row, "service_key", None)).lower()
     project_key = _clean(row.project_key)
-    workflow_file = _production_workflow_file(policy)
+    workflow_file = _production_workflow_file(
+        policy, project_key=project_key, service_key=service_key
+    )
     record = DeploymentRecordRow(
         requirement_id=int(row.requirement_id)
         if row.requirement_id is not None
@@ -405,7 +412,9 @@ def _deploy_release_task_to_production(
         actor=actor,
         note=note,
     )
-    workflow_file = _production_workflow_file(policy)
+    workflow_file = _production_workflow_file(
+        policy, project_key=_clean(row.project_key), service_key=service_key
+    )
     inputs = _production_dispatch_inputs(
         row=row,
         record=record,
