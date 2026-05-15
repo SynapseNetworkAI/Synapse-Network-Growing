@@ -224,6 +224,53 @@ def test_release_task_deployment_success_clears_stale_actions_failure_metadata(
     assert "deploymentSyncError" not in metadata
 
 
+def test_production_release_task_success_note_uses_production_environment(
+    db_session,
+):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="production",
+        action="deploy",
+        status="failed",
+        health_status="failed",
+        external_run_id="25909566899",
+        trigger_source="release_task",
+        notes="GitHub Actions production deploy failure.",
+        metadata_json=json.dumps({"deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network"}),
+    )
+    db_session.add(record)
+    db_session.flush()
+    task = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="production",
+        status="failed",
+        actor="operator",
+        note="GitHub Actions production deploy failure.",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    state = release_tasks_service._apply_github_run_to_deployment(
+        db_session,
+        record,
+        run_id="25909566899",
+        run_payload={
+            "status": "completed",
+            "conclusion": "success",
+            "url": "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/25909566899",
+            "headSha": "prod123",
+        },
+    )
+
+    assert state == "succeeded"
+    assert task.status == "completed"
+    assert task.note == "production deploy succeeded; GitHub Actions run passed."
+
+
 def test_release_task_deployment_status_sync_cleans_success_with_stale_failure_metadata(
     db_session,
 ):

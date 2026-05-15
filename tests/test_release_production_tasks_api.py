@@ -142,6 +142,41 @@ def test_production_workflow_resolver_uses_modular_defaults():
     )
 
 
+def test_production_dispatch_inputs_match_modular_wrapper_contracts():
+    row = ReleaseTaskRow(id=10)
+    gateway_record = DeploymentRecordRow(id=20, workflow_file="deploy-production-gateway.yml")
+    gateway_inputs = release_production_tasks_service._production_dispatch_inputs(
+        row=row,
+        record=gateway_record,
+        commit_sha="abc",
+        service_key="gateway",
+        actor="operator",
+    )
+    assert "deploy_scope" not in gateway_inputs
+
+    admin_record = DeploymentRecordRow(id=21, workflow_file="deploy-production-admin.yml")
+    admin_inputs = release_production_tasks_service._production_dispatch_inputs(
+        row=row,
+        record=admin_record,
+        commit_sha="abc",
+        service_key="gateway-admin",
+        actor="operator",
+    )
+    assert "deploy_scope" not in admin_inputs
+
+    frontend_record = DeploymentRecordRow(
+        id=22, workflow_file="deploy-production-frontends.yml"
+    )
+    frontend_inputs = release_production_tasks_service._production_dispatch_inputs(
+        row=row,
+        record=frontend_record,
+        commit_sha="abc",
+        service_key="docs-front",
+        actor="operator",
+    )
+    assert frontend_inputs["deploy_scope"] == "docs-front"
+
+
 def test_release_task_production_deploy_blocks_without_matching_staging(
     monkeypatch, synced_client
 ):
@@ -175,7 +210,7 @@ def test_release_task_production_gate_uses_pinned_staging_commit(
     monkeypatch.setattr(
         release_production_tasks_service,
         "_github_branch_commit_sha",
-        lambda repo, branch: ("new-main-head", None),
+        lambda repo, branch: ("staged-main-sha", None),
     )
     staging_record = DeploymentRecordRow(
         project_key="synapse-network",
@@ -213,7 +248,7 @@ def test_release_task_production_gate_recovers_legacy_unpinned_task_from_latest_
     monkeypatch.setattr(
         release_production_tasks_service,
         "_github_branch_commit_sha",
-        lambda repo, branch: ("new-main-head", None),
+        lambda repo, branch: ("legacy-staged-sha", None),
     )
     db_session.add(
         DeploymentRecordRow(
@@ -244,6 +279,44 @@ def test_release_task_production_gate_recovers_legacy_unpinned_task_from_latest_
     assert gate.can_deploy_production
     assert gate.resolved_commit_sha == "legacy-staged-sha"
     assert "passed staging" in gate.environment_gate_summary
+
+
+def test_release_task_production_gate_blocks_stale_staging_commit(
+    monkeypatch, db_session
+):
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_github_branch_commit_sha",
+        lambda repo, branch: ("current-main-sha", None),
+    )
+    db_session.add(
+        DeploymentRecordRow(
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            health_status="passed",
+            branch_name="main",
+            commit_sha="old-staged-main-sha",
+            metadata_json=json.dumps({"deployScope": "gateway"}),
+        )
+    )
+    db_session.commit()
+    row = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        target_commit_sha="old-staged-main-sha",
+        environment="production",
+        status="requested",
+    )
+
+    gate = release_production_tasks_service.release_task_production_gate(
+        db_session, row, "SynapseNetworkAI/Synapse-Network"
+    )
+
+    assert not gate.can_deploy_production
+    assert "current origin/main" in gate.blocked_reason
 
 
 def test_release_task_production_gate_blocks_invalid_inputs(monkeypatch, db_session):
@@ -277,6 +350,60 @@ def test_release_task_production_gate_blocks_invalid_inputs(monkeypatch, db_sess
         db_session, row, "SynapseNetworkAI/Synapse-Network"
     )
     assert gate.environment_gate_summary == "main not found"
+
+
+def test_production_task_row_rejects_non_deployable_status(db_session):
+    row = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="production",
+        status="completed",
+    )
+    db_session.add(row)
+    db_session.commit()
+    body = type("Body", (), {"confirm_phrase": "DEPLOY_PRODUCTION"})()
+
+    try:
+        release_production_tasks_service._production_task_row(
+            db_session, int(row.id), body
+        )
+    except ValueError as exc:
+        assert "Only requested or failed release tasks" in str(exc)
+    else:
+        raise AssertionError("Expected completed production task to be rejected")
+
+
+def test_failed_production_task_row_rejects_retry_after_successful_record(db_session):
+    record = DeploymentRecordRow(
+        project_key="synapse-network",
+        environment="production",
+        action="deploy",
+        status="succeeded",
+        health_status="passed",
+    )
+    db_session.add(record)
+    db_session.flush()
+    row = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="gateway",
+        branch_name="main",
+        environment="production",
+        status="failed",
+        deployment_record_id=int(record.id),
+    )
+    db_session.add(row)
+    db_session.commit()
+    body = type("Body", (), {"confirm_phrase": "DEPLOY_PRODUCTION"})()
+
+    try:
+        release_production_tasks_service._production_task_row(
+            db_session, int(row.id), body
+        )
+    except ValueError as exc:
+        assert "after a failed deployment record" in str(exc)
+    else:
+        raise AssertionError("Expected retry after successful record to be rejected")
 
 
 def test_production_secret_and_branch_helpers(monkeypatch):
@@ -404,3 +531,74 @@ def test_release_task_production_dispatch_failure_marks_task_failed(
     payload = response.json()
     assert payload["status"] == "failed"
     assert "dispatch exploded" in payload["note"]
+
+
+def test_failed_production_release_task_can_retry_with_new_deployment_record(
+    monkeypatch, synced_client, db_session
+):
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_github_branch_commit_sha",
+        lambda repo, branch: ("retryprodsha", None),
+    )
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_missing_required_production_deploy_secrets",
+        lambda repo: ([], None),
+    )
+    dispatch_calls: list[dict[str, object]] = []
+
+    def fake_dispatch(**kwargs):
+        dispatch_calls.append(kwargs)
+        if len(dispatch_calls) == 1:
+            raise RuntimeError("first dispatch failed")
+        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/9"
+
+    monkeypatch.setattr(
+        release_production_tasks_service,
+        "_dispatch_github_workflow",
+        fake_dispatch,
+    )
+    db_session.add(
+        DeploymentRecordRow(
+            project_key="synapse-network",
+            environment="staging",
+            action="deploy",
+            status="succeeded",
+            health_status="passed",
+            branch_name="main",
+            commit_sha="retryprodsha",
+            metadata_json=json.dumps({"deployScope": "gateway"}),
+        )
+    )
+    db_session.commit()
+
+    task = synced_client.post(
+        "/api/releases/tasks",
+        json={
+            "project_key": "synapse-network",
+            "service_key": "gateway",
+            "branch_name": "main",
+            "environment": "production",
+        },
+    ).json()
+    first_response = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/deploy",
+        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+    )
+    assert first_response.status_code == 200
+    failed_payload = first_response.json()
+    assert failed_payload["status"] == "failed"
+    failed_record_id = failed_payload["deployment_record_id"]
+
+    retry_response = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/deploy",
+        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+    )
+
+    assert retry_response.status_code == 200
+    retry_payload = retry_response.json()
+    assert retry_payload["status"] == "deploying"
+    assert retry_payload["deployment_record_id"] != failed_record_id
+    assert len(dispatch_calls) == 2
+    assert "deploy_scope" not in dispatch_calls[1]["inputs"]

@@ -121,7 +121,8 @@ def _apply_deployment_success_state(
     head_sha: str | None,
     now: datetime,
 ) -> bool:
-    success_note = "staging deploy succeeded; GitHub Actions run passed."
+    environment = _clean(getattr(record, "environment", None)).lower() or "deployment"
+    success_note = f"{environment} deploy succeeded; GitHub Actions run passed."
     record_changed = _apply_record_success_state(
         record, head_sha=head_sha, now=now, success_note=success_note
     )
