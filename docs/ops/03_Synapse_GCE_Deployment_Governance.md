@@ -48,7 +48,14 @@ author: engineering-ops
 | `Synapse-Network` | `user-front`, `docs-front` | `deploy-staging-frontends.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
 | `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
 
-Production runner 固定为目标仓库的 `deploy-production.yml`。它必须使用 GitHub Environment `production`，并通过独立 production secrets 访问 `synapse-network-prod`：
+Production 使用和 staging 对齐的模块化 runner。`Synapse-Network` 的业务服务按 family dispatch 到清晰命名的 wrapper workflow，wrapper 再调用 reusable core `deploy-production.yml`；`Synapse-Network-Provider` 使用独立 provider workflow。所有 production workflow 都必须使用 GitHub Environment `production`，并通过独立 production secrets 访问 `synapse-network-prod`：
+
+| Project | Service key | Production runner |
+|---|---|---|
+| `Synapse-Network` | `gateway` | `deploy-production-gateway.yml` -> reusable `deploy-production.yml` |
+| `Synapse-Network` | `gateway-admin` | `deploy-production-admin.yml` -> reusable `deploy-production.yml` |
+| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `deploy-production-frontends.yml` -> reusable `deploy-production.yml` |
+| `Synapse-Network-Provider` | `provider-service` | `deploy-production-provider.yml` |
 
 | Secret | Purpose |
 |---|---|
@@ -60,7 +67,7 @@ Production runner 固定为目标仓库的 `deploy-production.yml`。它必须�
 | `PROD_EVIDENCE_BUCKET` | Production deploy manifest / evidence bucket |
 
 Growing 的 `/releases` 仍然是一个统一发布入口，但后端会按 `service_key`
-选择对应 staging family workflow。不要让 operator 手工维护这张映射，也不要把所有
+选择对应 staging / production family workflow。不要让 operator 手工维护这张映射，也不要把所有
 服务继续塞进一个只靠条件分支区分的 mega workflow。
 
 ## 3. Promotion Rule

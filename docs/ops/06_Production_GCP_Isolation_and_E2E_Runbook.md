@@ -54,7 +54,7 @@ Use `docs-front` as the low-risk first production pilot.
 3. Confirm the Production Gate shows the same main commit and source staging DeploymentRecord.
 4. Click `发布到 production`, type `DEPLOY_PRODUCTION`, and submit.
 5. Approve the target repository GitHub Environment `production` review.
-6. Wait for GitHub Actions `deploy-production.yml` to pass.
+6. Wait for GitHub Actions `deploy-production-frontends.yml` to pass. The wrapper calls reusable `deploy-production.yml` but the visible Actions run should identify the module.
 7. Click `/releases` `同步状态` or wait for the deployment sweep.
 8. Verify `/releases -> 上线记录` includes an `environment=production` row with GitHub Actions URL and health passed.
 9. Smoke `https://docs.synapse-network.ai/`.
@@ -71,6 +71,21 @@ After the pilot succeeds, promote services in this order to reduce blast radius:
 6. `provider-service`
 
 If any deployment fails, keep the Release Task failed with the GitHub Actions URL and failure excerpt. Do not manually mark success. Fix the root cause and retry from the failed service.
+
+## Modular Production Workflow Map
+
+Production deploy observability mirrors staging:
+
+| Service | Workflow |
+|---|---|
+| `gateway` | `deploy-production-gateway.yml` |
+| `gateway-admin` | `deploy-production-admin.yml` |
+| `admin-front` | `deploy-production-frontends.yml` |
+| `user-front` | `deploy-production-frontends.yml` |
+| `docs-front` | `deploy-production-frontends.yml` |
+| `provider-service` | `deploy-production-provider.yml` in `Synapse-Network-Provider` |
+
+Growing records the concrete workflow file on each `DeploymentRecord.workflow_file` so failed production deploys can be traced to the exact module runner.
 
 ## Rollback
 
