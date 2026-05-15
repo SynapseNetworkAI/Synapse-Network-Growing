@@ -12,6 +12,7 @@ from server.services.delivery.deployment_governance import (
     _json_dump,
 )
 from server.services.result_objects import ServiceObjectResult
+from server.services.releases.db_retry import commit_with_sqlite_lock_retry
 from server.services.releases.production_tasks import (
     _assert_production_deploy_secrets,
     _production_deployment_metadata,
@@ -36,25 +37,27 @@ def _fail_pending_dispatch(
     row: ReleaseTaskRow | None,
     error: Exception,
 ) -> None:
-    message = str(error)[:1000]
-    record.status = "failed"
-    record.health_status = "failed"
-    record.notes = message
-    record.finished_at = utcnow()
-    _merge_metadata(
-        record,
-        {
-            "dispatchPending": False,
-            "dispatchStatus": "failed",
-            "dispatchFailureSummary": message,
-            "githubDispatchFailedAt": utcnow().isoformat(),
-        },
-    )
-    if row is not None:
-        row.status = "failed"
-        row.note = message
-        row.updated_at = utcnow()
-    db.commit()
+    def apply() -> None:
+        message = str(error)[:1000]
+        record.status = "failed"
+        record.health_status = "failed"
+        record.notes = message
+        record.finished_at = utcnow()
+        _merge_metadata(
+            record,
+            {
+                "dispatchPending": False,
+                "dispatchStatus": "failed",
+                "dispatchFailureSummary": message,
+                "githubDispatchFailedAt": utcnow().isoformat(),
+            },
+        )
+        if row is not None:
+            row.status = "failed"
+            row.note = message
+            row.updated_at = utcnow()
+
+    commit_with_sqlite_lock_retry(db, apply)
 
 
 def _dispatch_context(
@@ -113,28 +116,30 @@ def _mark_dispatched(
     actor: str,
     service_key: str,
 ) -> None:
-    next_metadata = _production_deployment_metadata(
-        row=row,
-        repo_full_name=repo_full_name,
-        service_key=service_key,
-        commit_sha=gate.resolved_commit_sha or "",
-        staging_record=staging_record,
-    )
-    next_metadata.update(
-        {
-            "dispatchPending": False,
-            "dispatchStatus": "dispatched",
-            "githubWorkflowFile": record.workflow_file,
-            "githubDispatchAt": utcnow().isoformat(),
-        }
-    )
-    record.metadata_json = _json_dump(next_metadata)
-    record.notes = "Production workflow dispatched; waiting for GitHub Actions."
-    row.status = "deploying"
-    row.operator = actor
-    row.target_commit_sha = gate.resolved_commit_sha
-    row.updated_at = utcnow()
-    db.commit()
+    def apply() -> None:
+        next_metadata = _production_deployment_metadata(
+            row=row,
+            repo_full_name=repo_full_name,
+            service_key=service_key,
+            commit_sha=gate.resolved_commit_sha or "",
+            staging_record=staging_record,
+        )
+        next_metadata.update(
+            {
+                "dispatchPending": False,
+                "dispatchStatus": "dispatched",
+                "githubWorkflowFile": record.workflow_file,
+                "githubDispatchAt": utcnow().isoformat(),
+            }
+        )
+        record.metadata_json = _json_dump(next_metadata)
+        record.notes = "Production workflow dispatched; waiting for GitHub Actions."
+        row.status = "deploying"
+        row.operator = actor
+        row.target_commit_sha = gate.resolved_commit_sha
+        row.updated_at = utcnow()
+
+    commit_with_sqlite_lock_retry(db, apply)
 
 
 def _dispatch_one_pending_record(
