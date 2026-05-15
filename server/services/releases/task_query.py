@@ -16,6 +16,7 @@ from server.services.releases.tasks import (
     _release_task_pr_gate_with_row_actions,
     _release_task_to_out,
 )
+from server.services.releases.production_tasks import release_task_production_gate
 
 
 def _filtered_query(
@@ -64,7 +65,8 @@ def _pr_gate_for_row(
 ) -> ReleaseTaskPrGateOut | None:
     project_key_value = _clean(row.project_key)
     branch_name = _clean(row.branch_name)
-    if _clean(row.environment).lower() != "staging" or not branch_name:
+    environment = _clean(row.environment).lower()
+    if environment not in {"staging", "production"} or not branch_name:
         return None
     try:
         repo_full_name = repo_cache.get(project_key_value)
@@ -72,6 +74,8 @@ def _pr_gate_for_row(
             policy = _policy_for_project(db, project_key_value)
             repo_full_name = _release_task_deploy_repo(policy, project_key_value)
             repo_cache[project_key_value] = repo_full_name
+        if environment == "production":
+            return release_task_production_gate(db, row, repo_full_name)
         cache_key = (repo_full_name, branch_name)
         pr_gate = gate_cache.get(cache_key)
         if pr_gate is None:

@@ -247,6 +247,17 @@ export function ReleaseTaskDetailModal({
 export function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
   const gate = task.pr_gate
   if (!gate) return null
+  if (task.environment === 'production') {
+    const ready = Boolean(gate.can_deploy_production)
+    return (
+      <div className="mt-2 space-y-1">
+        <StateBadge tone={ready ? 'delivered' : 'blocked'}>Production Gate: {ready ? '已满足' : gate.blocked_reason || '待满足'}</StateBadge>
+        {gate.environment_gate_summary ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">{gate.environment_gate_summary}</div> : null}
+        {gate.resolved_commit_sha ? <div className="max-w-xs font-mono text-xs text-[color:var(--ops-text-caption)]">main {gate.resolved_commit_sha.slice(0, 12)}</div> : null}
+        {gate.staging_deployment_record_id ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">staging deployment #{gate.staging_deployment_record_id}</div> : null}
+      </div>
+    )
+  }
   let label = gate.blocked_reason || 'PR gate 待同步'
   let tone: 'ready' | 'running' | 'blocked' | 'muted' | 'delivered' = 'muted'
   if (!gate.branch_exists) {

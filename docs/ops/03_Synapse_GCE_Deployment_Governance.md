@@ -1,15 +1,15 @@
 ---
 id: synapse-gce-deployment-governance
 title: "Synapse Deployment Governance"
-status: draft
+status: ready
 created_at: 2026-04-13
-updated_at: 2026-04-25
+updated_at: 2026-05-15
 author: engineering-ops
 ---
 
 # Synapse Deployment Governance
 
-本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。两者 staging 默认使用 GitHub Actions + GCP Workload Identity Federation + Cloud Build + Cloud Run，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。
+本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。两者 staging / production 默认使用 GitHub Actions + GCP Workload Identity Federation + Cloud Build + Cloud Run，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。Staging GCP project 固定为 `fabled-archive-494108-k5`；production GCP project 固定为 `synapse-network-prod`。
 
 ## 1. 固定部署策略
 
@@ -48,15 +48,36 @@ author: engineering-ops
 | `Synapse-Network` | `user-front`, `docs-front` | `deploy-staging-frontends.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
 | `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
 
+Production runner 固定为目标仓库的 `deploy-production.yml`。它必须使用 GitHub Environment `production`，并通过独立 production secrets 访问 `synapse-network-prod`：
+
+| Secret | Purpose |
+|---|---|
+| `PROD_GCP_WORKLOAD_IDENTITY_PROVIDER` | Production-only Workload Identity Provider |
+| `PROD_GCP_DEPLOY_SERVICE_ACCOUNT` | Production deploy service account |
+| `PROD_GCP_PROJECT_ID` | Must be `synapse-network-prod` |
+| `PROD_GCP_REGION` | Production Cloud Run region |
+| `PROD_ARTIFACT_REGISTRY_REPOSITORY` | Production Artifact Registry repo |
+| `PROD_EVIDENCE_BUCKET` | Production deploy manifest / evidence bucket |
+
 Growing 的 `/releases` 仍然是一个统一发布入口，但后端会按 `service_key`
 选择对应 staging family workflow。不要让 operator 手工维护这张映射，也不要把所有
 服务继续塞进一个只靠条件分支区分的 mega workflow。
 
 ## 3. Promotion Rule
 
-`production` promotion 前，必须已经存在同一 commit SHA 的 `staging success` 记录。
+`production` promotion 前，必须已经存在同一 project / service / commit SHA 的 `staging success` 记录。
 
 这条规则由 Growing 在 dispatch GitHub Actions 前先阻断。
+
+Production 只允许 `main`。Growing 的 Release Task production deploy endpoint 会在 dispatch 前验证：
+
+1. task environment 是 `production`。
+2. branch 是 `main`。
+3. operator 输入 `DEPLOY_PRODUCTION`。
+4. 同一 `project_key + service_key + main commit` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
+5. 目标仓库具备 production WIF secrets。
+
+Production DeploymentRecord metadata 必须写入 `gcpProject=synapse-network-prod`、`sourceStagingDeploymentRecordId`、`deployScope`、`environmentIsolationVersion=v1`、`deploy_repo_full_name` 和 `service_key`。
 
 ## 4. Branch-Based Staging Deploy
 
@@ -122,9 +143,9 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 6. Checks 通过后，由 Operator 点击 `发布到 staging`。
 7. 如果 GitHub Actions 没有 callback 到 Ops Console，全局 `release_deployment_status_sweep` 会自动只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task；也可以点击 `/releases` 的 `同步状态` 立即触发同一幂等同步函数。
 8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、目标 runner、revision / image / manifest 或 GCE script evidence，以及 health check 成功。
-9. Production 不使用 staging 快捷按钮。Production 默认从 `main` / tag / verified staging manifest promote，并必须经过 Human Gate。
+9. Production 不使用 staging 快捷按钮。Production 默认从 `main` 的 verified staging commit promote，并必须经过 Growing Human Gate 与 GitHub Environment `production` required reviewers 双门禁。
 
-Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production 的默认来源必须收敛到 `main`、tag 或已经验证的 staging manifest。
+Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production v1 的来源必须收敛到 `main` 且同 commit 已经在 staging 成功。
 
 ## 7. 上线记录
 

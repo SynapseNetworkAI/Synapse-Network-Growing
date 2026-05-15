@@ -56,6 +56,7 @@ from server.services.releases.tasks import (
     sync_release_task_deployment_statuses,
     update_release_task,
 )
+from server.services.releases.production_tasks import deploy_release_task
 from server.services.releases.task_query import query_release_tasks
 from server.services.releases.task_query_schemas import ReleaseTaskPageOut
 from server.services.releases.scheduled_jobs import scheduled_job_catalog, scheduled_jobs_status
@@ -381,6 +382,16 @@ def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest
 def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
     try:
         return deploy_release_task_to_staging(db, task_id, body)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@router.post("/tasks/{task_id}/deploy", response_model=ReleaseTaskOut)
+def deploy_release_task_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
+    try:
+        return deploy_release_task(db, task_id, body)
     except ValueError as exc:
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
