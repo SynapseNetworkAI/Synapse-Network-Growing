@@ -4,6 +4,7 @@ from server import config
 from server.database import DeploymentRecordRow
 from server.database import ReleaseTaskRow
 from server.services.releases import (
+    production_dispatch as release_production_dispatch_service,
     production_tasks as release_production_tasks_service,
 )
 from server.services.releases.production_workflows import (
@@ -11,7 +12,7 @@ from server.services.releases.production_workflows import (
 )
 
 
-def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
+def test_release_task_production_deploy_queues_and_sync_dispatches_workflow(
     monkeypatch, synced_client, db_session
 ):
     calls = []
@@ -36,7 +37,7 @@ def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
         return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-production-frontends.yml"
 
     monkeypatch.setattr(
-        release_production_tasks_service, "_dispatch_github_workflow", fake_dispatch
+        release_production_dispatch_service, "_dispatch_github_workflow", fake_dispatch
     )
 
     staging_record = DeploymentRecordRow(
@@ -85,18 +86,30 @@ def test_release_task_production_deploy_requires_gate_and_dispatches_workflow(
     assert payload["status"] == "deploying"
     assert payload["deployment_record_id"] is not None
     assert payload["deployment_workflow_file"] == "deploy-production-frontends.yml"
-    assert payload["deployment_commit_sha"] == "abc123prod"
+    assert payload["deployment_commit_sha"] is None
+    assert calls == []
+
+    deployment = db_session.get(DeploymentRecordRow, payload["deployment_record_id"])
+    metadata = json.loads(deployment.metadata_json)
+    assert metadata["dispatchPending"] is True
+    assert metadata["dispatchStatus"] == "pending"
+
+    sync_response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+    assert sync_response.status_code == 200
+    assert payload["deployment_record_id"] in sync_response.json()["production_dispatch"]["dispatched_ids"]
+
     assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert calls[0]["workflow_file"] == "deploy-production-frontends.yml"
     assert calls[0]["inputs"]["deploy_scope"] == "docs-front"
     assert calls[0]["inputs"]["source_ref"] == "main"
     assert calls[0]["inputs"]["commit_sha"] == "abc123prod"
 
-    deployment = db_session.get(DeploymentRecordRow, payload["deployment_record_id"])
+    db_session.refresh(deployment)
     metadata = json.loads(deployment.metadata_json)
     assert metadata["gcpProject"] == "synapse-network-prod"
     assert metadata["sourceStagingDeploymentRecordId"] == int(staging_record.id)
     assert metadata["environmentIsolationVersion"] == "v1"
+    assert metadata["dispatchStatus"] == "dispatched"
 
 
 def test_production_workflow_resolver_uses_modular_defaults():
@@ -200,8 +213,12 @@ def test_release_task_production_deploy_blocks_without_matching_staging(
         json={"confirm_phrase": "DEPLOY_PRODUCTION"},
     )
 
-    assert response.status_code == 400
-    assert "staging deployment" in response.json()["detail"]
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "deploying"
+    sync_response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+    assert sync_response.status_code == 200
+    assert payload["deployment_record_id"] in sync_response.json()["production_dispatch"]["failed_ids"]
 
 
 def test_release_task_production_gate_uses_pinned_staging_commit(
@@ -495,7 +512,7 @@ def test_release_task_production_dispatch_failure_marks_task_failed(
         lambda repo: ([], None),
     )
     monkeypatch.setattr(
-        release_production_tasks_service,
+        release_production_dispatch_service,
         "_dispatch_github_workflow",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("dispatch exploded")),
     )
@@ -529,8 +546,16 @@ def test_release_task_production_dispatch_failure_marks_task_failed(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "failed"
-    assert "dispatch exploded" in payload["note"]
+    assert payload["status"] == "deploying"
+
+    sync_response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+    assert sync_response.status_code == 200
+    assert payload["deployment_record_id"] in sync_response.json()["production_dispatch"]["failed_ids"]
+    updated = synced_client.get(f"/api/releases/tasks/{task['id']}/gate-status")
+    assert updated.status_code == 200
+    failed_task = db_session.get(ReleaseTaskRow, task["id"])
+    assert failed_task.status == "failed"
+    assert "dispatch exploded" in failed_task.note
 
 
 def test_failed_production_release_task_can_retry_with_new_deployment_record(
@@ -555,7 +580,7 @@ def test_failed_production_release_task_can_retry_with_new_deployment_record(
         return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/9"
 
     monkeypatch.setattr(
-        release_production_tasks_service,
+        release_production_dispatch_service,
         "_dispatch_github_workflow",
         fake_dispatch,
     )
@@ -587,9 +612,13 @@ def test_failed_production_release_task_can_retry_with_new_deployment_record(
         json={"confirm_phrase": "DEPLOY_PRODUCTION"},
     )
     assert first_response.status_code == 200
-    failed_payload = first_response.json()
-    assert failed_payload["status"] == "failed"
-    failed_record_id = failed_payload["deployment_record_id"]
+    first_payload = first_response.json()
+    assert first_payload["status"] == "deploying"
+    failed_record_id = first_payload["deployment_record_id"]
+    sync_response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+    assert sync_response.status_code == 200
+    failed_task = db_session.get(ReleaseTaskRow, task["id"])
+    assert failed_task.status == "failed"
 
     retry_response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
@@ -600,5 +629,7 @@ def test_failed_production_release_task_can_retry_with_new_deployment_record(
     retry_payload = retry_response.json()
     assert retry_payload["status"] == "deploying"
     assert retry_payload["deployment_record_id"] != failed_record_id
+    retry_sync = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
+    assert retry_sync.status_code == 200
     assert len(dispatch_calls) == 2
     assert "deploy_scope" not in dispatch_calls[1]["inputs"]

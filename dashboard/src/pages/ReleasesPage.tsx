@@ -432,12 +432,13 @@ export default function ReleasesPage() {
     if (busyAction) return
     setBusyAction(busyKey)
     try {
-      await api.deployReleaseTaskToStaging(task.id, {
+      const updated = await api.deployReleaseTaskToStaging(task.id, {
         actor: 'operator',
         note: task.note,
       })
       toast.success('Staging 发布已触发')
-      await load()
+      setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setTaskDetail((current) => (current?.id === updated.id ? updated : current))
     } catch (error) {
       const message = error instanceof Error ? error.message : '触发 staging 发布失败'
       toast.error(message)
@@ -467,15 +468,22 @@ export default function ReleasesPage() {
     const busyKey = `release-task-${productionDeployTask.id}-deploy-production`
     setBusyAction(busyKey)
     try {
-      await deployReleaseTask(productionDeployTask.id, {
+      const updated = await deployReleaseTask(productionDeployTask.id, {
         actor: 'operator',
         note: productionDeployTask.note,
         confirm_phrase: productionConfirmPhrase,
       })
       toast.success('Production 发布已触发')
+      setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      setTaskDetail((current) => (current?.id === updated.id ? updated : current))
+      setGateStatusByTaskId((current) => {
+        if (!(updated.id in current)) return current
+        const next = { ...current }
+        delete next[updated.id]
+        return next
+      })
       setProductionDeployTask(null)
       setProductionConfirmPhrase('')
-      await load()
     } catch (error) {
       const message = error instanceof Error ? error.message : '触发 production 发布失败'
       toast.error(message)
@@ -659,6 +667,7 @@ export default function ReleasesPage() {
           onDeployProduction={(task) => {
             setProductionConfirmPhrase('')
             setProductionDeployTask(task)
+            refreshTaskGateStatus(task).catch(() => {})
           }}
           onRefreshGate={(task) => refreshTaskGateStatus(task)}
           onRefresh={() => load().catch(() => {})}
@@ -682,6 +691,12 @@ export default function ReleasesPage() {
 
       <ProductionDeployModal
         task={productionDeployTask}
+        gate={
+          productionDeployTask
+            ? gateStatusByTaskId[productionDeployTask.id]?.gate || productionDeployTask.pr_gate
+            : undefined
+        }
+        gateStatus={productionDeployTask ? gateStatusByTaskId[productionDeployTask.id]?.status : undefined}
         confirmPhrase={productionConfirmPhrase}
         busyAction={busyAction}
         onConfirmPhraseChange={setProductionConfirmPhrase}

@@ -3,6 +3,8 @@ import { FieldLabel, OverlayModal } from '../components/workbench'
 
 export default function ProductionDeployModal({
   task,
+  gate,
+  gateStatus,
   confirmPhrase,
   busyAction,
   onConfirmPhraseChange,
@@ -10,13 +12,21 @@ export default function ProductionDeployModal({
   onDeploy,
 }: Readonly<{
   task: ReleaseTask | null
+  gate?: ReleaseTask['pr_gate']
+  gateStatus?: 'idle' | 'loading' | 'ready' | 'error'
   confirmPhrase: string
   busyAction: string | null
   onConfirmPhraseChange: (value: string) => void
   onClose: () => void
   onDeploy: () => void
 }>) {
+  if (!task) {
+    return null
+  }
   const busyKey = task ? `release-task-${task.id}-deploy-production` : ''
+  const effectiveGate = gate || task?.pr_gate
+  const gateReady = Boolean(effectiveGate?.can_deploy_production)
+  const gateLoading = gateStatus === 'loading'
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -25,7 +35,7 @@ export default function ProductionDeployModal({
       description="生产发布会触发 GitHub Environment production 与 GCP WIF Cloud Run 工作流。不会自动 rollback。"
       onClose={onClose}
     >
-      {task ? (
+      {(
         <div className="space-y-5">
           <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-4 text-sm text-[color:var(--ops-state-blocked-text)]">
             <div className="font-semibold">Production Human Gate</div>
@@ -37,9 +47,14 @@ export default function ProductionDeployModal({
           <div className="grid gap-3 md:grid-cols-2">
             <InfoCard label="Project / Service" value={`${task.project_display_name || task.project_key} · ${task.service_key || '-'}`} />
             <InfoCard label="GCP Project" value="synapse-network-prod" mono />
-            <InfoCard label="Main Commit" value={task.pr_gate?.resolved_commit_sha || '-'} mono />
-            <InfoCard label="Staging Evidence" value={`Deployment #${task.pr_gate?.staging_deployment_record_id || '-'}`} />
+            <InfoCard label="Main Commit" value={effectiveGate?.resolved_commit_sha || '-'} mono />
+            <InfoCard label="Staging Evidence" value={`Deployment #${effectiveGate?.staging_deployment_record_id || '-'}`} />
           </div>
+          {!gateReady ? (
+            <div className="rounded-2xl border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] p-4 text-sm text-[color:var(--ops-state-running-text)]">
+              {gateLoading ? 'Production gate 检查中…' : effectiveGate?.blocked_reason || '请先检查 production gate。'}
+            </div>
+          ) : null}
           <label className="block space-y-2">
             <FieldLabel>输入确认短语</FieldLabel>
             <input
@@ -56,14 +71,14 @@ export default function ProductionDeployModal({
             <button
               type="button"
               className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-              disabled={confirmPhrase !== 'DEPLOY_PRODUCTION' || Boolean(busyAction)}
+              disabled={confirmPhrase !== 'DEPLOY_PRODUCTION' || Boolean(busyAction) || !gateReady}
               onClick={onDeploy}
             >
               {busyAction === busyKey ? '发布中…' : '确认发布到 production'}
             </button>
           </div>
         </div>
-      ) : null}
+      )}
     </OverlayModal>
   )
 }
