@@ -24,6 +24,8 @@ concurrency:
 
 env:
   RIPGREP_VERSION: "15.1.0"
+  OPS_DATABASE_URL: postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:5432/synapse_growing_test
+  OPS_TEST_POSTGRES_URL: postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:5432/synapse_growing_test
 
 jobs:
   scope:
@@ -95,6 +97,20 @@ jobs:
     needs: scope
     if: needs.scope.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: synapse_growing_test
+          POSTGRES_USER: synapse_growing
+          POSTGRES_PASSWORD: synapse_growing_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U synapse_growing -d synapse_growing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -178,6 +194,20 @@ jobs:
     needs: scope
     if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_backend == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: synapse_growing_test
+          POSTGRES_USER: synapse_growing
+          POSTGRES_PASSWORD: synapse_growing_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U synapse_growing -d synapse_growing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -284,6 +314,20 @@ jobs:
     needs: scope
     if: needs.scope.outputs.run_full != 'true' && needs.scope.outputs.run_scope_self_test == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: synapse_growing_test
+          POSTGRES_USER: synapse_growing
+          POSTGRES_PASSWORD: synapse_growing_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U synapse_growing -d synapse_growing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
         with:

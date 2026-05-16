@@ -130,14 +130,14 @@ describe('ReleasesPage production deploy', () => {
     expect(await screen.findByText('prod-main-sha')).toBeTruthy()
     expect(screen.getByText('Deployment #71')).toBeTruthy()
     const initialTaskPageCalls = apiMock.getReleaseTasksPage.mock.calls.length
-    await user.type(screen.getByLabelText('输入确认短语'), 'DEPLOY_PRODUCTION')
+    await user.type(screen.getByLabelText('输入确认短语'), 'YES')
     await user.click(screen.getByRole('button', { name: '确认发布到 production' }))
 
     await waitFor(() => {
       expect(apiMock.deployReleaseTask).toHaveBeenCalledWith(42, {
         actor: 'operator',
         note: 'Manual staging release',
-        confirm_phrase: 'DEPLOY_PRODUCTION',
+        confirm_phrase: 'YES',
       })
     })
     expect(apiMock.getReleaseTasksPage).toHaveBeenCalledTimes(initialTaskPageCalls)

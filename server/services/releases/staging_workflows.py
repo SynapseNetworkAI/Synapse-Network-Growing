@@ -8,7 +8,7 @@ STAGING_WORKFLOW_FILE = "deploy-staging.yml"
 SYNAPSE_NETWORK_STAGING_WORKFLOW_BY_SERVICE = {
     (SYNAPSE_NETWORK_PROJECT_KEY, "gateway"): "deploy-staging-gateway.yml",
     (SYNAPSE_NETWORK_PROJECT_KEY, "gateway-admin"): "deploy-staging-admin.yml",
-    (SYNAPSE_NETWORK_PROJECT_KEY, "admin-front"): "deploy-staging-admin.yml",
+    (SYNAPSE_NETWORK_PROJECT_KEY, "admin-front"): "deploy-staging-frontends.yml",
     (SYNAPSE_NETWORK_PROJECT_KEY, "user-front"): "deploy-staging-frontends.yml",
     (SYNAPSE_NETWORK_PROJECT_KEY, "docs-front"): "deploy-staging-frontends.yml",
 }

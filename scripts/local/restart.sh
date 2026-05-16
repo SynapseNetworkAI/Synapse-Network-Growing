@@ -17,6 +17,38 @@ require_ops_python_runtime python
 export OPS_ENV=local
 PORT=${OPS_PORT:-9600}
 
+if [[ -z "${OPS_DATABASE_URL:-}" && -f "$PROJECT_ROOT/.env" ]]; then
+  OPS_DATABASE_URL="$(grep -E '^OPS_DATABASE_URL=' "$PROJECT_ROOT/.env" | tail -n 1 | cut -d= -f2- || true)"
+  export OPS_DATABASE_URL
+fi
+if [[ -z "${OPS_DATABASE_URL:-}" || "$OPS_DATABASE_URL" != postgresql* ]]; then
+  cat >&2 <<'EOF'
+OPS_DATABASE_URL must be set to a PostgreSQL DSN before restarting the local Ops Dashboard.
+Start docker-compose.postgres.yml and use:
+  OPS_DATABASE_URL=postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing_local
+SQLite runtime fallback has been removed.
+EOF
+  exit 2
+fi
+python - <<'PY'
+import os
+import sys
+
+from sqlalchemy import create_engine, text
+
+url = os.environ["OPS_DATABASE_URL"]
+engine = create_engine(url, pool_pre_ping=True)
+try:
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+except Exception as exc:  # pragma: no cover - shell diagnostic
+    print(f"Cannot connect to PostgreSQL OPS_DATABASE_URL: {exc}", file=sys.stderr)
+    print("Start docker-compose.postgres.yml and create the configured database before restarting.", file=sys.stderr)
+    raise SystemExit(2)
+finally:
+    engine.dispose()
+PY
+
 if [[ "${OPS_PRESERVE_RUNTIME_ENV:-0}" != "1" ]]; then
   for key in ORCHESTRATION_BACKEND LLM_PROVIDER LLM_MODEL LLM_EXECUTION_MODE COPILOT_SDK_MODEL CODEX_CLI_MODEL; do
     if [[ -n "${!key:-}" ]]; then
@@ -40,7 +72,6 @@ echo "[$(date '+%H:%M:%S')] Python: $(which python)"
 RELOAD_EXCLUDES=(
   "--reload-exclude" "runtime/*"
   "--reload-exclude" "server/logs/*"
-  "--reload-exclude" "server/ops.db*"
   "--reload-exclude" "roles/*/outputs/*"
 )
 exec uvicorn server.main:app \

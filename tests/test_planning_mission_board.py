@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 
 from server.database import (
@@ -626,7 +627,26 @@ def test_reset_goal_mission_lanes_requires_confirm():
         check=False,
     )
     assert result.returncode == 2
-    assert "LOCAL_MISSION_RESET" in result.stdout
+    assert "deprecated" in result.stdout
+    assert "SQLite runtime fallback has been removed" in result.stdout
+
+
+def test_reset_scripts_keep_skip_backup_as_deprecated_noop_help():
+    project_root = Path(__file__).resolve().parents[1]
+    for script in (
+        "scripts/reset_execution_runtime.py",
+        "scripts/reset_workflow_state.py",
+    ):
+        result = subprocess.run(
+            [sys.executable, script, "--help"],
+            cwd=project_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0
+        assert "--skip-backup" in result.stdout
+        assert "Deprecated no-op" in result.stdout
 
 
 def test_mission_lane_next_actions_cover_status_variants():

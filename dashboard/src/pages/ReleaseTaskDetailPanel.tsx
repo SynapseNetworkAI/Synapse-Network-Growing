@@ -147,9 +147,11 @@ export function ReleaseTaskDetailModal({
   const taskMetadata = (task as ReleaseTask & { task_metadata?: Record<string, unknown> }).task_metadata || {}
   const attachedPrebuiltImage = metadataString(taskMetadata, 'prebuiltImageDigest')
   const attachedPrebuiltCommit = metadataString(taskMetadata, 'sourceCommitSha')
-  const canAttachPrebuiltImage = task.environment === 'staging'
+  const isPrebuiltFrontendTask = task.environment === 'staging'
     && task.project_key === 'synapse-network'
-    && ['user-front', 'docs-front'].includes(task.service_key || '')
+    && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
+  const canAttachPrebuiltImage = task.environment === 'staging'
+    && isPrebuiltFrontendTask
     && task.status === 'requested'
     && !task.deployment_record_id
     && Boolean(onAttachPrebuiltImage)
@@ -198,7 +200,7 @@ export function ReleaseTaskDetailModal({
           {task.note ? <div className="mt-4 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">{task.note}</div> : null}
         </section>
 
-        {task.environment === 'staging' && ['user-front', 'docs-front'].includes(task.service_key || '') ? (
+        {isPrebuiltFrontendTask ? (
           <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Prebuilt Image</h3>
             {attachedPrebuiltImage ? (

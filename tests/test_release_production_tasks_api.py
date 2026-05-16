@@ -1,7 +1,5 @@
 import json
 
-from sqlalchemy.exc import OperationalError
-
 from server import config
 from server.database import DeploymentRecordRow
 from server.database import ReleaseTaskRow
@@ -9,62 +7,9 @@ from server.services.releases import (
     production_dispatch as release_production_dispatch_service,
     production_tasks as release_production_tasks_service,
 )
-from server.services.releases.db_retry import commit_with_sqlite_lock_retry
 from server.services.releases.production_workflows import (
     production_workflow_file_for_service,
 )
-
-
-class _RetryDb:
-    def __init__(self, failures: list[OperationalError]):
-        self.failures = failures
-        self.commits = 0
-        self.rollbacks = 0
-
-    def commit(self):
-        self.commits += 1
-        if self.failures:
-            raise self.failures.pop(0)
-
-    def rollback(self):
-        self.rollbacks += 1
-
-
-def _operational_error(message: str) -> OperationalError:
-    return OperationalError("UPDATE deployment_records SET external_url=?", {}, Exception(message))
-
-
-def test_commit_with_sqlite_lock_retry_retries_transient_lock(monkeypatch):
-    db = _RetryDb([_operational_error("database is locked")])
-    calls: list[str] = []
-    sleeps: list[float] = []
-
-    monkeypatch.setattr("server.services.releases.db_retry.time.sleep", sleeps.append)
-
-    result = commit_with_sqlite_lock_retry(
-        db,  # type: ignore[arg-type]
-        lambda: calls.append("apply") or "ok",
-    )
-
-    assert result == "ok"
-    assert calls == ["apply", "apply"]
-    assert db.commits == 2
-    assert db.rollbacks == 1
-    assert sleeps == [0.15]
-
-
-def test_commit_with_sqlite_lock_retry_does_not_retry_unrelated_db_error():
-    db = _RetryDb([_operational_error("permission denied")])
-
-    try:
-        commit_with_sqlite_lock_retry(db, lambda: "ok")  # type: ignore[arg-type]
-    except OperationalError as exc:
-        assert "permission denied" in str(exc)
-    else:  # pragma: no cover - fail branch for assertion clarity.
-        raise AssertionError("expected OperationalError")
-
-    assert db.commits == 1
-    assert db.rollbacks == 0
 
 
 def test_release_task_production_deploy_queues_and_sync_dispatches_workflow(
@@ -125,14 +70,14 @@ def test_release_task_production_deploy_queues_and_sync_dispatches_workflow(
         f"/api/releases/tasks/{task['id']}/deploy", json={}
     )
     assert missing_confirm.status_code == 400
-    assert "DEPLOY_PRODUCTION" in missing_confirm.json()["detail"]
+    assert "YES" in missing_confirm.json()["detail"]
 
     response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
         json={
             "actor": "ops-lead",
             "note": "pilot docs prod",
-            "confirm_phrase": "DEPLOY_PRODUCTION",
+            "confirm_phrase": "YES",
         },
     )
 
@@ -149,20 +94,6 @@ def test_release_task_production_deploy_queues_and_sync_dispatches_workflow(
     assert metadata["dispatchPending"] is True
     assert metadata["dispatchStatus"] == "pending"
 
-    real_commit = db_session.commit
-    lock_failures: list[str] = []
-
-    def flaky_commit_once():
-        if not lock_failures:
-            lock_failures.append("locked")
-            raise OperationalError(
-                "UPDATE deployment_records SET external_url=?",
-                {},
-                Exception("database is locked"),
-            )
-        return real_commit()
-
-    monkeypatch.setattr(db_session, "commit", flaky_commit_once)
     sync_response = synced_client.post("/api/releases/tasks/sync-deployment-statuses")
     assert sync_response.status_code == 200
     assert payload["deployment_record_id"] in sync_response.json()["production_dispatch"]["dispatched_ids"]
@@ -279,7 +210,7 @@ def test_release_task_production_deploy_blocks_without_matching_staging(
 
     response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
-        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+        json={"confirm_phrase": "YES"},
     )
 
     assert response.status_code == 200
@@ -448,7 +379,7 @@ def test_production_task_row_rejects_non_deployable_status(db_session):
     )
     db_session.add(row)
     db_session.commit()
-    body = type("Body", (), {"confirm_phrase": "DEPLOY_PRODUCTION"})()
+    body = type("Body", (), {"confirm_phrase": "YES"})()
 
     try:
         release_production_tasks_service._production_task_row(
@@ -480,7 +411,7 @@ def test_failed_production_task_row_rejects_retry_after_successful_record(db_ses
     )
     db_session.add(row)
     db_session.commit()
-    body = type("Body", (), {"confirm_phrase": "DEPLOY_PRODUCTION"})()
+    body = type("Body", (), {"confirm_phrase": "YES"})()
 
     try:
         release_production_tasks_service._production_task_row(
@@ -610,7 +541,7 @@ def test_release_task_production_dispatch_failure_marks_task_failed(
     ).json()
     response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
-        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+        json={"confirm_phrase": "YES"},
     )
 
     assert response.status_code == 200
@@ -678,7 +609,7 @@ def test_failed_production_release_task_can_retry_with_new_deployment_record(
     ).json()
     first_response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
-        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+        json={"confirm_phrase": "YES"},
     )
     assert first_response.status_code == 200
     first_payload = first_response.json()
@@ -691,7 +622,7 @@ def test_failed_production_release_task_can_retry_with_new_deployment_record(
 
     retry_response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy",
-        json={"confirm_phrase": "DEPLOY_PRODUCTION"},
+        json={"confirm_phrase": "YES"},
     )
 
     assert retry_response.status_code == 200

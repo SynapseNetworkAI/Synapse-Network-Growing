@@ -50,7 +50,7 @@ def test_release_task_staging_deploy_routes_synapse_services_to_family_workflows
 
     cases = [
         ("gateway-admin", "deploy-staging-admin.yml"),
-        ("admin-front", "deploy-staging-admin.yml"),
+        ("admin-front", "deploy-staging-frontends.yml"),
         ("user-front", "deploy-staging-frontends.yml"),
         ("docs-front", "deploy-staging-frontends.yml"),
     ]

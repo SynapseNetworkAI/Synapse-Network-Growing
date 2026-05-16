@@ -12,7 +12,6 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     create_engine,
-    event,
     inspect,
     text,
 )
@@ -25,58 +24,20 @@ from server.config import (
     DB_POOL_RECYCLE,
     DB_POOL_SIZE,
     DB_POOL_TIMEOUT,
-    DB_SQLITE_BUSY_TIMEOUT,
-    DB_SQLITE_JOURNAL_MODE,
-    DB_SQLITE_SYNCHRONOUS,
 )
 
 from server.database_social_budget import migrate_social_x_read_budget
 logger = logging.getLogger("ops-dashboard.db")
-_IS_SQLITE = DATABASE_URL.startswith("sqlite")
-_IS_IN_MEMORY = ":memory:" in DATABASE_URL
 
 _engine_kwargs = {
     "pool_pre_ping": DB_POOL_PRE_PING,
+    "pool_size": DB_POOL_SIZE,
+    "max_overflow": DB_MAX_OVERFLOW,
+    "pool_timeout": DB_POOL_TIMEOUT,
+    "pool_recycle": DB_POOL_RECYCLE,
 }
-if _IS_SQLITE:
-    _engine_kwargs["connect_args"] = {
-        "check_same_thread": False,
-        "timeout": float(max(5, DB_SQLITE_BUSY_TIMEOUT)),
-    }
-
-if not _IS_IN_MEMORY:
-    _engine_kwargs.update({
-        "pool_size": DB_POOL_SIZE,
-        "max_overflow": DB_MAX_OVERFLOW,
-        "pool_timeout": DB_POOL_TIMEOUT,
-        "pool_recycle": DB_POOL_RECYCLE,
-    })
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
-
-
-@event.listens_for(engine, "connect")
-def _configure_sqlite(dbapi_conn, _):
-    if not _IS_SQLITE:
-        return
-    cursor = dbapi_conn.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-        if not _IS_IN_MEMORY:
-            try:
-                cursor.execute(f"PRAGMA journal_mode={DB_SQLITE_JOURNAL_MODE}")
-                cursor.fetchone()
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to enforce SQLite journal_mode=%s: %s", DB_SQLITE_JOURNAL_MODE, exc)
-        if DB_SQLITE_SYNCHRONOUS:
-            try:
-                cursor.execute(f"PRAGMA synchronous={DB_SQLITE_SYNCHRONOUS}")
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to enforce SQLite synchronous=%s: %s", DB_SQLITE_SYNCHRONOUS, exc)
-        busy_timeout_ms = max(1000, int(DB_SQLITE_BUSY_TIMEOUT * 1000))
-        cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
-    finally:
-        cursor.close()
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -85,44 +46,6 @@ Base = declarative_base()
 
 def utcnow():
     return datetime.now(timezone.utc)
-
-
-def _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_) -> None:  # pragma: no cover
-    """SQLite cannot drop a NOT NULL constraint in place."""
-    if not _IS_SQLITE:
-        return
-    columns = [column.name for column in DeploymentRecordRow.__table__.columns]
-    column_sql = ", ".join(columns)
-    with engine_.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-        conn.commit()
-        conn.execute(text("ALTER TABLE deployment_records RENAME TO deployment_records_old"))
-        conn.commit()
-        DeploymentRecordRow.__table__.create(bind=conn, checkfirst=True)
-        conn.execute(text(f"INSERT INTO deployment_records ({column_sql}) SELECT {column_sql} FROM deployment_records_old"))
-        conn.execute(text("DROP TABLE deployment_records_old"))
-        conn.commit()
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-        conn.commit()
-
-
-def _rebuild_sqlite_release_tasks_with_current_fks(engine_) -> None:  # pragma: no cover
-    """Repair release_tasks FKs after SQLite table rebuilds rename referenced tables."""
-    if not _IS_SQLITE:
-        return
-    columns = [column.name for column in ReleaseTaskRow.__table__.columns]
-    column_sql = ", ".join(columns)
-    with engine_.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-        conn.commit()
-        conn.execute(text("ALTER TABLE release_tasks RENAME TO release_tasks_old"))
-        conn.commit()
-        ReleaseTaskRow.__table__.create(bind=conn, checkfirst=True)
-        conn.execute(text(f"INSERT INTO release_tasks ({column_sql}) SELECT {column_sql} FROM release_tasks_old"))
-        conn.execute(text("DROP TABLE release_tasks_old"))
-        conn.commit()
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-        conn.commit()
 
 
 # ── ORM Models ────────────────────────────────────────────────
@@ -1601,8 +1524,8 @@ def _migrate(engine_):
         project_policy_cols = {
             "project_id": "INTEGER",
             "autonomy_mode": "TEXT DEFAULT 'recommend'",
-            "allow_rebalance": "BOOLEAN DEFAULT 1",
-            "allow_preemption": "BOOLEAN DEFAULT 0",
+            "allow_rebalance": "BOOLEAN DEFAULT true",
+            "allow_preemption": "BOOLEAN DEFAULT false",
             "capability_matrix_json": "TEXT DEFAULT '{}'",
             "interrupt_policy_json": "TEXT DEFAULT '{}'",
             "scheduler_weight": "FLOAT DEFAULT 1.0",
@@ -1610,7 +1533,7 @@ def _migrate(engine_):
             "portfolio_budget_points": "INTEGER DEFAULT 100",
             "deploy_repo_full_name": "TEXT",
             "deploy_strategy": "TEXT DEFAULT 'github_actions_ssh'",
-            "deploy_trigger_enabled": "BOOLEAN DEFAULT 0",
+            "deploy_trigger_enabled": "BOOLEAN DEFAULT false",
             "staging_host_label": "TEXT",
             "production_host_label": "TEXT",
             "staging_workflow_file": "TEXT DEFAULT 'deploy-staging.yml'",
@@ -1635,7 +1558,7 @@ def _migrate(engine_):
             "scorecard_json": "TEXT DEFAULT '{}'",
             "discovery_status": "TEXT DEFAULT 'pending'",
             "discovery_recommendation_json": "TEXT DEFAULT '{}'",
-            "last_discovery_at": "DATETIME",
+            "last_discovery_at": "TIMESTAMP",
         }
         for col, col_type in bug_cols.items():
             if col not in existing:
@@ -1653,7 +1576,7 @@ def _migrate(engine_):
         CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
     else:  # pragma: no cover - startup migration for already-created local DBs
         existing = {c["name"] for c in insp.get_columns("codex_sessions")}
-        session_cols = (("workspace_trust_state", "TEXT DEFAULT 'clean'"), ("requires_workspace_recovery", "BOOLEAN DEFAULT 0"), ("killed_at", "DATETIME"), ("kill_signal", "TEXT"), ("trusted_checkpoint_json", "TEXT DEFAULT '{}'"))
+        session_cols = (("workspace_trust_state", "TEXT DEFAULT 'clean'"), ("requires_workspace_recovery", "BOOLEAN DEFAULT false"), ("killed_at", "TIMESTAMP"), ("kill_signal", "TEXT"), ("trusted_checkpoint_json", "TEXT DEFAULT '{}'"))
         for col, col_type in session_cols:
             if col not in existing:
                 logger.info("Migrating: adding '%s' column to codex_sessions table", col)
@@ -1669,13 +1592,9 @@ def _migrate(engine_):
         requirement_col = deployment_columns.get("requirement_id")
         if requirement_col is not None and requirement_col.get("nullable") is False:
             logger.info("Migrating: making deployment_records.requirement_id nullable")
-            if _IS_SQLITE:
-                _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_)
-                insp = inspect(engine_)
-            else:
-                with engine_.connect() as conn:
-                    conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
-                    conn.commit()
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
+                conn.commit()
 
     if "release_tasks" not in tables:
         logger.info("Migrating: creating 'release_tasks' table")
@@ -1693,12 +1612,6 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE release_tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
-        release_task_fks = insp.get_foreign_keys("release_tasks")
-        if any(fk.get("referred_table") == "deployment_records_old" for fk in release_task_fks):
-            logger.info("Migrating: repairing release_tasks deployment_record foreign key")
-            _rebuild_sqlite_release_tasks_with_current_fks(engine_)
-            insp = inspect(engine_)
-
     social_tables = {"social_campaign_goals": SocialCampaignGoalRow, "social_oauth_sessions": SocialOAuthSessionRow, "social_trend_items": SocialTrendItemRow, "social_watchlist_accounts": SocialWatchlistAccountRow, "social_reply_items": SocialReplyItemRow, "social_repost_candidates": SocialRepostCandidateRow, "social_post_metrics": SocialPostMetricRow}
     for table_name, row_class in social_tables.items():
         if table_name not in tables:
@@ -1754,7 +1667,7 @@ def _migrate(engine_):
             "risk_level": "TEXT DEFAULT 'normal'",
             "retry_counters_json": "TEXT DEFAULT '{}'",
             "blackboard_json": "TEXT DEFAULT '{}'",
-            "archived_at": "DATETIME",
+            "archived_at": "TIMESTAMP",
             "archived_by": "TEXT",
             "archive_reason": "TEXT",
             "delivery_pr_url": "TEXT",
@@ -1762,8 +1675,8 @@ def _migrate(engine_):
             "delivery_branch": "TEXT",
             "delivery_base_branch": "TEXT",
             "delivery_status": "TEXT",
-            "delivery_is_simulated": "BOOLEAN DEFAULT 0",
-            "delivery_synced_at": "DATETIME",
+            "delivery_is_simulated": "BOOLEAN DEFAULT false",
+            "delivery_synced_at": "TIMESTAMP",
         }
         for col, col_type in workflow_run_cols.items():
             if col not in existing:
@@ -1839,7 +1752,7 @@ def _migrate(engine_):
             "delivery_failure_excerpt": "TEXT",
             "delivery_failure_raw_output": "TEXT",
             "failed_gate_name": "TEXT",
-            "repairable": "BOOLEAN DEFAULT 0",
+            "repairable": "BOOLEAN DEFAULT false",
             "repairability": "TEXT DEFAULT 'manual_only'",
             "repair_attempt_count": "INTEGER DEFAULT 0",
             "next_action": "TEXT",
@@ -1859,7 +1772,7 @@ def _migrate(engine_):
         fingerprint_cols = {
             "discovery_status": "TEXT DEFAULT 'pending'",
             "discovery_recommendation_json": "TEXT DEFAULT '{}'",
-            "last_discovery_at": "DATETIME",
+            "last_discovery_at": "TIMESTAMP",
         }
         for col, col_type in fingerprint_cols.items():
             if col not in existing:
