@@ -44,8 +44,8 @@ author: engineering-ops
 | Project | Service key | Staging runner | Required GitHub secrets |
 |---|---|---|---|
 | `Synapse-Network` | `gateway` | `deploy-staging-gateway.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network` | `gateway-admin`, `admin-front` | `deploy-staging-admin.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network` | `user-front`, `docs-front` | `deploy-staging-frontends.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network` | `gateway-admin` | `deploy-staging-admin.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
+| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `deploy-staging-frontends.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
 | `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
 
 Production 使用和 staging 对齐的模块化 runner。`Synapse-Network` 的业务服务按 family dispatch 到清晰命名的 wrapper workflow，wrapper 再调用 reusable core `deploy-production.yml`；`Synapse-Network-Provider` 使用独立 provider workflow。所有 production workflow 都必须使用 GitHub Environment `production`，并通过独立 production secrets 访问 `synapse-network-prod`：
@@ -80,7 +80,7 @@ Production 只允许 `main`。Growing 的 Release Task production deploy endpoin
 
 1. task environment 是 `production`。
 2. branch 是 `main`。
-3. operator 输入 `DEPLOY_PRODUCTION`。
+3. operator 输入 `YES`。
 4. 同一 `project_key + service_key + target_commit_sha` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
 5. 目标仓库具备 production WIF secrets。
 
@@ -114,7 +114,7 @@ GitHub Actions 必须在执行开始时将 branch HEAD 解析成不可变 commit
 |---|---|
 | `gateway` | `deploy-staging-gateway.yml` |
 | `gateway-admin` | `deploy-staging-admin.yml` |
-| `admin-front` | `deploy-staging-admin.yml` |
+| `admin-front` | `deploy-staging-frontends.yml` |
 | `user-front` | `deploy-staging-frontends.yml` |
 | `docs-front` | `deploy-staging-frontends.yml` |
 

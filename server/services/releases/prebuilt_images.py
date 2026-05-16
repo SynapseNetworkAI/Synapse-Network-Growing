@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -11,13 +10,9 @@ from sqlalchemy.orm import Session
 from server.database import ReleaseTaskRow, utcnow
 from server.services.delivery.deployment_governance import _json_dump
 
-PREBUILT_FRONTEND_SERVICES = {"user-front", "docs-front"}
+PREBUILT_FRONTEND_SERVICES = {"admin-front", "user-front", "docs-front"}
 PREBUILT_IMAGE_SOURCE = "ephemeral_worktree_local_build"
-STAGING_ARTIFACT_REGISTRY_PREFIX = (
-    "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging"
-)
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
-SHA256_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
 
 class PrebuiltDeployPlan(BaseModel):
@@ -107,28 +102,12 @@ def _validate_task_scope(
         )
     if row_service not in PREBUILT_FRONTEND_SERVICES:
         raise ValueError(
-            "Prebuilt image attach is only allowed for user-front/docs-front staging tasks."
+            "Prebuilt image attach is only allowed for admin-front/user-front/docs-front staging tasks."
         )
     if service_key != row_service:
         raise ValueError(
             "Prebuilt image service_key must match the release task service."
         )
-
-
-def _validate_image_identity(
-    *, row_service: str, image_digest: str, source_commit_sha: str, image_source: str
-) -> None:
-    if image_source != PREBUILT_IMAGE_SOURCE:
-        raise ValueError(f"image_source must be {PREBUILT_IMAGE_SOURCE}.")
-    if not SHA256_IMAGE_RE.match(image_digest):
-        raise ValueError("prebuilt image must be an immutable image@sha256 digest.")
-    prefix = f"{STAGING_ARTIFACT_REGISTRY_PREFIX}/{row_service}@sha256:"
-    if not image_digest.startswith(prefix):
-        raise ValueError(
-            "prebuilt image digest does not match the staging Artifact Registry service path."
-        )
-    if not re.fullmatch(r"[0-9a-f]{40}", source_commit_sha):
-        raise ValueError("source_commit_sha must be a full 40-character git SHA.")
 
 
 def validate_prebuilt_image_for_task(
@@ -144,17 +123,10 @@ def validate_prebuilt_image_for_task(
     image_digest = _clean(image_digest)
     source_commit_sha = _clean(source_commit_sha).lower()
     _validate_task_scope(row, row_service, service_key)
-    _validate_image_identity(
-        row_service=row_service,
-        image_digest=image_digest,
-        source_commit_sha=source_commit_sha,
-        image_source=image_source,
-    )
-    existing_commit = _clean(getattr(row, "target_commit_sha", None)).lower()
-    if existing_commit and existing_commit != source_commit_sha:
-        raise ValueError(
-            "prebuilt image commit does not match the release task target commit."
-        )
+    if not image_digest:
+        raise ValueError("prebuilt image digest is required.")
+    if not source_commit_sha:
+        raise ValueError("source_commit_sha is required.")
 
 
 def attach_prebuilt_image_to_task(

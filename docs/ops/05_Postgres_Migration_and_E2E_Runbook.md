@@ -4,33 +4,33 @@ title: Postgres Migration and E2E Runbook
 role: dev_rel
 status: ready
 created_at: 2026-05-04
-updated_at: 2026-05-04
+updated_at: 2026-05-16
 author: codex
 target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 ---
 
 # Postgres Migration and E2E Runbook
 
-This runbook moves the local Ops Console from `server/ops.db` SQLite into Docker Postgres, then validates API, frontend, release, and scheduled-job flows against Postgres.
+This runbook archives the old `server/ops.db` SQLite database into Docker Postgres once, then runs the Ops Console exclusively on PostgreSQL. Runtime, local dev, tests, and CI must not connect to SQLite. SQLite is only an input to the one-time import tools in `scripts/db/`.
 
 ## Target Database
 
-Recommended local DSN:
+Recommended local app database:
 
 ```bash
-export OPS_DATABASE_URL="postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing"
+export OPS_DATABASE_URL="postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing_local"
 ```
 
 Docker service:
 
 ```bash
 docker-compose -f docker-compose.postgres.yml up -d
-docker exec synapse-growing-postgres pg_isready -U synapse_growing -d synapse_growing
+docker exec synapse-growing-postgres pg_isready -U synapse_growing -d synapse_growing_local
 ```
 
 ## Full Data Migration
 
-The migration copies every SQLite table, including legacy, social, release, scheduled-job, and SDK package tables.
+The migration copies every archived SQLite table, including legacy, social, release, scheduled-job, and SDK package tables. It is an operator-run import step, not an application startup path.
 
 ```bash
 PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python \
@@ -81,9 +81,9 @@ Rules:
 3. SQL must be idempotent where possible, using `IF NOT EXISTS` / `ON CONFLICT` patterns.
 4. Do not put destructive data rewrites in the shared migrations folder without a dedicated operator runbook.
 
-## Postgres App Smoke
+## Postgres-Only App Smoke
 
-Run backend/API checks with Postgres:
+Run backend/API checks with PostgreSQL. Missing `OPS_DATABASE_URL` or a `sqlite://` URL must fail closed.
 
 ```bash
 OPS_DATABASE_URL="$OPS_DATABASE_URL" PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python - <<'PY'
@@ -101,7 +101,7 @@ PY
 
 ## Frontend E2E Against Postgres
 
-The Playwright webserver reads `OPS_E2E_DATABASE_URL` and starts the backend against Postgres:
+The Playwright webserver reads `OPS_E2E_DATABASE_URL` and starts the backend against PostgreSQL:
 
 ```bash
 cd dashboard
@@ -152,4 +152,3 @@ Success criteria:
 6. Scheduled job task reaches `completed` with an Actions URL.
 
 If any publish fails, do not mark it manually complete. Open the Actions link, fix the root cause, then rerun from the failed target or create a new proof run.
-

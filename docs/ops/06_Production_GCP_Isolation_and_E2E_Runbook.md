@@ -19,7 +19,7 @@ This runbook defines the environment split used by `/releases` for Synapse Netwo
 |---|---|---|
 | GCP project | `fabled-archive-494108-k5` | `synapse-network-prod` |
 | Release source | branch or main, with PR gate for non-main | `main` only |
-| Ops Console action | `发布到 staging` | `发布到 production` with `DEPLOY_PRODUCTION` Human Gate |
+| Ops Console action | `发布到 staging` | `发布到 production` with `YES` Human Gate |
 | GitHub environment | optional staging runner policy | required `production` reviewers |
 | WIF provider | staging provider secret | `PROD_GCP_WORKLOAD_IDENTITY_PROVIDER` |
 | Deploy service account | staging deploy SA | `PROD_GCP_DEPLOY_SERVICE_ACCOUNT` |
@@ -38,7 +38,7 @@ Production deploy is allowed only when all conditions are true:
 
 1. Release Task environment is `production`.
 2. Branch is `main`.
-3. Operator enters `DEPLOY_PRODUCTION`.
+3. Operator enters `YES`.
 4. The current `main` commit has a successful staging DeploymentRecord for the same project and service.
 5. Target repository has production WIF secrets configured.
 6. GitHub Environment `production` reviewer approval is granted.
@@ -52,7 +52,7 @@ Use `docs-front` as the low-risk first production pilot.
 1. Deploy `docs-front` from `main` to staging and wait for `DeploymentRecord.status=succeeded` plus `health_status=passed`.
 2. Create a `/releases` production Release Task for `Synapse-Network · Docs Front`, branch `main`.
 3. Confirm the Production Gate shows the same main commit and source staging DeploymentRecord.
-4. Click `发布到 production`, type `DEPLOY_PRODUCTION`, and submit.
+4. Click `发布到 production`, type `YES`, and submit.
 5. Approve the target repository GitHub Environment `production` review.
 6. Wait for GitHub Actions `deploy-production-frontends.yml` to pass. The wrapper calls reusable `deploy-production.yml` but the visible Actions run should identify the module.
 7. Click `/releases` `同步状态` or wait for the deployment sweep.

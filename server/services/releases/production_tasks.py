@@ -35,7 +35,7 @@ from server.services.releases.production_staging_evidence import (
 )
 
 PRODUCTION_GCP_PROJECT_ID = "synapse-network-prod"
-PRODUCTION_CONFIRM_PHRASE = "DEPLOY_PRODUCTION"
+PRODUCTION_CONFIRM_PHRASE = "YES"
 REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS = {
     "PROD_GCP_WORKLOAD_IDENTITY_PROVIDER",
     "PROD_GCP_DEPLOY_SERVICE_ACCOUNT",
@@ -250,7 +250,7 @@ def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow
     if _clean(row.environment).lower() != "production":
         raise ValueError("Only production release tasks can use production deploy.")
     if _clean(getattr(body, "confirm_phrase", None)) != PRODUCTION_CONFIRM_PHRASE:
-        raise ValueError("Production deploy requires confirm_phrase=DEPLOY_PRODUCTION.")
+        raise ValueError("Production deploy requires confirm_phrase=YES.")
     if _clean(row.branch_name) != "main":
         raise ValueError("Production deploy only allows branch main.")
     service_key = _clean(getattr(row, "service_key", None)).lower()

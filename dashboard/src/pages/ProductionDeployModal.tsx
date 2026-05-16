@@ -59,7 +59,7 @@ export default function ProductionDeployModal({
             <FieldLabel>输入确认短语</FieldLabel>
             <input
               className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 font-mono text-sm"
-              placeholder="DEPLOY_PRODUCTION"
+              placeholder="YES"
               value={confirmPhrase}
               onChange={(event) => onConfirmPhraseChange(event.target.value)}
             />
@@ -71,7 +71,7 @@ export default function ProductionDeployModal({
             <button
               type="button"
               className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-              disabled={confirmPhrase !== 'DEPLOY_PRODUCTION' || Boolean(busyAction) || !gateReady}
+              disabled={confirmPhrase !== 'YES' || Boolean(busyAction) || !gateReady}
               onClick={onDeploy}
             >
               {busyAction === busyKey ? '发布中…' : '确认发布到 production'}

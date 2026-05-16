@@ -45,12 +45,12 @@ async def lifespan(app: FastAPI):
         "service_starting",
         env=config.ENV,
         port=config.PORT,
-        db_path=config.DB_PATH,
+        database_backend="postgresql",
         orchestration_backend=config.ORCHESTRATION_BACKEND,
         log_file=f"{config.LOG_DIR}/{config.LOG_FILE}",
     )
     init_db()
-    log_event(logger, "database_initialized", db_path=config.DB_PATH)
+    log_event(logger, "database_initialized", database_backend="postgresql")  # pragma: no cover - lifespan wiring
     bug_scheduler = None
     goal_planner_scheduler = None
     ci_status_scheduler = None

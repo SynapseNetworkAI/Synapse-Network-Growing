@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import OperationalError
 
 from server import config
 from server.database import CodexSessionRow, utcnow
@@ -277,19 +276,6 @@ def update_session_state(
         row.metadata_json = json.dumps(payload, default=str)
     db.flush()
     return row
-
-
-def safe_update_session_state(
-    db: Session,
-    **kwargs: Any,
-) -> CodexSessionRow | None:
-    try:
-        return update_session_state(db, **kwargs)
-    except OperationalError as exc:
-        if "database is locked" not in str(exc).lower():
-            raise
-        db.rollback()
-        return None
 
 
 def _load_metadata(payload: str | None) -> dict[str, Any]:

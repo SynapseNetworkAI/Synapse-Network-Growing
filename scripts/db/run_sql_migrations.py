@@ -30,6 +30,8 @@ def _migration_id(path: Path) -> str:
 
 
 def run_migrations(database_url: str, migrations_dir: Path) -> None:
+    if not database_url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
+        raise SystemExit("SQL migrations are PostgreSQL-only; refuse non-Postgres database URL.")
     engine = create_engine(database_url, pool_pre_ping=True)
     files = sorted(migrations_dir.glob("*.sql"))
     with engine.begin() as conn:

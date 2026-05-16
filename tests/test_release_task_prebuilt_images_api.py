@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from server.database import DeploymentRecordRow, ReleaseTaskRow
 from server.schemas import ReleaseTaskPrGateOut
 from server.services.delivery.deployment_governance import _json_dump
@@ -103,22 +105,19 @@ def test_frontend_release_task_can_attach_prebuilt_image_and_deploy_digest(
     assert metadata["sourceCommitSha"] == commit_sha
 
 
-def test_prebuilt_image_rejects_wrong_service_digest(synced_client):
+def test_prebuilt_image_attach_defers_digest_identity_checks_to_actions(synced_client):
     task = _create_user_front_task(synced_client)
     response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/attach-prebuilt-image",
         json={
             "service_key": "user-front",
-            "image_digest": (
-                "us-central1-docker.pkg.dev/fabled-archive-494108-k5/"
-                "synapse-staging/docs-front@sha256:" + ("a" * 64)
-            ),
+            "image_digest": "not-even-a-digest",
             "source_commit_sha": "b" * 40,
         },
     )
 
-    assert response.status_code == 400
-    assert "service path" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["task_metadata"]["prebuiltImageDigest"] == "not-even-a-digest"
 
 
 def test_prebuilt_image_endpoint_rejects_missing_or_non_attachable_tasks(
@@ -271,7 +270,7 @@ def test_prebuilt_image_policy_rejects_invalid_scope_and_identity(db_session):
                 "service_key": "gateway",
                 "environment": "staging",
             },
-            "user-front/docs-front",
+            "admin-front/user-front/docs-front",
         ),
     ]
     for values, expected in cases:
@@ -296,56 +295,41 @@ def test_prebuilt_image_policy_rejects_invalid_scope_and_identity(db_session):
         else:
             raise AssertionError(f"{expected} should fail closed")
 
-    invalid_cases = [
-        {
-            "service_key": "docs-front",
-            "image_digest": digest,
+    prebuilt_image_service.validate_prebuilt_image_for_task(
+        base,
+        service_key="user-front",
+        image_digest="tag-only-or-wrong-registry",
+        source_commit_sha="short",
+        image_source="operator_supplied",
+    )
+
+
+def test_admin_front_can_attach_prebuilt_image_digest(synced_client):
+    task = synced_client.post(
+        "/api/releases/tasks",
+        json={
+            "project_key": "synapse-network",
+            "project_display_name": "Synapse-Network",
+            "service_key": "admin-front",
+            "branch_name": "main",
+            "environment": "staging",
+        },
+    ).json()
+
+    response = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/attach-prebuilt-image",
+        json={
+            "service_key": "admin-front",
+            "image_digest": (
+                "us-central1-docker.pkg.dev/fabled-archive-494108-k5/"
+                "synapse-staging/admin-front@sha256:" + ("a" * 64)
+            ),
             "source_commit_sha": "b" * 40,
-            "image_source": "ephemeral_worktree_local_build",
-            "expected": "must match",
         },
-        {
-            "service_key": "user-front",
-            "image_digest": digest,
-            "source_commit_sha": "b" * 40,
-            "image_source": "other",
-            "expected": "image_source",
-        },
-        {
-            "service_key": "user-front",
-            "image_digest": "tag-only",
-            "source_commit_sha": "b" * 40,
-            "image_source": "ephemeral_worktree_local_build",
-            "expected": "image@sha256",
-        },
-        {
-            "service_key": "user-front",
-            "image_digest": digest,
-            "source_commit_sha": "short",
-            "image_source": "ephemeral_worktree_local_build",
-            "expected": "40-character",
-        },
-        {
-            "service_key": "user-front",
-            "image_digest": digest,
-            "source_commit_sha": "b" * 40,
-            "image_source": "ephemeral_worktree_local_build",
-            "expected": "does not match",
-        },
-    ]
-    for case in invalid_cases:
-        try:
-            prebuilt_image_service.validate_prebuilt_image_for_task(
-                base,
-                service_key=case["service_key"],
-                image_digest=case["image_digest"],
-                source_commit_sha=case["source_commit_sha"],
-                image_source=case["image_source"],
-            )
-        except ValueError as exc:
-            assert case["expected"] in str(exc)
-        else:
-            raise AssertionError(f"{case['expected']} should fail closed")
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task_metadata"]["buildService"] == "admin-front"
 
 
 def test_prebuilt_image_attach_ignores_non_dict_evidence(db_session):
@@ -379,3 +363,34 @@ def test_prebuilt_image_attach_ignores_non_dict_evidence(db_session):
     )
 
     assert json.loads(updated.metadata_json)["buildEvidence"] == {}
+
+
+def test_prebuilt_image_validation_rejects_empty_digest_or_commit(db_session):
+    row = ReleaseTaskRow(
+        source_type="manual",
+        project_key="synapse-network",
+        service_key="user-front",
+        branch_name="main",
+        environment="staging",
+        status="requested",
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="prebuilt image digest is required"):
+        prebuilt_image_service.validate_prebuilt_image_for_task(
+            row,
+            service_key="user-front",
+            image_digest="",
+            source_commit_sha="b" * 40,
+            image_source="ephemeral_worktree_local_build",
+        )
+
+    with pytest.raises(ValueError, match="source_commit_sha is required"):
+        prebuilt_image_service.validate_prebuilt_image_for_task(
+            row,
+            service_key="user-front",
+            image_digest="not-even-a-digest",
+            source_commit_sha="",
+            image_source="ephemeral_worktree_local_build",
+        )

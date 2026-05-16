@@ -2,12 +2,53 @@
 import json
 import os
 from pathlib import Path
+import re
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+
+
+DEFAULT_TEST_DATABASE_URL = (
+    "postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/"
+    "synapse_growing_test"
+)
+TEST_DATABASE_URL = os.environ.get("OPS_TEST_POSTGRES_URL", "").strip() or os.environ.get(
+    "OPS_TEST_DATABASE_URL", ""
+).strip() or DEFAULT_TEST_DATABASE_URL
+# Tests own the database schema and reset it aggressively. Never inherit the
+# runtime OPS_DATABASE_URL here, or a local test run can lock/drop the dev DB.
+os.environ["OPS_DATABASE_URL"] = TEST_DATABASE_URL
+
+
+def _ensure_postgres_database(database_url: str) -> None:
+    url = make_url(database_url)
+    if url.get_backend_name() != "postgresql":
+        raise RuntimeError("Tests require a PostgreSQL OPS_DATABASE_URL/OPS_TEST_POSTGRES_URL")
+    database_name = url.database or ""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database_name):
+        raise RuntimeError(f"Unsafe PostgreSQL test database name: {database_name!r}")
+    if not (database_name.endswith("_test") or database_name.startswith("test_")):
+        raise RuntimeError(
+            f"Refusing to run tests against non-test PostgreSQL database: {database_name!r}"
+        )
+    admin_url = url.set(database="postgres")
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
+    try:
+        with admin_engine.connect() as conn:
+            try:
+                conn.execute(text(f"CREATE DATABASE {database_name}"))
+            except ProgrammingError as exc:
+                if "already exists" not in str(exc).lower():
+                    raise
+    finally:
+        admin_engine.dispose()
+
+
+_ensure_postgres_database(TEST_DATABASE_URL)
 
 from server.database import Base, get_db
 from server.main import app
@@ -15,20 +56,10 @@ from server.config import PROJECT_ROOT
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.runtime.copilot_sdk_state import task_output_dir
 
-# In-memory SQLite for tests — StaticPool ensures all connections share one DB
 TEST_ENGINE = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    TEST_DATABASE_URL,
+    pool_pre_ping=True,
 )
-
-
-@event.listens_for(TEST_ENGINE, "connect")
-def _enable_fk(dbapi_conn, _):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
-
 
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
@@ -172,10 +203,17 @@ def _override_get_db():
         db.close()
 
 
+def _reset_postgres_schema() -> None:
+    with TEST_ENGINE.begin() as conn:
+        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+
+
 @pytest.fixture(autouse=True)
 def setup_db():
     """Create all tables before each test, drop after."""
     app.dependency_overrides[get_db] = _override_get_db
+    _reset_postgres_schema()
     Base.metadata.create_all(bind=TEST_ENGINE)
     with patch(
         "server.services.requirements.service._generate_plan_brief_markdown_with_agent",
@@ -197,12 +235,7 @@ def setup_db():
         "server.services.social.publishing.SessionLocal", TestSession
     ):
         yield
-    with TEST_ENGINE.begin() as conn:
-        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
-        inspector = inspect(conn)
-        for table_name in inspector.get_table_names():
-            conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
-        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+    _reset_postgres_schema()
     app.dependency_overrides.clear()
 
 

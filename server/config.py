@@ -138,22 +138,23 @@ FORUM_FEEDBACK_DEFAULT_GOAL_KEY = os.environ.get("OPS_FORUM_FEEDBACK_DEFAULT_GOA
 FORUM_FEEDBACK_MAX_TASKS = max(1, int(os.environ.get("OPS_FORUM_FEEDBACK_MAX_TASKS", "10")))
 
 # ── Database ──────────────────────────────────────────────────
-DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))
-DATABASE_URL = os.environ.get("OPS_DATABASE_URL", f"sqlite:///{DB_PATH}")
+_raw_database_url = os.environ.get("OPS_DATABASE_URL", "").strip()
+if not _raw_database_url:
+    raise RuntimeError(  # pragma: no cover - exercised by subprocess config smoke tests
+        "OPS_DATABASE_URL is required. Synapse-Network-Growing runtime is PostgreSQL-only; "
+        "use postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing_local locally."
+    )
+if not _raw_database_url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
+    raise RuntimeError(  # pragma: no cover - exercised by subprocess config smoke tests
+        "OPS_DATABASE_URL must be a PostgreSQL URL. SQLite is supported only as an input to "
+        "scripts/db/migrate_sqlite_to_postgres.py, never as app runtime/test storage."
+    )
+DATABASE_URL = _raw_database_url
 DB_POOL_SIZE = int(os.environ.get("OPS_DB_POOL_SIZE", "12"))
 DB_MAX_OVERFLOW = int(os.environ.get("OPS_DB_MAX_OVERFLOW", "24"))
 DB_POOL_TIMEOUT = int(os.environ.get("OPS_DB_POOL_TIMEOUT", "60"))
 DB_POOL_RECYCLE = int(os.environ.get("OPS_DB_POOL_RECYCLE", "1800"))
 DB_POOL_PRE_PING = os.environ.get("OPS_DB_POOL_PRE_PING", "true").lower() in {"1", "true", "yes", "on"}
-DB_SQLITE_BUSY_TIMEOUT = max(5, int(os.environ.get("OPS_DB_SQLITE_BUSY_TIMEOUT", "30")))
-_journal_mode_default = os.environ.get("OPS_DB_SQLITE_JOURNAL_MODE", "WAL").strip().upper() or "WAL"
-if _journal_mode_default not in {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}:
-    _journal_mode_default = "WAL"
-DB_SQLITE_JOURNAL_MODE = _journal_mode_default
-_sqlite_sync_default = os.environ.get("OPS_DB_SQLITE_SYNCHRONOUS", "NORMAL").strip().upper() or "NORMAL"
-if _sqlite_sync_default not in {"OFF", "NORMAL", "FULL", "EXTRA"}:
-    _sqlite_sync_default = "NORMAL"
-DB_SQLITE_SYNCHRONOUS = _sqlite_sync_default
 
 # ── LLM ───────────────────────────────────────────────────────
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")  # openai | claude | copilot | codex
