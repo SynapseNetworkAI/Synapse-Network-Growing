@@ -28,6 +28,29 @@ function metadataString(source: Record<string, unknown> | null | undefined, ...k
   return null
 }
 
+function shortDigest(value: string | null) {
+  if (!value) return ''
+  const match = value.match(/sha256:([0-9a-f]{64})/i)
+  return match ? `sha256:${match[1].slice(0, 12)}…` : value.slice(0, 24)
+}
+
+function shortSha(value: string | null) {
+  return value ? `${value.slice(0, 12)}${value.length > 12 ? '…' : ''}` : ''
+}
+
+function localPrebuiltCommand(task: ReleaseTask) {
+  const service = task.service_key || ''
+  const ref = task.branch_name || 'main'
+  return [
+    'cd /Users/cliff/workspace/agent/Synapse-Network',
+    '',
+    'bash scripts/deploy/local_build_staging_image.sh \\',
+    `  --service ${service} \\`,
+    `  --ref ${ref} \\`,
+    `  --release-task-id ${task.id}`,
+  ].join('\n')
+}
+
 function compactWhitespace(value: string) {
   return value
     .split('\n')
@@ -138,6 +161,7 @@ export function ReleaseTaskDetailModal({
   const [prebuiltDigest, setPrebuiltDigest] = useState('')
   const [prebuiltCommit, setPrebuiltCommit] = useState('')
   const [prebuiltBusy, setPrebuiltBusy] = useState(false)
+  const [commandCopied, setCommandCopied] = useState(false)
   if (!task) return null
   const hasDeployment = Boolean(task.deployment_record_id)
   const showFailure = shouldShowReleaseTaskFailure(task)
@@ -147,6 +171,7 @@ export function ReleaseTaskDetailModal({
   const taskMetadata = (task as ReleaseTask & { task_metadata?: Record<string, unknown> }).task_metadata || {}
   const attachedPrebuiltImage = metadataString(taskMetadata, 'prebuiltImageDigest')
   const attachedPrebuiltCommit = metadataString(taskMetadata, 'sourceCommitSha')
+  const buildCommand = localPrebuiltCommand(task)
   const isPrebuiltFrontendTask = task.environment === 'staging'
     && task.project_key === 'synapse-network'
     && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
@@ -168,6 +193,15 @@ export function ReleaseTaskDetailModal({
     } finally {
       setPrebuiltBusy(false)
     }
+  }
+  const copyBuildCommand = () => {
+    navigator.clipboard
+      ?.writeText(buildCommand)
+      .then(() => {
+        setCommandCopied(true)
+        window.setTimeout(() => setCommandCopied(false), 1600)
+      })
+      .catch(() => setCommandCopied(false))
   }
   return (
     <OverlayModal
@@ -207,13 +241,29 @@ export function ReleaseTaskDetailModal({
               <div className="mt-3 space-y-2 rounded-xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] p-3 text-sm text-[color:var(--ops-state-ready-text)]">
                 <div>Prebuilt image attached. Staging frontend workflow will deploy by immutable digest and skip Cloud Build.</div>
                 <div className="break-all font-mono text-xs">{attachedPrebuiltImage}</div>
-                {attachedPrebuiltCommit ? <div className="font-mono text-xs">commit {attachedPrebuiltCommit}</div> : null}
+                <div className="text-xs">Digest: <span className="font-mono">{shortDigest(attachedPrebuiltImage)}</span></div>
+                {attachedPrebuiltCommit ? <div className="font-mono text-xs">commit {shortSha(attachedPrebuiltCommit)}</div> : null}
               </div>
             ) : (
               <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
-                可选：先用本地 ephemeral worktree 构建并推送镜像，再把 immutable digest 绑定到此任务。发布时 Actions 会校验 digest 并直接部署。
+                可选：先用本地 ephemeral worktree 构建并推送镜像，再把 immutable digest 绑定到此任务。未绑定时发布会走 Cloud Build，通常会多消耗约 5 分钟 Actions 时间。
               </div>
             )}
+            {!attachedPrebuiltImage ? (
+              <div className="mt-4 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Local worktree build command</div>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-1.5 text-xs"
+                    onClick={copyBuildCommand}
+                  >
+                    {commandCopied ? '已复制' : '复制命令'}
+                  </button>
+                </div>
+                <pre className="overflow-auto whitespace-pre-wrap break-words text-xs text-[color:var(--ops-text-muted)]">{buildCommand}</pre>
+              </div>
+            ) : null}
             {canAttachPrebuiltImage ? (
               <div className="mt-4 grid gap-3 md:grid-cols-[1.5fr_1fr_auto]">
                 <label className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">

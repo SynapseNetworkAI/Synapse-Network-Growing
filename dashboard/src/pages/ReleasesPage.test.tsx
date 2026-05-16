@@ -17,7 +17,9 @@ const apiMock = vi.hoisted(() => ({
   updateReleaseTask: vi.fn(),
   createReleaseTaskPr: vi.fn(),
   deployReleaseTaskToStaging: vi.fn(),
+  deployReleaseTask: vi.fn(),
   syncReleaseTaskDeploymentStatuses: vi.fn(),
+  attachReleaseTaskPrebuiltImage: vi.fn(),
   getProjectPolicies: vi.fn(),
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
@@ -40,6 +42,8 @@ vi.mock('../api', () => ({
 vi.mock('../apiReleaseTasks', () => ({
   getReleaseTasksPage: apiMock.getReleaseTasksPage,
   getReleaseTaskGateStatus: apiMock.getReleaseTaskGateStatus,
+  deployReleaseTask: apiMock.deployReleaseTask,
+  attachReleaseTaskPrebuiltImage: apiMock.attachReleaseTaskPrebuiltImage,
 }))
 
 function candidate(overrides: Record<string, unknown> = {}) {

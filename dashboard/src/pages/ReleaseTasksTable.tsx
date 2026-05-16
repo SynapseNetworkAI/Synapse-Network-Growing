@@ -36,6 +36,23 @@ function CompactListText({ value }: Readonly<{ value: string | null | undefined 
   )
 }
 
+function shortDigest(value: string) {
+  const match = value.match(/sha256:([0-9a-f]{64})/i)
+  return match ? `sha256:${match[1].slice(0, 12)}…` : value.slice(0, 24)
+}
+
+function shortSha(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text ? `${text.slice(0, 12)}${text.length > 12 ? '…' : ''}` : ''
+}
+
+function isFrontendPrebuiltCandidate(task: ReleaseTask) {
+  return task.environment === 'staging'
+    && task.project_key === 'synapse-network'
+    && task.status === 'requested'
+    && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
+}
+
 export function ReleaseTasksTable({
   tasks,
   total,
@@ -97,6 +114,7 @@ export function ReleaseTasksTable({
               const prebuiltImageDigest = typeof taskMetadata.prebuiltImageDigest === 'string'
                 ? taskMetadata.prebuiltImageDigest
                 : ''
+              const prebuiltCommit = shortSha(taskMetadata.sourceCommitSha)
               const gateLoading = gateState?.status === 'loading'
               const gateError = gateState?.status === 'error'
               const gateReady = gateState?.status === 'ready'
@@ -131,7 +149,12 @@ export function ReleaseTasksTable({
                     ) : null}
                     {prebuiltImageDigest ? (
                       <div className="mt-2 max-w-xs rounded-lg border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] px-2 py-1 text-xs text-[color:var(--ops-state-ready-text)]">
-                        Prebuilt image attached
+                        <div>Prebuilt image attached · {shortDigest(prebuiltImageDigest)}</div>
+                        {prebuiltCommit ? <div className="mt-1 font-mono text-[11px]">commit {prebuiltCommit}</div> : null}
+                      </div>
+                    ) : isFrontendPrebuiltCandidate(task) ? (
+                      <div className="mt-2 max-w-xs rounded-lg border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-2 py-1 text-xs text-[color:var(--ops-text-caption)]">
+                        未绑定 Prebuilt image；发布将走 Cloud Build，预计多约 5 分钟。
                       </div>
                     ) : null}
                     {task.deployment_health_status ? <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">Health: {STATUS_LABEL[task.deployment_health_status] || task.deployment_health_status}</div> : null}
